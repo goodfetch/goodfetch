@@ -65,5 +65,7 @@ extend-ignore-re = [
   "L'ADR 0048 reste tel quel",
   "fais comme tu recommandes et vas-y",
   "assure-toi qu'il y a une PR par spec",
+  "full gates seulement sur ma demande",
+  "gestion dynamique en fonction",
   "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
 ]

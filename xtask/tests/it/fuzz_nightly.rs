@@ -1,6 +1,6 @@
-//! The nightly fuzzing (`just fuzz-nightly`, `ci/fuzz-nightly.sh`; TESTING.md,
+//! The fuzzing run (`just fuzz-nightly`, `ci/fuzz-nightly.sh`; TESTING.md,
 //! Fuzzing): every `cargo-fuzz` target of the fuzz crates' manifests, run on
-//! `main`'s head from the gate host's cron, which gives way to a gate. The
+//! `main`'s head on the gate host, started by hand, giving way to a gate. The
 //! script runs against stand-ins for `cargo` and `gh` that record each call, in
 //! a throwaway repository holding `origin/main`'s script; the private fuzzing
 //! repository is a local one. The local gate's tooling declares no Feature.
@@ -753,65 +753,5 @@ fn without_a_clone_a_crash_stays_on_the_host_and_the_ticket_says_where() {
             .ends_with(" corpora=local (no clone of the fuzzing repository)\n"),
         "{}",
         night.results
-    );
-}
-
-/// Cron's line starts from `origin/main`'s script, not the checkout's, which
-/// nothing fast-forwards.
-#[test]
-fn the_crontab_line_runs_the_script_of_origin_main() {
-    let workspace = fuzz_repository();
-    let stand_in = stand_ins(&workspace);
-    let marker = workspace.path().join("the-commits-script-ran");
-    workspace.git(&["switch", "--quiet", "main"]);
-    workspace.write(
-        "ci/fuzz-nightly.sh",
-        format!("#!/bin/bash\necho \"$*\" >>\"{}\"\n", marker.display()).as_bytes(),
-    );
-    workspace.git(&[
-        "commit",
-        "--quiet",
-        "--all",
-        "--message",
-        "Change the script",
-    ]);
-    workspace.git(&["switch", "--quiet", "change"]);
-    let crontab = String::from_utf8(repository_file("ci/fuzz-nightly.crontab")).unwrap();
-    let line = crontab
-        .lines()
-        .filter(|line| !line.starts_with('#') && line.contains(" bash -lc '"))
-        .map(|entry| {
-            entry
-                .split_once(" bash -lc '")
-                .and_then(|(_, line)| line.strip_suffix('\''))
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(line.len(), 1, "{crontab}");
-    let command = job(
-        &workspace,
-        &stand_in,
-        &[("GOODFETCH_CHECKOUT", workspace.path().to_str().unwrap())],
-    );
-    let mut cron = Command::new("bash");
-    cron.args(["-c", line[0]])
-        .current_dir("/")
-        .env_clear()
-        .envs(
-            command
-                .get_envs()
-                .filter_map(|(key, value)| value.map(|value| (key, value))),
-        );
-
-    let output = cron.output().unwrap();
-
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        std::fs::read_to_string(marker).unwrap().trim(),
-        "origin/main"
     );
 }

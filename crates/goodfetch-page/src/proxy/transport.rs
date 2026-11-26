@@ -10,6 +10,7 @@
 //! rule).
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::run::state_unavailable;
 use goodfetch_engine::runs::{self, Run, charging, identity, keys, warnings};
 use goodfetch_engine::settings::Resolved;
@@ -22,7 +23,6 @@ use super::limits::ProxyPermit;
 use super::party::{Answer, Party, party, proxy_error, relays};
 use super::relay::{Mode, Relay};
 use super::{Opening, RunPowers, SessionProxy, lookup, proxy_addresses, relay_unavailable};
-use crate::errors::NetError;
 
 /// The proxy one Session's HTTP transport sends through, as it opened.
 pub struct TransportProxy {

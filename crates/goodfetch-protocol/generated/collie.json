@@ -22435,6 +22435,371 @@
     {
       "arrived_in": "0.1",
       "authority": "machine",
+      "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "The Notification channels the engine sends a Run's and a Schedule's Notifications to, each by its name, as `notifications.channels.<name>.*`: `type`, `slack`, `teams` (Workflows webhooks only), `discord`, `telegram`, `email`, `sns` or `webhook`, or a Notification channel Plugin's short name, left out for a program's own SDK handler of that name; `url`, the Secret reference of a Slack, Teams, Discord or webhook destination; `events`, the events it receives, the attention set when left out; `runs`, `all` (the default) or `tagged:<tag>`; and `email`, `telegram`, `sns` and `webhook`, which only their types take. A URL and every credential, `webhook.secret` included, is a Secret reference: a value given in its place is refused with `setting_invalid`. Each destination is an Operator-configured endpoint, so `egress.no_private_endpoints` refuses a private one. None by default. Set only in user configuration or an Operator policy: a project file, a Recipe, a program's code, a Run and a flag are refused with `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "notifications.channels",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "description": "One Notification channel, the entry of its name in\n`notifications.channels` (spec #608).",
+          "properties": {
+            "email": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "An `email` channel's keys.",
+              "properties": {
+                "api_key": {
+                  "arrived_in": "0.1",
+                  "description": "The Secret reference of the provider's API key.",
+                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "from": {
+                  "arrived_in": "0.1",
+                  "description": "The address it sends from.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "mailgun": {
+                  "additionalProperties": false,
+                  "arrived_in": "0.1",
+                  "description": "The Mailgun domain and region, for the `mailgun` provider.",
+                  "properties": {
+                    "domain": {
+                      "arrived_in": "0.1",
+                      "description": "The sending domain.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "region": {
+                      "arrived_in": "0.1",
+                      "description": "The region, `us` or `eu`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "provider": {
+                  "anyOf": [
+                    {
+                      "description": "The provider an `email` channel sends through.",
+                      "oneOf": [
+                        {
+                          "const": "smtp",
+                          "description": "An SMTP server.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "ses",
+                          "description": "Amazon SES.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "resend",
+                          "description": "Resend.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "postmark",
+                          "description": "Postmark.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "sendgrid",
+                          "description": "SendGrid.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "mailgun",
+                          "description": "Mailgun.",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "The provider it sends through."
+                },
+                "ses": {
+                  "additionalProperties": false,
+                  "arrived_in": "0.1",
+                  "description": "The SES region, for the `ses` provider.",
+                  "properties": {
+                    "region": {
+                      "arrived_in": "0.1",
+                      "description": "The AWS region, such as `eu-west-1`.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "smtp": {
+                  "additionalProperties": false,
+                  "arrived_in": "0.1",
+                  "description": "The SMTP server, for the `smtp` provider.",
+                  "properties": {
+                    "host": {
+                      "arrived_in": "0.1",
+                      "description": "Its host.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "password": {
+                      "arrived_in": "0.1",
+                      "description": "The Secret reference of its password.",
+                      "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "port": {
+                      "arrived_in": "0.1",
+                      "description": "Its port.",
+                      "format": "uint16",
+                      "maximum": 65535,
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "security": {
+                      "anyOf": [
+                        {
+                          "description": "How an SMTP connection is secured.",
+                          "oneOf": [
+                            {
+                              "const": "tls",
+                              "description": "TLS from the first byte.",
+                              "type": "string"
+                            },
+                            {
+                              "const": "starttls",
+                              "description": "A plain connection upgraded with `STARTTLS`.",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "arrived_in": "0.1",
+                      "description": "How the connection is secured."
+                    },
+                    "username": {
+                      "arrived_in": "0.1",
+                      "description": "The Secret reference of the user name it logs in with.",
+                      "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": [
+                    "object",
+                    "null"
+                  ]
+                },
+                "to": {
+                  "arrived_in": "0.1",
+                  "description": "The addresses it sends to.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "events": {
+              "arrived_in": "0.1",
+              "description": "The events it receives: the attention set when left out.",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "runs": {
+              "arrived_in": "0.1",
+              "description": "The Runs it hears of: `all`, the default, or `tagged:<tag>`.",
+              "pattern": "^(all|tagged:.+)$",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sns": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "An `sns` channel's keys.",
+              "properties": {
+                "region": {
+                  "arrived_in": "0.1",
+                  "description": "The topic's AWS region.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "topic_arn": {
+                  "arrived_in": "0.1",
+                  "description": "The topic's ARN.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "telegram": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "A `telegram` channel's keys.",
+              "properties": {
+                "bot_token": {
+                  "arrived_in": "0.1",
+                  "description": "The Secret reference of the bot's token.",
+                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "chat_id": {
+                  "arrived_in": "0.1",
+                  "description": "The chat it posts to.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            },
+            "type": {
+              "arrived_in": "0.1",
+              "description": "One of [`BUILT_IN_TYPES`] or a Notification channel Plugin's short\nname; left out for a program's own SDK handler of the entry's name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference of its destination's URL: a Slack, Teams or\nDiscord webhook's, or a `webhook` channel's receiver.",
+              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "webhook": {
+              "additionalProperties": false,
+              "arrived_in": "0.1",
+              "description": "A `webhook` channel's keys.",
+              "properties": {
+                "payload": {
+                  "anyOf": [
+                    {
+                      "description": "What a `webhook` channel's delivery carries in its `data`.",
+                      "oneOf": [
+                        {
+                          "const": "full",
+                          "description": "The whole message: its IDs, event, Product, title, text and link.",
+                          "type": "string"
+                        },
+                        {
+                          "const": "thin",
+                          "description": "Its IDs and link only, which Integrations use (spec #608).",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "arrived_in": "0.1",
+                  "description": "What a delivery's `data` carries: `full` when left out."
+                },
+                "secret": {
+                  "arrived_in": "0.1",
+                  "description": "The Secret reference of the Standard Webhooks signing secret, a\n`whsec_` key for `v1` or a `whsk_` key for `v2a`.",
+                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": [
+                "object",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
       "clearable": true,
       "default": null,
       "deprecated": null,
@@ -25633,6 +25998,13 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "A Run waits for a person's approval.",
+      "name": "approval_requested",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.",
       "name": "audit_log_anchor",
       "product": "collie",
@@ -25808,10 +26180,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "An uncertain Effect was reconciled.",
+      "name": "effect_reconciled",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A person answered about an uncertain Effect (ADRs 0029 and 0106): \"it happened\", \"it did not happen\" or \"leave uncertain\"; `details` give the Run, the Effect journal `entry`, the `key`, the `crawl_request` and the `answer`.",
       "name": "effect_reconciled",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run reported an Effect whose outcome is uncertain.",
+      "name": "effect_uncertain",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -25899,6 +26285,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Human pause waits for a person, with a link to the Live view.",
+      "name": "human_pause_waiting",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Saved identity's earliest cookie expiry entered its warning window.",
+      "name": "identity_cookie_expiry",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run of the user on the machine, whichever engine runs it.",
       "name": "install",
       "product": "collie",
@@ -25917,6 +26317,13 @@
       "name": "lent_page_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit reached its warning threshold.",
+      "name": "limit_threshold",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -26039,6 +26446,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Code mode or a Plugin was quarantined.",
+      "name": "quarantined",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site refused because too many requests came too fast.",
       "name": "rate_limit",
       "product": "collie",
@@ -26050,6 +26464,13 @@
       "name": "raw_cdp_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person is asked to reconcile an uncertain Effect.",
+      "name": "reconciliation_requested",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -26074,10 +26495,45 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Run ended on an error.",
+      "name": "run_failed",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run finished.",
+      "name": "run_finished",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run ended with its Completeness `incomplete`.",
+      "name": "run_incomplete",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
       "name": "run_rolled_back",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run started.",
+      "name": "run_started",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run was stopped, by a Limit, a person or a program.",
+      "name": "run_stopped",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -26099,6 +26555,27 @@
       "name": "sample_echoes",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule paused itself.",
+      "name": "schedule_auto_paused",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule's occurrences were missed, notified once per wake.",
+      "name": "schedule_occurrences_missed",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit skipped a Schedule's occurrences, notified once per period.",
+      "name": "schedule_occurrences_skipped",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -26169,6 +26646,20 @@
       "name": "user_configuration_written",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's result waits for a person's review.",
+      "name": "verdict_needs_review",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's success check rejected its result.",
+      "name": "verdict_rejected",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",

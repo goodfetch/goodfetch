@@ -11,7 +11,7 @@
 //! Chromium fixes all of it by its major version and its platform:
 //!
 //! - **The user agent** is Chrome's reduced one, the window's (the
-//!   `driver`'s `identity` module gives a headless page the same): its
+//!   CDP driver's `identity` module gives a headless page the same): its
 //!   platform part is one constant for each operating system and its
 //!   version is the major alone.
 //! - **The brands** of `Sec-CH-UA` are `Chromium` and one made-up brand,

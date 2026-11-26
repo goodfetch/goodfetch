@@ -17,7 +17,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::run_identity::RunIdentity;
@@ -39,13 +38,13 @@ use super::life::{Ending, PageLife};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
 use super::{
-    OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
+    OpenPage, Session, Sessions, State, action_timeout, events_run, interception_run, wait_deadline,
 };
-use crate::cdp::CdpPage;
+use crate::cdp::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
+use crate::cdp::{CdpPage, TargetId};
 use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
-use crate::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
 use crate::errors::page_closed;
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{Hiding, PageHiding, Sheets};
@@ -53,8 +52,8 @@ use crate::init_scripts::InitScripts;
 use crate::interception::{OnDocument, PageInterception};
 use crate::page_children::{self, OnChild};
 use crate::page_events::{self, PageEvents, Refusals};
-use crate::page_owner::{PageOwner, PageParts};
-use crate::page_value::{Observer, Reader};
+use crate::page_owner::{BrowserPagePart, PageOwner, PageParts, RequestPart};
+use crate::page_value::{Observer, PageValue, Reader};
 use crate::page_worlds::PageWorlds;
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
@@ -138,13 +137,17 @@ impl TakenIn {
         (
             in_browser,
             PageParts {
-                events,
-                dialogs,
-                init_scripts,
-                interception,
-                walls: self.walls.clone(),
-                hiding,
-                worlds: PageWorlds::default(),
+                browser: BrowserPagePart {
+                    walls: self.walls.clone(),
+                    hiding,
+                    worlds: PageWorlds::default(),
+                },
+                request: RequestPart {
+                    events,
+                    dialogs,
+                    init_scripts,
+                    interception,
+                },
                 tasks: self.tasks.clone(),
             },
         )
@@ -204,7 +207,7 @@ impl PageListeners {
 /// only their popups are the Session's, since the person's own windows share
 /// its browser context (ADR 0056).
 #[derive(Clone, Default)]
-pub(super) struct HeldFrames(Arc<tokio::sync::Mutex<BTreeSet<target::TargetID>>>);
+pub(super) struct HeldFrames(Arc<tokio::sync::Mutex<BTreeSet<TargetId>>>);
 
 /// What a Session does with the page targets its browser context's pages
 /// open: in a browser context of its own, each is its popup; on a Borrowed
@@ -217,7 +220,7 @@ struct SessionPopups {
 }
 
 impl PopupHandler for SessionPopups {
-    fn holds(&self, opener: target::TargetID) -> Pin<Box<dyn Future<Output = bool> + Send>> {
+    fn holds(&self, opener: TargetId) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         let held = self.held.clone();
         Box::pin(async move {
             match held {
@@ -230,7 +233,7 @@ impl PopupHandler for SessionPopups {
     fn take_in(
         &self,
         driver: PageDriver,
-        opener: target::TargetID,
+        opener: TargetId,
     ) -> Pin<Box<dyn Future<Output = bool> + Send>> {
         let (sessions, session) = (self.sessions.clone(), self.session.clone());
         Box::pin(async move { sessions.popup(&session, driver, &opener).await })
@@ -252,9 +255,7 @@ impl Drop for Listening {
 impl Sessions {
     /// The ID of the next page the engine opens.
     async fn next_page_id(&self) -> PageId {
-        let mut state = self.state.lock().await;
-        state.opened_pages += 1;
-        PageId(format!("page-{}", state.opened_pages))
+        next_page_id(&mut *self.state.lock().await)
     }
 
     /// The page `page`, which `driver` drives for `run` in its place
@@ -286,7 +287,7 @@ impl Sessions {
             observer,
         );
         let cdp = CdpPage::of(driver);
-        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone());
+        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone(), page.clone());
         let in_frames = vec![events.frames(), init_scripts.frames()];
         let taken_in = TakenIn {
             page: page.clone(),
@@ -392,7 +393,7 @@ impl Sessions {
         // the Sessions is held across the Session's frames' lock
         // (STYLE.md); a popup it opens finds its opener there.
         self.follow_popups(session, &open, &opened.driver).await;
-        self.watch(page.clone(), opened, Arc::clone(&open), browser);
+        self.watch(opened, Arc::clone(&open), browser);
         if open.page_listeners.any() {
             stream
                 .publish(
@@ -433,7 +434,7 @@ impl Sessions {
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).
-        let reader = robots_txt::Reader::of(self, page, session, driver.value(), (run, starting))
+        let reader = robots_txt::Reader::of(self, page, session, &driver.value(), (run, starting))
             .map(|reader| Arc::new(reader) as Arc<dyn OnDocument>);
         let held = self
             .interception
@@ -507,12 +508,7 @@ impl Sessions {
     /// opened in the Session `session`, as a page of the Session, and
     /// announces it on its opener: whether it did. A popup of a page the
     /// engine no longer holds, or of a Session gone, is not taken in.
-    async fn popup(
-        &self,
-        session: &SessionId,
-        driver: PageDriver,
-        opener: &target::TargetID,
-    ) -> bool {
+    async fn popup(&self, session: &SessionId, driver: PageDriver, opener: &TargetId) -> bool {
         let Some(open) = self.index.session(session) else {
             return false;
         };
@@ -531,7 +527,7 @@ impl Sessions {
                 proxy: open.proxy.clone(),
                 relay: open.relay.clone(),
             })
-            .with_value(opener.driver.value().clone(), run.clock())
+            .with_value(PageValue::clone(&opener.driver.value()), run.clock())
             .with_reader(opener.driver.reader().map(Reader::for_page));
         let adopted = self
             .adopt(Adopting {
@@ -645,15 +641,56 @@ impl Sessions {
                 page.driver.close().await;
                 // The close the engine sent is confirmed (P29).
                 let effect = page.life.end(&Ending::Destroyed)?;
-                self.page_ended(page_id, &page.run, &page.life, effect)
-                    .await;
+                self.page_ended(&page.run, &page.life, effect).await;
             }
-            effect => {
-                self.page_ended(page_id, &page.run, &page.life, effect)
-                    .await;
-            }
+            effect => self.page_ended(&page.run, &page.life, effect).await,
         }
         Ok(())
+    }
+
+    /// Replaces the request part of the open page `page_id` (ADR 0146's "A
+    /// released Page"): the page serves its next request under a Page ID
+    /// of its own, which this answers, and under `value`, that request's
+    /// gate, lease check and Page check, and a call on `page_id` raises
+    /// `closed` from then on. It sends the browser nothing. `closed` when
+    /// the page is not `Open`: gone, ending, navigating or paused.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "#2182's release replaces a Page's request part with it"
+        )
+    )]
+    pub(crate) async fn replace_request(
+        &self,
+        page_id: &PageId,
+        value: PageValue,
+    ) -> Result<PageId, CallError> {
+        // Under the table's lock, under which a page's end reads its ID, so
+        // that end finds the page by one ID or the other, never by neither.
+        let mut state = self.state.lock().await;
+        let Some(page) = self.index.page(page_id).filter(|page| page.life.open()) else {
+            return Err(page_closed(page_id));
+        };
+        let Some(session) = self.index.session(&page.session) else {
+            return Err(page_closed(page_id));
+        };
+        let next = next_page_id(&mut state);
+        let owner = page.owner.for_request(&next);
+        let renamed = OpenPage {
+            owner: owner.clone(),
+            page_check: session.checking(value.page_check()),
+            ..page.clone()
+        };
+        if !self.index.renamed(page_id, next.clone(), renamed) {
+            return Err(page_closed(page_id));
+        }
+        self.page_owners.renamed(page_id, next.clone(), owner);
+        page.life.renamed(next.clone(), value.lease().cloned());
+        // Every clone of the page's driver, its frames' and workers'
+        // included, serves the next request under its value.
+        page.driver.replace_value(value);
+        Ok(next)
     }
 
     /// Whether `page_id` names a page this engine opened.
@@ -661,6 +698,13 @@ impl Sessions {
         let opened = self.state.lock().await.opened_pages;
         opening_number(page_id).is_some_and(|number| (1..=opened).contains(&number))
     }
+}
+
+/// The next Page ID `state` gives, a page's the engine opens or a request's
+/// a page serves next, in one order.
+fn next_page_id(state: &mut State) -> PageId {
+    state.opened_pages += 1;
+    PageId(format!("page-{}", state.opened_pages))
 }
 
 /// The number a page's ID gives it in opening order.

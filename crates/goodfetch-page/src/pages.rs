@@ -101,6 +101,7 @@ use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
+use crate::cdp::launch::Launcher;
 use crate::cdp::{CdpPage, SerializedDocument};
 use crate::dialogs::{self, Dialogs};
 use crate::document_request::{DocumentRequest, Unread};
@@ -111,7 +112,6 @@ use crate::init_scripts::Pending;
 use crate::interception::{
     Answer, ConsentHandling, Fulfillment, Interception, Overrides, Reply, Scope,
 };
-use crate::launch::Launcher;
 use crate::page_events::{PageEvents, Requested};
 use crate::page_functions::{self, Injection, Matches};
 use crate::page_navigation::{self, Destination};
@@ -1446,7 +1446,7 @@ impl Pages {
         // A command its lease check withheld ends the page (P31).
         let engine_page = self
             .sessions
-            .engine_page(&page.session, page.driver.value(), EngineWork::Request)
+            .engine_page(&page.session, &page.driver.value(), EngineWork::Request)
             .await
             .map_err(|error| page.life.withheld(error))?;
         let fetched =
@@ -1459,7 +1459,7 @@ impl Pages {
             &self.sessions,
             &params.page_id,
             &page.session,
-            page.driver.value(),
+            &page.driver.value(),
             (&page.run, page.owner.tasks()),
         ) {
             reader.read(steps, &fetched.response.url);
@@ -1544,7 +1544,9 @@ impl Pages {
     /// Registers the init script `params` names on its page, `pending`
     /// until it is (counted from now when its page was not open as the call
     /// arrived), and marks the Session in Provenance; answers once the page
-    /// ended, and removes the script when the call is dropped before.
+    /// ended, or once its request part was replaced, which removed the
+    /// script (ADR 0146), and removes the script when the call is dropped
+    /// before.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_ADD_INIT_SCRIPT.name, run_id = tracing::field::Empty))]
     async fn add_init_script(
         &self,
@@ -1557,7 +1559,7 @@ impl Pages {
         page.sending(PAGE_ADD_INIT_SCRIPT.name).await?;
         let scripts = page.owner.init_scripts();
         let pending = pending.unwrap_or_else(|| scripts.begin());
-        let registering = scripts.register(source, pending);
+        let registering = scripts.register(source, pending, &params.page_id);
         let registered = page.life.call(PageEvent::Read, registering).await?;
         page.injections
             .mark(
@@ -1569,8 +1571,12 @@ impl Pages {
             .await;
         let life = page.life.clone();
         drop(page);
-        life.terminal().await;
-        registered.ended();
+        let request_ended = registered.request_ended();
+        tokio::select! {
+            () = life.terminal() => registered.ended(),
+            // The replacement of the page's request part removed the script.
+            () = request_ended => {}
+        }
         Ok(InitScriptEnded {})
     }
 

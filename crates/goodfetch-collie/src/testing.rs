@@ -1,7 +1,8 @@
 //! Collie's testing kit (ADRs 0069, 0090 and 0105), behind the `test-util`
 //! feature, which builds test values alone (ADR 0087): [`TestEngine`], a
 //! real engine linked in the test's process, whose connection is a
-//! [`Collie`], with the client crate's [`TestEngineOptions`].
+//! [`Collie`], with the client crate's [`TestEngineOptions`], and its
+//! [`FakeError`], which builds `Error::fake`.
 //!
 //! ```no_run
 //! use goodfetch_collie::testing::{TestEngine, TestEngineOptions};
@@ -19,8 +20,8 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use goodfetch_collie_client::Error;
-pub use goodfetch_collie_client::testing::TestEngineOptions;
 use goodfetch_collie_client::testing::TestEngineParts;
+pub use goodfetch_collie_client::testing::{FakeError, TestEngineOptions};
 use goodfetch_engine::browser_cache::CacheLocation;
 use goodfetch_engine::settings::deployment_variable;
 use goodfetch_protocol::settings::{

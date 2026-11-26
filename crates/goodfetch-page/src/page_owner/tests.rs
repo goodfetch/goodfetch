@@ -11,11 +11,11 @@ use goodfetch_protocol::page::PageId;
 use goodfetch_test_support::{TestEnv, runtime};
 use serde_json::{Value, json};
 
-use super::{PageOwner, PageParts};
+use super::{BrowserPagePart, PageOwner, PageParts, RequestPart};
 use crate::cdp::CdpPage;
+use crate::cdp::driver::PageDriver;
 use crate::consent_walls::Walls;
 use crate::dialogs::Dialogs;
-use crate::driver::PageDriver;
 use crate::gesture_order::GestureOrder;
 use crate::hiding::{Hiding, Sheets};
 use crate::init_scripts::InitScripts;
@@ -36,13 +36,17 @@ pub(crate) fn parts(
 ) -> PageParts {
     let run = identity(&live.run);
     PageParts {
-        events,
-        dialogs: dialogs.start(page_id.clone(), CdpPage::of(driver), run),
-        init_scripts: InitScripts::new(CdpPage::of(driver), run.clone()),
-        interception,
-        walls: Walls::default(),
-        hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),
-        worlds: PageWorlds::default(),
+        browser: BrowserPagePart {
+            walls: Walls::default(),
+            hiding: Hiding::new(None, Arc::new(Sheets::new(driver, run))),
+            worlds: PageWorlds::default(),
+        },
+        request: RequestPart {
+            events,
+            dialogs: dialogs.start(page_id.clone(), CdpPage::of(driver), run),
+            init_scripts: InitScripts::new(CdpPage::of(driver), run.clone(), page_id.clone()),
+            interception,
+        },
         tasks: run.clone(),
     }
 }

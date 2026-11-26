@@ -22,16 +22,13 @@
 //! gesture's turn.
 
 mod check;
-mod keys;
 mod target;
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::input::DispatchKeyEventParams;
-use goodfetch_cdp::generated::runtime::ExecutionContextId;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
@@ -45,8 +42,8 @@ use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
-use crate::cdp::CdpPage;
-use crate::driver::PageDriver;
+use crate::cdp::driver::PageDriver;
+use crate::cdp::{CdpPage, KeyEvent, TargetSession, keys};
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;
@@ -62,6 +59,9 @@ const SET_VALUE: &str = include_str!("guard/set_value.js");
 /// press's input was sent.
 const SETTLED: &str = "function settled() {}";
 
+/// The browser's ID of a world in a document.
+type ExecutionContextId = i64;
+
 /// The longest one check waits in the page before it answers, so that a
 /// navigation that replaced the document, or the call's cancellation, is
 /// seen within it.
@@ -74,7 +74,7 @@ pub(crate) enum Action {
     /// Replaces its text with this text.
     Fill(String),
     /// Sends these key events to it.
-    Press(Vec<DispatchKeyEventParams>),
+    Press(Vec<KeyEvent>),
 }
 
 impl Action {
@@ -157,7 +157,7 @@ pub(crate) struct SentMark<'a> {
     /// The page's Run.
     pub(crate) run: &'a Run,
     /// The page's lease, when a handler's page.
-    pub(crate) lease: Option<&'a dyn LeaseCheck>,
+    pub(crate) lease: Option<Arc<dyn LeaseCheck>>,
 }
 
 impl SentMark<'_> {
@@ -169,7 +169,7 @@ impl SentMark<'_> {
     /// `run_state_unavailable` when the mark could not be written:
     /// `command` must not go out.
     pub(crate) async fn mark(&self, command: &str) -> Result<(), CallError> {
-        self.run.sending(self.lease, command).await
+        self.run.sending(self.lease.as_deref(), command).await
     }
 }
 

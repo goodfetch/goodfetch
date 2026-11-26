@@ -844,14 +844,13 @@ fn unapplied(layers: &Layers) -> BTreeMap<&'static str, Unapplied> {
             &layers.project_configuration,
         ),
     ] {
-        for (name, value) in values.others() {
-            let product = keys::find(name).map_or(Product::Foxhound, |key| key.product);
+        for (name, aside) in values.others() {
             unapplied.insert(
                 name,
                 Unapplied {
-                    value: value.clone(),
+                    value: aside.value.clone(),
                     layer,
-                    product,
+                    product: aside.product,
                 },
             );
         }

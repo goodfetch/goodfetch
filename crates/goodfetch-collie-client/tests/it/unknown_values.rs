@@ -215,7 +215,7 @@ fn assert_report_kept(report: &RunReport) {
 /// Scripted engine's Daemon: each value no catalog has is kept, and only
 /// the calls the engine failed fail.
 ///
-/// Covers: story:11-33, story:11-188
+/// Covers: story:11-33, story:11-188, story:11-1143
 #[test]
 fn each_value_a_newer_engine_sends_is_kept_and_fails_nothing_of_its_own() {
     let _case = ClientCaseRun::start(

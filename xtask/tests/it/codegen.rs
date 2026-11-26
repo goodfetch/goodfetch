@@ -651,6 +651,54 @@ fn codegen_writes_the_description_schema_test_env_prints() {
     assert_eq!(schema["title"], "Description");
 }
 
+/// Each folder `--folders` prints holds `xtask codegen`'s output alone: a
+/// file nothing writes there is flagged, so `just merge` may settle a
+/// conflict in it by taking either side and running codegen again.
+///
+/// Covers: story:1-57
+#[test]
+fn each_folder_codegen_prints_as_its_own_holds_its_output_alone() {
+    let workspace = Workspace::from_fixture("codegen");
+    let listed = workspace.xtask(&["codegen", "--folders"]);
+    assert_eq!(listed.code, 0, "{}", listed.stderr);
+    // A folder of a crate the fixture lacks would add a workspace member
+    // without a manifest, so only those whose parent the fixture holds.
+    let strays: Vec<String> = listed
+        .stdout
+        .lines()
+        .filter(|folder| {
+            workspace
+                .path()
+                .join(folder)
+                .parent()
+                .is_some_and(std::path::Path::exists)
+        })
+        .map(|folder| format!("{folder}/stray.txt"))
+        .collect();
+    assert!(
+        strays.contains(&"crates/goodfetch-protocol/generated/stray.txt".to_owned()),
+        "{strays:?}"
+    );
+    for stray in &strays {
+        workspace.write(stray, b"nothing writes this\n");
+    }
+
+    let checked = workspace.xtask(&["codegen", "--check"]);
+
+    let mut found: Vec<(String, String)> = checked
+        .findings()
+        .into_iter()
+        .map(|found| (found.kind, found.subject))
+        .collect();
+    found.sort();
+    let mut expected: Vec<(String, String)> = strays
+        .into_iter()
+        .map(|stray| ("unexpected".to_owned(), stray))
+        .collect();
+    expected.sort();
+    assert_eq!(found, expected, "{}", checked.stderr);
+}
+
 /// Covers: story:1-57
 #[test]
 fn check_detects_a_file_added_under_generated() {

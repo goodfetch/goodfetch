@@ -16441,6 +16441,14 @@
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
+        "accept_plugin_change": {
+          "arrived_in": "0.1",
+          "description": "The third-party Plugins, by name, whose changed digest a start that\nresumes the Run accepts (ADR 0033), where it would otherwise refuse\nthe resume.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "limits": {
           "arrived_in": "0.1",
           "description": "The Run's own Limits (ADRs 0041 and 0080): at most one per Usage\nkind and currency. A start that names the Run again lowers them and\nnever raises them (ADR 0102).",
@@ -16448,6 +16456,14 @@
             "$ref": "#/$defs/RunLimit"
           },
           "type": "array"
+        },
+        "plan": {
+          "arrived_in": "0.1",
+          "description": "The Run's Plan file (ADR 0091), on the program's machine, relative\nto its working directory: an input of the Run, which a start that\nnames the Run again gives unchanged, else it fails with\n`run_conflict`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "project": {
           "anyOf": [
@@ -16460,6 +16476,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recording"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Response recording the Run replays or records (ADR 0105): an\ninput of the Run, as `plan` is."
         },
         "run_id": {
           "arrived_in": "0.1",
@@ -16480,6 +16508,17 @@
           "$ref": "#/$defs/Tags",
           "arrived_in": "0.1",
           "description": "The Run's opaque tags."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the Run may last, in milliseconds, at least 1, as\n`timeout.run` for this Run (ADR 0080): absent for the setting's\nvalue, `null` for none. Past it, the Run checkpoints and stops at\nits next safe point, resumable; a start that resumes it counts its\nown on a fresh clock (ADR 0102).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -19341,6 +19380,16 @@
         {
           "const": "seeds",
           "description": "A crawl's seeds.",
+          "type": "string"
+        },
+        {
+          "const": "plan",
+          "description": "The Plan file's path (ADR 0091).",
+          "type": "string"
+        },
+        {
+          "const": "recording",
+          "description": "The Response recording (ADR 0105).",
           "type": "string"
         }
       ]

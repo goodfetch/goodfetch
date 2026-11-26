@@ -397,7 +397,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunReport": { fields: { "checkpoint": ["checkpoint", { type: "Checkpoint" }], "completeness_reasons": ["completenessReasons", { items: { type: "AxisReason" } }], "ended_at": ["endedAt", "time"], "nothing_done": ["nothingDone", { type: "NothingDone" }], "plan": ["plan", { type: "PlanReport" }], "plugins": ["plugins", { items: { type: "PluginRun" } }], "policy_version": "policyVersion", "recording": ["recording", { type: "RecordingReport" }], "run_id": "runId", "settings": ["settings", { items: { type: "ExplainedSetting" } }], "started_at": ["startedAt", "time"], "stop_reason": ["stopReason", { type: "StopReason" }], "uncertain_effects": ["uncertainEffects", { items: { type: "UncertainEffect" } }], "usage": ["usage", { type: "RunUsage" }], "verdict_reasons": ["verdictReasons", { items: { type: "AxisReason" } }] } },
     "RunResumeParams": { fields: { "run_id": "runId" } },
     "RunSetProgressMessageParams": { fields: { "run_id": "runId" } },
-    "RunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
+    "RunStartParams": { fields: { "accept_plugin_change": "acceptPluginChange", "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId" } },
     "RunStarted": { fields: { "run_id": "runId", "started_as": "startedAs" } },
     "RunStartedAs": { fields: { "started_as": "startedAs" } },
     "RunStatePosition": { fields: { "journal_position": "journalPosition", "run_epoch": "runEpoch" } },

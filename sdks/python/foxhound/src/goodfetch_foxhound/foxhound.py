@@ -220,10 +220,15 @@ class AsyncFoxhound(AsyncConnection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> AsyncRun:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
-        `finish()` ends it. It starts the Run as `AsyncCollie.start` does.
+        `finish()` ends it. It starts the Run as `AsyncCollie.start` does,
+        with its options.
 
         In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
         no signal handler, and a signal the program does not handle ends it as
@@ -248,7 +253,14 @@ class AsyncFoxhound(AsyncConnection):
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         return await self._connection.start(
-            run_id=run_id, tags=tags, limits=limits, settings=settings
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            timeout=timeout,
+            plan=plan,
+            recording=recording,
+            accept_plugin_change=accept_plugin_change,
         )
 
     async def start_recipe(
@@ -530,10 +542,15 @@ class Foxhound(Connection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> Run:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
-        `finish()` ends it. It starts the Run as `Collie.start` does.
+        `finish()` ends it. It starts the Run as `Collie.start` does, with
+        its options.
 
         In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
         no signal handler, and a signal the program does not handle ends it as
@@ -563,6 +580,12 @@ class Foxhound(Connection):
             tags=None if tags is None else list(tags),
             limits=limits,
             settings=settings,
+            timeout=timeout,
+            plan=plan,
+            recording=recording,
+            accept_plugin_change=(
+                None if accept_plugin_change is None else list(accept_plugin_change)
+            ),
         )
         try:
             run = self._loop.call(starting)

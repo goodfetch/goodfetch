@@ -1641,7 +1641,7 @@ export type StoppedBy = "person" | "client" | "program" | "browser";
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "StartInput".
  */
-export type StartInput = "product" | "kind" | "caller" | "seeds";
+export type StartInput = "product" | "kind" | "caller" | "seeds" | "plan" | "recording";
 /**
  * What kind of Run it is: a Collie Run its program drives, or a crawl
  * (ADR 0102), which its start's inputs name.
@@ -8817,15 +8817,33 @@ export interface RunSetProgressMessageParams {
  */
 export interface RunStartParams {
   /**
+   * The third-party Plugins, by name, whose changed digest a start that
+   * resumes the Run accepts (ADR 0033), where it would otherwise refuse
+   * the resume.
+   */
+  acceptPluginChange?: string[];
+  /**
    * The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
    * kind and currency. A start that names the Run again lowers them and
    * never raises them (ADR 0102).
    */
   limits?: RunLimit[];
   /**
+   * The Run's Plan file (ADR 0091), on the program's machine, relative
+   * to its working directory: an input of the Run, which a start that
+   * names the Run again gives unchanged, else it fails with
+   * `run_conflict`.
+   */
+  plan?: string | null;
+  /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
   project?: ProjectSettings | null;
+  /**
+   * The Response recording the Run replays or records (ADR 0105): an
+   * input of the Run, as `plan` is.
+   */
+  recording?: Recording | null;
   /**
    * The Run's ID; the engine generates a lowercase ULID when it is
    * absent. An existing ID reaches that Run when the caller and the
@@ -8843,6 +8861,14 @@ export interface RunStartParams {
    * The Run's opaque tags.
    */
   tags?: Tags;
+  /**
+   * How long the Run may last, in milliseconds, at least 1, as
+   * `timeout.run` for this Run (ADR 0080): absent for the setting's
+   * value, `null` for none. Past it, the Run checkpoints and stops at
+   * its next safe point, resumable; a start that resumes it counts its
+   * own on a fresh clock (ADR 0102).
+   */
+  timeout?: number | null;
 }
 /**
  * What a start answers once its Run is started, never at its end.

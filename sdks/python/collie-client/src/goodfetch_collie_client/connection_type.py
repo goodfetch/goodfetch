@@ -58,6 +58,10 @@ class AsyncConnection(ABC):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> AsyncRun:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -81,8 +85,12 @@ class AsyncConnection(ABC):
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        `settings` are the Run's own, over the Connection's (ADR 0083).
-        Raises `closed` once the Connection is closed.
+        `settings` are the Run's own, over the Connection's (ADR 0083);
+        `timeout` its own `timeout.run`, the setting's value when left out
+        and none for `None`; `plan` its Plan file, `recording` its Response
+        recording (ADR 0105), and `accept_plugin_change` each Plugin whose
+        change a resume accepts (ADR 0033). Raises `closed` once the
+        Connection is closed.
         """
 
     @abstractmethod
@@ -235,6 +243,10 @@ class Connection(ABC):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> Run:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -258,8 +270,12 @@ class Connection(ABC):
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
-        `settings` are the Run's own, over the Connection's (ADR 0083).
-        Raises `closed` once the Connection is closed.
+        `settings` are the Run's own, over the Connection's (ADR 0083);
+        `timeout` its own `timeout.run`, the setting's value when left out
+        and none for `None`; `plan` its Plan file, `recording` its Response
+        recording (ADR 0105), and `accept_plugin_change` each Plugin whose
+        change a resume accepts (ADR 0033). Raises `closed` once the
+        Connection is closed.
         """
 
     @abstractmethod

@@ -447,6 +447,7 @@ impl<'a> Crawl<'a> {
                 .collect(),
             datasets: self.datasets.clone(),
             extraction: None,
+            declaration: None,
             hooks: Vec::new(),
             settings: serde_json::Map::new(),
             project: None,

@@ -43,6 +43,28 @@ export type FetchTier = "http" | "discovered_api" | "browser_fetch" | "light_bro
  */
 export type CertificateExceptionKind = "trust_on_first_use" | "any";
 /**
+ * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
+ * seeds the entries of a site's sitemaps.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "Seed".
+ */
+export type Seed = RequestSeed | SitemapSeed;
+/**
+ * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HttpBody".
+ */
+export type HttpBody = string;
+/**
+ * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "HttpMethod".
+ */
+export type HttpMethod = string;
+/**
  * Which pages a code-free crawl fetches beyond its seeds.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -74,20 +96,6 @@ export type CrawlHookStage =
   | "page_ready"
   | "before_record_commit"
   | (string & {});
-/**
- * The body a crawl request is sent with (ADR 0093): its bytes in Base64 (RFC 4648, with padding).
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "HttpBody".
- */
-export type HttpBody = string;
-/**
- * The method a crawl request is sent with (ADR 0093): an RFC 9110 token, `GET` by default; `DELETE`, `GET`, `HEAD`, `OPTIONS`, `POST` and `PUT` are uppercased as Fetch normalizes them, and `CONNECT`, `TRACE` and `TRACK` are refused.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "HttpMethod".
- */
-export type HttpMethod = string;
 /**
  * A proxy tier of ADR 0021's ladder, from the cheapest up: a Session
  * binds one proxy of its tier, and a block that escalates moves its
@@ -309,14 +317,6 @@ export type SinkStatus = "complete" | "complete_with_rejections" | "behind" | "f
  * via the `definition` "Seeds".
  */
 export type Seeds = [Seed, ...Seed[]];
-/**
- * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
- * seeds the entries of a site's sitemaps.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "Seed".
- */
-export type Seed = RequestSeed | SitemapSeed;
 /**
  * What `dataset_key_invalid` details.
  *
@@ -736,6 +736,246 @@ export interface CrawlConcurrency {
    * The browser pages the governor allows now.
    */
   pageAllowance?: number | null;
+}
+/**
+ * A crawl declared as data: the engine handles each of its requests
+ * itself, by the request's Label's `follow` and `extract`. A start naming
+ * it declares no Label and no Dataset of its own, else it fails with
+ * `invalid_params`, and never with `extraction` too, else it fails with
+ * `setting_invalid`; `extraction` is its one-Label shorthand.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlDeclaration".
+ */
+export interface CrawlDeclaration {
+  /**
+   * Its Datasets, as `crawl.start`'s `datasets`, which its Labels'
+   * `extract` fills.
+   */
+  datasets?: DatasetDeclaration[];
+  /**
+   * Its Labels, in order, each with what its pages follow and extract.
+   */
+  labels: DeclaredLabel[];
+  /**
+   * The requests the crawl starts from, beside the start's own `seeds`,
+   * each request seed naming a Label it declares; none by default.
+   */
+  seeds?: Seed[];
+  /**
+   * Its Run's settings, nested by key, beneath the start's own
+   * `settings`, which win key by key.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its
+ * Records are checked against, and the top-level fields that identify one
+ * Record.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DatasetDeclaration".
+ */
+export interface DatasetDeclaration {
+  /**
+   * The top-level fields that identify one Record, each one the schema
+   * requires; none when no field does.
+   */
+  key?: string[];
+  /**
+   * Its name, unique in the crawl.
+   */
+  name: string;
+  /**
+   * The JSON Schema its Records are checked against, the side the
+   * program's schema parses from; none takes any JSON object (ADR 0082).
+   */
+  schema?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * One Label of a [`CrawlDeclaration`]: as `crawl.start`'s `labels` declare
+ * one, with what each of its pages follows and extracts.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DeclaredLabel".
+ */
+export interface DeclaredLabel {
+  /**
+   * The Records each of its pages pushes, one per entry; none by
+   * default.
+   */
+  extract?: DeclaredExtract[];
+  /**
+   * The links each of its pages enqueues, rule by rule, each as
+   * `enqueueLinks` admits them; none by default.
+   */
+  follow?: FollowRule[];
+  /**
+   * Its name, unique among the declaration's Labels.
+   */
+  name: string;
+  /**
+   * The JSON Schema its requests' Payloads are checked against; none
+   * takes any Payload.
+   */
+  payloadSchema?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its settings, nested by key, as a Label declared at the start takes
+   * them.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
+ * One Record a page of a declared Label pushes into `dataset`: its named
+ * `fields`, read as `extraction`'s are and written in the order declared;
+ * no field name repeats across one Label's extracts.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DeclaredExtract".
+ */
+export interface DeclaredExtract {
+  /**
+   * The Dataset it pushes into, one the declaration declares.
+   */
+  dataset: string;
+  /**
+   * Its named fields, by name, each a value field, a list or rows.
+   */
+  fields: {
+    [k: string]: PageField;
+  };
+}
+/**
+ * The links a page of a declared Label enqueues, as `enqueueLinks` takes
+ * them: each `links` matches, under `label`, narrowed by `include` and
+ * `exclude`, at most `limit` of them.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "FollowRule".
+ */
+export interface FollowRule {
+  /**
+   * URL patterns a link must match none of.
+   */
+  exclude?: string[];
+  /**
+   * URL patterns of which a link must match one when there are any.
+   */
+  include?: string[];
+  /**
+   * The Label of the requests it enqueues, one the declaration declares.
+   */
+  label: string;
+  /**
+   * At most this many links of a page are added; none for no limit.
+   */
+  limit?: number | null;
+  /**
+   * The CSS selector of the elements whose `href` it follows.
+   */
+  links: string;
+}
+/**
+ * One request a crawl starts from (ADR 0093): a URL, the Label that picks
+ * its handler and its Payload, and how it is sent and identified.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "RequestSeed".
+ */
+export interface RequestSeed {
+  /**
+   * The body it is sent with, if any.
+   */
+  body?: HttpBody | null;
+  /**
+   * Whether it goes ahead of every request its domain holds pending,
+   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
+   * such requests, the later goes first; `false` by default.
+   */
+  forefront?: boolean;
+  /**
+   * Its identity in the Frontier, declared by the program in place of
+   * its method, its URL's key and its body's hash: a canonicalization
+   * of the program's own, which always wins (ADR 0005).
+   */
+  key?: string | null;
+  /**
+   * Its Label.
+   */
+  label: string;
+  /**
+   * The method it is sent with: `GET` by default.
+   */
+  method?: HttpMethod;
+  /**
+   * The data the program attaches for its handler.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Its priority among the requests of its domain: higher goes first,
+   * and a priority never orders requests of different domains (ADR
+   * 0004); 0 by default.
+   */
+  priority?: number;
+  /**
+   * Its URL.
+   */
+  url: string;
+}
+/**
+ * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
+ * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
+ * are read. The engine reads it, and every sitemap index it nests, once
+ * the Run is running, through the domain policy, Politeness and robots.txt,
+ * running no handler; each entry is checked as an enqueue is, at depth 0,
+ * with the Label of the first rule whose pattern matches its URL and no
+ * Payload, and one no rule matches is not added, with `no_rule`. The seed
+ * widens the crawl's scope by the host of the URL it names, and an entry
+ * outside the scope is not added, with `out_of_scope`, so a robots.txt
+ * seed admits its own host's entries from a sitemap on another host it
+ * names, and no other host's.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SitemapSeed".
+ */
+export interface SitemapSeed {
+  /**
+   * The rules that give each entry its Label, in order: the first whose
+   * pattern matches the entry's URL wins.
+   */
+  rules: SitemapRule[];
+  /**
+   * The URL of the sitemap, or of the site's robots.txt.
+   */
+  sitemap: string;
+}
+/**
+ * One rule of a sitemap seed: a URL pattern, a glob as
+ * `crawl.scope.include` takes them, matched in the engine, and the Label
+ * it gives the entries it matches, which take no Payload.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SitemapRule".
+ */
+export interface SitemapRule {
+  /**
+   * The Label of the entries it matches.
+   */
+  label: string;
+  /**
+   * The URL pattern.
+   */
+  pattern: string;
 }
 /**
  * What a crawl with no handler reads from each page it fetches (spec
@@ -1883,6 +2123,15 @@ export interface CrawlStartParams {
    */
   datasets?: DatasetDeclaration[];
   /**
+   * The crawl as data (ADR 0103): its Labels, what each of their pages
+   * follows and extracts, its Datasets, settings and more seeds, which
+   * the engine handles itself as it does `extraction`, its one-Label
+   * shorthand. Such a start declares no Label and no Dataset of its own,
+   * else it fails with `invalid_params`, and names no `extraction`, else
+   * it fails with `setting_invalid`.
+   */
+  declaration?: CrawlDeclaration | null;
+  /**
    * Whether the Run outlives the Connection that started it (ADR 0102),
    * as a Recipe's run does: only a code-free crawl with no Hook, started
    * on a Daemon, detaches, and any other such start fails with
@@ -1947,32 +2196,6 @@ export interface CrawlStartParams {
   tags?: Tags;
 }
 /**
- * One Dataset a crawl declares (ADR 0103): its name, the JSON Schema its
- * Records are checked against, and the top-level fields that identify one
- * Record.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "DatasetDeclaration".
- */
-export interface DatasetDeclaration {
-  /**
-   * The top-level fields that identify one Record, each one the schema
-   * requires; none when no field does.
-   */
-  key?: string[];
-  /**
-   * Its name, unique in the crawl.
-   */
-  name: string;
-  /**
-   * The JSON Schema its Records are checked against, the side the
-   * program's schema parses from; none takes any JSON object (ADR 0082).
-   */
-  schema?: {
-    [k: string]: unknown;
-  };
-}
-/**
  * One Label a crawl declares (ADRs 0082 and 0093): its Payload's schema
  * and the settings its requests take over the Run's.
  *
@@ -1997,100 +2220,6 @@ export interface LabelDeclaration {
   settings?: {
     [k: string]: unknown;
   };
-}
-/**
- * One request a crawl starts from (ADR 0093): a URL, the Label that picks
- * its handler and its Payload, and how it is sent and identified.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "RequestSeed".
- */
-export interface RequestSeed {
-  /**
-   * The body it is sent with, if any.
-   */
-  body?: HttpBody | null;
-  /**
-   * Whether it goes ahead of every request its domain holds pending,
-   * whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
-   * such requests, the later goes first; `false` by default.
-   */
-  forefront?: boolean;
-  /**
-   * Its identity in the Frontier, declared by the program in place of
-   * its method, its URL's key and its body's hash: a canonicalization
-   * of the program's own, which always wins (ADR 0005).
-   */
-  key?: string | null;
-  /**
-   * Its Label.
-   */
-  label: string;
-  /**
-   * The method it is sent with: `GET` by default.
-   */
-  method?: HttpMethod;
-  /**
-   * The data the program attaches for its handler.
-   */
-  payload?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Its priority among the requests of its domain: higher goes first,
-   * and a priority never orders requests of different domains (ADR
-   * 0004); 0 by default.
-   */
-  priority?: number;
-  /**
-   * Its URL.
-   */
-  url: string;
-}
-/**
- * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,
- * or a site's robots.txt (its path `/robots.txt`), whose `Sitemap:` lines
- * are read. The engine reads it, and every sitemap index it nests, once
- * the Run is running, through the domain policy, Politeness and robots.txt,
- * running no handler; each entry is checked as an enqueue is, at depth 0,
- * with the Label of the first rule whose pattern matches its URL and no
- * Payload, and one no rule matches is not added, with `no_rule`. The seed
- * widens the crawl's scope by the host of the URL it names, and an entry
- * outside the scope is not added, with `out_of_scope`, so a robots.txt
- * seed admits its own host's entries from a sitemap on another host it
- * names, and no other host's.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SitemapSeed".
- */
-export interface SitemapSeed {
-  /**
-   * The rules that give each entry its Label, in order: the first whose
-   * pattern matches the entry's URL wins.
-   */
-  rules: SitemapRule[];
-  /**
-   * The URL of the sitemap, or of the site's robots.txt.
-   */
-  sitemap: string;
-}
-/**
- * One rule of a sitemap seed: a URL pattern, a glob as
- * `crawl.scope.include` takes them, matched in the engine, and the Label
- * it gives the entries it matches, which take no Payload.
- *
- * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
- * via the `definition` "SitemapRule".
- */
-export interface SitemapRule {
-  /**
-   * The Label of the entries it matches.
-   */
-  label: string;
-  /**
-   * The URL pattern.
-   */
-  pattern: string;
 }
 /**
  * What `dataset_duplicate` details.

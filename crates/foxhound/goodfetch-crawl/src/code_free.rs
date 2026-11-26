@@ -19,6 +19,11 @@
 //! (ADRs 0123 and 0147): the Record holds each, null where the page did
 //! not give it, and its Provenance names each transform and why each null
 //! value is null.
+//! A start may take a `declaration` in place of `extraction`, its crawl as
+//! data (spec #611's #1514): its Labels, Datasets, settings and seeds join
+//! the start's, and each page of a declared Label follows and extracts as
+//! that Label declares (the `declared` module). It is kept in the run file
+//! as an extraction is.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -39,9 +44,10 @@ use goodfetch_protocol::foxhound::crawl::{
     PushedRecord, Seed, SitemapRule, SitemapSeed,
 };
 use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
+use goodfetch_protocol::foxhound::declaration::{CrawlDeclaration, FollowRule};
 use goodfetch_protocol::foxhound::frontier::CrawlRequestEnqueueLinksParams;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::page::read::FieldLocator;
+use goodfetch_protocol::page::read::{FieldLocator, PageField};
 use goodfetch_protocol::page::{FormatsRequest, Locator, PageFormats, PageId, page_formats_schema};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Serialize, Serializer};
@@ -71,14 +77,36 @@ const KEY: &str = "url";
 /// The pattern of a sitemap seed's rule that every entry matches.
 const EVERY_ENTRY: &str = "**";
 
-/// What a code-free crawl's attempts handle their requests with: its
-/// extraction, what each of its fields reads with, built once as the crawl
-/// starts, and the live crawls and tiers whose pages they read.
+mod declared;
+
+/// What a code-free crawl's start gave the engine to handle its requests
+/// with: an extraction, or a crawl declared as data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CodeFreeCrawl {
+    Extraction(CrawlExtraction),
+    Declaration(CrawlDeclaration),
+}
+
+impl CodeFreeCrawl {
+    /// What a start naming `extraction` and `declaration` handles its
+    /// requests with; none for a crawl whose program handles them. A start
+    /// naming both was refused before.
+    pub(crate) fn of(
+        extraction: Option<CrawlExtraction>,
+        declaration: Option<CrawlDeclaration>,
+    ) -> Option<Self> {
+        extraction
+            .map(Self::Extraction)
+            .or_else(|| declaration.map(Self::Declaration))
+    }
+}
+
+/// What a code-free crawl's attempts handle their requests with, built
+/// once as the crawl starts, and the live crawls and tiers whose pages
+/// they read.
 #[derive(Clone)]
 pub(crate) struct CodeFree {
-    pub(crate) extraction: CrawlExtraction,
-    /// What its fields read with; none when the crawl keeps no Record.
-    reader: Option<Arc<Fields>>,
+    handles: Handles,
     /// Whether the crawl keeps Records, its `dataset.records`: off, a page's
     /// formats and fields are not read for one (ADR 0138).
     keeps_records: bool,
@@ -86,87 +114,138 @@ pub(crate) struct CodeFree {
     pub(crate) tiers: FetchTiers,
 }
 
-/// The table that keeps a code-free crawl's extraction in every run file;
-/// a crawl whose program handles its requests keeps no row.
+/// How a code-free crawl handles each request: by its extraction, with
+/// what its fields read with, none when the crawl keeps no Record, or by
+/// what its declaration plans for the request's Label.
+#[derive(Clone)]
+enum Handles {
+    Extraction {
+        extraction: CrawlExtraction,
+        reader: Option<Arc<Fields>>,
+    },
+    Declaration(Arc<declared::Plans>),
+}
+
+/// The tables that keep a code-free crawl's extraction, or its
+/// declaration, in every run file; a crawl whose program handles its
+/// requests keeps no row.
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "goodfetch-crawl-code-free",
-    statements: &["CREATE TABLE IF NOT EXISTS code_free_extraction (
+    statements: &[
+        "CREATE TABLE IF NOT EXISTS code_free_extraction (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             extraction TEXT NOT NULL
-        ) STRICT"],
+        ) STRICT",
+        "CREATE TABLE IF NOT EXISTS code_free_declaration (
+            id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+            declaration TEXT NOT NULL
+        ) STRICT",
+    ],
 };
 
-/// Records `extraction`, the code-free crawl's start's; nothing for a
-/// crawl whose program handles its requests.
+/// Records `crawl`, the code-free crawl's start's; nothing for a crawl
+/// whose program handles its requests.
 ///
 /// # Errors
 ///
 /// The run file's, when the row cannot be written.
 pub(crate) fn record(
     connection: &Connection,
-    extraction: Option<&CrawlExtraction>,
+    crawl: Option<&CodeFreeCrawl>,
 ) -> rusqlite::Result<()> {
-    let Some(extraction) = extraction else {
-        return Ok(());
-    };
-    let extraction =
-        serde_json::to_string(extraction).expect("invariant: an extraction encodes as JSON");
-    connection
-        .prepare_cached(
+    let (statement, kept) = match crawl {
+        None => return Ok(()),
+        Some(CodeFreeCrawl::Extraction(extraction)) => (
             "INSERT OR REPLACE INTO code_free_extraction (id, extraction) VALUES (1, ?1)",
-        )
-        .and_then(|mut cached| cached.execute(params![extraction]))?;
+            serde_json::to_string(extraction).expect("invariant: an extraction encodes as JSON"),
+        ),
+        Some(CodeFreeCrawl::Declaration(declaration)) => (
+            "INSERT OR REPLACE INTO code_free_declaration (id, declaration) VALUES (1, ?1)",
+            serde_json::to_string(declaration).expect("invariant: a declaration encodes as JSON"),
+        ),
+    };
+    connection
+        .prepare_cached(statement)
+        .and_then(|mut cached| cached.execute(params![kept]))?;
     Ok(())
 }
 
-/// Records `extraction` again, a start's under the ID of the Run that
-/// resumes, in place of the one the run file holds: none takes it out, for
-/// a crawl whose program handles its requests from then on.
+/// Records `crawl` again, a start's under the ID of the Run that resumes,
+/// in place of the one the run file holds: none takes it out, for a crawl
+/// whose program handles its requests from then on.
 ///
 /// # Errors
 ///
 /// The run file's, when the row cannot be written.
 pub(crate) fn record_again(
     connection: &Connection,
-    extraction: Option<&CrawlExtraction>,
+    crawl: Option<&CodeFreeCrawl>,
 ) -> rusqlite::Result<()> {
-    connection
-        .prepare_cached("DELETE FROM code_free_extraction")
-        .and_then(|mut cached| cached.execute([]))?;
-    record(connection, extraction)
+    for statement in [
+        "DELETE FROM code_free_extraction",
+        "DELETE FROM code_free_declaration",
+    ] {
+        connection
+            .prepare_cached(statement)
+            .and_then(|mut cached| cached.execute([]))?;
+    }
+    record(connection, crawl)
 }
 
-/// The extraction [`record`] kept; none for a crawl whose program handles
-/// its requests, or one whose row no longer reads.
+/// The crawl [`record`] kept; none for a crawl whose program handles its
+/// requests, or one whose row no longer reads.
 ///
 /// # Errors
 ///
 /// The run file's, when the row cannot be read.
-pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Option<CrawlExtraction>> {
+pub(crate) fn read(connection: &Connection) -> rusqlite::Result<Option<CodeFreeCrawl>> {
+    if let Some(extraction) = kept(
+        connection,
+        "SELECT extraction FROM code_free_extraction WHERE id = 1",
+    )? {
+        return Ok(Some(CodeFreeCrawl::Extraction(extraction)));
+    }
+    Ok(kept(
+        connection,
+        "SELECT declaration FROM code_free_declaration WHERE id = 1",
+    )?
+    .map(CodeFreeCrawl::Declaration))
+}
+
+/// The value the row `query` selects holds; none when there is no row, or
+/// when it no longer reads.
+fn kept<T: serde::de::DeserializeOwned>(
+    connection: &Connection,
+    query: &str,
+) -> rusqlite::Result<Option<T>> {
     let kept: Option<String> = connection
-        .prepare_cached("SELECT extraction FROM code_free_extraction WHERE id = 1")
+        .prepare_cached(query)
         .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
         .optional()?;
     Ok(kept.and_then(|kept| match serde_json::from_str(&kept) {
-        Ok(extraction) => Some(extraction),
+        Ok(read) => Some(read),
         Err(error) => {
-            tracing::warn!(%error, "the code-free crawl's extraction in the run file no longer reads");
+            tracing::warn!(%error, "the code-free crawl kept in the run file no longer reads");
             None
         }
     }))
 }
 
-/// Declares in `params` what a code-free crawl commits into, when it
-/// takes an extraction: the Label `page`, beside any the start declares,
-/// and the Dataset `pages`, the start's only one, which it answers built,
-/// as `pages` keeps it for the extraction, its fields checked on `work`,
-/// the engine's Counted work; none for a crawl whose program handles its
-/// requests. `invalid_params` when the start declares a Dataset of its own.
+/// Declares in `params` what a code-free crawl commits into: for a
+/// declaration, its Labels, Datasets, settings and seeds beside the
+/// start's, checked on `work`, the engine's Counted work (the `declared`
+/// module); for an extraction, the Label `page`, beside any the start
+/// declares, and the Dataset `pages`, the start's only one, which it
+/// answers built, as `pages` keeps it for the extraction, its fields
+/// checked on `work`; none for a crawl whose program handles its requests.
+/// `invalid_params` when an extraction's start declares a Dataset of its
+/// own.
 pub(crate) async fn declare(
     params: &mut CrawlStartParams,
     pages: &Pages,
     work: &CountedWork,
 ) -> Result<Option<Datasets>, CallError> {
+    declared::merge(params, work)?;
     let Some(extraction) = &params.extraction else {
         return Ok(None);
     };
@@ -445,57 +524,99 @@ impl Serialize for DeclaredValues<'_> {
     }
 }
 
+/// What the readers of a page's untouched tree read for it, once (ADR
+/// 0138): the selectors whose links it follows, and its fields' locators,
+/// in order, when every one is a value field.
+pub(crate) type Demand = (Vec<String>, Vec<FieldLocator>);
+
+/// What the readers of each page's untouched tree read for a code-free
+/// crawl: what every Label's pages demand, and what each Label that plans
+/// its own demands in its place.
+#[derive(Default)]
+pub(crate) struct Demands {
+    pub(crate) run: Demand,
+    pub(crate) labels: BTreeMap<String, Demand>,
+}
+
 impl CodeFree {
-    /// What the crawl `run` reading `extraction` handles its requests with,
+    /// What the crawl `run` started as `crawl` handles its requests with,
     /// on the live `crawls` and the pages of `tiers`, each field's `match`
     /// pattern and locale's forms learned here, once, unless the crawl
     /// keeps no Record; none for a crawl whose program handles them.
     pub(crate) fn of(
-        extraction: Option<CrawlExtraction>,
+        crawl: Option<CodeFreeCrawl>,
         crawls: &Crawls,
         tiers: &FetchTiers,
         run: &RunIdentity,
     ) -> Option<Self> {
         let keeps_records = crate::serving::keeps_records(run);
         let work = run.metrics().counted_work();
-        extraction.map(|extraction| Self {
-            reader: keeps_records.then(|| Arc::new(Fields::of(extraction.fields.by_name(), work))),
+        let handles = match crawl? {
+            CodeFreeCrawl::Extraction(extraction) => Handles::Extraction {
+                reader: keeps_records
+                    .then(|| Arc::new(Fields::of(extraction.fields.by_name(), work))),
+                extraction,
+            },
+            CodeFreeCrawl::Declaration(declaration) => {
+                Handles::Declaration(Arc::new(declared::plans(declaration, keeps_records, work)))
+            }
+        };
+        Some(Self {
+            handles,
             keeps_records,
-            extraction,
             crawls: crawls.clone(),
             tiers: tiers.clone(),
         })
     }
 
     /// What the readers of each page's untouched tree read for it, once:
-    /// under `follow: scope`, the links [`LINKS`] matches, and its fields'
-    /// locators, in order, when every one is a value field (ADR 0138).
-    pub(crate) fn untouched(&self) -> (Vec<String>, Vec<FieldLocator>) {
-        let links = if self.extraction.follow == ExtractionFollow::Scope {
-            vec![LINKS.to_owned()]
-        } else {
-            Vec::new()
-        };
-        let locators = goodfetch_fetch_tier::value_locators(self.extraction.fields.by_name())
-            .unwrap_or_default();
-        (links, locators)
+    /// for an extraction, under `follow: scope`, the links [`LINKS`]
+    /// matches, and its fields' locators; for a declaration, each declared
+    /// Label's own (ADR 0138).
+    pub(crate) fn untouched(&self) -> Demands {
+        match &self.handles {
+            Handles::Extraction { extraction, .. } => {
+                let links = if extraction.follow == ExtractionFollow::Scope {
+                    vec![LINKS.to_owned()]
+                } else {
+                    Vec::new()
+                };
+                Demands {
+                    run: (links, locators(extraction.fields.by_name())),
+                    labels: BTreeMap::new(),
+                }
+            }
+            Handles::Declaration(plans) => Demands {
+                run: Demand::default(),
+                labels: plans
+                    .iter()
+                    .map(|(label, plan)| (label.clone(), plan.demand()))
+                    .collect(),
+            },
+        }
     }
 
-    /// The formats it reads of each page, as `page.formats` answers them.
+    /// The formats it reads of each page, as `page.formats` answers them:
+    /// none for a declaration.
     pub(crate) fn formats(&self) -> FormatsRequest {
-        self.extraction.formats
+        match &self.handles {
+            Handles::Extraction { extraction, .. } => extraction.formats,
+            Handles::Declaration(_) => FormatsRequest::default(),
+        }
     }
 
     /// Whether it reads any format of its pages.
     pub(crate) fn reads_formats(&self) -> bool {
-        self.extraction.formats != FormatsRequest::default()
+        self.formats() != FormatsRequest::default()
     }
 
-    /// Handles the attempt `params` gives, as a handler would: reads its
-    /// page's formats and fields, under `follow: scope` stages every link
-    /// of its page with the attempt, for its commit to admit in its
-    /// outcome's one job (ADR 0138), then answers its page's
-    /// Record, read at `fetched_at`, and what its fields' Provenance names.
+    /// Handles the attempt `params` gives, as a handler would, and answers
+    /// its page's Records, read at `fetched_at`, and what their fields'
+    /// Provenance names: for an extraction, reads its page's formats and
+    /// fields, under `follow: scope` stages every link of its page with
+    /// the attempt, for its commit to admit in its outcome's one job (ADR
+    /// 0138), and answers one Record of `pages`; for a declaration, as its
+    /// request's Label plans.
     ///
     /// # Errors
     ///
@@ -521,43 +642,62 @@ impl CodeFree {
                 &(),
             ));
         };
+        match &self.handles {
+            Handles::Extraction { extraction, reader } => {
+                self.extracted((extraction, reader.as_deref()), params, page_id, fetched_at)
+                    .await
+            }
+            Handles::Declaration(plans) => match plans.get(&params.crawl_request.label) {
+                Some(plan) => self.planned(plan, params, page_id).await,
+                None => Ok(nothing()),
+            },
+        }
+    }
+
+    /// The attempt `params` of the page `page_id`, handled by `extraction`
+    /// with its fields' `reader`.
+    async fn extracted(
+        &self,
+        (extraction, reader): (&CrawlExtraction, Option<&Fields>),
+        params: &CrawlRequestHandleParams,
+        page_id: &PageId,
+        fetched_at: SystemTime,
+    ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
+        let request_id = &params.crawl_request.id;
         let read = if self.keeps_records {
-            Some(self.read(page_id, &params.crawl_request.id).await?)
+            let formats = self
+                .tiers
+                .formats(page_id, extraction.formats)
+                .await
+                .ok_or_else(|| {
+                    CallError::new(
+                        &CLOSED,
+                        format!(
+                            "No tier serves the page of crawl request `{request_id}`, so its formats were not read."
+                        ),
+                        &(),
+                    )
+                })??;
+            let (values, read) = self
+                .fields(page_id, request_id, extraction.fields.by_name(), reader)
+                .await?;
+            Some((formats, values, read))
         } else {
             None
         };
-        if self.extraction.follow == ExtractionFollow::Scope {
-            defer_links(
-                &CrawlRequestEnqueueLinksParams {
-                    run_id: params.run_id.clone(),
-                    crawl_request_id: params.crawl_request.id.clone(),
-                    lease_epoch: params.lease_epoch,
-                    locator: Locator {
-                        page_id: page_id.clone(),
-                        selector: LINKS.to_owned(),
-                    },
-                    label: CODE_FREE_LABEL.to_owned(),
-                    payload: None,
-                    payloads: None,
-                    include: Vec::new(),
-                    exclude: Vec::new(),
-                    limit: None,
-                    priority: 0,
-                },
-                &self.crawls,
-                &self.tiers,
-            )
-            .await?;
+        if extraction.follow == ExtractionFollow::Scope {
+            let scope = FollowRule {
+                links: LINKS.to_owned(),
+                label: CODE_FREE_LABEL.to_owned(),
+                include: Vec::new(),
+                exclude: Vec::new(),
+                limit: None,
+            };
+            self.follow(params, page_id, &scope).await?;
         }
         let status = params.response.as_ref().map(|response| response.status);
         let Some((formats, values, read)) = read else {
-            return Ok((
-                CrawlRequestHandled {
-                    records: Vec::new(),
-                    skipped: None,
-                },
-                FieldsRead::default(),
-            ));
+            return Ok(nothing());
         };
         Ok((
             CrawlRequestHandled {
@@ -567,7 +707,7 @@ impl CodeFree {
                         &formats,
                         status,
                         fetched_at,
-                        self.extraction.fields.declared(),
+                        extraction.fields.declared(),
                         &values,
                     ),
                 }],
@@ -577,41 +717,98 @@ impl CodeFree {
         ))
     }
 
-    /// The formats and fields of the page `page_id` of the crawl request
-    /// `request_id` that its Record holds, and what its fields' Provenance
-    /// names.
-    async fn read(
+    /// The attempt `params` of the page `page_id`, handled as `plan`, its
+    /// Label's, declares: its fields read once, each of its follow rules'
+    /// links staged with the attempt, then one Record per extract, unless
+    /// the crawl keeps no Record.
+    async fn planned(
         &self,
+        plan: &declared::Plan,
+        params: &CrawlRequestHandleParams,
         page_id: &PageId,
-        request_id: &str,
-    ) -> Result<(PageFormats, Map<String, Value>, FieldsRead), CallError> {
-        let formats = self
-            .tiers
-            .formats(page_id, self.extraction.formats)
-            .await
-            .ok_or_else(|| {
-                CallError::new(
-                    &CLOSED,
-                    format!(
-                        "No tier serves the page of crawl request `{request_id}`, so its formats were not read."
-                    ),
-                    &(),
+    ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
+        let read = if self.keeps_records {
+            Some(
+                self.fields(
+                    page_id,
+                    &params.crawl_request.id,
+                    plan.fields.by_name(),
+                    plan.reader.as_deref(),
                 )
-            })??;
-        let (values, read) = self.fields(page_id, request_id).await?;
-        Ok((formats, values, read))
+                .await?,
+            )
+        } else {
+            None
+        };
+        for rule in &plan.follow {
+            self.follow(params, page_id, rule).await?;
+        }
+        let Some((values, read)) = read else {
+            return Ok(nothing());
+        };
+        let records = plan
+            .extracts
+            .iter()
+            .map(|(dataset, declared)| PushedRecord {
+                dataset: dataset.clone(),
+                data: RecordData::of(&DeclaredValues {
+                    declared,
+                    values: &values,
+                })
+                .expect("invariant: a page's fields encode as JSON"),
+            })
+            .collect();
+        Ok((
+            CrawlRequestHandled {
+                records,
+                skipped: None,
+            },
+            read,
+        ))
     }
 
-    /// The values of the extraction's fields on the page `page_id` of the
-    /// crawl request `request_id`, by name, and what their Provenance
-    /// names; none for an extraction with no field.
+    /// Stages with the attempt `params` the links of its page `page_id`
+    /// that `rule` follows, as `enqueueLinks` admits them.
+    async fn follow(
+        &self,
+        params: &CrawlRequestHandleParams,
+        page_id: &PageId,
+        rule: &FollowRule,
+    ) -> Result<(), CallError> {
+        defer_links(
+            &CrawlRequestEnqueueLinksParams {
+                run_id: params.run_id.clone(),
+                crawl_request_id: params.crawl_request.id.clone(),
+                lease_epoch: params.lease_epoch,
+                locator: Locator {
+                    page_id: page_id.clone(),
+                    selector: rule.links.clone(),
+                },
+                label: rule.label.clone(),
+                payload: None,
+                payloads: None,
+                include: rule.include.clone(),
+                exclude: rule.exclude.clone(),
+                limit: rule.limit,
+                priority: 0,
+            },
+            &self.crawls,
+            &self.tiers,
+        )
+        .await
+    }
+
+    /// The values of the fields `declared` on the page `page_id` of the
+    /// crawl request `request_id`, by name, read with `reader`, and what
+    /// their Provenance names; none when there is no field or no reader.
     async fn fields(
         &self,
         page_id: &PageId,
         request_id: &str,
+        declared: &BTreeMap<String, PageField>,
+        reader: Option<&Fields>,
     ) -> Result<(Map<String, Value>, FieldsRead), CallError> {
-        let declared = self.extraction.fields.by_name();
-        let Some(reader) = self.reader.as_ref().filter(|_| !declared.is_empty()) else {
+        let Some(reader) = reader.filter(|_| !declared.is_empty()) else {
             return Ok((Map::new(), FieldsRead::default()));
         };
         let found = self
@@ -636,6 +833,23 @@ impl CodeFree {
             },
         ))
     }
+}
+
+/// An attempt's answer pushing no Record and reading no field.
+fn nothing() -> (CrawlRequestHandled, FieldsRead) {
+    (
+        CrawlRequestHandled {
+            records: Vec::new(),
+            skipped: None,
+        },
+        FieldsRead::default(),
+    )
+}
+
+/// The locators of `fields`, in order, when every one is a value field;
+/// none otherwise.
+fn locators(fields: &BTreeMap<String, PageField>) -> Vec<FieldLocator> {
+    goodfetch_fetch_tier::value_locators(fields).unwrap_or_default()
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 //! The code-free crawl's declarations as functions of its extraction: the
 //! Dataset `pages` declared from the formats request, a Record of a page
-//! checked against it, and the sitemap seeds `follow: sitemap` adds.
+//! checked against it, and the sitemap seeds `follow: sitemap` adds; and
+//! the code-free crawl, extraction or declaration, a run file keeps.
 
 use goodfetch_protocol::point_in_time;
 use std::collections::BTreeMap;
@@ -10,9 +11,13 @@ use goodfetch_dataset::Datasets;
 use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, PushedRecord, Seed};
 use goodfetch_protocol::foxhound::dataset::RecordData;
 use goodfetch_protocol::page::PageFormats;
+use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use super::{Pages, dataset, declare_into, record_of, sitemap_seeds};
+use super::{
+    CodeFreeCrawl, Pages, TABLES, dataset, declare_into, read, record, record_again, record_of,
+    sitemap_seeds,
+};
 
 fn extraction(value: Value) -> CrawlExtraction {
     serde_json::from_value(value).unwrap()
@@ -335,5 +340,38 @@ fn a_pages_record_holds_its_formats_then_its_fields_in_the_order_declared() {
             r#""links":[{"url":"http://site.test/b","href":"/b","text":"B","rel":[]}],"#,
             r#""status":null,"fetched_at":"2026-10-26T10:00:00Z","price":1099.98,"name":"Delta kite"}"#,
         )
+    );
+}
+
+/// A run file keeps a crawl's declaration as it keeps an extraction, and a
+/// start under the Run's ID that brings an extraction in its place, or
+/// neither, leaves only what it brought: the resumed Run reads what its
+/// last start declared.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_run_file_keeps_the_code_free_crawl_its_last_start_brought() {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute(statement, []).unwrap();
+    }
+    let declared = CodeFreeCrawl::Declaration(
+        serde_json::from_value(json!({
+            "labels": [{ "name": "listing", "follow": [{ "links": "a", "label": "listing" }] }],
+        }))
+        .unwrap(),
+    );
+    let extracted =
+        CodeFreeCrawl::Extraction(extraction(json!({ "formats": { "markdown": true } })));
+
+    record(&connection, Some(&declared)).unwrap();
+    let first = read(&connection).unwrap();
+    record_again(&connection, Some(&extracted)).unwrap();
+    let second = read(&connection).unwrap();
+    record_again(&connection, None).unwrap();
+
+    assert_eq!(
+        (first, second, read(&connection).unwrap()),
+        (Some(declared), Some(extracted), None)
     );
 }

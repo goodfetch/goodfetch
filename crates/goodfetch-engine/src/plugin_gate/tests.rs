@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::jsonrpc::RequestId;
 use goodfetch_protocol::plugin::net::{NetFetchHeader, NetFetchParams};
@@ -7,7 +9,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use url::Url;
 
-use super::{PluginFetch, SettingsSource};
+use super::{CALL_BACKS, PluginFetch, SettingsSource, admit_call_back};
 use crate::clock::Clock;
 use crate::egress::EgressClass;
 use crate::settings::{Layers, Resolved, Values, resolve};
@@ -196,4 +198,57 @@ fn a_request_a_plugin_may_not_send_is_refused_before_any_connection(
         .and_then(|details| details.get("setting"))
         .filter(|setting| !setting.is_null());
     assert_eq!(setting, None);
+}
+
+/// The calls an instance awaits, by their ids; each value stands in for
+/// what the instance keeps for a call.
+fn awaiting(ids: impl IntoIterator<Item = i64>) -> BTreeMap<RequestId, &'static str> {
+    ids.into_iter()
+        .map(|id| (RequestId::Number(id), "extract"))
+        .collect()
+}
+
+proptest! {
+    /// A call back naming no call the instance awaits is never admitted,
+    /// however few run; one naming an awaited call is admitted exactly
+    /// while fewer than [`CALL_BACKS`] run.
+    ///
+    /// Covers: story:7-53
+    #[test]
+    fn a_call_back_is_admitted_only_inside_a_call_and_under_the_most_at_once(
+        awaited in proptest::collection::btree_set(0..8_i64, 0..4),
+        named in 0..8_i64,
+        running in 0..2 * CALL_BACKS,
+    ) {
+        let inside_a_call = awaited.contains(&named);
+
+        let admitted = admit_call_back(&awaiting(awaited), running, &RequestId::Number(named));
+
+        prop_assert_eq!(admitted.is_ok(), inside_a_call && running < CALL_BACKS);
+        if let Err(error) = admitted {
+            prop_assert_eq!(error.code(), "plugin_call_back_refused");
+        }
+    }
+}
+
+/// Covers: story:7-53
+#[rstest]
+#[case::inside_its_call(&[1, 2], 0, 2, true)]
+#[case::the_last_one_allowed(&[1], CALL_BACKS - 1, 1, true)]
+#[case::past_the_most_at_once(&[1], CALL_BACKS, 1, false)]
+#[case::naming_another_call(&[1], 0, 3, false)]
+#[case::before_any_call(&[], 0, 1, false)]
+fn a_call_back_is_admitted_inside_the_call_it_names(
+    #[case] awaited: &[i64],
+    #[case] running: usize,
+    #[case] named: i64,
+    #[case] admitted: bool,
+) {
+    let decision = admit_call_back(
+        &awaiting(awaited.iter().copied()),
+        running,
+        &RequestId::Number(named),
+    );
+
+    assert_eq!(decision.is_ok(), admitted, "{decision:?}");
 }

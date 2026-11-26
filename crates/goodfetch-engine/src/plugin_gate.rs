@@ -25,10 +25,16 @@
 //! `HEAD` toward a destination checked as a page's is an Effect, as is a
 //! header such as `X-HTTP-Method-Override` that asks for one, refused until
 //! the `effects` permission comes (issue 845).
+//!
+//! A call back is admitted only inside the call it names, one its instance
+//! awaits the answer to, and while fewer than [`CALL_BACKS`] run; the
+//! credits and leases that will bound it come with issue 827.
+
+use std::collections::BTreeMap;
 
 use bytes::Bytes;
 use goodfetch_protocol::egress::EgressRule;
-use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::plugin::net::{
     NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult, PLUGIN_CALL_BACK_REFUSED,
     PLUGIN_FETCH_FAILED,
@@ -55,6 +61,9 @@ use crate::settings::Resolved;
 use crate::tasks::BlockingThreads;
 use crate::tls::Trust;
 use tokio::sync::OnceCell;
+
+/// How many of a Plugin's call backs run at once; one past them is refused.
+pub(crate) const CALL_BACKS: usize = 16;
 
 /// The most bytes of a response's body a `net.fetch` answers with: half a
 /// message to the Plugin, so that the body in Base64 and its headers fit
@@ -359,6 +368,32 @@ fn header_of(header: &NetFetchHeader) -> Result<(HeaderName, HeaderValue), CallE
 /// `plugin_call_back_refused`, with `message`.
 fn refused(message: &str) -> CallError {
     CallError::new(&PLUGIN_CALL_BACK_REFUSED, message, &())
+}
+
+/// Admits or refuses a Plugin's call back naming `call_id`, while its
+/// instance awaits the answers to the calls `awaited` and runs `running`
+/// call backs.
+///
+/// # Errors
+///
+/// `plugin_call_back_refused` when `call_id` names no call `awaited` holds,
+/// or when [`CALL_BACKS`] already run.
+pub(crate) fn admit_call_back<V>(
+    awaited: &BTreeMap<RequestId, V>,
+    running: usize,
+    call_id: &RequestId,
+) -> Result<(), CallError> {
+    if !awaited.contains_key(call_id) {
+        return Err(refused(&format!(
+            "the Plugin called back naming {call_id:?}, which is no call it serves"
+        )));
+    }
+    if running >= CALL_BACKS {
+        return Err(refused(&format!(
+            "the Plugin has {CALL_BACKS} call backs running, the most at once"
+        )));
+    }
+    Ok(())
 }
 
 /// Collects into `origins` the origin of each `http` or `https` URL that

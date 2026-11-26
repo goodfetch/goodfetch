@@ -20,7 +20,8 @@
 //! Plugin's stdin. A call back that names no call the instance awaits is
 //! refused with `plugin_call_back_refused`, and one still running when its
 //! call is answered or the instance stops is cancelled, answered with
-//! `call_cancelled`. At most [`CALL_BACKS`] run at once; a method the
+//! `call_cancelled`. At most [`CALL_BACKS`](crate::plugin_gate::CALL_BACKS)
+//! run at once; a method the
 //! engine does not serve is answered `method_not_found`.
 //!
 //! A message from the Plugin that answers nothing the instance awaits (a
@@ -52,10 +53,8 @@ use goodfetch_confinement::launch::Launch;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Product};
 use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL};
 use goodfetch_protocol::error_code::ErrorCode;
-use goodfetch_protocol::jsonrpc::{
-    ErrorObject, ErrorResponse, ProtocolFailure, RequestId, Version,
-};
-use goodfetch_protocol::plugin::net::{NET_FETCH, NetFetchParams, PLUGIN_CALL_BACK_REFUSED};
+use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::plugin::net::{NET_FETCH, NetFetchParams, NetFetchResult};
 use goodfetch_protocol::plugin::{
     CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
     PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginHelloParams,
@@ -75,7 +74,7 @@ use super::lifecycle::{
 use super::process::{Ended, Pipes, PluginProcess};
 use crate::call_error::CallError;
 use crate::framing::{self, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
-use crate::plugin_gate::PluginFetch;
+use crate::plugin_gate::{CALL_BACKS, PluginFetch, admit_call_back};
 use crate::tasks::TaskOwner;
 use crate::transition::Refusal;
 use crate::wire::{self, Received};
@@ -90,10 +89,6 @@ const MAILBOX: usize = 64;
 
 /// How many bytes it reads from the Plugin at once.
 const READ_BYTES: usize = 64 * 1024;
-
-/// How many of the Plugin's call backs run at once; one past them is
-/// refused.
-pub const CALL_BACKS: usize = 16;
 
 /// What starts a process Plugin's instance.
 #[derive(Debug)]
@@ -505,26 +500,20 @@ impl Running {
         id: RequestId,
         call: &framing::Call,
     ) {
-        let params = match served(call) {
+        let admitted = served(call).and_then(|params| {
+            admit_call_back(
+                &instance.waiting,
+                instance.call_backs.running,
+                &params.call_id,
+            )
+            .map(|()| params)
+        });
+        let params = match admitted {
             Ok(params) => params,
-            Err(error) => return write(&self.stopping, stdin, &error_line(id, &error)).await,
+            Err(error) => {
+                return write(&self.stopping, stdin, &call_back_line(id, Some(Err(error)))).await;
+            }
         };
-        let refusal = if !instance.waiting.contains_key(&params.call_id) {
-            Some(format!(
-                "the Plugin called back naming {:?}, which is no call it serves",
-                params.call_id
-            ))
-        } else if instance.call_backs.running >= CALL_BACKS {
-            Some(format!(
-                "the Plugin has {CALL_BACKS} call backs running, the most at once"
-            ))
-        } else {
-            None
-        };
-        if let Some(refusal) = refusal {
-            let error = code(&PLUGIN_CALL_BACK_REFUSED, &refusal);
-            return write(&self.stopping, stdin, &error_line(id, &error)).await;
-        }
         let call_backs = &mut instance.call_backs;
         let stopped = call_backs
             .serving
@@ -535,21 +524,9 @@ impl Running {
         let answers = call_backs.answers.clone();
         let fetch = Arc::clone(&self.plugin.fetch);
         self.owner.spawn(async move {
-            let line = match stopped.run_until_cancelled(fetch.fetch(params)).await {
-                Some(Ok(result)) => wire::success_line(&id, &result).unwrap_or_else(|error| {
-                    error_line(id, &internal(&format!("a `net.fetch` result encodes: {error}")))
-                }),
-                Some(Err(error)) => error_line(id, &error),
-                None => error_line(
-                    id,
-                    &code(
-                        &CALL_CANCELLED,
-                        "the call the Plugin's `net.fetch` served was answered, or the instance stopped",
-                    ),
-                ),
-            };
+            let outcome = stopped.run_until_cancelled(fetch.fetch(params)).await;
             // An instance that ended reads no answer.
-            let _ = answers.send(line).await;
+            let _ = answers.send(call_back_line(id, outcome)).await;
         });
     }
 
@@ -768,13 +745,21 @@ fn served(call: &framing::Call) -> Result<NetFetchParams, CallError> {
     })
 }
 
-/// The line that answers the Plugin's call back `id` with `error`.
-fn error_line(id: RequestId, error: &CallError) -> Vec<u8> {
-    wire::line(&ErrorResponse {
-        jsonrpc: Version,
-        id: Some(id),
-        error: error.to_error_object(),
-    })
+/// The line that answers the Plugin's call back `id` with `outcome`: its
+/// result, its failure, or none when it was cancelled before it ended.
+fn call_back_line(id: RequestId, outcome: Option<Result<NetFetchResult, CallError>>) -> Vec<u8> {
+    let failure = match outcome {
+        Some(Ok(result)) => match wire::success_line(&id, &result) {
+            Ok(line) => return line,
+            Err(error) => internal(&format!("a `net.fetch` result encodes: {error}")),
+        },
+        Some(Err(error)) => error,
+        None => code(
+            &CALL_CANCELLED,
+            "the call the Plugin's `net.fetch` served was answered, or the instance stopped",
+        ),
+    };
+    wire::failure_line(Some(id), failure.to_error_object())
 }
 
 /// Logs one of the Plugin's stray messages, handled as a malformed answer.
@@ -818,3 +803,6 @@ fn cancelled() -> CallError {
         "the Plugin's instance stopped with its run or its task",
     )
 }
+
+#[cfg(test)]
+mod tests;

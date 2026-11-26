@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 
-use goodfetch_protocol::jsonrpc::{RequestId, Version};
+use goodfetch_protocol::jsonrpc::{ErrorObject, ErrorResponse, RequestId, Version};
 use serde::de::{self, DeserializeOwned, DeserializeSeed, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::RawValue;
@@ -139,6 +139,16 @@ pub(crate) fn success_line(
     })?;
     line.push(b'\n');
     Ok(line)
+}
+
+/// The line of a failure, `error` answering the request `id`, or a message
+/// whose id could not be read.
+pub(crate) fn failure_line(id: Option<RequestId>, error: ErrorObject) -> Vec<u8> {
+    line(&ErrorResponse {
+        jsonrpc: Version,
+        id,
+        error,
+    })
 }
 
 /// The line of `message`, a message of JSON values.

@@ -67,8 +67,9 @@ pub use self::report::{
 };
 pub use self::starts::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, DETACH_UNSUPPORTED,
-    DetachUnsupportedDetails, RECIPE_START, RUN_TARGET_UNBUILT, RecipeStartParams, Recording,
-    RecordingMode, RunTargetUnbuiltDetails,
+    DetachUnsupportedDetails, RECIPE_START, RECORDING_INVALID, RESPONSE_NOT_RECORDED,
+    RUN_TARGET_UNBUILT, RecipeStartParams, Recording, RecordingInvalidDetails, RecordingMode,
+    ResponseNotRecordedDetails, RunTargetUnbuiltDetails,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -684,6 +685,36 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub limits: Vec<RunLimit>,
+    /// How long the Run may last, in milliseconds, at least 1, as
+    /// `timeout.run` for this Run (ADR 0080): absent for the setting's
+    /// value, `null` for none. Past it, the Run checkpoints and stops at
+    /// its next safe point, resumable; a start that resumes it counts its
+    /// own on a fresh clock (ADR 0102).
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.run"))]
+    pub timeout: Option<Option<u64>>,
+    /// The Run's Plan file (ADR 0091), on the program's machine, relative
+    /// to its working directory: an input of the Run, which a start that
+    /// names the Run again gives unchanged, else it fails with
+    /// `run_conflict`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plan: Option<String>,
+    /// The Response recording the Run replays or records (ADR 0105): an
+    /// input of the Run, as `plan` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording: Option<Recording>,
+    /// The third-party Plugins, by name, whose changed digest a start that
+    /// resumes the Run accepts (ADR 0033), where it would otherwise refuse
+    /// the resume.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub accept_plugin_change: Vec<String>,
 }
 
 /// What a start did with its Run: began it, resumed it, or found it ended
@@ -1065,6 +1096,10 @@ pub enum StartInput {
     Caller,
     /// A crawl's seeds.
     Seeds,
+    /// The Plan file's path (ADR 0091).
+    Plan,
+    /// The Response recording (ADR 0105).
+    Recording,
 }
 
 /// What `run_conflict` details.
@@ -1450,6 +1485,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_INTERRUPTED,
         RUN_TARGET_UNBUILT,
         DETACH_UNSUPPORTED,
+        RESPONSE_NOT_RECORDED,
+        RECORDING_INVALID,
     ],
     plugin_kinds: &[],
     metrics: &[],

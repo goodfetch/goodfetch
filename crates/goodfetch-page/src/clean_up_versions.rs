@@ -54,8 +54,7 @@ use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::{RunState, run_row};
 use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::runs::{
-    self, Answering, Chosen, CleanUpVersions, Fallback, Holding, ReportWarnings, RulesContext, Run,
-    identity, run_trace, warnings,
+    Answering, Chosen, CleanUpVersions, Fallback, Holding, ReportWarnings, RulesContext, RunParts,
 };
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
@@ -164,12 +163,12 @@ pub(crate) struct ListsRun {
 
 impl ListsRun {
     /// What loading `run`'s Filter lists uses of it.
-    pub(crate) fn of(run: &Run) -> Self {
+    pub(crate) fn of(run: &RunParts) -> Self {
         Self {
-            identity: identity(run).clone(),
-            state: runs::state(run).clone(),
-            trace: run_trace(run).clone(),
-            warnings: warnings(run).clone(),
+            identity: run.identity.clone(),
+            state: run.state.clone(),
+            trace: run.trace.clone(),
+            warnings: run.warnings.clone(),
         }
     }
 }
@@ -644,7 +643,7 @@ impl Versions {
             entry["fallback"] = json!({ "reason": fallback.reason, "message": fallback.message });
             entry["recorded"] = json!(recorded);
         }
-        trace::provenance_in(&run.trace, entry).await;
+        trace::provenance(&run.trace, entry).await;
         if let Some(fallback) = fallback {
             warn_of(run, &fallback).await;
         }
@@ -731,7 +730,7 @@ impl Versions {
                 Err(failure) if self.fall_back(run, &digest) => {
                     let fallback =
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
-                    trace::provenance_in(
+                    trace::provenance(
                         &run.trace,
                         json!({
                             "action": "clean_up_rules",
@@ -987,7 +986,7 @@ impl CleanUpVersions for Versions {
 
     fn held<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a RunParts,
         holding: Holding,
         context: RulesContext<'a>,
     ) -> Answering<'a, ()> {

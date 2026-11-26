@@ -9,7 +9,8 @@
 //! The page is the `content-coding` family's gzip page, over plain HTTP.
 //! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, those
 //! of its redirect chains `chain`'s, and its Response cache cases (ADR
-//! 0046) `cached`'s, those of the cache's bounds `bounded`'s.
+//! 0046) `cached`'s, those of the cache's bounds `bounded`'s and those of
+//! its upkeep `upkeep`'s.
 
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::PAGE_FORMATS;
@@ -25,6 +26,7 @@ mod bounded;
 pub(super) mod cached;
 mod chain;
 mod edge;
+mod upkeep;
 
 /// The task whose page the crawl fetches: labelled `gzip`.
 const TASK: &str = "content-coding/8";
@@ -58,6 +60,11 @@ pub(crate) enum Case {
     SizeCapEvictsTheLeastRecentlyUsed,
     AgeCeilingServesNothingOlder,
     LowStorageStoresNothingNew,
+    CriticalStorageStartsNoRun,
+    DiscardDeletesTheRunsEntries,
+    VerifyReportsATamperedBody,
+    PartitionClearLeavesTheOthersServed,
+    DomainClearLeavesTheOthersServed,
 }
 
 impl Case {
@@ -133,13 +140,28 @@ impl Case {
             "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served" => {
                 Some(Self::LowStorageStoresNothingNew)
             }
+            "at-the-critical-storage-level-no-run-starts-and-nothing-held-is-lost" => {
+                Some(Self::CriticalStorageStartsNoRun)
+            }
+            "discarding-a-run-deletes-its-cache-entries-and-no-other-runs" => {
+                Some(Self::DiscardDeletesTheRunsEntries)
+            }
+            "cache-verify-reports-an-entry-whose-body-was-tampered-with" => {
+                Some(Self::VerifyReportsATamperedBody)
+            }
+            "cache-clear-of-a-partition-leaves-the-other-entries-served" => {
+                Some(Self::PartitionClearLeavesTheOthersServed)
+            }
+            "cache-clear-of-a-domain-leaves-the-other-domains-entries-served" => {
+                Some(Self::DomainClearLeavesTheOthersServed)
+            }
             _ => None,
         }
     }
 
     /// Runs the case on `connection` against `site`, the target's
     /// Goodfetch home `home`, if known, holding the user configuration the
-    /// bounds cases set.
+    /// bounds cases set and the body file the verify case changes.
     pub(super) fn run(
         self,
         connection: &mut Connection,
@@ -176,6 +198,17 @@ impl Case {
             }
             Self::LowStorageStoresNothingNew => {
                 bounded::low_storage(connection, home, site, checks)
+            }
+            Self::CriticalStorageStartsNoRun => {
+                bounded::critical_storage(connection, home, site, checks)
+            }
+            Self::DiscardDeletesTheRunsEntries => upkeep::discard(connection, site, checks),
+            Self::VerifyReportsATamperedBody => upkeep::verify(connection, home, site, checks),
+            Self::PartitionClearLeavesTheOthersServed => {
+                upkeep::partition_clear(connection, site, checks)
+            }
+            Self::DomainClearLeavesTheOthersServed => {
+                upkeep::domain_clear(connection, site, checks)
             }
         }
     }

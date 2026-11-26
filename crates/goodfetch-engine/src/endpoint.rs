@@ -321,7 +321,7 @@ fn names_an_address(host: Option<&str>) -> bool {
 
 /// Where a listener records its refusals: the user's Audit log, each entry
 /// at the clock's wall time. A listener outside `transport`, such as a Session's proxy relay,
-/// takes its Run's ([`crate::runs::Run::refusals`]). Every refusal is
+/// takes the engine's ([`crate::EngineContext::refusals`]). Every refusal is
 /// logged, and each listener records at most `audit.refusals_per_minute`
 /// of them in a minute, from its first: once the minute ends, one
 /// `endpoint_refusals_folded` entry counts those past them, so a Client

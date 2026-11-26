@@ -1,6 +1,6 @@
 //! Collie's pages, Sessions and the browsers behind them (spec #577): the
-//! driver, which drives Chromium-family browsers over their debugging pipe
-//! through the CDP client, the Session-level driver every browser behind a
+//! CDP module, whose driver drives Chromium-family browsers over their
+//! debugging pipe through the CDP client, the Session-level driver every browser behind a
 //! Session shares (ADR 0129), and the page API's operation handlers, which
 //! the composition value [`contribution`] hands to the engine (ADR 0087),
 //! and the pure functions both Products' code calls: the engine's one URL
@@ -15,15 +15,14 @@
 
 mod access_mode;
 pub mod blocks;
-mod borrowed;
 mod browser_fetch;
+mod browser_run;
 mod cdp;
 mod clean_up_versions;
 mod consent;
 mod consent_walls;
 mod dialogs;
 pub mod document_request;
-mod driver;
 mod egress_relay;
 mod errors;
 pub mod extractor;
@@ -34,7 +33,6 @@ mod hiding;
 mod init_scripts;
 mod interception;
 pub mod kept_tree;
-mod launch;
 #[cfg(test)]
 mod live_run;
 pub mod noindex;
@@ -60,8 +58,9 @@ mod trace;
 pub mod url_pattern;
 mod version_check;
 
+pub use browser_run::BrowserRun;
+pub use cdp::launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use clean_up_versions::manifest_file;
-pub use launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use pages::{contribution, contribution_with};
 /// The proxy-or-site rule (spec #577): who answered a request sent through
 /// a proxy, which Foxhound's fetch tiers apply to their own answers too

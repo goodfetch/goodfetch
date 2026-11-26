@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use bytestring::ByteString;
 use goodfetch_counted_work::{CountedWork, ParsedHtml};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_extractor::{BuiltIn, Chosen, Serialization};
 use goodfetch_protocol::page::{FormatsRequest, PageFormats, PageId};
@@ -45,7 +45,7 @@ impl ServedFormatsReader {
     /// documents, read with `label`, their Label's `content.extractor`, and
     /// `cosmetic`, the Run's cosmetic rules for them.
     pub(crate) fn of(
-        run: &Run,
+        run: &RunIdentity,
         request: FormatsRequest,
         label: Option<BuiltIn>,
         cosmetic: Option<Cosmetic>,

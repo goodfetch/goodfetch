@@ -50,7 +50,7 @@ use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_SERVE, CRAWL_START, CrawlExtraction, CrawlStartParams, LabelDeclaration, Seed,
+    CRAWL_SERVE, CRAWL_START, CrawlStartParams, LabelDeclaration, Seed,
 };
 use goodfetch_protocol::foxhound::frontier::PAYLOAD_SCHEMA_CHANGED;
 use goodfetch_protocol::foxhound::hook::CrawlHookDeclaration;
@@ -63,7 +63,7 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::settings::{RunOrigin, TIMEOUT_RUN};
 
-use crate::code_free::{self, CodeFree};
+use crate::code_free::{self, CodeFree, CodeFreeCrawl};
 use crate::crawl_run::CrawlRun;
 use crate::delivery;
 use crate::enqueue;
@@ -152,7 +152,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(run, context.runs());
+                    let run = CrawlRun::of(&run, &context);
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -212,13 +212,14 @@ async fn serve(
 }
 
 /// What gives the crawl `params` start a handler in the program, if
-/// anything does: its program's crawl handler when it has no `extraction`,
-/// else its Hooks in code (ADRs 0102 and 0104).
+/// anything does: its program's crawl handler when it has neither
+/// `extraction` nor `declaration`, else its Hooks in code (ADRs 0102 and
+/// 0104).
 fn in_program(params: &CrawlStartParams) -> Option<InProgram> {
-    if params.extraction.is_none() {
+    if params.extraction.is_none() && params.declaration.is_none() {
         return Some(InProgram {
             key: "extraction",
-            fix: "Give the crawl an `extraction`, so the engine handles each request itself, or start it without `detached`.",
+            fix: "Give the crawl an `extraction` or a `declaration`, so the engine handles each request itself, or start it without `detached`.",
         });
     }
     (!params.hooks.is_empty()).then_some(InProgram {
@@ -248,7 +249,7 @@ async fn start(
     let given = std::mem::take(&mut params.limits);
     let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();
-    let pages = code_free::declare(&mut params, &pages, &work).await?;
+    let pages = code_free::declare(&mut params, &pages, &work, &context).await?;
     let settings = opened_settings(&mut params, &context).await?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;
@@ -274,7 +275,8 @@ async fn start(
     };
     let (declared, opening, serving) = (params.labels, datasets.clone(), invariants.clone());
     let admitted = code_free::admitted(params.extraction.as_ref(), checked);
-    let (recording, extraction) = (params.extraction.clone(), params.extraction);
+    let crawl = CodeFreeCrawl::of(params.extraction, params.declaration);
+    let recording = crawl.clone();
     let hooks = params.hooks;
     let started = context
         .runs()
@@ -305,7 +307,7 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            let run = CrawlRun::of(run, context.runs());
+            let run = CrawlRun::of(&run, &context);
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,
@@ -318,7 +320,7 @@ async fn start(
                 run.end.end(delivery::failed(&run.identity, &error)).await;
                 return Err(error);
             }
-            let code_free = CodeFree::of(extraction, &crawls, &tiers, &run.identity);
+            let code_free = CodeFree::of(crawl, &crawls, &tiers, &run.identity);
             run.identity.spawn(delivery::drive(
                 Arc::clone(&run),
                 context.clone(),
@@ -332,16 +334,17 @@ async fn start(
         // An interrupted Run resumes under the declarations this start
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
-            let kept = (opening, declared, serving.payloads().clone(), extraction);
+            let kept = (opening, declared, serving.payloads().clone(), crawl);
             // A crawl still ending the Run keeps nothing: the reopen is then
             // checked as no start's (ADR 0104's note of #2912).
             let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            let resumed = resume_run(&context, run_id, None, settings, kept).await?;
+            let timeout = settings.resolved().get(&TIMEOUT_RUN);
+            let resumed = resume_run(&context, run_id, None, settings, timeout, kept).await?;
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }
         Started::Ended(ended) => {
-            let kept = (opening, declared, serving.payloads().clone(), extraction);
+            let kept = (opening, declared, serving.payloads().clone(), crawl);
             redeclared.keep(&ended.run_id, kept, hooks, &crawls).await;
             limits.give(&ended, &context).await?;
             Ok(ended)
@@ -374,15 +377,15 @@ async fn opened_settings(
 }
 
 /// A new crawl's first rows: its `invariants`, declared Labels, Datasets,
-/// code-free extraction and Hooks in code, then its `admitted` seeds,
-/// keyed with `keys` when its gates key work items and under the `seeding`
-/// egress policy.
+/// code-free extraction or declaration and Hooks in code, then its
+/// `admitted` seeds, keyed with `keys` when its gates key work items and
+/// under the `seeding` egress policy.
 fn initialize(
     invariants: Invariants,
     (declared, datasets, recording, hooks): (
         BTreeMap<String, LabelDeclaration>,
         Datasets,
-        Option<CrawlExtraction>,
+        Option<CodeFreeCrawl>,
         Vec<CrawlHookDeclaration>,
     ),
     keys: Option<Keys>,

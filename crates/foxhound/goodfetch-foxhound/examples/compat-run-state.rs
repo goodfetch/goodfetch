@@ -31,8 +31,9 @@
 //! escalation, its position in the `egress.local_addresses` rotation and
 //! the address block it blocked, and its domain's proxy tier; a code-free
 //! crawl, whose extraction its run file keeps, of one seed
-//! `crawl.max_segment_repeats` refuses, so it finishes at once; and a Run its
-//! program drives, under an Operator policy and with a setting that
+//! `crawl.max_segment_repeats` refuses, so it finishes at once, and one
+//! declared as data, whose declaration its run file keeps, of that seed;
+//! and a Run its program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
 //! row and an archive over 1 MiB as a kept file, whose run
 //! state holds its data key wrapped, and whose Effect journal holds an
@@ -55,7 +56,7 @@
 //! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
-//! only argument: `crawl.sql`, `code-free.sql`, `aborted.sql`,
+//! only argument: `crawl.sql`, `code-free.sql`, `declared.sql`, `aborted.sql`,
 //! `paused.sql` and `unclean.sql`, a Run at `off` whose writer then opens
 //! its file again and ends as a crash ends it, without clearing its
 //! "unclean" mark; and the
@@ -79,7 +80,7 @@ use goodfetch_engine::robots_txt::Answer;
 use goodfetch_engine::run_files::FileKind;
 use goodfetch_engine::run_key::{self, StoredKey, Wrapped};
 use goodfetch_engine::run_state::{Durability, RunState, RunStateOptions};
-use goodfetch_engine::runs::{self, EndedBy, Start, Started};
+use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -248,6 +249,26 @@ fn scenario() -> Vec<Value> {
                 "settings": { "fetch": fetch, "network": network },
             }),
         ),
+        call(
+            24,
+            "crawl.start",
+            json!({
+                "run_id": "declared",
+                "seeds": [{ "url": "https://shop.test/more/more/more/", "label": "page" }],
+                "declaration": {
+                    "labels": [{
+                        "name": "page",
+                        "follow": [{ "links": "a", "label": "page", "include": ["https://shop.test/**"] }],
+                        "extract": [{
+                            "dataset": "titles",
+                            "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+                        }],
+                    }],
+                    "datasets": [{ "name": "titles" }],
+                },
+                "settings": { "fetch": fetch, "network": network },
+            }),
+        ),
         // A Run at `off`, whose file the writer reopens below.
         call(
             17,
@@ -326,7 +347,7 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
         ),
         key_reference: "secretfile:run-state-key".to_owned(),
     };
-    runs::state(&run)
+    run.state
         .write(move |connection| run_key::store(connection, &stored))
         .await
         .expect("the wrapped data key is kept");
@@ -352,7 +373,7 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
     let run = context.runs().live(run_id).await.expect("the Run is live");
     let secret: Vec<u8> = (0..32).map(|byte: u8| byte.wrapping_mul(53)).collect();
     let sent = params["sent"].as_str().map(str::to_owned);
-    runs::state(&run)
+    run.state
         .write(move |connection| {
             connection.execute("INSERT INTO effect_secret (id, secret) VALUES (1, ?1)", [secret])?;
             if let Some(key) = sent {
@@ -398,7 +419,7 @@ const LEARNED: Operation = Operation {
 async fn learned(params: Value, context: CallContext) -> Result<Value, CallError> {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
     let run = context.runs().live(run_id).await.expect("the Run is live");
-    runs::state(&run)
+    run.state
         .write(|connection| {
             let mut statement = connection.prepare(
                 "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/items%' ORDER BY position",
@@ -740,13 +761,13 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             sessions: vec!["laptop".to_owned()],
             folder: Some("runs/paused".to_owned()),
         };
-        let warnings = runs::warnings(&run);
+        let warnings = &run.warnings;
         warnings.warn(warning).await.expect("the warning is kept");
         warnings
             .nothing_done(NothingDone::NothingPending)
             .await
             .expect("`nothingDone` is kept");
-        runs::charging(&run)
+        run.charging
             .charge_part("proxy_bytes", "datacenter", 4_096, None)
             .await
             .expect("the proxy bytes are counted");
@@ -770,12 +791,12 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             ),
         ] {
             let location = url::Url::parse(location).expect("a robots.txt URL");
-            runs::own_robots_txt(&run)
+            run.own_robots_txt
                 .copy_or_fetch(&location, async { Ok(answer) })
                 .await
                 .expect("the copy is read");
         }
-        runs::files(&run)
+        run.files
             .keep_file(
                 FileKind::Download,
                 "books.csv".to_owned(),
@@ -792,7 +813,7 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
         let sealed_source: Vec<u8> = std::iter::once(1_u8)
             .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
             .collect();
-        runs::state(&run)
+        run.state
             .write(move |connection| {
                 connection
                     .execute(
@@ -963,7 +984,14 @@ async fn leave_unclean(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Writes each Run's file in `runs`, as SQL text, into `folder`.
 fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    for run_id in ["crawl", "code-free", "aborted", "paused", "unclean"] {
+    for run_id in [
+        "crawl",
+        "code-free",
+        "declared",
+        "aborted",
+        "paused",
+        "unclean",
+    ] {
         let connection = rusqlite::Connection::open(runs.join(run_id).join(RUN_FILE))?;
         std::fs::write(
             folder.join(format!("{run_id}.sql")),

@@ -359,6 +359,11 @@ impl TaskStarter {
         self.token.cancelled().await;
     }
 
+    /// Whether the owner is cancelled already.
+    pub fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
     /// Its blocking policy.
     pub fn policy(&self) -> BlockingPolicy {
         self.policy

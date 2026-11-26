@@ -22,21 +22,18 @@
 //! gesture's turn.
 
 mod check;
-mod keys;
 mod target;
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::SessionId as TargetSession;
-use goodfetch_cdp::generated::input::DispatchKeyEventParams;
-use goodfetch_cdp::generated::runtime::ExecutionContextId;
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::RunSendWindow;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Form};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{Count, ElementState};
@@ -45,8 +42,8 @@ use goodfetch_protocol::settings::SettingLimit;
 use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
-use crate::cdp::CdpPage;
-use crate::driver::PageDriver;
+use crate::cdp::driver::PageDriver;
+use crate::cdp::{CdpPage, ExecutionContextId, KeyPress, TargetSession, keys};
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;
@@ -73,8 +70,8 @@ pub(crate) enum Action {
     Click,
     /// Replaces its text with this text.
     Fill(String),
-    /// Sends these key events to it.
-    Press(Vec<DispatchKeyEventParams>),
+    /// Sends this key press to it.
+    Press(KeyPress),
 }
 
 impl Action {
@@ -154,10 +151,10 @@ pub(crate) struct Request<'a> {
 /// naming the attempt when a handler's page, whose bodies the first command
 /// that may change the page marks sent.
 pub(crate) struct SentMark<'a> {
-    /// The page's Run.
-    pub(crate) run: &'a Run,
+    /// The send window of the page's Run.
+    pub(crate) window: &'a RunSendWindow,
     /// The page's lease, when a handler's page.
-    pub(crate) lease: Option<&'a dyn LeaseCheck>,
+    pub(crate) lease: Option<Arc<dyn LeaseCheck>>,
 }
 
 impl SentMark<'_> {
@@ -169,7 +166,7 @@ impl SentMark<'_> {
     /// `run_state_unavailable` when the mark could not be written:
     /// `command` must not go out.
     pub(crate) async fn mark(&self, command: &str) -> Result<(), CallError> {
-        self.run.sending(self.lease, command).await
+        self.window.sending(self.lease.as_deref(), command).await
     }
 }
 

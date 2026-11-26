@@ -1,0 +1,17 @@
+{
+  "format": "peer-protocol",
+  "rule": "lower_minor",
+  "reader": "0.1",
+  "found": "0.1",
+  "compatibility": "compatible",
+  "hello": {
+    "from": "group_member",
+    "engine": "foxhound",
+    "needs": "foxhound",
+    "reply": {
+      "accepted": {
+        "protocol_version": "0.1"
+      }
+    }
+  }
+}

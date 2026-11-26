@@ -101,6 +101,18 @@ number = 3
 kind = "format"
 prefix = "protocol"
 
+# The Daemon group's peer link (spec #213, #242): its peer protocol and the
+# lead epoch's refusal.
+[[area]]
+number = 3
+kind = "format"
+prefix = "peer-protocol"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_epoch"
+
 # Area 3's Runs (spec #213, #215): the run operations, a crawl's start, their
 # Error codes, run state's location and the run-state and Run index formats.
 # `run.new_page` is area 5's.

@@ -1,0 +1,17 @@
+{
+  "format": "peer-protocol",
+  "rule": "lower_minor",
+  "reader": "0.1",
+  "found": "0.0",
+  "compatibility": "older_major",
+  "hello": {
+    "from": "group_member",
+    "engine": "collie",
+    "needs": "collie",
+    "reply": {
+      "refused": {
+        "error_code": "protocol_version_unsupported"
+      }
+    }
+  }
+}

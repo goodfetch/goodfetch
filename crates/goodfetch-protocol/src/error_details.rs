@@ -157,6 +157,7 @@ details! {
     crate::foxhound::sql_tab::QueryInvalidDetails => foxhound::QUERY_INVALID,
     crate::foxhound::sql_tab::QueryMemoryExceededDetails => foxhound::QUERY_MEMORY_EXCEEDED,
     crate::governor::PageMemoryExceededDetails => ErrorCode::PAGE_MEMORY_EXCEEDED,
+    crate::group::LeadEpochStaleDetails => ErrorCode::LEAD_EPOCH_STALE,
     crate::hook::HookFailedDetails => ErrorCode::HOOK_FAILED,
     crate::hostile_input::HeaderValueInvalidDetails => ErrorCode::HEADER_VALUE_INVALID,
     crate::hostile_input::PathUnsafeDetails => ErrorCode::PATH_UNSAFE,

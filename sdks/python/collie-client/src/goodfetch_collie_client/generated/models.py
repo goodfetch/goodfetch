@@ -1680,6 +1680,27 @@ class KnownCertificateFailure(StrEnum):
     """Its issuer revoked it."""
 
 
+class LeadEpoch(RootModel[int]):
+    root: Annotated[int, Field(ge=0)]
+    """
+    A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
+    promoted takes a higher one, and a Group member refuses a peer message
+    carrying a lower epoch than the highest it has recorded.
+    """
+
+
+class LeadEpochStaleDetails(BaseModel):
+    """What `lead_epoch_stale` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    highest_lead_epoch: LeadEpoch
+    """The highest lead epoch the receiver has recorded."""
+    lead_epoch: LeadEpoch
+    """The lead epoch the refused message carried."""
+
+
 class Lifecycle(StrEnum):
     """Where a Run is (ADR 0029)."""
 
@@ -7204,12 +7225,17 @@ class NotInProductDetails(BaseModel):
     """
     install: str | None = None
     """
-    The command that installs the Product `needs` from the engine's own
-    channel, which `fix` names; none behind Goodfetch Cloud's gateway,
-    where an install would not help (ADR 0096).
+    The command that installs, from the engine's own channel, the
+    Product `fix` names: `needs`, or for a Group member the group's
+    Product, `product`; none behind Goodfetch Cloud's gateway, where an
+    install would not help (ADR 0096).
     """
     needs: Product
-    """The Product that carries what was asked."""
+    """
+    The Product that carries what was asked; for a Group member's
+    `hello` on the peer link, the Product that Group member runs (ADR
+    0095).
+    """
     product: Product
     """The running engine's Product."""
     product_version: ProductVersion

@@ -34,6 +34,7 @@ pub mod formats;
 pub mod foxhound;
 pub mod foxhound_names;
 pub mod governor;
+pub mod group;
 pub mod home;
 pub mod hook;
 pub mod hostile_input;

@@ -1,0 +1,19 @@
+---
+source: crates/goodfetch-engine/src/group/tests.rs
+expression: "serde_json::to_string_pretty(&sent).unwrap()"
+---
+{
+  "error": {
+    "code": -32006,
+    "data": {
+      "client_protocol_version": "0.2",
+      "code": "protocol_version_unsupported",
+      "engine_protocol_version": "0.1",
+      "fix": "Upgrade this Daemon to a version that speaks peer protocol 0.2.",
+      "retryable": false
+    },
+    "message": "This Group member speaks peer protocol 0.2, and this Daemon speaks 0.1."
+  },
+  "id": 0,
+  "jsonrpc": "2.0"
+}

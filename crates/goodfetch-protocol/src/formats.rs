@@ -18,6 +18,7 @@ use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, Value
 use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
+use crate::group::PEER_PROTOCOL_VERSION;
 use crate::jsonrpc::Message;
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
@@ -483,6 +484,21 @@ pub const PLUGIN_MANIFEST: Format = Format {
     schema: schema_of::<PluginManifest>,
 };
 
+/// The peer protocol between the Group members of a Daemon group (ADRs
+/// 0055, 0066 and 0095): the Group member that connects opens it with
+/// `hello`, and both settle on the lower minor of their major, so only
+/// another major is refused, as is a Group member of the other Product. Its
+/// corpus holds what each side sends, `connecting.jsonl` and
+/// `accepting.jsonl`.
+pub const PEER_PROTOCOL: Format = Format {
+    name: "peer-protocol",
+    version: PEER_PROTOCOL_VERSION,
+    storage: Storage::Transcript,
+    rule: Rule::LowerMinor,
+    hello_from: &[HelloFrom::GroupMember],
+    schema: schema_of::<Message>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -504,6 +520,7 @@ pub const FORMATS: &[&Format] = &[
     &RECIPE_MANIFEST,
     &PLUGIN_PROTOCOL,
     &PLUGIN_MANIFEST,
+    &PEER_PROTOCOL,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

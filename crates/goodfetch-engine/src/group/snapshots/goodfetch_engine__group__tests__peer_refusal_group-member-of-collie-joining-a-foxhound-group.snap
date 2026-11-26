@@ -1,0 +1,21 @@
+---
+source: crates/goodfetch-engine/src/group/tests.rs
+expression: "serde_json::to_string_pretty(&sent).unwrap()"
+---
+{
+  "error": {
+    "code": -32006,
+    "data": {
+      "code": "not_in_product",
+      "fix": "Start that Daemon with Foxhound, the group's Product (`brew install goodfetch/tap/goodfetch-foxhound`): Group members run one Product.",
+      "install": "brew install goodfetch/tap/goodfetch-foxhound",
+      "needs": "collie",
+      "product": "foxhound",
+      "product_version": "0.4.0",
+      "retryable": false
+    },
+    "message": "This Group member runs Collie, and this Daemon group runs Foxhound 0.4.0."
+  },
+  "id": 0,
+  "jsonrpc": "2.0"
+}

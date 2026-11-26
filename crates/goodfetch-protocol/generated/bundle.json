@@ -10343,6 +10343,32 @@
       ],
       "type": "object"
     },
+    "LeadEpoch": {
+      "description": "A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon\npromoted takes a higher one, and a Group member refuses a peer message\ncarrying a lower epoch than the highest it has recorded.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "LeadEpochStaleDetails": {
+      "description": "What `lead_epoch_stale` details.",
+      "properties": {
+        "highest_lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The highest lead epoch the receiver has recorded."
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The lead epoch the refused message carried."
+        }
+      },
+      "required": [
+        "lead_epoch",
+        "highest_lead_epoch"
+      ],
+      "type": "object"
+    },
     "LearnedRule": {
       "description": "A URL rule the Frontier learned from the pages it fetched (ADRs 0005\nand 0120), on one host and so never across a registrable domain, with\nits evidence and every URL it merged, so each merge can be audited.",
       "properties": {
@@ -13184,7 +13210,7 @@
         },
         "install": {
           "arrived_in": "0.1",
-          "description": "The command that installs the Product `needs` from the engine's own\nchannel, which `fix` names; none behind Goodfetch Cloud's gateway,\nwhere an install would not help (ADR 0096).",
+          "description": "The command that installs, from the engine's own channel, the\nProduct `fix` names: `needs`, or for a Group member the group's\nProduct, `product`; none behind Goodfetch Cloud's gateway, where an\ninstall would not help (ADR 0096).",
           "type": [
             "string",
             "null"
@@ -13193,7 +13219,7 @@
         "needs": {
           "$ref": "#/$defs/Product",
           "arrived_in": "0.1",
-          "description": "The Product that carries what was asked."
+          "description": "The Product that carries what was asked; for a Group member's\n`hello` on the peer link, the Product that Group member runs (ADR\n0095)."
         },
         "product": {
           "$ref": "#/$defs/Product",
@@ -41017,6 +41043,18 @@
         "$ref": "#/$defs/PluginManifest"
       },
       "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [
+        "group_member"
+      ],
+      "name": "peer-protocol",
+      "rule": "lower_minor",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
       "version": "0.1"
     }
   ],

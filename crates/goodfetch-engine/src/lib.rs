@@ -41,6 +41,7 @@ pub mod executables;
 mod forward;
 pub mod framing;
 pub mod governor;
+pub mod group;
 pub mod happy_eyeballs;
 pub mod heap;
 pub mod home;

@@ -9,14 +9,14 @@ use crate::catalog::{
 };
 use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
-    egress, engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store,
-    log, model, needs_you, notifications, ops, page, plugin, politeness, recipe, response_cache,
-    response_limits, run, sample, schedule, schema_validator, secrets, security, settings,
-    site_preferences, skills, storage, tls, usage, versions,
+    egress, engine, events, executables, foxhound, governor, group, hook, hostile_input,
+    key_value_store, log, model, needs_you, notifications, ops, page, plugin, politeness, recipe,
+    response_cache, response_limits, run, sample, schedule, schema_validator, secrets, security,
+    settings, site_preferences, skills, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 69] = [
+pub const MODULES: [&Entries; 70] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -65,6 +65,7 @@ pub const MODULES: [&Entries; 69] = [
     &hook::ENTRIES,
     &plugin::ENTRIES,
     &plugin::extractor::ENTRIES,
+    &group::ENTRIES,
     &recipe::ENTRIES,
     &foxhound::ENTRIES,
     &foxhound::crawl::ENTRIES,

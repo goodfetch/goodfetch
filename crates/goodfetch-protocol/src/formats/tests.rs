@@ -275,7 +275,8 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("session-export", Rule::Default),
             ("recipe-manifest", Rule::Default),
             ("plugin-protocol", Rule::LowerMinor),
-            ("plugin-manifest", Rule::Default)
+            ("plugin-manifest", Rule::Default),
+            ("peer-protocol", Rule::LowerMinor)
         ]
     );
 }

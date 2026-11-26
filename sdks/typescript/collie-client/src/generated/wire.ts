@@ -77,6 +77,7 @@ export type CollieWireType =
   | "KindConcurrency"
   | "KindUsage"
   | "LastRead"
+  | "LeadEpochStaleDetails"
   | "Limit"
   | "LimitNotUnderstoodDetails"
   | "LimitRaiseRefusedDetails"
@@ -299,6 +300,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "KindConcurrency": { fields: { "in_use": "inUse" } },
     "KindUsage": { fields: { "usage_kind": "usageKind" } },
     "LastRead": { fields: { "engine_instance": "engineInstance" } },
+    "LeadEpochStaleDetails": { fields: { "highest_lead_epoch": "highestLeadEpoch", "lead_epoch": "leadEpoch" } },
     "Limit": { fields: { "must_understand": "mustUnderstand", "period": ["period", { type: "Period" }], "set_by": "setBy", "usage_kind": "usageKind" } },
     "LimitNotUnderstoodDetails": { fields: { "limit": ["limit", { type: "Limit" }] } },
     "LimitRaiseRefusedDetails": { fields: { "usage_kind": "usageKind" } },

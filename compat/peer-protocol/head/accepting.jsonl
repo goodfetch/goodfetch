@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":0,"result":{"lead_epoch":4,"protocol_version":"0.1"}}
+{"jsonrpc":"2.0","id":1,"error":{"code":-32002,"message":"the message carries lead epoch 3, lower than 4","data":{"code":"lead_epoch_stale","retryable":false,"highest_lead_epoch":4,"lead_epoch":3}}}

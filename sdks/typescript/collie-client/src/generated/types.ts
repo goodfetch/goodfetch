@@ -1091,6 +1091,15 @@ export type JudgedBy = "page_check" | "built_in";
  */
 export type KeyValueStoreContent = string;
 /**
+ * A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
+ * promoted takes a higher one, and a Group member refuses a peer message
+ * carrying a lower epoch than the highest it has recorded.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LeadEpoch".
+ */
+export type LeadEpoch = number;
+/**
  * Where a Run is (ADR 0029).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5156,6 +5165,22 @@ export interface KindUsage {
   usageKind: string;
 }
 /**
+ * What `lead_epoch_stale` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LeadEpochStaleDetails".
+ */
+export interface LeadEpochStaleDetails {
+  /**
+   * The highest lead epoch the receiver has recorded.
+   */
+  highestLeadEpoch: LeadEpoch;
+  /**
+   * The lead epoch the refused message carried.
+   */
+  leadEpoch: LeadEpoch;
+}
+/**
  * One Limit of the Usage ledger: a generic row, which a newer engine may
  * write with a scope kind, a Usage kind, a currency or a period this one
  * does not know (ADR 0041).
@@ -6238,13 +6263,16 @@ export interface NotInProductDetails {
    */
   handover?: boolean;
   /**
-   * The command that installs the Product `needs` from the engine's own
-   * channel, which `fix` names; none behind Goodfetch Cloud's gateway,
-   * where an install would not help (ADR 0096).
+   * The command that installs, from the engine's own channel, the
+   * Product `fix` names: `needs`, or for a Group member the group's
+   * Product, `product`; none behind Goodfetch Cloud's gateway, where an
+   * install would not help (ADR 0096).
    */
   install?: string | null;
   /**
-   * The Product that carries what was asked.
+   * The Product that carries what was asked; for a Group member's
+   * `hello` on the peer link, the Product that Group member runs (ADR
+   * 0095).
    */
   needs: Product;
   /**

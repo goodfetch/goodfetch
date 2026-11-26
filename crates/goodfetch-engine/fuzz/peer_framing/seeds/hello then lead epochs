@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":0,"method":"hello","params":{"protocol_version":"0.1","product":"foxhound","product_version":"0.4.0","lead_epoch":1}}
+{"jsonrpc":"2.0","id":1,"method":"group.lead_epoch","params":{"lead_epoch":3}}
+{"jsonrpc":"2.0","id":2,"method":"group.lead_epoch","params":{"lead_epoch":2}}
+{"jsonrpc":"2.0","id":3,"method":"hello","params":{"protocol_version":"0.1","product":"foxhound","product_version":"0.4.0","lead_epoch":3}}
+{"jsonrpc":"2.0","id":4,"method":"group.unknown","params":{"lead_epoch":3}}
+{"jsonrpc":"2.0","method":"group.lead_epoch","params":{"lead_epoch":9}}

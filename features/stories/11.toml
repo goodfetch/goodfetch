@@ -2623,6 +2623,33 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1080
+title = "As a developer, I want a crawl's `finish()` to return the `CrawlRunReport`, its requests by state, skip reason, Error code and Block cause, its Records per Dataset committed, dropped and rejected, its Sinks, learned rules and sitemaps beside every Run's parts, and `progress()` to read the crawl's `CrawlRunProgress`, so that I learn what a crawl did and is doing from typed values (ADRs 0102, 0120; RT-10, P04)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1081
+title = "As a developer, I want a crawl that hit `crawl.max_requests` to end `incomplete` and one whose URLs a cap refused to end `unverified`, each Completeness reason naming the setting and the count, and a crawl that handled no seed to say `nothingDone`, so that a report never passes a partial crawl off as whole (ADRs 0102, 0120; K05)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
+id = 1082
+title = "As a developer, I want a crawl's `stop()` to stop it at the next safe point with a Checkpoint and return its `stopped` report, a Run that ended `failed` to make `finish()` and `stop()` raise its error, a `timeout`, signal or dropped future to end only the wait, and `startCrawl` to take the Run's ID, tags and Limits, so that I end a crawl on my terms without losing its work (ADRs 0080, 0093, 0102)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1085
 title = "As a developer, I want Foxhound's widened types (`LimitScope` value `partitioned_crawl`, Usage kind `paid_fetch`, read in the shared `RunUsage.paidFetches`) to be the SDK's own while a Collie program keeps them as strings, so that a Partitioned crawl's Limit and a Paid fetch's count read as typed values (ADRs 0079, 0095; P56)."
 milestone = "M2 Client surfaces"

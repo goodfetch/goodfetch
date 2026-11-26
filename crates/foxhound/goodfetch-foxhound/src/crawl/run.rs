@@ -9,13 +9,14 @@ use std::task::{Context, Poll, ready};
 
 use futures_util::{Stream, StreamExt as _};
 use goodfetch_collie_client::{
-    BoxError, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
+    Answer, BoxError, Call, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
 };
 use goodfetch_protocol::foxhound::dataset::{
     DatasetRecord, RECORD, RUN_RECORDS, RecordRead, RunRecordsParams,
 };
+use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams};
+use goodfetch_protocol::run::{RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams};
 use serde_json::Value;
 
 use super::{
@@ -45,6 +46,52 @@ impl CrawlRun {
     /// The Run, with every member a Run has, such as `close`.
     pub fn run(&self) -> &Run {
         &self.run
+    }
+
+    /// Lets the crawl finish, as [`Run::finish`], and answers its report
+    /// typed as a crawl's (ADR 0102): its request totals, its Records per
+    /// Dataset and its Completeness, each reason naming the setting that
+    /// capped it and the count it refused. A keep-alive crawl ends once this
+    /// call lets it and its work items are done.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`Run::finish`]: a Run that ended `failed` fails with
+    /// the error that failed it, and the call's timeout passing fails it
+    /// with `deadline_exceeded`, ending only the wait.
+    pub fn finish(&self) -> Call<Answer<CrawlRunReport>, RunFinishParams> {
+        self.run.finish().typed()
+    }
+
+    /// Stops the crawl at its next safe point with a Checkpoint, as
+    /// [`Run::stop`], and answers its report typed as a crawl's, `stopped`.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`Run::stop`].
+    pub fn stop(&self) -> Call<Answer<CrawlRunReport>, RunStopParams> {
+        self.run.stop().typed()
+    }
+
+    /// Reads the crawl's report, as [`Run::report`], typed as a crawl's.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`Run::report`].
+    pub fn report(&self) -> Call<Answer<CrawlRunReport>, RunParams> {
+        self.run.report().typed()
+    }
+
+    /// Follows the crawl's progress, as [`Run::progress`], each value typed
+    /// as a crawl's: its request counts, and whether a keep-alive crawl
+    /// waits idle.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`Run::progress`]'s do, and with `internal` when a
+    /// value does not read as a crawl's progress.
+    pub fn progress(&self) -> EventStream<Answer<CrawlRunProgress>> {
+        self.run.progress().typed()
     }
 
     /// The Run's Crawl requests, for a program that answers them itself

@@ -19,6 +19,7 @@ mod blocked;
 mod catalog;
 mod connect_options;
 mod crawl;
+mod crawl_report;
 mod datasets;
 mod enqueue;
 mod foxhound_keys;

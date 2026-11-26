@@ -20,7 +20,10 @@ use std::sync::atomic::Ordering;
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt as _, StreamExt as _};
-use goodfetch_collie_client::{BoxError, ClientConnection, Error, EventStream, HandlerCall, Run};
+use goodfetch_collie_client::{
+    BoxError, ClientConnection, Error, EventStream, HandlerCall, Limits, Run,
+};
+use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::crawl::{
     CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
     CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
@@ -39,6 +42,7 @@ use serde_json::{Value, json};
 
 use crate::Foxhound;
 use crate::crawl_requests::CrawlRequests;
+use crate::settings::Settings;
 use crate::sync::AtomicU64;
 
 mod context;
@@ -692,6 +696,8 @@ pub struct StartCrawl {
     declared: Arc<[String]>,
     /// The start's params, or why the crawl cannot start.
     params: Result<CrawlStartParams, Error>,
+    /// The Run's own settings, which its params carry once checked.
+    settings: Settings,
 }
 
 impl StartCrawl {
@@ -709,6 +715,7 @@ impl StartCrawl {
             crawl: crawl.id,
             declared: crawl.declared().into(),
             params: crawl.start_params(seeds.into_iter().collect()),
+            settings: Settings::new(),
         }
     }
 
@@ -719,6 +726,37 @@ impl StartCrawl {
         if let Ok(params) = &mut self.params {
             params.run_id = Some(run_id.as_str().to_owned());
         }
+        self
+    }
+
+    /// Tags the Run, in place of any tags given before, as
+    /// [`Start::tags`](crate::Start::tags) does (ADR 0036).
+    pub fn tags(mut self, tags: Tags) -> Self {
+        if let Ok(params) = &mut self.params {
+            params.tags = tags;
+        }
+        self
+    }
+
+    /// Sets the Run's own `limits`, in place of any given before, as
+    /// [`Start::limits`](crate::Start::limits) does: each only lowers what
+    /// covers the Run, and a start that names the Run again lowers its
+    /// Limits and never raises them (ADRs 0080 and 0102).
+    pub fn limits(mut self, limits: Limits) -> Self {
+        if let Ok(params) = &mut self.params {
+            params.limits = limits.into();
+        }
+        self
+    }
+
+    /// Sets the Run's own settings, in place of any given before, as
+    /// [`Start::settings`](crate::Start::settings) does: what they leave
+    /// out the connection's settings give, and its Labels' own settings
+    /// override them for their requests (ADRs 0083 and 0093). A key a
+    /// Run's start does not set fails the start with
+    /// `setting_not_applicable` before anything is sent.
+    pub fn settings(mut self, settings: Settings) -> Self {
+        self.settings = settings;
         self
     }
 }
@@ -737,8 +775,10 @@ impl IntoFuture for StartCrawl {
             crawl,
             declared,
             params,
+            settings,
         } = self;
         let started = params.and_then(|mut params| {
+            params.settings = settings.within(SettingScope::Run)?;
             params.project = connection.project().cloned();
             requests.open(&connection)?;
             Ok(connection.start_with(CRAWL_START.name, params))

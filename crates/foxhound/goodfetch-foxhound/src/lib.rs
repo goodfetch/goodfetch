@@ -73,6 +73,7 @@ pub use goodfetch_protocol::foxhound::error_code;
 pub use goodfetch_protocol::foxhound::frontier::{
     Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, MatchedLink, NotAddedReason,
 };
+pub use goodfetch_protocol::foxhound::progress::{CrawlRunProgress, RequestProgress};
 pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{
@@ -80,7 +81,7 @@ pub use goodfetch_protocol::page::read::{
     UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{
-    CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs,
+    CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs, Tags,
 };
 pub use goodfetch_protocol::schedule::{
     EveryTrigger, RecipeTarget, RunTarget, ScheduleDefinition, ScheduleId, ScheduleInfo,

@@ -9,15 +9,17 @@ use std::fmt;
 use std::future::IntoFuture as _;
 use std::sync::Arc;
 
-use goodfetch_collie_client::{BoxError, Error};
+use goodfetch_collie_client::{Answer, BoxError, Error, Limits};
 use goodfetch_protocol::foxhound::dataset::{DatasetRecord, RECORD, RUN_RECORDS, RecordRead};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, HttpMethod};
+use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{RunFinishParams, RunId, RunParams, RunStopParams, Tags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::{Foxhound, Run, blocking};
+use super::{Call, EventIter, Foxhound, Run, blocking};
+use crate::settings::Settings;
 use crate::{Dataset, DatasetDeclaration, Label, LabelDeclaration, LinkPayload, Seed};
 
 /// A crawl the program declares, as [`crate::Crawl`], whose handlers are
@@ -392,6 +394,31 @@ impl StartCrawl {
         }
     }
 
+    /// Tags the Run, as [`crate::StartCrawl::tags`] does.
+    pub fn tags(self, tags: Tags) -> Self {
+        Self {
+            start: self.start.tags(tags),
+            ..self
+        }
+    }
+
+    /// Sets the Run's own `limits`, as [`crate::StartCrawl::limits`] does.
+    pub fn limits(self, limits: Limits) -> Self {
+        Self {
+            start: self.start.limits(limits),
+            ..self
+        }
+    }
+
+    /// Sets the Run's own settings, as [`crate::StartCrawl::settings`]
+    /// does.
+    pub fn settings(self, settings: Settings) -> Self {
+        Self {
+            start: self.start.settings(settings),
+            ..self
+        }
+    }
+
     /// Starts the crawl's Run and blocks the calling thread until it is
     /// started.
     ///
@@ -545,6 +572,47 @@ impl CrawlRun {
     /// The Run, with every member a blocking Run has, such as `close`.
     pub fn run(&self) -> &Run {
         &self.run
+    }
+
+    /// Lets the crawl finish and answers its report typed as a crawl's, as
+    /// [`crate::CrawlRun::finish`].
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::finish`].
+    pub fn finish(&self) -> Call<Answer<CrawlRunReport>, RunFinishParams> {
+        self.run.finish().typed()
+    }
+
+    /// Stops the crawl with a Checkpoint and answers its report typed as a
+    /// crawl's, as [`crate::CrawlRun::stop`].
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::stop`].
+    pub fn stop(&self) -> Call<Answer<CrawlRunReport>, RunStopParams> {
+        self.run.stop().typed()
+    }
+
+    /// Reads the crawl's report typed as a crawl's, as
+    /// [`crate::CrawlRun::report`].
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::report`].
+    pub fn report(&self) -> Call<Answer<CrawlRunReport>, RunParams> {
+        self.run.report().typed()
+    }
+
+    /// Follows the crawl's progress typed as a crawl's, as
+    /// [`crate::CrawlRun::progress`], as an iterator that blocks the
+    /// calling thread until the next value.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::progress`]'s does.
+    pub fn progress(&self) -> EventIter<Answer<CrawlRunProgress>> {
+        self.run.progress().typed()
     }
 
     /// Reads the committed Records of one Dataset of a crawl's Run in

@@ -28,6 +28,7 @@ import { RunNotFoundError } from "@goodfetch/collie-client";
 import {
   fromWire,
   holdInRealm,
+  limitList,
   openEngine,
   openOver,
   refuseHandlersOnEdge,
@@ -105,6 +106,8 @@ export interface StartCrawlOptions {
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
+  /** Its own Limits (ADR 0080), Foxhound's Paid fetches included. */
+  readonly limits?: FoxhoundLimits | undefined;
   /**
    * Its settings, Collie's and Foxhound's, nested by camelCase segment,
    * such as `{ crawl: { handler: { concurrency: 4 } } }` (ADRs 0083 and
@@ -279,6 +282,7 @@ export class Foxhound implements Connection {
     checkCrawlStartable(crawl, options.seeds);
     await checkSeedPayloads(crawl, options.seeds);
     const settings = settingsOnWire(options.settings);
+    const limits = limitList(options.limits);
     // The start carries the project file `connect()` read (ADR 0083).
     const project = this.#connection.project();
     const params: CrawlStartParams = {
@@ -286,6 +290,7 @@ export class Foxhound implements Connection {
       seeds: [...options.seeds],
       ...(options.runId === undefined ? {} : { runId: options.runId }),
       ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
+      ...(limits.length === 0 ? {} : { limits }),
       ...(settings === undefined ? {} : { settings }),
       ...(project === undefined ? {} : { project }),
     };

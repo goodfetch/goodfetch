@@ -15,13 +15,15 @@ use std::sync::Arc;
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::{
-    RUN_PROGRESS_READ, RUN_START, RunId, RunProgress, RunStartParams, RunStarted, StartedAs, Tags,
+    RUN_PROGRESS_READ, RUN_START, RunId, RunProgress, RunReport, RunStartParams, RunStarted,
+    StartedAs, Tags,
 };
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::answer::Answer;
-use crate::call::Query;
+use crate::call::{Call, Query};
 use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::event_stream::EventStream;
@@ -303,6 +305,40 @@ impl Run {
             },
         )
     }
+}
+
+impl<P> Call<Answer<RunReport>, P> {
+    /// The call whose Run report is read into `R`, a Product's own report
+    /// that holds every Run's and adds what its kind reports, such as
+    /// Foxhound's `CrawlRunReport` (ADR 0102); its raw value stays as the
+    /// engine sent it.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `internal` when the report does not fit `R`, and the
+    /// errors of the call.
+    pub fn typed<R: DeserializeOwned + Send + 'static>(self) -> Call<Answer<R>, P> {
+        self.try_map(retyped)
+    }
+}
+
+impl EventStream<Answer<RunProgress>> {
+    /// The stream whose progress values are read into `R`, a Product's own
+    /// progress that holds every Run's and adds what its kind reports, such
+    /// as Foxhound's `CrawlRunProgress` (ADR 0102).
+    ///
+    /// # Errors
+    ///
+    /// An item is `internal` when its value does not fit `R`, and the
+    /// stream's own errors.
+    pub fn typed<R: DeserializeOwned + Send + Sync + 'static>(self) -> EventStream<Answer<R>> {
+        self.and_then(retyped)
+    }
+}
+
+/// `answer`'s raw value read into `R`, kept as its raw value.
+fn retyped<T, R: DeserializeOwned>(answer: Answer<T>) -> Result<Answer<R>, Error> {
+    serde_json::from_value(answer.into_parts().1).map_err(Error::shape)
 }
 
 impl<T> Query<T, ConfigExplainParams> {

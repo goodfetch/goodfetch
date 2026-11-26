@@ -12,20 +12,31 @@ import {
   type CallOptions,
   type Page,
 } from "@goodfetch/collie-client";
-import { collieOperations, type Caller, type RunStarted } from "@goodfetch/collie-client/generated";
+import {
+  collieOperations,
+  type Caller,
+  type CollieOperationTypes,
+  type RunFinishParams,
+  type RunStarted,
+  type RunStopParams,
+} from "@goodfetch/collie-client/generated";
 import {
   alsoInNamespace,
   attemptStoreOf,
+  collieWire,
   ensureRunOpen,
   idOfLocator,
   pageOf,
   resumable,
   Sequence,
   type ClientConnection,
+  type CollieWireType,
   fromWire,
   type RunHost,
   thrownException,
   warnEntry,
+  type WireField,
+  type WirePath,
 } from "@goodfetch/collie-client/runtime";
 import {
   checkPayload,
@@ -52,6 +63,8 @@ import {
   type CrawlRequestEnqueueLinksParams,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
+  type CrawlRunProgress,
+  type CrawlRunReport,
   type DatasetRecord,
   type FoxhoundOperationTypes,
 } from "./generated/index.ts";
@@ -99,7 +112,8 @@ export class CrawlRun extends Run {
 
   /** @internal `Foxhound.startCrawl` opens a crawl's Run; a program never constructs one. */
   constructor(host: RunHost, started: RunStarted, crawl: Crawl, crawlHost: CrawlHost) {
-    super(host, started);
+    // Its report and progress are a crawl's (ADR 0120).
+    super(crawlRunHost(host), started);
     // A crawl's Run takes the `crawl` operations beside a Run's (ADR 0099).
     alsoInNamespace(this, "crawl");
     this.#crawl = crawl;
@@ -157,6 +171,73 @@ export class CrawlRun extends Run {
       regrant: RECORD_REGRANT,
       signal: options.signal,
     });
+  }
+
+  /**
+   * Waits for the crawl's Run to end and answers its report, a crawl's
+   * (ADR 0120): a Run's report with its request totals, its Records per
+   * Dataset, its Sinks, its sitemaps and the rules it learned. Its
+   * Completeness is `incomplete` or `unverified` when a setting cut the
+   * crawl short, its reason naming the setting and the count it refused.
+   * A failed Run raises its error; `timeout` or the signal ends only the
+   * wait, leaving the Run running.
+   *
+   * @experimental
+   */
+  override finish(
+    options: {
+      readonly timeout?: RunFinishParams["timeout"] | undefined;
+      readonly signal?: AbortSignal | undefined;
+    } = {},
+  ): Promise<CrawlRunReport> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.finish`'s answer as a crawl's report (`crawlRunHost`).
+    return super.finish(options) as Promise<CrawlRunReport>;
+  }
+
+  /**
+   * Stops the crawl's Run at its next safe point with a Checkpoint and
+   * answers its report, a crawl's, `stopped`: no attempt in flight
+   * commits, and its work items return to pending. `timeout` or the
+   * signal ends only the wait.
+   *
+   * @experimental
+   */
+  override stop(
+    options: {
+      readonly timeout?: RunStopParams["timeout"] | undefined;
+      readonly signal?: AbortSignal | undefined;
+    } = {},
+  ): Promise<CrawlRunReport> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.stop`'s answer as a crawl's report (`crawlRunHost`).
+    return super.stop(options) as Promise<CrawlRunReport>;
+  }
+
+  /**
+   * Answers the crawl's Run report, a crawl's, at once: a live Run's so
+   * far, an ended one's as it ended.
+   *
+   * @experimental
+   */
+  override report(
+    options: { readonly signal?: AbortSignal | undefined } = {},
+  ): Promise<CrawlRunReport> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.report`'s answer as a crawl's report (`crawlRunHost`).
+    return super.report(options) as Promise<CrawlRunReport>;
+  }
+
+  /**
+   * Follows the crawl's progress, a crawl's (ADR 0120): a Run's progress
+   * with its requests by state, its concurrency, the requests in flight,
+   * the domains it waits on and whether it waits idle, read with
+   * `for await` as a Run's progress is.
+   *
+   * @experimental
+   */
+  override progress(
+    options: { readonly signal?: AbortSignal | undefined } = {},
+  ): Sequence<CrawlRunProgress> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.progress`'s answers as a crawl's progress (`crawlRunHost`).
+    return super.progress(options) as Sequence<CrawlRunProgress>;
   }
 
   /**
@@ -344,6 +425,56 @@ export function handleRequest(
   signal: AbortSignal,
 ): Promise<CrawlRequestHandled> {
   return handleIn(run, request, signal);
+}
+
+/**
+ * The Run operations whose answers a crawl's Run reads as Foxhound's own
+ * types (ADR 0120), each with the Collie type the Connection reads it as
+ * first.
+ */
+const CRAWL_ANSWERS: Readonly<
+  Partial<Record<string, readonly [FoxhoundWireType, CollieWireType]>>
+> = {
+  "run.finish": ["CrawlRunReport", "RunReport"],
+  "run.stop": ["CrawlRunReport", "RunReport"],
+  "run.report": ["CrawlRunReport", "RunReport"],
+  "run.progress": ["CrawlRunProgress", "RunProgress"],
+};
+
+/** Both Products' wire types, which a crawl's fields reach. */
+const CRAWL_TYPES = { ...collieWire.types, ...foxhoundWire.types };
+
+/**
+ * `host` with the answers of `CRAWL_ANSWERS` read as a crawl's: the
+ * Connection reads a Run's report and progress as Collie's, which keeps
+ * the fields only a crawl's carry as sent, so these are read again as
+ * Foxhound's types.
+ */
+function crawlRunHost(host: RunHost): RunHost {
+  const calls = host.calls;
+  const crawlCalls: Caller<CollieOperationTypes> = {
+    call: async (operation, params, options) => {
+      const answer = await calls.call(operation, params, options);
+      const types = CRAWL_ANSWERS[operation];
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a crawl's report and progress are Collie's with Foxhound's fields beside them.
+      return (types === undefined ? answer : crawlAnswer(answer, ...types)) as typeof answer;
+    },
+  };
+  return { ...host, calls: crawlCalls };
+}
+
+/** `answer`, read as Collie's `base`, with the fields only Foxhound's `type` has read too. */
+function crawlAnswer(answer: unknown, type: FoxhoundWireType, base: CollieWireType): unknown {
+  const known = fieldsOf(collieWire.types[base]);
+  const own = Object.entries(fieldsOf(foxhoundWire.types[type])).filter(
+    ([key]) => !Object.hasOwn(known, key),
+  );
+  return fromWire(answer, { fields: Object.fromEntries(own) }, CRAWL_TYPES);
+}
+
+/** The fields `path` names, none when it names no object. */
+function fieldsOf(path: WirePath): Readonly<Record<string, WireField>> {
+  return typeof path === "object" && "fields" in path ? path.fields : {};
 }
 
 /** The number of the Record a `$/record` carries, read from its wire form alone. */

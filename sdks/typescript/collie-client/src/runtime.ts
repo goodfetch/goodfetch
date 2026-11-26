@@ -15,6 +15,7 @@
 export type { ClientConnection, Served, Stream } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
 export { refuseHandlersOnEdge } from "./edge-runtime.ts";
+export { limitList } from "./limits.ts";
 export {
   FileSaving,
   saveFile,

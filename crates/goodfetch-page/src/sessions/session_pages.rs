@@ -46,6 +46,7 @@ use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
 use crate::errors::page_closed;
+use crate::fingerprint_method::FingerprintPlan;
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::init_scripts::InitScripts;
@@ -346,8 +347,13 @@ impl Sessions {
             in_browser,
             (&stream, observer),
         );
-        if let (Some(fingerprint), Some(events)) = (&open.fingerprint, &taken_in.events) {
-            events.refuse_runtime(fingerprint.runtime_refusal());
+        if let (Some(refused), Some(events)) = (
+            open.fingerprint
+                .as_ref()
+                .and_then(FingerprintPlan::runtime_refusal),
+            &taken_in.events,
+        ) {
+            events.refuse_runtime(refused);
         }
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.

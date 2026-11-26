@@ -25,11 +25,12 @@ use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::{
     FINGERPRINT_BASIC, FINGERPRINT_BASIC_FALLBACK, FINGERPRINT_JS_INJECTION, FINGERPRINT_NONE,
+    STEALTH_RUNTIME_ALLOWED,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::json;
 
-use crate::access_mode::{FingerprintMethod, MethodSource, SessionIdentityPlan};
+use crate::access_mode::{FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan};
 use crate::browser_run::BrowserRun;
 use crate::cdp::{CdpPage, Emulated};
 use crate::page_functions::{Injection, Injections};
@@ -70,14 +71,16 @@ impl Method {
 
 /// How a `stealth` Session masks its browser's fingerprint: its method,
 /// the layer that set it or its fallback to `basic` for want of a
-/// Goodfetch Chromium, the layer that chose `stealth`, and the values its
-/// pages show.
+/// Goodfetch Chromium, the layer that chose `stealth`, the values its
+/// pages show, and whether `stealth.allow_runtime` lets them turn on the
+/// browser's `Runtime` domain.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FingerprintPlan {
     method: Method,
     source: MethodSource,
     stealth: SettingsLayer,
     values: Emulated,
+    runtime: RuntimeDomain,
 }
 
 impl FingerprintPlan {
@@ -91,6 +94,7 @@ impl FingerprintPlan {
             source: profile.method_source,
             stealth: plan.layer,
             values: Emulated::default(),
+            runtime: profile.runtime,
         })
     }
 
@@ -109,9 +113,23 @@ impl FingerprintPlan {
     }
 
     /// The refusal of a `page.on` that needs the browser's `Runtime`
-    /// domain on one of its pages, which a detector sees (#599's Q2).
-    pub(crate) fn runtime_refusal(&self) -> goodfetch_engine::CallError {
-        crate::access_mode::runtime_under_stealth(self.stealth)
+    /// domain on one of its pages, which a detector sees: none once
+    /// `stealth.allow_runtime` allows it (#599's Q2).
+    pub(crate) fn runtime_refusal(&self) -> Option<goodfetch_engine::CallError> {
+        (self.runtime == RuntimeDomain::Refused)
+            .then(|| crate::access_mode::runtime_under_stealth(self.stealth))
+    }
+
+    /// The warning the Session `session`'s Run report carries when
+    /// `stealth.allow_runtime` lets its pages turn on the browser's
+    /// `Runtime` domain.
+    fn runtime_warning(&self, session: &SessionId) -> Option<RunWarning> {
+        (self.runtime == RuntimeDomain::Allowed).then(|| RunWarning {
+            code: STEALTH_RUNTIME_ALLOWED.to_owned(),
+            message: "A `stealth` Session ran with `stealth.allow_runtime`: its pages could turn on the browser's `Runtime` domain, which a detector sees.".to_owned(),
+            sessions: vec![session.0.clone()],
+            folder: None,
+        })
     }
 
     /// Where its Sessions are placed: every built method shares a browser
@@ -187,6 +205,7 @@ impl FingerprintPlan {
             "session_id": session,
             "method": self.method.as_str(),
             "fell_back": self.fell_back(),
+            "runtime_allowed": self.runtime == RuntimeDomain::Allowed,
         })
     }
 
@@ -211,6 +230,11 @@ impl FingerprintPlan {
         };
         if let Err(error) = kept {
             tracing::warn!(%error, "the warning of a Session's Fingerprint method was not kept");
+        }
+        if let Some(warning) = self.runtime_warning(session)
+            && let Err(error) = run.warnings.warn(warning).await
+        {
+            tracing::warn!(%error, "the warning of a Session's `Runtime` domain was not kept");
         }
         let origin = Origin {
             actor: Actor::Engine,

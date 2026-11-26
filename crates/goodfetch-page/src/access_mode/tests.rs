@@ -16,7 +16,8 @@ use serde_json::{Map, Value, json};
 
 use super::{
     AccessMode, BrowserFamily, ChromiumBuild, FingerprintMethod, MethodSource, Refusal,
-    SessionIdentityPlan, SessionSettings, SigningPlan, StealthProfile, Unbuilt, resolve,
+    RuntimeDomain, SessionIdentityPlan, SessionSettings, SigningPlan, StealthProfile, Unbuilt,
+    resolve,
 };
 
 /// The values `settings` sets in `layer`.
@@ -76,6 +77,7 @@ fn stealth(layer: SettingsLayer, set: impl FnOnce(&mut StealthProfile)) -> Sessi
         human_input: true,
         chromium_build: ChromiumBuild::Goodfetch,
         headless: false,
+        runtime: RuntimeDomain::Refused,
     };
     set(&mut profile);
     SessionIdentityPlan {
@@ -103,7 +105,7 @@ const NOTHING: Value = Value::Null;
 /// Covers: story:8-2, story:8-3, story:8-4, story:8-5, story:8-6, story:8-9, story:8-10, story:8-102
 /// Covers: setting:browser.access_mode, setting:stealth.fingerprint_method, setting:stealth.generated_identity, setting:browser.headless_shell
 /// Covers: setting:stealth.identity.os, setting:stealth.identity.device, setting:stealth.identity.brand
-/// Covers: setting:stealth.human_input, setting:stealth.chromium_build
+/// Covers: setting:stealth.human_input, setting:stealth.chromium_build, setting:stealth.allow_runtime
 /// Covers: setting:identified.signing_key, setting:identified.signature_agent
 #[rstest]
 // Modes, on a fresh Session of the Chromium family.
@@ -124,6 +126,7 @@ const NOTHING: Value = Value::Null;
         profile.chromium_build = ChromiumBuild::Clearcote;
     }))
 )]
+#[case::stealth_allowing_the_runtime_domain(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "allow_runtime": true } }), json!({}), json!({}), NOTHING, BrowserFamily::Chromium, Ok(stealth(RUN, |profile| profile.runtime = RuntimeDomain::Allowed)))]
 #[case::stealth_with_its_fingerprint_switched_off(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "none" } }), json!({}), json!({}), NOTHING, BrowserFamily::Chromium, Ok(stealth(RUN, chosen(FingerprintMethod::None))))]
 #[case::a_fingerprint_method_makes_it_stealth(json!({ "stealth": { "fingerprint_method": "basic" } }), json!({}), json!({}), NOTHING, BrowserFamily::Chromium, Ok(stealth(RUN, chosen(FingerprintMethod::Basic))))]
 #[case::an_inherited_fingerprint_method_makes_it_stealth(
@@ -143,6 +146,7 @@ const NOTHING: Value = Value::Null;
 #[case::an_identified_beside_a_fingerprint_method_in_one_layer(json!({}), json!({}), json!({ "browser": { "access_mode": "identified" }, "stealth": { "fingerprint_method": "engine" } }), NOTHING, BrowserFamily::Chromium, Err(Refusal::ModeBesideMethod { mode: AccessMode::Identified, layer: USER }))]
 // Stealth items under `standard` and `identified`.
 #[case::a_stealth_item_set_on_a_standard_session(json!({ "stealth": { "human_input": true } }), json!({}), json!({}), NOTHING, BrowserFamily::Chromium, Err(Refusal::ItemOnStandard { key: "stealth.human_input" }))]
+#[case::the_runtime_domain_allowed_on_a_standard_session(json!({ "stealth": { "allow_runtime": true } }), json!({}), json!({}), NOTHING, BrowserFamily::Chromium, Err(Refusal::ItemOnStandard { key: "stealth.allow_runtime" }))]
 #[case::no_fingerprint_set_on_a_standard_session(json!({ "stealth": { "fingerprint_method": "none" } }), json!({}), json!({}), NOTHING, BrowserFamily::Chromium, Err(Refusal::ItemOnStandard { key: "stealth.fingerprint_method" }))]
 #[case::an_inherited_stealth_item_yields_to_standard(json!({}), json!({ "stealth": { "human_input": true, "identity": { "brand": ["chrome"] } } }), json!({}), NOTHING, BrowserFamily::Chromium, Ok(standard(SettingsLayer::Default)))]
 #[case::a_masking_item_set_on_an_identified_session(json!({ "stealth": { "generated_identity": true } }), json!({ "browser": { "access_mode": "identified" } }), json!({}), NOTHING, BrowserFamily::Chromium, Err(Refusal::MaskingOnIdentified { key: "stealth.generated_identity" }))]

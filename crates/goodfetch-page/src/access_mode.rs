@@ -29,9 +29,9 @@ use goodfetch_identity_profile::{Constraints, EngineFamily, NarrowingError, Narr
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::access_mode::{
     BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
-    STEALTH_CHROMIUM_BUILD, STEALTH_FINGERPRINT_METHOD, STEALTH_GENERATED_IDENTITY,
-    STEALTH_HUMAN_INPUT, STEALTH_IDENTITY_BRAND, STEALTH_IDENTITY_DEVICE, STEALTH_IDENTITY_OS,
-    STEALTH_ITEMS, masks,
+    STEALTH_ALLOW_RUNTIME, STEALTH_CHROMIUM_BUILD, STEALTH_FINGERPRINT_METHOD,
+    STEALTH_GENERATED_IDENTITY, STEALTH_HUMAN_INPUT, STEALTH_IDENTITY_BRAND,
+    STEALTH_IDENTITY_DEVICE, STEALTH_IDENTITY_OS, STEALTH_ITEMS, masks,
 };
 use goodfetch_protocol::page::{BROWSER_HEADLESS, BROWSER_HEADLESS_SHELL};
 use goodfetch_protocol::secret_reference::SecretReference;
@@ -343,6 +343,18 @@ pub(crate) struct StealthProfile {
     pub(crate) human_input: bool,
     pub(crate) chromium_build: ChromiumBuild,
     pub(crate) headless: bool,
+    pub(crate) runtime: RuntimeDomain,
+}
+
+/// Whether a `stealth` Session's pages may turn on the browser's `Runtime`
+/// domain, which a detector sees, as `stealth.allow_runtime` says (#599's
+/// Q2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RuntimeDomain {
+    /// Off, the default: what needs the domain is refused.
+    Refused,
+    /// On: the pages may turn it on, and the Run report says so.
+    Allowed,
 }
 
 /// Why a Session does not open in the Access mode its settings ask for.
@@ -565,13 +577,16 @@ fn unbuilt_item(key: &str, layer: SettingsLayer, item: Unbuilt) -> CallError {
 
 /// `capability_unavailable` for a `page.on` of `console` or `page_error`
 /// on a page of a `stealth` Session, chosen in `layer`: it turns on the
-/// browser's `Runtime` domain, which a detector sees, and no setting
-/// allows it yet (#599's Q2).
+/// browser's `Runtime` domain, which a detector sees, unless
+/// `stealth.allow_runtime` allows it (#599's Q2).
 pub(crate) fn runtime_under_stealth(layer: SettingsLayer) -> CallError {
-    standard_only(
-        layer,
-        "runtime_under_stealth",
-        "listening to `console` or `page_error` turns on the browser's `Runtime` domain, which a detector sees, so a `stealth` Session's pages refuse it and no setting allows it yet: listen on a `standard` Session".to_owned(),
+    let allow = STEALTH_ALLOW_RUNTIME.name;
+    unavailable(
+        (BROWSER_ACCESS_MODE.name, layer, "runtime_under_stealth"),
+        format!("`{allow}: true`"),
+        format!(
+            "listening to `console` or `page_error` turns on the browser's `Runtime` domain, which a detector sees, so a `stealth` Session's pages refuse it: set `{allow}: true` to listen anyway, or listen on a `standard` Session"
+        ),
     )
 }
 
@@ -848,5 +863,13 @@ fn stealth_profile(settings: &SessionSettings<'_>) -> StealthProfile {
             &BROWSER_HEADLESS,
             &settings.under_stealth(&BROWSER_HEADLESS, Value::Bool(false)),
         ),
+        runtime: if value_as(
+            &STEALTH_ALLOW_RUNTIME,
+            &settings.under_stealth(&STEALTH_ALLOW_RUNTIME, Value::Bool(false)),
+        ) {
+            RuntimeDomain::Allowed
+        } else {
+            RuntimeDomain::Refused
+        },
     }
 }

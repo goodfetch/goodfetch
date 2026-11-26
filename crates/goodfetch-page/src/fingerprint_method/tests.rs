@@ -2,10 +2,15 @@
 //! where they are placed, which primitive each method fills, the warning
 //! each one leaves, what its record says and the script `js_injection`
 //! writes.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::warning::{
     FINGERPRINT_BASIC, FINGERPRINT_BASIC_FALLBACK, FINGERPRINT_JS_INJECTION, FINGERPRINT_NONE,
+    STEALTH_RUNTIME_ALLOWED,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
@@ -13,7 +18,8 @@ use serde_json::{Value, json};
 
 use super::{FingerprintPlan, Method, init_script};
 use crate::access_mode::{
-    AccessMode, ChromiumBuild, FingerprintMethod, MethodSource, SessionIdentityPlan, StealthProfile,
+    AccessMode, ChromiumBuild, FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan,
+    StealthProfile,
 };
 use crate::cdp::{Emulated, Geolocation};
 use crate::pool::Placement;
@@ -41,18 +47,21 @@ fn identity(
             human_input: false,
             chromium_build: ChromiumBuild::Goodfetch,
             headless: true,
+            runtime: RuntimeDomain::Refused,
         }),
         signing: None,
     }
 }
 
-/// A plan whose `stealth` the Run's settings chose.
+/// A plan whose `stealth` the Run's settings chose, which keeps its pages
+/// off the browser's `Runtime` domain.
 fn plan(method: Method, source: MethodSource, values: Emulated) -> FingerprintPlan {
     FingerprintPlan {
         method,
         source,
         stealth: SettingsLayer::Run,
         values,
+        runtime: RuntimeDomain::Refused,
     }
 }
 
@@ -175,13 +184,13 @@ fn each_method_leaves_its_warning(
 #[case::set_in_the_user_configuration(
     Method::JsInjection,
     MethodSource::Set(SettingsLayer::UserConfiguration),
-    json!({ "session_id": "session-1", "method": "js_injection", "fell_back": false }),
+    json!({ "session_id": "session-1", "method": "js_injection", "fell_back": false, "runtime_allowed": false }),
     SettingsLayer::UserConfiguration
 )]
 #[case::the_fallback(
     Method::Basic,
     FELL_BACK,
-    json!({ "session_id": "session-1", "method": "basic", "fell_back": true }),
+    json!({ "session_id": "session-1", "method": "basic", "fell_back": true, "runtime_allowed": false }),
     SettingsLayer::Run
 )]
 fn the_record_names_the_layer_that_chose_the_method(
@@ -198,6 +207,52 @@ fn the_record_names_the_layer_that_chose_the_method(
             plan.layer()
         ),
         (details, layer)
+    );
+}
+
+/// A `stealth` Session's pages refuse what needs the browser's `Runtime`
+/// domain, naming `stealth.allow_runtime`; once it allows the domain, they
+/// refuse nothing, the Session's Run report carries its warning and its
+/// record says so (#599's Q2).
+/// Covers: setting:stealth.allow_runtime
+#[rstest]
+#[case::kept_off(
+    RuntimeDomain::Refused,
+    Some("`stealth.allow_runtime: true`"),
+    None,
+    false
+)]
+#[case::allowed(RuntimeDomain::Allowed, None, Some(STEALTH_RUNTIME_ALLOWED), true)]
+fn the_runtime_domain_opens_only_where_the_setting_allows_it(
+    #[case] runtime: RuntimeDomain,
+    #[case] fix: Option<&str>,
+    #[case] warned: Option<&str>,
+    #[case] recorded: bool,
+) {
+    let session = SessionId("session-1".to_owned());
+    let plan = FingerprintPlan {
+        runtime,
+        ..plan(Method::Basic, SET, values())
+    };
+
+    let refused = plan
+        .runtime_refusal()
+        .map(|error| error.details().map(|details| details["fix"].clone()));
+    let warning = plan.runtime_warning(&session);
+
+    assert_eq!(
+        (
+            refused,
+            warning
+                .as_ref()
+                .map(|warning| (warning.code.as_str(), warning.sessions.clone())),
+            plan.details(&session)["runtime_allowed"].clone(),
+        ),
+        (
+            fix.map(|fix| Some(json!(fix))),
+            warned.map(|code| (code, vec!["session-1".to_owned()])),
+            json!(recorded),
+        )
     );
 }
 

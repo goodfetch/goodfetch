@@ -120,7 +120,7 @@ received (ADR 0079).
 - `verdict_rejected`: A Run's success check rejected its result.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "stealth_runtime_allowed", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -148,6 +148,7 @@ received (ADR 0079).
 - `plugin_quantity_above_maximum`: A Plugin reported a quantity above its declared maximum, recorded in full.
 - `politeness_store_degraded`: The Politeness store was unreachable, and the Run took a degraded share.
 - `proxy_exit_may_change`: A Session's proxy exit may change between its requests.
+- `stealth_runtime_allowed`: A stealth Session's pages could turn on the Runtime domain, which a site can detect.
 - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
 """
 

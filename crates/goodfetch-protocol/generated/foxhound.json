@@ -34591,6 +34591,31 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "stealth.allow_runtime",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "operator_policy_alone",
       "clearable": false,
       "default": [],
@@ -36442,6 +36467,13 @@
       "name": "sink_recovered",
       "product": "foxhound",
       "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A stealth Session's pages could turn on the Runtime domain, which a site can detect.",
+      "name": "stealth_runtime_allowed",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

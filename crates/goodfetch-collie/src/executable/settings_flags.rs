@@ -3,7 +3,10 @@
 //! from a file or standard input, both the run layer's `flag` origin. A
 //! value is read as JSON when it parses as JSON and as text otherwise; a
 //! duration setting's value is milliseconds or a suffixed duration (`45s`,
-//! `2m`, `1h`), sent as milliseconds (ADR 0080). A bad value is a usage
+//! `2m`, `1h`), sent as milliseconds (ADR 0080). A key below a setting
+//! that maps names to values, such as `plugins.<name>.settings.<field>`,
+//! sets that field alone, as the same fields nested in `settings` do
+//! through the SDKs and MCP. A bad value is a usage
 //! error clap reports while it reads the command line, before any engine
 //! call; the engine checks every other value. Only a command whose
 //! operation takes `settings` offers the flags; anywhere else clap refuses
@@ -33,7 +36,11 @@ pub(super) struct SettingsFlags {
 /// One `--set`.
 #[derive(Clone, Debug, PartialEq)]
 struct Set {
+    /// The setting.
     key: String,
+    /// The names below `key` the value sits at, for a setting that maps
+    /// names to values; none when it is the setting's whole value.
+    below: Vec<String>,
     value: Value,
 }
 
@@ -44,7 +51,8 @@ struct Settings(Map<String, Value>);
 impl SettingsFlags {
     /// The run layer they give, each key in its canonical dotted form:
     /// `--settings`' values, each `--set` over them, a later one over an
-    /// earlier one.
+    /// earlier one, one below a setting that maps names to values setting
+    /// only its own field.
     pub(super) fn run_layer(&self) -> Map<String, Value> {
         let mut run_layer = self
             .settings
@@ -52,9 +60,28 @@ impl SettingsFlags {
             .map(|settings| settings.0.clone())
             .unwrap_or_default();
         for set in &self.set {
-            run_layer.insert(set.key.clone(), set.value.clone());
+            let Some((last, path)) = set.below.split_last() else {
+                run_layer.insert(set.key.clone(), set.value.clone());
+                continue;
+            };
+            let mut table = object(run_layer.entry(set.key.clone()).or_insert(Value::Null));
+            for name in path {
+                table = object(table.entry(name.clone()).or_insert(Value::Null));
+            }
+            table.insert(last.clone(), set.value.clone());
         }
         run_layer
+    }
+}
+
+/// `value` as an object, made one, empty, when it is none.
+fn object(value: &mut Value) -> &mut Map<String, Value> {
+    if !value.is_object() {
+        *value = Value::Object(Map::new());
+    }
+    match value {
+        Value::Object(table) => table,
+        _ => unreachable!("invariant: the value was just made an object"),
     }
 }
 
@@ -125,15 +152,31 @@ fn all_settings() -> impl Iterator<Item = &'static Setting> {
     MODULES.iter().flat_map(|entries| entries.settings)
 }
 
-/// Reads `--set`'s `key=value`.
+/// Reads `--set`'s `key=value`: a key below a setting that maps names to
+/// values, such as `plugins.<name>.settings.<field>`, sets that entry's
+/// field.
 fn set(text: &str) -> Result<Set, String> {
     let (key, value) = text
         .split_once('=')
         .ok_or_else(|| "expected `key=value`".to_owned())?;
     let value = serde_json::from_str(value).unwrap_or_else(|_| Value::from(value));
+    let mapping = all_settings().find_map(|setting| {
+        let rest = key.strip_prefix(setting.name)?.strip_prefix('.')?;
+        matches!(setting.kind, ValueKind::Map(_)).then_some((setting.name, rest))
+    });
+    if let Some((setting, rest)) = mapping
+        && !all_settings().any(|setting| setting.name == key)
+    {
+        return Ok(Set {
+            key: setting.to_owned(),
+            below: rest.split('.').map(str::to_owned).collect(),
+            value,
+        });
+    }
     Ok(Set {
         value: as_setting(key, value)?,
         key: key.to_owned(),
+        below: Vec::new(),
     })
 }
 

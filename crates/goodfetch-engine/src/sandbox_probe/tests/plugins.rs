@@ -11,7 +11,7 @@ use crate::sandbox_probe::{Facts, HostFacts, NoSandboxPlatform, UserNamespace, j
 /// One named case per refusal the probe knows, and one it does not: each
 /// is `confinement_unavailable` naming the environment that refuses the
 /// browser's sandbox too, and a fix that names the remedy.
-/// Covers: story:7-21, story:7-27, error:confinement_unavailable
+/// Covers: story:7-27, error:confinement_unavailable
 #[rstest]
 #[case::wsl1(facts(wsl1()), "wsl1", "wsl --set-version <distribution> 2")]
 #[case::dockers_default_seccomp_before_6_12(
@@ -32,7 +32,7 @@ use crate::sandbox_probe::{Facts, HostFacts, NoSandboxPlatform, UserNamespace, j
 #[case::dockers_default_seccomp_on_lambda(
     Facts { platform: Some(NoSandboxPlatform::AwsLambda), ..facts(seccomp_refusing()) },
     "docker_default_seccomp",
-    "docker run --security-opt seccomp=<profile.json>"
+    "AWS Lambda gives no process the user namespace"
 )]
 #[case::an_unknown_refusal(
     facts(host(UserNamespace::Refused(EPERM))),

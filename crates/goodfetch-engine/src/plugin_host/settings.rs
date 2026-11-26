@@ -29,7 +29,7 @@ use crate::secrets::{Purpose, RunSecrets, SecretError};
 use crate::settings::{Resolved, SettingsError};
 
 /// A Plugin's settings as given: its entry's `settings` in the `plugins`
-/// of `resolved`, a Run's settings, and the layer that set `plugins`.
+/// of `resolved`, a Run's settings, and the layer that set that entry.
 pub fn given(
     resolved: Option<&Resolved>,
     name: &str,
@@ -41,12 +41,7 @@ pub fn given(
         .as_object()
         .cloned()
         .unwrap_or_default();
-    (
-        settings,
-        resolved
-            .effective(&PLUGINS)
-            .map(|effective| effective.layer),
-    )
+    (settings, resolved.entry_layer(&PLUGINS, name))
 }
 
 /// The key of the field at `path` of the Plugin `name`'s settings, as
@@ -78,8 +73,9 @@ impl PluginSettings {
     ///
     /// `setting_invalid` naming the field's key for a value the schema
     /// refuses or a value given in a secret field's place, and naming the
-    /// settings whole for any setting of a Plugin with no schema or a
-    /// schema that does not compile.
+    /// settings whole for any setting of a Plugin with no schema, a schema
+    /// that does not compile, or one that marks a field secret where
+    /// `properties` alone do not reach it.
     pub fn checked(
         name: &str,
         manifest: &PluginManifest,
@@ -105,6 +101,14 @@ impl PluginSettings {
         with_defaults(schema, &mut values);
         let mut secret = Vec::new();
         secret_fields(schema, &mut Vec::new(), &mut secret);
+        if secret_marks(schema) > secret.len() {
+            return Err(invalid(
+                &[],
+                format!(
+                    "the Plugin's `settings_schema` marks a field `\"{SECRET_KEYWORD}\": true` that `properties` alone do not reach, so the engine cannot check that it holds a Secret reference"
+                ),
+            ));
+        }
         for path in &secret {
             if let Some(value) = at(&values, path) {
                 ValueKind::SecretReference
@@ -202,7 +206,7 @@ pub struct InvalidSettings {
     /// The field's key, as `plugins.<name>.settings.<field>`, or the
     /// settings' whole.
     pub key: String,
-    /// The layer that set `plugins`.
+    /// The layer that set the Plugin's entry of `plugins`.
     pub layer: Option<SettingsLayer>,
     /// What is wrong.
     pub reason: String,
@@ -288,6 +292,42 @@ fn secret_fields(schema: &Value, path: &mut Vec<String>, secret: &mut Vec<Vec<St
             secret_fields(property, path, secret);
         }
         path.pop();
+    }
+}
+
+/// The keywords whose value is data, never a schema.
+const DATA_KEYWORDS: [&str; 4] = ["default", "const", "enum", "examples"];
+
+/// The keywords whose value maps names, never keywords, to schemas.
+const SCHEMA_MAPS: [&str; 5] = [
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+];
+
+/// How many schemas within `schema` mark a field secret, wherever they
+/// sit: more than [`secret_fields`] finds means some sit where it does not
+/// look.
+fn secret_marks(schema: &Value) -> usize {
+    match schema {
+        Value::Object(keywords) => {
+            let own = usize::from(keywords.get(SECRET_KEYWORD) == Some(&Value::Bool(true)));
+            keywords
+                .iter()
+                .filter(|(keyword, _)| !DATA_KEYWORDS.contains(&keyword.as_str()))
+                .map(|(keyword, value)| match value {
+                    Value::Object(named) if SCHEMA_MAPS.contains(&keyword.as_str()) => {
+                        named.values().map(secret_marks).sum()
+                    }
+                    _ => secret_marks(value),
+                })
+                .sum::<usize>()
+                + own
+        }
+        Value::Array(schemas) => schemas.iter().map(secret_marks).sum(),
+        _ => 0,
     }
 }
 

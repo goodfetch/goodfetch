@@ -41,9 +41,11 @@ pub struct RunPlugins {
     product: Product,
     run_id: RunId,
     owner: Arc<TaskOwner>,
-    /// The Extractors started, by name: only those that started, so a
-    /// Plugin installed after a failed start is found on the next call.
-    extractors: tokio::sync::Mutex<BTreeMap<String, ProcessExtractor>>,
+    /// The Extractors, by name, each set once its instance started: one
+    /// whose start failed stays unset, so a Plugin installed after a failed
+    /// start is found on the next call. The lock is held only to find a
+    /// name's cell, never across a start.
+    extractors: tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessExtractor>>>>,
 }
 
 impl std::fmt::Debug for RunPlugins {
@@ -94,6 +96,12 @@ impl RunPlugins {
     /// installed under `name`, or its instance cannot be set up; why is
     /// logged at `warn`. A Plugin that cannot launch fails its first call
     /// instead, as its instance answers.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel safe. Calls naming one Plugin wait on one start; dropping
+    /// the call that starts it leaves the Plugin unstarted, and the next
+    /// call starts it, as after a failed start.
     pub async fn extractor(
         &self,
         name: &str,
@@ -101,10 +109,30 @@ impl RunPlugins {
         secrets: &RunSecrets,
         probe: &SandboxProbe,
     ) -> Result<ProcessExtractor, StartError> {
-        let mut extractors = self.extractors.lock().await;
-        if let Some(extractor) = extractors.get(name) {
-            return Ok(extractor.clone());
-        }
+        let started = Arc::clone(
+            self.extractors
+                .lock()
+                .await
+                .entry(name.to_owned())
+                .or_default(),
+        );
+        started
+            .get_or_try_init(|| self.start(name, settings, secrets, probe))
+            .await
+            .cloned()
+    }
+
+    /// Starts the instance of the installed Plugin `name`, as
+    /// [`Self::extractor`] tells: the host's confinement is checked before
+    /// any setting is read, so a host that cannot confine the Plugin
+    /// resolves none of its secrets.
+    async fn start(
+        &self,
+        name: &str,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessExtractor, StartError> {
         let cannot_start = |reason: &dyn std::fmt::Display| {
             tracing::warn!(extractor = name, %reason, "an Extractor's Plugin cannot start");
             StartError::Refused(unavailable(name))
@@ -116,6 +144,11 @@ impl RunPlugins {
             .blocking(move || store.resolve(&named, &PluginKindName::EXTRACT))
             .await
             .map_err(|error| cannot_start(&error))?;
+        let probe = probe.clone();
+        if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
+            tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
+            return Err(StartError::Refused(refusal));
+        }
         let (given, layer) = plugin_settings::given(settings, name);
         let environment = PluginSettings::checked(name, &installed.manifest, given, layer)
             .map_err(|invalid| StartError::Refused(invalid.into()))?
@@ -125,11 +158,6 @@ impl RunPlugins {
                 EnvironmentError::Secret(error) => StartError::Secret(error),
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
-        let probe = probe.clone();
-        if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
-            tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
-            return Err(StartError::Refused(refusal));
-        }
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let places = self.places.clone();
         let plugin = self
@@ -147,9 +175,7 @@ impl RunPlugins {
             },
             Scope::Run(self.run_id.clone()),
         );
-        let extractor = ProcessExtractor::new(name.to_owned(), instance);
-        extractors.insert(name.to_owned(), extractor.clone());
-        Ok(extractor)
+        Ok(ProcessExtractor::new(name.to_owned(), instance))
     }
 
     /// Checks that a Plugin of the Extractor kind is installed under
@@ -226,3 +252,6 @@ fn set_up(
         manifest: installed.manifest,
     })
 }
+
+#[cfg(test)]
+mod tests;

@@ -36,7 +36,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::values::{Given, Values, over};
+use super::values::{Given, Values, by_entry, over};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -198,6 +198,9 @@ pub struct Effective {
     pub value: Value,
     /// The layer that set it.
     pub layer: SettingsLayer,
+    /// For a setting whose layers set each entry on its own, as `plugins`
+    /// does, the layer that set each entry of its value.
+    pub entries: BTreeMap<String, SettingsLayer>,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
     /// When a level's preset gave it, at `layer`, that level (ADR 0142).
@@ -246,6 +249,13 @@ impl Resolved {
     /// Run's Product honours it.
     pub fn effective(&self, setting: &Setting) -> Option<&Effective> {
         self.settings.get(setting.name)
+    }
+
+    /// The layer that set the entry `entry` of `setting`, one whose layers
+    /// set each entry on its own, as `plugins` does; none for an entry no
+    /// layer set.
+    pub fn entry_layer(&self, setting: &Setting, entry: &str) -> Option<SettingsLayer> {
+        self.effective(setting)?.entries.get(entry).copied()
     }
 
     /// Each `timeout.*` Duration setting the Product honours that resolves a
@@ -1005,6 +1015,7 @@ impl State {
             effective: Effective {
                 value: default.clone(),
                 layer: SettingsLayer::Default,
+                entries: BTreeMap::new(),
                 origin: None,
                 preset,
                 for_model: false,
@@ -1172,6 +1183,15 @@ fn take(
             limit(name, &bounds, SettingsLayer::Recipe),
             format!("give `{name}` a value within the Recipe's bounds"),
         ));
+    }
+    let entries = &mut state.effective.entries;
+    if !(by_entry(key.setting) && state.effective.value.is_object()) {
+        entries.clear();
+    }
+    if by_entry(key.setting)
+        && let Value::Object(nearer) = value
+    {
+        entries.extend(nearer.keys().map(|entry| (entry.clone(), layer)));
     }
     state.effective.value = over(key.setting, &state.effective.value, value);
     state.effective.layer = layer;

@@ -217,13 +217,18 @@ pub fn check_session_source(
 /// `plugins`, whose entry for each Plugin wins on its own the same way.
 pub(crate) fn over(setting: &Setting, below: &Value, value: &Value) -> Value {
     match (below, value) {
-        (Value::Object(below), Value::Object(nearer))
-            if setting.name == SECRETS_PLACEHOLDERS.name || setting.name == PLUGINS.name =>
-        {
+        (Value::Object(below), Value::Object(nearer)) if by_entry(setting) => {
             let mut bound = below.clone();
             bound.extend(nearer.clone());
             Value::Object(bound)
         }
         _ => value.clone(),
     }
+}
+
+/// Whether a nearer layer's object for `setting` sets each of its entries
+/// on its own, over the entries beneath it: `secrets.placeholders` and
+/// `plugins` ([`over`]).
+pub(crate) fn by_entry(setting: &Setting) -> bool {
+    setting.name == SECRETS_PLACEHOLDERS.name || setting.name == PLUGINS.name
 }

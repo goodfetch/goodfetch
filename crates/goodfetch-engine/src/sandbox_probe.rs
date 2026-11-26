@@ -159,7 +159,8 @@ pub fn judge(facts: &Facts) -> Probed {
 impl Facts {
     /// The refusal of every process Plugin's start, where this host cannot
     /// confine one: it names the environment that refuses the browser's
-    /// sandbox too, whatever platform this is, and the fix for a Plugin.
+    /// sandbox too, whatever platform this is, and the fix for a Plugin
+    /// there.
     pub fn plugin_refusal(&self) -> Option<CallError> {
         if self.host.confines() {
             return None;
@@ -199,7 +200,7 @@ impl Facts {
             ),
             &ConfinementUnavailableDetails {
                 environment,
-                fix: plugin_fix(environment),
+                fix: plugin_fix(environment, self.platform),
             },
         ))
     }
@@ -411,51 +412,68 @@ fn serde_name(environment: SandboxEnvironment) -> &'static str {
     }
 }
 
+/// The remedies the browser's fix and a Plugin's share, for the
+/// environment each names.
+const TO_WSL2: &str = "convert the distribution to WSL 2 (`wsl --set-version <distribution> 2`)";
+const DOCKER_PROFILE: &str = "run the container with a seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`docker run --security-opt seccomp=<profile.json>`)";
+const KUBERNETES_PROFILE: &str = "give the pod a `Localhost` seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`securityContext.seccompProfile: {type: Localhost, localhostProfile: <profile.json>}`)";
+const APPARMOR_RESTRICTS: &str = "Ubuntu's AppArmor restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`)";
+const UNSHARE_CHECK: &str = "check that `unshare --user --map-root-user true` works for this user (`user.max_user_namespaces` above 0, no seccomp or LSM rule refusing `CLONE_NEWUSER`)";
+
 /// The fix for `environment`, naming `executable` where one is known.
 fn fix(environment: SandboxEnvironment, executable: Option<&std::path::Path>) -> String {
     let off =
         "or switch `security.browser_sandbox` off in Operator policy, which every run then reports";
     match environment {
         SandboxEnvironment::Wsl1 => format!(
-            "WSL1 offers neither the seccomp filters nor the user namespace Chromium's sandbox needs: convert the distribution to WSL 2 (`wsl --set-version <distribution> 2`), {off}."
+            "WSL1 offers neither the seccomp filters nor the user namespace Chromium's sandbox needs: {TO_WSL2}, {off}."
         ),
         SandboxEnvironment::DockerDefaultSeccomp => format!(
-            "Docker's and containerd's default seccomp profiles refuse the user namespace Chromium's sandbox starts in: run the container with a seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`docker run --security-opt seccomp=<profile.json>`), {off}."
+            "Docker's and containerd's default seccomp profiles refuse the user namespace Chromium's sandbox starts in: {DOCKER_PROFILE}, {off}."
         ),
         SandboxEnvironment::KubernetesRuntimeDefault => format!(
-            "Kubernetes' `RuntimeDefault` seccomp profile refuses the user namespace Chromium's sandbox starts in: give the pod a `Localhost` seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`securityContext.seccompProfile: {{type: Localhost, localhostProfile: <profile.json>}}`), {off}."
+            "Kubernetes' `RuntimeDefault` seccomp profile refuses the user namespace Chromium's sandbox starts in: {KUBERNETES_PROFILE}, {off}."
         ),
         SandboxEnvironment::ApparmorUserns => format!(
-            "Ubuntu's AppArmor restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`), and no AppArmor profile gives one to {}: load a profile that grants it `userns`, as Chromium's docs/security/apparmor-userns-restrictions.md shows, {off}.",
+            "{APPARMOR_RESTRICTS}, and no AppArmor profile gives one to {}: load a profile that grants it `userns`, as Chromium's docs/security/apparmor-userns-restrictions.md shows, {off}.",
             executable.map_or_else(
                 || "the browser".to_owned(),
                 |executable| format!("`{}`", executable.display())
             )
         ),
         SandboxEnvironment::Unknown => format!(
-            "This host refuses the user namespace Chromium's sandbox starts in, for a reason the probe does not recognise: check that `unshare --user --map-root-user true` works for this user (`user.max_user_namespaces` above 0, no seccomp or LSM rule refusing `CLONE_NEWUSER`), {off}."
+            "This host refuses the user namespace Chromium's sandbox starts in, for a reason the probe does not recognise: {UNSHARE_CHECK}, {off}."
         ),
     }
 }
 
 /// The fix for `environment` when it keeps a process Plugin from being
-/// confined: from Linux 6.12, Landlock ABI 6 confines one without a user
-/// namespace.
-fn plugin_fix(environment: SandboxEnvironment) -> String {
+/// confined on `platform`, if one is known: from Linux 6.12, Landlock ABI 6
+/// confines one without a user namespace. A platform with no sandbox lets
+/// no one change its seccomp profile, so its fix is another host.
+fn plugin_fix(environment: SandboxEnvironment, platform: Option<NoSandboxPlatform>) -> String {
     let kernel = "or run on a host with Linux 6.12 or later, whose Landlock ABI 6 confines a Plugin without a user namespace";
+    if let Some(platform) = platform {
+        return format!(
+            "{} gives no process the user namespace a Plugin is confined in, and its seccomp profile cannot be changed: run Plugins on a host that allows unprivileged user namespaces, {kernel}.",
+            platform.as_str()
+        );
+    }
     match environment {
-        SandboxEnvironment::Wsl1 => "WSL1 offers neither seccomp nor user namespaces, so no Plugin can be confined there: convert the distribution to WSL 2 (`wsl --set-version <distribution> 2`).".to_owned(),
+        SandboxEnvironment::Wsl1 => format!(
+            "WSL1 offers neither seccomp nor user namespaces, so no Plugin can be confined there: {TO_WSL2}."
+        ),
         SandboxEnvironment::DockerDefaultSeccomp => format!(
-            "Docker's and containerd's default seccomp profiles refuse the user namespace a Plugin is confined in on this kernel: run the container with a seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`docker run --security-opt seccomp=<profile.json>`), {kernel}."
+            "Docker's and containerd's default seccomp profiles refuse the user namespace a Plugin is confined in on this kernel: {DOCKER_PROFILE}, {kernel}."
         ),
         SandboxEnvironment::KubernetesRuntimeDefault => format!(
-            "Kubernetes' `RuntimeDefault` seccomp profile refuses the user namespace a Plugin is confined in on this kernel: give the pod a `Localhost` seccomp profile that allows `clone` and `unshare` with `CLONE_NEWUSER` (`securityContext.seccompProfile: {{type: Localhost, localhostProfile: <profile.json>}}`), {kernel}."
+            "Kubernetes' `RuntimeDefault` seccomp profile refuses the user namespace a Plugin is confined in on this kernel: {KUBERNETES_PROFILE}, {kernel}."
         ),
         SandboxEnvironment::ApparmorUserns => format!(
-            "Ubuntu's AppArmor restricts unprivileged user namespaces (`kernel.apparmor_restrict_unprivileged_userns=1`), and no AppArmor profile gives one to Goodfetch's executable, which confines each Plugin: load a profile that grants it `userns`, {kernel}."
+            "{APPARMOR_RESTRICTS}, and no AppArmor profile gives one to Goodfetch's executable, which confines each Plugin: load a profile that grants it `userns`, {kernel}."
         ),
         SandboxEnvironment::Unknown => format!(
-            "This host refuses the user namespace a Plugin is confined in, for a reason the probe does not recognise: check that `unshare --user --map-root-user true` works for this user (`user.max_user_namespaces` above 0, no seccomp or LSM rule refusing `CLONE_NEWUSER`), {kernel}."
+            "This host refuses the user namespace a Plugin is confined in, for a reason the probe does not recognise: {UNSHARE_CHECK}, {kernel}."
         ),
     }
 }

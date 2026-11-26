@@ -1,9 +1,11 @@
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::plugin::PluginManifest;
 use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 
-use super::{InvalidSettings, PluginSettings};
+use super::{InvalidSettings, PluginSettings, given};
+use crate::settings::{Layers, Values, resolve};
 
 /// A Plugin `scripted` whose manifest declares `schema`, if any.
 fn manifest(schema: Option<Value>) -> PluginManifest {
@@ -100,21 +102,98 @@ fn a_value_the_schema_refuses_is_setting_invalid_naming_its_key(
     assert_eq!(refused_key, key, "{reason}");
 }
 
-/// A secret field's refusal says a value is never taken in a reference's
-/// place, and never repeats the value.
+/// A literal in a secret field is refused, naming the field and never
+/// repeating the value.
 ///
 /// Covers: story:7-79
 #[test]
 fn a_literal_in_a_secret_field_is_refused_without_its_value() {
-    let (_, reason) = refused(checked(Some(schema()), json!({ "token": "hunter22" })));
+    let (key, reason) = refused(checked(Some(schema()), json!({ "token": "hunter22" })));
 
     assert_eq!(
-        (
-            reason.contains("a value is never taken in its place"),
-            reason.contains("hunter22")
-        ),
-        (true, false),
+        (key.as_str(), reason.contains("hunter22")),
+        ("plugins.scripted.settings.token", false),
         "{reason}"
+    );
+}
+
+/// A schema that marks a field secret where `properties` alone do not reach
+/// it refuses the Plugin's settings whole, so no value passes for a
+/// reference unchecked; a `"secret": true` held as data, or a field named
+/// `secret`, marks nothing.
+///
+/// Covers: story:7-79
+#[rstest]
+#[case::under_all_of(
+    json!({ "allOf": [{ "properties": { "token": { "type": "string", "secret": true } } }] }),
+    false
+)]
+#[case::under_defs(
+    json!({
+        "$defs": { "token": { "type": "string", "secret": true } },
+        "properties": { "token": { "$ref": "#/$defs/token" } },
+    }),
+    false
+)]
+#[case::under_items(
+    json!({ "properties": { "tokens": { "type": "array", "items": { "type": "string", "secret": true } } } }),
+    false
+)]
+#[case::held_as_data(
+    json!({ "properties": { "shape": { "type": "object", "default": { "secret": true } } } }),
+    true
+)]
+#[case::a_field_named_secret(json!({ "properties": { "secret": true } }), true)]
+fn a_secret_field_out_of_the_engines_reach_refuses_the_settings_whole(
+    #[case] schema: Value,
+    #[case] taken: bool,
+) {
+    let answer = checked(Some(schema), json!({}))
+        .map(drop)
+        .map_err(|invalid| invalid.key);
+
+    assert_eq!(
+        answer,
+        if taken {
+            Ok(())
+        } else {
+            Err("plugins.scripted.settings".to_owned())
+        }
+    );
+}
+
+/// A Plugin's settings name the layer that set its own entry of `plugins`,
+/// not the nearest layer that set another Plugin's.
+///
+/// Covers: story:7-79
+#[test]
+fn a_plugins_settings_name_the_layer_that_set_its_entry() {
+    let values = |layer, value: Value| {
+        let Value::Object(nested) = value else {
+            panic!("settings are an object");
+        };
+        Values::read(layer, &nested, Product::Collie).unwrap()
+    };
+    let layers = Layers {
+        user_configuration: values(
+            SettingsLayer::UserConfiguration,
+            json!({ "plugins": { "kettle": { "settings": { "depth": 0 } } } }),
+        ),
+        run: values(
+            SettingsLayer::Run,
+            json!({ "plugins": { "scripted": { "settings": {} } } }),
+        ),
+        ..Layers::default()
+    };
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    assert_eq!(
+        ["kettle", "scripted", "absent"].map(|name| given(Some(&resolved), name).1),
+        [
+            Some(SettingsLayer::UserConfiguration),
+            Some(SettingsLayer::Run),
+            None
+        ]
     );
 }
 

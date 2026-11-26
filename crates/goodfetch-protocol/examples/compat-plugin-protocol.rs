@@ -75,10 +75,7 @@ fn main() {
             fetch.clone(),
             &NetFetchResult {
                 status: 200,
-                headers: vec![NetFetchHeader {
-                    name: "content-type".to_owned(),
-                    value: "application/json".to_owned(),
-                }],
+                headers: vec![json_content()],
                 body: NetFetchBody::new(br#"{"stored":true}"#.to_vec()),
             },
         ),
@@ -113,21 +110,7 @@ fn main() {
             },
         ),
         result(RequestId::Number(1), &PluginPingResult {}),
-        Message::Request(Request {
-            jsonrpc: Version,
-            id: fetch,
-            method: NET_FETCH.to_owned(),
-            params: Some(to_value(&NetFetchParams {
-                call_id: RequestId::Number(2),
-                method: "PUT".to_owned(),
-                url: "https://store.example/titles".to_owned(),
-                headers: vec![NetFetchHeader {
-                    name: "content-type".to_owned(),
-                    value: "application/json".to_owned(),
-                }],
-                body: Some(NetFetchBody::new(br#"{"title":"Dune"}"#.to_vec())),
-            })),
-        }),
+        net_fetch(fetch, RequestId::Number(2)),
         result(RequestId::Number(2), &json!({ "replaced": false })),
         Message::Error(ErrorResponse {
             jsonrpc: Version,
@@ -171,6 +154,31 @@ fn call(id: RequestId, method: &str, params: &impl Serialize) -> Message {
         method: method.to_owned(),
         params: Some(params),
     })
+}
+
+/// The Plugin's `net.fetch` call back `id`, within the engine's call
+/// `call_id`: a `PUT` of a JSON body to its store.
+fn net_fetch(id: RequestId, call_id: RequestId) -> Message {
+    Message::Request(Request {
+        jsonrpc: Version,
+        id,
+        method: NET_FETCH.to_owned(),
+        params: Some(to_value(&NetFetchParams {
+            call_id,
+            method: "PUT".to_owned(),
+            url: "https://store.example/titles".to_owned(),
+            headers: vec![json_content()],
+            body: Some(NetFetchBody::new(br#"{"title":"Dune"}"#.to_vec())),
+        })),
+    })
+}
+
+/// The `content-type` header of a JSON body.
+fn json_content() -> NetFetchHeader {
+    NetFetchHeader {
+        name: "content-type".to_owned(),
+        value: "application/json".to_owned(),
+    }
 }
 
 /// The success reply to the call `id`.

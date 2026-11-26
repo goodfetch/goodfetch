@@ -177,6 +177,7 @@ impl Policy {
     /// the run's domain policy, with neither its private ranges nor a
     /// switched-off `security.resolved_ip_check`, which are the run's
     /// pages' and never reach a Plugin.
+    #[must_use]
     pub fn for_plugin(&self) -> Self {
         Self {
             private_ranges: Vec::new(),

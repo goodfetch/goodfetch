@@ -102,7 +102,7 @@ pub(super) fn reaches_a_link(address: SocketAddr) -> bool {
                     .any(|ipv4| link_local(IpAddr::V4(ipv4)))
             }
         }
-        ipv4 => link_local(ipv4),
+        ipv4 @ IpAddr::V4(_) => link_local(ipv4),
     }
 }
 

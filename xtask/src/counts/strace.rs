@@ -68,10 +68,10 @@ pub(super) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     if !environment.has_program("strace") {
         return skip(environment, "strace is not installed on this host");
     }
-    let named: Vec<(&str, &str)> = arguments
+    let named: Vec<(&str, &Path)> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('='))
+        .map(|named| (named.family.as_str(), named.path.as_path()))
         .collect();
     let families: Vec<&Family> = FAMILIES
         .iter()
@@ -99,7 +99,7 @@ pub(super) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let mut findings = Vec::new();
     for family in families {
         let executable = match named.iter().find(|(name, _)| *name == family.name) {
-            Some((_, path)) => environment.path(Path::new(path)),
+            Some((_, path)) => environment.path(path),
             None => super::build(family, false, environment)?,
         };
         if arguments.prove {

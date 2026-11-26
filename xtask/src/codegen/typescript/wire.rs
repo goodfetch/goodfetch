@@ -644,7 +644,7 @@ fn section(
 /// Whether the type `name`, the layer's own or Collie's, holds fields to
 /// rename or points in time, which reading it from the wire converts.
 pub(super) fn converts(layer: &Layer, name: &str) -> Result<bool> {
-    let table = wire(&reachable(layer), |own| own == name, [], [])?;
+    let table = wire(&layer.reachable(), |own| own == name, [], [])?;
     Ok(table.types.contains_key(name))
 }
 
@@ -652,7 +652,7 @@ pub(super) fn converts(layer: &Layer, name: &str) -> Result<bool> {
 /// fields to rename or points in time.
 fn table(layer: &Layer) -> Result<Wire> {
     wire(
-        &reachable(layer),
+        &layer.reachable(),
         |name| layer.definitions.contains_key(name),
         layer.operations.iter().map(|operation| {
             (
@@ -666,14 +666,6 @@ fn table(layer: &Layer) -> Result<Wire> {
             .iter()
             .map(|event| (event.name.as_str(), event.payload.0.as_str())),
     )
-}
-
-/// Every type the layer's own reach: Collie's, then the layer's, which
-/// win over Collie's of the same name.
-fn reachable(layer: &Layer) -> Map<String, Value> {
-    let mut definitions = layer.collie_definitions.clone();
-    definitions.extend(layer.definitions.clone());
-    definitions
 }
 
 /// The layer's `wire.ts`: Collie's table, or Foxhound's, which adds its

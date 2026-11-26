@@ -1391,8 +1391,8 @@ pub(crate) struct Arguments {
     prove: bool,
     /// Runs this executable as the family `<family>=<path>` names, in place
     /// of building its target.
-    #[arg(long, value_name = "FAMILY=PATH")]
-    executable: Vec<String>,
+    #[arg(long, value_name = "FAMILY=PATH", value_parser = named_executable)]
+    executable: Vec<NamedExecutable>,
     /// Runs the rows read under Valgrind, in place of the counted ones.
     #[arg(long, conflicts_with = "executable")]
     valgrind: bool,
@@ -1410,6 +1410,24 @@ pub(crate) struct Arguments {
     /// it, `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` sets it.
     #[arg(long, value_name = "N")]
     callgrind_at_once: Option<NonZeroUsize>,
+}
+
+/// One `--executable` value: the family it runs as, and its path.
+#[derive(Clone, Debug)]
+struct NamedExecutable {
+    family: String,
+    path: PathBuf,
+}
+
+/// Reads `FAMILY=PATH`, refusing a value with no `=`.
+fn named_executable(value: &str) -> Result<NamedExecutable, String> {
+    let (family, path) = value
+        .split_once('=')
+        .ok_or_else(|| format!("`{value}` is no FAMILY=PATH"))?;
+    Ok(NamedExecutable {
+        family: family.to_owned(),
+        path: PathBuf::from(path),
+    })
 }
 
 /// The cell that runs with every default feature on.
@@ -1447,7 +1465,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let named: Vec<&str> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('=').map(|(family, _)| family))
+        .map(|named| named.family.as_str())
         .collect();
     let uncounted = uncounted(&register.rows, &named, arguments);
     if !uncounted.is_empty() {
@@ -1799,10 +1817,10 @@ fn executables(
     environment: &Environment,
     rows: &[&Row],
 ) -> Result<BTreeMap<&'static str, PathBuf>> {
-    let named: BTreeMap<&str, &str> = arguments
+    let named: BTreeMap<&str, &Path> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('='))
+        .map(|named| (named.family.as_str(), named.path.as_path()))
         .collect();
     let mut executables = BTreeMap::new();
     for family in FAMILIES {
@@ -1813,7 +1831,7 @@ fn executables(
             continue;
         }
         let executable = match named.get(family.name) {
-            Some(path) => environment.path(Path::new(path)),
+            Some(path) => environment.path(path),
             None => build(&family, arguments.valgrind, environment)?,
         };
         executables.insert(family.name, executable);

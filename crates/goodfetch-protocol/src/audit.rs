@@ -431,6 +431,12 @@ pub const LENT_PAGE_ATTACHED: SharedTypeValue = kind(
     "A page was lent to the program's own Playwright client (ADR 0089).",
 );
 
+/// A `stealth` Session's Fingerprint method chosen.
+pub const FINGERPRINT_METHOD_CHOSEN: SharedTypeValue = kind(
+    "fingerprint_method_chosen",
+    "A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).",
+);
+
 /// A certificate pinned on first use.
 pub const CERTIFICATE_PINNED: SharedTypeValue = kind(
     "certificate_pinned",
@@ -530,6 +536,7 @@ pub const ENTRIES: Entries = Entries {
         ENDPOINT_REFUSALS_FOLDED,
         RAW_CDP_ATTACHED,
         LENT_PAGE_ATTACHED,
+        FINGERPRINT_METHOD_CHOSEN,
         CERTIFICATE_PINNED,
         CERTIFICATE_CHANGE_ACCEPTED,
         CERTIFICATE_PIN_FORGOTTEN,

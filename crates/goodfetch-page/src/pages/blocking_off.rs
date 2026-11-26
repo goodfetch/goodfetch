@@ -178,7 +178,7 @@ impl Pages {
         page_id: &PageId,
         page: &OpenPage,
         again: Destination<'_>,
-        navigated: crate::driver::Arrived,
+        navigated: crate::cdp::driver::Arrived,
         events: &Events,
     ) -> Result<Option<(PageResponse, Result<(), CallError>, Option<Block>)>, CallError> {
         let Some(response) = arrived(page_id, navigated, events).await else {
@@ -187,7 +187,7 @@ impl Pages {
         self.events(page_id)?.judged(&response.request_id);
         let block = block_of(
             &page.driver,
-            page.run.metrics().counted_work(),
+            page.run.identity.metrics().counted_work(),
             self.blocks.as_ref(),
             &response,
             Some(again.operation()),

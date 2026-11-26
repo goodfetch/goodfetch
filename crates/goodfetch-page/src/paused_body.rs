@@ -9,8 +9,8 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_protocol::page::{RESPONSE_TRUNCATED, ResponseTruncatedDetails};
 
+use crate::cdp::driver::cdp_response::{coded, declared_length};
 use crate::cdp::{CdpPage, PausedId};
-use crate::driver::cdp_response::{coded, declared_length};
 
 /// The bytes the browser reads in one chunk of a body's stream: their
 /// Base64 stays far below what one of the browser's messages carries.

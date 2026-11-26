@@ -43,6 +43,7 @@
 
 use std::collections::BTreeMap;
 
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::connection::WaitedFor;
@@ -51,14 +52,14 @@ use goodfetch_protocol::page::{
     PageResponse, RedirectLimit, TOO_MANY_REDIRECTS, TooManyRedirectsDetails,
 };
 
-use crate::cdp::{
-    AuthChallenge, CdpPage, ContinueRequest, Header, HopEvent, HopEvents, NetError, NetworkId,
-    NotTaken, PausedId, PausedRequest,
-};
-use crate::driver::PageDriver;
-use crate::driver::cdp_response::{
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::cdp_response::{
     bodiless, coded, cut_after_sent_on, cut_though_finished, declared_length, encoded_bytes,
     redirects, whole_body,
+};
+use crate::cdp::{
+    AuthChallenge, CdpPage, ContinueRequest, Header, HopEvent, HopEvents, NetworkId, NotTaken,
+    PausedId, PausedRequest,
 };
 use crate::errors::{gate_refused, network_error};
 use crate::interception::{EngineRequest, EngineRequests, Overrides, authentication};

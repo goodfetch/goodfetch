@@ -13,10 +13,10 @@ use goodfetch_engine::mask::Masks;
 use goodfetch_protocol::page::events::{ConsoleMessage, WebError};
 use goodfetch_protocol::page::{PageId, PageResponse};
 
+use super::driver::cdp_response::{bytes_of, headers, response_of};
 use super::paused::{LoadingFailed, NotTaken, is_navigation, post_data, resource_type};
 use super::runtime_values::{console_message, web_error};
 use super::{CdpPage, TargetSession};
-use crate::driver::cdp_response::{bytes_of, headers, response_of};
 
 /// What a page's events follow of the page's own events, or of one of its
 /// out-of-process frames'.

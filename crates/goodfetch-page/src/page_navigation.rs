@@ -15,6 +15,7 @@
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::tls::CertificateInvalid;
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::{
@@ -22,9 +23,9 @@ use goodfetch_protocol::page::{
 };
 use tracing::Instrument as _;
 
-use crate::cdp::{CdpPage, Going, NetError};
-use crate::driver::PageDriver;
-use crate::driver::navigation::{Arrived, Ended};
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::navigation::{Arrived, Ended};
+use crate::cdp::{CdpPage, Going};
 use crate::egress_relay::EgressRelay;
 use crate::errors::{
     self, Call, interrupted, network_error, renderer_crashed, too_many_redirects, truncated,

@@ -21,6 +21,10 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::Product;
 use crate::releases::Sha256;
 
+/// The surface of a Collie Journey's `cli` variant run on Foxhound's
+/// executable (ADR 0094): the one variant that names a Product.
+pub const FOXHOUND_CLI: &str = "foxhound-cli";
+
 /// One Journey: a goal a person reaches through its Product's public
 /// surfaces, written as steps from a starting state to an outcome checked
 /// from outside the engine (ADR 0063).
@@ -137,7 +141,7 @@ impl Check {
             || self
                 .surfaces
                 .iter()
-                .any(|listed| listed == surface || (surface == "foxhound-cli" && listed == "cli"))
+                .any(|listed| listed == surface || (surface == FOXHOUND_CLI && listed == "cli"))
     }
 }
 

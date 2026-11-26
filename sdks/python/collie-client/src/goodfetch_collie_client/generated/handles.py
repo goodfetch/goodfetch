@@ -349,8 +349,8 @@ class AsyncPage(AsyncHandle):
         response = result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
         return None if response is None else AsyncResponse(self._host, response)
 
-    async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> AsyncResponse:
-        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+    async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, json_secrets: list[models.JsonSecret] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given, secret_headers: dict[str, models.SecretHeader] | None | NotGiven = not_given) -> AsyncResponse:
+        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -358,12 +358,16 @@ class AsyncPage(AsyncHandle):
         params = models.PageRequestParams(page_id=self._host.id, url=url)
         if not isinstance(headers, NotGiven):
             params.headers = headers
+        if not isinstance(json_secrets, NotGiven):
+            params.json_secrets = json_secrets
         if not isinstance(max_redirects, NotGiven):
             params.max_redirects = max_redirects
         if not isinstance(method, NotGiven):
             params.method = method
         if not isinstance(post_data, NotGiven):
             params.post_data = post_data
+        if not isinstance(secret_headers, NotGiven):
+            params.secret_headers = secret_headers
         return AsyncResponse(self._host, result_of(models.PageResponse, await self._host.call("page.request", params)))
 
     async def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:
@@ -964,8 +968,8 @@ class Page(Handle):
         response = result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
         return None if response is None else Response(self._host, response)
 
-    def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given) -> Response:
-        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.
+    def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, json_secrets: list[models.JsonSecret] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given, secret_headers: dict[str, models.SecretHeader] | None | NotGiven = not_given) -> Response:
+        """Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -973,12 +977,16 @@ class Page(Handle):
         params = models.PageRequestParams(page_id=self._host.id, url=url)
         if not isinstance(headers, NotGiven):
             params.headers = headers
+        if not isinstance(json_secrets, NotGiven):
+            params.json_secrets = json_secrets
         if not isinstance(max_redirects, NotGiven):
             params.max_redirects = max_redirects
         if not isinstance(method, NotGiven):
             params.method = method
         if not isinstance(post_data, NotGiven):
             params.post_data = post_data
+        if not isinstance(secret_headers, NotGiven):
+            params.secret_headers = secret_headers
         return Response(self._host, result_of(models.PageResponse, self._host.call("page.request", params)))
 
     def wait_for_function(self, function: str, *, arg: Any | NotGiven = not_given, polling_interval: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> Any | None:

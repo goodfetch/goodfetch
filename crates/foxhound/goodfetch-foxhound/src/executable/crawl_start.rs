@@ -44,7 +44,7 @@ use goodfetch_collie::executable::catalog_commands::{
 use goodfetch_collie::executable::engine_choice::{self, CommandCall, Failed, Input, Next, Values};
 use goodfetch_collie::executable::exit_codes;
 use goodfetch_collie::executable::output::{self, Human, Progress};
-use goodfetch_engine::rpc::framing::MAX_MESSAGE_BYTES;
+use goodfetch_engine::framing::MAX_MESSAGE_BYTES;
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::foxhound::frontier::{RUN_ADD_SEEDS, SEEDS as SEEDS_NOTIFICATION};

@@ -3,7 +3,8 @@
 # host that is not Linux (ADR 0135's note of 2026-10-20). CI's Pre-merge suite
 # runs on Linux; the local gate's host steps run on macOS, which compiles,
 # skips or asserts these tests differently:
-#   - `tc_netem::` and `os_services::keychain::`, compiled only on Linux;
+#   - `tc_netem::` and `os_services::keychain::`, compiled only on Linux,
+#     and goodfetch-confinement's `probes::`, only on Linux x86-64;
 #   - `fetch_edge::the_ipv6_path_drops_connections_while_ipv4_answers`, whose
 #     IPv6 Happy Eyeballs check asserts the dropped SYN only on Linux;
 #   - `extra_loopback::`, skipped on a macOS host without the `lo0` aliases,
@@ -29,9 +30,10 @@ cd "$root"
 source "$root/ci/container.sh"
 
 # The tests, as a nextest filterset over the packages that hold them.
-packages=(-p goodfetch-proving-ground -p xtask)
+packages=(-p goodfetch-proving-ground -p xtask -p goodfetch-confinement)
 filter='test(/^tc_netem::/) | test(/^extra_loopback::/) | test(/^os_services::keychain::/)'
 filter+=' | test(=fetch_edge::the_ipv6_path_drops_connections_while_ipv4_answers)'
+filter+=' | (package(goodfetch-confinement) & kind(test) & test(/^probes::/))'
 
 if [[ "${1:-}" == in-container ]]; then
   # Without the user's service manager: this container does not boot
@@ -81,7 +83,10 @@ common=$(git rev-parse --path-format=absolute --git-common-dir)
 [[ "$common" == "$root"/* ]] || mounts+=(--volume "$common:$common")
 environment=(--env GIT_CONFIG_COUNT=1 --env GIT_CONFIG_KEY_0=safe.directory --env GIT_CONFIG_VALUE_0='*')
 [[ -z "${CARGO_BUILD_JOBS:-}" ]] || environment+=(--env "CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS")
-exec "$engine" run --rm --init --platform linux/amd64 --cap-add NET_ADMIN "${mounts[@]}" --workdir "$root" \
+# No seccomp profile: the confinement probes' positive controls assert the
+# kernel's own answers, which the engine's default profile replaces.
+exec "$engine" run --rm --init --platform linux/amd64 --cap-add NET_ADMIN --security-opt seccomp=unconfined \
+  "${mounts[@]}" --workdir "$root" \
   --volume goodfetch-linux-target:/var/tmp/target --env CARGO_TARGET_DIR=/var/tmp/target \
   --volume goodfetch-linux-cargo:/usr/local/cargo/registry \
   "${environment[@]}" "$CI_IMAGE" ci/linux.sh in-container

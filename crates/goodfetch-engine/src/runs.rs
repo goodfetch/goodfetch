@@ -151,6 +151,7 @@ use crate::ledger::{Allowance, ChargeError, Charged, ChargingParts, RunCharging,
 use crate::local_addresses::{self, Rotation};
 use crate::mask::{Masks, Redaction, Scope};
 use crate::metrics::{FolderStorage, Metrics};
+use crate::plugin_kinds::run_plugins::RunPlugins;
 use crate::politeness::{
     Holder, OnStorageFailures, Politeness, PolitenessError, PolitenessOptions, PolitenessTables,
     RunPoliteness, RunPolitenessParts, SharedPoliteness, SharedPolitenessParts,
@@ -1519,6 +1520,15 @@ struct Shared {
     /// Its send window, which its commands mark before they go out and
     /// its safe point waits for (ADRs 0106 and 0145).
     send_window: RunSendWindow,
+    /// Its process Plugins, each started as a call first names it, the
+    /// Plugin kinds' module's (ADR 0145).
+    plugins: RunPlugins,
+}
+
+/// The process Plugins of `run`, which start on its owner as its calls
+/// name them: a power of the Run its owner module holds (ADR 0145).
+pub fn plugins(run: &Run) -> &RunPlugins {
+    &run.shared.plugins
 }
 
 /// The Run trace of `run`, whose one writer every entry of the Run goes
@@ -4918,6 +4928,7 @@ impl Registry {
                 trace,
                 entropy: RunEntropy::new(self.setup.entropy.fork()),
                 send_window,
+                plugins: self.plugins(run_id, &owner),
             }),
             identity,
             state,
@@ -4925,6 +4936,18 @@ impl Registry {
             runs,
         };
         (run, let_finish)
+    }
+
+    /// The process Plugins of the Run `run_id`, started as tasks of its
+    /// `owner` (ADR 0145).
+    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> RunPlugins {
+        RunPlugins::new(
+            self.setup.engine.home(),
+            self.setup.engine.places().cloned(),
+            self.setup.product,
+            run_id.clone(),
+            Arc::clone(owner),
+        )
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every

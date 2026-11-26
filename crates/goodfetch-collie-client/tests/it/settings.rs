@@ -10,6 +10,7 @@ use std::time::Duration;
 use goodfetch_collie_client::settings::{Settings, browser, checkpoint, content, timeout};
 use goodfetch_collie_client::transport::{Endpoint, Network};
 use goodfetch_collie_client::{ClientConnection, ConnectionRuntime, ErrorCode};
+use goodfetch_protocol::page::ExtractorName;
 use goodfetch_protocol::settings::SettingNotApplicableDetails;
 use goodfetch_test_support::TestEnv;
 
@@ -54,7 +55,7 @@ fn each_scope_sends_its_own_settings_and_a_key_it_does_not_set_is_refused_unsent
             .unwrap();
         let page = session
             .new_page()
-            .settings(Settings::new().set(content::EXTRACTOR, content::Extractor::Trafilatura))
+            .settings(Settings::new().set(content::EXTRACTOR, ExtractorName::TRAFILATURA))
             .await
             .unwrap();
         connection.close().await.unwrap();

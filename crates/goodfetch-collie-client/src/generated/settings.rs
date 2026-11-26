@@ -172,7 +172,7 @@ pub mod browser_cache {
 /// The `cache.*` settings.
 pub mod cache {
 
-    /// What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
+    /// What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).
     ///
     /// `cache.mode`.
     pub const MODE: crate::settings::Setting<Mode> = crate::settings::Setting::new(
@@ -190,6 +190,8 @@ pub mod cache {
         Off,
         /// `revalidate`.
         Revalidate,
+        /// `replay`.
+        Replay,
     }
 
     impl ::goodfetch_protocol::catalog::SettingWord for Mode {
@@ -197,6 +199,7 @@ pub mod cache {
             match self {
                 Self::Off => "off",
                 Self::Revalidate => "revalidate",
+                Self::Replay => "replay",
             }
         }
     }
@@ -384,37 +387,20 @@ pub mod consent {
 /// The `content.*` settings.
 pub mod content {
 
-    /// The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    /// The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
     ///
     /// `content.extractor`.
-    pub const EXTRACTOR: crate::settings::Setting<Extractor> = crate::settings::Setting::new(
-        "content.extractor",
-        &[
-            ::goodfetch_protocol::catalog::SettingScope::Connection,
-            ::goodfetch_protocol::catalog::SettingScope::Run,
-            ::goodfetch_protocol::catalog::SettingScope::Label,
-            ::goodfetch_protocol::catalog::SettingScope::Session,
-            ::goodfetch_protocol::catalog::SettingScope::Page,
-        ],
-    );
-
-    /// A word a setting of this module takes, as the catalog spells it.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub enum Extractor {
-        /// `dom_smoothie`.
-        DomSmoothie,
-        /// `trafilatura`.
-        Trafilatura,
-    }
-
-    impl ::goodfetch_protocol::catalog::SettingWord for Extractor {
-        fn word(&self) -> &'static str {
-            match self {
-                Self::DomSmoothie => "dom_smoothie",
-                Self::Trafilatura => "trafilatura",
-            }
-        }
-    }
+    pub const EXTRACTOR: crate::settings::Setting<::goodfetch_protocol::page::ExtractorName> =
+        crate::settings::Setting::new(
+            "content.extractor",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+                ::goodfetch_protocol::catalog::SettingScope::Session,
+                ::goodfetch_protocol::catalog::SettingScope::Page,
+            ],
+        );
 }
 
 /// The `effect.*` settings.
@@ -1723,6 +1709,18 @@ pub mod timeout {
     pub const NAVIGATION: crate::settings::Setting<::std::time::Duration> =
         crate::settings::Setting::new(
             "timeout.navigation",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+    /// How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+    ///
+    /// `timeout.plugin`.
+    pub const PLUGIN: crate::settings::Setting<::std::time::Duration> =
+        crate::settings::Setting::new(
+            "timeout.plugin",
             &[
                 ::goodfetch_protocol::catalog::SettingScope::Connection,
                 ::goodfetch_protocol::catalog::SettingScope::Run,

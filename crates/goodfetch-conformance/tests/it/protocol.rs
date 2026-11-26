@@ -19,7 +19,7 @@ use goodfetch_protocol::result_document::{
 };
 use goodfetch_test_support::{
     ATTACHED_RECORD, ATTACHED_SCRIPT, ProvingGround as LocalCopy, TestEnv, Tool,
-    browser_cache_in_home, tools,
+    browser_cache_in_home, cli, tools,
 };
 use serde_json::{Value, json};
 
@@ -326,6 +326,33 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
     );
 }
 
+/// The fetch suite's cases, in their order.
+const FETCH_CASES: [&str; 23] = [
+    "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page",
+    "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler",
+    "a-body-its-connections-close-delimits-reaches-the-handler-whole",
+    "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere",
+    "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests",
+    "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies",
+    "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it",
+    "each-redirect-hop-goes-through-the-navigation-gate",
+    "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped",
+    "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable",
+    "requests-held-past-politeness-retry-after-max-end-failed-and-retry-failed-re-admits-them",
+    "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target",
+    "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live",
+    "with-cache-mode-off-every-request-reaches-the-site",
+    "a-fresh-response-is-served-from-the-cache-with-no-request",
+    "a-stale-response-is-revalidated-and-a-304-serves-its-stored-body",
+    "a-response-varying-on-cookie-is-served-only-for-its-cookie",
+    "under-revalidate-a-post-reaches-the-site-each-time",
+    "replay-serves-a-post-again-to-the-same-json-in-another-key-order",
+    "replay-serves-a-form-post-again-to-its-fields-in-another-order-each-names-values-in-theirs",
+    "past-cache-max-size-the-least-recently-used-entries-leave-and-the-bodies-kept-stay-within-it",
+    "an-entry-older-than-cache-max-age-ceiling-is-served-in-no-mode",
+    "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served",
+];
+
 /// The fetch suite against Foxhound's Attached engine: a crawl request
 /// under `fetch.tier: http` is fetched over HTTP, decoded, and handed to
 /// its handler as a page `page.formats` reads, the site seeing one request;
@@ -338,9 +365,14 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 /// `cache.mode: revalidate` a fresh response is served from the Response
 /// cache with no request, a stale one is revalidated and a `304` serves its
 /// stored body, and a response varying on `Cookie` is served only for its
-/// cookie; under the default, `off`, every request reaches the site.
+/// cookie, while a `POST` reaches the site each time; under the default,
+/// `off`, every request reaches the site. Under `replay` a `POST` is served
+/// again to the same JSON or form body in another order. Past
+/// `cache.max_size` the least recently used entries leave, past
+/// `cache.max_age_ceiling` an entry is served in no mode, and at the `low`
+/// storage level nothing new is stored while what is held is served.
 ///
-/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-37, story:6-38
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-36, story:6-37, story:6-38, story:6-42, story:6-43
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
@@ -359,76 +391,10 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                 ("fetch.edge.http", Outcome::Proved),
                 ("fetch.response_cache", Outcome::Proved)
             ],
-            vec![
-                (
-                    "a-request-fetched-over-http-hands-its-handler-the-document-on-a-page",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-cut-body-fails-its-attempt-with-response-truncated-and-never-reaches-the-handler",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-body-its-connections-close-delimits-reaches-the-handler-whole",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-request-the-site-never-processed-is-sent-once-more-and-counted-nowhere",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-redirect-loop-fails-with-too-many-redirects-at-a-cost-of-fetch-redirect-max-and-one-requests",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "each-redirect-status-sends-its-next-hop-with-the-method-and-body-fetch-specifies",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-3xx-fetch-does-not-follow-fails-with-response-not-ok-unless-crawl-handle-statuses-lists-it",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "each-redirect-hop-goes-through-the-navigation-gate",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-redirect-to-an-admitted-key-or-out-of-scope-ends-skipped",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-redirects-retry-after-delays-its-next-hop-or-past-the-bound-fails-with-response-unavailable",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "requests-held-past-politeness-retry-after-max-end-failed-and-retry-failed-re-admits-them",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "with-cache-mode-off-every-request-reaches-the-site",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-fresh-response-is-served-from-the-cache-with-no-request",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-stale-response-is-revalidated-and-a-304-serves-its-stored-body",
-                    CaseOutcome::Passed
-                ),
-                (
-                    "a-response-varying-on-cookie-is-served-only-for-its-cookie",
-                    CaseOutcome::Passed
-                ),
-            ]
+            FETCH_CASES
+                .iter()
+                .map(|id| (*id, CaseOutcome::Passed))
+                .collect::<Vec<_>>()
         ),
         "{}",
         serde_json::to_string_pretty(&document).unwrap()
@@ -682,6 +648,74 @@ fn the_fenced_copy_has_its_writes_refused_against_foxhound() {
                 "the-fenced-copy-has-its-checkpoints-and-exports-refused-where-the-destination-compares-and-sets",
                 CaseOutcome::Passed
             )]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+/// Stops the major's Daemon that an Attached engine started for the calls
+/// the Daemon keeps, once the test ends.
+struct StopsTheDaemon<'env> {
+    env: &'env TestEnv,
+    executable: &'env Path,
+}
+
+impl Drop for StopsTheDaemon<'_> {
+    fn drop(&mut self) {
+        // Best effort: a Daemon that is not running leaves nothing to stop,
+        // and a Daemon still alive fails the test at the TestEnv's teardown.
+        let _ = cli(self.env, self.executable)
+            .args(["daemon", "stop"])
+            .run();
+    }
+}
+
+/// The Schedule store's cases pass against Collie's executable through the
+/// `schedule.*` operations only: as a Daemon, which keeps the store, and as
+/// an Attached engine, which forwards each call to the major's Daemon,
+/// starting it when none runs.
+///
+/// Covers: story:10-1, story:10-13
+#[rstest::rstest]
+fn the_schedule_store_is_proved_against_collies_attached_engine_and_daemon(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, mode);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::schedule(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("schedule-collie-{mode:?}").to_lowercase(),
+    );
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("schedule", Outcome::Proved)],
+            vec![
+                (
+                    "a-create-answers-the-schedule-id-given-and-refuses-a-taken-one",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-get-reads-the-schedule-as-it-was-defined",
+                    CaseOutcome::Passed
+                ),
+                ("a-list-holds-every-schedule-created", CaseOutcome::Passed),
+                (
+                    "a-delete-answers-whether-it-deleted-the-schedule",
+                    CaseOutcome::Passed
+                ),
+            ]
         ),
         "{}",
         serde_json::to_string_pretty(&document).unwrap()

@@ -109,6 +109,7 @@ fn read_account(proving_ground: &ProvingGround, planted: &Value) -> Value {
 #[case::a_totp_seed("totp_seed", "canaries/2")]
 #[case::a_session_cookie("session_cookie", "canaries/3")]
 #[case::an_endpoint_token("endpoint_token", "canaries/4")]
+#[case::a_header_value("header_value", "canaries/4")]
 fn each_plant_hands_out_a_new_value_listed_by_its_id(#[case] kind: &str, #[case] task: &str) {
     let proving_ground = ProvingGround::start(SEED);
 
@@ -210,6 +211,93 @@ fn an_endpoint_token_opens_the_endpoint_only_as_a_bearer_token() {
     assert_eq!(refused.status, 401, "{}", refused.body);
     assert_eq!(answered.status, 200, "{}", answered.body);
     assert_eq!(answer["outcome"], "verified", "{answer}");
+}
+
+/// A header value canary opens the endpoint as a bearer token or as the
+/// `token` string of a posted JSON body, each a sighting its flow expects,
+/// and nothing else does.
+#[test]
+fn a_header_value_opens_the_endpoint_in_its_header_or_its_json_body() {
+    let proving_ground = ProvingGround::start(SEED);
+    let planted = plant(&proving_ground, "header_value");
+    let endpoint = url(&proving_ground, &planted, "/api/record");
+    let secret = value(&planted);
+
+    let in_a_header = proving_ground
+        .get_with_headers(&endpoint, &[("authorization", &format!("Bearer {secret}"))]);
+    let in_a_body = proving_ground.post_json(&endpoint, &json!({ "token": secret }));
+    let refused = proving_ground.post_json(&endpoint, &json!({ "token": "another" }));
+    let answer = proving_ground.judge(&submission("canaries/4", "success", &[in_a_body.json()]));
+
+    let canary = listed(&proving_ground, planted["id"].as_str().expect("an id"));
+    assert_eq!(
+        (in_a_header.status, in_a_body.status, refused.status),
+        (200, 200, 401),
+        "{}",
+        refused.body
+    );
+    assert_eq!(answer["outcome"], "verified", "{answer}");
+    assert_eq!(
+        canary["sightings"],
+        json!([
+            { "host": "4.canaries.test", "target": "/api/record", "part": "header:authorization", "expected": true },
+            { "host": "4.canaries.test", "target": "/api/record", "part": "body", "expected": true },
+        ])
+    );
+}
+
+/// `/api/redirect/<status>` answers each redirect status a request may meet
+/// with its `to` location, whatever the method, and no other status.
+#[rstest]
+#[case::moved_permanently(301)]
+#[case::found(302)]
+#[case::see_other(303)]
+#[case::temporary_redirect(307)]
+#[case::permanent_redirect(308)]
+fn the_redirect_page_answers_its_status_to_its_location(#[case] status: u16) {
+    let proving_ground = ProvingGround::start(SEED);
+    let location = "https://canaries.test@elsewhere.test/api/record?a=1";
+    let redirect = proving_ground.url(
+        "4.canaries.test",
+        &format!("/api/redirect/{status}?to={}", url_escape(location)),
+    );
+
+    let got = proving_ground.get(&redirect);
+    let posted = proving_ground.post_json(&redirect, &json!({ "token": "t" }));
+
+    assert_eq!(
+        (
+            got.status,
+            got.header("location"),
+            posted.status,
+            posted.header("location")
+        ),
+        (status, Some(location), status, Some(location))
+    );
+}
+
+#[rstest]
+#[case::not_a_redirect("/api/redirect/200?to=https://elsewhere.test/")]
+#[case::without_a_location("/api/redirect/302")]
+fn the_redirect_page_answers_no_other_status_and_needs_a_location(#[case] path: &str) {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let answer = proving_ground.get(&proving_ground.url("4.canaries.test", path));
+
+    assert_eq!(answer.status, 404, "{}", answer.body);
+}
+
+/// `text` percent-encoded as one query component.
+fn url_escape(text: &str) -> String {
+    text.bytes()
+        .map(|byte| {
+            if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+                char::from(byte).to_string()
+            } else {
+                format!("%{byte:02X}")
+            }
+        })
+        .collect()
 }
 
 #[rstest]

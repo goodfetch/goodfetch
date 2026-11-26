@@ -132,6 +132,8 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
             headers: None,
             post_data: None,
             max_redirects: Some(0),
+            secret_headers: None,
+            json_secrets: None,
         };
         // The page is taken for each call and let go before its answer
         // changes it, which would copy it while this replay held it.

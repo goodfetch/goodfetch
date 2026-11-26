@@ -216,6 +216,7 @@ where
             install: Some(install),
             ops: Ops::default(),
             websocket: None,
+            accounts: None,
         };
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)

@@ -3,11 +3,17 @@
 //! credentials checked first, then the egress policy on the host and on
 //! every address the connection may use, which the relay resolves itself,
 //! then the connection opened to those addresses alone, or through the
-//! Session's upstream proxy, and the bytes passed both ways unchanged, a
-//! tunnel's ClientHello noted as it passes. A client that sends no request
-//! head within [`HEAD_DEADLINE`] is dropped, and each connection the relay
-//! opens has its connect deadline, so a proxy that never answers is the
-//! proxy's failure.
+//! Session's upstream proxy, and a tunnel's bytes passed both ways
+//! unchanged, its ClientHello noted as it passes. A plain connection
+//! carries one request after another, each judged on its own and each
+//! answer passed back as the site gave it ([`plain`]). A client that sends
+//! no request head within [`HEAD_DEADLINE`] is dropped, and each
+//! connection the relay opens has its connect deadline, so a proxy that
+//! never answers is the proxy's failure.
+//!
+//! Size: one concern, one browser connection from its first head to its
+//! close: a tunnel and the plain requests share the credential check, the
+//! judgment and the legs opened, and a plain connection may become a tunnel.
 
 use std::future::Future;
 use std::io;
@@ -19,12 +25,15 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind, Stopped};
 use goodfetch_engine::endpoint::same_token;
 use goodfetch_engine::tls::ExceptionUsed;
-use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
+use tokio::io::{
+    AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, ReadHalf, WriteHalf,
+};
 
 use super::answers::{AUTHENTICATE, ESTABLISHED, failed};
 use super::client_hello::{ClientHello, Noting};
-use super::deadlines::{HEAD_DEADLINE, within, within_or_none};
+use super::deadlines::{HEAD_DEADLINE, IDLE_DEADLINE, within, within_or_none};
 use super::head::{self, Head, Target, Unread};
+use super::message::{Incoming, widened};
 // The relay's own `NetError`, which the benchmark scenarios that compile
 // this file in give it too.
 use super::NetError;
@@ -246,52 +255,35 @@ where
         let _ = browser.write_all(AUTHENTICATE).await;
         return Served::Unauthenticated;
     }
-    let url = head.target.url();
-    let resolved = match passed(&url, relaying, network).await {
+    if let Target::Absolute { .. } = head.target {
+        return plain(browser, head, rest, (relaying, network), observe).await;
+    }
+    tunnel(browser, &head, rest, (relaying, network), observe).await
+}
+
+/// Opens `head`'s tunnel, `rest` the browser's bytes past its head, once
+/// the egress policy passed it, and relays it.
+async fn tunnel<B, N, O>(
+    mut browser: B,
+    head: &Head,
+    rest: Vec<u8>,
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    N: Network,
+    O: Observe,
+{
+    let resolved = match judged(&mut browser, head, (relaying, network), observe).await {
         Ok(resolved) => resolved,
-        Err(Stopped::Refused(refused)) => {
-            return refuse(
-                &mut browser,
-                &head,
-                &refused,
-                observe,
-                "http_request_denied",
-            )
-            .await;
-        }
-        Err(Stopped::AddressRefused(refused)) => {
-            return refuse(
-                &mut browser,
-                &head,
-                &refused,
-                observe,
-                "destination_ip_prohibited",
-            )
-            .await;
-        }
-        // Nothing else stops it with a refusal to name: its name has no
-        // address it may reach.
-        Err(_) => {
-            return unreached(
-                &mut browser,
-                &head,
-                observe,
-                Unreached::NameNotResolved,
-                "dns_error",
-            )
-            .await;
-        }
+        Err(served) => return served,
     };
-    let upstream = if (relaying.bypasses)(&url) {
-        &Upstream::Direct
-    } else {
-        &relaying.upstream
-    };
-    match upstream {
+    match upstream_of(relaying, &head.target.url()) {
         Upstream::Direct => {
             direct(
                 browser,
-                &head,
+                head,
                 rest,
                 &resolved.addresses,
                 (relaying, network),
@@ -302,7 +294,7 @@ where
         Upstream::Http { authorization } => {
             through_http(
                 browser,
-                &head,
+                head,
                 rest,
                 authorization.as_deref(),
                 (relaying, network),
@@ -310,9 +302,57 @@ where
             )
             .await
         }
-        Upstream::Socks5 => {
-            through_socks5(browser, &head, rest, (relaying, network), observe).await
+        Upstream::Socks5 => through_socks5(browser, head, rest, (relaying, network), observe).await,
+    }
+}
+
+/// Where a connection to `url` goes after the relay: around the upstream
+/// proxy when `proxy.bypass` says so.
+fn upstream_of<'r>(relaying: &'r Relaying, url: &str) -> &'r Upstream {
+    if (relaying.bypasses)(url) {
+        &Upstream::Direct
+    } else {
+        &relaying.upstream
+    }
+}
+
+/// The addresses `head` may try, once the egress gate passed it
+/// ([`passed`]); else how its connection ended, its refusal told the
+/// Session and answered.
+async fn judged<B, N, O>(
+    browser: &mut B,
+    head: &Head,
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Result<Resolved, Served>
+where
+    B: AsyncWrite + Unpin,
+    N: Network,
+    O: Observe,
+{
+    match passed(&head.target.url(), relaying, network).await {
+        Ok(resolved) => Ok(resolved),
+        Err(Stopped::Refused(refused)) => {
+            Err(refuse(browser, head, &refused, observe, "http_request_denied").await)
         }
+        Err(Stopped::AddressRefused(refused)) => Err(refuse(
+            browser,
+            head,
+            &refused,
+            observe,
+            "destination_ip_prohibited",
+        )
+        .await),
+        // Nothing else stops it with a refusal to name: its name has no
+        // address it may reach.
+        Err(_) => Err(unreached(
+            browser,
+            head,
+            observe,
+            Unreached::NameNotResolved,
+            "dns_error",
+        )
+        .await),
     }
 }
 
@@ -388,7 +428,7 @@ where
     Served::Failed
 }
 
-/// Connects to the first of `addresses` that answers, and relays.
+/// Opens a tunnel to the first of `addresses` that answers, and relays.
 async fn direct<B, N, O>(
     mut browser: B,
     head: &Head,
@@ -402,38 +442,71 @@ where
     N: Network,
     O: Observe,
 {
-    let mut site = None;
-    let mut last = Unreached::ConnectionFailed;
-    for address in addresses {
-        match relaying.connect(network, *address).await {
-            Ok(stream) => {
-                site = Some(stream);
-                break;
-            }
-            Err(error) => last = Unreached::of(&error),
-        }
-    }
-    let Some(mut site) = site else {
-        let error = match last {
-            Unreached::TimedOut => "connection_timeout",
-            _ => "connection_refused",
-        };
-        return unreached(&mut browser, head, observe, last, error).await;
+    let site = match connect_site(&mut browser, head, addresses, (relaying, network), observe).await
+    {
+        Ok((site, _)) => site,
+        Err(served) => return served,
     };
-    observe.reached(&head.target.authority());
-    let opened = match head.target {
-        Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
-        Target::Absolute { .. } => site.write_all(&head.as_sent(false, None)).await,
-    };
-    if opened.is_err() {
+    if browser.write_all(ESTABLISHED).await.is_err() {
         return Served::Failed;
     }
     forward(browser, site, rest, head, relaying, observe).await
 }
 
-/// Relays through an HTTP proxy: a tunnel through its own tunnel to the
-/// host's name, a plain request in absolute form; its answers reach the
-/// browser as it gave them, its body left out.
+/// A connection to the first of `addresses` that answers `head`'s, and
+/// that address; else how the browser's connection ended, as
+/// [`unreached`] answers it.
+async fn connect_site<B, N, O>(
+    browser: &mut B,
+    head: &Head,
+    addresses: &[SocketAddr],
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Result<(N::Stream, SocketAddr), Served>
+where
+    B: AsyncWrite + Unpin,
+    N: Network,
+    O: Observe,
+{
+    let mut last = Unreached::ConnectionFailed;
+    for address in addresses {
+        match relaying.connect(network, *address).await {
+            Ok(stream) => {
+                observe.reached(&head.target.authority());
+                return Ok((stream, *address));
+            }
+            Err(error) => last = Unreached::of(&error),
+        }
+    }
+    let error = match last {
+        Unreached::TimedOut => "connection_timeout",
+        _ => "connection_refused",
+    };
+    Err(unreached(browser, head, observe, last, error).await)
+}
+
+/// A connection to the upstream proxy for `head`; else how the browser's
+/// connection ended, as [`unconnected`] answers it.
+async fn connect_proxy<B, N, O>(
+    browser: &mut B,
+    head: &Head,
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Result<N::Stream, Served>
+where
+    B: AsyncWrite + Unpin,
+    N: Network,
+    O: Observe,
+{
+    match relaying.connect_upstream(network).await {
+        Ok(proxy) => Ok(proxy),
+        Err(error) => Err(unconnected(browser, head, &error, observe).await),
+    }
+}
+
+/// Relays a tunnel through an HTTP proxy's own tunnel to the host's name;
+/// the proxy's refusal reaches the browser as it gave it, its body left
+/// out.
 async fn through_http<B, N, O>(
     mut browser: B,
     head: &Head,
@@ -447,21 +520,10 @@ where
     N: Network,
     O: Observe,
 {
-    let mut proxy = match relaying.connect_upstream(network).await {
+    let mut proxy = match connect_proxy(&mut browser, head, (relaying, network), observe).await {
         Ok(proxy) => proxy,
-        Err(error) => return unconnected(&mut browser, head, &error, observe).await,
+        Err(served) => return served,
     };
-    if let Target::Absolute { .. } = head.target {
-        observe.upstream(&head.target.authority(), Met::Reached);
-        if proxy
-            .write_all(&head.as_sent(true, authorization))
-            .await
-            .is_err()
-        {
-            return Served::Failed;
-        }
-        return answered_once(browser, proxy, &rest).await;
-    }
     let authority = head.target.authority();
     let mut request = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n");
     if let Some(authorization) = authorization {
@@ -502,8 +564,7 @@ where
     forward(browser, proxy, rest, head, relaying, observe).await
 }
 
-/// Relays through a SOCKS5 proxy that asks for no credentials, giving it
-/// the host's name (RFC 1928).
+/// Relays a tunnel through a SOCKS5 proxy that asks for no credentials.
 async fn through_socks5<B, N, O>(
     mut browser: B,
     head: &Head,
@@ -516,10 +577,31 @@ where
     N: Network,
     O: Observe,
 {
-    let mut proxy = match relaying.connect_upstream(network).await {
+    let proxy = match connect_socks5(&mut browser, head, (relaying, network), observe).await {
         Ok(proxy) => proxy,
-        Err(error) => return unconnected(&mut browser, head, &error, observe).await,
+        Err(served) => return served,
     };
+    if browser.write_all(ESTABLISHED).await.is_err() {
+        return Served::Failed;
+    }
+    forward(browser, proxy, rest, head, relaying, observe).await
+}
+
+/// A SOCKS5 tunnel for `head` through the upstream proxy, which asks for
+/// no credentials, given the host's name (RFC 1928); else how the
+/// browser's connection ended: the relay's `502` when the proxy refused.
+async fn connect_socks5<B, N, O>(
+    browser: &mut B,
+    head: &Head,
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Result<N::Stream, Served>
+where
+    B: AsyncWrite + Unpin,
+    N: Network,
+    O: Observe,
+{
+    let mut proxy = connect_proxy(browser, head, (relaying, network), observe).await?;
     if let Err(error) = socks5_connect(&mut proxy, head.target.host(), head.target.port()).await {
         // A proxy that asks for a method other than none asks for
         // credentials the Session does not give.
@@ -534,17 +616,10 @@ where
         let _ = browser
             .write_all(&failed("502 Bad Gateway", "proxy_internal_error"))
             .await;
-        return Served::Failed;
+        return Err(Served::Failed);
     }
     observe.upstream(&head.target.authority(), Met::Reached);
-    let opened = match head.target {
-        Target::Tunnel { .. } => browser.write_all(ESTABLISHED).await,
-        Target::Absolute { .. } => proxy.write_all(&head.as_sent(false, None)).await,
-    };
-    if opened.is_err() {
-        return Served::Failed;
-    }
-    forward(browser, proxy, rest, head, relaying, observe).await
+    Ok(proxy)
 }
 
 /// Answers `head`'s connection, which no connection to the upstream proxy
@@ -637,10 +712,9 @@ pub(crate) fn socks5_request(host: &str, port: u16) -> io::Result<Vec<u8>> {
     Ok(request)
 }
 
-/// Passes the bytes of `head`'s connection both ways, `rest` first, as they
-/// are, a tunnel's ClientHello noted as it passes, or through the
-/// terminating mode for a tunnel to a host the Run lists for a certificate
-/// exception.
+/// Passes the bytes of `head`'s tunnel both ways, `rest` first, as they
+/// are, its ClientHello noted as it passes, or through the terminating
+/// mode for a host the Run lists for a certificate exception.
 async fn forward<B, S, O>(
     browser: B,
     site: S,
@@ -659,10 +733,7 @@ where
         .terminating
         .as_deref()
         .filter(|terminating| terminating.terminates(host));
-    let (Target::Tunnel { .. }, Some(terminating)) = (&head.target, terminating) else {
-        if let Target::Absolute { .. } = head.target {
-            return answered_once(browser, site, &rest).await;
-        }
+    let Some(terminating) = terminating else {
         let authority = head.target.authority();
         let noted = |hello| observe.client_hello(&authority, hello);
         return pass(Noting::new(browser, &rest, noted), site, &rest).await;
@@ -676,41 +747,366 @@ where
     }
 }
 
-/// Passes a plain request's bytes both ways, as [`pass`] does, with the
-/// site's answer head marked `Connection: close` on its way to the
-/// browser ([`head::closing`]), so the browser's connection carries that
-/// one request. The browser's bytes go on to the site while the relay
-/// reads that head, so a request body longer than the first read, or one
-/// sent after an interim answer, reaches the site before it answers. An
-/// answer head the relay cannot read fails the request, as a site that
-/// never answered does.
-async fn answered_once<B, S>(browser: B, site: S, rest: &[u8]) -> Served
+/// Where a plain request goes after the relay, which a later request on the
+/// same browser connection reuses when it goes the same way.
+#[derive(Debug, PartialEq, Eq)]
+enum Way {
+    /// To the site at `authority`, connected to `address`.
+    Site {
+        authority: String,
+        address: SocketAddr,
+    },
+    /// To the upstream HTTP proxy, which takes any host's request.
+    Proxy,
+    /// Through a SOCKS5 tunnel to `authority`.
+    Socks5 { authority: String },
+}
+
+/// The connection a plain request went on, read and written apart.
+struct Onward<S> {
+    way: Way,
+    from: Incoming<ReadHalf<S>>,
+    to: WriteHalf<S>,
+}
+
+impl<S> Onward<S> {
+    /// Whether `head`, going on to `upstream`, may go on this connection:
+    /// to the site, only while one of `addresses`, those its own judgment
+    /// passed, is the one connected to.
+    fn takes(&self, head: &Head, upstream: &Upstream, addresses: &[SocketAddr]) -> bool {
+        match (&self.way, upstream) {
+            (Way::Site { authority, address }, Upstream::Direct) => {
+                *authority == head.target.authority() && addresses.contains(address)
+            }
+            (Way::Proxy, Upstream::Http { .. }) => true,
+            (Way::Socks5 { authority }, Upstream::Socks5) => *authority == head.target.authority(),
+            _ => false,
+        }
+    }
+}
+
+/// How a plain request's exchange ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum End {
+    /// Its answer ended where its framing says, and the browser's
+    /// connection carries the next request.
+    Kept,
+    /// The browser's connection closes after its answer: the site's
+    /// answer ended at its close or asked to close, or the request's body
+    /// was still coming when the answer ended.
+    Closing,
+    /// The site switched protocols (`101`): the bytes pass both ways from
+    /// now on.
+    Switched,
+    /// Either end failed before the exchange ended.
+    Failed,
+}
+
+/// Relays the plain requests a browser's connection carries, `first` the
+/// first and `rest` its bytes past that head (issue 2102): each request is
+/// judged on its own by the egress gate ([`judged`]), goes on as the
+/// browser sent it ([`Head::as_sent`]), and its answer comes back as the
+/// site gave it, ended as its framing says ([`exchange`]). A request goes
+/// on the connection the one before went on when it goes the same way, to
+/// an address its own judgment passed ([`Onward::takes`]), else on a new
+/// one. A request the relay refuses or cannot take on closes the
+/// browser's connection, as the first one's does; so does one with other
+/// credentials than the Session's, while a later one with none is the
+/// connection's own. The connection also closes after an answer that
+/// ends it ([`End::Closing`]), when the browser sends no request within
+/// [`IDLE_DEADLINE`], or when the site's connection closes first, so the
+/// browser's next request opens a new one.
+async fn plain<B, N, O>(
+    browser: B,
+    first: Head,
+    rest: Vec<u8>,
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Served
+where
+    B: AsyncRead + AsyncWrite + Unpin + Send,
+    N: Network,
+    O: Observe,
+{
+    let (from_browser, mut to_browser) = tokio::io::split(browser);
+    let mut from_browser = Incoming::new(from_browser, rest);
+    let mut onward: Option<Onward<N::Stream>> = None;
+    let mut head = first;
+    let (mut up, mut down) = (0_u64, 0_u64);
+    loop {
+        let resolved = match judged(&mut to_browser, &head, (relaying, network), observe).await {
+            Ok(resolved) => resolved,
+            Err(served) => return served,
+        };
+        let upstream = upstream_of(relaying, &head.target.url());
+        let kept = onward
+            .take()
+            .filter(|onward| onward.takes(&head, upstream, &resolved.addresses));
+        let mut current = if let Some(kept) = kept {
+            kept
+        } else {
+            let opened = open(
+                &mut to_browser,
+                &head,
+                upstream,
+                &resolved.addresses,
+                (relaying, network),
+                observe,
+            );
+            match opened.await {
+                Ok(opened) => opened,
+                Err(served) => return served,
+            }
+        };
+        let authorization = match (&current.way, upstream) {
+            (Way::Proxy, Upstream::Http { authorization }) => {
+                observe.upstream(&head.target.authority(), Met::Reached);
+                Some(authorization.as_deref())
+            }
+            _ => None,
+        };
+        let sent = head.as_sent(authorization.is_some(), authorization.flatten());
+        let (sent_up, sent_down, end) = exchange(
+            &head,
+            &sent,
+            (&mut from_browser, &mut to_browser),
+            &mut current,
+        )
+        .await;
+        up = up.saturating_add(sent_up);
+        down = down.saturating_add(sent_down);
+        match end {
+            End::Kept if !head.closes => {}
+            End::Kept | End::Closing => {
+                let _ = to_browser.shutdown().await;
+                return Served::Relayed { up, down };
+            }
+            End::Switched => {
+                let browser = from_browser.into_parts();
+                return hand_over(browser, to_browser, current, (up, down)).await;
+            }
+            End::Failed => return Served::Failed,
+        }
+        onward = Some(current);
+        // A request the browser already sent goes before the site's close.
+        let next = within_or_none(&relaying.clock, IDLE_DEADLINE, async {
+            tokio::select! {
+                biased;
+                next = from_browser.request() => Some(next),
+                () = closed(&mut onward) => None,
+            }
+        });
+        head = match next.await.flatten() {
+            Some(Ok(next)) => next,
+            Some(Err(Unread::Malformed)) => {
+                let _ = to_browser
+                    .write_all(&failed("400 Bad Request", "http_request_error"))
+                    .await;
+                return Served::Failed;
+            }
+            Some(Err(Unread::Closed)) | None => {
+                let _ = to_browser.shutdown().await;
+                return Served::Relayed { up, down };
+            }
+        };
+        let other = head
+            .authorization
+            .as_deref()
+            .is_some_and(|given| !same_token(given, &relaying.authorization));
+        if other {
+            observe.unauthenticated(true);
+            let _ = to_browser.write_all(AUTHENTICATE).await;
+            return Served::Unauthenticated;
+        }
+        if let Target::Tunnel { .. } = head.target {
+            drop(onward);
+            let (from_browser, rest) = from_browser.into_parts();
+            let browser = from_browser.unsplit(to_browser);
+            return tunnel(browser, &head, rest, (relaying, network), observe).await;
+        }
+    }
+}
+
+/// Opens the connection `head` goes on to `upstream`: to the first of
+/// `addresses` that answers, to the HTTP proxy, or through a SOCKS5
+/// tunnel; else how the browser's connection ended.
+async fn open<B, N, O>(
+    browser: &mut B,
+    head: &Head,
+    upstream: &Upstream,
+    addresses: &[SocketAddr],
+    (relaying, network): (&Relaying, &N),
+    observe: &O,
+) -> Result<Onward<N::Stream>, Served>
+where
+    B: AsyncWrite + Unpin,
+    N: Network,
+    O: Observe,
+{
+    let (way, stream) = match upstream {
+        Upstream::Direct => {
+            let (stream, address) =
+                connect_site(browser, head, addresses, (relaying, network), observe).await?;
+            let authority = head.target.authority();
+            (Way::Site { authority, address }, stream)
+        }
+        Upstream::Http { .. } => (
+            Way::Proxy,
+            connect_proxy(browser, head, (relaying, network), observe).await?,
+        ),
+        Upstream::Socks5 => (
+            Way::Socks5 {
+                authority: head.target.authority(),
+            },
+            connect_socks5(browser, head, (relaying, network), observe).await?,
+        ),
+    };
+    let (from, to) = tokio::io::split(stream);
+    Ok(Onward {
+        way,
+        from: Incoming::new(from, Vec::new()),
+        to,
+    })
+}
+
+/// Sends `head`, as `sent`, and its body on `onward`, and passes its
+/// answer back: the bytes that went up and down, and how it ended. The
+/// browser's body goes on while the relay reads the answer, so a body sent
+/// after an interim answer reaches the site before it answers.
+async fn exchange<BR, BW, S>(
+    head: &Head,
+    sent: &[u8],
+    (from_browser, to_browser): (&mut Incoming<BR>, &mut BW),
+    onward: &mut Onward<S>,
+) -> (u64, u64, End)
+where
+    BR: AsyncRead + Unpin,
+    BW: AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite,
+{
+    let Onward {
+        from: from_site,
+        to: to_site,
+        ..
+    } = onward;
+    if to_site.write_all(sent).await.is_err() {
+        return (0, 0, End::Failed);
+    }
+    let sending = async {
+        let body = from_browser.pass_body(head.body, to_site).await?;
+        to_site.flush().await?;
+        Ok::<_, io::Error>(body)
+    };
+    let answering = answer(from_site, to_browser, head.method == "HEAD");
+    let (mut sending, mut answering) = (std::pin::pin!(sending), std::pin::pin!(answering));
+    let sent_first = tokio::select! {
+        biased;
+        body = &mut sending => Some(body),
+        answered = &mut answering => {
+            // The answer ended while the request's body was still coming.
+            return match answered {
+                Ok((down, End::Kept | End::Closing | End::Switched)) => {
+                    (widened(sent.len()), down, End::Closing)
+                }
+                _ => (widened(sent.len()), 0, End::Failed),
+            };
+        }
+    };
+    let answered = answering.await;
+    match (sent_first, answered) {
+        (Some(Ok(body)), Ok((down, end))) => (widened(sent.len()).saturating_add(body), down, end),
+        (_, Ok((down, End::Kept | End::Closing))) => (widened(sent.len()), down, End::Closing),
+        _ => (widened(sent.len()), 0, End::Failed),
+    }
+}
+
+/// Passes the site's answer to a request, a `HEAD` one when `to_head`, to
+/// the browser as it came: its interim answers (`1xx`), then its final
+/// one, ended as its framing says; or a protocol switch (`101`), the last
+/// head. The bytes that went, and how the exchange ends.
+///
+/// # Errors
+///
+/// Either connection's, and `InvalidData` or `UnexpectedEof` for an
+/// answer the relay cannot read whole.
+async fn answer<R, W>(
+    from_site: &mut Incoming<R>,
+    to_browser: &mut W,
+    to_head: bool,
+) -> io::Result<(u64, End)>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut down = 0_u64;
+    loop {
+        let (bytes, answered) = from_site.answer(to_head).await.map_err(|unread| {
+            io::Error::from(match unread {
+                Unread::Closed => io::ErrorKind::UnexpectedEof,
+                Unread::Malformed => io::ErrorKind::InvalidData,
+            })
+        })?;
+        to_browser.write_all(&bytes).await?;
+        to_browser.flush().await?;
+        down = down.saturating_add(widened(bytes.len()));
+        if answered.status == 101 {
+            return Ok((down, End::Switched));
+        }
+        if (100..200).contains(&answered.status) {
+            continue;
+        }
+        let body = from_site.pass_body(answered.body, to_browser).await?;
+        to_browser.flush().await?;
+        let end = if answered.closes {
+            End::Closing
+        } else {
+            End::Kept
+        };
+        return Ok((down.saturating_add(body), end));
+    }
+}
+
+/// Resolves when the connection `onward` holds closes, or sends a byte
+/// that no request asked for, either of which ends it.
+async fn closed<S: AsyncRead>(onward: &mut Option<Onward<S>>) {
+    match onward {
+        Some(onward) => {
+            let _ = onward.from.fill().await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+/// Passes the bytes of a connection whose protocol the site switched both
+/// ways, each end's bytes read past the switch first, `relayed` the bytes
+/// that went before.
+async fn hand_over<B, S>(
+    (from_browser, early_up): (ReadHalf<B>, Vec<u8>),
+    to_browser: WriteHalf<B>,
+    onward: Onward<S>,
+    (up, down): (u64, u64),
+) -> Served
 where
     B: AsyncRead + AsyncWrite + Unpin,
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let (mut from_browser, mut to_browser) = tokio::io::split(browser);
-    let (mut from_site, mut to_site) = tokio::io::split(site);
-    let up = async {
-        to_site.write_all(rest).await?;
-        let up = tokio::io::copy(&mut from_browser, &mut to_site).await?;
-        to_site.shutdown().await?;
-        Ok::<_, io::Error>(up.saturating_add(u64::try_from(rest.len()).unwrap_or(u64::MAX)))
-    };
-    let down = async {
-        let (answer, after) = head::closing(&mut from_site)
-            .await
-            .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
-        to_browser.write_all(&answer).await?;
-        to_browser.write_all(&after).await?;
-        let down = tokio::io::copy(&mut from_site, &mut to_browser).await?;
-        to_browser.shutdown().await?;
-        let early = answer.len().saturating_add(after.len());
-        Ok(down.saturating_add(u64::try_from(early).unwrap_or(u64::MAX)))
-    };
-    match tokio::try_join!(up, down) {
-        Ok((up, down)) => Served::Relayed { up, down },
-        Err(_) => Served::Failed,
+    let mut browser = from_browser.unsplit(to_browser);
+    let (from_site, early_down) = onward.from.into_parts();
+    let site = from_site.unsplit(onward.to);
+    if browser.write_all(&early_down).await.is_err() {
+        return Served::Failed;
+    }
+    match pass(browser, site, &early_up).await {
+        Served::Relayed {
+            up: passed_up,
+            down: passed_down,
+        } => Served::Relayed {
+            up: up.saturating_add(passed_up),
+            down: down
+                .saturating_add(widened(early_down.len()))
+                .saturating_add(passed_down),
+        },
+        other => other,
     }
 }
 

@@ -1138,6 +1138,63 @@ class ExecutableBlockedBySmartAppControlDetails(BaseModel):
     """The path of the file Windows refused to start."""
 
 
+class ExtractContentParams(BaseModel):
+    """
+    What `extract.content` reads a page's main content from: the document
+    the page holds, after the Clean-up rules, and the URL it came from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    html: str
+    """The page's document, serialized as HTML."""
+    url: str
+    """The page's URL, which its relative links resolve against."""
+
+
+class ExtractContentResult(BaseModel):
+    """
+    A page's main content, as an Extractor read it. Everything in it is
+    page content (ADR 0014): it reaches a model only marked as such.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: str
+    """The main content as Markdown."""
+    metadata: dict[str, str]
+    """
+    What the Extractor read about the page, such as its author or its
+    date, each a text under its `snake_case` name.
+    """
+    text: str
+    """The main content as plain text."""
+    title: str | None = None
+    """The main content's title, when the Extractor found one."""
+
+
+class ExtractHandlerFailedDetails(BaseModel):
+    """What `extract_handler_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
+class ExtractorUnavailableDetails(BaseModel):
+    """What `extractor_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
 class FetchTier(StrEnum):
     """
     A tier that fetches a crawl request's document (ADR 0020), from the
@@ -1481,6 +1538,24 @@ class IpFamily(StrEnum):
     """IPv4."""
     ipv6 = "ipv6"
     """IPv6."""
+
+
+class JsonSecret(BaseModel):
+    """
+    A string of a JSON body that holds a Secret placeholder's value
+    (ADR 0092).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    placeholder: str
+    """The Secret placeholder."""
+    pointer: str
+    """
+    Where the string goes, as a JSON Pointer (RFC 6901): a member of an
+    object, added or replaced, or an element an array holds.
+    """
 
 
 class JudgedBy(StrEnum):
@@ -2338,6 +2413,13 @@ class PageRequestParams(BaseModel):
     Headers set over those the browser sends, each name matched without
     regard to case.
     """
+    json_secrets: list[JsonSecret] | None = None
+    """
+    Strings of its body, which is then JSON, that hold a Secret
+    placeholder's value, each set at its JSON Pointer by the engine at
+    its interception, checked as `secret_headers` are at every hop that
+    sends the body (ADR 0092).
+    """
     max_redirects: Annotated[int | None, Field(ge=0)] = None
     """
     How many redirects it follows, from 0, which answers the 3xx itself,
@@ -2350,6 +2432,14 @@ class PageRequestParams(BaseModel):
     """The page."""
     post_data: str | None = None
     """Its body, in Base64."""
+    secret_headers: dict[str, Any] | None = None
+    """
+    Headers whose value holds a Secret placeholder, set over the
+    browser's own and named in none of `headers`: the engine adds each
+    value at its interception, at every hop whose URL is on the
+    placeholder's bound domains, and fails the request with
+    `secret_domain_not_allowed` at a hop outside them (ADR 0092).
+    """
     url: str
     """The URL."""
 
@@ -2699,6 +2789,23 @@ class PluginRun(BaseModel):
     """Its name."""
     network_level: str
     """The network level it ran at."""
+
+
+class PluginUsage(BaseModel):
+    """
+    What a Run's calls into one implementation of a Plugin kind used: its
+    `plugin_calls` and `plugin_time` (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    calls: Annotated[int, Field(ge=0)]
+    """The calls made into it, failed ones included."""
+    plugin: str
+    """The implementation's name, as the setting that chose it names it."""
+    time: Annotated[int, Field(ge=0)]
+    """The time those calls took, in milliseconds."""
 
 
 class PolicyConflictDetails(BaseModel):
@@ -4054,6 +4161,44 @@ class SecretFailure(StrEnum):
     No one-time code came: a provider made none from the reference,
     such as a TOTP seed it cannot read, or a code source's code never
     arrived (ADR 0092).
+    """
+
+
+class SecretHeader1(BaseModel):
+    """The placeholder's value after `prefix`, such as `Bearer `."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    form: Literal["value"]
+    placeholder: str
+    """The Secret placeholder."""
+    prefix: str | None = None
+    """The text before the value; none when absent."""
+
+
+class SecretHeader2(BaseModel):
+    """
+    HTTP Basic authentication's credentials (RFC 7617): `Basic` and the
+    Base64 of `username`, a colon and the placeholder's value.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    form: Literal["basic"]
+    placeholder: str
+    """The Secret placeholder whose value is the password."""
+    username: str
+    """The user ID, which holds no colon."""
+
+
+class SecretHeader(RootModel[SecretHeader1 | SecretHeader2]):
+    root: SecretHeader1 | SecretHeader2
+    """
+    A header value that holds a Secret placeholder (ADR 0092). The value
+    the engine builds from the placeholder's is masked wherever the engine
+    returns, sends or keeps it, its Base64 in `Basic` included.
     """
 
 
@@ -5957,6 +6102,12 @@ class DaemonState(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    accounts: bool | None = False
+    """
+    Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+    store is open. Without, its person is the OS user, on its own
+    machine only, as with a Daemon that does not say.
+    """
     clients: Annotated[int, Field(ge=0)]
     """How many Clients are connected, the caller included."""
     endpoint: DaemonEndpoint
@@ -9391,6 +9542,11 @@ class RunUsage(BaseModel):
     """Its Paid fetches, by currency (ADR 0045)."""
     paid_solves: list[UsageAmount] | None = None
     """Its paid solves, by currency (ADR 0035)."""
+    plugins: list[PluginUsage] | None = None
+    """
+    Its calls into Plugin kinds' implementations, of every form, and the
+    time they took, by implementation (ADR 0033), in name order.
+    """
     proxy_bytes: Annotated[int, Field(ge=0)]
     """The bytes it sent and received through a proxy."""
     proxy_bytes_by_kind: list[ProxyKindBytes] | None = None

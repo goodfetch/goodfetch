@@ -1,0 +1,62 @@
+---
+source: crates/goodfetch-collie/tests/it/daemon_commands.rs
+expression: text
+---
+$ schedule create --definition {"id":"nightly-prices","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris"}
+exit: 0
+----- stdout -----
+{
+  "schedule_id": "nightly-prices",
+  "warnings": []
+}
+----- stderr -----
+
+$ schedule list
+exit: 0
+----- stdout -----
+{
+  "schedules": [
+    {
+      "created_at": "[INSTANT]",
+      "creator": "os_user",
+      "schedule_id": "nightly-prices",
+      "state": "on",
+      "target": {
+        "recipe": "shop-prices"
+      },
+      "time_zone": "Europe/Paris",
+      "trigger": {
+        "every": 3600000
+      },
+      "version": 1
+    }
+  ]
+}
+----- stderr -----
+
+$ schedule get --id nightly-prices
+exit: 0
+----- stdout -----
+{
+  "created_at": "[INSTANT]",
+  "creator": "os_user",
+  "schedule_id": "nightly-prices",
+  "state": "on",
+  "target": {
+    "recipe": "shop-prices"
+  },
+  "time_zone": "Europe/Paris",
+  "trigger": {
+    "every": 3600000
+  },
+  "version": 1
+}
+----- stderr -----
+
+$ schedule delete nightly-prices
+exit: 0
+----- stdout -----
+{
+  "deleted": true
+}
+----- stderr -----

@@ -311,3 +311,55 @@ reason = "`page_events_lost` turns retryable (spec #2256, #3260): the engine now
 [[announced]]
 entry = "foxhound error_codes page_events_lost"
 reason = "`page_events_lost` turns retryable (spec #2256, #3260): the engine now closes a page whose events it fell 4,096 behind, so the remedy is another page, as for `page_crashed` and `page_memory_exceeded`, and a listener that left 1,024 events untaken may listen again."
+
+[[announced]]
+entry = "collie settings content.extractor"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "foxhound settings content.extractor"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound LabelSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated LabelSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated UsageKind"
+reason = "Two Usage kinds join the open list, `plugin_calls` and `plugin_time`, which the calls into Plugins charge (ADR 0033, issue 823): the type's closed members gain them; a program that reads any kind still reads them."

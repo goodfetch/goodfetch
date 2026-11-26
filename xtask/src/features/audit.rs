@@ -60,10 +60,7 @@ use super::scan::{Declaration, Level, Source};
 use crate::check::Finding;
 use crate::junit;
 use crate::test_facts::{COMMAND_TARGET, DISPATCH_TARGET, OUTCOME_TARGET};
-
-/// The catalog file `xtask codegen` emits, whose `exit_codes` name each
-/// exit code.
-const CATALOG: &str = "crates/goodfetch-protocol/generated/catalog.json";
+use crate::tree::CATALOG;
 
 /// The Feature kinds a record can show.
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -20,12 +20,12 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{Gate, Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::mask::{Mask, Masks, Reach, Redaction, Scope};
 use goodfetch_engine::response_cache::{
     CacheRequest, Lookup, Partition, ResponseCache, ResponseHead,
 };
-use goodfetch_engine::rpc::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
@@ -406,10 +406,14 @@ pub(crate) fn response_cache_input(entries: usize) -> ResponseCacheInput {
         CountedWork::default(),
     );
     let requests: Vec<CacheRequest> = (0..entries)
-        .map(|entry| CacheRequest {
-            method: "GET".to_owned(),
-            url: format!("https://cache.test/catalog/item-{entry}"),
-            headers: vec![("accept".to_owned(), "text/html".to_owned())],
+        .map(|entry| {
+            CacheRequest::new(
+                "GET",
+                &url::Url::parse(&format!("https://cache.test/catalog/item-{entry}"))
+                    .expect("invariant: the catalog's URLs parse"),
+                &[("accept".to_owned(), "text/html".to_owned())],
+                bytes::Bytes::new(),
+            )
         })
         .collect();
     let head = ResponseHead {

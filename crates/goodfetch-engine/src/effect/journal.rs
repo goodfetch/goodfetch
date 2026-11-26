@@ -6,7 +6,7 @@
 
 use std::time::SystemTime;
 
-use goodfetch_protocol::effect::UncertainReason;
+use goodfetch_protocol::effect::{EffectClosed, UncertainReason};
 use goodfetch_protocol::run::{RunReport, UncertainEffect};
 use hkdf::Hkdf;
 use rusqlite::types::Type;
@@ -105,12 +105,12 @@ pub(super) struct Row {
     pub(super) namespace: String,
     pub(super) key: String,
     pub(super) repeatable: bool,
-    pub(super) state: String,
+    state: String,
     pub(super) output: Option<String>,
     pub(super) reason: Option<String>,
     pub(super) first_command: Option<String>,
     pub(super) since: Option<SystemTime>,
-    pub(super) performed_at: Option<SystemTime>,
+    performed_at: Option<SystemTime>,
     pub(super) reconciled_by: Option<String>,
     pub(super) reconciled_at: Option<SystemTime>,
 }
@@ -141,6 +141,33 @@ impl Row {
                 Type::Text,
                 format!("`{}` is no state of the Effect journal", self.state).into(),
             )
+        })
+    }
+
+    /// When the body of a `done` entry returned its output.
+    fn performed_at(&self) -> SystemTime {
+        self.performed_at
+            .expect("invariant: the journal's CHECK keeps a done entry's time")
+    }
+
+    /// How it is closed, if it is: done, with its time, or uncertain, as
+    /// a close answered again says; none while its body may still run, nor
+    /// once a person reconciled it.
+    pub(super) fn closed(&self) -> rusqlite::Result<Option<EffectClosed>> {
+        Ok(match self.effect_state()? {
+            EffectState::Done => Some(EffectClosed::Done {
+                performed_at: self.performed_at(),
+            }),
+            EffectState::Uncertain => Some(EffectClosed::Uncertain {
+                effect: self.uncertain(),
+                cause: None,
+            }),
+            EffectState::Absent
+            | EffectState::Open
+            | EffectState::OpenRepeatable
+            | EffectState::Sent
+            | EffectState::SentRepeatable
+            | EffectState::Reconciled => None,
         })
     }
 
@@ -270,10 +297,8 @@ pub(super) fn declare(
                         .expect("invariant: the journal's CHECK keeps a reconciled entry's time"),
                 },
                 _ => Declared::Journal {
+                    performed_at: row.performed_at(),
                     output: row.output,
-                    performed_at: row
-                        .performed_at
-                        .expect("invariant: the journal's CHECK keeps a done entry's time"),
                 },
             })
         }

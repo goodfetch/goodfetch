@@ -14,6 +14,9 @@
 //!   (`Vary: Cookie`): it names the cookie it was sent.
 //! - `/cookie/<name>` sets the cookie `visitor=<name>` and redirects
 //!   (`302`) to `/vary/<name>`, never stored (`no-store`).
+//! - `/api/<name>` answers any method, never to be stored (`no-store`),
+//!   which only `replay` keeps: it names the method and how many bytes of
+//!   body it was sent.
 //!
 //! The host has no robots.txt.
 
@@ -54,6 +57,14 @@ pub(super) fn answer(request: &Request, earlier: u64) -> Answer {
                 .with("cache-control", "max-age=3600")
                 .with("vary", "Cookie"),
         );
+    }
+    if path.starts_with("/api/") {
+        let said = format!(
+            "<p>{} with {} bytes.</p>",
+            request.method,
+            request.body.len()
+        );
+        return Answer::Page(page(path, answer, &said).with("cache-control", "no-store"));
     }
     if let Some(name) = path.strip_prefix("/cookie/") {
         return Answer::Page(

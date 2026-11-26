@@ -3209,6 +3209,12 @@ export interface DaemonParams {}
  */
 export interface DaemonState {
   /**
+   * Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+   * store is open. Without, its person is the OS user, on its own
+   * machine only, as with a Daemon that does not say.
+   */
+  accounts?: boolean;
+  /**
    * How many Clients are connected, the caller included.
    */
   clients: number;
@@ -4302,6 +4308,75 @@ export interface SettingLimit {
   value: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `extract.content` reads a page's main content from: the document
+ * the page holds, after the Clean-up rules, and the URL it came from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentParams".
+ */
+export interface ExtractContentParams {
+  /**
+   * The page's document, serialized as HTML.
+   */
+  html: string;
+  /**
+   * The page's URL, which its relative links resolve against.
+   */
+  url: string;
+}
+/**
+ * A page's main content, as an Extractor read it. Everything in it is
+ * page content (ADR 0014): it reaches a model only marked as such.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentResult".
+ */
+export interface ExtractContentResult {
+  /**
+   * The main content as Markdown.
+   */
+  markdown: string;
+  /**
+   * What the Extractor read about the page, such as its author or its
+   * date, each a text under its `snake_case` name.
+   */
+  metadata: {
+    [k: string]: string;
+  };
+  /**
+   * The main content as plain text.
+   */
+  text: string;
+  /**
+   * The main content's title, when the Extractor found one.
+   */
+  title?: string | null;
+}
+/**
+ * What `extract_handler_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractHandlerFailedDetails".
+ */
+export interface ExtractHandlerFailedDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
+}
+/**
+ * What `extractor_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractorUnavailableDetails".
+ */
+export interface ExtractorUnavailableDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
 }
 /**
  * The `match` before a field's transform (ADR 0123): a capture group of a
@@ -6982,6 +7057,27 @@ export interface PluginRun {
   networkLevel: string;
 }
 /**
+ * What a Run's calls into one implementation of a Plugin kind used: its
+ * `plugin_calls` and `plugin_time` (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUsage".
+ */
+export interface PluginUsage {
+  /**
+   * The calls made into it, failed ones included.
+   */
+  calls: number;
+  /**
+   * The implementation's name, as the setting that chose it names it.
+   */
+  plugin: string;
+  /**
+   * The time those calls took, in milliseconds.
+   */
+  time: number;
+}
+/**
  * One change `config.policy_write` makes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8461,6 +8557,11 @@ export interface RunUsage {
    * Its paid solves, by currency (ADR 0035).
    */
   paidSolves?: UsageAmount[];
+  /**
+   * Its calls into Plugin kinds' implementations, of every form, and the
+   * time they took, by implementation (ADR 0033), in name order.
+   */
+  plugins?: PluginUsage[];
   /**
    * The bytes it sent and received through a proxy.
    */

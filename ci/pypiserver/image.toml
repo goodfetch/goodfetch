@@ -1,0 +1,13 @@
+# The pinned PyPI stand-in `xtask release plan`'s tests read each project's
+# published versions from (issue 140): pypiserver, whose root serves the
+# `<project>/json` document PyPI serves under `https://pypi.org/pypi`, with
+# no file sizes. Its `digest` is the multi-platform index of
+# `repository:tag`, so each Linux architecture runs its own image, and the
+# image cannot move.
+#
+# Read by ci/pypiserver/fetch.sh (`just fetch`), which pulls it before ADR
+# 0043's deny, and by xtask's tests (`tests/it/container.rs`), which run it
+# on a free loopback port.
+repository = "docker.io/pypiserver/pypiserver"
+tag = "v2.4.3"
+digest = "sha256:038126afe344248e83f938c1fd889a064c683322074373636821099a721f1fcf"

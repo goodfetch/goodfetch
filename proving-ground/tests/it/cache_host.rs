@@ -121,6 +121,36 @@ fn a_page_varying_on_cookie_names_the_cookie_it_was_sent() {
 }
 
 #[test]
+fn an_api_path_answers_any_method_never_to_be_stored() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let posted = raw_clients::post(&proving_ground, HOST, "/api/one", br#"{"q":"shoes"}"#);
+    let got = raw_clients::get(&proving_ground, HOST, "/api/one", &[]);
+
+    let said = |arrived: &raw_clients::Arrived, text: &str| {
+        String::from_utf8_lossy(arrived.body()).contains(text)
+    };
+    assert_eq!(
+        (
+            posted.status(),
+            posted.header("cache-control"),
+            said(&posted, "Answer 1 of /api/one."),
+            said(&posted, "POST with 13 bytes."),
+            said(&got, "Answer 2 of /api/one."),
+            said(&got, "GET with 0 bytes."),
+        ),
+        (
+            Some(200),
+            Some("no-store".to_owned()),
+            true,
+            true,
+            true,
+            true
+        )
+    );
+}
+
+#[test]
 fn the_cache_host_has_no_robots_txt() {
     let proving_ground = ProvingGround::start(SEED);
 

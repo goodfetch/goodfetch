@@ -176,6 +176,9 @@ goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 # their values are one type (ADR 0095); `xtask release prepare` repins it.
 goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# Plugin confinement (ADR 0033): the engine's Plugin host starts each
+# instance through it, and each Product's executable is its launcher.
+goodfetch-confinement = { path = "crates/goodfetch-confinement" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR
@@ -359,8 +362,13 @@ mimalloc = { version = "0.1.48", default-features = false }
 moka = { version = "0.12.16", default-features = false, features = ["sync"] }
 # `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071); and
 # goodfetch-test-support's `NoExec`, which installs its seccomp filter and
-# starts its child with raw system calls on Linux (ADR 0067).
+# starts its child with raw system calls on Linux (ADR 0067); and
+# goodfetch-confinement's probe executable, which makes each probe's call raw.
 libc = { version = "0.2.191", default-features = false }
+# Plugin confinement on Linux (ADR 0033): goodfetch-confinement's applier
+# limits files and signals with Landlock and system calls with seccomp.
+landlock = { version = "0.4.8", default-features = false }
+seccompiler = { version = "0.5.0", default-features = false }
 # A local address's interface, read on every OS (ADR 0044).
 netdev = { version = "0.46.3", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }

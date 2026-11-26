@@ -338,9 +338,11 @@ fn the_suite_runs_unchanged_against_collies_attached_engine_and_daemon(
 /// `cache.mode: revalidate` a fresh response is served from the Response
 /// cache with no request, a stale one is revalidated and a `304` serves its
 /// stored body, and a response varying on `Cookie` is served only for its
-/// cookie; under the default, `off`, every request reaches the site.
+/// cookie, while a `POST` reaches the site each time; under the default,
+/// `off`, every request reaches the site. Under `replay` a `POST` is served
+/// again to the same JSON or form body in another order.
 ///
-/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-37, story:6-38
+/// Covers: story:5-124, story:5-125, story:5-126, story:5-127, story:5-128, story:6-307, story:6-36, story:6-37, story:6-38
 #[test]
 fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
     let env = TestEnv::new();
@@ -426,6 +428,18 @@ fn the_fetch_suite_is_proved_against_foxhounds_attached_engine() {
                 ),
                 (
                     "a-response-varying-on-cookie-is-served-only-for-its-cookie",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "under-revalidate-a-post-reaches-the-site-each-time",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "replay-serves-a-post-again-to-the-same-json-in-another-key-order",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "replay-serves-a-form-post-again-to-its-fields-in-another-order-each-names-values-in-theirs",
                     CaseOutcome::Passed
                 ),
             ]

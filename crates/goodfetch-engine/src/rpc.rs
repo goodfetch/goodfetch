@@ -18,8 +18,6 @@
 //! request the engine sends has its `CLIENT` span, whose Trace context its
 //! `_meta` carries ([`crate::trace`], ADR 0132).
 
-pub mod framing;
-
 mod connection;
 mod handshake;
 mod raw_call;

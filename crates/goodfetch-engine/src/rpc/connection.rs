@@ -76,9 +76,6 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use super::framing::{
-    Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
-};
 use super::raw_call::{Named, RawCall};
 use super::websocket::{
     self, Forwarded, MessageReader, MessageWriter, NotOpened, Prefixed, Rejoined,
@@ -100,6 +97,9 @@ use crate::crash_report;
 use crate::endpoint::{Authorities, Exposure, Termination, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
+use crate::framing::{
+    Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
+};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
 use crate::metrics::Metrics;

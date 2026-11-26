@@ -7,7 +7,18 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import SampleStorePutParams, SampleStorePutResult
+from .models import ExtractContentParams, ExtractContentResult, SampleStorePutParams, SampleStorePutResult
+
+
+class ExtractHandler(ABC):
+    """Reads a page's main content in place of the main-content step, on the page Collie is on.
+
+    Experimental: outside semver until it is promoted (ADR 0030).
+    """
+
+    @abstractmethod
+    async def content(self, params: ExtractContentParams) -> ExtractContentResult:
+        """Reads the main content of a page's document."""
 
 
 class SampleStoreHandler(ABC):

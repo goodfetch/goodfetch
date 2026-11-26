@@ -127,7 +127,6 @@ fn cleared(entries: u64, bodies: u64, bytes: u64) -> CacheCleared {
 /// Stats count one person's entries, by partition the largest first, the
 /// bodies they hold once each, and no other person's; a cache never
 /// written counts nothing and is not created.
-/// Covers: story:6-44, operation:cache.stats
 #[tokio::test]
 async fn stats_count_one_persons_entries_by_partition() {
     let env = TestEnv::new();
@@ -181,7 +180,6 @@ async fn stats_count_one_persons_entries_by_partition() {
 /// A Run's clear deletes the entries it fetched for every person and the
 /// body files only they held; another Run's entries stay served, with the
 /// body they share.
-/// Covers: story:6-45, operation:run.discard
 #[tokio::test]
 async fn a_runs_clear_deletes_its_entries_and_no_other_runs() {
     let env = TestEnv::new();
@@ -215,7 +213,6 @@ async fn a_runs_clear_deletes_its_entries_and_no_other_runs() {
 
 /// A domain's clear deletes the entries of the host and its subdomains,
 /// and none of another host, even one ending in the same letters.
-/// Covers: story:6-44, operation:cache.clear
 #[tokio::test]
 async fn a_domains_clear_deletes_its_host_and_subdomains_only() {
     let env = TestEnv::new();
@@ -250,7 +247,6 @@ async fn a_domains_clear_deletes_its_host_and_subdomains_only() {
 /// A partition's clear deletes the entries of that partition only: the
 /// same person's other partitions and another person's same partition
 /// stay served.
-/// Covers: story:6-44, operation:cache.clear
 #[tokio::test]
 async fn a_partitions_clear_leaves_the_other_partitions_served() {
     let env = TestEnv::new();
@@ -295,7 +291,6 @@ async fn a_partitions_clear_leaves_the_other_partitions_served() {
 /// A clear with no filter but the person deletes everything of that
 /// person's, and no other person's; one of a cache never written is not
 /// created.
-/// Covers: story:6-44, operation:cache.clear
 #[tokio::test]
 async fn clearing_everything_deletes_one_persons_entries() {
     let env = TestEnv::new();
@@ -328,7 +323,6 @@ async fn clearing_everything_deletes_one_persons_entries() {
 /// A verify lists the entries whose body file was changed or is missing,
 /// and no intact one; it changes nothing, and one of a cache never written
 /// does not create it.
-/// Covers: story:6-44, operation:cache.verify
 #[tokio::test]
 async fn a_verify_reports_a_tampered_body_and_a_missing_one() {
     let env = TestEnv::new();
@@ -426,7 +420,6 @@ async fn each_refuses_an_index_of_a_newer_version() {
 /// cache's files once its Run's entries are cleared (spec #379): neither
 /// the index, its write-ahead log nor a body file keeps them, while
 /// another Run's entry keeps its own.
-/// Covers: story:6-45, operation:run.discard
 #[tokio::test]
 async fn a_cleared_runs_canaries_stay_nowhere_in_the_cache() {
     let env = TestEnv::new();

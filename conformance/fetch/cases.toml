@@ -116,8 +116,12 @@ covers = ["story:6-42", "setting:cache.max_size"]
 
 [[capability.case]]
 id = "an-entry-older-than-cache-max-age-ceiling-is-served-in-no-mode"
-covers = ["story:6-43", "setting:cache.max_age_ceiling"]
+covers = ["story:6-42", "setting:cache.max_age_ceiling"]
 
 [[capability.case]]
 id = "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served"
-covers = ["story:6-42", "setting:storage.low_free"]
+covers = ["story:6-43", "setting:storage.low_free"]
+
+[[capability.case]]
+id = "at-the-critical-storage-level-no-run-starts-and-nothing-held-is-lost"
+covers = ["story:6-43", "setting:storage.critical_free"]

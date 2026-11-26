@@ -502,6 +502,11 @@ impl ResponseCache {
     /// the entry of its method, its URL, its canonical body and the variant
     /// its stored `Vary` names; none when the cache holds no such entry, or
     /// it has outlived the ceiling.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves a read begun to finish on its own, its
+    /// hit lost; the use it recorded waits for the next flush.
     pub async fn replayed(
         &self,
         partition: &Partition,
@@ -532,6 +537,11 @@ impl ResponseCache {
     /// canonical body and in place of what `replay` held for it; whether
     /// it was stored. Any method, status and freshness is stored, but
     /// never a response the public partition does not hold.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future once the writer took the store still stores
+    /// the response; only the answer is lost.
     pub async fn store_replayed(
         &self,
         partition: &Partition,
@@ -885,8 +895,7 @@ impl CacheFile {
                     .execute([index_time(oldest)])?;
             }
             insert(connection, entry)?;
-            evict(connection, bounds.max_size)?;
-            let_go(connection)
+            evict(connection, bounds.max_size)
         })
         .map_err(|error| self.failed(&error))?;
         self.remove_bodies(&let_go);
@@ -894,26 +903,29 @@ impl CacheFile {
     }
 
     /// Deletes the files of `let_go`, bodies no entry holds any more, and
-    /// answers how many were there; one that cannot be deleted stays, and
-    /// is logged.
-    fn remove_bodies(&self, let_go: &[(String, u64)]) -> u64 {
+    /// answers how many were there and the bytes their bodies weighed; one
+    /// that cannot be deleted stays, counts in neither, and is logged.
+    fn remove_bodies(&self, let_go: &[(String, u64)]) -> (u64, u64) {
         let bodies = self.folder.join(BODIES);
-        let mut removed = 0;
-        for (sha256, _) in let_go.iter().filter(|(sha256, _)| is_sha256(sha256)) {
+        let (mut removed, mut bytes) = (0, 0_u64);
+        for (sha256, size) in let_go.iter().filter(|(sha256, _)| is_sha256(sha256)) {
             let path = bodies.join(sha256);
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the writer's job is blocking work, on its own thread"
             )]
             match std::fs::remove_file(&path) {
-                Ok(()) => removed += 1,
+                Ok(()) => {
+                    removed += 1;
+                    bytes = bytes.saturating_add(*size);
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => {
                     tracing::warn!(error = %body_failed(&path, &error), "a body file the Response cache let go stays");
                 }
             }
         }
-        removed
+        (removed, bytes)
     }
 
     /// The body of `entry`, read whole from its file; none when its file is
@@ -937,7 +949,10 @@ impl CacheFile {
 
     /// Writes `body` as the file `sha256` names, unless it is there: to a
     /// partial file of this engine's, then renamed, so a reader never meets
-    /// half a body.
+    /// half a body. Another engine's clear may delete a file found there
+    /// before this store's entry is written; that entry then misses, as
+    /// one whose file is gone does, until a later store of the same body
+    /// writes the file again, a race accepted for the cost of a miss.
     fn write_body(&self, sha256: &str, body: &[u8]) -> Result<(), ResponseCacheError> {
         let bodies = self.folder.join(BODIES);
         let path = bodies.join(sha256);
@@ -1122,15 +1137,21 @@ fn insert(connection: &Connection, entry: &Entry) -> rusqlite::Result<()> {
 }
 
 /// Deletes the least recently used entries, a page at a time, until the
-/// bytes held are within `cap`, or no entry is left.
-fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<()> {
+/// bytes held are within `cap`, or no entry is left, and answers the
+/// bodies no entry holds any more with their sizes. Those bodies are
+/// deleted before each weighing, so the bytes held never count a body
+/// already let go: the entries a deletion before it took, or a page
+/// taken before.
+fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<Vec<(String, u64)>> {
+    let mut gone = Vec::new();
     loop {
+        gone.extend(let_go(connection)?);
         let held: i64 = connection
             .prepare_cached(HELD)?
             .query_row([], |row| row.get(0))?;
         let held = u64::try_from(held).unwrap_or(0);
         if held <= cap {
-            return Ok(());
+            return Ok(gone);
         }
         let (rowids, oldest): (Vec<i64>, Vec<Weighed>) = connection
             .prepare_cached(OLDEST)?
@@ -1153,7 +1174,8 @@ fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<()> {
             delete.execute([rowid])?;
         }
         if taken < oldest.len() || oldest.is_empty() {
-            return Ok(());
+            gone.extend(let_go(connection)?);
+            return Ok(gone);
         }
     }
 }

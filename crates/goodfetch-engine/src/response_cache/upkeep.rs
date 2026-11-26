@@ -95,6 +95,11 @@ impl ResponseCache {
     ///
     /// When the index cannot be read, or is of a format version this
     /// engine cannot read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves a read begun to finish on its own, its
+    /// counts lost.
     pub async fn stats(&self, person: &str) -> Result<CacheStats, ResponseCacheError> {
         let person = person.to_owned();
         self.store
@@ -112,6 +117,11 @@ impl ResponseCache {
     ///
     /// When the index cannot be written, or is of a format version this
     /// engine cannot read: nothing is deleted then.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future once the writer took the clear still clears;
+    /// only its counts are lost.
     pub async fn clear(&self, clearing: Clearing) -> Result<CacheCleared, ResponseCacheError> {
         self.store
             .write(Some(CacheCleared::default()), move |file, connection| {
@@ -127,6 +137,10 @@ impl ResponseCache {
     /// # Errors
     ///
     /// When the index cannot be written: nothing is deleted then.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`ResponseCache::clear`]'s.
     pub async fn forget_run(&self, run_id: &RunId) -> Result<(), ResponseCacheError> {
         match self.clear(Clearing::of_run(run_id)).await {
             Ok(_) => Ok(()),
@@ -147,6 +161,11 @@ impl ResponseCache {
     ///
     /// When the index cannot be read, or is of a format version this
     /// engine cannot read.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the read or the hashing begun to finish
+    /// on its own, its list lost; it changes nothing either way.
     pub async fn verify(&self, person: &str) -> Result<CacheVerified, ResponseCacheError> {
         let person = person.to_owned();
         let (entries, bodies) = self
@@ -214,8 +233,9 @@ impl CacheFile {
     }
 
     /// Deletes what `clearing` keeps in one transaction with the uses
-    /// recorded so far, then the body files no entry holds any more, then
-    /// truncates the write-ahead log.
+    /// recorded so far, `secure_delete` on for that clear alone, then the
+    /// body files no entry holds any more, then truncates the write-ahead
+    /// log.
     fn clear(
         &self,
         connection: &Connection,
@@ -256,11 +276,17 @@ impl CacheFile {
                 }
                 Ok((entries, let_go(connection)?))
             });
+        // A failed clear lets its connection go, `secure_delete` with it;
+        // a clear done turns it off, so the stores and evictions after it
+        // zero no pages.
         let (entries, let_go) = cleared.map_err(|error| self.failed(&error))?;
-        let bytes = let_go.iter().map(|(_, size)| size).sum();
-        let bodies = self.remove_bodies(&let_go);
-        // Only another engine's read keeps the log from its truncation; the
-        // next clear's then drops what this one left.
+        let (bodies, bytes) = self.remove_bodies(&let_go);
+        if let Err(error) = connection.pragma_update(None, "secure_delete", false) {
+            tracing::warn!(index = %self.index.display(), %error, "the Response cache's writer keeps zeroing the pages it frees");
+        }
+        // A read on the index, this engine's or another's, keeps the log
+        // from its truncation; the next clear's then drops what this one
+        // left.
         let truncated: rusqlite::Result<i64> = connection
             .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")
             .and_then(|mut statement| statement.query_row([], |row| row.get(0)));
@@ -268,7 +294,7 @@ impl CacheFile {
             Ok(0) => {}
             Ok(_) => tracing::warn!(
                 index = %self.index.display(),
-                "the Response cache's write-ahead log is read by another engine: it keeps the cleared entries until the next clear"
+                "a reader held the Response cache's index: its write-ahead log keeps the cleared entries until the next clear"
             ),
             Err(error) => return Err(self.failed(&error)),
         }

@@ -2203,6 +2203,16 @@ form = "type"
 
 [[member]]
 package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CodeFreeCrawl"
+entry = "none"
+reason = "A crawl `Foxhound.start_crawl` starts with no handler: a `CrawlDeclaration` or a `CrawlExtraction` (ADR 0093)."
+only = "Rust's `start_crawl` takes a `CrawlTarget`, which a `Crawl`, a `CrawlDeclaration` or a `CrawlExtraction` converts into."
+words = ["code", "free", "crawl"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
 receiver = "CrawlRun"
 member = "records"
 entry = "run.records"

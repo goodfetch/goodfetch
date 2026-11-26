@@ -88,7 +88,7 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Crawl
-    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CrawlRun
+    from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CodeFreeCrawl, CrawlRun
     from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
     from goodfetch_foxhound.generated.settings import CrawlSettings, FoxhoundSettings
     from goodfetch_foxhound.handlers import (
@@ -336,13 +336,14 @@ class AsyncFoxhound(AsyncConnection):
 
     async def start_crawl(
         self,
-        crawl: AsyncCrawl,
+        crawl: AsyncCrawl | CodeFreeCrawl,
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+        detached: bool = False,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -364,6 +365,15 @@ class AsyncFoxhound(AsyncConnection):
         such as `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and
         0093).
 
+        A code-free crawl, one with no handler in the program, starts from a
+        reviewed `CrawlDeclaration`, whose Labels follow links and extract
+        Records into its Datasets, or from a code-free `CrawlExtraction`
+        (ADR 0093); each seed names its Label by name, and the program reads
+        a declared Dataset by its name. With `detached`, on a Daemon, its
+        Run outlives the program that started it (ADR 0102); a crawl the
+        program serves, or an engine that is no Daemon, refuses it with
+        `detach_unsupported`.
+
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_entry(
@@ -379,6 +389,7 @@ class AsyncFoxhound(AsyncConnection):
             tags=tags,
             limits=limits,
             settings=settings,
+            detached=detached,
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:
@@ -685,13 +696,14 @@ class Foxhound(Connection):
 
     def start_crawl(
         self,
-        crawl: Crawl,
+        crawl: Crawl | CodeFreeCrawl,
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+        detached: bool = False,
     ) -> CrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -725,6 +737,7 @@ class Foxhound(Connection):
             tags=None if tags is None else list(tags),
             limits=limits,
             settings=settings,
+            detached=detached,
         )
         try:
             return self._loop.call(starting)

@@ -1276,7 +1276,7 @@ def crawl_declaration(
 @overload
 def seed(
     url: str,
-    label: Label[None],
+    label: Label[None] | str,
     *,
     method: str | None = None,
     body: bytes | None = None,
@@ -1310,7 +1310,7 @@ def seed(
 ) -> RequestSeed: ...
 def seed(
     url: str,
-    label: Label[Any],
+    label: Label[Any] | str,
     payload: object = None,
     *,
     method: str | None = None,
@@ -1321,7 +1321,9 @@ def seed(
 ) -> RequestSeed:
     """A seed request of a crawl: `url`, handled under `label` (ADR 0093).
 
-    A Label with a Payload takes one, after it (ADR 0082). `method` is
+    A code-free crawl's seed names its Label by name, a string, since the
+    program holds no `Label` of it. A Label with a Payload takes one, after
+    it (ADR 0082). `method` is
     `GET` when left out, `body` is sent with it, a higher `priority` is
     fetched first, `forefront` puts it ahead of the requests of its
     priority, and `key` names it in place of its method, URL and body, so
@@ -1335,8 +1337,8 @@ def seed(
     """
     fields: dict[str, object] = {
         "url": url,
-        "label": label.name,
-        **_payload_field(label, payload),
+        "label": label if isinstance(label, str) else label.name,
+        **({} if isinstance(label, str) else _payload_field(label, payload)),
         **_request_options(method, body, priority, forefront, key),
     }
     return RequestSeed.model_validate(fields)

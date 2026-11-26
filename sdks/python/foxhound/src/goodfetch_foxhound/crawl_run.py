@@ -58,6 +58,8 @@ from goodfetch_foxhound.crawl import (
 )
 from goodfetch_foxhound.generated.errors import HandlerFailedError
 from goodfetch_foxhound.generated.models import (
+    CrawlDeclaration,
+    CrawlExtraction,
     CrawlRequestHandleParams,
     CrawlRunProgress,
     CrawlRunReport,
@@ -99,7 +101,15 @@ if TYPE_CHECKING:
     ]
     """What runs one attempt on the crawl's Run its request names."""
 
-__all__ = ["AsyncCrawlRun", "CrawlRun"]
+__all__ = ["AsyncCrawlRun", "CodeFreeCrawl", "CrawlRun"]
+
+CodeFreeCrawl: TypeAlias = CrawlDeclaration | CrawlExtraction
+"""A crawl with no handler in the program (ADR 0093).
+
+A reviewed `CrawlDeclaration`, whose Labels follow links and extract
+Records into its Datasets, or a code-free `CrawlExtraction`, its one-Label
+shorthand (the Label `page` and the Dataset `pages`).
+"""
 
 RECORD = "$/record"
 """The notification each Record `run.records` reads comes in."""
@@ -155,11 +165,17 @@ class AsyncCrawlRun(AsyncRun):
         self,
         connection: ClientConnection,
         started: RunStarted,
-        crawl: AsyncCrawl | Crawl,
+        crawl: AsyncCrawl | Crawl | None,
         crawls: CrawlRuns,
+        *,
+        detached: bool = False,
     ) -> None:
-        """Takes its Connection, its start's answer, its crawl and the crawls' Runs."""
-        super().__init__(connection, started)
+        """Takes its Connection, its start's answer, its crawl and the crawls' Runs.
+
+        A code-free crawl has no crawl of the program's, and a `detached`
+        start's Run outlives its program (ADR 0102).
+        """
+        super().__init__(connection, started, detached=detached)
         self._crawl = crawl
         self._crawls = crawls
         self._attempts: set[_Attempt] = set()
@@ -324,8 +340,9 @@ class AsyncCrawlRun(AsyncRun):
             ClosedError: The Run is closed, which stopped the attempt.
         """
         label = request.crawl_request.label
-        handler = handler_of(self._crawl, label)
-        if handler is None:
+        crawl = self._crawl
+        handler = None if crawl is None else handler_of(crawl, label)
+        if crawl is None or handler is None:
             message = f"the Crawl attaches no handler to the Label {label}"
             raise HandlerFailedError(
                 message,
@@ -338,7 +355,7 @@ class AsyncCrawlRun(AsyncRun):
         attempt.held_by = self._attempts
         with attempt.scope:
             try:
-                await self._run_handler(handler, request, attempt)
+                await self._run_handler(crawl, handler, request, attempt)
             except GoodfetchError:
                 raise
             except Exception as error:
@@ -349,15 +366,16 @@ class AsyncCrawlRun(AsyncRun):
 
     async def _run_handler(
         self,
+        crawl: AsyncCrawl | Crawl,
         handler: Callable[..., object],
         request: CrawlRequestHandleParams,
         attempt: _Attempt,
     ) -> None:
-        """Runs an async handler here, or a sync one on a worker thread."""
-        crawl_request = self._request_of(request)
-        lease = self._lease_of(request)
+        """Runs `crawl`'s async handler here, or its sync one on a worker thread."""
+        crawl_request = self._request_of(crawl, request)
+        lease = self._lease_of(crawl, request)
         page_id = request.page_id
-        if not isinstance(self._crawl, Crawl):
+        if not isinstance(crawl, Crawl):
             page = (
                 None if page_id is None else self._page_of(page_id, request.session.id)
             )
@@ -403,7 +421,9 @@ class AsyncCrawlRun(AsyncRun):
         host, session = self._kept_session(session_id)
         return AsyncPage(host.child(page_id), session)
 
-    def _request_of(self, request: CrawlRequestHandleParams) -> CrawlRequest[Any]:
+    def _request_of(
+        self, crawl: AsyncCrawl | Crawl, request: CrawlRequestHandleParams
+    ) -> CrawlRequest[Any]:
         """The crawl request the handler reads, its Payload typed by its Label."""
         crawl_request = request.crawl_request
         return CrawlRequest(
@@ -411,16 +431,18 @@ class AsyncCrawlRun(AsyncRun):
             url=crawl_request.url,
             label=crawl_request.label,
             method=crawl_request.method.root,
-            payload=payload_of(self._crawl, crawl_request.label, crawl_request.payload),
+            payload=payload_of(crawl, crawl_request.label, crawl_request.payload),
         )
 
-    def _lease_of(self, request: CrawlRequestHandleParams) -> HandlerAttempt:
+    def _lease_of(
+        self, crawl: AsyncCrawl | Crawl, request: CrawlRequestHandleParams
+    ) -> HandlerAttempt:
         """The lease the attempt's context calls the engine with, on this Run."""
         return HandlerAttempt(
             run_id=self.id,
             crawl_request_id=request.crawl_request.id,
             lease_epoch=request.lease_epoch,
-            crawl=self._crawl,
+            crawl=crawl,
             page_id=request.page_id,
         )
 
@@ -641,13 +663,14 @@ class CrawlRuns:
 
     async def start(
         self,
-        crawl: AsyncCrawl,
+        crawl: AsyncCrawl | CodeFreeCrawl,
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         limits: Limits | None,
         settings: CrawlSettings | None,
+        detached: bool,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`: `AsyncFoxhound.start_crawl`.
 
@@ -656,26 +679,31 @@ class CrawlRuns:
             LabelUnknownError: A seed names a Label `crawl` does not declare.
             ClosedError: The Connection is closed; nothing is sent.
         """
+        served = (
+            None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
+        )
         return await self._start(
             crawl,
-            functools.partial(self._opened, crawl),
+            functools.partial(self._opened, served, detached),
             seeds=seeds,
             run_id=run_id,
             tags=tags,
             limits=limits,
             settings=settings,
+            detached=detached,
         )
 
     async def start_threaded(
         self,
         loop: PrivateLoop,
-        crawl: Crawl,
+        crawl: Crawl | CodeFreeCrawl,
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
         limits: Limits | None,
         settings: CrawlSettings | None,
+        detached: bool,
     ) -> CrawlRun:
         """Starts the sync `crawl` from `seeds` on `loop`: `Foxhound.start_crawl`.
 
@@ -685,9 +713,12 @@ class CrawlRuns:
             ClosedError: The Connection is closed; nothing is sent.
         """
         threaded: list[CrawlRun] = []
+        served = (
+            None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
+        )
 
         def opened(started: RunStarted) -> AsyncCrawlRun:
-            run = self._opened(crawl, started)
+            run = self._opened(served, detached, started)
             threaded.append(CrawlRun(loop, run))
             return run
 
@@ -699,12 +730,13 @@ class CrawlRuns:
             tags=tags,
             limits=limits,
             settings=settings,
+            detached=detached,
         )
         return threaded[0]
 
     async def _start(
         self,
-        crawl: AsyncCrawl | Crawl,
+        crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
         opened: Callable[[RunStarted], AsyncCrawlRun],
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
@@ -712,6 +744,7 @@ class CrawlRuns:
         tags: Iterable[str] | None,
         limits: Limits | None,
         settings: CrawlSettings | None,
+        detached: bool,
     ) -> AsyncCrawlRun:
         """Sends `crawl.start`, and `opened` builds the Run it answers.
 
@@ -720,13 +753,7 @@ class CrawlRuns:
                 exactly; nothing is sent.
         """
         sent_seeds = list(seeds)
-        check_startable(crawl, sent_seeds)
-        labels, datasets = crawl_declaration(crawl)
-        fields: dict[str, object] = {
-            "labels": {name: _wire(label) for name, label in labels.items()}
-        }
-        if datasets:
-            fields["datasets"] = [_wire(dataset) for dataset in datasets]
+        fields = _crawl_shape(crawl, sent_seeds)
         fields["seeds"] = [_wire(sent) for sent in sent_seeds]
         if run_id is not None:
             fields["run_id"] = run_id
@@ -741,6 +768,8 @@ class CrawlRuns:
         project = self._connection.project
         if project is not None:
             fields["project"] = project
+        if detached:
+            fields["detached"] = True
         params = CrawlStartParams.model_construct(None, **fields)
         operations = AsyncFoxhoundOperations(self._connection)
         starting = anyio.Event()
@@ -778,8 +807,10 @@ class CrawlRuns:
             self._reading = (anyio.CancelScope(), anyio.Event())
             spawner()(functools.partial(self._read, *self._reading))
 
-    def _opened(self, crawl: AsyncCrawl | Crawl, started: RunStarted) -> AsyncCrawlRun:
-        return AsyncCrawlRun(self._connection, started, crawl, self)
+    def _opened(
+        self, crawl: AsyncCrawl | Crawl | None, detached: bool, started: RunStarted
+    ) -> AsyncCrawlRun:
+        return AsyncCrawlRun(self._connection, started, crawl, self, detached=detached)
 
     async def _read(self, scope: anyio.CancelScope, ended: anyio.Event) -> None:
         """Reads the engine's messages while no call does, until `scope` is cancelled.
@@ -872,6 +903,33 @@ def _record_of(method: str, params: object) -> DatasetRecord | None:
         return None
     record = cast("dict[str, object]", params).get("record")
     return None if record is None else result_of(DatasetRecord, record)
+
+
+def _crawl_shape(
+    crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
+    seeds: list[RequestSeed | SitemapSeed],
+) -> dict[str, object]:
+    """What `crawl.start` takes for `crawl`: its Labels and Datasets, or itself.
+
+    A code-free crawl goes as its `declaration` or its `extraction`.
+
+    Raises:
+        LabelUnhandledError: A Label of the program's crawl has no handler.
+        LabelUnknownError: A seed names a Label the program's crawl does not
+            declare.
+    """
+    if isinstance(crawl, CrawlDeclaration):
+        return {"declaration": _wire(crawl)}
+    if isinstance(crawl, CrawlExtraction):
+        return {"extraction": _wire(crawl)}
+    check_startable(crawl, seeds)
+    labels, datasets = crawl_declaration(crawl)
+    fields: dict[str, object] = {
+        "labels": {name: _wire(label) for name, label in labels.items()}
+    }
+    if datasets:
+        fields["datasets"] = [_wire(dataset) for dataset in datasets]
+    return fields
 
 
 def _wire(model: BaseModel) -> dict[str, object]:

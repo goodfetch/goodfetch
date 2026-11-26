@@ -3,9 +3,10 @@
 //! messages each side sends built from the protocol's own types, written
 //! into the folder given as the only argument as `engine.jsonl` and
 //! `plugin.jsonl`, one message per line. The engine opens with `hello`,
-//! pings, makes a call the Plugin answers, one it does not have, and one it
-//! stops with `$/cancel` past its deadline, whose late result the Plugin
-//! still sends. `xtask compat write` runs it.
+//! pings, makes a call the Plugin answers after a `net.fetch` call back
+//! within it, one it does not have, and one it stops with `$/cancel` past
+//! its deadline, whose late result the Plugin still sends. `xtask compat
+//! write` runs it.
 #![expect(
     clippy::disallowed_methods,
     reason = "a synchronous corpus writer that writes files (ADR 0066)"
@@ -18,6 +19,9 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::jsonrpc::{
     ErrorData, ErrorObject, ErrorResponse, META, Message, Notification, ProtocolFailure, Request,
     RequestId, RequestMeta, Response, Version,
+};
+use goodfetch_protocol::plugin::net::{
+    NET_FETCH, NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult,
 };
 use goodfetch_protocol::plugin::{
     CANCEL, DeclaredKind, HELLO, NetworkLevel, PING, PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_VERSION,
@@ -47,6 +51,7 @@ fn main() {
             .expect("invariant: xtask compat passes the output folder"),
     );
     let late = RequestId::Text("put-late".to_owned());
+    let fetch = RequestId::Text("fetch-0".to_owned());
     let engine = [
         call(
             RequestId::Number(0),
@@ -65,6 +70,17 @@ fn main() {
             RequestId::Number(2),
             PUT,
             &json!({ "key": "title", "value": "Dune" }),
+        ),
+        result(
+            fetch.clone(),
+            &NetFetchResult {
+                status: 200,
+                headers: vec![NetFetchHeader {
+                    name: "content-type".to_owned(),
+                    value: "application/json".to_owned(),
+                }],
+                body: NetFetchBody::new(br#"{"stored":true}"#.to_vec()),
+            },
         ),
         call(RequestId::Number(3), DELETE, &json!({ "key": "title" })),
         call(
@@ -97,6 +113,21 @@ fn main() {
             },
         ),
         result(RequestId::Number(1), &PluginPingResult {}),
+        Message::Request(Request {
+            jsonrpc: Version,
+            id: fetch,
+            method: NET_FETCH.to_owned(),
+            params: Some(to_value(&NetFetchParams {
+                call_id: RequestId::Number(2),
+                method: "PUT".to_owned(),
+                url: "https://store.example/titles".to_owned(),
+                headers: vec![NetFetchHeader {
+                    name: "content-type".to_owned(),
+                    value: "application/json".to_owned(),
+                }],
+                body: Some(NetFetchBody::new(br#"{"title":"Dune"}"#.to_vec())),
+            })),
+        }),
         result(RequestId::Number(2), &json!({ "replaced": false })),
         Message::Error(ErrorResponse {
             jsonrpc: Version,
@@ -142,7 +173,7 @@ fn call(id: RequestId, method: &str, params: &impl Serialize) -> Message {
     })
 }
 
-/// The Plugin's success reply to the call `id`.
+/// The success reply to the call `id`.
 fn result(id: RequestId, result: &impl Serialize) -> Message {
     Message::Response(Response {
         jsonrpc: Version,

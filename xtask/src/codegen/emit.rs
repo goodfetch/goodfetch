@@ -73,6 +73,7 @@ use goodfetch_protocol::key_value_store::KeyValueStoreKey;
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
+use goodfetch_protocol::plugin::net::{NetFetchParams, NetFetchResult};
 use goodfetch_protocol::plugin::{
     PluginCancelParams, PluginHelloParams, PluginHelloResult, PluginManifest, PluginPingParams,
     PluginPingResult,
@@ -147,6 +148,10 @@ pub(super) fn emit() -> Emitted {
         "ping": {
             "params": generator.subschema_for::<PluginPingParams>(),
             "result": generator.subschema_for::<PluginPingResult>(),
+        },
+        "net_fetch": {
+            "params": generator.subschema_for::<NetFetchParams>(),
+            "result": generator.subschema_for::<NetFetchResult>(),
         },
         "manifest": generator.subschema_for::<PluginManifest>(),
     });

@@ -34,6 +34,7 @@ pub mod extractor;
 mod fuzz;
 mod manifest;
 mod names;
+pub mod net;
 pub mod settings;
 
 pub use fuzz::{fuzz_plugin_manifest, fuzz_plugin_messages};

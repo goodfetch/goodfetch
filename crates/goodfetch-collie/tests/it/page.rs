@@ -58,7 +58,8 @@ pub(crate) fn started(
 /// Starts an Attached engine whose Browser cache is `cache`, its command
 /// changed by `change`, and a Run whose `network.resolve` maps the Proving
 /// ground's hosts to its address, beside `settings`, more of the Run's
-/// settings by area.
+/// settings by area, whose own `network.resolve` mappings join the Proving
+/// ground's.
 pub(crate) fn started_with(
     env: &TestEnv,
     cache: &Path,
@@ -206,12 +207,20 @@ fn begun(
         let answered = engine.ask(id, method, params);
         assert!(answered.get("result").is_some(), "{answered}");
     }
-    let resolve: Map<String, Value> = proving_ground
+    let mut resolve: Map<String, Value> = proving_ground
         .description()
         .resolve
         .iter()
         .map(|(host, address)| (host.clone(), json!([address])))
         .collect();
+    // The test's own mappings, such as a name no Proving ground page has,
+    // join the Proving ground's, and win over them.
+    if let Some(Value::Object(own)) = settings
+        .get("network")
+        .and_then(|network| network.get("resolve"))
+    {
+        resolve.extend(own.clone());
+    }
     let mut settings = settings.clone();
     allow_private(&mut settings, resolve.keys());
     settings

@@ -45,6 +45,18 @@ pub fn read(value: &str, date: Option<&str>, received: SystemTime) -> RetryAfter
     )
 }
 
+/// The wait the `Retry-After` of an answer with `headers`, received at
+/// `received`, asks for, as [`read`] reads it: none when it has none or it
+/// is neither form, and the caller's own backoff waits instead.
+pub fn wait_of(headers: &hyper::HeaderMap, received: SystemTime) -> Option<Duration> {
+    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+    match read(header("retry-after")?, header("date"), received) {
+        RetryAfter::Until(until) => Some(until.duration_since(received).unwrap_or_default()),
+        RetryAfter::NoWait => Some(Duration::ZERO),
+        RetryAfter::Unparsable => None,
+    }
+}
+
 /// The time a site asked for, as an error's `retry_after` detail writes it
 /// (ADRs 0092 and 0118): RFC 3339 in UTC, to the millisecond when it has
 /// a fraction.

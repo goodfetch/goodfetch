@@ -14,7 +14,8 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::mpsc;
 
-use super::{Calls, Command, Ended, Held, Input, Pending, credited, encoded, write};
+use super::notification::{credited, encoded};
+use super::{Calls, Command, Ended, Held, Input, Pending, write};
 use crate::error::Error;
 use crate::line;
 use crate::logging;
@@ -245,8 +246,7 @@ pub(super) async fn relink(
         meanwhile(wait, commands, calls)
             .await
             .ok_or(Ended::Closed)?;
-        calls.next_id += 1;
-        let greeting = greet(relinking, calls.next_id);
+        let greeting = greet(relinking, calls.next_id());
         let greeted = match expiry {
             Some(expiry) => meanwhile(tokio::time::timeout_at(expiry, greeting), commands, calls)
                 .await
@@ -271,7 +271,7 @@ pub(super) async fn relink(
                 return Ok(input);
             }
             Err(Attempt::Failed(failed)) => {
-                tracing::debug!(target: "goodfetch::client", cause = %failed, "an attempt to reach the engine again failed");
+                tracing::debug!(target: logging::CLIENT, cause = %failed, "an attempt to reach the engine again failed");
                 cause = failed;
             }
             Err(Attempt::Ended(ended)) => return Err(ended),
@@ -337,7 +337,7 @@ async fn greet(relinking: &Relinking, id: i64) -> Result<Greeted, Attempt> {
                 logging::relay(notification.params);
             }
             _ => {
-                tracing::debug!(target: "goodfetch::client", "a line before `hello`'s answer on a new link");
+                tracing::debug!(target: logging::CLIENT, "a line before `hello`'s answer on a new link");
             }
         }
     }

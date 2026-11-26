@@ -8,7 +8,7 @@ use adblock::Engine;
 
 use crate::filter_set;
 use crate::generic::Generic;
-use crate::list::{LISTS, List};
+use crate::list::{LISTS, List, ListSet};
 use crate::stand_ins;
 
 /// One embedded engine as the build wrote it.
@@ -29,9 +29,9 @@ include!(concat!(env!("OUT_DIR"), "/embedded.rs"));
 /// generic rules off; and the generic set removal reads every page with is
 /// built with them, once per version, off every page's path (issue 2191).
 pub struct FilterLists {
-    pub(crate) ads: Engine,
-    pub(crate) trackers: Engine,
-    pub(crate) annoyances: Engine,
+    ads: Engine,
+    trackers: Engine,
+    annoyances: Engine,
     /// The `$generichide` exceptions of each list, in [`List`] order.
     generic_hide: [Engine; 3],
     generic: Generic,
@@ -204,6 +204,13 @@ impl FilterLists {
             (List::Trackers, &self.trackers),
             (List::Annoyances, &self.annoyances),
         ]
+    }
+
+    /// The engine of each list of `on`, in [`List`] order.
+    pub(crate) fn on(&self, on: ListSet) -> impl Iterator<Item = (List, &Engine)> {
+        self.engines()
+            .into_iter()
+            .filter(move |(list, _)| on.contains(*list))
     }
 
     /// The engine of `list`.

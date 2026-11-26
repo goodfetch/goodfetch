@@ -15,16 +15,20 @@
 //! deprecated ADR 0017's `v1a` for `v2a` (ADR 0017's note of 2026-11-24).
 //! The endpoint ID names the receiving endpoint and is never sent.
 //!
-//! A Goodfetch delivery's body is [`body`]'s envelope,
+//! A Sink webhook delivery's body is [`body`]'s envelope,
 //! `{"run_epoch":<epoch>,"data":<data>}`, so its run epoch is signed with
-//! it: the specification signs only the ID, the timestamp and the body.
-//! [`Verifier`] refuses a timestamp more than five minutes from its own
-//! time, either way, and compares each signature in constant time.
+//! it: the specification signs only the ID, the timestamp and the body. A
+//! Notification webhook's body is the specification's own
+//! `{"type","timestamp","format","data"}` (ADR 0027), which
+//! [`Verifier::verify_signature`] verifies: its ID is the event's, which
+//! the delivery ledger sends once. [`Verifier`] refuses a timestamp more
+//! than five minutes from its own time, either way, and compares each
+//! signature in constant time.
 //!
 //! A signing key is resolved from its Secret reference, so the engine's
 //! masks hold its value (ADR 0015). [`SigningKey`] and [`VerifyingKey`]
 //! zero it when dropped, and neither their `Debug` form nor an error quotes
-//! it. No Notification or Sink webhook calls this module yet.
+//! it. No Sink webhook calls this module yet.
 
 use std::fmt;
 use std::ops::RangeInclusive;

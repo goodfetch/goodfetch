@@ -1,14 +1,12 @@
 // What the committed protocol contract allows on the wire: the JSON Schema
-// bundle and the catalog `xtask codegen` writes into
-// `crates/goodfetch-protocol/generated/` (ADR 0038), compiled with Ajv, the one
-// runtime validator of the TypeScript test tools (spec #326, ambiguity 6).
-// The files are imported as JSON modules, so this module also runs in Vitest
-// Browser Mode, where no file system is.
+// bundle `xtask codegen` writes into `crates/goodfetch-protocol/generated/`
+// (ADR 0038), compiled with Ajv, the one runtime validator of the
+// TypeScript test tools (spec #326, ambiguity 6). The bundle is imported as
+// a JSON module, so this module also runs in Vitest Browser Mode, where no
+// file system is.
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js";
 import { fullFormats } from "ajv-formats/dist/formats.js";
 import bundle from "../../../crates/goodfetch-protocol/generated/bundle.json" with { type: "json" };
-import catalog from "../../../crates/goodfetch-protocol/generated/catalog.json" with { type: "json" };
-import type { CancelParams, CreditParams, Product } from "@goodfetch/collie-client/generated";
 
 /** Where the bundle's `$defs` are registered, so each catalog `$ref` resolves against them. */
 const BUNDLE_ID = "https://goodfetch.dev/schemas/protocol-bundle.json";
@@ -70,102 +68,4 @@ export class Schema<T = unknown> {
     const checked = this.check(value);
     return checked.holds ? undefined : checked.problems;
   }
-}
-
-/** A request's id, which its reply carries back. */
-export type RequestId = number | string;
-
-/** A JSON-RPC request, as the bundle's `Request` takes it. */
-export interface WireRequest {
-  readonly jsonrpc: "2.0";
-  readonly id: RequestId;
-  readonly method: string;
-  readonly params?: unknown;
-}
-
-/** A JSON-RPC notification, as the bundle's `Notification` takes it. */
-export interface WireNotification {
-  readonly jsonrpc: "2.0";
-  readonly method: string;
-  readonly params?: unknown;
-}
-
-/** What `$/credit` grants: more events, or chunks, for a streaming call; the bundle's generated type, so its schema and this type cannot part. */
-export type WireCredit = Readonly<CreditParams>;
-
-/** What `$/cancel` names: the call to stop; the bundle's generated type. */
-export type WireCancel = Readonly<CancelParams>;
-
-/** An operation of the catalog: what its params and its result must be. */
-export interface OperationContract {
-  readonly params: Schema;
-  readonly result: Schema;
-}
-
-/** An Error code of the catalog: its group's numeric class, and whether a retry may succeed. */
-export interface ErrorCodeContract {
-  readonly jsonRpcClass: number;
-  readonly retryable: boolean;
-}
-
-/** One Product's part of the contract: what its engine takes and sends. */
-export interface ProductContract {
-  readonly product: Product;
-  readonly protocolVersion: string;
-  /** The JSON-RPC envelopes and the connection's own messages. */
-  readonly request: Schema<WireRequest>;
-  readonly notification: Schema<WireNotification>;
-  readonly helloParams: Schema;
-  readonly cancelParams: Schema<WireCancel>;
-  readonly creditParams: Schema<WireCredit>;
-  readonly operations: ReadonlyMap<string, OperationContract>;
-  /** Each event's payload schema, by its catalog name. */
-  readonly events: ReadonlyMap<string, Schema>;
-  readonly errorCodes: ReadonlyMap<string, ErrorCodeContract>;
-}
-
-/** Whether an entry marked with `entry` belongs to `product`'s catalog: Foxhound's contains Collie's (ADR 0095). */
-function carries(product: Product, entry: string): boolean {
-  return entry === "collie" || product === "foxhound";
-}
-
-/** The committed contract of `product`'s engine. */
-export function productContract(product: Product): ProductContract {
-  const groups = new Map(catalog.error_groups.map((group) => [group.name, group.json_rpc_class]));
-  return {
-    product,
-    protocolVersion: catalog.protocol_version,
-    request: new Schema({ $ref: "#/$defs/Request" }),
-    notification: new Schema({ $ref: "#/$defs/Notification" }),
-    helloParams: new Schema(bundle.connection.hello.params),
-    cancelParams: new Schema(bundle.connection.cancel.params),
-    creditParams: new Schema(bundle.connection.credit.params),
-    operations: new Map(
-      catalog.operations
-        .filter((operation) => carries(product, operation.product))
-        .map((operation) => [
-          operation.name,
-          {
-            params: new Schema(operation.params),
-            result: new Schema(operation.result),
-          },
-        ]),
-    ),
-    events: new Map(
-      catalog.events
-        .filter((event) => carries(product, event.product))
-        .map((event) => [event.name, new Schema(event.payload)]),
-    ),
-    errorCodes: new Map(
-      catalog.error_codes
-        .filter((code) => carries(product, code.product))
-        .map((code) => {
-          const jsonRpcClass = groups.get(code.group);
-          if (jsonRpcClass === undefined) {
-            throw new Error(`invariant: the catalog defines the group of ${code.name}`);
-          }
-          return [code.name, { jsonRpcClass, retryable: code.retryable }];
-        }),
-    ),
-  };
 }

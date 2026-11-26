@@ -3031,6 +3031,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-notification"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "goodfetch-engine",
+ "goodfetch-protocol",
+ "goodfetch-runtime",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "httpmock",
+ "hyper",
+ "proptest",
+ "proptest-state-machine",
+ "rstest",
+ "rusqlite",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "goodfetch-page"
 version = "0.0.0"
 dependencies = [

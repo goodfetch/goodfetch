@@ -828,13 +828,13 @@ fn the_auto_cell_maps_foxhound_spider_smart_and_crawlees_adaptive_crawler() {
 
 /// The handled-crawl cell (#2317) reads a crawl whose handler reads each
 /// page's twenty fields, pushes one Record and enqueues the page's links:
-/// Foxhound as a TypeScript program on its SDK, at the default tier choice,
-/// against Spider, Crawlee, Scrapy and crawlee-rs doing the same work, each
-/// with its mapping. Foxhound's Rust arm waits on #2804 and its getters arm
-/// on #724 and #1296; every page's Record is held to the Proving ground's
-/// answers, and the cell carries no bar.
+/// Foxhound as a TypeScript program and as a Rust program on its SDKs,
+/// both at the default tier choice, against Spider, Crawlee, Scrapy and
+/// crawlee-rs doing the same work, each with its mapping. Foxhound's
+/// getters arm waits on #724 and #1296; every page's Record is held to the
+/// Proving ground's answers, and the cell carries no bar.
 #[test]
-fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
+fn the_handled_cell_maps_foxhounds_programs_and_four_other_tools() {
     let handled = Scenario::Handled;
     let cells: Vec<(&str, Tool, Option<Config>, Option<OutputCheck>)> = CELLS
         .iter()
@@ -873,7 +873,7 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
                 handled.network(),
                 handled.no_bar(),
             ),
-            Config::FoxhoundProgram.samples(),
+            [Config::FoxhoundProgram, Config::FoxhoundRustProgram].map(Config::samples),
         ),
         (
             vec![
@@ -883,7 +883,12 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
                     Some(Config::FoxhoundProgram),
                     fields
                 ),
-                ("foxhound rust", Tool::Foxhound, None, None),
+                (
+                    "foxhound rust",
+                    Tool::Foxhound,
+                    Some(Config::FoxhoundRustProgram),
+                    fields
+                ),
                 ("foxhound getters", Tool::Foxhound, None, None),
                 (
                     "spider",
@@ -903,8 +908,8 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
                     fields
                 ),
             ],
-            vec![super::HANDLED_RUST_PENDING, super::HANDLED_GETTERS_PENDING],
-            5,
+            vec![super::HANDLED_GETTERS_PENDING],
+            6,
             (
                 "handled",
                 Scenario::Handled,
@@ -912,7 +917,7 @@ fn the_handled_cell_maps_foxhounds_program_and_four_other_tools() {
                 Network::Loopback,
                 Some("#2317")
             ),
-            true,
+            [true, true],
         )
     );
 }

@@ -28,11 +28,11 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::journey::{Journey, Milestone, Status};
+use goodfetch_protocol::journey::{FOXHOUND_CLI, Journey, Milestone, Status};
 use goodfetch_protocol::result_document::{self, JourneyOutcome, LoadedDocument};
 use serde::Serialize;
 
-use super::variants::{self, FOXHOUND_CLI, Variant};
+use super::variants::{self, Variant};
 use crate::results;
 
 /// The folder of a JUnit artifact that holds its result documents.

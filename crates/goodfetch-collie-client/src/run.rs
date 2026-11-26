@@ -226,7 +226,7 @@ impl ClientConnection {
     /// Starts a Run with `opener` as [`ClientConnection::start_with`]
     /// does, held `detached` when it outlives the program: closing or
     /// dropping its value then sends no `run.abort` (ADR 0102).
-    pub(crate) fn start_held(
+    pub fn start_held(
         &self,
         opener: &'static str,
         params: impl Serialize + Send + 'static,

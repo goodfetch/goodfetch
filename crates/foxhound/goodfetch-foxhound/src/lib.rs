@@ -54,8 +54,8 @@ pub mod testing;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{
-    AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue,
-    EnqueueLinks, Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
+    AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, CrawlTarget, Dataset, DatasetDeclaration,
+    Enqueue, EnqueueLinks, Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
 };
 pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
@@ -65,7 +65,9 @@ pub use goodfetch_collie_client::{
     MoneyError, Page, Query, RawCall, Response, Run, RunView, Schedule, Schedules, Schema,
     SchemaError, Session, Start, StoredBytes, UsageKind, events, schemars,
 };
+pub use goodfetch_protocol::foxhound::crawl::CrawlExtraction;
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
+pub use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the
 /// engine.

@@ -17,6 +17,7 @@ use goodfetch_test_support::{TestEnv, real_time_runtime};
 mod attempt_run;
 mod blocked;
 mod catalog;
+mod code_free;
 mod connect_options;
 mod crawl;
 mod crawl_report;

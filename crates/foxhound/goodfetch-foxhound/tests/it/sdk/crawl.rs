@@ -202,7 +202,7 @@ async fn crawl_the_book(State(service): State<WebService>) -> Result<String, Str
     let seed = Seed::new(&service.book, &service.page, Visit { depth: 0 });
     let run = service
         .foxhound
-        .start_crawl(&service.crawl, [seed])
+        .start_crawl(&*service.crawl, [seed])
         .await
         .map_err(|error| error.to_string())?;
     let report = service

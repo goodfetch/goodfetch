@@ -10,6 +10,7 @@
 //! spawns no task.
 
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::marker::PhantomData;
@@ -25,14 +26,15 @@ use goodfetch_collie_client::{
 };
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
-    CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
-    LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel, LabelUnknownDetails,
-    Seed as SeedRequest, Seeds,
+    CODE_FREE_LABEL, CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlExtraction, CrawlRequestHandleParams,
+    CrawlRequestHandled, CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip,
+    LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel,
+    LabelUnknownDetails, Seed as SeedRequest, Seeds,
 };
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DatasetDeclaration as WireDataset, DatasetDuplicateDetails,
 };
+use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RunId, Tags};
@@ -433,32 +435,14 @@ impl<'a> Crawl<'a> {
         for seed in seeds {
             requests.push(self.own_seed(seed)?);
         }
-        let Some(seeds) = Seeds::new(requests) else {
-            return Err(Error::refused(
-                CRAWL_START.name,
-                "a crawl starts from at least one seed",
-                "Give `start_crawl` one seed or more.",
-            ));
-        };
         Ok(CrawlStartParams {
-            run_id: None,
-            tags: Tags::default(),
-            seeds,
             labels: self
                 .labels
                 .iter()
                 .map(|declared| (declared.name.to_string(), declared.wire.clone()))
                 .collect(),
             datasets: self.datasets.clone(),
-            extraction: None,
-            declaration: None,
-            hooks: Vec::new(),
-            settings: serde_json::Map::new(),
-            project: None,
-            limits: Vec::new(),
-            // The program's crawl waits on it, so it never detaches (ADR
-            // 0102).
-            detached: false,
+            ..start_params(requests)?
         })
     }
 
@@ -476,6 +460,16 @@ impl<'a> Crawl<'a> {
                     return Err(self.label_unknown(&request.label));
                 }
                 request.payload = Some(payload?);
+                Ok(SeedRequest::Request(request))
+            }
+            Seeded::Named(request) => {
+                if !self
+                    .labels
+                    .iter()
+                    .any(|declared| *declared.name == request.label)
+                {
+                    return Err(self.label_unknown(&request.label));
+                }
                 Ok(SeedRequest::Request(request))
             }
             Seeded::Sitemap {
@@ -505,6 +499,52 @@ impl<'a> Crawl<'a> {
             }
         }
     }
+}
+
+/// What `crawl.start` takes to start a crawl from `seeds`, with no Label,
+/// no Dataset and no code-free crawl of its own, or `invalid_params` with
+/// no seed.
+fn start_params(seeds: Vec<SeedRequest>) -> Result<CrawlStartParams, Error> {
+    let Some(seeds) = Seeds::new(seeds) else {
+        return Err(Error::refused(
+            CRAWL_START.name,
+            "a crawl starts from at least one seed",
+            "Give `start_crawl` one seed or more.",
+        ));
+    };
+    Ok(CrawlStartParams {
+        run_id: None,
+        tags: Tags::default(),
+        seeds,
+        labels: BTreeMap::new(),
+        datasets: Vec::new(),
+        extraction: None,
+        declaration: None,
+        hooks: Vec::new(),
+        settings: serde_json::Map::new(),
+        project: None,
+        limits: Vec::new(),
+        detached: false,
+    })
+}
+
+/// What `crawl.start` takes to start a code-free crawl from `seeds`, each
+/// naming its Label by name, before its declaration or extraction is set;
+/// a seed holding a [`Label`], of a crawl the program declares, is
+/// refused.
+fn code_free_params(seeds: Vec<Seed>) -> Result<CrawlStartParams, Error> {
+    let mut requests = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let Seeded::Named(request) = seed.seeded else {
+            return Err(Error::refused(
+                CRAWL_START.name,
+                "a code-free crawl's seed names its Label by name",
+                "Give `Seed::named` seeds; a `Label` belongs to a `Crawl` the program declares.",
+            ));
+        };
+        requests.push(SeedRequest::Request(request));
+    }
+    start_params(requests)
 }
 
 /// The `label_unknown` of `label`, among the Labels `declared`.
@@ -653,6 +693,13 @@ impl Foxhound {
     /// Awaiting sends it; [`Crawl::serve`] then serves the Run. The crawl's
     /// declarations are checked before anything is sent.
     ///
+    /// A code-free crawl, a [`CrawlDeclaration`] or a [`CrawlExtraction`],
+    /// starts the same way with no handler: its seeds name their Labels by
+    /// name ([`Seed::named`]), the program reads its Datasets by name with
+    /// the raw call `dataset.page` ([`Foxhound::call`]), and
+    /// [`StartCrawl::detached`] lets its Run outlive the Connection on a
+    /// Daemon (ADRs 0093 and 0102).
+    ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, CrawlContext, Foxhound, Seed};
     ///
@@ -675,13 +722,49 @@ impl Foxhound {
     /// handler, `label_unknown` for a seed of another crawl's Label,
     /// `payload_invalid` for a Payload that does not serialize, or that
     /// its Label's schema refuses, naming each issue, `invalid_params`
-    /// with no seed, and what `crawl.start` fails with.
-    pub fn start_crawl(
+    /// with no seed, `invalid_params` for a code-free crawl's seed that
+    /// holds a [`Label`], and what `crawl.start` fails with, such as
+    /// `detach_unsupported` for a detached crawl the program serves.
+    pub fn start_crawl<'c, 'h: 'c>(
         &self,
-        crawl: &Crawl<'_>,
+        crawl: impl Into<CrawlTarget<'c, 'h>>,
         seeds: impl IntoIterator<Item = Seed>,
     ) -> StartCrawl {
-        StartCrawl::new(self.as_ref(), self.crawl_requests(), crawl, seeds)
+        StartCrawl::new(self.as_ref(), self.crawl_requests(), crawl.into(), seeds)
+    }
+}
+
+/// What [`Foxhound::start_crawl`] starts (ADR 0093): a [`Crawl`] the
+/// program serves, or a code-free crawl the engine handles itself, whose
+/// seeds name their Labels by name ([`Seed::named`]). A `&Crawl`, a
+/// [`CrawlDeclaration`] and a [`CrawlExtraction`] each convert into it.
+/// `'c` is the borrow of the crawl, and `'h` what its handlers borrow.
+#[derive(Debug)]
+pub enum CrawlTarget<'c, 'h> {
+    /// A crawl the program declares and serves.
+    Crawl(&'c Crawl<'h>),
+    /// A crawl declared as data, sent as `crawl.start`'s `declaration`.
+    Declaration(CrawlDeclaration),
+    /// A crawl that reads each page it fetches, sent as `crawl.start`'s
+    /// `extraction`.
+    Extraction(CrawlExtraction),
+}
+
+impl<'c, 'h> From<&'c Crawl<'h>> for CrawlTarget<'c, 'h> {
+    fn from(crawl: &'c Crawl<'h>) -> Self {
+        Self::Crawl(crawl)
+    }
+}
+
+impl From<CrawlDeclaration> for CrawlTarget<'_, '_> {
+    fn from(declaration: CrawlDeclaration) -> Self {
+        Self::Declaration(declaration)
+    }
+}
+
+impl From<CrawlExtraction> for CrawlTarget<'_, '_> {
+    fn from(extraction: CrawlExtraction) -> Self {
+        Self::Extraction(extraction)
     }
 }
 
@@ -702,21 +785,58 @@ pub struct StartCrawl {
 
 impl StartCrawl {
     /// The start of `crawl`'s Run from `seeds` on `connection`, whose
-    /// Runs share `requests`.
+    /// Runs share `requests`. A code-free crawl takes a number of its own,
+    /// so no [`Crawl`] serves its Run.
     pub(crate) fn new(
         connection: &ClientConnection,
         requests: &Arc<CrawlRequests>,
-        crawl: &Crawl<'_>,
+        crawl: CrawlTarget<'_, '_>,
         seeds: impl IntoIterator<Item = Seed>,
     ) -> Self {
+        let seeds = seeds.into_iter().collect();
+        let (id, declared, params) = match crawl {
+            CrawlTarget::Crawl(crawl) => (crawl.id, crawl.declared(), crawl.start_params(seeds)),
+            CrawlTarget::Declaration(declaration) => (
+                CrawlId::next(),
+                declaration
+                    .labels
+                    .iter()
+                    .map(|label| label.name.clone())
+                    .collect(),
+                code_free_params(seeds).map(|params| CrawlStartParams {
+                    declaration: Some(declaration),
+                    ..params
+                }),
+            ),
+            CrawlTarget::Extraction(extraction) => (
+                CrawlId::next(),
+                vec![CODE_FREE_LABEL.to_owned()],
+                code_free_params(seeds).map(|params| CrawlStartParams {
+                    extraction: Some(extraction),
+                    ..params
+                }),
+            ),
+        };
         Self {
             connection: connection.clone(),
             requests: Arc::clone(requests),
-            crawl: crawl.id,
-            declared: crawl.declared().into(),
-            params: crawl.start_params(seeds.into_iter().collect()),
+            crawl: id,
+            declared: declared.into(),
+            params,
             settings: Settings::new(),
         }
+    }
+
+    /// Lets the Run outlive the Connection, as
+    /// [`HandlerlessStart::detached`](crate::HandlerlessStart::detached)
+    /// does: closing or dropping its [`CrawlRun`] then sends no
+    /// `run.abort`. Only a code-free crawl started on a Daemon detaches;
+    /// any other start fails with `detach_unsupported` (ADR 0102).
+    pub fn detached(mut self) -> Self {
+        if let Ok(params) = &mut self.params {
+            params.detached = true;
+        }
+        self
     }
 
     /// Names the Run for good, as [`Start::run_id`](crate::Start::run_id)
@@ -781,7 +901,8 @@ impl IntoFuture for StartCrawl {
             params.settings = settings.within(SettingScope::Run)?;
             params.project = connection.project().cloned();
             requests.open(&connection)?;
-            Ok(connection.start_with(CRAWL_START.name, params))
+            let detached = params.detached;
+            Ok(connection.start_held(CRAWL_START.name, params, detached))
         });
         Box::pin(async move {
             let run = started?.await?;

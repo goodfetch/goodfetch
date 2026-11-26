@@ -138,6 +138,9 @@ pub(super) enum Seeded {
         crawl: CrawlId,
         payload: Result<Value, Error>,
     },
+    /// A request naming its Label by name, with no Payload: a code-free
+    /// crawl's, whose Labels the program holds no handle of.
+    Named(RequestSeed),
     /// A sitemap, with the crawl each rule's Label is of, and the request
     /// option given to it, which a sitemap seed does not take.
     Sitemap {
@@ -176,6 +179,26 @@ impl Seed {
                 crawl: label.crawl,
                 payload,
             },
+        }
+    }
+
+    /// The request of `url` under the Label named `label`, with no
+    /// Payload: a code-free crawl's seed (ADR 0093), whose Labels its
+    /// [`CrawlDeclaration`](crate::CrawlDeclaration) names, or the Label
+    /// `page` a [`CrawlExtraction`](crate::CrawlExtraction) declares.
+    /// A [`Crawl`](crate::Crawl) takes it for a Label it declares.
+    pub fn named(url: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            seeded: Seeded::Named(RequestSeed {
+                url: url.into(),
+                label: label.into(),
+                payload: None,
+                priority: 0,
+                forefront: false,
+                method: HttpMethod::default(),
+                body: None,
+                key: None,
+            }),
         }
     }
 
@@ -254,7 +277,7 @@ impl Seed {
     /// the crawl's start.
     fn with_request(mut self, option: &'static str, set: impl FnOnce(&mut RequestSeed)) -> Self {
         match &mut self.seeded {
-            Seeded::Request { request, .. } => set(request),
+            Seeded::Request { request, .. } | Seeded::Named(request) => set(request),
             Seeded::Sitemap { refused, .. } => {
                 refused.get_or_insert(option);
             }

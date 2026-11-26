@@ -337,6 +337,26 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "detached"
+entry = "none"
+reason = "Starts a code-free crawl's Run detached, sent with `crawl.start`, so that on a Daemon it outlives the program (ADR 0102)."
+only = "TypeScript's `startCrawl` takes it as its options' `detached`."
+words = ["detached"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "CrawlTarget"
+entry = "none"
+reason = "What `Foxhound::start_crawl` starts: a `Crawl` the program handles, or a code-free `CrawlDeclaration` or `CrawlExtraction` the engine handles alone (ADR 0093)."
+only = "TypeScript's and Python's `startCrawl` take a `Crawl` or a `CodeFreeCrawl` union in its place."
+words = ["crawl", "target"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "Crawl"
 entry = "none"
@@ -445,6 +465,16 @@ entry = "none"
 reason = "A seed of `url` under a Label with its Payload, built with no round trip (ADR 0099)."
 only = "TypeScript builds a seed with its module's `seed` function."
 words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "named"
+entry = "none"
+reason = "A seed of `url` naming its Label by name, with no Payload, as a code-free crawl's seeds do (ADR 0093)."
+only = "TypeScript's and Python's `seed` take the Label's name in place of a Label."
+words = ["named"]
 form = "read"
 
 [[member]]
@@ -1135,6 +1165,16 @@ entry = "none"
 reason = "Sets the Run's own settings, as `crate::StartCrawl::settings` does."
 only = "TypeScript's `startCrawl` takes them as its options' `settings`."
 words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
+member = "detached"
+entry = "none"
+reason = "Starts a code-free crawl's Run detached, as `crate::StartCrawl::detached` does."
+only = "TypeScript's `startCrawl` takes it as its options' `detached`."
+words = ["detached"]
 form = "read"
 
 [[member]]

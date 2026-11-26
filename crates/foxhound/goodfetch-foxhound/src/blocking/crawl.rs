@@ -363,16 +363,30 @@ impl Foxhound {
     ///
     /// The start of `crawl`'s Run from `seeds`, as
     /// [`crate::Foxhound::start_crawl`], which `send()` sends.
-    pub fn start_crawl(&self, crawl: &Crawl, seeds: impl IntoIterator<Item = Seed>) -> StartCrawl {
+    ///
+    /// A code-free crawl, a [`crate::CrawlDeclaration`] or a
+    /// [`crate::CrawlExtraction`], starts the same way with no handler, as
+    /// it does there.
+    pub fn start_crawl<'c>(
+        &self,
+        crawl: impl Into<crate::CrawlTarget<'c, 'static>>,
+        seeds: impl IntoIterator<Item = Seed>,
+    ) -> StartCrawl {
         StartCrawl {
             start: crate::StartCrawl::new(
                 self.linked.connection(),
                 &self.crawl_requests,
-                &crawl.inner,
+                crawl.into(),
                 seeds,
             ),
             connection: self.connection.clone(),
         }
+    }
+}
+
+impl<'c> From<&'c Crawl> for crate::CrawlTarget<'c, 'static> {
+    fn from(crawl: &'c Crawl) -> Self {
+        Self::Crawl(&crawl.inner)
     }
 }
 
@@ -415,6 +429,15 @@ impl StartCrawl {
     pub fn settings(self, settings: Settings) -> Self {
         Self {
             start: self.start.settings(settings),
+            ..self
+        }
+    }
+
+    /// Lets the Run outlive the Connection, as
+    /// [`crate::StartCrawl::detached`] does.
+    pub fn detached(self) -> Self {
+        Self {
+            start: self.start.detached(),
             ..self
         }
     }

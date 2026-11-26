@@ -184,6 +184,9 @@ goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR
 # 0119), which the fetch tiers and Collie's client crate both read.
 goodfetch-encoding = { path = "crates/goodfetch-encoding" }
+# A `stealth` Session's Identity profile drawn from the population data
+# (ADR 0035), which the page crate narrows by the identity settings.
+goodfetch-identity-profile = { path = "crates/goodfetch-identity-profile" }
 # The operating-system part of a Saved file (ADR 0116), which the engine and
 # Collie's client crate both use.
 goodfetch-saved-file = { path = "crates/goodfetch-saved-file" }

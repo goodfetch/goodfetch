@@ -109,6 +109,8 @@ sha2.workspace = true
 sqlite-plugin.workspace = true
 # Endpoint tokens compared in constant time (ADR 0017).
 subtle.workspace = true
+# A Plugin's bundle, the tar archive `plugin add` unpacks (issue 889).
+tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # The settings files (ADR 0028): read, and rewritten with every other byte kept (ADR 0098).

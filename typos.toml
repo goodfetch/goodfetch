@@ -12,7 +12,7 @@
 # and the `session_bundle` ones base64 of age files.
 # The Clean-up rules' Filter lists and stand-ins are their authors' files,
 # kept as published (ADR 0047), full of host names and URL fragments.
-extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crates/goodfetch-cdp/src/generated/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE", "journeys/tasks/", "crates/goodfetch-engine/fuzz/certificate_file/seeds/", "crates/goodfetch-engine/fuzz/session_bundle/seeds/","crates/goodfetch-clean-up-rules/rules/*.txt", "crates/goodfetch-clean-up-rules/stand-ins/*.js", "crates/goodfetch-clean-up-rules/stand-ins/LICENSE.md", "crates/goodfetch-clean-up-rules/consent/autoconsent/"]
+extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crates/goodfetch-cdp/src/generated/", "Cargo.lock", "pnpm-lock.yaml", "uv.lock", "LICENSE-APACHE", "journeys/tasks/", "crates/goodfetch-engine/fuzz/certificate_file/seeds/", "crates/goodfetch-engine/fuzz/session_bundle/seeds/", "crates/goodfetch-engine/fuzz/plugin_bundle/seeds/","crates/goodfetch-clean-up-rules/rules/*.txt", "crates/goodfetch-clean-up-rules/stand-ins/*.js", "crates/goodfetch-clean-up-rules/stand-ins/LICENSE.md", "crates/goodfetch-clean-up-rules/consent/autoconsent/"]
 
 [default]
 # Words typos misreads in the ADRs: a vendor's name, "mis-templated",

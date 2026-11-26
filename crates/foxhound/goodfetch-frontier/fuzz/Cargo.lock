@@ -1702,6 +1702,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlite-plugin",
  "subtle",
+ "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -350,7 +350,7 @@ crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "CrawlTarget"
 entry = "none"
-reason = "What `Foxhound::start_crawl` starts: a `Crawl` the program handles, or a code-free `CrawlDeclaration` or `CrawlExtraction` the engine handles alone (ADR 0093)."
+reason = "The sealed trait of what `Foxhound::start_crawl` starts: a `&Crawl` the program handles, or a code-free `CrawlDeclaration` or `CrawlExtraction` the engine handles alone (ADR 0093)."
 only = "TypeScript's and Python's `startCrawl` take a `Crawl` or a `CodeFreeCrawl` union in its place."
 words = ["crawl", "target"]
 form = "type"
@@ -485,6 +485,16 @@ entry = "none"
 reason = "A sitemap seed of `url`, whose rules give each entry the Label of the first that matches it, built with no round trip (ADRs 0093 and 0120)."
 only = "TypeScript builds a sitemap seed with its module's `sitemap` function."
 words = ["sitemap"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "named_sitemap"
+entry = "none"
+reason = "A sitemap seed of `url` whose rules name their Labels by name, as a code-free crawl's sitemap seeds do (ADR 0093)."
+only = "TypeScript and Python write a sitemap seed as data, whose rules carry their Labels' names."
+words = ["named", "sitemap"]
 form = "read"
 
 [[member]]

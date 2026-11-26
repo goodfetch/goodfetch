@@ -226,6 +226,18 @@ impl ClientConnection {
     /// Starts a Run with `opener` as [`ClientConnection::start_with`]
     /// does, held `detached` when it outlives the program: closing or
     /// dropping its value then sends no `run.abort` (ADR 0102).
+    ///
+    /// # Errors
+    ///
+    /// What `opener` fails with, such as `invalid_params` or, on an engine
+    /// that is no Daemon, `detach_unsupported`, and `closed` once the
+    /// Connection has ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before `opener` is answered may leave the Run
+    /// started or not; a start under a Run ID of the program's own then
+    /// resumes it (ADR 0102).
     pub fn start_held(
         &self,
         opener: &'static str,

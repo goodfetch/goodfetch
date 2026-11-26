@@ -367,16 +367,16 @@ impl Foxhound {
     /// A code-free crawl, a [`crate::CrawlDeclaration`] or a
     /// [`crate::CrawlExtraction`], starts the same way with no handler, as
     /// it does there.
-    pub fn start_crawl<'c>(
+    pub fn start_crawl(
         &self,
-        crawl: impl Into<crate::CrawlTarget<'c, 'static>>,
+        crawl: impl crate::CrawlTarget,
         seeds: impl IntoIterator<Item = Seed>,
     ) -> StartCrawl {
         StartCrawl {
             start: crate::StartCrawl::new(
                 self.linked.connection(),
                 &self.crawl_requests,
-                crawl.into(),
+                crawl,
                 seeds,
             ),
             connection: self.connection.clone(),
@@ -384,11 +384,13 @@ impl Foxhound {
     }
 }
 
-impl<'c> From<&'c Crawl> for crate::CrawlTarget<'c, 'static> {
-    fn from(crawl: &'c Crawl) -> Self {
-        Self::Crawl(&crawl.inner)
+impl crate::crawl::target::Parts for &Crawl {
+    fn parts(self, seeds: Vec<Seed>) -> crate::crawl::target::Started {
+        crate::crawl::target::Parts::parts(&self.inner, seeds)
     }
 }
+
+impl crate::CrawlTarget for &Crawl {}
 
 /// The start of a crawl's Run, as [`crate::StartCrawl`]. Nothing is sent
 /// until [`StartCrawl::send`].

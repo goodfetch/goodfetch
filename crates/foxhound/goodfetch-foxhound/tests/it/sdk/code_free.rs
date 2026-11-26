@@ -4,7 +4,8 @@
 //! itself, and the program reads the declared Dataset by its name with the
 //! raw call `dataset.page`, as the TypeScript and Python SDKs do.
 
-use goodfetch_foxhound::{Crawl, CrawlDeclaration, Foxhound, RunId, Seed};
+use goodfetch_foxhound::{Crawl, CrawlDeclaration, CrawlExtraction, Foxhound, RunId, Seed};
+use goodfetch_protocol::foxhound::crawl::{CODE_FREE_DATASET, CODE_FREE_LABEL};
 use goodfetch_protocol::result_document::OracleOutcome;
 use goodfetch_protocol::run::Lifecycle;
 use goodfetch_test_support::{ProvingGround, TestEnv, ToolStatus, real_time_runtime};
@@ -86,6 +87,76 @@ fn a_program_starts_a_declared_crawl_and_reads_its_dataset_by_name() {
         (Lifecycle::Finished, OracleOutcome::Verified),
         "{answer:?}"
     );
+}
+
+/// A program starts a `CrawlExtraction` from its seed alone, naming the
+/// engine's Label `page`, and reads one Record of the page from the
+/// Dataset `pages`, the page's Markdown in it.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_program_starts_an_extraction_and_reads_its_pages() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SEED).unwrap();
+    let start = site.start_url(TASK).unwrap();
+    let extraction: CrawlExtraction =
+        serde_json::from_value(json!({ "formats": { "markdown": true }, "follow": "none" }))
+            .unwrap();
+    let (lifecycle, records) = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let run = foxhound
+            .start_crawl(extraction, [Seed::named(&start, CODE_FREE_LABEL)])
+            .run_id(&RunId::parse("extraction").unwrap())
+            .await
+            .unwrap();
+        let report = run.finish().await.unwrap().into_inner();
+        let page: Value = foxhound
+            .call("dataset.page")
+            .params(json!({ "run_id": "extraction", "dataset": CODE_FREE_DATASET }))
+            .await
+            .unwrap();
+        foxhound.close().await.unwrap();
+        (
+            report.report.lifecycle,
+            page["records"].as_array().unwrap().clone(),
+        )
+    });
+
+    let pages: Vec<(&str, bool)> = records
+        .iter()
+        .map(|record| {
+            let markdown = record["value"]["markdown"].as_str().unwrap_or_default();
+            (
+                record["value"]["url"].as_str().unwrap(),
+                !markdown.is_empty(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        (lifecycle, pages),
+        (Lifecycle::Finished, vec![(start.as_str(), true)])
+    );
+}
+
+/// The linked engine ends with its Connection, so a detached code-free
+/// crawl is refused with `detach_unsupported`.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_detached_code_free_crawl_is_refused_on_an_engine_that_is_no_daemon() {
+    let env = TestEnv::new();
+    let refused = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(super::options(&env)).await.unwrap();
+        let refused = foxhound
+            .start_crawl(catalog(), [Seed::named("https://shop.test/", "listing")])
+            .detached()
+            .await
+            .unwrap_err();
+        foxhound.close().await.unwrap();
+        refused
+    });
+
+    assert_eq!(refused.code().as_str(), "detach_unsupported", "{refused}");
 }
 
 /// A code-free crawl's seed names its Label by name: one holding a

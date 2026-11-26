@@ -141,11 +141,12 @@ pub(super) enum Seeded {
     /// A request naming its Label by name, with no Payload: a code-free
     /// crawl's, whose Labels the program holds no handle of.
     Named(RequestSeed),
-    /// A sitemap, with the crawl each rule's Label is of, and the request
-    /// option given to it, which a sitemap seed does not take.
+    /// A sitemap, with the crawl each rule's Label is of, or none when its
+    /// rules name their Labels by name, and the request option given to
+    /// it, which a sitemap seed does not take.
     Sitemap {
         sitemap: SitemapSeed,
-        crawls: Vec<CrawlId>,
+        crawls: Option<Vec<CrawlId>>,
         refused: Option<&'static str>,
     },
 }
@@ -229,7 +230,34 @@ impl Seed {
                     sitemap: url.into(),
                     rules,
                 },
-                crawls,
+                crawls: Some(crawls),
+                refused: None,
+            },
+        }
+    }
+
+    /// The sitemap at `url` as [`Seed::sitemap`] reads it, each of whose
+    /// `rules` names its Label by name: a code-free crawl's sitemap seed
+    /// (ADR 0093). A [`Crawl`](crate::Crawl) takes it when it declares
+    /// each rule's Label.
+    pub fn named_sitemap<S: Into<String>, L: Into<String>>(
+        url: impl Into<String>,
+        rules: impl IntoIterator<Item = (S, L)>,
+    ) -> Self {
+        let rules = rules
+            .into_iter()
+            .map(|(pattern, label)| SitemapRule {
+                pattern: pattern.into(),
+                label: label.into(),
+            })
+            .collect();
+        Self {
+            seeded: Seeded::Sitemap {
+                sitemap: SitemapSeed {
+                    sitemap: url.into(),
+                    rules,
+                },
+                crawls: None,
                 refused: None,
             },
         }

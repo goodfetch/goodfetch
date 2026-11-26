@@ -5,7 +5,9 @@
 
 use std::any::Any;
 
-use goodfetch_protocol::foxhound::crawl::HandlerFailedDetails;
+use goodfetch_protocol::foxhound::crawl::{
+    HandlerFailedDetails, Seed as SeedRequest, SitemapRule, SitemapSeed,
+};
 use goodfetch_protocol::foxhound::dataset::{
     DatasetDeclaration as WireDataset, DatasetDuplicateDetails, DatasetKeyInvalidDetails,
     KeyRefused,
@@ -13,8 +15,11 @@ use goodfetch_protocol::foxhound::dataset::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{Crawl, CrawlContext, DatasetDeclaration, panicked};
-use crate::{Schema, error_code, schemars};
+use super::{Crawl, CrawlContext, DatasetDeclaration, code_free_params, panicked};
+use crate::{Schema, Seed, error_code, schemars};
+
+/// The sitemap a test's sitemap seeds read.
+const SITEMAP: &str = "https://shop.test/sitemap.xml";
 
 /// A Record whose title it may lack.
 #[derive(schemars::JsonSchema, Serialize, Deserialize)]
@@ -126,6 +131,63 @@ fn a_label_left_unhandled_beside_a_handled_one_refuses_the_start_with_label_unha
     let refused = crawl.start_params(Vec::new()).unwrap_err();
 
     assert_eq!(refused.code(), error_code::LABEL_UNHANDLED, "{refused}");
+}
+
+/// A sitemap seed whose rules name their Labels by name goes to the
+/// engine as given from a code-free crawl, and a `Crawl` takes it only
+/// when it declares each rule's Label: one naming another is refused with
+/// `label_unknown` before anything is sent.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_named_sitemap_seed_starts_a_code_free_crawl_or_a_crawl_declaring_its_labels() {
+    let named = || Seed::named_sitemap(SITEMAP, [("*/p/*", "product")]);
+    let mut crawl = Crawl::new();
+    let product = crawl.label::<()>("product").unwrap();
+    crawl
+        .handle(&product, |_ctx: CrawlContext<()>| async { Ok(()) })
+        .unwrap();
+    let mut other = Crawl::new();
+    let listing = other.label::<()>("listing").unwrap();
+    other
+        .handle(&listing, |_ctx: CrawlContext<()>| async { Ok(()) })
+        .unwrap();
+
+    let code_free = code_free_params(vec![named()]).unwrap();
+    let declared = crawl.start_params(vec![named()]).unwrap();
+    let refused = other.start_params(vec![named()]).unwrap_err();
+
+    let sitemap = SeedRequest::Sitemap(SitemapSeed {
+        sitemap: SITEMAP.to_owned(),
+        rules: vec![SitemapRule {
+            pattern: "*/p/*".to_owned(),
+            label: "product".to_owned(),
+        }],
+    });
+    assert_eq!(
+        (
+            code_free.seeds.iter().collect::<Vec<_>>(),
+            declared.seeds.iter().collect::<Vec<_>>(),
+            refused.code()
+        ),
+        (vec![&sitemap], vec![&sitemap], error_code::LABEL_UNKNOWN),
+        "{refused}"
+    );
+}
+
+/// A sitemap seed holding a `Crawl`'s Labels belongs to that crawl: a
+/// code-free crawl refuses it with `invalid_params`.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_code_free_crawl_refuses_a_sitemap_seed_holding_labels() {
+    let mut crawl = Crawl::new();
+    let product = crawl.label::<()>("product").unwrap();
+
+    let refused =
+        code_free_params(vec![Seed::sitemap(SITEMAP, [("*/p/*", &product)])]).unwrap_err();
+
+    assert_eq!(refused.code().as_str(), "invalid_params", "{refused}");
 }
 
 #[test]

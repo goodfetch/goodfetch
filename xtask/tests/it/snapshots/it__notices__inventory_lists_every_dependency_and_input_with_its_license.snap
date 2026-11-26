@@ -171,6 +171,14 @@ expression: "workspace.read_text(\"target/notices.json\")"
       "license": "BSD-3-Clause",
       "source": "https://github.com/EnableSecurity/wafw00f/tree/69fbe39/wafw00f/plugins",
       "use": "modified"
+    },
+    {
+      "ecosystem": "identity-population",
+      "name": "fingerprint-suite's fingerprint network",
+      "version": "7a6b52b",
+      "license": "Apache-2.0",
+      "source": "https://github.com/apify/fingerprint-suite/blob/7a6b52b/packages/fingerprint-generator/src/data_files/fingerprint-network-definition.zip",
+      "use": "unmodified"
     }
   ]
 }

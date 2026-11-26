@@ -3027,6 +3027,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-identity-profile"
+version = "0.0.0"
+dependencies = [
+ "chacha20 0.10.2",
+ "flate2",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "proptest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "goodfetch-memory-site"
 version = "0.0.0"
 dependencies = [
@@ -3100,6 +3115,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
+ "goodfetch-identity-profile",
  "goodfetch-protocol",
  "goodfetch-recording-gate",
  "goodfetch-runtime",

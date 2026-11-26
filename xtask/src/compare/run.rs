@@ -239,6 +239,21 @@ pub(crate) fn side_executable(builds: &Path, folder: &str, profile_folder: &str)
     ))
 }
 
+/// The handled cell's Rust program among the Rust sides' builds:
+/// `goodfetch-foxhound`'s `compare-handled` example, built into
+/// [`matrix::FOXHOUND_RUST_FOLDER`] (`just compare`).
+pub(crate) fn foxhound_rust_program(builds: &Path, profile_folder: &str) -> PathBuf {
+    builds
+        .join(matrix::FOXHOUND_RUST_FOLDER)
+        .join(profile_folder)
+        .join("examples")
+        .join(format!(
+            "{}{}",
+            matrix::FOXHOUND_RUST_EXAMPLE,
+            std::env::consts::EXE_SUFFIX
+        ))
+}
+
 /// Where a trial crawls: the site's pages and the requests it has in
 /// flight at once, and whether its samples read the tool's executable's
 /// own pages.
@@ -281,6 +296,9 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::Crawlee => executables.crawlee.to_owned(),
         Config::Scrapy => executables.scrapy.to_owned(),
         Config::FoxhoundProgram => executables.foxhound_program.to_owned(),
+        Config::FoxhoundRustProgram => {
+            foxhound_rust_program(executables.spider_builds, executables.profile_folder)
+        }
         Config::CrawleeRs => side(matrix::CRAWLEE_RS_FOLDER),
         Config::Pagesift => side(matrix::PAGESIFT_FOLDER),
         Config::OpenSpider => side(matrix::OPENSPIDER_FOLDER),
@@ -292,6 +310,7 @@ fn executables_of(executables: &Executables<'_>, config: Config) -> Vec<PathBuf>
         Config::FastCrw => Some(trial::fastcrw_server(&executable)),
         Config::FoxhoundProgram => Some(executables.foxhound.to_owned()),
         Config::Foxhound { .. }
+        | Config::FoxhoundRustProgram
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy
@@ -359,7 +378,9 @@ fn trial<T: serde::de::DeserializeOwned>(
     for setting in executables.foxhound_settings {
         command.args(["--foxhound-setting", setting]);
     }
-    if let Config::FoxhoundProgram = config {
+    // Each program's Records are read afterwards with Foxhound's
+    // executable, as an Attached engine on the trial's home.
+    if config.is_program() {
         command.arg("--engine").arg(executables.foxhound);
     }
     // A file rather than a pipe: a watched trial is waited for by polling,
@@ -410,6 +431,7 @@ fn pages_of(scenario: Scenario, config: Config, pages: u64, spider_pages: Option
         Config::Spider { .. } => spider_pages.unwrap_or(pages),
         Config::Foxhound { .. }
         | Config::FoxhoundProgram
+        | Config::FoxhoundRustProgram
         | Config::Crawlee
         | Config::Scrapy
         | Config::CrawleeRs
@@ -487,6 +509,7 @@ fn at_concurrency(config: Config, concurrency: u32) -> Config {
         },
         Config::Foxhound { .. }
         | Config::FoxhoundProgram
+        | Config::FoxhoundRustProgram
         | Config::Spider { .. }
         | Config::Crawlee
         | Config::Scrapy

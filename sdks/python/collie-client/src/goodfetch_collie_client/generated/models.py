@@ -8,6 +8,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
+from goodfetch_collie_client.duration import Duration
 from goodfetch_collie_client.generated.open_values import (
     BlockCause,
     CancelledBy,
@@ -9647,9 +9648,10 @@ class RunUsage(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
-    browser_time: Annotated[int, Field(ge=0)]
-    """How long it held a browser, in milliseconds."""
+    browser_time: Duration
+    """How long it held a browser."""
     limits: list[AppliedLimit] | None = None
     """Each Limit that applies to it, with what is left of it."""
     model: ModelUsage

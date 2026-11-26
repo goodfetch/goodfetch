@@ -1,6 +1,6 @@
 use super::standing::Standing;
 use super::{CellStatus, Figure, Report, markdown, of};
-use crate::compare::matrix::{HANDLED_GETTERS_PENDING, HANDLED_RUST_PENDING, Scenario};
+use crate::compare::matrix::{HANDLED_GETTERS_PENDING, Scenario};
 use crate::compare::trials::{Comparison, Measured, Work, fixture};
 
 /// The pages of the site every trial crawls.
@@ -401,10 +401,10 @@ fn the_crawl_like_scenarios_cells_carry_no_bar() {
 }
 
 /// Each cell of the handled crawl says it carries no bar, for #2317; its
-/// Rust and getters rows say what they are pending, and Foxhound's mapping
-/// says it sets no tier, so the engine chooses one (#1602).
+/// getters row says what it is pending, and Foxhound's mapping says it sets
+/// no tier, so the engine chooses one (#1602).
 #[test]
-fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
+fn the_handled_cells_carry_no_bar_and_name_what_one_waits_on() {
     let trials = comparison(&[]);
 
     let markdown = markdown(&of(&trials), &trials);
@@ -416,8 +416,10 @@ fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
                 handled,
                 "  - no bar: none is set on this cell until the owner sets one (#2317)."
             ),
-            [HANDLED_RUST_PENDING, HANDLED_GETTERS_PENDING]
-                .map(|why| { cells_saying(handled, &format!("  - not measured: pending {why}.")) }),
+            cells_saying(
+                handled,
+                &format!("  - not measured: pending {HANDLED_GETTERS_PENDING}.")
+            ),
             handled.contains("`fetch.tier` not set, so the engine's own tier choice"),
         ),
         (
@@ -430,7 +432,7 @@ fn the_handled_cells_carry_no_bar_and_name_what_two_wait_on() {
                 "scrapy",
                 "crawlee-rs"
             ],
-            [vec!["foxhound rust"], vec!["foxhound getters"]],
+            vec!["foxhound getters"],
             true,
         )
     );

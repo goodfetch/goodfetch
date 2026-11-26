@@ -367,3 +367,11 @@ reason = "`content.extractor` names any installed Extractor Plugin, the built-in
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated UsageKind"
 reason = "Two Usage kinds join the open list, `plugin_calls` and `plugin_time`, which the calls into Plugins charge (ADR 0033, issue 823): the type's closed members gain them; a program that reads any kind still reads them."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunUsage"
+reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
+reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."

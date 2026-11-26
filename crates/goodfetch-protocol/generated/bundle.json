@@ -12065,6 +12065,12 @@
         }
       ]
     },
+    "Milliseconds": {
+      "description": "A duration, in milliseconds.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
+    },
     "MissingBrowser": {
       "description": "A browser the engine looked for and did not find.",
       "oneOf": [
@@ -21400,11 +21406,9 @@
       "description": "What a Run used, as the Usage ledger charged it, and the Limits that\napply to it (ADRs 0041 and 0101): what `run.usage` answers and the\nreport carries.",
       "properties": {
         "browser_time": {
+          "$ref": "#/$defs/Milliseconds",
           "arrived_in": "0.1",
-          "description": "How long it held a browser, in milliseconds.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "How long it held a browser."
         },
         "limits": {
           "arrived_in": "0.1",

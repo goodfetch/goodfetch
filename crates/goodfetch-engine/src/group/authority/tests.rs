@@ -1,7 +1,9 @@
+use std::time::{Duration, SystemTime};
+
 use rstest::rstest;
 
 use super::{
-    GroupMemberKey, GroupMemberName, GroupMemberNameInvalid, GroupMemberPublicKey,
+    GroupAuthority, GroupMemberKey, GroupMemberName, GroupMemberNameInvalid, GroupMemberPublicKey,
     GroupMemberPublicKeyInvalid,
 };
 
@@ -45,6 +47,17 @@ fn a_group_members_public_key_is_its_uncompressed_point() {
         Ok(key.public_key())
     );
     assert_eq!(raw.len(), 65);
+}
+
+#[test]
+fn each_revocation_list_is_numbered_one_above_the_last() {
+    let issued_at = SystemTime::UNIX_EPOCH + Duration::from_hours(500_000);
+    let mut authority = GroupAuthority::create(issued_at).unwrap();
+
+    let first = authority.revocation_list(&[], issued_at).unwrap();
+    let second = authority.revocation_list(&[], issued_at).unwrap();
+
+    assert_eq!([first.number, second.number], [1, 2]);
 }
 
 #[rstest]

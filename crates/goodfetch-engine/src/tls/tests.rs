@@ -319,7 +319,7 @@ fn a_connection_judges_the_servers_certificate_at_the_clocks_time(
 
     let shaken = goodfetch_test_support::runtime().block_on(async {
         let client = trust.client_config(paused_in_june_of(year), None);
-        hand_shake(client, server)
+        hand_shake(client, server, ServerName::try_from(DATED_HOST).unwrap())
     });
 
     assert_eq!(
@@ -328,12 +328,13 @@ fn a_connection_judges_the_servers_certificate_at_the_clocks_time(
     );
 }
 
-/// Runs a TLS handshake of `client` with `server` in memory, to its end.
-fn hand_shake(
+/// Runs a TLS handshake of `client`, dialling `name`, with `server` in
+/// memory, to its end or the first side's refusal.
+pub(crate) fn hand_shake(
     client: rustls::ClientConfig,
     server: rustls::ServerConfig,
+    name: ServerName<'static>,
 ) -> Result<(), rustls::Error> {
-    let name = ServerName::try_from(DATED_HOST).unwrap();
     let mut client = rustls::ClientConnection::new(Arc::new(client), name).unwrap();
     let mut server = rustls::ServerConnection::new(Arc::new(server)).unwrap();
     while client.is_handshaking() || server.is_handshaking() {

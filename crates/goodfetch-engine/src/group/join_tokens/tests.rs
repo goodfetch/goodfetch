@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use secrecy::ExposeSecret;
 
-use super::{JOIN_TOKEN_LIFETIME, JoinTokenRefused, JoinTokens};
+use super::{JoinTokenRefused, JoinTokens};
 
 fn minted_at() -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_hours(500_000)
@@ -26,7 +26,7 @@ fn a_join_token_past_its_lifetime_is_refused_as_expired() {
     let mut tokens = JoinTokens::default();
     let minted = tokens.mint(minted_at()).unwrap();
 
-    assert_eq!(minted.expires, minted_at() + JOIN_TOKEN_LIFETIME);
+    assert_eq!(minted.expires, minted_at() + Duration::from_mins(30));
     assert_eq!(
         tokens.redeem(minted.token.expose_secret(), minted.expires),
         Err(JoinTokenRefused::Expired)

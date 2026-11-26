@@ -26,9 +26,11 @@ pub struct JoinToken {
 
 /// Why a join token was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum JoinTokenRefused {
-    /// No pending token is this one: never minted, already redeemed, or
-    /// minted before the Lead Daemon restarted.
+    /// No pending token is this one: never minted, already redeemed,
+    /// expired a lifetime ago or more and forgotten, or minted before the
+    /// Lead Daemon restarted.
     #[error("the join token is unknown or already used")]
     Unknown,
     /// The token's lifetime ended before it was presented.

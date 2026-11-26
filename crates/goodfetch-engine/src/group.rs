@@ -16,7 +16,7 @@
 //! The lines come from the peer link's mutual TLS (ADR 0060), whose
 //! configurations [`accepting`] and [`connecting`] make. The group's
 //! certificate authority, [`GroupAuthority`], signs each Group member's
-//! certificate for it once the member presents a [`JoinTokens`] token, and
+//! certificate for it once that Group member presents a [`JoinTokens`] token, and
 //! revokes one through its revocation list.
 
 mod authority;
@@ -26,7 +26,7 @@ mod peer_tls;
 pub use authority::{
     AUTHORITY_LIFETIME, AuthorityError, CERTIFICATE_LIFETIME, GroupAuthority,
     GroupMemberCertificate, GroupMemberKey, GroupMemberName, GroupMemberNameInvalid,
-    GroupMemberPublicKey, GroupMemberPublicKeyInvalid,
+    GroupMemberPublicKey, GroupMemberPublicKeyInvalid, RevocationList,
 };
 pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused, JoinTokens};
 pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting};

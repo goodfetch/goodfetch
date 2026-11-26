@@ -44,6 +44,7 @@ const RANDOM_BYTES: usize = 16;
 
 /// Why the group's certificate authority could not do what it was asked.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AuthorityError {
     /// The OS generator gave nothing.
     #[error("the OS generator gave no random bytes: {0}")]
@@ -61,6 +62,7 @@ pub struct GroupMemberName(String);
 
 /// A Group member's name that is no DNS label.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 #[error(
     "`{0}` cannot name a Group member: use 1 to 63 lowercase letters, digits or hyphens, \
      starting and ending with a letter or digit"
@@ -143,6 +145,7 @@ pub struct GroupMemberPublicKey(Vec<u8>);
 
 /// Public key bytes that are no uncompressed P-256 point.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 #[error("a Group member's public key must be an uncompressed P-256 point of 65 bytes")]
 pub struct GroupMemberPublicKeyInvalid;
 
@@ -190,10 +193,23 @@ pub struct GroupMemberCertificate {
     pub not_after: SystemTime,
 }
 
-/// The group's certificate authority: its key and its certificate.
+/// A revocation list the group's certificate authority issued.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RevocationList {
+    /// Its number, which the list carries: each list the authority issues
+    /// is numbered one above the last, so a Group member keeps the
+    /// highest.
+    pub number: u64,
+    /// The list, signed.
+    pub list: CertificateRevocationListDer<'static>,
+}
+
+/// The group's certificate authority: its key, its certificate and the
+/// number of the last revocation list it issued.
 pub struct GroupAuthority {
     issuer: Issuer<'static, KeyPair>,
     certificate: CertificateDer<'static>,
+    lists_issued: u64,
 }
 
 impl std::fmt::Debug for GroupAuthority {
@@ -235,6 +251,7 @@ impl GroupAuthority {
         Ok(Self {
             issuer: Issuer::new(params, key),
             certificate,
+            lists_issued: 0,
         })
     }
 
@@ -283,25 +300,22 @@ impl GroupAuthority {
 
     /// The revocation list, issued at `now`, of the certificates whose
     /// serial numbers are `revoked`: a Group member refuses each on the
-    /// peer link. Its number is `now` in seconds, so a later list has a
-    /// higher one.
+    /// peer link. It is numbered one above the last list this authority
+    /// issued, whatever the Clock reads, as RFC 5280 asks.
     ///
     /// # Errors
     ///
     /// [`AuthorityError::Certificate`] when rcgen cannot sign it.
     pub fn revocation_list(
-        &self,
+        &mut self,
         revoked: &[SerialNumber],
         now: SystemTime,
-    ) -> Result<CertificateRevocationListDer<'static>, AuthorityError> {
-        let seconds = now
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
+    ) -> Result<RevocationList, AuthorityError> {
+        let number = self.lists_issued + 1;
         let params = CertificateRevocationListParams {
             this_update: date(backdated(now)),
             next_update: date(now + CERTIFICATE_LIFETIME),
-            crl_number: SerialNumber::from(seconds),
+            crl_number: SerialNumber::from(number),
             issuing_distribution_point: None,
             revoked_certs: revoked
                 .iter()
@@ -314,7 +328,9 @@ impl GroupAuthority {
                 .collect(),
             key_identifier_method: KeyIdMethod::Sha256,
         };
-        Ok(params.signed_by(&self.issuer)?.into())
+        let list = params.signed_by(&self.issuer)?.into();
+        self.lists_issued = number;
+        Ok(RevocationList { number, list })
     }
 }
 

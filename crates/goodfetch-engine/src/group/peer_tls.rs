@@ -47,6 +47,7 @@ impl std::fmt::Debug for PeerIdentity {
 
 /// Why a side of the peer link could not be configured.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PeerTlsError {
     /// The group's certificate authority's certificate is no certificate
     /// rustls can trust.

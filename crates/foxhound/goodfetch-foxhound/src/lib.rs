@@ -49,6 +49,8 @@ mod foxhound;
 mod sample;
 pub mod settings;
 mod sync;
+#[cfg(feature = "test-util")]
+pub mod testing;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{

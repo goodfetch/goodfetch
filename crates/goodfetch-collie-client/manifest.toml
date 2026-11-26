@@ -2684,6 +2684,26 @@ form = "closer"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "testing"
+member = "FakeError"
+entry = "none"
+reason = "The errors a program's own tests build (ADR 0105), which each Product's kit re-exports behind its `test-util` feature."
+only = "Rust builds `Error::fake` through a trait of its testing kit, since no struct literal builds an `Error` outside the crate; TypeScript's `fakeError` and Python's `fake_error` take an error class instead and are not built yet (issue 1293)."
+words = ["fake", "error"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "testing::FakeError"
+member = "fake"
+entry = "none"
+reason = "The error the engine would answer with a code, of the group and retryable flag the catalog gives it; a code neither Product knows is `internal` and not retryable."
+only = "Rust builds `Error::fake` through a trait of its testing kit, since no struct literal builds an `Error` outside the crate; TypeScript's `fakeError` and Python's `fake_error` take an error class instead and are not built yet (issue 1293)."
+words = ["fake"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "transport"
 member = "AttachedEngine"
 entry = "none"

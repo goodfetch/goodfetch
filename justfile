@@ -1479,13 +1479,16 @@ rss-propose *scenarios:
 # handler on each page, which reads its twenty fields, pushes them as one
 # Record and enqueues its links: Foxhound's is a TypeScript program on its
 # SDK (xtask/compare-foxhound, a member of the repository's pnpm workspace),
-# run by Node.js with Foxhound's executable its Attached engine; Spider's is
+# run by Node.js with Foxhound's executable its Attached engine, and the
+# same program in Rust on its Rust SDK, `goodfetch-foxhound`'s
+# `compare-handled` example, its engine linked in (issue 2858); Spider's is
 # its `handled` build.
 # Spider's, crawlee-rs's, pagesift's, OpenSpider's, fastCRW's, crawlberg's
 # and chromiumoxide's crates and the sides' packages are downloaded once,
 # free. Spider's nine builds, crawlee-rs's, pagesift's, OpenSpider's,
 # fastCRW's (its server's build in fastcrw-server, the server installed into
-# the side's profile folder), crawlberg's and chromiumoxide's go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
+# the side's profile folder), crawlberg's, chromiumoxide's and the Rust
+# program's (in foxhound-rust) go to target/compare-spider/, or to the folder GOODFETCH_COMPARE_SPIDER_BUILDS
 # names: one outside every checkout keeps them from one measurement to the
 # next, whichever worktree measures and whatever sweeps its target/ (Cargo
 # still rebuilds what a changed side needs). Each build's executables are
@@ -1525,6 +1528,7 @@ compare profile="release" *args:
     cargo build --quiet --locked --manifest-path xtask/compare-fastcrw/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/fastcrw
     cargo build --quiet --locked --manifest-path xtask/compare-crawlberg/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/crawlberg
     cargo build --quiet --locked --manifest-path xtask/compare-chromiumoxide/Cargo.toml --profile {{ profile }} --target-dir {{ compare_spider_builds }}/chromiumoxide
+    cargo build --quiet --locked -p goodfetch-foxhound --example compare-handled --profile {{ profile }} --target-dir {{ compare_spider_builds }}/foxhound-rust
     pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-crawlee
     uv sync --frozen --quiet --directory xtask/compare-scrapy
     pnpm install --frozen-lockfile --reporter=silent --filter goodfetch-compare-collie...

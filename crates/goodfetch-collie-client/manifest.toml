@@ -1002,6 +1002,26 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "Call"
+member = "typed"
+entry = "none"
+reason = "The call whose Run report is read into `R`, a Product's own report that holds every Run's and adds what its kind reports, such as Foxhound's `CrawlRunReport` (ADR 0102)."
+only = "TypeScript and Python type a Product's Run report by its Run's own class, such as Foxhound's `CrawlRun`."
+words = ["typed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "EventStream"
+member = "typed"
+entry = "none"
+reason = "The stream whose progress values are read into `R`, a Product's own progress that holds every Run's and adds what its kind reports, such as Foxhound's `CrawlRunProgress` (ADR 0102)."
+only = "TypeScript and Python type a Product's Run progress by its Run's own class, such as Foxhound's `CrawlRun`."
+words = ["typed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "Query"
 member = "keys"
 entry = "none"
@@ -2052,6 +2072,26 @@ receiver = "blocking::Query"
 member = "typed"
 entry = "none"
 reason = "The read whose values are read into `T`, as `crate::Query::typed` reads them."
+words = ["typed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Call"
+member = "typed"
+entry = "none"
+reason = "The call whose Run report is read into `R`, as `crate::Call::typed` reads it."
+only = "TypeScript and Python type a Product's Run report by its Run's own class, such as Foxhound's `CrawlRun`."
+words = ["typed"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::EventIter"
+member = "typed"
+entry = "none"
+reason = "The iterator whose progress values are read into `R`, as `crate::EventStream::typed` reads them."
+only = "TypeScript and Python type a Product's Run progress by its Run's own class, such as Foxhound's `CrawlRun`."
 words = ["typed"]
 form = "read"
 

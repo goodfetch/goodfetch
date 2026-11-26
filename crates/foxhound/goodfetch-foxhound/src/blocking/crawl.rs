@@ -574,8 +574,21 @@ impl CrawlRun {
         &self.run
     }
 
-    /// Lets the crawl finish and answers its report typed as a crawl's, as
-    /// [`crate::CrawlRun::finish`].
+    /// Lets a Run finish and answers its Run report: a Run its program drives
+    /// ends at once, `finished` and `complete`; a crawl ends once its work
+    /// items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits
+    /// for new work while nothing is left, ends once this call lets it and its
+    /// work items are done. A Run something stopped first answers its report
+    /// saying `stopped`. A Run that ended `failed` fails the call with the
+    /// error that failed it, and a write at its end that failed, such as its
+    /// Plan file's, with that write's error. Cancelling the call, or its
+    /// `timeout` passing, which fails it with `deadline_exceeded`, ends only
+    /// the wait.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The report typed as a crawl's, as [`crate::CrawlRun::finish`] answers
+    /// it.
     ///
     /// # Errors
     ///
@@ -584,8 +597,18 @@ impl CrawlRun {
         self.run.finish().typed()
     }
 
-    /// Stops the crawl with a Checkpoint and answers its report typed as a
-    /// crawl's, as [`crate::CrawlRun::stop`].
+    /// Stops a Run at its next safe point with a Checkpoint, `stopped` and
+    /// `incomplete` as an abort by its program, resumable by its Run ID, and
+    /// answers its Run report; an ended Run's report is answered as it is. The
+    /// wait is bounded by `timeout.close`, or the call's `timeout`: past it,
+    /// the call fails with `deadline_exceeded` and the Run still stops at its
+    /// next safe point. A Run that ended `failed` fails the call as
+    /// `run.finish` does.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The report typed as a crawl's, as [`crate::CrawlRun::stop`] answers
+    /// it.
     ///
     /// # Errors
     ///
@@ -594,8 +617,17 @@ impl CrawlRun {
         self.run.stop().typed()
     }
 
-    /// Reads the crawl's report typed as a crawl's, as
-    /// [`crate::CrawlRun::report`].
+    /// Reads a Run's report: at once for a Run that ended, and at its end for a
+    /// live one, which the read never ends. A Run another engine works is read
+    /// through that engine, and one no engine works from its committed state,
+    /// never taking its writer lock. A Run that has no live writer and has not
+    /// ended fails with `run_interrupted`, whose `fix` names a start with its
+    /// Run ID, and a Run ID the Run index does not list with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The report typed as a crawl's, as [`crate::CrawlRun::report`] answers
+    /// it.
     ///
     /// # Errors
     ///
@@ -604,9 +636,21 @@ impl CrawlRun {
         self.run.report().typed()
     }
 
-    /// Follows the crawl's progress typed as a crawl's, as
-    /// [`crate::CrawlRun::progress`], as an iterator that blocks the
-    /// calling thread until the next value.
+    /// Reads a Run's progress: what it does and why it waits. Without `after`,
+    /// it answers at once; given `after`, the position of the value the reader
+    /// last read, it waits for a change and answers the latest value, so values
+    /// in between are coalesced. The value whose `last` is true ends the
+    /// sequence: the Run ended, and its `lifecycle` and `stop_reason` say how,
+    /// or no engine works it (`writer: none`) until a start with its Run ID
+    /// resumes it. A Run another engine works is read through that engine, the
+    /// owner the Run index names, and one no engine works from its committed
+    /// state; a read never takes the Run's writer lock. A Run ID the Run index
+    /// does not list fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The crawl's progress, as [`crate::CrawlRun::progress`] follows it, as
+    /// an iterator that blocks the calling thread until the next value.
     ///
     /// # Errors
     ///

@@ -185,6 +185,7 @@ pub(super) fn generate(layer: &Layer) -> Result<Generated> {
     input["type"] = Value::from("object");
     input["additionalProperties"] = Value::Bool(false);
     allow_unknown_fields(&mut input);
+    subclass_kind_values(&mut input);
     let mut files = vec![
         ("__init__.py", init(layer)),
         ("connection.py", connection(layer)),
@@ -243,6 +244,24 @@ fn allow_unknown_fields(schema: &mut Value) {
         }
         Value::Array(items) => items.iter_mut().for_each(allow_unknown_fields),
         _ => {}
+    }
+}
+
+/// A kind of Run's value of an entry every Run answers (ADR 0102), with
+/// Collie's type of that entry: every Run's parts with the kind's own.
+const KIND_VALUES: [(&str, &str); 2] = [
+    ("CrawlRunProgress", "RunProgress"),
+    ("CrawlRunReport", "RunReport"),
+];
+
+/// Makes each of [`KIND_VALUES`] the layer defines a subclass of Collie's
+/// type, so a crawl's Run answers it where every Run answers Collie's, as
+/// the narrower type of the same member.
+fn subclass_kind_values(input: &mut Value) {
+    for (kind, every) in KIND_VALUES {
+        if let Some(definition) = input.pointer_mut(&format!("/$defs/{kind}")) {
+            definition["customBasePath"] = Value::from(format!("{CLIENT_PACKAGE}.models.{every}"));
+        }
     }
 }
 

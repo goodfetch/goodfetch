@@ -28,9 +28,16 @@ from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.connection import closed_error
 from goodfetch_collie_client.generated.errors import ClosedError, RunNotFoundError
 from goodfetch_collie_client.generated.handles import AsyncPage, Page, Session
+from goodfetch_collie_client.generated.models import (
+    RunFinishParams,
+    RunParams,
+    RunStopParams,
+)
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
+from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
+from goodfetch_collie_client.limits import limit_list
 from goodfetch_collie_client.listeners import spawner
-from goodfetch_collie_client.markers import warn_entry
+from goodfetch_collie_client.markers import warn_entry, warn_experimental
 from goodfetch_collie_client.portal import CallGroup, LoopStopped
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.sequence import Sequence
@@ -52,6 +59,8 @@ from goodfetch_foxhound.crawl import (
 from goodfetch_foxhound.generated.errors import HandlerFailedError
 from goodfetch_foxhound.generated.models import (
     CrawlRequestHandleParams,
+    CrawlRunProgress,
+    CrawlRunReport,
     CrawlStartParams,
     DatasetRecord,
 )
@@ -64,6 +73,7 @@ from goodfetch_foxhound.generated.operations import (
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
+    from datetime import timedelta
 
     from goodfetch_collie_client.connection import ClientConnection
     from goodfetch_collie_client.generated.models import (
@@ -75,6 +85,7 @@ if TYPE_CHECKING:
     )
     from goodfetch_collie_client.handle import HandleHost
     from goodfetch_collie_client.key_value_store import KeyValueStore
+    from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.portal import PrivateLoop
     from goodfetch_collie_client.sequence import AsyncSequence
     from pydantic import BaseModel
@@ -191,6 +202,100 @@ class AsyncCrawlRun(AsyncRun):
         warn_entry("run.records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         params = {"run_id": self.id, "dataset": dataset.name}
         return self._read("run.records", params, _record_of)
+
+    async def finish(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Waits for the crawl's Run to end and answers a crawl's report (ADR 0120).
+
+        Lets a Run finish and answers its Run report: a Run its program drives ends at
+        once, `finished` and `complete`; a crawl ends once its work items are done, and
+        a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing
+        is left, ends once this call lets it and its work items are done. A Run
+        something stopped first answers its report saying `stopped`. A Run that ended
+        `failed` fails the call with the error that failed it, and a write at its end
+        that failed, such as its Plan file's, with that write's error. Cancelling the
+        call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends
+        only the wait.
+
+        Left out, `timeout` takes the Run's `timeout.run`, by default none. The
+        report is a crawl's: a Run's, with its request totals, its Records per
+        Dataset, its Sinks, its sitemaps and the rules it learned; its
+        Completeness is `incomplete` or `unverified` when a setting cut the crawl
+        short, its reason naming the setting and the count it refused.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.finish")
+        params = _finish_params(self._host.id, timeout)
+        answer = await self._host.call(
+            "run.finish", params, timeout_setting="timeout.run"
+        )
+        return result_of(CrawlRunReport, answer)
+
+    async def stop(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Stops the crawl's Run with a Checkpoint and answers its report, a crawl's.
+
+        Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete`
+        as an abort by its program, resumable by its Run ID, and answers its Run report;
+        an ended Run's report is answered as it is. The wait is bounded by
+        `timeout.close`, or the call's `timeout`: past it, the call fails with
+        `deadline_exceeded` and the Run still stops at its next safe point. A Run that
+        ended `failed` fails the call as `run.finish` does.
+
+        No attempt in flight commits, and its work items return to pending.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.stop")
+        params = _stop_params(self._host.id, timeout)
+        answer = await self._host.call(
+            "run.stop", params, timeout_setting="timeout.close"
+        )
+        return result_of(CrawlRunReport, answer)
+
+    async def report(self) -> CrawlRunReport:
+        """Reads the crawl's Run report, a crawl's.
+
+        Reads a Run's report: at once for a Run that ended, and at its end for a live
+        one, which the read never ends. A Run another engine works is read through that
+        engine, and one no engine works from its committed state, never taking its
+        writer lock. A Run that has no live writer and has not ended fails with
+        `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the
+        Run index does not list with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.report")
+        params = RunParams(run_id=self._host.id)
+        return result_of(CrawlRunReport, await self._host.call("run.report", params))
+
+    def progress(self) -> AsyncSequence[CrawlRunProgress]:
+        """Follows the crawl's progress, a crawl's (ADR 0120), read with `async for`.
+
+        Reads a Run's progress: what it does and why it waits. Without `after`, it
+        answers at once; given `after`, the position of the value the reader last read,
+        it waits for a change and answers the latest value, so values in between are
+        coalesced. The value whose `last` is true ends the sequence: the Run ended, and
+        its `lifecycle` and `stop_reason` say how, or no engine works it (`writer:
+        none`) until a start with its Run ID resumes it. A Run another engine works is
+        read through that engine, the owner the Run index names, and one no engine works
+        from its committed state; a read never takes the Run's writer lock. A Run ID the
+        Run index does not list fails with `run_not_found`.
+
+        Each value is a crawl's: a Run's progress with its requests by state, its
+        concurrency, the requests in flight, the domains it waits on and whether
+        it waits idle, read as a Run's progress is.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        return self._progress(CrawlRunProgress)
 
     async def _close(self) -> None:
         """Cancels each attempt still running and waits for its answer, then closes.
@@ -395,6 +500,84 @@ class CrawlRun(Run):
             raise closed_error("run.records") from None
         return Sequence(self._loop, sequence, lambda: closed_error("run.records"))
 
+    def finish(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Waits for the crawl's Run to end and answers its report, as the async Run's.
+
+        Lets a Run finish and answers its Run report: a Run its program drives ends at
+        once, `finished` and `complete`; a crawl ends once its work items are done, and
+        a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing
+        is left, ends once this call lets it and its work items are done. A Run
+        something stopped first answers its report saying `stopped`. A Run that ended
+        `failed` fails the call with the error that failed it, and a write at its end
+        that failed, such as its Plan file's, with that write's error. Cancelling the
+        call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends
+        only the wait.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.finish")
+        params = _finish_params(self._host.id, timeout)
+        answer = self._host.call("run.finish", params, timeout_setting="timeout.run")
+        return result_of(CrawlRunReport, answer)
+
+    def stop(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Stops the crawl's Run and answers its report, as the async Run's.
+
+        Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete`
+        as an abort by its program, resumable by its Run ID, and answers its Run report;
+        an ended Run's report is answered as it is. The wait is bounded by
+        `timeout.close`, or the call's `timeout`: past it, the call fails with
+        `deadline_exceeded` and the Run still stops at its next safe point. A Run that
+        ended `failed` fails the call as `run.finish` does.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.stop")
+        params = _stop_params(self._host.id, timeout)
+        answer = self._host.call("run.stop", params, timeout_setting="timeout.close")
+        return result_of(CrawlRunReport, answer)
+
+    def report(self) -> CrawlRunReport:
+        """Reads the crawl's Run report, as the async Run's.
+
+        Reads a Run's report: at once for a Run that ended, and at its end for a live
+        one, which the read never ends. A Run another engine works is read through that
+        engine, and one no engine works from its committed state, never taking its
+        writer lock. A Run that has no live writer and has not ended fails with
+        `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the
+        Run index does not list with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.report")
+        params = RunParams(run_id=self._host.id)
+        return result_of(CrawlRunReport, self._host.call("run.report", params))
+
+    def progress(self) -> Sequence[CrawlRunProgress]:
+        """Follows the crawl's progress, read with `for`, as the async Run's.
+
+        Reads a Run's progress: what it does and why it waits. Without `after`, it
+        answers at once; given `after`, the position of the value the reader last read,
+        it waits for a change and answers the latest value, so values in between are
+        coalesced. The value whose `last` is true ends the sequence: the Run ended, and
+        its `lifecycle` and `stop_reason` say how, or no engine works it (`writer:
+        none`) until a start with its Run ID resumes it. A Run another engine works is
+        read through that engine, the owner the Run index names, and one no engine works
+        from its committed state; a read never takes the Run's writer lock. A Run ID the
+        Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        # Its async twin reads each value as a crawl's progress.
+        return cast("Sequence[CrawlRunProgress]", super().progress())
+
 
 @dataclass(frozen=True)
 class _Threaded:
@@ -455,6 +638,7 @@ class CrawlRuns:
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
+        limits: Limits | None,
         settings: CrawlSettings | None,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`: `AsyncFoxhound.start_crawl`.
@@ -470,6 +654,7 @@ class CrawlRuns:
             seeds=seeds,
             run_id=run_id,
             tags=tags,
+            limits=limits,
             settings=settings,
         )
 
@@ -481,6 +666,7 @@ class CrawlRuns:
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
+        limits: Limits | None,
         settings: CrawlSettings | None,
     ) -> CrawlRun:
         """Starts the sync `crawl` from `seeds` on `loop`: `Foxhound.start_crawl`.
@@ -498,7 +684,13 @@ class CrawlRuns:
             return run
 
         await self._start(
-            crawl, opened, seeds=seeds, run_id=run_id, tags=tags, settings=settings
+            crawl,
+            opened,
+            seeds=seeds,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
         )
         return threaded[0]
 
@@ -510,9 +702,15 @@ class CrawlRuns:
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
+        limits: Limits | None,
         settings: CrawlSettings | None,
     ) -> AsyncCrawlRun:
-        """Sends `crawl.start`, and `opened` builds the Run it answers."""
+        """Sends `crawl.start`, and `opened` builds the Run it answers.
+
+        Raises:
+            SettingInvalidError: A `limits` amount the SDK cannot turn
+                exactly; nothing is sent.
+        """
         sent_seeds = list(seeds)
         check_startable(crawl, sent_seeds)
         labels, datasets = crawl_declaration(crawl)
@@ -526,6 +724,9 @@ class CrawlRuns:
             fields["run_id"] = run_id
         if tags is not None:
             fields["tags"] = list(tags)
+        run_limits = limit_list(limits)
+        if run_limits:
+            fields["limits"] = run_limits
         if settings is not None:
             fields["settings"] = settings_on_wire(settings)
         # The start carries the project file `connect()` read (ADR 0083).
@@ -637,6 +838,24 @@ def handler_failed(label: str, error: Exception) -> HandlerFailedError:
             "exception_stack": "".join(traceback.format_tb(error.__traceback__)),
         },
     )
+
+
+def _finish_params(
+    run_id: RunId, timeout: timedelta | NotGiven | None
+) -> RunFinishParams:
+    """`run.finish`'s params, its `timeout` off the wire when not given."""
+    params = RunFinishParams(run_id=run_id)
+    if not isinstance(timeout, NotGiven):
+        params.timeout = timeout_of(timeout, "timeout.run")
+    return params
+
+
+def _stop_params(run_id: RunId, timeout: timedelta | NotGiven | None) -> RunStopParams:
+    """`run.stop`'s params, its `timeout` off the wire when not given."""
+    params = RunStopParams(run_id=run_id)
+    if not isinstance(timeout, NotGiven):
+        params.timeout = timeout_of(timeout, "timeout.close")
+    return params
 
 
 def _record_of(method: str, params: object) -> DatasetRecord | None:

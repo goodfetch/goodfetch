@@ -174,13 +174,21 @@ export class CrawlRun extends Run {
   }
 
   /**
-   * Waits for the crawl's Run to end and answers its report, a crawl's
-   * (ADR 0120): a Run's report with its request totals, its Records per
-   * Dataset, its Sinks, its sitemaps and the rules it learned. Its
-   * Completeness is `incomplete` or `unverified` when a setting cut the
-   * crawl short, its reason naming the setting and the count it refused.
-   * A failed Run raises its error; `timeout` or the signal ends only the
-   * wait, leaving the Run running.
+   * Lets a Run finish and answers its Run report: a Run its program drives ends
+   * at once, `finished` and `complete`; a crawl ends once its work items are
+   * done, and a keep-alive crawl (`crawl.keep_alive`), which waits for new work
+   * while nothing is left, ends once this call lets it and its work items are
+   * done. A Run something stopped first answers its report saying `stopped`. A
+   * Run that ended `failed` fails the call with the error that failed it, and a
+   * write at its end that failed, such as its Plan file's, with that write's
+   * error. Cancelling the call, or its `timeout` passing, which fails it with
+   * `deadline_exceeded`, ends only the wait.
+   *
+   * The report is a crawl's (ADR 0120): a Run's report with its request
+   * totals, its Records per Dataset, its Sinks, its sitemaps and the rules it
+   * learned. Its Completeness is `incomplete` or `unverified` when a setting
+   * cut the crawl short, its reason naming the setting and the count it
+   * refused.
    *
    * @experimental
    */
@@ -190,15 +198,20 @@ export class CrawlRun extends Run {
       readonly signal?: AbortSignal | undefined;
     } = {},
   ): Promise<CrawlRunReport> {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.finish`'s answer as a crawl's report (`crawlRunHost`).
-    return super.finish(options) as Promise<CrawlRunReport>;
+    // A crawl's Run reads `run.finish`'s answer as a crawl's report (`crawlRunHost`).
+    return super.finish(options);
   }
 
   /**
-   * Stops the crawl's Run at its next safe point with a Checkpoint and
-   * answers its report, a crawl's, `stopped`: no attempt in flight
-   * commits, and its work items return to pending. `timeout` or the
-   * signal ends only the wait.
+   * Stops a Run at its next safe point with a Checkpoint, `stopped` and
+   * `incomplete` as an abort by its program, resumable by its Run ID, and
+   * answers its Run report; an ended Run's report is answered as it is. The
+   * wait is bounded by `timeout.close`, or the call's `timeout`: past it, the
+   * call fails with `deadline_exceeded` and the Run still stops at its next
+   * safe point. A Run that ended `failed` fails the call as `run.finish` does.
+   *
+   * The report is a crawl's: no attempt in flight commits, and its work items
+   * return to pending.
    *
    * @experimental
    */
@@ -208,36 +221,52 @@ export class CrawlRun extends Run {
       readonly signal?: AbortSignal | undefined;
     } = {},
   ): Promise<CrawlRunReport> {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.stop`'s answer as a crawl's report (`crawlRunHost`).
-    return super.stop(options) as Promise<CrawlRunReport>;
+    // A crawl's Run reads `run.stop`'s answer as a crawl's report (`crawlRunHost`).
+    return super.stop(options);
   }
 
   /**
-   * Answers the crawl's Run report, a crawl's, at once: a live Run's so
-   * far, an ended one's as it ended.
+   * Reads a Run's report: at once for a Run that ended, and at its end for a
+   * live one, which the read never ends. A Run another engine works is read
+   * through that engine, and one no engine works from its committed state,
+   * never taking its writer lock. A Run that has no live writer and has not
+   * ended fails with `run_interrupted`, whose `fix` names a start with its Run
+   * ID, and a Run ID the Run index does not list with `run_not_found`.
+   *
+   * The report is a crawl's.
    *
    * @experimental
    */
   override report(
     options: { readonly signal?: AbortSignal | undefined } = {},
   ): Promise<CrawlRunReport> {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.report`'s answer as a crawl's report (`crawlRunHost`).
-    return super.report(options) as Promise<CrawlRunReport>;
+    // A crawl's Run reads `run.report`'s answer as a crawl's report (`crawlRunHost`).
+    return super.report(options);
   }
 
   /**
-   * Follows the crawl's progress, a crawl's (ADR 0120): a Run's progress
-   * with its requests by state, its concurrency, the requests in flight,
-   * the domains it waits on and whether it waits idle, read with
-   * `for await` as a Run's progress is.
+   * Reads a Run's progress: what it does and why it waits. Without `after`, it
+   * answers at once; given `after`, the position of the value the reader last
+   * read, it waits for a change and answers the latest value, so values in
+   * between are coalesced. The value whose `last` is true ends the sequence:
+   * the Run ended, and its `lifecycle` and `stop_reason` say how, or no engine
+   * works it (`writer: none`) until a start with its Run ID resumes it. A Run
+   * another engine works is read through that engine, the owner the Run index
+   * names, and one no engine works from its committed state; a read never takes
+   * the Run's writer lock. A Run ID the Run index does not list fails with
+   * `run_not_found`.
+   *
+   * Each value is a crawl's (ADR 0120): a Run's progress with its requests by
+   * state, its concurrency, the requests in flight, the domains it waits on and
+   * whether it waits idle, read with `for await` as a Run's progress is.
    *
    * @experimental
    */
   override progress(
     options: { readonly signal?: AbortSignal | undefined } = {},
   ): Sequence<CrawlRunProgress> {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a crawl's Run reads `run.progress`'s answers as a crawl's progress (`crawlRunHost`).
-    return super.progress(options) as Sequence<CrawlRunProgress>;
+    // A crawl's Run reads `run.progress`'s answers as a crawl's progress (`crawlRunHost`).
+    return super.progress(options);
   }
 
   /**

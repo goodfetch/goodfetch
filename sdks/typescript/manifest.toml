@@ -347,6 +347,38 @@ form = "opener"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
+member = "finish"
+entry = "run.finish"
+words = ["finish"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "stop"
+entry = "run.stop"
+words = ["stop"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
 member = "close"
 entry = "run.abort"
 only = "Rust's `CrawlRun` closes through `run()`, the `Run` it holds."
@@ -547,6 +579,15 @@ entry = "none"
 reason = "The scoped form of `close()` (ADR 0078), whose line serves `run.abort`."
 words = ["close"]
 form = "closer"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "limitList"
+entry = "none"
+reason = "The wire's list of a Run's `limits`, which each Product's start sends (ADR 0080)."
+words = ["limit", "list"]
+form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"

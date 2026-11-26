@@ -341,6 +341,7 @@ class AsyncFoxhound(AsyncConnection):
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
         settings: CrawlSettings | None = None,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
@@ -358,9 +359,10 @@ class AsyncFoxhound(AsyncConnection):
         Label without a handler fails with `label_unhandled`, and a seed, or
         a sitemap seed's rule, whose Label's name `crawl` does not declare
         with `label_unknown`, since a seed carries its Label's name only.
-        `settings` are the Run's own,
-        Collie's and Foxhound's, such as
-        `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and 0093).
+        `limits` are the Run's own (ADR 0080), Foxhound's Paid fetches
+        included, and `settings` are the Run's own, Collie's and Foxhound's,
+        such as `{"crawl": {"handler": {"concurrency": 4}}}` (ADRs 0083 and
+        0093).
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -371,7 +373,12 @@ class AsyncFoxhound(AsyncConnection):
         )
         warn_deprecated_settings(settings, FOXHOUND_DEPRECATED_SETTINGS)
         return await self._crawls.start(
-            crawl, seeds=seeds, run_id=run_id, tags=tags, settings=settings
+            crawl,
+            seeds=seeds,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:
@@ -683,6 +690,7 @@ class Foxhound(Connection):
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None = None,
         tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
         settings: CrawlSettings | None = None,
     ) -> CrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
@@ -715,6 +723,7 @@ class Foxhound(Connection):
             seeds=list(seeds),
             run_id=run_id,
             tags=None if tags is None else list(tags),
+            limits=limits,
             settings=settings,
         )
         try:

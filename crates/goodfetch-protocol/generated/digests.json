@@ -8,8 +8,8 @@
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "692b8eb3b901463232b019105f3f1c7dfbd076ec9ccf34fb554886c5ea842411",
-    "output": "136d57524dd8280babb764975fe5adf7ec815bc97e86cbb2b441ea776b8b1a6d",
+    "input": "05114e54897cdb3fc79a2bb506362086296e0b9e252eb26364935c6778fe4bc7",
+    "output": "59028c7557eed9eac7f56542ad1e8fff7a40932f9f6339203096afb1d339a01c",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"

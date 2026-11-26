@@ -37,6 +37,9 @@ if TYPE_CHECKING:
 __all__ = ["AsyncSequence", "Sequence"]
 
 _Item = TypeVar("_Item")
+_Item_co = TypeVar("_Item_co", covariant=True)
+"""A sequence's item: a sequence only hands items out, so one of a narrower
+item, such as a crawl's progress, is one of the wider."""
 
 
 class Reads(Protocol[_Item]):
@@ -219,14 +222,14 @@ class Reading(Generic[_Item]):
         changed.set()
 
 
-class AsyncSequence(Generic[_Item]):
+class AsyncSequence(Generic[_Item_co]):
     """A sequence read to its end with `async for`; it closes at once however it stops.
 
     A program never constructs one: a method such as
     `run.key_value_store.keys()` returns it.
     """
 
-    def __init__(self, reading: Reads[_Item]) -> None:
+    def __init__(self, reading: Reads[_Item_co]) -> None:
         """Takes what it reads, already spawned: a call, or a followed read."""
         self._reading = reading
         self._release = weakref.finalize(self, reading.close)
@@ -240,7 +243,7 @@ class AsyncSequence(Generic[_Item]):
         """Itself: it has one reader."""
         return self
 
-    async def __anext__(self) -> _Item:
+    async def __anext__(self) -> _Item_co:
         """The next item, once it comes.
 
         Raises:
@@ -293,7 +296,7 @@ class AsyncSequence(Generic[_Item]):
         self.close()
 
 
-class Sequence(Generic[_Item]):
+class Sequence(Generic[_Item_co]):
     """A sequence read to its end with `for`, in the sync API; any thread reads it.
 
     It reads its async twin on the Connection's private loop, and closes as
@@ -303,7 +306,7 @@ class Sequence(Generic[_Item]):
     def __init__(
         self,
         loop: PrivateLoop,
-        sequence: AsyncSequence[_Item],
+        sequence: AsyncSequence[_Item_co],
         stopped: Callable[[], Exception],
     ) -> None:
         """Takes the private loop, the async twin it reads there, and a stop's error."""
@@ -317,7 +320,7 @@ class Sequence(Generic[_Item]):
         """Itself: it has one reader."""
         return self
 
-    def __next__(self) -> _Item:
+    def __next__(self) -> _Item_co:
         """The next item, once it comes.
 
         Raises:

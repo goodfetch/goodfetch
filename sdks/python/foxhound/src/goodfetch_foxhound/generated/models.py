@@ -31,6 +31,8 @@ from goodfetch_collie_client.generated.models import (
     RecordingReport,
     RunId,
     RunLimit,
+    RunProgress,
+    RunReport,
     RunStorage,
     RunUsage,
     RunWarning,
@@ -2601,7 +2603,7 @@ class CrawlRequestOutcomes(BaseModel):
     """The outcomes that match, in commit order."""
 
 
-class CrawlRunProgress(BaseModel):
+class CrawlRunProgress(RunProgress):
     """
     A crawl's progress (ADR 0102): what a crawl adds to every Run's, a part
     no area supplied being absent.
@@ -3040,7 +3042,7 @@ class CrawlHookHandleParams(BaseModel):
     """The stage it runs at."""
 
 
-class CrawlRunReport(BaseModel):
+class CrawlRunReport(RunReport):
     """
     A crawl's Run report (ADR 0102): what a crawl adds to every Run's
     report, a part no area supplied being absent. On the wire, a crawl's

@@ -92,6 +92,7 @@ _ChildId = TypeVar("_ChildId")
 _Model = TypeVar("_Model", bound="BaseModel")
 _Result = TypeVar("_Result")
 _Item = TypeVar("_Item")
+_Progress = TypeVar("_Progress", bound=RunProgress)
 
 _logger = logging.getLogger(CLIENT_LOGGER)
 
@@ -841,15 +842,23 @@ class AsyncRun(AsyncRunMembers):
             ClosedError: The Run is closed; nothing is sent.
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
+        return self._progress(RunProgress)
+
+    def _progress(self, model: type[_Progress]) -> AsyncSequence[_Progress]:
+        """The Run's progress, each value read as `model`.
+
+        For a Product's own Run whose progress carries its own parts, such
+        as Foxhound's crawl Run (ADR 0120).
+        """
         warn_entry("run.progress", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         self._scope.ensure_open("run.progress")
         host = self._host
 
-        async def read(after: int | None) -> RunProgress:
+        async def read(after: int | None) -> _Progress:
             params = RunProgressParams(run_id=host.id)
             if after is not None:
                 params.after = after
-            return result_of(RunProgress, await host.call("run.progress", params))
+            return result_of(model, await host.call("run.progress", params))
 
         reading = FollowedReading(
             read, position=lambda value: value.position, last=lambda value: value.last

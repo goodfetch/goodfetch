@@ -1,30 +1,32 @@
 //! A crawl declared as data (spec #611's #1514; ADR 0103): the start's
 //! `declaration`, checked and merged into the start as the Labels,
-//! Datasets, settings and seeds it declares, then planned, Label by Label,
+//! Datasets, settings and seeds it declares, then read, Label by Label,
 //! as what each of its pages follows and extracts. Its patterns compile
-//! once, as the Run starts (D14).
+//! once, as the Run starts or resumes (D14).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::CallError;
+use goodfetch_engine::settings::{SettingsError, beneath_connection, check_recipe_may_set};
 use goodfetch_extractor::fields::Fields;
 use goodfetch_frontier::Patterns;
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::foxhound::crawl::{
     CrawlStartParams, ExtractionFields, LABEL_UNKNOWN, LabelDeclaration, LabelUnknownDetails, Seeds,
 };
 use goodfetch_protocol::foxhound::declaration::{CrawlDeclaration, DeclaredLabel, FollowRule};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::page::read::PageField;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
-use serde_json::{Map, Value};
 
 use super::Demand;
 
 /// What the pages of one declared Label do: the links each follows, rule
 /// by rule, and the Records each pushes, one per extract, of the fields
 /// read once for them all.
-pub(crate) struct Plan {
+pub(crate) struct LabelHandling {
     /// Its follow rules, in order.
     pub(super) follow: Vec<FollowRule>,
     /// Every field its extracts read, in the order declared.
@@ -36,7 +38,7 @@ pub(crate) struct Plan {
     pub(super) extracts: Vec<(String, Vec<String>)>,
 }
 
-impl Plan {
+impl LabelHandling {
     /// What the readers of its pages' untouched trees read for it: the
     /// selectors of its follow rules, each once, and its fields' locators
     /// when every one is a value field.
@@ -52,23 +54,32 @@ impl Plan {
     }
 }
 
-/// Each declared Label's [`Plan`], by name.
-pub(crate) type Plans = BTreeMap<String, Plan>;
+/// Each declared Label's [`LabelHandling`], by name.
+pub(crate) type LabelHandlings = BTreeMap<String, LabelHandling>;
 
 /// Merges the start `params`' `declaration`, if any, into it, checked on
-/// `work`, the engine's Counted work: its Labels and Datasets become the
-/// start's, its settings lie beneath the start's, which win key by key,
-/// and its seeds follow the start's.
+/// `work`, the engine's Counted work, for an engine of `engine`: its
+/// Labels and Datasets become the start's, its settings lie beneath the
+/// start's, which win key by key, each key's value whole, and its seeds
+/// follow the start's, of which there is still at least one. `refused`
+/// answers a refused setting.
 ///
 /// # Errors
 ///
-/// `setting_invalid` for a start naming `extraction` too; `label_unknown`
-/// for a follow rule naming a Label the declaration does not declare;
-/// `invalid_params` for a start declaring a Label or a Dataset of its own,
-/// a Label declared twice, an extract into a Dataset the declaration does
-/// not declare, a field name repeated across one Label's extracts, or a
-/// selector, pattern or field the engine could never read.
-pub(super) fn merge(params: &mut CrawlStartParams, work: &CountedWork) -> Result<(), CallError> {
+/// `setting_invalid` for a start naming `extraction` too; a settings
+/// refusal for a declaration setting a key a Recipe may not set, such as
+/// `proxy.server`; `label_unknown` for a follow rule naming a Label the
+/// declaration does not declare; `invalid_params` for a start declaring a
+/// Label or a Dataset of its own, a Label declared twice, an extract into
+/// a Dataset the declaration does not declare, one field name read two
+/// ways across one Label's extracts, or a selector, pattern or field the
+/// engine could never read.
+pub(super) fn merge(
+    params: &mut CrawlStartParams,
+    engine: Product,
+    work: &CountedWork,
+    refused: &dyn Fn(&SettingsError) -> CallError,
+) -> Result<(), CallError> {
     let Some(declaration) = &params.declaration else {
         return Ok(());
     };
@@ -97,6 +108,9 @@ pub(super) fn merge(params: &mut CrawlStartParams, work: &CountedWork) -> Result
         )));
     }
     check(declaration, work)?;
+    check_recipe_may_set(&declaration.settings, engine).map_err(|error| refused(&error))?;
+    params.settings = beneath_connection(&declaration.settings, &params.settings, engine)
+        .map_err(|error| refused(&error))?;
     let declaration = declaration.clone();
     params
         .labels
@@ -110,7 +124,6 @@ pub(super) fn merge(params: &mut CrawlStartParams, work: &CountedWork) -> Result
             )
         }));
     params.datasets.extend(declaration.datasets);
-    beneath(&declaration.settings, &mut params.settings);
     params.seeds = Seeds::new(
         params
             .seeds
@@ -175,6 +188,12 @@ fn followed(
     }
     goodfetch_fetch_tier::check_selector(&rule.links, work)
         .map_err(|refused| invalid(refused.to_string()))?;
+    compiled(rule, work)
+}
+
+/// Compiles `rule`'s patterns on `work`, from the cache it keeps for the
+/// Run; `invalid_params` for a pattern the engine does not support.
+fn compiled(rule: &FollowRule, work: &CountedWork) -> Result<(), CallError> {
     for globs in [&rule.include, &rule.exclude] {
         Patterns::cached(work, Row::BatchCompilations, globs).map_err(CallError::from)?;
     }
@@ -183,13 +202,13 @@ fn followed(
 
 /// Refuses `label`'s extracts unless each pushes into a Dataset of
 /// `datasets` fields the engine reads, checked on `work`, and no field
-/// name repeats across them.
+/// name is read two ways across them.
 fn extracted(
     label: &DeclaredLabel,
     datasets: &BTreeSet<&str>,
     work: &CountedWork,
 ) -> Result<(), CallError> {
-    let mut names = BTreeSet::new();
+    let mut read: BTreeMap<&str, &PageField> = BTreeMap::new();
     for extract in &label.extract {
         if !datasets.contains(extract.dataset.as_str()) {
             return Err(invalid(format!(
@@ -198,32 +217,42 @@ fn extracted(
             )));
         }
         goodfetch_fetch_tier::check_fields(extract.fields.by_name(), work).map_err(invalid)?;
-        if let Some(twice) = extract
-            .fields
-            .declared()
-            .iter()
-            .find(|name| !names.insert(name.as_str()))
-        {
-            return Err(invalid(format!(
-                "The Label `{}` reads the field `{twice}` in two extracts: name each field of a Label's extracts once.",
-                label.name
-            )));
+        for (name, field) in extract.fields.by_name() {
+            if read
+                .insert(name, field)
+                .is_some_and(|before| before != field)
+            {
+                return Err(invalid(format!(
+                    "The Label `{}` reads the field `{name}` two ways in its extracts: read it the same way in each, or give one of them another name.",
+                    label.name
+                )));
+            }
         }
     }
     Ok(())
 }
 
-/// Each Label of `declaration`, planned: its fields' reader built on
-/// `work` unless the crawl `keeps_records` not.
-pub(super) fn plans(
+/// Each Label of `declaration`, as its pages are handled: its patterns
+/// compiled on `work`, which keeps them for the Run, and its fields'
+/// reader built on `work` unless the crawl `keeps_records` not.
+pub(super) fn handlings(
     declaration: CrawlDeclaration,
     keeps_records: bool,
     work: &CountedWork,
-) -> Plans {
+) -> LabelHandlings {
     declaration
         .labels
         .into_iter()
         .map(|label| {
+            for rule in &label.follow {
+                if let Err(error) = compiled(rule, work) {
+                    tracing::warn!(
+                        %error,
+                        label = %label.name,
+                        "a declared follow rule's pattern no longer compiles"
+                    );
+                }
+            }
             let fields: ExtractionFields =
                 label
                     .extract
@@ -235,7 +264,7 @@ pub(super) fn plans(
                         })
                     })
                     .collect();
-            let plan = Plan {
+            let handling = LabelHandling {
                 reader: (keeps_records && !fields.is_empty())
                     .then(|| Arc::new(Fields::of(fields.by_name(), work))),
                 extracts: label
@@ -246,23 +275,9 @@ pub(super) fn plans(
                 follow: label.follow,
                 fields,
             };
-            (label.name, plan)
+            (label.name, handling)
         })
         .collect()
-}
-
-/// `lower`'s settings beneath `upper`'s: each key `upper` lacks is
-/// `lower`'s, and nested maps merge, `upper` winning key by key.
-fn beneath(lower: &Map<String, Value>, upper: &mut Map<String, Value>) {
-    for (key, value) in lower {
-        match (upper.get_mut(key), value) {
-            (Some(Value::Object(upper)), Value::Object(lower)) => beneath(lower, upper),
-            (Some(_), _) => {}
-            (None, _) => {
-                upper.insert(key.clone(), value.clone());
-            }
-        }
-    }
 }
 
 /// An `invalid_params` refusal saying `message`.

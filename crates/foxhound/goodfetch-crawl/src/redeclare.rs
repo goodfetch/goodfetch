@@ -4,8 +4,9 @@
 //! began with, and the Labels against its pending requests, and all are
 //! kept until the Run resumes here, when they are recorded in its run file
 //! in one write before any work, so the Records committed from then on are
-//! read by the new extraction or declaration, checked against the schema generated from
-//! it, and keep its hash, each enqueue is checked against the new Labels,
+//! read by the new extraction or declaration, checked against the schema
+//! generated from it, and keep its hash, each enqueue is checked against
+//! the new Labels,
 //! a new one accepted, and each Label works under its new declaration,
 //! here and in an engine that reopens the Run (#2825). Its Hooks in code
 //! are kept beside them and handed to the resumed delivery, their names,

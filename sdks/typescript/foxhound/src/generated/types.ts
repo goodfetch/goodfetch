@@ -758,13 +758,15 @@ export interface CrawlDeclaration {
    */
   labels: DeclaredLabel[];
   /**
-   * The requests the crawl starts from, beside the start's own `seeds`,
-   * each request seed naming a Label it declares; none by default.
+   * The requests the crawl starts from, after the start's own `seeds`,
+   * of which the start still names at least one, each request seed
+   * naming a Label it declares; none by default.
    */
   seeds?: Seed[];
   /**
-   * Its Run's settings, nested by key, beneath the start's own
-   * `settings`, which win key by key.
+   * Its Run's settings, nested by key, only those a Recipe may set,
+   * beneath the start's own `settings`, which win key by key, each
+   * key's value whole.
    */
   settings?: {
     [k: string]: unknown;
@@ -836,7 +838,8 @@ export interface DeclaredLabel {
 /**
  * One Record a page of a declared Label pushes into `dataset`: its named
  * `fields`, read as `extraction`'s are and written in the order declared;
- * no field name repeats across one Label's extracts.
+ * a field name repeats across one Label's extracts only as one field,
+ * read once for them all.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "DeclaredExtract".

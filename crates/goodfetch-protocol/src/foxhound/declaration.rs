@@ -16,11 +16,12 @@ use crate::foxhound::dataset::DatasetDeclaration;
 /// it declares no Label and no Dataset of its own, else it fails with
 /// `invalid_params`, and never with `extraction` too, else it fails with
 /// `setting_invalid`; `extraction` is its one-Label shorthand.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CrawlDeclaration {
-    /// The requests the crawl starts from, beside the start's own `seeds`,
-    /// each request seed naming a Label it declares; none by default.
+    /// The requests the crawl starts from, after the start's own `seeds`,
+    /// of which the start still names at least one, each request seed
+    /// naming a Label it declares; none by default.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub seeds: Vec<Seed>,
@@ -32,8 +33,9 @@ pub struct CrawlDeclaration {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub datasets: Vec<DatasetDeclaration>,
-    /// Its Run's settings, nested by key, beneath the start's own
-    /// `settings`, which win key by key.
+    /// Its Run's settings, nested by key, only those a Recipe may set,
+    /// beneath the start's own `settings`, which win key by key, each
+    /// key's value whole.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub settings: serde_json::Map<String, Value>,
@@ -97,7 +99,8 @@ pub struct FollowRule {
 
 /// One Record a page of a declared Label pushes into `dataset`: its named
 /// `fields`, read as `extraction`'s are and written in the order declared;
-/// no field name repeats across one Label's extracts.
+/// a field name repeats across one Label's extracts only as one field,
+/// read once for them all.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DeclaredExtract {

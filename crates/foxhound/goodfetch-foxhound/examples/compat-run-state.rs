@@ -32,8 +32,8 @@
 //! the address block it blocked, and its domain's proxy tier; a code-free
 //! crawl, whose extraction its run file keeps, of one seed
 //! `crawl.max_segment_repeats` refuses, so it finishes at once, and one
-//! declared as data, whose declaration its run file keeps, of that seed; and a Run its
-//! program drives, under an Operator policy and with a setting that
+//! declared as data, whose declaration its run file keeps, of that seed;
+//! and a Run its program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
 //! row and an archive over 1 MiB as a kept file, whose run
 //! state holds its data key wrapped, and whose Effect journal holds an

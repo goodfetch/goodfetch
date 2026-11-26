@@ -31,9 +31,10 @@ use std::time::SystemTime;
 
 use goodfetch_counted_work::CountedWork;
 use goodfetch_dataset::Datasets;
-use goodfetch_engine::CallError;
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateTables;
+use goodfetch_engine::{CallContext, CallError};
 use goodfetch_extractor::fields::{self, Fields};
 use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::Url;
@@ -114,16 +115,23 @@ pub(crate) struct CodeFree {
     pub(crate) tiers: FetchTiers,
 }
 
-/// How a code-free crawl handles each request: by its extraction, with
-/// what its fields read with, none when the crawl keeps no Record, or by
-/// what its declaration plans for the request's Label.
+/// How a code-free crawl handles each request: by its extraction, or as
+/// its declaration handles the request's Label.
 #[derive(Clone)]
 enum Handles {
-    Extraction {
-        extraction: CrawlExtraction,
-        reader: Option<Arc<Fields>>,
-    },
-    Declaration(Arc<declared::Plans>),
+    Extraction(Arc<ExtractionHandling>),
+    Declaration(Arc<declared::LabelHandlings>),
+}
+
+/// What an extraction's pages are handled with, built once as the crawl
+/// starts or resumes.
+struct ExtractionHandling {
+    extraction: CrawlExtraction,
+    /// What its fields read with; none when the crawl keeps no Record.
+    reader: Option<Fields>,
+    /// The rule that follows every link of its pages under `follow:
+    /// scope`; none otherwise.
+    scope: Option<FollowRule>,
 }
 
 /// The tables that keep a code-free crawl's extraction, or its
@@ -239,13 +247,16 @@ fn kept<T: serde::de::DeserializeOwned>(
 /// answers built, as `pages` keeps it for the extraction, its fields
 /// checked on `work`; none for a crawl whose program handles its requests.
 /// `invalid_params` when an extraction's start declares a Dataset of its
-/// own.
+/// own. A declaration is checked for the engine `context` calls, which
+/// answers a setting it may not set.
 pub(crate) async fn declare(
     params: &mut CrawlStartParams,
     pages: &Pages,
     work: &CountedWork,
+    context: &CallContext,
 ) -> Result<Option<Datasets>, CallError> {
-    declared::merge(params, work)?;
+    let refused = |error: &_| settings_error(error, context);
+    declared::merge(params, context.identity().product, work, &refused)?;
     let Some(extraction) = &params.extraction else {
         return Ok(None);
     };
@@ -530,8 +541,8 @@ impl Serialize for DeclaredValues<'_> {
 pub(crate) type Demand = (Vec<String>, Vec<FieldLocator>);
 
 /// What the readers of each page's untouched tree read for a code-free
-/// crawl: what every Label's pages demand, and what each Label that plans
-/// its own demands in its place.
+/// crawl: what every Label's pages demand, and what each Label that a
+/// declaration handles demands in its place.
 #[derive(Default)]
 pub(crate) struct Demands {
     pub(crate) run: Demand,
@@ -552,14 +563,22 @@ impl CodeFree {
         let keeps_records = crate::serving::keeps_records(run);
         let work = run.metrics().counted_work();
         let handles = match crawl? {
-            CodeFreeCrawl::Extraction(extraction) => Handles::Extraction {
-                reader: keeps_records
-                    .then(|| Arc::new(Fields::of(extraction.fields.by_name(), work))),
-                extraction,
-            },
-            CodeFreeCrawl::Declaration(declaration) => {
-                Handles::Declaration(Arc::new(declared::plans(declaration, keeps_records, work)))
+            CodeFreeCrawl::Extraction(extraction) => {
+                Handles::Extraction(Arc::new(ExtractionHandling {
+                    reader: keeps_records.then(|| Fields::of(extraction.fields.by_name(), work)),
+                    scope: (extraction.follow == ExtractionFollow::Scope).then(|| FollowRule {
+                        links: LINKS.to_owned(),
+                        label: CODE_FREE_LABEL.to_owned(),
+                        include: Vec::new(),
+                        exclude: Vec::new(),
+                        limit: None,
+                    }),
+                    extraction,
+                }))
             }
+            CodeFreeCrawl::Declaration(declaration) => Handles::Declaration(Arc::new(
+                declared::handlings(declaration, keeps_records, work),
+            )),
         };
         Some(Self {
             handles,
@@ -575,22 +594,22 @@ impl CodeFree {
     /// Label's own (ADR 0138).
     pub(crate) fn untouched(&self) -> Demands {
         match &self.handles {
-            Handles::Extraction { extraction, .. } => {
-                let links = if extraction.follow == ExtractionFollow::Scope {
-                    vec![LINKS.to_owned()]
-                } else {
-                    Vec::new()
-                };
-                Demands {
-                    run: (links, locators(extraction.fields.by_name())),
-                    labels: BTreeMap::new(),
-                }
-            }
-            Handles::Declaration(plans) => Demands {
+            Handles::Extraction(handling) => Demands {
+                run: (
+                    handling
+                        .scope
+                        .iter()
+                        .map(|rule| rule.links.clone())
+                        .collect(),
+                    locators(handling.extraction.fields.by_name()),
+                ),
+                labels: BTreeMap::new(),
+            },
+            Handles::Declaration(handlings) => Demands {
                 run: Demand::default(),
-                labels: plans
+                labels: handlings
                     .iter()
-                    .map(|(label, plan)| (label.clone(), plan.demand()))
+                    .map(|(label, handling)| (label.clone(), handling.demand()))
                     .collect(),
             },
         }
@@ -600,7 +619,7 @@ impl CodeFree {
     /// none for a declaration.
     pub(crate) fn formats(&self) -> FormatsRequest {
         match &self.handles {
-            Handles::Extraction { extraction, .. } => extraction.formats,
+            Handles::Extraction(handling) => handling.extraction.formats,
             Handles::Declaration(_) => FormatsRequest::default(),
         }
     }
@@ -615,8 +634,8 @@ impl CodeFree {
     /// Provenance names: for an extraction, reads its page's formats and
     /// fields, under `follow: scope` stages every link of its page with
     /// the attempt, for its commit to admit in its outcome's one job (ADR
-    /// 0138), and answers one Record of `pages`; for a declaration, as its
-    /// request's Label plans.
+    /// 0138), and answers one Record of `pages`; for a declaration, as it
+    /// handles its request's Label.
     ///
     /// # Errors
     ///
@@ -643,26 +662,26 @@ impl CodeFree {
             ));
         };
         match &self.handles {
-            Handles::Extraction { extraction, reader } => {
-                self.extracted((extraction, reader.as_deref()), params, page_id, fetched_at)
-                    .await
+            Handles::Extraction(handling) => {
+                self.extracted(handling, params, page_id, fetched_at).await
             }
-            Handles::Declaration(plans) => match plans.get(&params.crawl_request.label) {
-                Some(plan) => self.planned(plan, params, page_id).await,
+            Handles::Declaration(handlings) => match handlings.get(&params.crawl_request.label) {
+                Some(handling) => self.as_declared(handling, params, page_id).await,
                 None => Ok(nothing()),
             },
         }
     }
 
-    /// The attempt `params` of the page `page_id`, handled by `extraction`
-    /// with its fields' `reader`.
+    /// The attempt `params` of the page `page_id`, handled as `handling`
+    /// says.
     async fn extracted(
         &self,
-        (extraction, reader): (&CrawlExtraction, Option<&Fields>),
+        handling: &ExtractionHandling,
         params: &CrawlRequestHandleParams,
         page_id: &PageId,
         fetched_at: SystemTime,
     ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
+        let extraction = &handling.extraction;
         let request_id = &params.crawl_request.id;
         let read = if self.keeps_records {
             let formats = self
@@ -679,21 +698,19 @@ impl CodeFree {
                     )
                 })??;
             let (values, read) = self
-                .fields(page_id, request_id, extraction.fields.by_name(), reader)
+                .fields(
+                    page_id,
+                    request_id,
+                    extraction.fields.by_name(),
+                    handling.reader.as_ref(),
+                )
                 .await?;
             Some((formats, values, read))
         } else {
             None
         };
-        if extraction.follow == ExtractionFollow::Scope {
-            let scope = FollowRule {
-                links: LINKS.to_owned(),
-                label: CODE_FREE_LABEL.to_owned(),
-                include: Vec::new(),
-                exclude: Vec::new(),
-                limit: None,
-            };
-            self.follow(params, page_id, &scope).await?;
+        if let Some(scope) = &handling.scope {
+            self.follow(params, page_id, scope).await?;
         }
         let status = params.response.as_ref().map(|response| response.status);
         let Some((formats, values, read)) = read else {
@@ -717,13 +734,13 @@ impl CodeFree {
         ))
     }
 
-    /// The attempt `params` of the page `page_id`, handled as `plan`, its
-    /// Label's, declares: its fields read once, each of its follow rules'
-    /// links staged with the attempt, then one Record per extract, unless
-    /// the crawl keeps no Record.
-    async fn planned(
+    /// The attempt `params` of the page `page_id`, handled as `handling`,
+    /// its Label's, declares: its fields read once, each of its follow
+    /// rules' links staged with the attempt, then one Record per extract,
+    /// unless the crawl keeps no Record.
+    async fn as_declared(
         &self,
-        plan: &declared::Plan,
+        handling: &declared::LabelHandling,
         params: &CrawlRequestHandleParams,
         page_id: &PageId,
     ) -> Result<(CrawlRequestHandled, FieldsRead), CallError> {
@@ -732,21 +749,21 @@ impl CodeFree {
                 self.fields(
                     page_id,
                     &params.crawl_request.id,
-                    plan.fields.by_name(),
-                    plan.reader.as_deref(),
+                    handling.fields.by_name(),
+                    handling.reader.as_deref(),
                 )
                 .await?,
             )
         } else {
             None
         };
-        for rule in &plan.follow {
+        for rule in &handling.follow {
             self.follow(params, page_id, rule).await?;
         }
         let Some((values, read)) = read else {
             return Ok(nothing());
         };
-        let records = plan
+        let records = handling
             .extracts
             .iter()
             .map(|(dataset, declared)| PushedRecord {

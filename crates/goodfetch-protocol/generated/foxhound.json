@@ -2344,7 +2344,7 @@
         },
         "seeds": {
           "arrived_in": "0.1",
-          "description": "The requests the crawl starts from, beside the start's own `seeds`,\neach request seed naming a Label it declares; none by default.",
+          "description": "The requests the crawl starts from, after the start's own `seeds`,\nof which the start still names at least one, each request seed\nnaming a Label it declares; none by default.",
           "items": {
             "$ref": "#/$defs/Seed"
           },
@@ -2353,7 +2353,7 @@
         "settings": {
           "additionalProperties": true,
           "arrived_in": "0.1",
-          "description": "Its Run's settings, nested by key, beneath the start's own\n`settings`, which win key by key.",
+          "description": "Its Run's settings, nested by key, only those a Recipe may set,\nbeneath the start's own `settings`, which win key by key, each\nkey's value whole.",
           "type": "object"
         }
       },
@@ -4606,7 +4606,7 @@
     },
     "DeclaredExtract": {
       "additionalProperties": false,
-      "description": "One Record a page of a declared Label pushes into `dataset`: its named\n`fields`, read as `extraction`'s are and written in the order declared;\nno field name repeats across one Label's extracts.",
+      "description": "One Record a page of a declared Label pushes into `dataset`: its named\n`fields`, read as `extraction`'s are and written in the order declared;\na field name repeats across one Label's extracts only as one field,\nread once for them all.",
       "properties": {
         "dataset": {
           "arrived_in": "0.1",

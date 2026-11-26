@@ -249,7 +249,7 @@ async fn start(
     let given = std::mem::take(&mut params.limits);
     let limits = StartLimits::checked(given, run_id.as_ref(), &context).await?;
     let work = context.runs().metrics().counted_work().clone();
-    let pages = code_free::declare(&mut params, &pages, &work).await?;
+    let pages = code_free::declare(&mut params, &pages, &work, &context).await?;
     let settings = opened_settings(&mut params, &context).await?;
     let label_settings = goodfetch_fetch_tier::LabelSettings::of(&params.labels)?;
     servable::check(settings.resolved(), &label_settings)?;

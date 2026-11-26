@@ -2605,6 +2605,15 @@ product = "foxhound"
 status = "active"
 
 [[story]]
+id = 1069
+title = "As a developer, I want to start a crawl declared as data, a `CrawlDeclaration` whose Labels follow links and extract fields into the Datasets it declares, from the SDKs, the CLI or MCP with no handler, so that a crawl someone reviewed runs as written (ADRs 0099, 0103; G8)."
+milestone = "M2 Client surfaces"
+journey = false
+not_journey = "part"
+product = "foxhound"
+status = "active"
+
+[[story]]
 id = 1075
 title = "As a Rust developer, I want `crawl.serve(&run).await` to answer the Run's Crawl requests with my handlers until the Run ends and return the Run report, and dropping that future to be my own stop (requests return to pending, no attempt counted), so that Rust has no loop of mine to pump (ADRs 0093, 0102)."
 milestone = "M2 Client surfaces"

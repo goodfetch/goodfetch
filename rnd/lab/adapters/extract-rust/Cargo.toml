@@ -5,17 +5,29 @@ edition = "2024"
 publish = false
 
 [dependencies]
-serde_json = "=1.0.151"
+serde_json = "=1.0.154"
 flate2 = "1"
 rs-trafilatura = "=0.2.2"
 dom_smoothie = "=0.18.2"
 scraper = "=0.27.0"
-htmd = "=0.5.5"
-lol_html = "=3.0.1"
+htmd = "=0.5.6"
+lol_html = "=3.0.2"
 html2md = "=0.2.17"
 fast_html2md = { version = "=0.0.63", package = "fast_html2md" }
 mdka = "=3.3.0"
 quick_html2md = "=0.2.1"
 html-escape = "=0.2.15"
+# Goodfetch's chain (#818): goodfetch-extractor's `formats`, from the repository's crates.
+goodfetch-extractor = { path = "../../../../crates/goodfetch-extractor" }
+goodfetch-protocol = { path = "../../../../crates/goodfetch-protocol" }
+
+# The four vendored crates goodfetch-extractor reads, as the repository's root manifest patches them, so the chain here
+# is the one Goodfetch builds: a patch applies only in the workspace that declares it. The lab's own modes that use these
+# crates read the patched ones too.
+[patch.crates-io]
+dom_smoothie = { path = "../../../../vendor/dom_smoothie" }
+html-cleaning = { path = "../../../../vendor/html-cleaning" }
+quick_html2md = { path = "../../../../vendor/quick_html2md" }
+rs-trafilatura = { path = "../../../../vendor/rs-trafilatura" }
 
 [workspace]

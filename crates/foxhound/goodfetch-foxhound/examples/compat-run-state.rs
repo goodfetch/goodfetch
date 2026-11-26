@@ -31,8 +31,9 @@
 //! escalation, its position in the `egress.local_addresses` rotation and
 //! the address block it blocked, and its domain's proxy tier; a code-free
 //! crawl, whose extraction its run file keeps, of one seed
-//! `crawl.max_segment_repeats` refuses, so it finishes at once; and a Run its
-//! program drives, under an Operator policy and with a setting that
+//! `crawl.max_segment_repeats` refuses, so it finishes at once, and one
+//! declared as data, whose declaration its run file keeps, of that seed;
+//! and a Run its program drives, under an Operator policy and with a setting that
 //! weakens a guarantee, whose Key-value store keeps a cursor, a note in its
 //! row and an archive over 1 MiB as a kept file, whose run
 //! state holds its data key wrapped, and whose Effect journal holds an
@@ -55,7 +56,7 @@
 //! message, which `run.checkpoint` checkpoints and
 //! `run.pause` pauses with a Checkpoint.
 //! It writes each Run's file, as SQL text, into the folder given as the
-//! only argument: `crawl.sql`, `code-free.sql`, `aborted.sql`,
+//! only argument: `crawl.sql`, `code-free.sql`, `declared.sql`, `aborted.sql`,
 //! `paused.sql` and `unclean.sql`, a Run at `off` whose writer then opens
 //! its file again and ends as a crash ends it, without clearing its
 //! "unclean" mark; and the
@@ -245,6 +246,26 @@ fn scenario() -> Vec<Value> {
                 "run_id": "code-free",
                 "seeds": [{ "url": "https://shop.test/more/more/more/", "label": "page" }],
                 "extraction": { "formats": { "markdown": true }, "follow": "none" },
+                "settings": { "fetch": fetch, "network": network },
+            }),
+        ),
+        call(
+            24,
+            "crawl.start",
+            json!({
+                "run_id": "declared",
+                "seeds": [{ "url": "https://shop.test/more/more/more/", "label": "page" }],
+                "declaration": {
+                    "labels": [{
+                        "name": "page",
+                        "follow": [{ "links": "a", "label": "page", "include": ["https://shop.test/**"] }],
+                        "extract": [{
+                            "dataset": "titles",
+                            "fields": { "title": { "locator": { "kind": "css", "selector": "h1" } } },
+                        }],
+                    }],
+                    "datasets": [{ "name": "titles" }],
+                },
                 "settings": { "fetch": fetch, "network": network },
             }),
         ),
@@ -963,7 +984,14 @@ async fn leave_unclean(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
 /// Writes each Run's file in `runs`, as SQL text, into `folder`.
 fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    for run_id in ["crawl", "code-free", "aborted", "paused", "unclean"] {
+    for run_id in [
+        "crawl",
+        "code-free",
+        "declared",
+        "aborted",
+        "paused",
+        "unclean",
+    ] {
         let connection = rusqlite::Connection::open(runs.join(run_id).join(RUN_FILE))?;
         std::fs::write(
             folder.join(format!("{run_id}.sql")),

@@ -56,6 +56,7 @@ use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
 use super::{Opener, Sessions, held_browser, set_outside_code};
+use crate::access_mode::{AccessMode, SessionIdentityPlan};
 use crate::browser_run::BrowserRun;
 use crate::cdp::borrowed::CdpUrl;
 use crate::cdp::launch::Launcher;
@@ -64,6 +65,14 @@ use crate::interception::{HeldBrowser, Interception};
 use crate::page_value::{
     Admission, DocumentJudgment, DocumentResponse, HeldPlace, LeaseCheck, LeaseEnded, Navigation,
     NavigationGate, PageValue, Permit, ProgramPages, Sending,
+};
+
+/// A `standard` Session's plan, which no setting chose.
+const STANDARD: SessionIdentityPlan = SessionIdentityPlan {
+    mode: AccessMode::Standard,
+    layer: SettingsLayer::Default,
+    profile: None,
+    signing: None,
 };
 
 /// Opens a Run's default Session and stops the Run while the open waits
@@ -238,8 +247,13 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
-        let mut open =
-            std::pin::pin!(sessions.open_held(&browser, None, None, Opener::Default, &context));
+        let mut open = std::pin::pin!(sessions.open_held(
+            &browser,
+            None,
+            &STANDARD,
+            Opener::Default,
+            &context
+        ));
         loop {
             let polled = std::future::poll_fn(|waker| Poll::Ready(open.as_mut().poll(waker))).await;
             assert!(polled.is_pending(), "the open ended before the Run stopped");
@@ -282,7 +296,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         },
     };
     let position = sessions
-        .open_held(&browser, None, None, opener, &context)
+        .open_held(&browser, None, &STANDARD, opener, &context)
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -308,7 +322,7 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, None, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -435,7 +449,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, None, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let open = sessions
         .index
@@ -512,7 +526,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, None, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let commands = watch::channel(0).0;

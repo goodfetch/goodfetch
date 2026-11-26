@@ -605,10 +605,13 @@ pub(crate) enum Injection {
     LocatorWaitForFunction,
     /// A main-world `locator.scroll_collect`.
     ScrollCollect,
+    /// The `js_injection` Fingerprint method's script (ADR 0035).
+    FingerprintMethod,
 }
 
 impl Injection {
-    /// The operation that injected, as Provenance names it.
+    /// The operation that injected, as Provenance names it, or the setting
+    /// when the engine injected on its own.
     fn by(self) -> &'static str {
         match self {
             Self::Evaluate => PAGE_EVALUATE.name,
@@ -617,6 +620,9 @@ impl Injection {
             Self::EvaluateAll => LOCATOR_EVALUATE_ALL.name,
             Self::LocatorWaitForFunction => LOCATOR_WAIT_FOR_FUNCTION.name,
             Self::ScrollCollect => LOCATOR_SCROLL_COLLECT.name,
+            Self::FingerprintMethod => {
+                goodfetch_protocol::page::access_mode::STEALTH_FINGERPRINT_METHOD.name
+            }
         }
     }
 }

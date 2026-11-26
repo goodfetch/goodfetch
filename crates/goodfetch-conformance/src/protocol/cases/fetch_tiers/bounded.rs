@@ -3,22 +3,25 @@
 //! the target's user configuration, which the next Run's start reads, and
 //! putting it back after. Past `cache.max_size` the least recently used
 //! entries leave, and the body files the cache keeps weigh no more than
-//! the cap; past `cache.max_age_ceiling` an entry is served in no mode; and
+//! the cap; past `cache.max_age_ceiling` an entry is served in no mode;
 //! while the cache's filesystem is at the `low` storage level nothing new
-//! is stored, while what the cache held is still served. The `critical`
-//! level is the engine's unit tests': a Run cannot start there (ADR 0122).
+//! is stored under `revalidate` or `replay`, while what the cache held is
+//! still served; and at `critical` no Run starts, so nothing is stored or
+//! evicted, and what the cache held is served once the level clears.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use goodfetch_protocol::home::RESPONSE_CACHE;
 use goodfetch_protocol::needs_you::{NEEDS_YOU_LIST, STORAGE_LEVEL};
+use goodfetch_protocol::settings::CONFIG_EXPLAIN;
 use serde_json::json;
 
-use super::cached::{crawl, is_answer, post, requests_for, settings};
+use super::cached::{HOST, crawl, is_answer, post, requests_for, settings};
 use super::{Checks, Connection, Gone, Site};
 use crate::protocol::cases::consent::walls::{configure, major_of};
 use crate::protocol::cases::{poll, user_configuration};
+use crate::protocol::foxhound::CRAWL_START;
 
 /// The size cap the size case sets, in bytes: more than two of the cache
 /// host's large pages and the index together, less than three pages.
@@ -36,6 +39,18 @@ const AGED: Duration = Duration::from_millis(1_500);
 /// The free space below which the low-storage case puts every filesystem
 /// at `low`: 2⁶⁰ bytes, more than any disk holds. `critical` is off.
 const LOW: &str = "[settings.storage]\nlow_free = 1152921504606846976\ncritical_free = 0\n";
+
+/// The free space below which the critical-storage case puts every
+/// filesystem at `critical`: 2⁶⁰ bytes for both levels.
+const CRITICAL: &str =
+    "[settings.storage]\nlow_free = 1152921504606846976\ncritical_free = 1152921504606846976\n";
+
+/// The cache modes the low-storage case crawls under, each with the page
+/// the cache holds before the level drops and the page it sheds after.
+const LOW_PAGES: [(&str, &str, &str); 2] = [
+    ("revalidate", "/fresh/held", "/fresh/shed"),
+    ("replay", "/fresh/held-replay", "/fresh/shed-replay"),
+];
 
 /// How long "Needs you" may take to list a level: the next Run's start
 /// reads user configuration, then the governor's next storage sample.
@@ -69,14 +84,14 @@ fn configured(
     outcome
 }
 
-/// The bytes of the body files the Response cache in `major` keeps, each
-/// named by its body's SHA-256.
+/// The body files the Response cache in `major` keeps, each named by its
+/// body's SHA-256.
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn body_bytes(major: &Path) -> std::io::Result<u64> {
-    let mut bytes = 0;
+pub(super) fn body_files(major: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
     let mut folders = vec![major.join(RESPONSE_CACHE)];
     while let Some(folder) = folders.pop() {
         for entry in std::fs::read_dir(folder)? {
@@ -89,9 +104,22 @@ fn body_bytes(major: &Path) -> std::io::Result<u64> {
                     name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
                 })
             {
-                bytes += entry.metadata()?.len();
+                files.push(entry.path());
             }
         }
+    }
+    Ok(files)
+}
+
+/// The bytes of the body files the Response cache in `major` keeps.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness is synchronous and runs no async worker"
+)]
+fn body_bytes(major: &Path) -> std::io::Result<u64> {
+    let mut bytes = 0;
+    for file in body_files(major)? {
+        bytes += std::fs::metadata(file)?.len();
     }
     Ok(bytes)
 }
@@ -274,28 +302,42 @@ fn outlive() {
     std::thread::sleep(AGED);
 }
 
-/// Under `cache.mode: revalidate`, with `storage.low_free` above any
-/// filesystem's free space, "Needs you" lists the cache's filesystem at
-/// `low`; a page the site lets be kept an hour is then not stored, its
-/// second crawl reaching the site, while the page the cache held before is
-/// still served. Once user configuration is put back, the next Run's start
-/// brings the level back to `normal`, for the cases after.
+/// The Run ID of the low-storage case's crawl `step` under `mode`.
+fn low_run(mode: &str, step: u8) -> String {
+    format!("conformance-cache-low-{mode}-{step}")
+}
+
+/// With `storage.low_free` above any filesystem's free space, "Needs you"
+/// lists the cache's filesystem at `low`; then, under `cache.mode:
+/// revalidate` and under `replay`, a page the site lets be kept an hour is
+/// not stored, its second crawl reaching the site, while the page the
+/// cache held before is still served. Once user configuration is put back,
+/// the next Run's start brings the level back to `normal`, for the cases
+/// after.
 pub(super) fn low_storage(
     connection: &mut Connection,
     home: Option<&str>,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
-    let revalidate = settings(Some("revalidate"));
-    let (held, shed) = ("/fresh/held", "/fresh/shed");
-    let first = "conformance-cache-low-1";
-    crawl(connection, site, first, held, &revalidate, checks)?;
-    configured(home, first, LOW, checks, |_, checks| {
+    for (mode, held, _) in LOW_PAGES {
         crawl(
             connection,
             site,
-            "conformance-cache-low-2",
+            &low_run(mode, 1),
             held,
+            &settings(Some(mode)),
+            checks,
+        )?;
+    }
+    let revalidate = settings(Some("revalidate"));
+    let (_, first_held, _) = LOW_PAGES[0];
+    configured(home, &low_run("revalidate", 1), LOW, checks, |_, checks| {
+        crawl(
+            connection,
+            site,
+            &low_run("revalidate", 2),
+            first_held,
             &revalidate,
             checks,
         )?;
@@ -306,45 +348,29 @@ pub(super) fn low_storage(
             "\"Needs you\" lists a filesystem at the `low` storage level",
             levels.iter().any(|level| level == "low"),
         );
-        crawl(
-            connection,
-            site,
-            "conformance-cache-low-3",
-            shed,
-            &revalidate,
-            checks,
-        )?;
-        let second = crawl(
-            connection,
-            site,
-            "conformance-cache-low-4",
-            shed,
-            &revalidate,
-            checks,
-        )?;
-        let still = crawl(
-            connection,
-            site,
-            "conformance-cache-low-5",
-            held,
-            &revalidate,
-            checks,
-        )?;
-        checks.check(
-            "at `low`, a page fresh for an hour is not stored: its second crawl reaches the site",
-            is_answer(&second, 2, shed) && requests_for(site, shed).len() == 2,
-        );
-        checks.check(
-            "at `low`, the page the cache held is still served",
-            is_answer(&still, 1, held) && requests_for(site, held).len() == 1,
-        );
+        for (mode, held, shed) in LOW_PAGES {
+            let settings = settings(Some(mode));
+            crawl(connection, site, &low_run(mode, 3), shed, &settings, checks)?;
+            let second = crawl(connection, site, &low_run(mode, 4), shed, &settings, checks)?;
+            let still = crawl(connection, site, &low_run(mode, 5), held, &settings, checks)?;
+            checks.check(
+                format!(
+                    "at `low` under `{mode}`, a page fresh for an hour is not stored: its second crawl reaches the site"
+                ),
+                is_answer(&second, 2, shed) && requests_for(site, shed).len() == 2,
+            );
+            checks.check(
+                format!("at `low` under `{mode}`, the page the cache held is still served"),
+                is_answer(&still, 1, held) && requests_for(site, held).len() == 1,
+            );
+        }
         Ok(())
     })?;
     crawl(
         connection,
         site,
-        "conformance-cache-low-6",
-        held,
+        &low_run("revalidate", 6),
+        first_held,
         &revalidate,
         checks,
     )?;
@@ -354,6 +380,99 @@ pub(super) fn low_storage(
     checks.check(
         "once user configuration is put back, no filesystem is listed at `low`",
         levels.iter().all(|level| level != "low"),
+    );
+    Ok(())
+}
+
+/// With `storage.critical_free` above any filesystem's free space, read by
+/// `config.explain`, which starts no Run, "Needs you" lists the cache's
+/// filesystem at `critical`; a `crawl.start` under `cache.mode: replay` is
+/// then refused with `resources_exhausted` for `storage`, its page never
+/// reaching the site, and the cache's body files are left as they were:
+/// nothing stored, nothing evicted. No Run runs at `critical` (ADR 0122),
+/// so the page the cache held is shown served under `replay` once user
+/// configuration is put back and the level clears.
+pub(super) fn critical_storage(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let replay = settings(Some("replay"));
+    let (held, refused) = ("/fresh/held-critical", "/fresh/refused-critical");
+    let first = "conformance-cache-critical-1";
+    crawl(connection, site, first, held, &replay, checks)?;
+    configured(home, first, CRITICAL, checks, |major, checks| {
+        let before = checks.needs("the cache's body files are read", body_bytes(major));
+        explained(connection, checks)?;
+        let levels = listed_levels(connection, |levels| {
+            levels.iter().any(|level| level == "critical")
+        })?;
+        checks.check(
+            "\"Needs you\" lists a filesystem at the `critical` storage level",
+            levels.iter().any(|level| level == "critical"),
+        );
+        let start = connection.request(
+            CRAWL_START,
+            &json!({
+                "run_id": "conformance-cache-critical-2",
+                "seeds": [{ "url": site.named_url(HOST, refused), "label": "page" }],
+                "labels": { "page": {} },
+                "settings": site.mapped(&replay, connection.acts_for_model()),
+            }),
+        )?;
+        let error = connection.answer(start)?.message["error"]["data"].clone();
+        let after = checks.needs("the cache's body files are read again", body_bytes(major));
+        checks.check(
+            "at `critical`, `crawl.start` is refused with `resources_exhausted` for `storage`",
+            error["code"] == json!("resources_exhausted") && error["resource"] == json!("storage"),
+        );
+        checks.check(
+            "at `critical`, the refused Run's page never reaches the site",
+            requests_for(site, refused).is_empty(),
+        );
+        checks.check(
+            "at `critical`, the cache's body files are left as they were",
+            before.is_some() && before == after,
+        );
+        Ok(())
+    })?;
+    explained(connection, checks)?;
+    let levels = listed_levels(connection, |levels| {
+        levels
+            .iter()
+            .all(|level| level != "critical" && level != "low")
+    })?;
+    checks.check(
+        "once user configuration is put back, no filesystem is listed at `critical` or `low`",
+        levels
+            .iter()
+            .all(|level| level != "critical" && level != "low"),
+    );
+    let still = crawl(
+        connection,
+        site,
+        "conformance-cache-critical-3",
+        held,
+        &replay,
+        checks,
+    )?;
+    checks.check(
+        "the page the cache held before `critical` is still served under `replay`",
+        is_answer(&still, 1, held) && requests_for(site, held).len() == 1,
+    );
+    Ok(())
+}
+
+/// Asks `config.explain`, which reads user configuration again without
+/// starting a Run, so the Resource governor's next sample reads the
+/// storage levels it sets.
+fn explained(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    let id = connection.request(CONFIG_EXPLAIN.name, &json!({}))?;
+    let answer = connection.answer(id)?.message;
+    checks.check(
+        "`config.explain` reads user configuration again",
+        answer.get("result").is_some(),
     );
     Ok(())
 }

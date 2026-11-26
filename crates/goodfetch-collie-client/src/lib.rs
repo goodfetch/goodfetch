@@ -59,6 +59,7 @@ mod sync;
 pub mod testing;
 mod trace_context;
 pub mod transport;
+mod webhook;
 mod write_queue;
 
 pub use ai_work::{AiWorkResult, Ended, PartialOutput};
@@ -88,3 +89,4 @@ pub use schema::{Schema, SchemaError, to_json};
 /// so that a program's derive is the SDK's version (ADR 0082).
 pub use schemars;
 pub use trace_context::{TraceContext, TraceContextSource};
+pub use webhook::{VerifyWebhookOptions, verify_webhook, verify_webhook_with};

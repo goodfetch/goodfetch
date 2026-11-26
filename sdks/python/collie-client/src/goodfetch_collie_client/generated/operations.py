@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -39,6 +39,30 @@ class AsyncCollieOperations:
         """
         warn_experimental("audit.verify")
         return result_of(AuditVerified, await self._caller.call("audit.verify", params))
+
+    async def cache_clear(self, params: CacheClearParams) -> CacheCleared:
+        """Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cache.clear")
+        return result_of(CacheCleared, await self._caller.call("cache.clear", params))
+
+    async def cache_stats(self, params: CacheStatsParams) -> CacheStats:
+        """Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cache.stats")
+        return result_of(CacheStats, await self._caller.call("cache.stats", params))
+
+    async def cache_verify(self, params: CacheVerifyParams) -> CacheVerified:
+        """Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cache.verify")
+        return result_of(CacheVerified, await self._caller.call("cache.verify", params))
 
     async def catalog_run_start(self, params: CatalogRunStartParams) -> RunStarted:
         """Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
@@ -752,6 +776,30 @@ class CollieOperations:
         warn_experimental("audit.verify")
         return result_of(AuditVerified, self._caller.call("audit.verify", params))
 
+    def cache_clear(self, params: CacheClearParams) -> CacheCleared:
+        """Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cache.clear")
+        return result_of(CacheCleared, self._caller.call("cache.clear", params))
+
+    def cache_stats(self, params: CacheStatsParams) -> CacheStats:
+        """Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cache.stats")
+        return result_of(CacheStats, self._caller.call("cache.stats", params))
+
+    def cache_verify(self, params: CacheVerifyParams) -> CacheVerified:
+        """Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("cache.verify")
+        return result_of(CacheVerified, self._caller.call("cache.verify", params))
+
     def catalog_run_start(self, params: CatalogRunStartParams) -> RunStarted:
         """Starts a code-free catalog run, a Run with no handler in the program whose verbs come from the catalog (ADR 0036): an Extraction of a page by a schema, `extract`, an Agent task, `agent`, or a Plan replayed with no model call, `plan_replay`; and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.
 
@@ -1443,6 +1491,9 @@ class CollieOperations:
 EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "audit.export",
     "audit.verify",
+    "cache.clear",
+    "cache.stats",
+    "cache.verify",
     "catalog_run.start",
     "certs.list",
     "connection.set_log_level",
@@ -1537,6 +1588,9 @@ DEPRECATED_OPERATIONS: Final[Mapping[str, str]] = {
 OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effect"]]] = {
     "audit.export": "read",
     "audit.verify": "read",
+    "cache.clear": "idempotent_write",
+    "cache.stats": "read",
+    "cache.verify": "read",
     "catalog_run.start": "idempotent_write",
     "certs.list": "read",
     "config.explain": "read",

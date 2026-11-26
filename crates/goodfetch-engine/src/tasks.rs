@@ -106,8 +106,8 @@ fn counted_start() {
 /// What an owner is, which the log of a panic in one of its tasks names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OwnerKind {
-    /// The engine process, and every owner under it that is no Connection
-    /// and no Run.
+    /// The engine process, and every owner under it that is no Connection,
+    /// no Run and no Live view.
     Engine,
     /// A Connection, whose own tasks are its writer and its log forwarder,
     /// and its calls.
@@ -115,6 +115,9 @@ pub enum OwnerKind {
     /// A Run, its writer, and the work the Run registry does for one Run,
     /// such as publishing its progress or recording its end.
     Run,
+    /// A Daemon's Live view, whose tasks feed its viewers: a panic of one
+    /// ends what it feeds, never the engine.
+    LiveView,
 }
 
 impl OwnerKind {
@@ -124,6 +127,7 @@ impl OwnerKind {
             Self::Engine => "engine",
             Self::Connection => "connection",
             Self::Run => "run",
+            Self::LiveView => "live_view",
         }
     }
 }
@@ -785,7 +789,7 @@ impl Panics {
     }
 
     fn log(&self, crash_report: Option<&str>) {
-        // A Run's or a Connection's task is no part every Run shares, so
+        // A Run's, a Connection's or a Live view's task is no part every Run shares, so
         // only the engine's own name one.
         let part = (self.kind() == OwnerKind::Engine).then(|| self.part());
         tracing::error!(

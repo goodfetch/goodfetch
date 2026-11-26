@@ -69,6 +69,7 @@ fn file_formats() -> serde_json::Value {
         stored_format("recipe-manifest", "toml", "default", "RecipeManifest"),
         stored_format("plugin-protocol", "transcript", "lower_minor", "Message"),
         stored_format("plugin-manifest", "json", "default", "PluginManifest"),
+        stored_format("notification-payload", "json", "frozen_major", "NotificationPayload"),
     ])
 }
 
@@ -166,6 +167,20 @@ fn the_bundle_holds_the_schemas_of_a_model_call() {
         json!({
             "request": { "$ref": "#/$defs/ModelRequest" },
             "response_part": { "$ref": "#/$defs/ModelResponsePart" },
+        })
+    );
+}
+
+#[test]
+fn the_bundle_holds_the_live_view_channels_messages() {
+    let emitted = emit();
+
+    assert_eq!(
+        emitted.bundle["live_view"],
+        json!({
+            "path": "/live-view",
+            "viewer": { "$ref": "#/$defs/LiveViewViewerMessage" },
+            "engine": { "$ref": "#/$defs/LiveViewEngineMessage" },
         })
     );
 }

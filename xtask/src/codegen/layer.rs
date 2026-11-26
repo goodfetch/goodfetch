@@ -460,6 +460,9 @@ impl Layer {
                     .context("the bundle has no `$defs`")?;
                 let connection = bundle.get("connection").cloned().unwrap_or(Value::Null);
                 definitions.extend(compat::reached(&connection, bundle_definitions)?);
+                for schema in client_read_formats(bundle) {
+                    definitions.extend(compat::reached(schema, bundle_definitions)?);
+                }
                 without_meta(&mut definitions);
                 lifted_fields::without_lifted_fields(
                     &mut definitions,
@@ -676,6 +679,29 @@ fn without_meta(definitions: &mut Map<String, Value>) {
             properties.remove(META);
         }
     }
+}
+
+/// The formats a Collie client package reads itself, such as the delivery
+/// its webhook verification helper parses (issue 1391), whose types its
+/// layer holds though no operation names them.
+const CLIENT_READ_FORMATS: &[&str] = &["notification-payload"];
+
+/// The schemas of the bundle's [`CLIENT_READ_FORMATS`]; a bundle without
+/// one, such as a test fixture's, gives none, as a bundle without a
+/// `connection` does.
+fn client_read_formats(bundle: &Value) -> impl Iterator<Item = &Value> {
+    bundle
+        .get("formats")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|format| {
+            format
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| CLIENT_READ_FORMATS.contains(&name))
+        })
+        .filter_map(|format| format.get("schema"))
 }
 
 /// The names of the types `codes` read their details as.

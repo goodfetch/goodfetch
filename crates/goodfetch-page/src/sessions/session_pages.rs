@@ -346,6 +346,9 @@ impl Sessions {
             in_browser,
             (&stream, observer),
         );
+        if let (Some(fingerprint), Some(events)) = (&open.fingerprint, &taken_in.events) {
+            events.refuse_runtime(fingerprint.runtime_refusal());
+        }
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.
         let (order, pointer) = GestureOrder::new();
@@ -393,7 +396,7 @@ impl Sessions {
             self.page_owners.close(std::slice::from_ref(&page));
             return Err(self.closed_session(session));
         }
-        if !self.index.kept(page.clone(), (session, &open)) {
+        if !self.index.kept(&page, (session, &open)) {
             return Err(self.closed_session(session));
         }
         // Its popups are followed once it is in its Session, so no lock of
@@ -438,6 +441,13 @@ impl Sessions {
     ) -> Result<watch::Receiver<usize>, CallError> {
         let (run, settings) = (&open.run, &open.settings);
         let page = &taken_in.page.clone();
+        // A `stealth` Session's page shows its Fingerprint method's values
+        // before anything else reaches it (ADR 0035).
+        if let Some(fingerprint) = &open.fingerprint {
+            fingerprint
+                .mask(&CdpPage::of(driver), (run, session, page), &open.injections)
+                .await?;
+        }
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).

@@ -338,6 +338,13 @@ impl EngineContext {
         &self.stores.run_index
     }
 
+    /// The user's Response cache of the engine's major (ADR 0046), under
+    /// the catalog's bounds: what the `cache.*` operations and a Run's
+    /// discard count, clear and verify.
+    pub(crate) fn response_cache(&self) -> &ResponseCache {
+        &self.stores.response_cache
+    }
+
     /// Where the responses of a Run whose settings are `settings` come
     /// from (ADR 0046): the one value the fetch transports and the
     /// interception consult, which reads and fills the user's Response

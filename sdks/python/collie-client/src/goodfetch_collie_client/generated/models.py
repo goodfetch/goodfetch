@@ -16,6 +16,7 @@ from goodfetch_collie_client.generated.open_values import (
     ClosedValue,
     ModelUnavailableReason,
     NotAddedReason,
+    NotificationEvent,
     ReportedHookStage,
     ScheduleState,
     TriggerInvalidReason,
@@ -309,6 +310,90 @@ class BrowserNeedsGuiSessionDetails(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+    )
+
+
+class CacheBodyProblem(StrEnum):
+    """What `cache.verify` found wrong with a body file."""
+
+    missing = "missing"
+    """The file is not there."""
+    changed = "changed"
+    """
+    The file's bytes are not the body stored: their SHA-256 or their
+    length is another.
+    """
+
+
+class CacheCleared(BaseModel):
+    """What `cache.clear` answers: what left."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bodies: Annotated[int, Field(ge=0)]
+    """The body files deleted with them: those no entry left holds."""
+    bytes: Annotated[int, Field(ge=0)]
+    """The bytes those body files weighed."""
+    entries: Annotated[int, Field(ge=0)]
+    """The entries deleted."""
+
+
+class CachePartitionStats(BaseModel):
+    """One partition's entries, as `cache.stats` counts them."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    country: str
+    """
+    The proxy's exit country its entries were fetched through; empty
+    when they left directly or the Proxy declares none.
+    """
+    device: str
+    """The Identity profile's device class; empty without one."""
+    entries: Annotated[int, Field(ge=0)]
+    """Its entries."""
+    language: str
+    """The Identity profile's language; empty without one."""
+    partition: str
+    """`public`, or the Saved identity whose partition it is."""
+
+
+class CacheStats(BaseModel):
+    """What `cache.stats` answers: what the caller's Response cache holds."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bodies: Annotated[int, Field(ge=0)]
+    """The bodies they hold, each once however many entries share it."""
+    body_bytes: Annotated[int, Field(ge=0)]
+    """The bytes those bodies weigh, each once."""
+    entries: Annotated[int, Field(ge=0)]
+    """The caller's entries."""
+    held_bytes: Annotated[int, Field(ge=0)]
+    """
+    The bytes the whole cache holds on disk, every person's bodies and
+    its index, which `cache.max_size` bounds.
+    """
+    partitions: list[CachePartitionStats]
+    """The caller's entries by partition, the most entries first."""
+
+
+class CacheStatsParams(BaseModel):
+    """What `cache.stats` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class CacheVerifyParams(BaseModel):
+    """What `cache.verify` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
     )
 
 
@@ -1809,6 +1894,14 @@ class ListenerEventsLostDetails(BaseModel):
     """How many of its events the listener lost."""
 
 
+class LiveViewViewerLimitDetails(BaseModel):
+    """What `live_view_viewer_limit` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class LoadState(StrEnum):
     """A state the page's document reaches (Playwright's `LoadState`)."""
 
@@ -3101,6 +3194,18 @@ class RecipeTarget(BaseModel):
     """
 
 
+class RecordingInvalidDetails(BaseModel):
+    """What `recording_invalid`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: str
+    """What is wrong with it."""
+    recording: str
+    """The Response recording's path, as the start named it."""
+
+
 class RecordingMode(StrEnum):
     """What a Run does with the Response recording its start names (ADR 0105)."""
 
@@ -3344,6 +3449,23 @@ class ResponseLimitExceededDetails(BaseModel):
     """The setting's value the body passed."""
     setting: LimitSetting
     """The setting whose limit it passed."""
+
+
+class ResponseNotRecordedDetails(BaseModel):
+    """What `response_not_recorded`'s details hold."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    method: str
+    """The request's method."""
+    nearest: list[str]
+    """
+    The recorded URLs of the request's host and path, in the order
+    recorded, at most five.
+    """
+    recording: str
+    """The Response recording's path, as the start named it."""
 
 
 class ResponseOrigin1(BaseModel):
@@ -5054,6 +5176,28 @@ class TargetNotUniqueDetails(BaseModel):
     """Every element it matched at the last observation."""
 
 
+class ThinNotification(BaseModel):
+    """
+    A thin Notification: its IDs and link only, which an Integration reads
+    the rest from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    event_id: str
+    """
+    The event's ID, the same on every delivery of it and the
+    `webhook-id` header's value.
+    """
+    link: str | None = None
+    """Where a person acts on it, such as the Run's page, if anywhere."""
+    run_id: RunId | None = None
+    """The Run it concerns, if any."""
+    schedule_id: ScheduleId | None = None
+    """The Schedule it concerns, if any."""
+
+
 class TierChosen(StrEnum):
     """How the tier of a Record's document was chosen (ADRs 0023 and 0093)."""
 
@@ -5606,6 +5750,25 @@ class WebSocketFrame(BaseModel):
     """The socket."""
 
 
+class WebhookInvalidReason(StrEnum):
+    """Why a call is no verified delivery."""
+
+    signature = "signature"
+    """No signature of `webhook-signature` matches a secret given."""
+    timestamp = "timestamp"
+    """
+    `webhook-timestamp` is no whole number of seconds, or more than 5
+    minutes from now: a delayed or replayed call.
+    """
+    malformed = "malformed"
+    """The body is no Notification payload of a major the SDK reads."""
+    missing_header = "missing_header"
+    """
+    `webhook-id`, `webhook-timestamp` or `webhook-signature` is
+    missing.
+    """
+
+
 class World(StrEnum):
     """Where a page function runs (ADR 0085)."""
 
@@ -5716,6 +5879,78 @@ class BrowserSandboxUnavailableDetails(BaseModel):
     )
     environment: SandboxEnvironment
     """What refuses the sandbox."""
+
+
+class CacheClearParams(BaseModel):
+    """
+    What `cache.clear` takes: which of the caller's entries leave, each
+    given filter narrowing it; every one of them when none is given.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    country: str | None = None
+    """
+    Only the entries fetched through this proxy exit country; the
+    empty text for those that left directly.
+    """
+    device: str | None = None
+    """
+    Only the entries fetched with this device class; the empty text
+    for those fetched without one.
+    """
+    domain: str | None = None
+    """Only the entries of this host and its subdomains."""
+    language: str | None = None
+    """
+    Only the entries fetched with this Identity profile language; the
+    empty text for those fetched without one.
+    """
+    partition: str | None = None
+    """
+    Only the entries of this partition: `public`, or a Saved
+    identity's name.
+    """
+    run_id: RunId | None = None
+    """Only the entries this Run fetched."""
+
+
+class CacheDamage(BaseModel):
+    """An entry whose body file `cache.verify` found damaged."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    body_sha256: str
+    """The SHA-256 of the body stored, as lower-case hex: its file's name."""
+    method: str
+    """The request's method."""
+    partition: str
+    """The entry's partition: `public`, or a Saved identity's name."""
+    problem: CacheBodyProblem
+    """What is wrong with its body file."""
+    run_id: RunId | None = None
+    """The Run that fetched it; none outside a Run."""
+    url: str
+    """The request's URL, without its fragment."""
+
+
+class CacheVerified(BaseModel):
+    """What `cache.verify` answers: what it read, and what it found damaged."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    bodies: Annotated[int, Field(ge=0)]
+    """The body files it read and hashed, each once."""
+    damaged: list[CacheDamage]
+    """
+    The entries whose body file is missing or no longer the body
+    stored; none when the cache is whole.
+    """
+    entries: Annotated[int, Field(ge=0)]
+    """The caller's entries it checked."""
 
 
 class CancelParams(BaseModel):
@@ -6129,6 +6364,11 @@ class DaemonState(BaseModel):
     """
     live_runs: Annotated[int, Field(ge=0)]
     """How many of its Runs are live."""
+    live_view: str | None = None
+    """
+    Where a Live view channel opens, the WebSocket's `host:port`; none
+    where it accepts none, as with `live_view.enabled` off.
+    """
     pid: Annotated[int, Field(ge=0)]
     """Its process ID."""
     product: Product
@@ -6520,6 +6760,34 @@ class FileWriteFailedDetails(BaseModel):
     """
     side: WriteSide
     """Whose storage failed."""
+
+
+class FullNotification(BaseModel):
+    """The whole Notification."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    event: NotificationEvent
+    """What happened."""
+    event_id: str
+    """
+    The event's ID, the same on every delivery of it and the
+    `webhook-id` header's value.
+    """
+    link: str | None = None
+    """Where a person acts on it, such as the Run's page, if anywhere."""
+    product: Product
+    """The Product whose engine sent it."""
+    run_id: RunId | None = None
+    """The Run it concerns, if any."""
+    schedule_id: ScheduleId | None = None
+    """The Schedule it concerns, if any."""
+    text: str
+    """Its text."""
+    title: str
+    """Its one-line title."""
 
 
 class GotoParams(BaseModel):
@@ -7264,6 +7532,40 @@ class NothingDone2(BaseModel):
 class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
     root: NothingDone1 | NothingDone2 | NothingDone3
     """Why a call that ends a Run did nothing (ADR 0102's G1)."""
+
+
+class NotificationData(RootModel[FullNotification | ThinNotification]):
+    root: FullNotification | ThinNotification
+    """What a delivery's `data` holds."""
+
+
+class NotificationPayload(BaseModel):
+    """
+    A `webhook` channel's delivery: the Standard Webhooks envelope around
+    one Notification.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    data: NotificationData
+    """
+    The Notification, whole or thin as the channel's `webhook.payload`
+    says.
+    """
+    format: ProtocolVersion
+    """
+    The body's `major.minor` version: a receiver reads every minor of
+    its major.
+    """
+    timestamp: PointInTime
+    """When the Notification's event happened, in RFC 3339, UTC."""
+    type: str
+    """
+    `notification.` and the Notification's event, such as
+    `notification.run_failed`.
+    """
 
 
 class PageBodyParams(BaseModel):
@@ -8590,6 +8892,16 @@ class WaitForFunctionParams(BaseModel):
     """
     world: World | None = None
     """Where it runs; the main world when absent."""
+
+
+class WebhookInvalidDetails(BaseModel):
+    """What `webhook_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: WebhookInvalidReason
+    """Why the call was refused."""
 
 
 class AppliedLimit(BaseModel):

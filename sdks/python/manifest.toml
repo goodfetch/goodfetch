@@ -1516,6 +1516,16 @@ words = ["stopped"]
 form = "type"
 
 [[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "verify_webhook"
+entry = "none"
+reason = "Checks a `webhook` channel's delivery in the program that receives it, with no engine and no Connection (ADR 0027; issue 1391): its Standard Webhooks signature against the secrets given, its timestamp within 5 minutes, and its body, read as a Notification payload; `webhook_invalid` otherwise."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["verify", "webhook"]
+form = "read"
+
+[[member]]
 package = "goodfetch_collie.testing"
 receiver = "(module)"
 member = "connect_over"
@@ -3281,10 +3291,22 @@ reason = "A member of an open tagged union this package does not know (ADR 0099)
 words = ["unknown", "member"]
 form = "type"
 
+[[member]]
+package = "goodfetch_collie_client.webhook"
+receiver = "(module)"
+member = "verify_webhook"
+entry = "none"
+reason = "Checks a `webhook` channel's delivery in the program that receives it, with no engine and no Connection (ADR 0027; issue 1391): its Standard Webhooks signature against the secrets given, its timestamp within 5 minutes, and its body, read as a Notification payload; `webhook_invalid` otherwise."
+words = ["verify", "webhook"]
+form = "read"
+
 [[unreached]]
 entries = [
   "audit.export",
   "audit.verify",
+  "cache.clear",
+  "cache.stats",
+  "cache.verify",
   "certs.list",
   "daemon.health",
   "daemon.status",

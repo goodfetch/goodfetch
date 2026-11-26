@@ -311,6 +311,8 @@ pub enum Listener {
     PrivateEndpoint,
     /// A Daemon's WebSocket listener.
     DaemonWebsocket,
+    /// A Daemon's Live view channels (ADR 0149).
+    LiveView,
     /// The foreground Daemon's ops listener (ADR 0050).
     OpsListener,
     /// A Session's egress relay.
@@ -321,12 +323,13 @@ pub enum Listener {
 
 impl Listener {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Stdio,
         Self::DaemonSocket,
         Self::ExposedDaemon,
         Self::PrivateEndpoint,
         Self::DaemonWebsocket,
+        Self::LiveView,
         Self::OpsListener,
         Self::EgressRelay,
         Self::ProxyRelay,
@@ -431,6 +434,12 @@ pub const LENT_PAGE_ATTACHED: SharedTypeValue = kind(
     "A page was lent to the program's own Playwright client (ADR 0089).",
 );
 
+/// A `stealth` Session's Fingerprint method chosen.
+pub const FINGERPRINT_METHOD_CHOSEN: SharedTypeValue = kind(
+    "fingerprint_method_chosen",
+    "A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).",
+);
+
 /// A certificate pinned on first use.
 pub const CERTIFICATE_PINNED: SharedTypeValue = kind(
     "certificate_pinned",
@@ -530,6 +539,7 @@ pub const ENTRIES: Entries = Entries {
         ENDPOINT_REFUSALS_FOLDED,
         RAW_CDP_ATTACHED,
         LENT_PAGE_ATTACHED,
+        FINGERPRINT_METHOD_CHOSEN,
         CERTIFICATE_PINNED,
         CERTIFICATE_CHANGE_ACCEPTED,
         CERTIFICATE_PIN_FORGOTTEN,

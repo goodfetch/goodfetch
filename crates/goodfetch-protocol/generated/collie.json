@@ -904,6 +904,310 @@
       ],
       "type": "object"
     },
+    "CacheBodyProblem": {
+      "description": "What `cache.verify` found wrong with a body file.",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "The file is not there.",
+          "type": "string"
+        },
+        {
+          "const": "changed",
+          "description": "The file's bytes are not the body stored: their SHA-256 or their\nlength is another.",
+          "type": "string"
+        }
+      ]
+    },
+    "CacheClearParams": {
+      "additionalProperties": false,
+      "description": "What `cache.clear` takes: which of the caller's entries leave, each\ngiven filter narrowing it; every one of them when none is given.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "country": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched through this proxy exit country; the\nempty text for those that left directly.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched with this device class; the empty text\nfor those fetched without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "Only the entries of this host and its subdomains.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched with this Identity profile language; the\nempty text for those fetched without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "Only the entries of this partition: `public`, or a Saved\nidentity's name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Only the entries this Run fetched."
+        }
+      },
+      "type": "object"
+    },
+    "CacheCleared": {
+      "description": "What `cache.clear` answers: what left.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The body files deleted with them: those no entry left holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes those body files weighed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The entries deleted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "CacheDamage": {
+      "description": "An entry whose body file `cache.verify` found damaged.",
+      "properties": {
+        "body_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the body stored, as lower-case hex: its file's name.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "The entry's partition: `public`, or a Saved identity's name.",
+          "type": "string"
+        },
+        "problem": {
+          "$ref": "#/$defs/CacheBodyProblem",
+          "arrived_in": "0.1",
+          "description": "What is wrong with its body file."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run that fetched it; none outside a Run."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "method",
+        "url",
+        "body_sha256",
+        "problem"
+      ],
+      "type": "object"
+    },
+    "CachePartitionStats": {
+      "description": "One partition's entries, as `cache.stats` counts them.",
+      "properties": {
+        "country": {
+          "arrived_in": "0.1",
+          "description": "The proxy's exit country its entries were fetched through; empty\nwhen they left directly or the Proxy declares none.",
+          "type": "string"
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's device class; empty without one.",
+          "type": "string"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "Its entries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's language; empty without one.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "`public`, or the Saved identity whose partition it is.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "country",
+        "language",
+        "device",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "CacheStats": {
+      "description": "What `cache.stats` answers: what the caller's Response cache holds.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The bodies they hold, each once however many entries share it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "body_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes those bodies weigh, each once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes the whole cache holds on disk, every person's bodies and\nits index, which `cache.max_size` bounds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "partitions": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries by partition, the most entries first.",
+          "items": {
+            "$ref": "#/$defs/CachePartitionStats"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "body_bytes",
+        "held_bytes",
+        "partitions"
+      ],
+      "type": "object"
+    },
+    "CacheStatsParams": {
+      "additionalProperties": false,
+      "description": "What `cache.stats` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "CacheVerified": {
+      "description": "What `cache.verify` answers: what it read, and what it found damaged.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The body files it read and hashed, each once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "damaged": {
+          "arrived_in": "0.1",
+          "description": "The entries whose body file is missing or no longer the body\nstored; none when the cache is whole.",
+          "items": {
+            "$ref": "#/$defs/CacheDamage"
+          },
+          "type": "array"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries it checked.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "damaged"
+      ],
+      "type": "object"
+    },
+    "CacheVerifyParams": {
+      "additionalProperties": false,
+      "description": "What `cache.verify` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "CallCancelledDetails": {
       "description": "What `call_cancelled` details (ADR 0113).",
       "properties": {
@@ -2257,6 +2561,14 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "live_view": {
+          "arrived_in": "0.1",
+          "description": "Where a Live view channel opens, the WebSocket's `host:port`; none\nwhere it accepts none, as with `live_view.enabled` off.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "pid": {
           "arrived_in": "0.1",
@@ -5207,6 +5519,20 @@
       "required": [
         "event",
         "lost"
+      ],
+      "type": "object"
+    },
+    "LiveViewViewerLimitDetails": {
+      "description": "What `live_view_viewer_limit` details.",
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "`live_view.max_viewers`, its value and its layer."
+        }
+      },
+      "required": [
+        "limit"
       ],
       "type": "object"
     },
@@ -9282,6 +9608,26 @@
       ],
       "type": "object"
     },
+    "RecordingInvalidDetails": {
+      "description": "What `recording_invalid`'s details hold.",
+      "properties": {
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recording",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RecordingMode": {
       "description": "What a Run does with the Response recording its start names (ADR 0105).",
       "oneOf": [
@@ -9770,6 +10116,47 @@
         "url",
         "setting",
         "limit"
+      ],
+      "type": "object"
+    },
+    "ResponseNotRecordedDetails": {
+      "description": "What `response_not_recorded`'s details hold.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: record the file again, or answer the request with a\nroute.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "nearest": {
+          "arrived_in": "0.1",
+          "description": "The recorded URLs of the request's host and path, in the order\nrecorded, at most five.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url",
+        "recording",
+        "nearest",
+        "fix"
       ],
       "type": "object"
     },
@@ -15428,6 +15815,45 @@
       ],
       "type": "object"
     },
+    "WebhookInvalidDetails": {
+      "description": "What `webhook_invalid` details.",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/WebhookInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why the call was refused."
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "WebhookInvalidReason": {
+      "description": "Why a call is no verified delivery.",
+      "oneOf": [
+        {
+          "const": "signature",
+          "description": "No signature of `webhook-signature` matches a secret given.",
+          "type": "string"
+        },
+        {
+          "const": "timestamp",
+          "description": "`webhook-timestamp` is no whole number of seconds, or more than 5\nminutes from now: a delayed or replayed call.",
+          "type": "string"
+        },
+        {
+          "const": "malformed",
+          "description": "The body is no Notification payload of a major the SDK reads.",
+          "type": "string"
+        },
+        {
+          "const": "missing_header",
+          "description": "`webhook-id`, `webhook-timestamp` or `webhook-signature` is\nmissing.",
+          "type": "string"
+        }
+      ]
+    },
     "World": {
       "description": "Where a page function runs (ADR 0085).",
       "oneOf": [
@@ -16145,6 +16571,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "As many viewers as `live_view.max_viewers` allows already watch the Session, so the channel opened none. `limit` names the setting, its value and the layer that set it. Open the channel again once a viewer leaves, or raise the setting.",
+      "details": {
+        "$ref": "#/$defs/LiveViewViewerLimitDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "live_view_viewer_limit",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here.",
       "details": {
         "$ref": "#/$defs/LocalAddressUnavailableDetails"
@@ -16559,6 +16998,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Response recording a start names cannot be read, is not WARC, is a WARC version the engine does not read, or holds a record that is not what it says, so no Run started. The details name the recording and what is wrong with it. Record the file again, or name another.",
+      "details": {
+        "$ref": "#/$defs/RecordingInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recording_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
       "exit_code": null,
       "group": "program",
@@ -16600,6 +17052,19 @@
       "group": "page",
       "json_rpc_class": -32003,
       "name": "response_not_json",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run replays a Response recording that holds no response for a request it would send, so the request was refused and nothing reached the site. The details name the request's method and URL, the recording, and the recorded URLs of the same host and path, which show what differs, such as a cache-buster in the query. Record the file again, or answer the request with a route.",
+      "details": {
+        "$ref": "#/$defs/ResponseNotRecordedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "response_not_recorded",
       "product": "collie",
       "retryable": false
     },
@@ -17072,6 +17537,19 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "value_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call is no verified delivery of a `webhook` channel: a Standard Webhooks header is missing, its timestamp is more than 5 minutes from now, no signature matches a secret given, or its body is no Notification payload of a major this SDK reads. Answer the call with an error and keep nothing of it; when every delivery fails, check that the secret given is the channel's `webhook.secret`.",
+      "details": {
+        "$ref": "#/$defs/WebhookInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "webhook_invalid",
       "product": "collie",
       "retryable": false
     }
@@ -18158,6 +18636,63 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cache.clear",
+      "params": {
+        "$ref": "#/$defs/CacheClearParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheCleared"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "query",
+      "name": "cache.stats",
+      "params": {
+        "$ref": "#/$defs/CacheStatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheStats"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cache.verify",
+      "params": {
+        "$ref": "#/$defs/CacheVerifyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheVerified"
       },
       "stability": "experimental"
     },
@@ -20908,7 +21443,7 @@
       "clearable": false,
       "default": "127.0.0.1:7600",
       "deprecated": null,
-      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
       "fixed_for_run": false,
       "name": "daemon.address",
       "product": "collie",
@@ -21182,7 +21717,7 @@
       "clearable": false,
       "default": false,
       "deprecated": null,
-      "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
+      "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
       "fixed_for_run": false,
       "name": "egress.no_private_endpoints",
       "product": "collie",
@@ -22108,6 +22643,27 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. A running Daemon reads it again for each channel, so turning it off through that Daemon refuses new viewers at once, while a hand edit of the files, or a write through another engine, is seen at the Daemon's next read of them; a listener it did not open at its start opens only at its next start, such as `daemon restart`. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "live_view.enabled",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": "auto",
@@ -22130,6 +22686,52 @@
           "auto",
           "off",
           "always"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10,
+      "deprecated": null,
+      "description": "How many viewers may watch one Session at once: 10. The next one's channel is refused with `live_view_viewer_limit`. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "live_view.max_viewers",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "auto",
+      "deprecated": null,
+      "description": "How a Live view captures its Session: `auto` (the default) takes the best tier the Session's browser offers, `screencast` for a headless one, and falls back to the next when one fails; `screencast` takes the browser's own screencast of the shown page, JPEG frames sized to the largest screen watching. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "live_view.tier",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "enum": [
+          "auto",
+          "screencast"
         ]
       },
       "weakening": null,
@@ -22435,12 +23037,28 @@
                       ]
                     },
                     "region": {
+                      "anyOf": [
+                        {
+                          "description": "The Mailgun region a sending domain lives in.",
+                          "oneOf": [
+                            {
+                              "const": "us",
+                              "description": "The United States, at `api.mailgun.net`.",
+                              "type": "string"
+                            },
+                            {
+                              "const": "eu",
+                              "description": "The European Union, at `api.eu.mailgun.net`.",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
                       "arrived_in": "0.1",
-                      "description": "The region, `us` or `eu`.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
+                      "description": "The region its domain lives in: `us` when left out."
                     }
                   },
                   "type": [
@@ -26215,6 +26833,13 @@
       "name": "fingerprint_js_injection",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).",
+      "name": "fingerprint_method_chosen",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

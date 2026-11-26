@@ -1,0 +1,9 @@
+# Which of goodfetch-identity-profile's top-level modules may import which (ADR 0126).
+[modules]
+archive = []
+candidates = ["archive", "population", "profile"]
+constraints = ["candidates", "population"]
+generate = ["candidates", "constraints", "population", "profile", "version_fields"]
+population = []
+profile = ["population"]
+version_fields = ["population", "profile"]

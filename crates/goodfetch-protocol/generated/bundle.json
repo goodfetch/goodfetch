@@ -1265,6 +1265,310 @@
         }
       ]
     },
+    "CacheBodyProblem": {
+      "description": "What `cache.verify` found wrong with a body file.",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "The file is not there.",
+          "type": "string"
+        },
+        {
+          "const": "changed",
+          "description": "The file's bytes are not the body stored: their SHA-256 or their\nlength is another.",
+          "type": "string"
+        }
+      ]
+    },
+    "CacheClearParams": {
+      "additionalProperties": false,
+      "description": "What `cache.clear` takes: which of the caller's entries leave, each\ngiven filter narrowing it; every one of them when none is given.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "country": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched through this proxy exit country; the\nempty text for those that left directly.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched with this device class; the empty text\nfor those fetched without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "Only the entries of this host and its subdomains.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched with this Identity profile language; the\nempty text for those fetched without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "Only the entries of this partition: `public`, or a Saved\nidentity's name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Only the entries this Run fetched."
+        }
+      },
+      "type": "object"
+    },
+    "CacheCleared": {
+      "description": "What `cache.clear` answers: what left.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The body files deleted with them: those no entry left holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes those body files weighed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The entries deleted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "CacheDamage": {
+      "description": "An entry whose body file `cache.verify` found damaged.",
+      "properties": {
+        "body_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the body stored, as lower-case hex: its file's name.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "The entry's partition: `public`, or a Saved identity's name.",
+          "type": "string"
+        },
+        "problem": {
+          "$ref": "#/$defs/CacheBodyProblem",
+          "arrived_in": "0.1",
+          "description": "What is wrong with its body file."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run that fetched it; none outside a Run."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "method",
+        "url",
+        "body_sha256",
+        "problem"
+      ],
+      "type": "object"
+    },
+    "CachePartitionStats": {
+      "description": "One partition's entries, as `cache.stats` counts them.",
+      "properties": {
+        "country": {
+          "arrived_in": "0.1",
+          "description": "The proxy's exit country its entries were fetched through; empty\nwhen they left directly or the Proxy declares none.",
+          "type": "string"
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's device class; empty without one.",
+          "type": "string"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "Its entries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's language; empty without one.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "`public`, or the Saved identity whose partition it is.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "country",
+        "language",
+        "device",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "CacheStats": {
+      "description": "What `cache.stats` answers: what the caller's Response cache holds.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The bodies they hold, each once however many entries share it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "body_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes those bodies weigh, each once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes the whole cache holds on disk, every person's bodies and\nits index, which `cache.max_size` bounds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "partitions": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries by partition, the most entries first.",
+          "items": {
+            "$ref": "#/$defs/CachePartitionStats"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "body_bytes",
+        "held_bytes",
+        "partitions"
+      ],
+      "type": "object"
+    },
+    "CacheStatsParams": {
+      "additionalProperties": false,
+      "description": "What `cache.stats` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "CacheVerified": {
+      "description": "What `cache.verify` answers: what it read, and what it found damaged.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The body files it read and hashed, each once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "damaged": {
+          "arrived_in": "0.1",
+          "description": "The entries whose body file is missing or no longer the body\nstored; none when the cache is whole.",
+          "items": {
+            "$ref": "#/$defs/CacheDamage"
+          },
+          "type": "array"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries it checked.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "damaged"
+      ],
+      "type": "object"
+    },
+    "CacheVerifyParams": {
+      "additionalProperties": false,
+      "description": "What `cache.verify` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "CallCancelledDetails": {
       "description": "What `call_cancelled` details (ADR 0113).",
       "properties": {
@@ -17261,6 +17565,26 @@
       ],
       "type": "object"
     },
+    "RecordingInvalidDetails": {
+      "description": "What `recording_invalid`'s details hold.",
+      "properties": {
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recording",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RecordingMode": {
       "description": "What a Run does with the Response recording its start names (ADR 0105).",
       "oneOf": [
@@ -18405,6 +18729,47 @@
       "required": [
         "content_type",
         "call",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ResponseNotRecordedDetails": {
+      "description": "What `response_not_recorded`'s details hold.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: record the file again, or answer the request with a\nroute.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "nearest": {
+          "arrived_in": "0.1",
+          "description": "The recorded URLs of the request's host and path, in the order\nrecorded, at most five.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url",
+        "recording",
+        "nearest",
         "fix"
       ],
       "type": "object"

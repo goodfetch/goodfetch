@@ -1,0 +1,42 @@
+WARC/1.1
+WARC-Type: warcinfo
+Content-Type: application/warc-fields
+WARC-Date: 2026-11-20T10:00:00Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000021>
+Content-Length: 20
+
+software: Goodfetch
+
+
+WARC/1.1
+WARC-Type: request
+WARC-Target-URI: https://example.test/login#form
+Content-Type: application/http; msgtype=request
+WARC-Date: 2026-11-20T10:00:01Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000022>
+WARC-Concurrent-To: <urn:uuid:00000000-0000-4000-8000-000000000023>
+Content-Length: 140
+
+POST /login HTTP/1.1
+Host: example.test
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 32
+
+user=ada&password=%25password%25
+
+
+WARC/1.1
+WARC-Type: response
+WARC-Target-URI: https://example.test/login#form
+Content-Type: application/http; msgtype=response
+WARC-Date: 2026-11-20T10:00:02Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000023>
+WARC-Block-Digest: sha256:MJQYOJOSW7LCPZ5MP3QKIE6IQLMKQ4IG6K4M3ONB2DLIC6Y3A5FA====
+Content-Length: 61
+
+HTTP/1.1 303 See Other
+Location: /account
+Content-Length: 0
+
+
+

@@ -103,17 +103,27 @@ export class CrawlRun extends Run {
     handleIn = (run, request, signal) => run.#handle(request, signal);
   }
 
-  readonly #crawl: Crawl;
+  /** Its crawl, whose handlers its attempts run; none for a code-free crawl. */
+  readonly #crawl: Crawl | undefined;
   readonly #crawlHost: CrawlHost;
   /** The attempts running, each stopped when the Run is closed. */
   readonly #attempts = new Set<AbortController>();
   /** Whether `close()` was called: it stops the attempts and forgets the Run once. */
   #closed = false;
 
-  /** @internal `Foxhound.startCrawl` opens a crawl's Run; a program never constructs one. */
-  constructor(host: RunHost, started: RunStarted, crawl: Crawl, crawlHost: CrawlHost) {
+  /**
+   * @internal `Foxhound.startCrawl` opens a crawl's Run; a program never
+   * constructs one. A `detached` start's Run outlives its program.
+   */
+  constructor(
+    host: RunHost,
+    started: RunStarted,
+    crawl: Crawl | undefined,
+    crawlHost: CrawlHost,
+    detached = false,
+  ) {
     // Its report and progress are a crawl's (ADR 0120).
-    super(crawlRunHost(host), started);
+    super(crawlRunHost(host), started, detached);
     // A crawl's Run takes the `crawl` operations beside a Run's (ADR 0099).
     alsoInNamespace(this, "crawl");
     this.#crawl = crawl;
@@ -308,8 +318,9 @@ export class CrawlRun extends Run {
     served: AbortSignal,
   ): Promise<CrawlRequestHandled> {
     const { label } = request.crawlRequest;
-    const handler = handlerOf(this.#crawl, label);
-    if (handler === undefined) {
+    const crawl = this.#crawl;
+    const handler = crawl === undefined ? undefined : handlerOf(crawl, label);
+    if (crawl === undefined || handler === undefined) {
       throw new HandlerFailedError(`the Crawl attaches no handler to the Label ${label}`, {
         fix: "Attach one with `crawl.handle(label, handler)` before starting the crawl.",
         details: { label },
@@ -318,7 +329,7 @@ export class CrawlRun extends Run {
     const attempt = new AbortController();
     this.#attempts.add(attempt);
     try {
-      await handler(this.#contextOf(request, AbortSignal.any([attempt.signal, served])));
+      await handler(this.#contextOf(crawl, request, AbortSignal.any([attempt.signal, served])));
       return {};
     } catch (error) {
       if (error instanceof GoodfetchError) throw error;
@@ -328,11 +339,10 @@ export class CrawlRun extends Run {
     }
   }
 
-  #contextOf(request: CrawlRequestHandleParams, signal: AbortSignal): CrawlContext {
+  #contextOf(crawl: Crawl, request: CrawlRequestHandleParams, signal: AbortSignal): CrawlContext {
     const lease = { crawlRequestId: request.crawlRequest.id, leaseEpoch: request.leaseEpoch };
     const attempt = { runId: this.id(), ...lease };
     const calls = this.#crawlHost.calls;
-    const crawl = this.#crawl;
     const options: CallOptions = { signal };
     const pageId = request.pageId ?? undefined;
     const page =

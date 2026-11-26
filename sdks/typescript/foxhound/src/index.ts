@@ -26,11 +26,13 @@ export type {
 } from "./generated/shared-types.ts";
 export {
   Foxhound,
+  type CodeFreeCrawl,
   type FoxhoundConnectOptions,
   type FoxhoundConnectOverOptions,
   type FoxhoundHandlerlessStartOptions,
   type FoxhoundLimits,
   type FoxhoundStartOptions,
+  type StartCodeFreeCrawlOptions,
   type StartCrawlOptions,
 } from "./foxhound.ts";
 export {
@@ -65,6 +67,8 @@ export type {
   SinkHandler,
 } from "./handlers.ts";
 export type {
+  CrawlDeclaration,
+  CrawlExtraction,
   CrawlRunProgress,
   CrawlRunReport,
   CrawlSettings,

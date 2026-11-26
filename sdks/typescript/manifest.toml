@@ -2867,6 +2867,26 @@ form = "type"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "(module)"
+member = "CodeFreeCrawl"
+entry = "none"
+reason = "A crawl `Foxhound.startCrawl` starts with no handler: a `CrawlDeclaration` or an `extraction` (ADR 0093)."
+only = "Rust's `start_crawl` takes a `CrawlTarget`, which a `Crawl`, a `CrawlDeclaration` or a `CrawlExtraction` converts into."
+words = ["code", "free", "crawl"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "StartCodeFreeCrawlOptions"
+entry = "none"
+reason = "What `Foxhound.startCrawl` takes for a code-free crawl: `StartCrawlOptions` and `detached` (ADR 0093)."
+only = "Rust's `start_crawl` returns the builder `StartCrawl`, which takes each option by a call of its own (ADR 0112)."
+words = ["start", "code", "free", "crawl", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
 member = "Crawl"
 entry = "none"
 reason = "A crawl's declaration (ADR 0093), which `crawl.start` sends."

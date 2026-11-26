@@ -100,9 +100,9 @@ and not (
 # project's `Cargo.toml` while another built it (issue 3069): one at a time
 # (TESTING.md, Isolation).
 #
-# Timing-sensitive tests (TESTING.md, Time) wait on real time against a
-# figure of their own: a lease, a navigation timeout, a domain delay or
-# rate, an idle timer, a race's delay, a kill's deadline, the protocol
+# Timing-sensitive tests (TESTING.md, Time) wait on, or measure, real time
+# against a figure of their own: a lease, a navigation timeout, a domain
+# delay or rate, an idle timer, a race's delay, a kill's deadline, the protocol
 # client's per-message deadline over a long browser run, the 5 seconds a
 # held blocking pool waits for the work it holds it for
 # (`with_the_blocking_pool_held`), the bound on Welch's t between two kinds

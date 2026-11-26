@@ -520,9 +520,11 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             .await?;
         let first = sessions.page(&opened.page_id).await?;
         let first_lease = first.lease().is_some();
-        // A world the engine keeps in the browser's page, which belongs to
-        // its browser-page part.
+        // A world the engine keeps in the browser's page and a consent
+        // prompt the runner found on its document, still to be judged,
+        // which belong to its browser-page part.
         first.owner.worlds().keep_guard(7);
+        first.owner.consent_walls().detected();
         let before = *commands.borrow();
         let next = sessions
             .replace_request(&opened.page_id, PageValue::new(Admits, LeaseGone))
@@ -534,6 +536,12 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             .as_ref()
             .is_ok_and(|now| now.driver.main_frame() == first.driver.main_frame());
         let kept_world = now.as_ref().ok().and_then(|now| now.owner.worlds().guard());
+        let kept_wall_pending = now
+            .as_ref()
+            .is_ok_and(|now| now.owner.consent_walls().pending());
+        let same_hiding = now
+            .as_ref()
+            .is_ok_and(|now| std::ptr::eq(now.owner.hiding(), first.owner.hiding()));
         let ended = |lease: Option<Arc<dyn LeaseCheck>>| lease.map(|lease| lease.check().is_err());
         Ok::<_, CallError>(json!({
             "first": opened.page_id,
@@ -544,6 +552,8 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
             "same_page": same_page,
             "commands": read,
             "kept_world": kept_world,
+            "kept_wall_pending": kept_wall_pending,
+            "same_hiding": same_hiding,
             "first_lease": first_lease,
             "first_handle_lease_ended": ended(first.lease()),
             "next_lease_ended": now.ok().and_then(|now| ended(now.lease())),
@@ -845,9 +855,10 @@ fn a_panic_in_a_browsers_task_is_its_crash_and_its_run_goes_on() {
 
 /// A Page whose request part is replaced gets a Page ID of its own for its
 /// next request, which names the same browser's page, and a call on its
-/// earlier ID raises `closed` naming that ID; the replacement sends the
-/// browser nothing and leaves the browser-page part as it was (ADR 0146's
-/// "A released Page", #2277).
+/// earlier ID raises `closed` naming that ID; the replacement of a request
+/// that armed no init script and heard no console sends the browser
+/// nothing, and it leaves the browser-page part as it was, its world, its
+/// consent wall and its hiding (ADR 0146's "A released Page", #2277).
 #[test]
 fn a_page_whose_request_part_is_replaced_answers_its_new_id_alone() {
     let env = TestEnv::new();
@@ -869,8 +880,11 @@ fn a_page_whose_request_part_is_replaced_answers_its_new_id_alone() {
     assert_eq!(result["same_page"], json!(true), "{reply}");
     assert_eq!(result["commands"], json!(0), "{reply}");
     // Its browser-page part is left as it was: the world the engine kept
-    // in it is still there.
+    // in it, the consent prompt still to be judged and its hiding are
+    // still there.
     assert_eq!(result["kept_world"], json!(7), "{reply}");
+    assert_eq!(result["kept_wall_pending"], json!(true), "{reply}");
+    assert_eq!(result["same_hiding"], json!(true), "{reply}");
     // The next request's lease check is the page's, every handle of it
     // included (#2277).
     assert_eq!(result["first_lease"], json!(false), "{reply}");

@@ -85,6 +85,9 @@ pub(super) struct Adopting {
 /// the end no longer waits for it (#1763).
 struct TakenIn {
     page: PageId,
+    /// The Page ID of the request it serves, which its request part's
+    /// parts read: one cell, `page` until a replacement writes it.
+    served: Arc<watch::Sender<PageId>>,
     driver: PageDriver,
     run: Arc<BrowserRun>,
     /// Its Run's identity that starts its parts' tasks on its owner.
@@ -143,6 +146,7 @@ impl TakenIn {
                     worlds: PageWorlds::default(),
                 },
                 request: RequestPart {
+                    page_id: Arc::clone(&self.served),
                     events,
                     dialogs,
                     init_scripts,
@@ -274,8 +278,9 @@ impl Sessions {
         (stream, observer): (&Events, Option<Observer>),
     ) -> (TakenIn, Refusals, Vec<OnChild>) {
         let refusals = Refusals::default();
+        let served = Arc::new(watch::Sender::new(page.clone()));
         let events = PageEvents::start(
-            page.clone(),
+            served.subscribe(),
             driver.clone(),
             page_events::RunPowers {
                 identity: tasks.clone(),
@@ -287,16 +292,18 @@ impl Sessions {
             observer,
         );
         let cdp = CdpPage::of(driver);
-        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone(), page.clone());
+        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone(), served.subscribe());
         let in_frames = vec![events.frames(), init_scripts.frames()];
+        let dialogs = self.dialogs.start(served.subscribe(), cdp, tasks);
         let taken_in = TakenIn {
             page: page.clone(),
+            served,
             driver: driver.clone(),
             run: Arc::clone(run),
             tasks: tasks.clone(),
             in_browser: Some(in_browser),
             events: Some(events),
-            dialogs: Some(self.dialogs.start(page.clone(), cdp, tasks)),
+            dialogs: Some(dialogs),
             init_scripts: Some(init_scripts),
             interception: None,
             walls: Walls::default(),
@@ -360,7 +367,7 @@ impl Sessions {
         let owner = PageOwner::start(
             (&open.owner, tasks),
             run.identity.span(),
-            (&page, parts, order),
+            (parts, order),
             page_closed(&page),
             run.identity.metrics(),
         );
@@ -439,7 +446,7 @@ impl Sessions {
         let held = self
             .interception
             .start(
-                page,
+                &taken_in.served.subscribe(),
                 &open.interception,
                 driver,
                 (&interception_run(run), starting),
@@ -489,7 +496,7 @@ impl Sessions {
     /// holds `driver`'s main frame too.
     async fn follow_popups(&self, session: &SessionId, open: &Session, driver: &PageDriver) {
         if let Some(held) = &open.held_frames {
-            held.0.lock().await.insert(driver.main_frame().clone());
+            held.0.lock().await.insert(driver.target());
         }
         let popups: OnPopup = Arc::new(SessionPopups {
             sessions: self.clone(),
@@ -507,7 +514,7 @@ impl Sessions {
         let Some(open) = self.index.session(session) else {
             return false;
         };
-        let Some((opener_id, opener)) = open.pages.find(|page| page.driver.main_frame() == opener)
+        let Some((opener_id, opener)) = open.pages.find(|page| page.driver.is_target(opener))
         else {
             return false;
         };
@@ -650,8 +657,9 @@ impl Sessions {
     /// released Page"): the page serves its next request under a Page ID
     /// of its own, which this answers, and under `value`, that request's
     /// gate, lease check and Page check, and a call on `page_id` raises
-    /// `closed` from then on. It sends the browser nothing. `closed` when
-    /// the page is not `Open`: gone, ending, navigating or paused.
+    /// `closed` from then on. It sends the browser only the removal of the
+    /// earlier request's init scripts. `closed` when the page is not
+    /// `Open`: gone, ending, navigating or paused.
     #[cfg_attr(
         not(test),
         expect(
@@ -691,21 +699,22 @@ impl Sessions {
         Ok(next)
     }
 
-    /// Whether `page_id` names a page this engine opened.
+    /// Whether `page_id` is a Page ID this engine gave, to a page it opened
+    /// or to a request one of its pages serves next.
     async fn opened(&self, page_id: &PageId) -> bool {
-        let opened = self.state.lock().await.opened_pages;
-        opening_number(page_id).is_some_and(|number| (1..=opened).contains(&number))
+        let given = self.state.lock().await.page_ids_given;
+        opening_number(page_id).is_some_and(|number| (1..=given).contains(&number))
     }
 }
 
 /// The next Page ID `state` gives, a page's the engine opens or a request's
 /// a page serves next, in one order.
 fn next_page_id(state: &mut State) -> PageId {
-    state.opened_pages += 1;
-    PageId(format!("page-{}", state.opened_pages))
+    state.page_ids_given += 1;
+    PageId(format!("page-{}", state.page_ids_given))
 }
 
-/// The number a page's ID gives it in opening order.
+/// The number a Page ID gives it in the order Page IDs are given.
 fn opening_number(page: &PageId) -> Option<u64> {
     page.0.strip_prefix("page-")?.parse().ok()
 }

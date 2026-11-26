@@ -88,6 +88,7 @@ pub(crate) use self::targets::pointer_click;
 use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
 use super::launch::{Launcher, launch};
+use super::{FrameId, TargetId};
 use crate::browser_run::BrowserRun;
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
@@ -202,10 +203,10 @@ pub(crate) struct Browser {
     /// meanwhile may wait for the engine forever, so its pool takes it out
     /// of service (spec #2256, #3261).
     root_fell_behind: CancellationToken,
-    /// The value of the page this connection drives, whose lease check,
-    /// when it has one, is asked before each command it sends; none on the
-    /// browser's own connection (ADR 0087).
-    lease: Option<RequestValue>,
+    /// The request value of the page this connection drives, whose lease
+    /// check, when it has one, is asked before each command it sends; none
+    /// on the browser's own connection (ADR 0087).
+    request: Option<RequestValue>,
     /// Its Run's deadlines, which its commands wait under.
     deadlines: Arc<Deadlines>,
     /// Its Run's Counted work, where its commands and its pages' reads
@@ -266,7 +267,7 @@ impl Browser {
             launched: false,
             state: Arc::default(),
             root_fell_behind: CancellationToken::new(),
-            lease: None,
+            request: None,
             counting: None,
             deadlines: Arc::new(Deadlines {
                 launch: Deadline::declared(&TIMEOUT_LAUNCH),
@@ -380,7 +381,7 @@ impl Browser {
 
     /// Withholds the command `C` once the page's work item's lease ended.
     fn leased<C: Command>(&self) -> Result<(), Failure> {
-        match self.lease.as_ref().and_then(RequestValue::lease) {
+        match self.request.as_ref().and_then(RequestValue::lease) {
             Some(lease) if lease.check().is_err() => Err(Failure::Withheld { method: C::METHOD }),
             _ => Ok(()),
         }
@@ -415,7 +416,7 @@ impl Browser {
     /// the error that check gives, the Product's own (ADR 0087).
     async fn failed(&self, call: &Call, failure: &Failure) -> CallError {
         if let Failure::Withheld { method } = failure
-            && let Some(lease) = self.lease.as_ref().and_then(RequestValue::lease)
+            && let Some(lease) = self.request.as_ref().and_then(RequestValue::lease)
         {
             let ended = lease.check().err().unwrap_or(LeaseEnded::Released);
             return lease.withheld(ended, method);
@@ -633,7 +634,7 @@ impl Connect for BorrowedBrowser {
                     launched: false,
                     state: Arc::clone(&self.state),
                     root_fell_behind: CancellationToken::new(),
-                    lease: None,
+                    request: None,
                     counting: None,
                     deadlines: Deadlines::of(&self.run.identity),
                     work: self.run.identity.metrics().counted_work().clone(),
@@ -805,7 +806,7 @@ impl Connect for LocalBrowser {
                     launched: true,
                     state: Arc::clone(&self.state),
                     root_fell_behind: CancellationToken::new(),
-                    lease: None,
+                    request: None,
                     counting: None,
                     deadlines: Deadlines::of(&self.run.identity),
                     work: self.run.identity.metrics().counted_work().clone(),
@@ -1137,8 +1138,8 @@ pub(crate) struct PageDriver {
     egress: SessionEgress,
     /// Its Session's browser context.
     context: browser::BrowserContextID,
-    /// The page's main frame.
-    frame: page::FrameId,
+    /// The page's main frame, whose ID is its target's too.
+    frame: FrameId,
     /// How many navigations the engine started on the page, by which one
     /// the browser cancelled is known to be superseded.
     started: Arc<watch::Sender<u64>>,
@@ -1152,7 +1153,9 @@ pub(crate) struct PageDriver {
     /// navigation gate and lease check, the latter asked before each
     /// command its `browser` sends.
     value: RequestValue,
-    /// Its waits for its gate's permits, when it has a gate.
+    /// Its waits for its gate's and its Session's proxy's permits, once it
+    /// carries a value: whichever value replaces it, the waits are the
+    /// page's.
     waits: Option<Arc<PermitWaits>>,
     /// The document reader Foxhound registered on it, no part of its
     /// value: none on a program's page (ADR 0119).
@@ -1200,8 +1203,18 @@ impl Drop for NavigationCall<'_> {
 
 impl PageDriver {
     /// The page's main frame.
-    pub(crate) fn main_frame(&self) -> &page::FrameId {
+    pub(crate) fn main_frame(&self) -> &FrameId {
         &self.frame
+    }
+
+    /// The page's target, by which a popup names it as its opener.
+    pub(crate) fn target(&self) -> TargetId {
+        TargetId(self.frame.clone())
+    }
+
+    /// Whether `target` is the page's target.
+    pub(crate) fn is_target(&self, target: &TargetId) -> bool {
+        self.frame == target.0
     }
 
     /// Its Session's proxy, if it has one.
@@ -1254,9 +1267,10 @@ impl PageDriver {
     /// as that page's request part is replaced; its Run reads time from
     /// `clock`, as [`Self::with_value`] says.
     pub(crate) fn carrying(mut self, carried: RequestValue, clock: Clock) -> Self {
-        self.browser.lease = Some(carried.clone());
-        self.waits = (carried.now().gate().is_some() || self.egress.proxy.is_some())
-            .then(|| PermitWaits::new(clock));
+        self.browser.request = Some(carried.clone());
+        // Whether or not the value now has a gate: a later request part's
+        // value, which every handle follows, may have one.
+        self.waits = Some(PermitWaits::new(clock));
         self.value = carried;
         self
     }

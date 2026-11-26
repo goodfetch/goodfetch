@@ -186,7 +186,9 @@ struct State {
     /// They outlive their Session, so they are their Run's, never their
     /// Session's (ADR 0146).
     crashed: BTreeMap<PageId, (RunId, PageLife)>,
-    opened_pages: u64,
+    /// How many Page IDs the engine gave, to the pages it opened and to
+    /// the requests its pages serve next (ADR 0146), in one order.
+    page_ids_given: u64,
 }
 
 /// A live Run's Sessions.

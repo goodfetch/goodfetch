@@ -43,7 +43,7 @@ use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
 use crate::cdp::driver::PageDriver;
-use crate::cdp::{CdpPage, KeyEvent, TargetSession, keys};
+use crate::cdp::{CdpPage, ExecutionContextId, KeyPress, TargetSession, keys};
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;
@@ -59,9 +59,6 @@ const SET_VALUE: &str = include_str!("guard/set_value.js");
 /// press's input was sent.
 const SETTLED: &str = "function settled() {}";
 
-/// The browser's ID of a world in a document.
-type ExecutionContextId = i64;
-
 /// The longest one check waits in the page before it answers, so that a
 /// navigation that replaced the document, or the call's cancellation, is
 /// seen within it.
@@ -73,8 +70,8 @@ pub(crate) enum Action {
     Click,
     /// Replaces its text with this text.
     Fill(String),
-    /// Sends these key events to it.
-    Press(Vec<KeyEvent>),
+    /// Sends this key press to it.
+    Press(KeyPress),
 }
 
 impl Action {

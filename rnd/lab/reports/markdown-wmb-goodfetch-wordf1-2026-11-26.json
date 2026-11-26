@@ -1,0 +1,311 @@
+{
+ "schemaVersion": 2,
+ "runId": "markdown-wmb-goodfetch-2026-11-26T09-31-57-694Z-25379f",
+ "unit": "page",
+ "metric": "word F1 (lab definition)",
+ "baseline": "goodfetch",
+ "extractors": {
+  "goodfetch": {
+   "pages": 545,
+   "meanScore": 0.7756051824218947,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7299193007595282
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.7682970632618746
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8313453945047937
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 4.561786,
+    "p95Ms": 22.558806,
+    "totalMs": 4272.042414000004
+   }
+  },
+  "goodfetch-htmd": {
+   "pages": 545,
+   "meanScore": 0.7751429316743238,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7298841544809233
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.7678979782446528
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8303689396950964
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 5.057531,
+    "p95Ms": 23.511885,
+    "totalMs": 4490.586327999999
+   }
+  },
+  "goodfetch-mdka": {
+   "pages": 545,
+   "meanScore": 0.7633785724688541,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7176184206719943
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.7575013831776243
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.817279751365622
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 4.998191,
+    "p95Ms": 23.354079,
+    "totalMs": 4747.093630999999
+   }
+  },
+  "goodfetch-trafilatura": {
+   "pages": 545,
+   "meanScore": 0.7412306395064624,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.6589005998782934
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.7494036117820713
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8131350477453402
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 13.832079,
+    "p95Ms": 61.015479,
+    "totalMs": 14117.428797000004
+   }
+  },
+  "goodfetch-trafilatura-mdka": {
+   "pages": 545,
+   "meanScore": 0.7492929683940093,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.6607407919782609
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.7588983100741967
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8255420018044528
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 14.522305,
+    "p95Ms": 62.874660999999996,
+    "totalMs": 13943.03334000001
+   }
+  },
+  "rs-trafilatura-htmd": {
+   "pages": 545,
+   "meanScore": 0.8079284855401917,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7486255434263183
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.8120419447870507
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.862093813091478
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 12.241863,
+    "p95Ms": 48.143782,
+    "totalMs": 11413.001930999999
+   }
+  },
+  "rs-trafilatura-mdka": {
+   "pages": 545,
+   "meanScore": 0.8078404996096159,
+   "byPageType": {
+    "hard": {
+     "pages": 164,
+     "mean": 0.7460560074238969
+    },
+    "mid": {
+     "pages": 218,
+     "mean": 0.8112127331271022
+    },
+    "simple": {
+     "pages": 163,
+     "mean": 0.8654939340368903
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 12.076654,
+    "p95Ms": 48.261649,
+    "totalMs": 12272.864940000003
+   }
+  }
+ },
+ "comparisons": [
+  {
+   "extractor": "goodfetch-htmd",
+   "baseline": "goodfetch",
+   "pages": 545,
+   "meanScore": 0.7751429316743238,
+   "baselineMeanScore": 0.7756051824218947,
+   "meanDifference": -0.0004622507475711047,
+   "ci95": [
+    -0.0009884712761346445,
+    0.000013440814292223672
+   ],
+   "hodgesLehmann": 0,
+   "wilcoxon": {
+    "n": 31,
+    "wPlus": 120,
+    "pValue": 0.012469949935975722,
+    "method": "normal"
+   },
+   "wins": 6,
+   "losses": 25,
+   "ties": 514
+  },
+  {
+   "extractor": "goodfetch-mdka",
+   "baseline": "goodfetch",
+   "pages": 545,
+   "meanScore": 0.7633785724688541,
+   "baselineMeanScore": 0.7756051824218947,
+   "meanDifference": -0.012226609953040342,
+   "ci95": [
+    -0.014615910321336927,
+    -0.009898914202639494
+   ],
+   "hodgesLehmann": -0.007936569822939443,
+   "wilcoxon": {
+    "n": 541,
+    "wPlus": 21242,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 90,
+   "losses": 451,
+   "ties": 4
+  },
+  {
+   "extractor": "goodfetch-trafilatura",
+   "baseline": "goodfetch",
+   "pages": 545,
+   "meanScore": 0.7412306395064624,
+   "baselineMeanScore": 0.7756051824218947,
+   "meanDifference": -0.03437454291543216,
+   "ci95": [
+    -0.05243398308531755,
+    -0.017272438069477043
+   ],
+   "hodgesLehmann": -0.0030484782131509625,
+   "wilcoxon": {
+    "n": 521,
+    "wPlus": 62767,
+    "pValue": 0.12869951007167213,
+    "method": "normal"
+   },
+   "wins": 260,
+   "losses": 261,
+   "ties": 24
+  },
+  {
+   "extractor": "goodfetch-trafilatura-mdka",
+   "baseline": "goodfetch",
+   "pages": 545,
+   "meanScore": 0.7492929683940093,
+   "baselineMeanScore": 0.7756051824218947,
+   "meanDifference": -0.026312214027884882,
+   "ci95": [
+    -0.044898318714634296,
+    -0.008563769281250492
+   ],
+   "hodgesLehmann": 0.0007965932639526496,
+   "wilcoxon": {
+    "n": 521,
+    "wPlus": 68820,
+    "pValue": 0.809449025385578,
+    "method": "normal"
+   },
+   "wins": 287,
+   "losses": 234,
+   "ties": 24
+  },
+  {
+   "extractor": "rs-trafilatura-htmd",
+   "baseline": "goodfetch",
+   "pages": 545,
+   "meanScore": 0.8079284855401917,
+   "baselineMeanScore": 0.7756051824218947,
+   "meanDifference": 0.03232330311829671,
+   "ci95": [
+    0.011708446172743869,
+    0.052005233918942684
+   ],
+   "hodgesLehmann": 0.03041576749672803,
+   "wilcoxon": {
+    "n": 522,
+    "wPlus": 97829,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 376,
+   "losses": 146,
+   "ties": 23
+  },
+  {
+   "extractor": "rs-trafilatura-mdka",
+   "baseline": "goodfetch",
+   "pages": 545,
+   "meanScore": 0.8078404996096159,
+   "baselineMeanScore": 0.7756051824218947,
+   "meanDifference": 0.03223531718772104,
+   "ci95": [
+    0.011584623310283404,
+    0.05193129783112399
+   ],
+   "hodgesLehmann": 0.033352626970452104,
+   "wilcoxon": {
+    "n": 523,
+    "wPlus": 97762,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 378,
+   "losses": 145,
+   "ties": 22
+  }
+ ]
+}

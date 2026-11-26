@@ -1,0 +1,311 @@
+{
+ "schemaVersion": 2,
+ "runId": "markdown-wmb-goodfetch-2026-11-26T09-31-57-694Z-25379f",
+ "unit": "page",
+ "metric": "Markdown structure F1 (src/extraction-markdown.ts)",
+ "baseline": "rs-trafilatura-htmd",
+ "extractors": {
+  "goodfetch": {
+   "pages": 494,
+   "meanScore": 0.32361278284639644,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.24126100416526816
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.3605324697308728
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.3533966691974208
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 4.561786,
+    "p95Ms": 22.558806,
+    "totalMs": 4272.042414000004
+   }
+  },
+  "goodfetch-htmd": {
+   "pages": 494,
+   "meanScore": 0.2850243489073101,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.23004997447657807
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.3339713404745329
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.27212478255169636
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 5.057531,
+    "p95Ms": 23.511885,
+    "totalMs": 4490.586327999999
+   }
+  },
+  "goodfetch-mdka": {
+   "pages": 494,
+   "meanScore": 0.3346096031880599,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.25898118537282355
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.3724452299379513
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.3566601480784346
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 4.998191,
+    "p95Ms": 23.354079,
+    "totalMs": 4747.093630999999
+   }
+  },
+  "goodfetch-trafilatura": {
+   "pages": 494,
+   "meanScore": 0.4621532966897937,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.36972389755824026
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.44794748640051196
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.5706445808716007
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 13.832079,
+    "p95Ms": 61.015479,
+    "totalMs": 14117.428797000004
+   }
+  },
+  "goodfetch-trafilatura-mdka": {
+   "pages": 494,
+   "meanScore": 0.48063302590122803,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.40198656045762204
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.46881213425936924
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.5725866516991662
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 14.522305,
+    "p95Ms": 62.874660999999996,
+    "totalMs": 13943.03334000001
+   }
+  },
+  "rs-trafilatura-htmd": {
+   "pages": 494,
+   "meanScore": 0.409957355452758,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.3266161033961011
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.4137241043072869
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.48542060227422246
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 12.241863,
+    "p95Ms": 48.143782,
+    "totalMs": 11413.001930999999
+   }
+  },
+  "rs-trafilatura-mdka": {
+   "pages": 494,
+   "meanScore": 0.4553044474776107,
+   "byPageType": {
+    "hard": {
+     "pages": 144,
+     "mean": 0.35359676136568674
+    },
+    "mid": {
+     "pages": 201,
+     "mean": 0.4560548540508588
+    },
+    "simple": {
+     "pages": 149,
+     "mean": 0.5525868305574371
+    }
+   },
+   "timing": {
+    "pages": 545,
+    "p50Ms": 12.076654,
+    "p95Ms": 48.261649,
+    "totalMs": 12272.864940000003
+   }
+  }
+ },
+ "comparisons": [
+  {
+   "extractor": "goodfetch",
+   "baseline": "rs-trafilatura-htmd",
+   "pages": 494,
+   "meanScore": 0.32361278284639644,
+   "baselineMeanScore": 0.409957355452758,
+   "meanDifference": -0.08634457260636141,
+   "ci95": [
+    -0.12131959847574157,
+    -0.051503537567760244
+   ],
+   "hodgesLehmann": -0.01428571428571429,
+   "wilcoxon": {
+    "n": 308,
+    "wPlus": 15969,
+    "pValue": 5.595057415153093e-7,
+    "method": "normal"
+   },
+   "wins": 105,
+   "losses": 203,
+   "ties": 186
+  },
+  {
+   "extractor": "goodfetch-htmd",
+   "baseline": "rs-trafilatura-htmd",
+   "pages": 494,
+   "meanScore": 0.2850243489073101,
+   "baselineMeanScore": 0.409957355452758,
+   "meanDifference": -0.1249330065454477,
+   "ci95": [
+    -0.15719664981407896,
+    -0.09359838703606785
+   ],
+   "hodgesLehmann": -0.035264735264735225,
+   "wilcoxon": {
+    "n": 294,
+    "wPlus": 9580,
+    "pValue": 0,
+    "method": "normal"
+   },
+   "wins": 74,
+   "losses": 220,
+   "ties": 200
+  },
+  {
+   "extractor": "goodfetch-mdka",
+   "baseline": "rs-trafilatura-htmd",
+   "pages": 494,
+   "meanScore": 0.3346096031880599,
+   "baselineMeanScore": 0.409957355452758,
+   "meanDifference": -0.07534775226469784,
+   "ci95": [
+    -0.11288980597799016,
+    -0.037252056249063824
+   ],
+   "hodgesLehmann": -0.019183509131217136,
+   "wilcoxon": {
+    "n": 324,
+    "wPlus": 19019.5,
+    "pValue": 0.000014807994431542681,
+    "method": "normal"
+   },
+   "wins": 115,
+   "losses": 209,
+   "ties": 170
+  },
+  {
+   "extractor": "goodfetch-trafilatura",
+   "baseline": "rs-trafilatura-htmd",
+   "pages": 494,
+   "meanScore": 0.4621532966897937,
+   "baselineMeanScore": 0.409957355452758,
+   "meanDifference": 0.05219594123703558,
+   "ci95": [
+    0.03678944983567683,
+    0.0687792903339395
+   ],
+   "hodgesLehmann": 0,
+   "wilcoxon": {
+    "n": 114,
+    "wPlus": 5920,
+    "pValue": 8.060219158778636e-14,
+    "method": "normal"
+   },
+   "wins": 98,
+   "losses": 16,
+   "ties": 380
+  },
+  {
+   "extractor": "goodfetch-trafilatura-mdka",
+   "baseline": "rs-trafilatura-htmd",
+   "pages": 494,
+   "meanScore": 0.48063302590122803,
+   "baselineMeanScore": 0.409957355452758,
+   "meanDifference": 0.07067567044846998,
+   "ci95": [
+    0.04964873406221575,
+    0.09209488866889816
+   ],
+   "hodgesLehmann": 0,
+   "wilcoxon": {
+    "n": 168,
+    "wPlus": 11282,
+    "pValue": 3.4706015838992244e-11,
+    "method": "normal"
+   },
+   "wins": 122,
+   "losses": 46,
+   "ties": 326
+  },
+  {
+   "extractor": "rs-trafilatura-mdka",
+   "baseline": "rs-trafilatura-htmd",
+   "pages": 494,
+   "meanScore": 0.4553044474776107,
+   "baselineMeanScore": 0.409957355452758,
+   "meanDifference": 0.045347092024852764,
+   "ci95": [
+    0.02709375763153659,
+    0.06427444739996394
+   ],
+   "hodgesLehmann": 0,
+   "wilcoxon": {
+    "n": 123,
+    "wPlus": 5684.5,
+    "pValue": 0.0000023312919847917613,
+    "method": "normal"
+   },
+   "wins": 81,
+   "losses": 42,
+   "ties": 371
+  }
+ ]
+}

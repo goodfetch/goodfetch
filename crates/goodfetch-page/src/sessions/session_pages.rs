@@ -17,10 +17,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use crate::browser_run::BrowserRun;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
 use goodfetch_engine::run_identity::RunIdentity;
-use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::Values;
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::{CallContext, CallError};
@@ -86,7 +86,7 @@ pub(super) struct Adopting {
 struct TakenIn {
     page: PageId,
     driver: PageDriver,
-    run: Run,
+    run: Arc<BrowserRun>,
     /// Its Run's identity that starts its parts' tasks on its owner.
     tasks: RunIdentity,
     /// Its place in its browser, until it is kept.
@@ -169,7 +169,7 @@ impl Drop for TakenIn {
             interception.close();
         }
         let driver = self.driver.clone();
-        self.run.spawn(async move {
+        self.run.identity.spawn(async move {
             driver.close().await;
             drop(in_browser);
         });
@@ -269,7 +269,7 @@ impl Sessions {
     /// page's init scripts (H7, M20).
     fn taking_in(
         &self,
-        (page, driver, (run, tasks)): (&PageId, &PageDriver, (&Run, &RunIdentity)),
+        (page, driver, (run, tasks)): (&PageId, &PageDriver, (&Arc<BrowserRun>, &RunIdentity)),
         in_browser: InBrowser,
         (stream, observer): (&Events, Option<Observer>),
     ) -> (TakenIn, Refusals, Vec<OnChild>) {
@@ -324,7 +324,7 @@ impl Sessions {
             settings,
         } = adopting;
         let run = open.run.clone();
-        let session = &super::session_id(run.id(), open.position);
+        let session = &super::session_id(run.identity.id(), open.position);
         let action_timeout = action_timeout(&run);
         let page = self.next_page_id().await;
         let browser = in_browser.browser();
@@ -333,7 +333,7 @@ impl Sessions {
         // kept.
         let tasks = open.owner.child();
         let unkept = tasks.token().clone().drop_guard();
-        let starting = identity(&run).starting_on(&tasks);
+        let starting = run.identity.starting_on(&tasks);
         let (mut taken_in, refusals, in_frames) = self.taking_in(
             (&page, &driver, (&run, &starting)),
             in_browser,
@@ -359,15 +359,15 @@ impl Sessions {
         // Its owner, under its Session's (ADR 0146).
         let owner = PageOwner::start(
             (&open.owner, tasks),
-            identity(&run).span(),
+            run.identity.span(),
             (&page, parts, order),
             page_closed(&page),
-            run.metrics(),
+            run.identity.metrics(),
         );
         unkept.disarm();
         self.page_owners.kept(page.clone(), owner.clone());
         let opened = OpenPage {
-            clock: run.clock(),
+            clock: run.identity.clock(),
             run,
             session: session.clone(),
             settings,
@@ -454,7 +454,7 @@ impl Sessions {
         let live = PageHiding::start(
             (page, session),
             driver,
-            (starting, run_trace(run)),
+            (starting, &run.trace),
             &held.clean_up,
             &sheets,
             &open.hiding,
@@ -468,7 +468,7 @@ impl Sessions {
                 (driver, pointer),
                 consent::RunPowers {
                     identity: starting.clone(),
-                    trace: run_trace(run).clone(),
+                    trace: run.trace.clone(),
                     run_index: open.run_index.clone(),
                 },
                 &sheets,
@@ -480,12 +480,7 @@ impl Sessions {
         // other parts took it in.
         let mut handlers = vec![held.children, consent];
         handlers.extend(in_frames);
-        page_children::follow(
-            &CdpPage::of(driver),
-            (tasks, identity(run).span()),
-            handlers,
-        )
-        .await?;
+        page_children::follow(&CdpPage::of(driver), (tasks, run.identity.span()), handlers).await?;
         Ok(held.routed)
     }
 
@@ -520,14 +515,17 @@ impl Sessions {
             return false;
         };
         let run = open.run.clone();
-        let admission = run.governor().admit(WorkKind::BrowserPage).await;
+        let admission = run.governor.share().admit(WorkKind::BrowserPage).await;
         let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
         let driver = driver
             .for_session(SessionEgress {
                 proxy: open.proxy.clone(),
                 relay: open.relay.clone(),
             })
-            .with_value(PageValue::clone(&opener.driver.value()), run.clock())
+            .with_value(
+                PageValue::clone(&opener.driver.value()),
+                run.identity.clock(),
+            )
             .with_reader(opener.driver.reader().map(Reader::for_page));
         let adopted = self
             .adopt(Adopting {
@@ -602,7 +600,7 @@ impl Sessions {
         }
         tokio::select! {
             () = open.life.ended() => {}
-            () = open.run.cancellation().cancelled() => {}
+            () = open.run.identity.owner().cancelled() => {}
         }
         drop(listening);
         Ok(SessionOnEnded {})
@@ -723,7 +721,7 @@ impl Session {
     fn checking(&self, page_check: Option<&PageCheck>) -> Arc<Checking> {
         Arc::new(Checking {
             declared: page_check.map_or_else(
-                || Declared::of(&self.run, &self.settings),
+                || Declared::of(&self.run.identity, &self.settings),
                 |check| Some(Declared::label(check)),
             ),
             holds_login: self.held_frames.is_some(),

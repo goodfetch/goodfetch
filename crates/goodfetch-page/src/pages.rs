@@ -55,7 +55,7 @@ use goodfetch_engine::hostile_input::check_headers;
 use goodfetch_engine::ledger::{ChargeError, Refusal as LedgerRefusal};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run::{limit_not_understood, limit_reached};
-use goodfetch_engine::runs::{Run, identity, run_trace};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::{CallContext, CallError, Contribution, Enclose, Guard, Handler, named};
 use goodfetch_extractor::{BuiltIn, Serialization};
@@ -101,6 +101,7 @@ use serde_json::Value;
 
 use crate::blocks::{Block, BlockClassifier, NoBlocks};
 use crate::browser_fetch;
+use crate::browser_run::BrowserRun;
 use crate::cdp::launch::Launcher;
 use crate::cdp::{CdpPage, SerializedDocument};
 use crate::dialogs::{self, Dialogs};
@@ -926,7 +927,7 @@ enum Navigating {
 /// its navigation with it.
 struct ClosingOnDrop {
     sessions: Sessions,
-    run: Run,
+    run: Arc<BrowserRun>,
     page_id: Option<PageId>,
 }
 
@@ -943,7 +944,7 @@ impl Drop for ClosingOnDrop {
             return;
         };
         let sessions = self.sessions.clone();
-        self.run.spawn(async move {
+        self.run.identity.spawn(async move {
             if let Err(error) = sessions.close_page(&page_id, false).await {
                 tracing::debug!(%error, page_id = %page_id.0, "a cancelled handler's browser page was closed already");
             }
@@ -1015,7 +1016,7 @@ impl BrowserPages for Opener {
 
     fn document_request<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a RunIdentity,
     ) -> Opening<'a, Result<Option<DocumentRequest>, Unread>> {
         Box::pin(self.pages.sessions.document_request(run))
     }
@@ -1061,7 +1062,7 @@ impl BrowserPages for Opener {
                 .interception
                 .engine_requests_of(&side, &interception_run(&run), &own)
                 .await?;
-            let limits = Limits::of_run(run.settings());
+            let limits = Limits::of_run(run.identity.settings());
             let headers: BTreeMap<String, String> = request.headers.iter().cloned().collect();
             let post_data = request
                 .body
@@ -1148,7 +1149,7 @@ impl BrowserPages for Opener {
 
     fn served_formats<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a BrowserRun,
         request: FormatsRequest,
         label: Option<BuiltIn>,
     ) -> Opening<'a, Option<Arc<dyn ServedFormatsAhead>>> {
@@ -1158,14 +1159,15 @@ impl BrowserPages for Opener {
                 .interception
                 .served_cosmetic(&interception_run(run))
                 .await;
-            let reader = served_formats::ServedFormatsReader::of(run, request, label, cosmetic);
+            let reader =
+                served_formats::ServedFormatsReader::of(&run.identity, request, label, cosmetic);
             Some(Arc::new(reader) as Arc<dyn ServedFormatsAhead>)
         })
     }
 
-    fn prepare_served_formats(&self, run: &Run) {
+    fn prepare_served_formats(&self, run: &BrowserRun) {
         let (pages, preparing) = (self.pages.clone(), interception_run(run));
-        run.spawn(async move {
+        run.identity.spawn(async move {
             drop(pages.interception.served_cosmetic(&preparing).await);
         });
     }
@@ -1189,12 +1191,17 @@ enum Charge {
 /// Charges `run` the one `requests` Usage of a navigation: a Limit with
 /// too little left refuses it `limit_reached` and stops the Run at its next
 /// safe point, as a crawl's request is refused.
-async fn charge_request(run: &Run, context: &CallContext) -> Result<(), CallError> {
-    run.charge(REQUESTS, 1).await.map_err(|error| match error {
-        ChargeError::Refused(LedgerRefusal::Reached(reached)) => limit_reached(&reached),
-        ChargeError::Refused(LedgerRefusal::NotUnderstood(limit)) => limit_not_understood(*limit),
-        error => sessions::unavailable(run, &error, context),
-    })
+async fn charge_request(run: &BrowserRun, context: &CallContext) -> Result<(), CallError> {
+    run.charging
+        .charge(REQUESTS, 1)
+        .await
+        .map_err(|error| match error {
+            ChargeError::Refused(LedgerRefusal::Reached(reached)) => limit_reached(&reached),
+            ChargeError::Refused(LedgerRefusal::NotUnderstood(limit)) => {
+                limit_not_understood(*limit)
+            }
+            error => sessions::unavailable(run, &error, context),
+        })
 }
 
 /// The engine's pages, which every call of every Connection shares.
@@ -1253,11 +1260,12 @@ impl Pages {
         let (page, spent) = self
             .open(page_id, |page| page.driver.navigation_deadline(timeout))
             .await?;
-        span.record("run_id", page.run.id().as_str());
+        span.record("run_id", page.run.identity.id().as_str());
         let navigator = Navigator {
             acting_for_model: context.surface().acts_for_model(),
             recipe_run: page
                 .run
+                .identity
                 .settings()
                 .is_some_and(|settings| settings.resolved().recipe_run()),
             // No engine serves accounts before area 12's: a person's own
@@ -1320,7 +1328,7 @@ impl Pages {
             .answered_at(&response.request_id)
             .unwrap_or_else(|| page.clock.wall());
         let operation = Some(destination.operation());
-        let work = page.run.metrics().counted_work();
+        let work = page.run.identity.metrics().counted_work();
         let block = blocked::block_of(
             &page.driver,
             work,
@@ -1371,7 +1379,7 @@ impl Pages {
                 Ok(Some(page.driver.action_deadline().clone()))
             })
             .await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let (limit, duration) = page.action_timeout.clone();
         let request = Request {
             operation,
@@ -1386,10 +1394,10 @@ impl Pages {
             hiding: page
                 .owner
                 .hiding()
-                .hidden(run_trace(&page.run), (&locator.page_id, &page.session)),
+                .hidden(&page.run.trace, (&locator.page_id, &page.session)),
             owner: &page.owner,
             sent: SentMark {
-                run: &page.run,
+                window: &page.run.send_window,
                 lease: page.lease(),
             },
         };
@@ -1422,10 +1430,10 @@ impl Pages {
                 page.driver.navigation_deadline(None)
             })
             .await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let steps = page.owner.interception().engine_requests()?;
         let events = self.events(&params.page_id)?;
-        let limits = Limits::of_run(page.run.settings());
+        let limits = Limits::of_run(page.run.identity.settings());
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),
@@ -1459,22 +1467,27 @@ impl Pages {
         ) {
             reader.read(steps, &fetched.response.url);
         }
-        let kept = match fetched.body {
-            browser_fetch::Body::Whole(bytes) => {
-                let handle = page.run.store_body(bytes.into()).await.map_err(|error| {
-                    CallError::protocol(
-                        ProtocolFailure::InternalError,
-                        format!("the response's body was not kept in the Run's folder: {error}"),
-                    )
-                })?;
-                Requested::Whole(handle)
-            }
-            browser_fetch::Body::Cut { received, expected } => Requested::Cut {
-                url: fetched.response.url.clone(),
-                received,
-                expected,
-            },
-        };
+        let kept =
+            match fetched.body {
+                browser_fetch::Body::Whole(bytes) => {
+                    let handle = page.run.files.store_body(bytes.into()).await.map_err(
+                        |error| {
+                            CallError::protocol(
+                                ProtocolFailure::InternalError,
+                                format!(
+                                    "the response's body was not kept in the Run's folder: {error}"
+                                ),
+                            )
+                        },
+                    )?;
+                    Requested::Whole(handle)
+                }
+                browser_fetch::Body::Cut { received, expected } => Requested::Cut {
+                    url: fetched.response.url.clone(),
+                    received,
+                    expected,
+                },
+            };
         events.keep_requested(fetched.response.request_id.clone(), kept);
         Ok(fetched.response)
     }
@@ -1497,11 +1510,11 @@ impl Pages {
                 Ok(Some(page.driver.action_deadline().clone()))
             })
             .await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let world = world.unwrap_or_default();
         if world == World::Main {
             page.injections
-                .mark(&page.run, &page.session, page_id, injection)
+                .mark(&page.run.trace, &page.session, page_id, injection)
                 .await;
         }
         page.sending(operation).await?;
@@ -1529,7 +1542,7 @@ impl Pages {
     ) -> Result<InitScriptEnded, CallError> {
         let source = page_functions::init_script(&params.function, params.arg.as_ref())?;
         let page = self.opened(&params.page_id).await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         page.sending(PAGE_ADD_INIT_SCRIPT.name).await?;
         let scripts = page.owner.init_scripts();
         let pending = pending.unwrap_or_else(|| scripts.begin());
@@ -1537,7 +1550,7 @@ impl Pages {
         let registered = page.life.call(PageEvent::Read, registering).await?;
         page.injections
             .mark(
-                &page.run,
+                &page.run.trace,
                 &page.session,
                 &params.page_id,
                 Injection::InitScript,
@@ -1619,9 +1632,12 @@ impl Pages {
         // With `consent.handling: off` no runner looks, so there is nothing
         // to ask (#2434).
         if navigated
-            && ConsentHandling::of(identity(&page.run)) != ConsentHandling::Off
-            && crate::consent::first_pass_found(&page.driver, page.run.metrics().counted_work())
-                .await
+            && ConsentHandling::of(&page.run.identity) != ConsentHandling::Off
+            && crate::consent::first_pass_found(
+                &page.driver,
+                page.run.identity.metrics().counted_work(),
+            )
+            .await
         {
             walls.detected();
         }
@@ -1665,7 +1681,7 @@ impl Pages {
         };
         if let Some(block) = blocked::block_of(
             &page.driver,
-            page.run.metrics().counted_work(),
+            page.run.identity.metrics().counted_work(),
             self.blocks.as_ref(),
             &response,
             waiting,
@@ -1711,7 +1727,7 @@ impl Pages {
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         if let Some(served) = self.product.document(&params.page_id) {
-            tracing::Span::current().record("run_id", served.run.id().as_str());
+            tracing::Span::current().record("run_id", served.run.identity.id().as_str());
             let request = params.formats;
             // Formats read ahead in the document's hand-off answer a call
             // asking for them (issue 2189).
@@ -1719,7 +1735,7 @@ impl Pages {
                 && let Some(formats) = ahead.answers(request)
             {
                 if let Some(entry) = ahead.entry(&params.page_id) {
-                    trace::provenance(&served.run, entry).await;
+                    trace::provenance(&served.run.trace, entry).await;
                 }
                 return Ok(formats.clone());
             }
@@ -1729,11 +1745,12 @@ impl Pages {
                 base_url: served.base_url.clone(),
             };
             let extractor = extractor::served(
-                served.run.settings().map(RunSettings::resolved),
+                served.run.identity.settings().map(RunSettings::resolved),
                 served.extractor,
             );
-            let measure =
-                clean_up::ShareMeasure::of(served.run.settings().map(RunSettings::resolved));
+            let measure = clean_up::ShareMeasure::of(
+                served.run.identity.settings().map(RunSettings::resolved),
+            );
             // A request that reads nothing takes no cosmetic rule, so it
             // loads no Filter list (#2573).
             let cosmetic = if clean_up::reads_nothing(&request) {
@@ -1743,7 +1760,7 @@ impl Pages {
                     .served_cosmetic(&interception_run(&served.run))
                     .await
             };
-            let work = served.run.metrics().counted_work().clone();
+            let work = served.run.identity.metrics().counted_work().clone();
             let read = move |kept: Option<&ParsedHtml>| {
                 clean_up::read(
                     (&document, kept),
@@ -1769,19 +1786,22 @@ impl Pages {
                 None => {
                     served
                         .run
+                        .identity
                         .owner()
-                        .analysis(served.run.metrics().counted_work(), move || read(None))
+                        .analysis(served.run.identity.metrics().counted_work(), move || {
+                            read(None)
+                        })
                         .await
                 }
             };
             if let Some(read) = read {
-                trace::provenance(&served.run, read.entry(&params.page_id, None)).await;
+                trace::provenance(&served.run.trace, read.entry(&params.page_id, None)).await;
             }
             return Ok(formats);
         }
         let deadline = |page: &OpenPage| page.driver.navigation_deadline(None);
         let (page, _) = self.open(&params.page_id, deadline).await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let cdp = CdpPage::of(&page.driver);
         let document = page
             .life
@@ -1789,7 +1809,7 @@ impl Pages {
             .await?;
         let request = params.formats;
         let (_, session) = self.sessions.own_settings(&page.session)?;
-        let resolved = page.run.settings().map(RunSettings::resolved);
+        let resolved = page.run.identity.settings().map(RunSettings::resolved);
         let label = page.driver.value().extractor();
         // An Extractor Plugin reads the main content of the page the same
         // one read cleaned (spec #596).
@@ -1799,11 +1819,12 @@ impl Pages {
         let measure = clean_up::ShareMeasure::of(resolved);
         let cosmetic = page.owner.interception().cosmetic();
         let hidden = page.owner.hiding().runner_hidden();
-        let work = page.run.metrics().counted_work().clone();
+        let work = page.run.identity.metrics().counted_work().clone();
         let ((formats, read), raw) = page
             .run
+            .identity
             .owner()
-            .analysis(page.run.metrics().counted_work(), move || {
+            .analysis(page.run.identity.metrics().counted_work(), move || {
                 let raw = raw.then(|| Serialization::Dom.as_content(&document.html));
                 let read = clean_up::read(
                     (&document, None),
@@ -1817,7 +1838,11 @@ impl Pages {
             })
             .await;
         if let Some(read) = read {
-            trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
+            trace::provenance(
+                &page.run.trace,
+                read.entry(&params.page_id, Some(&page.session)),
+            )
+            .await;
         }
         plugin_extractor::answered(&page.run, plugin.as_deref(), request, formats, raw).await
     }
@@ -1835,8 +1860,8 @@ impl Pages {
                 page.driver.navigation_deadline(None)
             })
             .await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
-        let work = page.run.metrics().counted_work();
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
+        let work = page.run.identity.metrics().counted_work();
         for (name, field) in &params.fields {
             goodfetch_extractor::fields::check(name, field, work).map_err(|sentence| {
                 CallError::protocol(ProtocolFailure::InvalidParams, sentence)

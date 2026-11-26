@@ -6,7 +6,6 @@
 //! emits `close`, and its later calls raise `page_memory_exceeded`, which
 //! is retryable, as a crashed page's raise `page_crashed`.
 
-use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{catalog_value, value_as};
 use goodfetch_protocol::governor::{BROWSER_PAGE_MEMORY_CAP, GovernorLevel};
 use goodfetch_protocol::page::PageId;
@@ -15,18 +14,19 @@ use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use super::life::Ending;
 use super::lifecycle::PageEffect;
 use super::{OpenPage, Sessions};
+use crate::browser_run::BrowserRun;
 use crate::cdp::CdpPage;
 
 impl Sessions {
     /// Ends each page of `run` past its memory cap at every sample that
     /// finds memory critical, until the Run stops.
-    pub(super) fn end_pages_past_their_cap(&self, run: &Run) {
+    pub(super) fn end_pages_past_their_cap(&self, run: &BrowserRun) {
         let sessions = self.clone();
-        let mut samples = run.governor().samples();
-        let stopping = run.cancellation().clone();
+        let mut samples = run.governor.share().samples();
+        let stopping = run.identity.owner().child_token();
         let limit = page_memory_cap(run);
-        let run_id = run.id().clone();
-        run.clone().spawn(async move {
+        let run_id = run.identity.id().clone();
+        run.identity.spawn(async move {
             loop {
                 tokio::select! {
                     () = stopping.cancelled() => return,
@@ -43,7 +43,7 @@ impl Sessions {
                     if memory > cap && page.life.past_cap() {
                         let ending = sessions.clone();
                         let limit = limit.clone();
-                        page.run.clone().spawn(async move {
+                        page.run.identity.clone().spawn(async move {
                             ending.end_past_cap(page_id, page, memory, limit).await;
                         });
                     }
@@ -90,8 +90,9 @@ impl Sessions {
 
 /// `governor.browser.page_memory_cap` as `run`'s settings set it, with its
 /// layer.
-fn page_memory_cap(run: &Run) -> SettingLimit {
-    run.settings()
+fn page_memory_cap(run: &BrowserRun) -> SettingLimit {
+    run.identity
+        .settings()
         .and_then(|settings| settings.resolved().effective(&BROWSER_PAGE_MEMORY_CAP))
         .map_or_else(
             || SettingLimit {

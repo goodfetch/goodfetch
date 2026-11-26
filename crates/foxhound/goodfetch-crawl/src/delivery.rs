@@ -238,7 +238,7 @@ pub(crate) async fn drive(
     // never loads them for its pages (#2573). A program's handler may read
     // any format of any page.
     if code_free.as_ref().is_none_or(CodeFree::reads_formats) {
-        tiers.prepare_served_formats(run.handed_on());
+        tiers.prepare_served_formats(&run.browser);
     }
     let run_tier = FetchTiers::run_tier(settings.resolved());
     let races: bool = settings.resolved().get(&FETCH_TIER_RACE);
@@ -250,7 +250,7 @@ pub(crate) async fn drive(
         Ok(local) => {
             let engine = servers[0].context.engine();
             tiers
-                .built(run.handed_on(), engine, settings.resolved(), local)
+                .built(&run.browser, engine, settings.resolved(), local)
                 .await
         }
         Err(error) => Err(error),

@@ -327,7 +327,7 @@ impl EngineContext {
     }
 
     /// The engine's sandbox probe, whose answer each browser launch reads.
-    pub(crate) fn sandbox_probe(&self) -> &SandboxProbe {
+    pub fn sandbox_probe(&self) -> &SandboxProbe {
         &self.sandbox_probe
     }
 
@@ -374,7 +374,7 @@ impl EngineContext {
     /// Where the engine's listeners record their refusals: the user's
     /// Audit log, each listener's at most `audit.refusals_per_minute` in a
     /// minute (`endpoint`).
-    pub(crate) fn refusals(&self) -> Refusals {
+    pub fn refusals(&self) -> Refusals {
         self.refusals.clone()
     }
 }

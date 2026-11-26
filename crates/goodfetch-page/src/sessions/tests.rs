@@ -30,7 +30,7 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{EndedBy, Run, Start, Started};
+use goodfetch_engine::runs::{self, EndedBy, Run, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -54,6 +54,7 @@ use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
 use super::{Opener, Sessions, held_browser, set_outside_code};
+use crate::browser_run::BrowserRun;
 use crate::cdp::borrowed::CdpUrl;
 use crate::cdp::launch::Launcher;
 use crate::dialogs::Dialogs;
@@ -157,6 +158,11 @@ async fn started_under(
     Ok(run)
 }
 
+/// The page crate's record of `run`, as a Session holds it.
+fn browser_run(run: &Run, context: &CallContext) -> Arc<BrowserRun> {
+    BrowserRun::of(&runs::parts(run), context.engine())
+}
+
 /// A Sessions table of its own for the test's operation.
 fn table() -> Sessions {
     Sessions::new(
@@ -176,7 +182,8 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let page_id = PageId("page-1".to_owned());
     let life = PageLife::new(page_id.clone(), None, watch::channel(0).1);
     let limit = SettingLimit {
@@ -191,7 +198,7 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
     })?;
     let confirmed = life.end(&Ending::Destroyed)?;
 
-    sessions.page_ended(&run, &life, confirmed).await;
+    sessions.page_ended(&browser, &life, confirmed).await;
 
     let raised = sessions
         .page(&page_id)
@@ -211,7 +218,8 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let positioned = async || {
         sessions
             .state
@@ -223,7 +231,7 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     };
     let opened = {
         let mut open =
-            std::pin::pin!(sessions.open_held(&run, None, None, Opener::Default, &context));
+            std::pin::pin!(sessions.open_held(&browser, None, None, Opener::Default, &context));
         loop {
             let polled = std::future::poll_fn(|waker| Poll::Ready(open.as_mut().poll(waker))).await;
             assert!(polled.is_pending(), "the open ended before the Run stopped");
@@ -251,7 +259,8 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let opener = match params["opener"].as_str().unwrap() {
         "default" => Opener::Default,
         _ => Opener::Pool {
@@ -259,7 +268,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         },
     };
     let position = sessions
-        .open_held(&run, None, None, opener, &context)
+        .open_held(&browser, None, None, opener, &context)
         .await?;
     let session = super::session_id(run.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -282,9 +291,10 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = started(&run_id, &context).await?;
     let sessions = table();
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&run, None, None, Opener::Default, &context)
+        .open_held(&browser, None, None, Opener::Default, &context)
         .await?;
     let session = super::session_id(run.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -408,9 +418,10 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         Dialogs::default(),
         Arc::new(ProgramPages),
     );
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&run, None, None, Opener::Default, &context)
+        .open_held(&browser, None, None, Opener::Default, &context)
         .await?;
     let open = sessions
         .index
@@ -484,9 +495,10 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
         Dialogs::default(),
         Arc::new(ProgramPages),
     );
-    sessions.reach(&run, &context).await?;
+    let browser = browser_run(&run, &context);
+    sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&run, None, None, Opener::Default, &context)
+        .open_held(&browser, None, None, Opener::Default, &context)
         .await?;
     let session = super::session_id(run.id(), position);
     let commands = watch::channel(0).0;

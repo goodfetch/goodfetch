@@ -24,10 +24,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use bytes::Bytes;
-use goodfetch_engine::runs::{self, Run};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_page::document_request::DocumentRequest;
-use goodfetch_page::{TransportPermit, TransportProxy};
+use goodfetch_page::{BrowserRun, TransportPermit, TransportProxy};
 use goodfetch_protocol::page::SessionId;
 use tokio::sync::OnceCell;
 use url::Url;
@@ -38,7 +37,7 @@ use crate::transports::{LocalSource, Reqwest, TransportConfig};
 /// The proxies of a Run's Sessions on its HTTP tier, by Session, each
 /// opened on its Session's first hop; a retired Session's leaves with it.
 pub(crate) struct SessionProxies {
-    run: Run,
+    run: Arc<BrowserRun>,
     settings: Resolved,
     /// The Run's transport configuration, which each Session's proxied
     /// transport takes with its own local addresses and proxy.
@@ -58,7 +57,7 @@ impl SessionProxies {
     /// built from `config`, presenting `presents`, `direct` sending around
     /// the proxy.
     pub(crate) fn new(
-        run: &Run,
+        run: &Arc<BrowserRun>,
         settings: &Resolved,
         config: TransportConfig,
         presents: Option<DocumentRequest>,
@@ -78,7 +77,7 @@ impl SessionProxies {
     /// The transport of the Run's own reads, robots.txt and the AI-use
     /// signal files of its navigation gate, through a proxy of their own.
     pub(crate) fn of_run(&self) -> Arc<Proxied> {
-        let sticky = SessionId(format!("{}.http", runs::identity(&self.run).id()));
+        let sticky = SessionId(format!("{}.http", self.run.identity.id()));
         Arc::new(self.proxied(sticky, self.config.local.clone(), Arc::clone(&self.direct)))
     }
 
@@ -99,11 +98,7 @@ impl SessionProxies {
         Arc::clone(by_session.entry(session.clone()).or_insert_with(|| {
             // Named apart from the Session's browser's, `{run}.session-{n}`,
             // and from every other Run's.
-            let sticky = SessionId(format!(
-                "{}.http.{}",
-                runs::identity(&self.run).id(),
-                session.0
-            ));
+            let sticky = SessionId(format!("{}.http.{}", self.run.identity.id(), session.0));
             let local = local.or_else(|| self.config.local.clone());
             let direct = direct.unwrap_or_else(|| Arc::clone(&self.direct));
             Arc::new(self.proxied(sticky, local, direct))
@@ -144,7 +139,7 @@ impl SessionProxies {
 
 /// One Session's transport through its proxy, opened on its first hop.
 pub(crate) struct Proxied {
-    run: Run,
+    run: Arc<BrowserRun>,
     settings: Resolved,
     /// The name its proxy's sticky username takes.
     sticky: SessionId,
@@ -196,7 +191,7 @@ impl Proxied {
     /// Dropping the future may leave the warning unwritten.
     pub(crate) async fn warn_if_outlived(&self) {
         if let Some(Some(opened)) = self.opened.get() {
-            opened.proxy.warn_if_outlived(&self.run).await;
+            opened.proxy.warn_if_outlived(&self.run.warnings).await;
         }
     }
 }

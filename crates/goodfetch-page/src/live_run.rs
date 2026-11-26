@@ -20,7 +20,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{EndedBy, Run, Start, Started};
+use goodfetch_engine::runs::{self, EndedBy, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -37,6 +37,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
+use crate::browser_run::BrowserRun;
 use crate::cdp::driver::PageDriver;
 use crate::cdp::driver::replay::{self, Played};
 
@@ -65,7 +66,7 @@ pub(crate) type Served = Pin<Box<dyn Future<Output = ()>>>;
 /// A Run the test holds, and the event stream and Client of the call that
 /// started it; dropping it lets the Run go, after which the engine ends.
 pub(crate) struct LiveRun {
-    pub(crate) run: Run,
+    pub(crate) run: Arc<BrowserRun>,
     pub(crate) events: Events,
     /// The Client the engine sends the Run's handler requests.
     pub(crate) client: Client,
@@ -78,7 +79,7 @@ pub(crate) struct LiveRun {
 
 /// What the test operation hands out, and what lets it answer.
 type Holding = (
-    oneshot::Sender<(Run, Events, Client)>,
+    oneshot::Sender<(Arc<BrowserRun>, Events, Client)>,
     oneshot::Receiver<()>,
 );
 
@@ -223,7 +224,7 @@ async fn hold_run(
         panic!("the Run began before");
     };
     let _ = handed.send((
-        run.clone(),
+        BrowserRun::of(&runs::parts(&run), context.engine()),
         context.events().clone(),
         context.client().clone(),
     ));

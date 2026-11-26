@@ -33,7 +33,7 @@ use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::RunSendWindow;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Form};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{Count, ElementState};
@@ -154,8 +154,8 @@ pub(crate) struct Request<'a> {
 /// naming the attempt when a handler's page, whose bodies the first command
 /// that may change the page marks sent.
 pub(crate) struct SentMark<'a> {
-    /// The page's Run.
-    pub(crate) run: &'a Run,
+    /// The send window of the page's Run.
+    pub(crate) window: &'a RunSendWindow,
     /// The page's lease, when a handler's page.
     pub(crate) lease: Option<Arc<dyn LeaseCheck>>,
 }
@@ -169,7 +169,7 @@ impl SentMark<'_> {
     /// `run_state_unavailable` when the mark could not be written:
     /// `command` must not go out.
     pub(crate) async fn mark(&self, command: &str) -> Result<(), CallError> {
-        self.run.sending(self.lease.as_deref(), command).await
+        self.window.sending(self.lease.as_deref(), command).await
     }
 }
 

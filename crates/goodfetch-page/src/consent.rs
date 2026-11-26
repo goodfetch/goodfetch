@@ -76,7 +76,7 @@ use crate::hiding::{Part, Sheets};
 use crate::interception::{ConsentHandling, domain_key};
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_reads::Reads;
-use crate::trace::provenance_in;
+use crate::trace::provenance;
 
 /// How long the runner's click may wait for its target to be ready.
 const CLICK_WINDOW: Duration = Duration::from_secs(3);
@@ -558,7 +558,7 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
         .metrics()
         .counted_work()
         .count(Row::NavigationProvenanceEntries);
-    provenance_in(&shared.trace, entry).await;
+    provenance(&shared.trace, entry).await;
 }
 
 /// Whether `frame` is the page's main frame.

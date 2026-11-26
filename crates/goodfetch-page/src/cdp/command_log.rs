@@ -9,8 +9,8 @@
 use std::io;
 use std::pin::Pin;
 
+use crate::browser_run::BrowserRun;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{Run, run_trace};
 use goodfetch_engine::settings::{RunSettings, get_or_default};
 use goodfetch_protocol::page::BROWSER_CDP_COMMAND_LOG;
 
@@ -33,14 +33,14 @@ impl goodfetch_cdp::CommandLogImpl for CommandLog {
 /// # Errors
 ///
 /// When the writer cannot start.
-pub(super) async fn command_log(run: &Run) -> io::Result<Option<goodfetch_cdp::CommandLog>> {
+pub(super) async fn command_log(run: &BrowserRun) -> io::Result<Option<goodfetch_cdp::CommandLog>> {
     if !get_or_default::<bool>(
-        run.settings().map(RunSettings::resolved),
+        run.identity.settings().map(RunSettings::resolved),
         &BROWSER_CDP_COMMAND_LOG,
     ) {
         return Ok(None);
     }
-    let trace = run_trace(run);
+    let trace = &run.trace;
     trace.start().await?;
     Ok(Some(goodfetch_cdp::CommandLog::new(CommandLog(
         trace.clone(),

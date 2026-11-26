@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::metrics::Metrics;
-use goodfetch_engine::runs::identity;
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::PageId;
@@ -34,7 +33,7 @@ pub(crate) fn parts(
     dialogs: &Dialogs,
     (events, interception): (PageEvents, PageInterception),
 ) -> PageParts {
-    let run = identity(&live.run);
+    let run = &live.run.identity;
     PageParts {
         browser: BrowserPagePart {
             walls: Walls::default(),

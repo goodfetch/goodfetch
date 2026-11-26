@@ -1522,7 +1522,7 @@ struct Shared {
     send_window: RunSendWindow,
     /// Its process Plugins, each started as a call first names it, the
     /// Plugin kinds' module's (ADR 0145).
-    plugins: RunPlugins,
+    plugins: Arc<RunPlugins>,
 }
 
 /// The process Plugins of `run`, which start on its owner as its calls
@@ -1623,6 +1623,96 @@ pub fn files(run: &Run) -> &RunFiles {
 /// for it.
 pub fn state(run: &Run) -> &RunState {
     &run.state
+}
+
+/// A live Run as the registry hands it to its driver: its identity and
+/// each of its powers, each a value of its owner module (ADR 0145). It has
+/// no method: its holder moves the parts it uses into its domain's record
+/// of the Run, as the crawl's and the page crate's do.
+#[derive(Clone)]
+pub struct RunParts {
+    /// Which Run it is.
+    pub identity: RunIdentity,
+    /// Its run state's writer.
+    pub state: RunState,
+    /// Its charging, the ledger's charging module's.
+    pub charging: RunCharging,
+    /// Its Secrets and its data key.
+    pub keys: RunKeys,
+    /// Its Run report's warnings, and why it did nothing.
+    pub warnings: ReportWarnings,
+    /// Its end, with whether `run.finish` let it finish.
+    pub end: RunEnd,
+    /// Its part of the Resource governor.
+    pub governor: RunGovernor,
+    /// Its entropy.
+    pub entropy: RunEntropy,
+    /// Its progress (ADR 0102).
+    pub progress: Progress,
+    /// The Politeness it shares.
+    pub politeness: RunPoliteness,
+    /// Its own copies of the robots.txt files its program's navigation
+    /// read, one per origin (ADRs 0086 and 0098).
+    pub own_robots_txt: OwnCopies,
+    /// Its files, which store a page's body and keep a file.
+    pub files: RunFiles,
+    /// Its Run trace, whose one writer holds its files (ADR 0140's E5).
+    pub trace: run_trace::RunTrace,
+    /// Its send window, which its commands mark before they go out (ADR
+    /// 0106).
+    pub send_window: RunSendWindow,
+    /// Its process Plugins, each started as a call first names it.
+    pub plugins: Arc<RunPlugins>,
+}
+
+impl std::fmt::Debug for RunParts {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RunParts")
+            .field("id", self.identity.id())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The parts of `run`, which its driver takes in place of the handle.
+pub fn parts(run: &Run) -> RunParts {
+    let shared = &run.shared;
+    RunParts {
+        identity: run.identity.clone(),
+        state: run.state.clone(),
+        charging: shared.charging.clone(),
+        keys: shared.keys.clone(),
+        warnings: shared.warnings.clone(),
+        end: shared.end.clone(),
+        governor: shared.governor.clone(),
+        entropy: shared.entropy.clone(),
+        progress: shared.progress.clone(),
+        politeness: shared.politeness.clone(),
+        own_robots_txt: shared.own_robots_txt.clone(),
+        files: shared.files.clone(),
+        trace: shared.trace.clone(),
+        send_window: shared.send_window.clone(),
+        plugins: Arc::clone(&shared.plugins),
+    }
+}
+
+/// What a Run used so far, as its run `state` counted it, with each Limit
+/// its `charging` applies and what is left of it (ADR 0101): a function
+/// over the two powers, as ADR 0145's note of 2026-11-10 places it.
+///
+/// # Errors
+///
+/// `Refused` when the Usage ledger cannot be read, `State` when the run
+/// state cannot.
+///
+/// # Cancel safety
+///
+/// Dropping the future loses only the answer.
+pub async fn usage(charging: &RunCharging, state: &RunState) -> Result<RunUsage, ChargeError> {
+    let limits = charging.applied().await?;
+    Ok(state
+        .read(move |connection| report::usage(connection, limits))
+        .await?)
 }
 
 /// Asks `run` to stop at its next safe point for `reason`, such as the
@@ -1878,11 +1968,7 @@ impl Run {
     ///
     /// Dropping the future loses only the answer.
     pub async fn usage(&self) -> Result<RunUsage, ChargeError> {
-        let limits = self.shared.charging.applied().await?;
-        Ok(self
-            .state
-            .read(move |connection| report::usage(connection, limits))
-            .await?)
+        usage(&self.shared.charging, &self.state).await
     }
 
     /// The Politeness its own code shares for keys outside admission, and
@@ -2263,7 +2349,7 @@ impl Runs {
             rules
                 .versions
                 .held(
-                    run,
+                    &parts(run),
                     Holding::Started { fallback },
                     self.rules_context(rules, settings.as_ref(), kind),
                 )
@@ -2716,7 +2802,7 @@ impl Runs {
             rules
                 .versions
                 .held(
-                    run,
+                    &parts(run),
                     Holding::Resumed,
                     self.rules_context(rules, settings.as_ref(), *kind),
                 )
@@ -4940,14 +5026,14 @@ impl Registry {
 
     /// The process Plugins of the Run `run_id`, started as tasks of its
     /// `owner` (ADR 0145).
-    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> RunPlugins {
-        RunPlugins::new(
+    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> Arc<RunPlugins> {
+        Arc::new(RunPlugins::new(
             self.setup.engine.home(),
             self.setup.engine.places().cloned(),
             self.setup.product,
             run_id.clone(),
             Arc::clone(owner),
-        )
+        ))
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every

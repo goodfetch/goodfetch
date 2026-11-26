@@ -46,6 +46,7 @@ use std::sync::{Arc, Mutex as SyncMutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 use goodfetch_counted_work::Row;
+use goodfetch_engine::CALLER;
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{
     BrowserChoice, BrowserSource, Pins, Platform, browser_source,
@@ -56,7 +57,6 @@ use goodfetch_engine::home::Home;
 use goodfetch_engine::host_name;
 use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
 use goodfetch_engine::runs::outcome::record_panicked;
-use goodfetch_engine::runs::{Run, identity};
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust};
@@ -66,6 +66,7 @@ use tokio::sync::{OnceCell, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
+use crate::browser_run::BrowserRun;
 use crate::cdp::borrowed::CdpUrl;
 use crate::cdp::driver::{
     Behind, BorrowedBrowser, Carried, LocalBrowser, Lost, Origins, PageDriver, SessionDriver,
@@ -128,7 +129,7 @@ impl LostAt {
 const LOSSES: usize = 16;
 
 struct Shared {
-    run: Run,
+    run: Arc<BrowserRun>,
     /// How its browsers start.
     launcher: Launcher,
     home: Home,
@@ -254,16 +255,17 @@ impl Pool {
     /// Browser cache of `home` and the builds `pins` names, and where each
     /// of its browsers that quits or crashes goes, out of service already.
     pub(crate) fn new(
-        run: Run,
+        run: Arc<BrowserRun>,
         launcher: Launcher,
         home: Home,
         pins: Pins,
     ) -> (Self, mpsc::Receiver<BrowserLoss>) {
         let (losses, lost) = mpsc::channel(LOSSES);
-        let limits = Limits::of(run.settings().map(RunSettings::resolved));
+        let limits = Limits::of(run.identity.settings().map(RunSettings::resolved));
         let exceptions = exceptions_of(&run);
         let authority = authority_of(&run, &exceptions);
         let rotation = run
+            .identity
             .settings()
             .and_then(|settings| Rotation::of(settings.resolved()))
             .map(Arc::new);
@@ -310,7 +312,7 @@ impl Pool {
         let behind = Behind::Launched(Arc::clone(&browser));
         self.watch_panics(LostAt::Browser(number), behind.clone());
         let pool = self.clone();
-        let tasks = identity(&self.shared.run).starting_on(browser.tasks());
+        let tasks = self.shared.run.identity.starting_on(browser.tasks());
         let stopping = browser.tasks().child_token();
         tasks.spawn(async move {
             let lost = {
@@ -346,7 +348,7 @@ impl Pool {
         let behind = Behind::Borrowed(Arc::clone(&browser));
         self.watch_panics(LostAt::Borrowed { seat }, behind.clone());
         let pool = self.clone();
-        let tasks = identity(&self.shared.run).starting_on(browser.tasks());
+        let tasks = self.shared.run.identity.starting_on(browser.tasks());
         let stopping = browser.tasks().child_token();
         tasks.spawn(async move {
             let lost = tokio::select! {
@@ -372,8 +374,8 @@ impl Pool {
     fn watch_panics(&self, at: LostAt, browser: Behind) {
         let pool = self.clone();
         let run = self.shared.run.clone();
-        let span = identity(&run).span().clone();
-        let stopping = run.cancellation().clone();
+        let span = run.identity.span().clone();
+        let stopping = run.identity.owner().child_token();
         let closed = browser.tasks().child_token();
         let task = async move {
             tokio::select! {
@@ -382,19 +384,19 @@ impl Pool {
                 () = browser.panicked() => {}
                 () = closed.cancelled() => return,
             }
-            let error = browser_panicked(run.metrics(), browser.panicked_crash_report());
+            let error = browser_panicked(run.identity.metrics(), browser.panicked_crash_report());
             tracing::error!(
                 ?at,
                 %error,
                 "a task of the browser's owner panicked: the engine treats the browser as crashed"
             );
             // The Run trace holds the Error code no reply carries (ADR 0072).
-            record_panicked(identity(&run), PanicEnded::Browser);
+            record_panicked(&run.identity, PanicEnded::Browser);
             browser.treat_as_crashed();
             browser.stop().await;
             pool.lost(at, Lost::BrowserCrashed(None)).await;
         };
-        self.shared.run.spawn(task.instrument(span));
+        self.shared.run.identity.spawn(task.instrument(span));
     }
 
     /// A browser of the Run ended at `at`, as `lost` says: one that quit or
@@ -447,8 +449,10 @@ impl Pool {
         let trust = shared
             .trust
             .get_or_init(|| async {
-                match shared.run.settings() {
-                    Some(settings) => Trust::of(settings.resolved(), shared.run.owner()).await,
+                match shared.run.identity.settings() {
+                    Some(settings) => {
+                        Trust::of(settings.resolved(), shared.run.identity.owner()).await
+                    }
                     None => Trust::default_roots(),
                 }
             })
@@ -485,16 +489,18 @@ impl Pool {
         let rotation = Arc::clone(rotation);
         let addresses = shared
             .run
+            .identity
             .owner()
             .blocking(move || rotation.session(&local_addresses::System, ordinal))
             .await
             .map_err(LocalFailure::Unavailable)?;
-        let clock = shared.run.clock();
+        let clock = shared.run.identity.clock();
         let dns = shared
             .dns
             .get_or_init(|| async {
                 shared
                     .run
+                    .identity
                     .owner()
                     .blocking(ResolverConfiguration::system)
                     .await
@@ -662,12 +668,14 @@ impl Pool {
             Some(process) if served > 0 => {
                 self.shared
                     .run
+                    .identity
                     .metrics()
                     .counted_work()
                     .count(Row::PoolWalks);
                 Some(
                     self.shared
                         .run
+                        .identity
                         .owner()
                         .blocking(move || footprint_of(process))
                         .await,
@@ -697,7 +705,11 @@ impl Pool {
             ?footprint,
             "a browser of the Run is recycled"
         );
-        self.shared.run.metrics().browser_recycled(why.as_str());
+        self.shared
+            .run
+            .identity
+            .metrics()
+            .browser_recycled(why.as_str());
         pooled.stage = Stage::Retiring;
         // The asker's `Opening` keeps it from closing here.
         self.settle(&mut browsers, number);
@@ -774,13 +786,14 @@ impl Pool {
             let pool = self.clone();
             self.shared
                 .run
+                .identity
                 .spawn(async move { pool.close(number).await });
         } else if !pooled.waiting {
             pooled.waiting = true;
             let (pool, busy) = (self.clone(), pooled.busy);
             let stopping = pooled.browser.tasks().child_token();
-            let (clock, idle) = (self.shared.run.clock(), self.shared.limits.idle);
-            let tasks = identity(&self.shared.run).starting_on(pooled.browser.tasks());
+            let (clock, idle) = (self.shared.run.identity.clock(), self.shared.limits.idle);
+            let tasks = self.shared.run.identity.starting_on(pooled.browser.tasks());
             tasks.spawn(async move {
                 tokio::select! {
                     () = stopping.cancelled() => {}
@@ -804,13 +817,13 @@ impl Pool {
         let Some(process) = pooled.browser.process() else {
             return;
         };
-        let governed = self.shared.run.governor().browser(process);
+        let governed = self.shared.run.governor.share().browser(process);
         let shed = governed.shed();
         pooled.governed = Some(governed);
         pooled.report();
         let pool = self.clone();
         let stopping = pooled.browser.tasks().child_token();
-        let tasks = identity(&self.shared.run).starting_on(pooled.browser.tasks());
+        let tasks = self.shared.run.identity.starting_on(pooled.browser.tasks());
         tasks.spawn(async move {
             tokio::select! {
                 () = stopping.cancelled() => {}
@@ -831,7 +844,7 @@ impl Pool {
                 browser = number,
                 "memory is critical: the governor recycles a browser of the Run"
             );
-            self.shared.run.metrics().browser_recycled("shed");
+            self.shared.run.identity.metrics().browser_recycled("shed");
             pooled.stage = Stage::Retiring;
         }
         self.settle(&mut browsers, number);
@@ -872,7 +885,7 @@ impl Pool {
                 ?idle,
                 "an idle browser of the Run is recycled"
             );
-            self.shared.run.metrics().browser_recycled("idle");
+            self.shared.run.identity.metrics().browser_recycled("idle");
             pooled.stage = Stage::Retiring;
         }
         self.settle(&mut browsers, number);
@@ -1237,8 +1250,8 @@ impl SeatShared {
     /// ends with its Session, as its close does, or with its Run, whose
     /// stop the ask then fails as.
     fn place_ended(&self) -> CallError {
-        if self.pool.shared.run.cancellation().is_cancelled() {
-            crate::errors::run_stopped(&self.pool.shared.run)
+        if self.pool.shared.run.identity.owner().is_cancelled() {
+            crate::errors::run_stopped(&self.pool.shared.run.identity)
         } else {
             place_closed()
         }
@@ -1249,7 +1262,7 @@ impl SeatShared {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        let span = identity(&self.pool.shared.run).span().clone();
+        let span = self.pool.shared.run.identity.span().clone();
         self.tasks.spawn(task.instrument(span));
     }
 
@@ -1449,9 +1462,10 @@ impl SeatShared {
 /// hash and its domains recorded in the Run's Provenance: none when it
 /// lists none. A Run whose authority cannot be made has none: its
 /// listed hosts are tunnelled, and the browser refuses their certificates.
-fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Authority>> {
+fn authority_of(run: &BrowserRun, exceptions: &CertificateExceptions) -> Option<Arc<Authority>> {
     let mut domains = exceptions.domains();
     let trusted = run
+        .identity
         .settings()
         .map(|settings| settings.resolved().value(&TLS_TRUSTED_CAS))
         .and_then(serde_json::Value::as_object);
@@ -1475,8 +1489,9 @@ fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Aut
                 "spki_sha256": authority.spki_sha256(),
                 "domains": domains,
             });
-            let recorded = run.clone();
-            run.spawn(async move { crate::trace::provenance(&recorded, entry).await });
+            let recorded = run.trace.clone();
+            run.identity
+                .spawn(async move { crate::trace::provenance(&recorded, entry).await });
             Some(Arc::new(authority))
         }
         Err(error) => {
@@ -1489,19 +1504,20 @@ fn authority_of(run: &Run, exceptions: &CertificateExceptions) -> Option<Arc<Aut
 /// The invalid-certificate exceptions of `run`'s `tls.accept_invalid_certs`,
 /// pinning in the person's known-certificates store; none, logged, when an
 /// entry names no host.
-fn exceptions_of(run: &Run) -> CertificateExceptions {
+fn exceptions_of(run: &BrowserRun) -> CertificateExceptions {
     let setting = run
+        .identity
         .settings()
         .map(|settings| settings.resolved().value(&TLS_ACCEPT_INVALID_CERTS).clone())
         .unwrap_or_default();
     let book = PinBook {
-        store: run.known_certificates(),
-        person: run.person().to_owned(),
-        run_id: Some(run.id().clone()),
-        audit: Arc::new(run.audit_log()),
-        clock: run.clock(),
+        store: run.engine.known_certificates().clone(),
+        person: CALLER.to_owned(),
+        run_id: Some(run.identity.id().clone()),
+        audit: Arc::new(run.engine.audit().clone()),
+        clock: run.identity.clock(),
     };
-    CertificateExceptions::listed(&setting, book, run.secrets().exception_hosts())
+    CertificateExceptions::listed(&setting, book, run.keys.secrets().exception_hosts())
         .unwrap_or_else(|error| {
             tracing::warn!(%error, "`tls.accept_invalid_certs` names no host, so it makes no exception");
             CertificateExceptions::default()

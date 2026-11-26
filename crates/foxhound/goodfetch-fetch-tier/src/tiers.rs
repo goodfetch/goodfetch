@@ -49,11 +49,12 @@ use goodfetch_engine::retry_after::{self, RetryAfter};
 use goodfetch_engine::robots_txt::{Answer, MAX_SIZE};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{self, ReportWarnings, Run, RunKeys};
+use goodfetch_engine::runs::{ReportWarnings, RunKeys};
 use goodfetch_engine::settings::{Effective, Resolved, RunSettings, get_or_default};
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificates, ExceptionUsed, PinBook, Trust,
 };
+use goodfetch_page::BrowserRun;
 
 use goodfetch_engine::{
     Answered, CALLER, CallContext, CallError, EngineContext, GuardAnswer, ReadParams, RunOfCall,
@@ -566,7 +567,7 @@ impl Decoded {
     /// read of it, its Page signature last, which consumes the tree.
     fn opened(
         self,
-        run: &Run,
+        run: &Arc<BrowserRun>,
         fetched: &crate::driver::Fetched,
         (extractor, readers, own): (Option<BuiltIn>, &UntouchedReaders, bool),
         ahead: Option<&ReadAhead>,
@@ -586,7 +587,7 @@ impl Decoded {
         let base_url = goodfetch_frontier::document_base(&url, base_href.as_deref())
             .map_or_else(|| url.clone(), |base| base.to_string());
         let signals = UseSignals::of(&fetched.headers);
-        let work = runs::identity(run).metrics().counted_work();
+        let work = run.identity.metrics().counted_work();
         // What the hand-off reads ahead, of a crawl request's own document.
         let ahead = ahead.filter(|_| own && not_document.is_none());
         let formats_of = |tree: Option<&goodfetch_counted_work::ParsedHtml>| {
@@ -609,7 +610,7 @@ impl Decoded {
                                 base_url: &base_url,
                                 serialization: goodfetch_extractor::Serialization::Served,
                             },
-                            chosen_extractor(runs::identity(run), extractor).extractor(),
+                            chosen_extractor(&run.identity, extractor).extractor(),
                             work,
                         )
                     };
@@ -645,8 +646,12 @@ impl Decoded {
                 });
         // A handler's reads keep the page's untouched tree, or its HTML,
         // which the first read that needs a tree parses (ADR 0138).
-        let tree = (readers.keeps() && not_document.is_none())
-            .then(|| KeptTree::keep(run, kept.unwrap_or_else(|| KeptFrom::Html(html.clone()))));
+        let tree = (readers.keeps() && not_document.is_none()).then(|| {
+            KeptTree::keep(
+                &run.identity,
+                kept.unwrap_or_else(|| KeptFrom::Html(html.clone())),
+            )
+        });
         let links = fetched
             .headers
             .iter()
@@ -679,13 +684,13 @@ impl Opened {
     /// `run`, as [`Decoding::of`] reads it with the pass it holds, and
     /// [`Decoded::opened`] with `extractor` and `readers`, on the CPU pool.
     fn navigated(
-        run: &Run,
+        run: &Arc<BrowserRun>,
         mut fetched: crate::driver::Fetched,
         extractor: Option<BuiltIn>,
         readers: &UntouchedReaders,
     ) -> Self {
         let passed = fetched.pass.take();
-        let identity = runs::identity(run);
+        let identity = &run.identity;
         Decoding::of(identity, &fetched, (None, readers, passed))
             .parsed(identity)
             .opened(run, &fetched, (extractor, readers, false), None)
@@ -698,7 +703,7 @@ impl Opened {
 /// what `ahead` reads of it, in one hand-off to the CPU pool when it needs
 /// one (ADR 0138; issue 2189).
 struct OpenedReading {
-    run: Run,
+    run: Arc<BrowserRun>,
     forced: Option<&'static Encoding>,
     extractor: Option<BuiltIn>,
     readers: Arc<UntouchedReaders>,
@@ -722,7 +727,7 @@ impl Reading for OpenedReading {
     fn decode(&self, mut fetched: crate::driver::Fetched) -> Self::Decoded {
         let passed = fetched.pass.take();
         let decoding = Decoding::of(
-            runs::identity(&self.run),
+            &self.run.identity,
             &fetched,
             (self.forced, &self.readers, passed),
         );
@@ -740,7 +745,7 @@ impl Reading for OpenedReading {
     ) -> HopRead<Opened> {
         // `ahead` reads only in a hand-off the document takes anyway.
         let ahead = self.pooled(&decoding).then_some(&self.ahead);
-        let decoded = decoding.parsed(runs::identity(&self.run));
+        let decoded = decoding.parsed(&self.run.identity);
         let work = self.work();
         if let Some(refresh) = decoded
             .refresh(&fetched, &self.readers, work)
@@ -757,7 +762,7 @@ impl Reading for OpenedReading {
     }
 
     fn work(&self) -> &CountedWork {
-        runs::identity(&self.run).metrics().counted_work()
+        self.run.identity.metrics().counted_work()
     }
 }
 
@@ -958,7 +963,7 @@ impl FetchTiers {
     /// until the answer drops: each takes the attempt's navigation gate and
     /// lease check (the `gate` module).
     pub fn hand_over(&self, hand_over: Arc<HandOver>) -> HandedOver {
-        let run = runs::identity(hand_over.run()).id().clone();
+        let run = hand_over.run().identity.id().clone();
         let mut handed = lock(&self.served.handed);
         handed.last += 1;
         let number = handed.last;
@@ -1061,7 +1066,7 @@ impl FetchTiers {
     /// beside their markup, once the engine's pages were handed over
     /// ([`BrowserPages::prepare_served_formats`]): a crawl whose pages read
     /// a format calls it as it starts (#2573).
-    pub fn prepare_served_formats(&self, run: &Run) {
+    pub fn prepare_served_formats(&self, run: &Arc<BrowserRun>) {
         if let Some(pages) = self.served.browser.get() {
             pages.prepare_served_formats(run);
         }
@@ -1095,17 +1100,17 @@ impl FetchTiers {
     /// Dropping the future loses only the tier.
     pub async fn built(
         &self,
-        run: &Run,
+        run: &Arc<BrowserRun>,
         engine: &EngineContext,
         settings: &Resolved,
         local: Option<LocalSource>,
     ) -> Result<HttpTier, String> {
-        let identity = runs::identity(run);
+        let identity = &run.identity;
         let egress = Policy::of(settings).map_err(|error| error.to_string())?;
         let trust = Trust::of(settings, identity.owner()).await;
         let client_certificates = ClientCertificates::listed(
             settings.value(&TLS_CLIENT_CERTIFICATES),
-            runs::keys(run).secrets().clone(),
+            run.keys.secrets().clone(),
             settings
                 .effective(&TLS_CLIENT_CERTIFICATES)
                 .map(|effective| effective.layer),
@@ -1114,7 +1119,7 @@ impl FetchTiers {
         .map_err(|error| error.to_string())?;
         let config = TransportConfig {
             trust,
-            exceptions: exceptions_of((identity, runs::keys(run)), engine, settings),
+            exceptions: exceptions_of((identity, &run.keys), engine, settings),
             client_certificates: Some(client_certificates),
             proxy: None,
             resolve: HostMapping::of(settings),
@@ -1127,10 +1132,10 @@ impl FetchTiers {
         // Every Session of the Run launches one build, so the document
         // request its own transport presents is read once, here.
         let presents = match self.served.browser.get() {
-            Some(pages) => match pages.document_request(run).await {
+            Some(pages) => match pages.document_request(&run.identity).await {
                 Ok(request) => request,
                 Err(unread) => {
-                    warn_version_unread((identity, runs::warnings(run)), &unread).await;
+                    warn_version_unread((identity, &run.warnings), &unread).await;
                     None
                 }
             },
@@ -1154,7 +1159,7 @@ impl FetchTiers {
             }
             None => (Arc::new(reqwest), None),
         };
-        let caching = Caching::of(engine.response_source(settings), run);
+        let caching = Caching::of(engine.response_source(settings), &run.identity);
         let transport = match &caching {
             Some(caching) => caching.over(transport),
             None => transport,
@@ -1239,7 +1244,7 @@ impl FetchTiers {
     pub async fn serve(
         &self,
         tier: &HttpTier,
-        run: &Run,
+        run: &Arc<BrowserRun>,
         request: &CrawlRequest,
         requester: &Requester<'_>,
         choice: &TierChoice,
@@ -1253,7 +1258,7 @@ impl FetchTiers {
             types: hand_over.content_types.clone(),
             handled: tier.following.handled.clone(),
         };
-        let identity = runs::identity(run);
+        let identity = &run.identity;
         let clock = identity.clock();
         let mut first = true;
         let ahead = self.read_ahead(run, hand_over).await;
@@ -1280,10 +1285,10 @@ impl FetchTiers {
                             tier.transport.as_ref(),
                             &tier.bounds,
                             OfRun {
-                                identity: runs::identity(run),
-                                trace: runs::run_trace(run),
-                                charging: runs::charging(run),
-                                governor: runs::governor(run),
+                                identity: &run.identity,
+                                trace: &run.trace,
+                                charging: &run.charging,
+                                governor: &run.governor,
                             },
                             (&hop, Some(own)),
                             requester,
@@ -1334,7 +1339,7 @@ impl FetchTiers {
     /// formats, which the hand-over's readers name, read with its
     /// extractor, and its Block cause, under `fetch.block_classification`.
     /// Nothing before the engine's pages were handed over.
-    async fn read_ahead(&self, run: &Run, hand_over: &HandOver) -> ReadAhead {
+    async fn read_ahead(&self, run: &Arc<BrowserRun>, hand_over: &HandOver) -> ReadAhead {
         let Some(pages) = self.served.browser.get() else {
             return ReadAhead::default();
         };
@@ -1348,7 +1353,7 @@ impl FetchTiers {
         };
         ReadAhead {
             formats,
-            blocks: classifies_blocks(runs::identity(run)).then(|| Arc::clone(pages)),
+            blocks: classifies_blocks(&run.identity).then(|| Arc::clone(pages)),
         }
     }
 
@@ -1374,7 +1379,7 @@ impl FetchTiers {
     async fn open_served(
         &self,
         tier: &HttpTier,
-        run: &Run,
+        run: &Arc<BrowserRun>,
         choice: &TierChoice,
         Followed {
             fetched,
@@ -1400,13 +1405,13 @@ impl FetchTiers {
             let readers = Arc::clone(&hand_over.untouched);
             let mut fetched = fetched;
             let passed = fetched.pass.take();
-            let identity = runs::identity(run);
+            let identity = &run.identity;
             let decoding = Decoding::of(identity, &fetched, (forced, &readers, passed));
             if decoding.on_pool(&ahead) {
                 identity
                     .owner()
                     .analysis(identity.metrics().counted_work(), move || {
-                        decoding.parsed(runs::identity(&reading)).opened(
+                        decoding.parsed(&reading.identity).opened(
                             &reading,
                             &fetched,
                             (extractor, &readers, true),
@@ -1415,7 +1420,7 @@ impl FetchTiers {
                     })
                     .await
             } else {
-                decoding.parsed(runs::identity(run)).opened(
+                decoding.parsed(&run.identity).opened(
                     run,
                     &fetched,
                     (extractor, &readers, true),
@@ -1495,7 +1500,7 @@ impl FetchTiers {
     pub async fn light(
         &self,
         tier: &HttpTier,
-        run: &Run,
+        run: &Arc<BrowserRun>,
         request: &CrawlRequest,
         choice: &TierChoice,
         hand_over: &Arc<HandOver>,
@@ -1515,11 +1520,11 @@ impl FetchTiers {
         let prepared = self
             .served
             .light
-            .prepared(runs::identity(run), home, pinned_by)
+            .prepared(&run.identity, home, pinned_by)
             .await
             .map_err(Stop::failed)?;
         let rendered = crate::light_browser::render(
-            runs::identity(run),
+            &run.identity,
             &prepared.executable,
             &request.url,
             (tier.address_check(), &tier.bounds.limits),
@@ -1649,7 +1654,7 @@ impl FetchTiers {
                 canonical,
             });
         }
-        let run = runs::identity(&served.run).clone();
+        let run = served.run.identity.clone();
         let work = run.metrics().counted_work().clone();
         let extractor = chosen_extractor(&run, served.extractor);
         let signed = run
@@ -1734,7 +1739,7 @@ impl FetchTiers {
         // Any other selector reads the page's kept tree while a handler
         // reads it, else a parse of its document (ADR 0138).
         let selector = selector.to_owned();
-        let work = runs::identity(&served.run).metrics().counted_work().clone();
+        let work = served.run.identity.metrics().counted_work().clone();
         let document = Arc::clone(&served);
         let read = calls::on_tree(&served, move |tree| {
             matched(tree, &selector, &work).map(|elements| ServedLinks {
@@ -1830,7 +1835,7 @@ impl FetchTiers {
             );
         }
         let fields = fields.clone();
-        let work = runs::identity(&served.run).metrics().counted_work().clone();
+        let work = served.run.identity.metrics().counted_work().clone();
         let base_url = served.base_url.clone();
         let read = calls::on_tree(&served, move |tree| {
             document::found(tree, &fields, &work).map(|found| FieldsFound { base_url, found })
@@ -1957,7 +1962,7 @@ impl FetchTiers {
             (verdict, noindex)
         } else {
             let check = check.clone();
-            let identity = runs::identity(&run);
+            let identity = &run.identity;
             let work = identity.metrics().counted_work().clone();
             identity
                 .owner()
@@ -2000,12 +2005,12 @@ impl FetchTiers {
         let run = page.document.run.clone();
         // Its document's hand-off classified it, when it took one.
         if let Classified::Read(classified) = &page.classified {
-            let received = runs::identity(&run).clock().wall();
+            let received = run.identity.clock().wall();
             return classified
                 .clone()
                 .map(|block| (block.clone(), blocked(block, &response, received)));
         }
-        self.classified(runs::identity(&run), response, Arc::clone(&page.document))
+        self.classified(&run.identity, response, Arc::clone(&page.document))
             .await
     }
 
@@ -2130,7 +2135,7 @@ impl FetchTiers {
                 "the engine's composition handed the fetch tiers no browser pages",
             ));
         };
-        let run_id = runs::identity(hand_over.run()).id();
+        let run_id = hand_over.run().identity.id();
         let own = OwnFetch {
             url: &request.url,
             method: request.method.as_str(),
@@ -2255,7 +2260,7 @@ impl FetchTiers {
     /// handed `run`'s pages over last.
     fn handed_over(&self, run: &RunId) -> Option<Arc<HandOver>> {
         if let Ok(opening) = OPENING.try_with(Arc::clone)
-            && runs::identity(opening.run()).id() == run
+            && opening.run().identity.id() == run
         {
             return Some(opening);
         }
@@ -2352,7 +2357,7 @@ impl RunOfCall for FetchTiers {
     ) -> Pin<Box<dyn Future<Output = Option<RunId>> + Send + 'a>> {
         let run = self
             .served_page(&PageId(page_id.to_owned()))
-            .map(|page| runs::identity(page.hand_over.run()).id().clone());
+            .map(|page| page.hand_over.run().identity.id().clone());
         Box::pin(std::future::ready(run))
     }
 
@@ -2397,7 +2402,9 @@ impl HandlerPages for FetchTiers {
         let Some(hand_over) = self.handed_over(run) else {
             return ProgramPages.reader(run, session);
         };
-        let handled = runs::identity(hand_over.run())
+        let handled = hand_over
+            .run()
+            .identity
             .settings()
             .map(|settings| Following::of(settings.resolved()).handled)
             .unwrap_or_default();

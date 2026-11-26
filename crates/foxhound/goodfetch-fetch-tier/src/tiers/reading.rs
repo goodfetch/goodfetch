@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use goodfetch_encoding::Kind;
-use goodfetch_engine::runs::{self, Run};
+use goodfetch_page::BrowserRun;
 use goodfetch_page::page_value::{DocumentReader, ReadDocument, Reading};
 
 use super::{Served, lock};
@@ -59,7 +59,7 @@ pub(super) struct NotDocument {
     /// Its body, after any content coding.
     pub(super) body: Bytes,
     /// The Run its body is stored in once `response.body` asks.
-    pub(super) run: Run,
+    pub(super) run: Arc<BrowserRun>,
 }
 
 /// The document reader of the browser pages one attempt hands over.
@@ -75,7 +75,7 @@ impl std::fmt::Debug for BrowserReader {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("BrowserReader")
-            .field("run", runs::identity(self.hand_over.run()).id())
+            .field("run", self.hand_over.run().identity.id())
             .field("handled", &self.handled)
             .finish_non_exhaustive()
     }

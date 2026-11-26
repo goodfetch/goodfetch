@@ -12,7 +12,7 @@
 use goodfetch_engine::CallError;
 use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::run::state_unavailable;
-use goodfetch_engine::runs::{self, Run, charging, identity, keys, warnings};
+use goodfetch_engine::runs::{self, ReportWarnings};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
@@ -23,6 +23,7 @@ use super::limits::ProxyPermit;
 use super::party::{Answer, Party, party, proxy_error, relays};
 use super::relay::{Mode, Relay};
 use super::{Opening, RunPowers, SessionProxy, lookup, proxy_addresses, relay_unavailable};
+use crate::browser_run::BrowserRun;
 
 /// The proxy one Session's HTTP transport sends through, as it opened.
 pub struct TransportProxy {
@@ -77,7 +78,7 @@ impl TransportProxy {
     ///
     /// Dropping the future closes any relay it opened.
     pub async fn open(
-        run: &Run,
+        run: &BrowserRun,
         settings: &Resolved,
         session: SessionId,
         ordinal: u64,
@@ -88,10 +89,14 @@ impl TransportProxy {
         let currencies = if settings.get::<Option<&str>>(&PROXY_PROVIDER).is_none() {
             Vec::new()
         } else {
-            run.usage()
+            runs::usage(&run.charging, &run.state)
                 .await
                 .map_err(|error| {
-                    state_unavailable(run.id().clone(), run.folder(), &error.to_string())
+                    state_unavailable(
+                        run.identity.id().clone(),
+                        run.identity.folder(),
+                        &error.to_string(),
+                    )
                 })?
                 .limits
                 .into_iter()
@@ -107,11 +112,11 @@ impl TransportProxy {
         // A fetch tier's Session has no owner of its own: its proxy's tasks
         // start on the Run's, which its end stops.
         let powers = RunPowers {
-            identity: identity(run).clone(),
-            secrets: keys(run).secrets().clone(),
-            politeness: runs::politeness(run).clone(),
-            charging: charging(run).clone(),
-            refusals: run.refusals(),
+            identity: run.identity.clone(),
+            secrets: run.keys.secrets().clone(),
+            politeness: run.politeness.clone(),
+            charging: run.charging.clone(),
+            refusals: run.engine.refusals(),
         };
         let Some(proxy) = SessionProxy::open(settings, &powers, &opening).await? else {
             return Ok(None);
@@ -260,16 +265,15 @@ impl TransportProxy {
                 .refusal(url, Answer::Failure { error: &error }, None)
     }
 
-    /// Warns `run`, once, when the Session outlived its provider's sticky
-    /// lifetime, so its exit may have changed (`proxy_exit_may_change`).
+    /// Warns the Run through `warnings`, once, when the Session outlived its
+    /// provider's sticky lifetime, so its exit may have changed
+    /// (`proxy_exit_may_change`).
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the warning unwritten.
-    pub async fn warn_if_outlived(&self, run: &Run) {
-        self.proxy
-            .warn_if_outlived(warnings(run), &self.session)
-            .await;
+    pub async fn warn_if_outlived(&self, warnings: &ReportWarnings) {
+        self.proxy.warn_if_outlived(warnings, &self.session).await;
     }
 }
 

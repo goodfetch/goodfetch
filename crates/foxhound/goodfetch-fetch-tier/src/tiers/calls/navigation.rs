@@ -23,8 +23,8 @@ use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::{self, Run};
 use goodfetch_extractor::BuiltIn;
+use goodfetch_page::BrowserRun;
 use goodfetch_page::page_value::{DocumentResponse, NavigationGate, Permit};
 use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::page::{
@@ -95,7 +95,7 @@ pub(super) async fn navigate(
     };
     let first = Hop::get(url);
     let mut permit = Some(gate.admit(&first).await.map_err(stopped)?);
-    let identity = runs::identity(&run);
+    let identity = &run.identity;
     let clock = identity.clock();
     let http = &page.http;
     // A document tier runs no refresh: a handler's own navigation is given
@@ -169,7 +169,7 @@ pub(super) async fn navigate(
         // `auto` the request moves to the browser, under a forced tier the
         // call fails with `blocked`.
         if let Some((_, error)) = tiers
-            .classified(runs::identity(&run), reached, Arc::clone(&opened.document))
+            .classified(&run.identity, reached, Arc::clone(&opened.document))
             .await
             .filter(|(block, _)| block.checks_the_browser())
         {
@@ -180,7 +180,7 @@ pub(super) async fn navigate(
             });
         }
     }
-    let mut response = answered(tiers, page_id, runs::files(&run), fetched).await?;
+    let mut response = answered(tiers, page_id, &run.files, fetched).await?;
     response.encoding = opened.read.map(|read| read.encoding.name().to_owned());
     tiers.navigated(page_id, opened, at);
     Ok(Navigated {
@@ -192,12 +192,12 @@ pub(super) async fn navigate(
 /// read on the CPU pool, its formats with `extractor`, by `readers`'
 /// readers of every document alone.
 async fn opened_on(
-    run: &Run,
+    run: &Arc<BrowserRun>,
     fetched: &Fetched,
     (extractor, readers): (Option<BuiltIn>, &Arc<UntouchedReaders>),
 ) -> Opened {
     let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
-    let identity = runs::identity(run);
+    let identity = &run.identity;
     identity
         .owner()
         .handler_analysis(identity.metrics().counted_work(), move || {
@@ -210,7 +210,7 @@ async fn opened_on(
 /// refused the document a navigation reached there, as a browser page is
 /// left on one (ADR 0093), its formats read with `extractor`.
 fn blank(
-    run: &Run,
+    run: &Arc<BrowserRun>,
     url: &Url,
     (extractor, readers): (Option<BuiltIn>, &UntouchedReaders),
 ) -> Opened {
@@ -287,7 +287,9 @@ impl HopGate for Navigating {
     fn sending<'a>(&'a self, hop: &'a Hop, _lead: bool) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
             self.hand_over.sending(hop, false).await?;
-            runs::send_window(self.hand_over.run())
+            self.hand_over
+                .run()
+                .send_window
                 .sending(Some(self.hand_over.lease.as_ref()), self.operation)
                 .await
                 .map_err(Stop::failed)

@@ -25,7 +25,7 @@ pub(crate) fn started(page_id: &PageId, driver: &PageDriver, live: &LiveRun) -> 
         live.events.clone(),
         Refusals::default(),
         Deadline::of_resolved(
-            live.run.settings().map(RunSettings::resolved),
+            live.run.identity.settings().map(RunSettings::resolved),
             &TIMEOUT_WAIT,
         ),
         None,

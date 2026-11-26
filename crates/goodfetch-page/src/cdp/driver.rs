@@ -65,7 +65,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
-use goodfetch_engine::runs::{Run, identity};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::RunSettings;
 use goodfetch_engine::tasks::{self, TaskOwner, TaskStarter};
 use goodfetch_protocol::connection::WaitedFor;
@@ -88,6 +88,7 @@ pub(crate) use self::targets::pointer_click;
 use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
 use super::launch::{Launcher, launch};
+use crate::browser_run::BrowserRun;
 use crate::egress_relay::EgressRelay;
 use crate::egress_relay::authority::Authority;
 use crate::errors::Call;
@@ -133,7 +134,7 @@ pub(crate) struct Deadlines {
 
 impl Deadlines {
     /// The deadlines of `run`'s settings.
-    fn of(run: &Run) -> Arc<Self> {
+    fn of(run: &RunIdentity) -> Arc<Self> {
         let settings = run.settings().map(RunSettings::resolved);
         Arc::new(Self {
             launch: Deadline::of_resolved(settings, &TIMEOUT_LAUNCH),
@@ -556,7 +557,7 @@ impl Connect for Behind {
 /// connected to on its Session's opening: the engine holds its own
 /// connection, which ends with the Run, and never closes the browser.
 pub(crate) struct BorrowedBrowser {
-    run: Run,
+    run: Arc<BrowserRun>,
     cdp_url: CdpUrl,
     /// The browser's owner, beside its Run's Sessions (ADR 0146): it holds
     /// the engine's connection, the readers of the browser's own events and
@@ -572,8 +573,8 @@ pub(crate) struct BorrowedBrowser {
 }
 
 impl BorrowedBrowser {
-    pub(crate) fn new(run: Run, cdp_url: CdpUrl) -> Self {
-        let owner = run.owner().child();
+    pub(crate) fn new(run: Arc<BrowserRun>, cdp_url: CdpUrl) -> Self {
+        let owner = run.identity.owner().child();
         Self {
             run,
             cdp_url,
@@ -619,7 +620,7 @@ impl Connect for BorrowedBrowser {
     async fn connect(&self) -> Result<Browser, CallError> {
         self.connected
             .get_or_try_init(|| async {
-                let tasks = identity(&self.run).starting_on(&self.owner);
+                let tasks = self.run.identity.starting_on(&self.owner);
                 let connection = borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
                 let browser = Browser {
@@ -634,8 +635,8 @@ impl Connect for BorrowedBrowser {
                     root_fell_behind: CancellationToken::new(),
                     lease: None,
                     counting: None,
-                    deadlines: Deadlines::of(&self.run),
-                    work: self.run.metrics().counted_work().clone(),
+                    deadlines: Deadlines::of(&self.run.identity),
+                    work: self.run.identity.metrics().counted_work().clone(),
                 };
                 // The first answer says a browser speaks CDP there.
                 browser
@@ -657,7 +658,7 @@ impl Connect for BorrowedBrowser {
 /// pool, on the first Session that needs it; it closes when the Run stops
 /// or the pool closes it.
 pub(crate) struct LocalBrowser {
-    run: Run,
+    run: Arc<BrowserRun>,
     launcher: Launcher,
     home: Home,
     pins: Pins,
@@ -680,13 +681,13 @@ pub(crate) struct LocalBrowser {
 
 impl LocalBrowser {
     pub(crate) fn new(
-        (run, launcher): (Run, Launcher),
+        (run, launcher): (Arc<BrowserRun>, Launcher),
         home: Home,
         pins: Pins,
         number: u64,
         authority: Option<Arc<Authority>>,
     ) -> Self {
-        let owner = run.owner().child();
+        let owner = run.identity.owner().child();
         Self {
             run,
             launcher,
@@ -780,7 +781,7 @@ impl Connect for LocalBrowser {
                 if let Some(released) = earlier {
                     released.cancelled().await;
                 }
-                let tasks = identity(&self.run).starting_on(&self.owner);
+                let tasks = self.run.identity.starting_on(&self.owner);
                 let attempt = self.owner.child_token();
                 let launched = launch(
                     (&self.run, &tasks),
@@ -806,8 +807,8 @@ impl Connect for LocalBrowser {
                     root_fell_behind: CancellationToken::new(),
                     lease: None,
                     counting: None,
-                    deadlines: Deadlines::of(&self.run),
-                    work: self.run.metrics().counted_work().clone(),
+                    deadlines: Deadlines::of(&self.run.identity),
+                    work: self.run.identity.metrics().counted_work().clone(),
                 };
                 // The first answer says the browser is up.
                 let version = browser
@@ -816,7 +817,12 @@ impl Connect for LocalBrowser {
                 if launched.headless {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }
-                crate::version_check::check(&self.run, &version.product).await;
+                crate::version_check::check(
+                    &self.run.identity,
+                    &self.run.warnings,
+                    &version.product,
+                )
+                .await;
                 service_workers::start(&browser, &tasks).await?;
                 coming_up.up();
                 Ok(browser)

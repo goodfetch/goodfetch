@@ -3,7 +3,8 @@
 //! `xtask codegen` commits, section by section, so a contract that joins the
 //! catalog (setting keys, CLI commands with their flags, MCP tools) joins the
 //! check, and compares each of Collie's entries, and each type they reach,
-//! with Foxhound's of the same name.
+//! with Foxhound's of the same name, and of the same type for a shared
+//! type's value.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -50,17 +51,35 @@ fn compare_entries(
 ) {
     let foxhound_entries = foxhound.and_then(Value::as_array);
     for entry in entries {
-        let name = entry
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let subject = format!("{section}/{name}");
+        let key = key(entry);
+        let subject = match key.kind {
+            Some(kind) => format!("{section}/{kind}.{}", key.name),
+            None => format!("{section}/{}", key.name),
+        };
         let counterpart = foxhound_entries.and_then(|candidates| {
             candidates
                 .iter()
-                .find(|candidate| candidate.get("name").and_then(Value::as_str) == Some(name))
+                .find(|candidate| self::key(candidate) == key)
         });
         compare(&subject, entry, counterpart, findings);
+    }
+}
+
+/// What names an entry in its section: its `name`, within its `type` when
+/// it has one, since two shared types may each hold a value of one name.
+#[derive(PartialEq, Eq)]
+struct Key<'a> {
+    kind: Option<&'a str>,
+    name: &'a str,
+}
+
+fn key(entry: &Value) -> Key<'_> {
+    Key {
+        kind: entry.get("type").and_then(Value::as_str),
+        name: entry
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
     }
 }
 
@@ -92,5 +111,49 @@ fn compare(subject: &str, collie: &Value, foxhound: Option<&Value>, findings: &m
             "Foxhound's generated contract differs from Collie's (ADR 0094)",
         )),
         Some(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::compare_entries;
+
+    fn subjects(collie: &Value, foxhound: &Value) -> Vec<String> {
+        let mut findings = Vec::new();
+        compare_entries(
+            "shared_type_values",
+            collie.as_array().expect("an array"),
+            Some(foxhound),
+            &mut findings,
+        );
+        findings
+            .into_iter()
+            .map(|finding| format!("{} {}", finding.kind, finding.subject))
+            .collect()
+    }
+
+    #[test]
+    fn a_value_name_two_types_share_matches_within_its_type() {
+        let audit =
+            json!({ "name": "effect_reconciled", "type": "audit_kind", "description": "audit" });
+        let event = json!({ "name": "effect_reconciled", "type": "notification_event", "description": "event" });
+        let collie = json!([audit, event]);
+        let foxhound = json!([event, audit]);
+
+        assert_eq!(subjects(&collie, &foxhound), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_changed_value_names_its_type() {
+        let collie =
+            json!([{ "name": "effect_reconciled", "type": "audit_kind", "description": "audit" }]);
+        let foxhound = json!([{ "name": "effect_reconciled", "type": "audit_kind", "description": "changed" }]);
+
+        assert_eq!(
+            subjects(&collie, &foxhound),
+            vec!["changed-in-foxhound shared_type_values/audit_kind.effect_reconciled"]
+        );
     }
 }

@@ -1867,6 +1867,9 @@ const SPELLING: Spelling = {
     maxJSONDepth: "max_json_depth",
     resolve: "resolve",
   }],
+  notifications: ["notifications", {
+    channels: { setting: "channels", value: { values: { fields: { "email": ["email", { fields: { "api_key": "apiKey" } }], "sns": ["sns", { fields: { "topic_arn": "topicArn" } }], "telegram": ["telegram", { fields: { "bot_token": "botToken", "chat_id": "chatId" } }] } } } },
+  }],
   ops: ["ops", {
     address: "address",
     attachedAddress: "attached_address",

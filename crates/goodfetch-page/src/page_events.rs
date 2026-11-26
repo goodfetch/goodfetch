@@ -740,13 +740,20 @@ impl PageEvents {
     /// The page's request part was replaced: it serves the request `next`
     /// now (ADR 0146). Its events name `next` from now; each listener of
     /// the earlier request's calls answers once it sent the events it
-    /// holds; and the mark that `Runtime` was asked for goes with them, so
-    /// a console call or exception from before the next `page.on` that asks
-    /// for it again is not passed on. `Runtime` stays on in the browser
-    /// until #2182's release turns it off.
+    /// holds; each of its waits raises `closed`, as at a close, and the
+    /// bodies it kept go; and the mark that `Runtime` was asked for goes
+    /// with them, so a console call or exception from before the next
+    /// `page.on` that asks for it again is not passed on. `Runtime` stays
+    /// on in the browser until #2182's release turns it off.
     pub(crate) fn replace_request(&self, next: PageId) {
         let mut state = lock(&self.shared.state);
         state.listeners.clear();
+        state.waiters.clear();
+        state.request_waiters.clear();
+        state.response_waiters.clear();
+        state.url_waiters.clear();
+        state.kept = Latest::default();
+        state.requested = Latest::default();
         state.runtime_since = None;
         self.shared.page_id.send_replace(next);
     }

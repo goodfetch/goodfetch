@@ -17,17 +17,12 @@ use goodfetch_protocol::run::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, RECIPE_START, RecipeStartParams,
     Recording, RunId, RunLimit, Tags,
 };
-use goodfetch_protocol::settings::{
-    RunOrigin, SettingInvalidDetails, SettingLimit, SettingsLayer, TIMEOUT_RUN,
-};
-use serde_json::Value;
 
-use crate::call::wire_millis;
 use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::generated::handles::Run;
 use crate::limits::Limits;
-use crate::settings::Settings;
+use crate::settings::{RunTimeout, Settings, wire_timeout};
 
 /// What a handler-less start runs.
 #[derive(Debug)]
@@ -36,17 +31,6 @@ enum Target {
     Recipe(String),
     /// A code-free catalog run's target.
     Catalog(CatalogTarget),
-}
-
-/// How long a handler-less Run may last, as its start gives it.
-#[derive(Debug, Clone, Copy)]
-enum RunTimeout {
-    /// As its `timeout.run` setting says: nothing sent.
-    Setting,
-    /// At most this long.
-    After(Duration),
-    /// As long as it takes: `null` sent.
-    Unbounded,
 }
 
 /// The start of a Run with no handler in the program, a Recipe's run
@@ -201,42 +185,6 @@ impl IntoFuture for HandlerlessStart {
                 detached,
             )),
         }
-    }
-}
-
-/// A Run's own `timeout` as its params carry it: absent for the setting's
-/// value, null for none, else whole milliseconds, a zero one refused as
-/// the engine refuses it.
-#[expect(
-    clippy::option_option,
-    reason = "the params' field is absent, null or a number on the wire (ADR 0080)"
-)]
-fn wire_timeout(timeout: RunTimeout) -> Result<Option<Option<u64>>, Error> {
-    match timeout {
-        RunTimeout::Setting => Ok(None),
-        RunTimeout::Unbounded => Ok(Some(None)),
-        RunTimeout::After(after) if after.is_zero() => {
-            let key = TIMEOUT_RUN.name;
-            let reason = "a timeout of 0 ms would end the Run at once";
-            let fix = "give at least 1 ms, or `.no_timeout()` for no timeout";
-            let details = SettingInvalidDetails {
-                key: key.to_owned(),
-                layer: Some(SettingsLayer::Run),
-                reason: reason.to_owned(),
-                limit: Some(SettingLimit {
-                    key: key.to_owned(),
-                    value: Value::from(0),
-                    layer: SettingsLayer::Run,
-                    origin: Some(RunOrigin::Argument),
-                }),
-                fix: Some(fix.to_owned()),
-            };
-            Err(Error::setting_invalid(
-                format!("The start's `timeout`, its `{key}`: {reason}; {fix}."),
-                &details,
-            ))
-        }
-        RunTimeout::After(after) => Ok(Some(Some(wire_millis(after)))),
     }
 }
 

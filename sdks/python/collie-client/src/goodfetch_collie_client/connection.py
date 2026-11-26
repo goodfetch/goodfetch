@@ -518,6 +518,10 @@ class ClientConnection:
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: RunSettings | None = None,
+        timeout: timedelta | NotGiven | None = not_given,
+        plan: str | None = None,
+        recording: Recording | None = None,
+        accept_plugin_change: Iterable[str] | None = None,
     ) -> AsyncRun:
         """Leaving the scope or `close()` stops the Run with a Checkpoint.
 
@@ -541,18 +545,34 @@ class ClientConnection:
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
+        `timeout` is how long the Run may last, as `timeout.run` for this
+        Run: its setting's value when left out, none for `None`, a
+        `timedelta` sent in whole milliseconds. `plan` is the Plan file the
+        Run follows, `recording` the Response recording it replays or
+        records (ADR 0105), and `accept_plugin_change` names each Plugin
+        whose change since the Run's Checkpoint a resume accepts (ADR 0033).
+
         A start that resumed its Run is logged at info, and one that found it
         ended at warning, on the `goodfetch.client.run` logger. A `limits`
-        amount the SDK cannot turn exactly fails with `setting_invalid` before
-        anything is sent. When the effective level
-        of `goodfetch.engine` changed since the engine was last told, the
-        start tells it first with `connection.set_log_level`.
+        amount the SDK cannot turn exactly, or a `timeout` of zero or less,
+        fails with `setting_invalid` before anything is sent. A start whose
+        task is cancelled once it is sent sends `$/cancel` naming it. When
+        the effective level of `goodfetch.engine` changed since the engine
+        was last told, the start tells it first with
+        `connection.set_log_level`.
         """
         warn_entry("run.start", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         self._ensure_owner("run.start")
         self.ensure_open("run.start")
-        fields = _start_fields(run_id, tags, limits, settings, self._project)
+        fields = _start_fields(
+            run_id, tags, limits, settings, recording, timeout, self._project
+        )
+        if plan is not None:
+            fields["plan"] = plan
+        accepted = [] if accept_plugin_change is None else list(accept_plugin_change)
+        if accepted:
+            fields["accept_plugin_change"] = accepted
         await self._follow_log_level()
         self.ensure_open("run.start")
         started = await self._operations.run_start(
@@ -671,11 +691,9 @@ class ClientConnection:
         """
         self._ensure_owner(operation)
         self.ensure_open(operation)
-        fields = _start_fields(run_id, tags, limits, settings, self._project)
-        if recording is not None:
-            fields["recording"] = recording
-        if not isinstance(timeout, NotGiven):
-            fields["timeout"] = timeout_of(timeout, "timeout.run")
+        fields = _start_fields(
+            run_id, tags, limits, settings, recording, timeout, self._project
+        )
         if detached:
             fields["detached"] = True
         return fields
@@ -1128,12 +1146,15 @@ def _start_fields(
     tags: Iterable[str] | None,
     limits: Limits | None,
     settings: RunSettings | None,
+    recording: Recording | None,
+    timeout: timedelta | NotGiven | None,
     project: ProjectSettings | None,
 ) -> dict[str, object]:
     """The fields every start takes, each one given, and the project file read.
 
     Raises:
-        SettingInvalidError: A `limits` amount the SDK cannot turn exactly.
+        SettingInvalidError: A `limits` amount the SDK cannot turn exactly,
+            or a `timeout` of zero or less.
     """
     fields: dict[str, object] = {}
     if run_id is not None:
@@ -1145,6 +1166,10 @@ def _start_fields(
         fields["limits"] = run_limits
     if settings is not None:
         fields["settings"] = settings_on_wire(settings)
+    if recording is not None:
+        fields["recording"] = recording
+    if not isinstance(timeout, NotGiven):
+        fields["timeout"] = timeout_of(timeout, "timeout.run")
     if project is not None:
         fields["project"] = project
     return fields

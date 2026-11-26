@@ -180,7 +180,7 @@ pub enum Route {
     /// `kind` at the URL, such as an OTLP collector.
     OperatorEndpoint {
         /// The endpoint's kind, as `goodfetch-protocol`'s table names it
-        /// in snake case: `otlp`, `model_provider`, `notification_webhook`.
+        /// in snake case: `otlp`, `model_provider`, `notification_channel`.
         kind: String,
     },
 }

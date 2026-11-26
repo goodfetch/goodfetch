@@ -70,7 +70,7 @@
 //! drives, kept whole so every work item's way from pending to its ending
 //! passes through one loop.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
@@ -779,7 +779,7 @@ pub(crate) async fn resume(
         });
         (left, (labels, choices, declarations))
     });
-    let (labels, choices, (extraction, datasets, invariants)) = match left {
+    let (labels, choices, (code_free, datasets, invariants)) = match left {
         Err(error) => {
             tracing::error!(%error, run_id = %run.identity.id(), "the resumed crawl's work items could not be recovered");
             run.end.end(failed(&run.identity, &error)).await;
@@ -795,7 +795,7 @@ pub(crate) async fn resume(
     };
     let egress = resumed_domain_policy(settings.resolved(), run.identity.id());
     let opened = crawls.open(&run, egress, invariants, datasets).await;
-    let code_free = CodeFree::of(extraction, &crawls, &tiers, &run.identity);
+    let code_free = CodeFree::of(code_free, &crawls, &tiers, &run.identity);
     drive(
         run,
         context,
@@ -848,7 +848,8 @@ struct Fetching<'a> {
 
 /// The readers of the untouched page a Run's documents are read by (ADR
 /// 0138), built once as its crawl starts: those of the Labels that declare
-/// a Page check of their own, and the Run's, for every other Label.
+/// a Page check of their own or that a declared crawl plans, and the
+/// Run's, for every other Label.
 struct Untouched {
     run: std::sync::Arc<UntouchedReaders>,
     labels: BTreeMap<String, std::sync::Arc<UntouchedReaders>>,
@@ -856,34 +857,49 @@ struct Untouched {
 
 impl Untouched {
     /// `run`'s readers, of its Labels `labels`: a code-free crawl's
-    /// `code_free` links and fields, each Label's Page check, else the
-    /// Run's, and the Page signature while the Run learns; a program's
-    /// keep each page's tree for its handler.
+    /// `code_free` links and fields, each Label's own, else the Run's, each
+    /// Label's Page check, else the Run's, and the Page signature while the
+    /// Run learns; a program's keep each page's tree for its handler.
     fn of(run: &CrawlRun, labels: &labels::Declared, code_free: Option<&CodeFree>) -> Self {
         let work = run.identity.metrics().counted_work();
         goodfetch_fetch_tier::compile_served_call_selectors(work);
-        let (links, fields) = code_free.map(CodeFree::untouched).unwrap_or_default();
-        let demand = |page_check: Option<PageCheck>| UntouchedDemand {
-            links: links.clone(),
-            fields: fields.clone(),
-            page_check,
-            signs: attempt::learns(&run.identity),
-            // A program's handler reads its pages: each keeps its untouched
-            // tree for the handler's calls (spec #1577's #1918).
-            keeps: code_free.is_none(),
-            // A code-free crawl's formats are read ahead in each document's
-            // hand-off to the CPU pool (issue 2189).
-            formats: code_free.map(CodeFree::formats).unwrap_or_default(),
+        let demands = code_free.map(CodeFree::untouched).unwrap_or_default();
+        let demand =
+            |(links, fields): &code_free::Demand, page_check: Option<PageCheck>| UntouchedDemand {
+                links: links.clone(),
+                fields: fields.clone(),
+                page_check,
+                signs: attempt::learns(&run.identity),
+                // A program's handler reads its pages: each keeps its untouched
+                // tree for the handler's calls (spec #1577's #1918).
+                keeps: code_free.is_none(),
+                // A code-free crawl's formats are read ahead in each document's
+                // hand-off to the CPU pool (issue 2189).
+                formats: code_free.map(CodeFree::formats).unwrap_or_default(),
+            };
+        let readers = |own, page_check| {
+            std::sync::Arc::new(UntouchedReaders::of(demand(own, page_check), work))
         };
-        let readers =
-            |page_check| std::sync::Arc::new(UntouchedReaders::of(demand(page_check), work));
+        let run_check = attempt::run_page_check(&run.identity);
+        let checks: BTreeMap<&str, &PageCheck> = labels.settings.page_checks().collect();
+        let own: BTreeSet<&str> = checks
+            .keys()
+            .copied()
+            .chain(demands.labels.keys().map(String::as_str))
+            .collect();
         Self {
-            run: readers(attempt::run_page_check(&run.identity)),
-            labels: labels
-                .settings
-                .page_checks()
-                .map(|(label, check)| (label.to_owned(), readers(Some(check.clone()))))
+            labels: own
+                .into_iter()
+                .map(|label| {
+                    let check = checks
+                        .get(label)
+                        .map(|&check| check.clone())
+                        .or_else(|| run_check.clone());
+                    let own = demands.labels.get(label).unwrap_or(&demands.run);
+                    (label.to_owned(), readers(own, check))
+                })
                 .collect(),
+            run: readers(&demands.run, run_check),
         }
     }
 

@@ -978,6 +978,310 @@
       ],
       "type": "object"
     },
+    "CacheBodyProblem": {
+      "description": "What `cache.verify` found wrong with a body file.",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "The file is not there.",
+          "type": "string"
+        },
+        {
+          "const": "changed",
+          "description": "The file's bytes are not the body stored: their SHA-256 or their\nlength is another.",
+          "type": "string"
+        }
+      ]
+    },
+    "CacheClearParams": {
+      "additionalProperties": false,
+      "description": "What `cache.clear` takes: which of the caller's entries leave, each\ngiven filter narrowing it; every one of them when none is given.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "country": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched through this proxy exit country; the\nempty text for those that left directly.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched with this device class; the empty text\nfor those fetched without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "domain": {
+          "arrived_in": "0.1",
+          "description": "Only the entries of this host and its subdomains.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "Only the entries fetched with this Identity profile language; the\nempty text for those fetched without one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "Only the entries of this partition: `public`, or a Saved\nidentity's name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Only the entries this Run fetched."
+        }
+      },
+      "type": "object"
+    },
+    "CacheCleared": {
+      "description": "What `cache.clear` answers: what left.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The body files deleted with them: those no entry left holds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes those body files weighed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The entries deleted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "CacheDamage": {
+      "description": "An entry whose body file `cache.verify` found damaged.",
+      "properties": {
+        "body_sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the body stored, as lower-case hex: its file's name.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "The entry's partition: `public`, or a Saved identity's name.",
+          "type": "string"
+        },
+        "problem": {
+          "$ref": "#/$defs/CacheBodyProblem",
+          "arrived_in": "0.1",
+          "description": "What is wrong with its body file."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run that fetched it; none outside a Run."
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "method",
+        "url",
+        "body_sha256",
+        "problem"
+      ],
+      "type": "object"
+    },
+    "CachePartitionStats": {
+      "description": "One partition's entries, as `cache.stats` counts them.",
+      "properties": {
+        "country": {
+          "arrived_in": "0.1",
+          "description": "The proxy's exit country its entries were fetched through; empty\nwhen they left directly or the Proxy declares none.",
+          "type": "string"
+        },
+        "device": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's device class; empty without one.",
+          "type": "string"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "Its entries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "language": {
+          "arrived_in": "0.1",
+          "description": "The Identity profile's language; empty without one.",
+          "type": "string"
+        },
+        "partition": {
+          "arrived_in": "0.1",
+          "description": "`public`, or the Saved identity whose partition it is.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "partition",
+        "country",
+        "language",
+        "device",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "CacheStats": {
+      "description": "What `cache.stats` answers: what the caller's Response cache holds.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The bodies they hold, each once however many entries share it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "body_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes those bodies weigh, each once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_bytes": {
+          "arrived_in": "0.1",
+          "description": "The bytes the whole cache holds on disk, every person's bodies and\nits index, which `cache.max_size` bounds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "partitions": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries by partition, the most entries first.",
+          "items": {
+            "$ref": "#/$defs/CachePartitionStats"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "body_bytes",
+        "held_bytes",
+        "partitions"
+      ],
+      "type": "object"
+    },
+    "CacheStatsParams": {
+      "additionalProperties": false,
+      "description": "What `cache.stats` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "CacheVerified": {
+      "description": "What `cache.verify` answers: what it read, and what it found damaged.",
+      "properties": {
+        "bodies": {
+          "arrived_in": "0.1",
+          "description": "The body files it read and hashed, each once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "damaged": {
+          "arrived_in": "0.1",
+          "description": "The entries whose body file is missing or no longer the body\nstored; none when the cache is whole.",
+          "items": {
+            "$ref": "#/$defs/CacheDamage"
+          },
+          "type": "array"
+        },
+        "entries": {
+          "arrived_in": "0.1",
+          "description": "The caller's entries it checked.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "entries",
+        "bodies",
+        "damaged"
+      ],
+      "type": "object"
+    },
+    "CacheVerifyParams": {
+      "additionalProperties": false,
+      "description": "What `cache.verify` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "CallCancelledDetails": {
       "description": "What `call_cancelled` details (ADR 0113).",
       "properties": {
@@ -2322,6 +2626,46 @@
       ],
       "type": "object"
     },
+    "CrawlDeclaration": {
+      "additionalProperties": false,
+      "description": "A crawl declared as data: the engine handles each of its requests\nitself, by the request's Label's `follow` and `extract`. A start naming\nit declares no Label and no Dataset of its own, else it fails with\n`invalid_params`, and never with `extraction` too, else it fails with\n`setting_invalid`; `extraction` is its one-Label shorthand.",
+      "properties": {
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "Its Datasets, as `crawl.start`'s `datasets`, which its Labels'\n`extract` fills.",
+          "items": {
+            "$ref": "#/$defs/DatasetDeclaration"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "arrived_in": "0.1",
+          "description": "Its Labels, in order, each with what its pages follow and extract.",
+          "items": {
+            "$ref": "#/$defs/DeclaredLabel"
+          },
+          "type": "array"
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "description": "The requests the crawl starts from, after the start's own `seeds`,\nof which the start still names at least one, each request seed\nnaming a Label it declares; none by default.",
+          "items": {
+            "$ref": "#/$defs/Seed"
+          },
+          "type": "array"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its Run's settings, nested by key, only those a Recipe may set,\nbeneath the start's own `settings`, which win key by key, each\nkey's value whole.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "labels"
+      ],
+      "type": "object"
+    },
     "CrawlExtraction": {
       "additionalProperties": false,
       "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetched_at`, when the engine read it, and its named\n`fields`, each read by a locator and given by a Value transform (ADR\n0123).",
@@ -3584,6 +3928,18 @@
           },
           "type": "array"
         },
+        "declaration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrawlDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl as data (ADR 0103): its Labels, what each of their pages\nfollows and extracts, its Datasets, settings and more seeds, which\nthe engine handles itself as it does `extraction`, its one-Label\nshorthand. Such a start declares no Label and no Dataset of its own,\nelse it fails with `invalid_params`, and names no `extraction`, else\nit fails with `setting_invalid`."
+        },
         "detached": {
           "arrived_in": "0.1",
           "description": "Whether the Run outlives the Connection that started it (ADR 0102),\nas a Recipe's run does: only a code-free crawl with no Hook, started\non a Daemon, detaches, and any other such start fails with\n`detach_unsupported`.",
@@ -4549,6 +4905,71 @@
         "limit",
         "elapsed",
         "waited_for"
+      ],
+      "type": "object"
+    },
+    "DeclaredExtract": {
+      "additionalProperties": false,
+      "description": "One Record a page of a declared Label pushes into `dataset`: its named\n`fields`, read as `extraction`'s are and written in the order declared;\na field name repeats across one Label's extracts only as one field,\nread once for them all.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset it pushes into, one the declaration declares.",
+          "type": "string"
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PageField"
+          },
+          "arrived_in": "0.1",
+          "description": "Its named fields, by name, each a value field, a list or rows.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset",
+        "fields"
+      ],
+      "type": "object"
+    },
+    "DeclaredLabel": {
+      "additionalProperties": false,
+      "description": "One Label of a [`CrawlDeclaration`]: as `crawl.start`'s `labels` declare\none, with what each of its pages follows and extracts.",
+      "properties": {
+        "extract": {
+          "arrived_in": "0.1",
+          "description": "The Records each of its pages pushes, one per entry; none by\ndefault.",
+          "items": {
+            "$ref": "#/$defs/DeclaredExtract"
+          },
+          "type": "array"
+        },
+        "follow": {
+          "arrived_in": "0.1",
+          "description": "The links each of its pages enqueues, rule by rule, each as\n`enqueueLinks` admits them; none by default.",
+          "items": {
+            "$ref": "#/$defs/FollowRule"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique among the declaration's Labels.",
+          "type": "string"
+        },
+        "payload_schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against; none\ntakes any Payload."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its settings, nested by key, as a Label declared at the start takes\nthem.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
       ],
       "type": "object"
     },
@@ -6712,6 +7133,53 @@
       "required": [
         "locator",
         "value"
+      ],
+      "type": "object"
+    },
+    "FollowRule": {
+      "additionalProperties": false,
+      "description": "The links a page of a declared Label enqueues, as `enqueueLinks` takes\nthem: each `links` matches, under `label`, narrowed by `include` and\n`exclude`, at most `limit` of them.",
+      "properties": {
+        "exclude": {
+          "arrived_in": "0.1",
+          "description": "URL patterns a link must match none of.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "arrived_in": "0.1",
+          "description": "URL patterns of which a link must match one when there are any.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label of the requests it enqueues, one the declaration declares.",
+          "type": "string"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "At most this many links of a page are added; none for no limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "links": {
+          "arrived_in": "0.1",
+          "description": "The CSS selector of the elements whose `href` it follows.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "links",
+        "label"
       ],
       "type": "object"
     },
@@ -13390,6 +13858,26 @@
       ],
       "type": "object"
     },
+    "RecordingInvalidDetails": {
+      "description": "What `recording_invalid`'s details hold.",
+      "properties": {
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recording",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RecordingMode": {
       "description": "What a Run does with the Response recording its start names (ADR 0105).",
       "oneOf": [
@@ -14243,6 +14731,47 @@
       "required": [
         "content_type",
         "call",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ResponseNotRecordedDetails": {
+      "description": "What `response_not_recorded`'s details hold.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: record the file again, or answer the request with a\nroute.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "nearest": {
+          "arrived_in": "0.1",
+          "description": "The recorded URLs of the request's host and path, in the order\nrecorded, at most five.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url",
+        "recording",
+        "nearest",
         "fix"
       ],
       "type": "object"
@@ -22658,6 +23187,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Response recording a start names cannot be read, is not WARC, is a WARC version the engine does not read, or holds a record that is not what it says, so no Run started. The details name the recording and what is wrong with it. Record the file again, or name another.",
+      "details": {
+        "$ref": "#/$defs/RecordingInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recording_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
       "exit_code": null,
       "group": "program",
@@ -22723,6 +23265,19 @@
       "json_rpc_class": -32003,
       "name": "response_not_ok",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run replays a Response recording that holds no response for a request it would send, so the request was refused and nothing reached the site. The details name the request's method and URL, the recording, and the recorded URLs of the same host and path, which show what differs, such as a cache-buster in the query. Record the file again, or answer the request with a route.",
+      "details": {
+        "$ref": "#/$defs/ResponseNotRecordedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "response_not_recorded",
+      "product": "collie",
       "retryable": false
     },
     {
@@ -24436,6 +24991,63 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cache.clear",
+      "params": {
+        "$ref": "#/$defs/CacheClearParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheCleared"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "query",
+      "name": "cache.stats",
+      "params": {
+        "$ref": "#/$defs/CacheStatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheStats"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cache.verify",
+      "params": {
+        "$ref": "#/$defs/CacheVerifyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheVerified"
       },
       "stability": "experimental"
     },
@@ -28664,7 +29276,7 @@
       "clearable": false,
       "default": false,
       "deprecated": null,
-      "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
+      "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
       "fixed_for_run": false,
       "name": "egress.no_private_endpoints",
       "product": "collie",

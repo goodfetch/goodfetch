@@ -1382,6 +1382,79 @@ fn a_foxhound_key_given_explicitly_to_a_collie_engine_is_not_in_product(
     );
 }
 
+/// A channel's Foxhound event given to a Collie engine outside its
+/// configuration answers `not_in_product`, naming the event (ADR 0095).
+///
+/// Covers: story:11-265, setting:notifications.channels, error:not_in_product
+#[test]
+fn a_channels_foxhound_event_given_to_a_collie_engine_is_not_in_product() {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "notifications": { "channels": {
+            "ops": { "events": ["run_failed", "sink_failed"] },
+        } } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: "sink_failed".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// A Collie engine's configuration file keeps a channel's Foxhound events
+/// aside, listed as Foxhound's in `config explain`, and applies the rest,
+/// an event neither Product knows kept as a newer engine's (ADRs 0079 and
+/// 0095).
+///
+/// Covers: story:11-265, setting:notifications.channels
+#[test]
+fn a_collie_configuration_file_lists_a_channels_foxhound_events_as_foxhounds() {
+    let layer = SettingsLayer::UserConfiguration;
+    let read = Values::read(
+        layer,
+        &nested(json!({ "notifications": { "channels": {
+            "ops": { "type": "slack", "events": ["run_failed", "sink_failed", "run_paused"] },
+        } } })),
+        Product::Collie,
+    )
+    .unwrap();
+    let layers = Layers {
+        user_configuration: read,
+        ..Layers::default()
+    };
+
+    let explained = resolve(&layers, Product::Collie, Product::Collie)
+        .unwrap()
+        .explain(&["notifications".to_owned()], Vec::new());
+
+    assert_eq!(
+        serde_json::to_value(&explained.settings).unwrap(),
+        json!([
+            {
+                "key": "notifications.channels",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": { "ops": { "type": "slack", "events": ["run_failed", "run_paused"] } },
+                "layer": "user_configuration",
+                "user_settable": true,
+                "weakens": false,
+            },
+            {
+                "key": "notifications.channels",
+                "products": ["foxhound"],
+                "applied": false,
+                "value": { "ops": { "events": ["sink_failed"] } },
+                "layer": "user_configuration",
+                "weakens": false,
+            },
+        ]),
+    );
+}
+
 /// A `Retry-After`'s bound is a crawl's key (ADR 0118), which a Collie
 /// engine refuses.
 ///

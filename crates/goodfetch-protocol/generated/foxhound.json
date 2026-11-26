@@ -34090,6 +34090,13 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "A Run waits for a person's approval.",
+      "name": "approval_requested",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The first entry of a pruned Audit log, in place of the entries `audit.retention` pruned: the last pruned sequence, its hash, from which the rest chains, and the time and layer of the pruning that left it.",
       "name": "audit_log_anchor",
       "product": "collie",
@@ -34342,6 +34349,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Dataset's schema changed.",
+      "name": "dataset_schema_changed",
+      "product": "foxhound",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A trap page a person would never reach; only Foxhound's Frontier produces it.",
       "name": "decoy",
       "product": "foxhound",
@@ -34349,10 +34363,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "An uncertain Effect was reconciled.",
+      "name": "effect_reconciled",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A person answered about an uncertain Effect (ADRs 0029 and 0106): \"it happened\", \"it did not happen\" or \"leave uncertain\"; `details` give the Run, the Effect journal `entry`, the `key`, the `crawl_request` and the `answer`.",
       "name": "effect_reconciled",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run reported an Effect whose outcome is uncertain.",
+      "name": "effect_uncertain",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -34454,6 +34482,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Human pause waits for a person, with a link to the Live view.",
+      "name": "human_pause_waiting",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Saved identity's earliest cookie expiry entered its warning window.",
+      "name": "identity_cookie_expiry",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Every run of the user on the machine, whichever engine runs it.",
       "name": "install",
       "product": "collie",
@@ -34493,6 +34535,13 @@
       "name": "lent_page_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit reached its warning threshold.",
+      "name": "limit_threshold",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -34657,6 +34706,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Code mode or a Plugin was quarantined.",
+      "name": "quarantined",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The site refused because too many requests came too fast.",
       "name": "rate_limit",
       "product": "collie",
@@ -34668,6 +34724,20 @@
       "name": "raw_cdp_attached",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person is asked to reconcile an uncertain Effect.",
+      "name": "reconciliation_requested",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's Records changed against its Baseline.",
+      "name": "records_changed",
+      "product": "foxhound",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -34706,10 +34776,45 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Run ended on an error.",
+      "name": "run_failed",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run finished.",
+      "name": "run_finished",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run ended with its Completeness `incomplete`.",
+      "name": "run_incomplete",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A resume asked to roll back the Run's run file on this machine to a Checkpoint behind it, or one this engine could not read, losing the work done since that Checkpoint: the positions of both, the run file's null when unread. It is written before the run file is replaced, and a replacement that then fails leaves that file as it was (ADR 0002).",
       "name": "run_rolled_back",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run started.",
+      "name": "run_started",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run was stopped, by a Limit, a person or a program.",
+      "name": "run_stopped",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -34741,6 +34846,27 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Schedule paused itself.",
+      "name": "schedule_auto_paused",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule's occurrences were missed, notified once per wake.",
+      "name": "schedule_occurrences_missed",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Limit skipped a Schedule's occurrences, notified once per period.",
+      "name": "schedule_occurrences_skipped",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Secret reference was resolved and used: its placeholder, its reference and the domain that received it, never its value.",
       "name": "secret_reference_used",
       "product": "collie",
@@ -34766,6 +34892,34 @@
       "name": "session_imported",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Sink fell behind its Run.",
+      "name": "sink_behind",
+      "product": "foxhound",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Sink failed.",
+      "name": "sink_failed",
+      "product": "foxhound",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Sink was paused.",
+      "name": "sink_paused",
+      "product": "foxhound",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Sink recovered.",
+      "name": "sink_recovered",
+      "product": "foxhound",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",
@@ -34822,6 +34976,20 @@
       "name": "user_configuration_written",
       "product": "collie",
       "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's result waits for a person's review.",
+      "name": "verdict_needs_review",
+      "product": "collie",
+      "type": "notification_event"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's success check rejected its result.",
+      "name": "verdict_rejected",
+      "product": "collie",
+      "type": "notification_event"
     },
     {
       "arrived_in": "0.1",

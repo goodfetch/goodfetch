@@ -12,7 +12,12 @@ use schemars::generate::SchemaSettings;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind, ValueShape};
+use crate::catalog::{
+    Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
+    ValueShape,
+};
+use crate::inline_value::open_value_type;
+use crate::run::{Completeness, Lifecycle, RunAxes, Verdict};
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -410,7 +415,119 @@ pub const NOTIFICATIONS_CHANNELS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// Notifications' entries: their settings.
+open_value_type!(
+    /// A Notification event's `snake_case` name (ADRs 0027 and 0029), such
+    /// as `run_failed`: one of Collie's, or Foxhound's or a newer engine's,
+    /// which a reader keeps as received (ADRs 0079 and 0095).
+    NotificationEvent,
+    "a Notification event's name"
+);
+
+/// Defines each Collie event as an associated constant of
+/// [`NotificationEvent`] and as a value of the catalog's open value list.
+macro_rules! collie_events {
+    ($($constant:ident = $name:literal: $description:literal;)*) => {
+        impl NotificationEvent {
+            $(
+                #[doc = $description]
+                pub const $constant: Self = Self::from_static($name);
+            )*
+
+            /// Collie's events.
+            pub const COLLIE: &[Self] = &[$(Self::$constant),*];
+        }
+
+        /// Collie's events in the catalog's open value list.
+        const EVENT_VALUES: &[SharedTypeValue] = &[$(
+            SharedTypeValue {
+                shared_type: SharedType::NotificationEvent,
+                name: $name,
+                description: $description,
+                arrived_in: ARRIVED_IN,
+            },
+        )*];
+    };
+}
+
+collie_events! {
+    RUN_STARTED = "run_started": "A Run started.";
+    RUN_FINISHED = "run_finished": "A Run finished.";
+    RUN_FAILED = "run_failed": "A Run ended on an error.";
+    RUN_STOPPED = "run_stopped": "A Run was stopped, by a Limit, a person or a program.";
+    VERDICT_REJECTED = "verdict_rejected": "A Run's success check rejected its result.";
+    VERDICT_NEEDS_REVIEW = "verdict_needs_review": "A Run's result waits for a person's review.";
+    RUN_INCOMPLETE = "run_incomplete": "A Run ended with its Completeness `incomplete`.";
+    EFFECT_UNCERTAIN = "effect_uncertain": "A Run reported an Effect whose outcome is uncertain.";
+    RECONCILIATION_REQUESTED = "reconciliation_requested": "A person is asked to reconcile an uncertain Effect.";
+    EFFECT_RECONCILED = "effect_reconciled": "An uncertain Effect was reconciled.";
+    APPROVAL_REQUESTED = "approval_requested": "A Run waits for a person's approval.";
+    HUMAN_PAUSE_WAITING = "human_pause_waiting": "A Human pause waits for a person, with a link to the Live view.";
+    LIMIT_THRESHOLD = "limit_threshold": "A Limit reached its warning threshold.";
+    SCHEDULE_AUTO_PAUSED = "schedule_auto_paused": "A Schedule paused itself.";
+    SCHEDULE_OCCURRENCES_SKIPPED = "schedule_occurrences_skipped": "A Limit skipped a Schedule's occurrences, notified once per period.";
+    SCHEDULE_OCCURRENCES_MISSED = "schedule_occurrences_missed": "A Schedule's occurrences were missed, notified once per wake.";
+    IDENTITY_COOKIE_EXPIRY = "identity_cookie_expiry": "A Saved identity's earliest cookie expiry entered its warning window.";
+    QUARANTINED = "quarantined": "Code mode or a Plugin was quarantined.";
+}
+
+impl NotificationEvent {
+    /// The attention set: the events a channel with no `events` receives
+    /// (ADRs 0027 and 0029), what needs a person rather than what went
+    /// well.
+    pub const ATTENTION: [Self; 13] = [
+        Self::RUN_FAILED,
+        Self::RUN_STOPPED,
+        Self::VERDICT_REJECTED,
+        Self::VERDICT_NEEDS_REVIEW,
+        Self::RUN_INCOMPLETE,
+        Self::EFFECT_UNCERTAIN,
+        Self::RECONCILIATION_REQUESTED,
+        Self::APPROVAL_REQUESTED,
+        Self::HUMAN_PAUSE_WAITING,
+        Self::LIMIT_THRESHOLD,
+        Self::SCHEDULE_AUTO_PAUSED,
+        Self::IDENTITY_COOKIE_EXPIRY,
+        Self::QUARANTINED,
+    ];
+
+    /// The events a Run's end raises, from its axes as it ended (ADR
+    /// 0029): its Lifecycle's, then a `rejected` or `needs_review`
+    /// Verdict's and an `incomplete` Completeness's; none while it runs.
+    #[must_use]
+    pub fn of_run_end(axes: &RunAxes) -> Vec<Self> {
+        let lifecycle = match axes.lifecycle {
+            Lifecycle::Running => return Vec::new(),
+            Lifecycle::Finished => Self::RUN_FINISHED,
+            Lifecycle::Stopped => Self::RUN_STOPPED,
+            Lifecycle::Failed => Self::RUN_FAILED,
+        };
+        let verdict = match axes.verdict {
+            Some(Verdict::Rejected) => Some(Self::VERDICT_REJECTED),
+            Some(Verdict::NeedsReview) => Some(Self::VERDICT_NEEDS_REVIEW),
+            _ => None,
+        };
+        let completeness =
+            (axes.completeness == Some(Completeness::Incomplete)).then_some(Self::RUN_INCOMPLETE);
+        [Some(lifecycle), verdict, completeness]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+}
+
+impl ChannelSettings {
+    /// Whether the channel receives `event`: one its `events` names, or
+    /// one of the attention set when it names none.
+    #[must_use]
+    pub fn receives(&self, event: NotificationEvent) -> bool {
+        match &self.events {
+            Some(events) => events.iter().any(|name| name == event.as_str()),
+            None => NotificationEvent::ATTENTION.contains(&event),
+        }
+    }
+}
+
+/// Notifications' entries: their settings and Collie's events.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
@@ -421,7 +538,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[NOTIFICATIONS_CHANNELS],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: EVENT_VALUES,
 };
 
 #[cfg(test)]

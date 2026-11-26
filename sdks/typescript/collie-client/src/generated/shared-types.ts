@@ -77,6 +77,30 @@ export type LimitScope = "connection" | "daemon" | "install" | "person" | "run" 
 export type NeedsYouKind = "certificate_changed" | "consent_wall" | "run_stopped_by_limit" | "run_stopped_by_storage" | "storage_level" | "wall_refetch_stopped" | (string & {});
 
 /**
+ * A `notification_event`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
+ *
+ * - `approval_requested`: A Run waits for a person's approval.
+ * - `effect_reconciled`: An uncertain Effect was reconciled.
+ * - `effect_uncertain`: A Run reported an Effect whose outcome is uncertain.
+ * - `human_pause_waiting`: A Human pause waits for a person, with a link to the Live view.
+ * - `identity_cookie_expiry`: A Saved identity's earliest cookie expiry entered its warning window.
+ * - `limit_threshold`: A Limit reached its warning threshold.
+ * - `quarantined`: Code mode or a Plugin was quarantined.
+ * - `reconciliation_requested`: A person is asked to reconcile an uncertain Effect.
+ * - `run_failed`: A Run ended on an error.
+ * - `run_finished`: A Run finished.
+ * - `run_incomplete`: A Run ended with its Completeness `incomplete`.
+ * - `run_started`: A Run started.
+ * - `run_stopped`: A Run was stopped, by a Limit, a person or a program.
+ * - `schedule_auto_paused`: A Schedule paused itself.
+ * - `schedule_occurrences_missed`: A Schedule's occurrences were missed, notified once per wake.
+ * - `schedule_occurrences_skipped`: A Limit skipped a Schedule's occurrences, notified once per period.
+ * - `verdict_needs_review`: A Run's result waits for a person's review.
+ * - `verdict_rejected`: A Run's success check rejected its result.
+ */
+export type NotificationEvent = "approval_requested" | "effect_reconciled" | "effect_uncertain" | "human_pause_waiting" | "identity_cookie_expiry" | "limit_threshold" | "quarantined" | "reconciliation_requested" | "run_failed" | "run_finished" | "run_incomplete" | "run_started" | "run_stopped" | "schedule_auto_paused" | "schedule_occurrences_missed" | "schedule_occurrences_skipped" | "verdict_needs_review" | "verdict_rejected" | (string & {});
+
+/**
  * A `run_warning_code`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
  * - `baseline_unavailable`: The baseline a comparison needs was unavailable.

@@ -93,6 +93,32 @@ received (ADR 0079).
 - `wall_refetch_stopped`: A domain on which a Run's refetch without the site's stored data stopped, at a Block cause, a 401 or 403 status or a login page (ADR 0052); `details` give the `domain`, the `cause`, and the `layer` of `wall.refetch_domains` that lists it with its `file`, and whether `only_star` covers it there; `run` is the last Run whose refetch stopped there. Its actions offer `needs_you.remove_refetch_domain`, except for a domain project configuration lists, which is changed in its file, and `needs_you.deny_wall_domain`. It leaves the list once no layer lists the domain, once `wall.denied_domains` denies it, or when a person dismisses it.
 """
 
+NotificationEvent: TypeAlias = Literal["approval_requested", "effect_reconciled", "effect_uncertain", "human_pause_waiting", "identity_cookie_expiry", "limit_threshold", "quarantined", "reconciliation_requested", "run_failed", "run_finished", "run_incomplete", "run_started", "run_stopped", "schedule_auto_paused", "schedule_occurrences_missed", "schedule_occurrences_skipped", "verdict_needs_review", "verdict_rejected"] | str
+"""A `notification_event`, a type both Products share (ADR 0095).
+
+Collie's values below; a value this package does not know is kept as
+received (ADR 0079).
+
+- `approval_requested`: A Run waits for a person's approval.
+- `effect_reconciled`: An uncertain Effect was reconciled.
+- `effect_uncertain`: A Run reported an Effect whose outcome is uncertain.
+- `human_pause_waiting`: A Human pause waits for a person, with a link to the Live view.
+- `identity_cookie_expiry`: A Saved identity's earliest cookie expiry entered its warning window.
+- `limit_threshold`: A Limit reached its warning threshold.
+- `quarantined`: Code mode or a Plugin was quarantined.
+- `reconciliation_requested`: A person is asked to reconcile an uncertain Effect.
+- `run_failed`: A Run ended on an error.
+- `run_finished`: A Run finished.
+- `run_incomplete`: A Run ended with its Completeness `incomplete`.
+- `run_started`: A Run started.
+- `run_stopped`: A Run was stopped, by a Limit, a person or a program.
+- `schedule_auto_paused`: A Schedule paused itself.
+- `schedule_occurrences_missed`: A Schedule's occurrences were missed, notified once per wake.
+- `schedule_occurrences_skipped`: A Limit skipped a Schedule's occurrences, notified once per period.
+- `verdict_needs_review`: A Run's result waits for a person's review.
+- `verdict_rejected`: A Run's success check rejected its result.
+"""
+
 RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 

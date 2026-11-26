@@ -4,12 +4,15 @@
 //! segments (`"crawl.retry"`), and a key's value is checked against its
 //! kind, a Session source's `domains` against the Public Suffix List as
 //! well (ADR 0056). The product check comes first (ADR 0087): a key only the other
-//! Product honours is kept aside, unapplied, in a configuration file, which
-//! both Products share, and refused with `not_in_product` anywhere else.
+//! Product honours, or the part of a key's value only it honours, such as a
+//! channel's Foxhound events, is kept aside, unapplied, in a configuration
+//! file, which both Products share, and refused with `not_in_product`
+//! anywhere else.
 
 use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{Product, Setting};
+use goodfetch_protocol::entries::others_part;
 use goodfetch_protocol::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{RunOrigin, SESSION_SOURCE, SettingsLayer};
@@ -29,11 +32,20 @@ pub(crate) struct Given {
     pub(crate) run_authority: bool,
 }
 
+/// A value a configuration file keeps aside, unapplied: a key, or the
+/// part of a key's value, only another Product honours.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Aside {
+    pub(crate) value: Value,
+    /// The Product that honours it.
+    pub(crate) product: Product,
+}
+
 /// What one layer sets.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Values {
     pub(crate) applied: BTreeMap<&'static str, Value>,
-    pub(crate) others: BTreeMap<&'static str, Value>,
+    pub(crate) others: BTreeMap<&'static str, Aside>,
     pub(crate) origin: Option<RunOrigin>,
     /// Whether a Client acting for a model gave them (ADR 0092).
     pub(crate) for_model: bool,
@@ -149,7 +161,11 @@ fn leaf(
     let name = key.setting.name;
     if !engine.contains(key.product) {
         if layer.is_configuration() {
-            values.others.insert(name, value.clone());
+            let aside = Aside {
+                value: value.clone(),
+                product: key.product,
+            };
+            values.others.insert(name, aside);
             return Ok(());
         }
         return Err(SettingsError::NotInProduct {
@@ -176,7 +192,24 @@ fn leaf(
     {
         check_session_source(&source, Some(layer))?;
     }
-    values.applied.insert(name, value.clone());
+    let Some(part) = others_part(key.setting, value, engine) else {
+        values.applied.insert(name, value.clone());
+        return Ok(());
+    };
+    if !layer.is_configuration() {
+        return Err(SettingsError::NotInProduct {
+            key: part.first,
+            needs: part.needs,
+        });
+    }
+    values.others.insert(
+        name,
+        Aside {
+            value: part.theirs,
+            product: part.needs,
+        },
+    );
+    values.applied.insert(name, part.kept);
     Ok(())
 }
 

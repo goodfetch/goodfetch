@@ -1,7 +1,8 @@
 use rstest::rstest;
 use serde_json::{Value, json};
 
-use super::{CHANNEL_SHAPE, ChannelSettings, WebhookPayload};
+use super::{CHANNEL_SHAPE, ChannelSettings, NotificationEvent, WebhookPayload};
+use crate::run::{Completeness, Lifecycle, RunAxes, RunId, Verdict};
 
 /// Covers: story:11-262, story:11-263, setting:notifications.channels
 #[test]
@@ -94,4 +95,77 @@ fn each_example_is_a_channel_entry() {
     for example in (CHANNEL_SHAPE.examples)() {
         (CHANNEL_SHAPE.check)(&example).unwrap();
     }
+}
+
+fn axes(lifecycle: Lifecycle, verdict: Verdict, completeness: Completeness) -> RunAxes {
+    RunAxes {
+        run_id: RunId::parse("run-1").unwrap(),
+        lifecycle,
+        verdict: Some(verdict),
+        completeness: Some(completeness),
+    }
+}
+
+/// A channel with no `events` receives the attention set of a Run's end,
+/// and nothing of a green Run: `run_finished` is not sent by default (ADRs
+/// 0027 and 0029).
+///
+/// Covers: story:11-264, setting:notifications.channels
+#[rstest]
+#[case::failed(
+    axes(Lifecycle::Failed, Verdict::NeedsReview, Completeness::Unverified),
+    &["run_failed", "verdict_needs_review"]
+)]
+#[case::stopped(
+    axes(Lifecycle::Stopped, Verdict::Verified, Completeness::Incomplete),
+    &["run_stopped", "run_incomplete"]
+)]
+#[case::rejected(
+    axes(Lifecycle::Finished, Verdict::Rejected, Completeness::Complete),
+    &["verdict_rejected"]
+)]
+#[case::incomplete(
+    axes(Lifecycle::Finished, Verdict::Verified, Completeness::Incomplete),
+    &["run_incomplete"]
+)]
+#[case::green(axes(Lifecycle::Finished, Verdict::Verified, Completeness::Complete), &[])]
+fn a_channel_with_no_events_receives_the_attention_set_of_a_runs_end(
+    #[case] ended: RunAxes,
+    #[case] received: &[&str],
+) {
+    let channel = ChannelSettings::default();
+
+    let sent: Vec<NotificationEvent> = NotificationEvent::of_run_end(&ended)
+        .into_iter()
+        .filter(|event| channel.receives(*event))
+        .collect();
+
+    assert_eq!(
+        sent.iter()
+            .map(NotificationEvent::as_str)
+            .collect::<Vec<_>>(),
+        received
+    );
+}
+
+/// A channel that names its events receives those alone, `run_finished`
+/// and a name a newer engine sends included, which it keeps as a string
+/// (ADR 0079).
+///
+/// Covers: story:11-265, setting:notifications.channels
+#[test]
+fn a_channel_that_names_its_events_receives_those_alone() {
+    let channel =
+        ChannelSettings::read(&json!({ "events": ["run_finished", "run_paused"] })).unwrap();
+
+    let received: Vec<bool> = [
+        NotificationEvent::RUN_FINISHED,
+        NotificationEvent::RUN_FAILED,
+        NotificationEvent::new("run_paused").unwrap(),
+    ]
+    .into_iter()
+    .map(|event| channel.receives(event))
+    .collect();
+
+    assert_eq!(received, [true, false, true]);
 }

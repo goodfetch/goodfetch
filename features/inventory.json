@@ -9924,7 +9924,7 @@
     {
       "id": "setting:notifications.channels",
       "kind": "setting",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

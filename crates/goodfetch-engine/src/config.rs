@@ -346,7 +346,7 @@ fn value_of(values: &Values, key: &str) -> Option<Value> {
     values
         .applied
         .get(key)
-        .or_else(|| values.others.get(key))
+        .or_else(|| values.others.get(key).map(|aside| &aside.value))
         .cloned()
 }
 

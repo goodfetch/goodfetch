@@ -5,7 +5,7 @@ use std::error::Error;
 use futures_util::stream::BoxStream;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::ledger::Reservation;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use tokio_util::sync::CancellationToken;
 
@@ -27,8 +27,8 @@ pub trait ModelProvider: Send + Sync {
 /// values for it.
 #[derive(Clone, Copy, Debug)]
 pub struct CallContext<'a> {
-    /// The Run the call is for.
-    pub run: &'a Run,
+    /// The identity of the Run the call is for (ADR 0145).
+    pub run: &'a RunIdentity,
     /// The worst case the driver reserved for the call, which it settles
     /// once the provider has said what the call used.
     pub reservation: &'a Reservation,

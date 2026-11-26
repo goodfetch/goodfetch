@@ -27,7 +27,6 @@ use goodfetch_engine::needs_you::{
 };
 use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -126,7 +125,7 @@ async fn consent_wall(params: Value, context: CallContext) -> Result<Value, Call
         .engine()
         .run_index()
         .record_consent_wall(
-            runs::identity(&run),
+            &run.identity,
             params["domain"].as_str().unwrap_or_default().to_owned(),
         )
         .await
@@ -165,7 +164,7 @@ async fn refetch_stopped(params: Value, context: CallContext) -> Result<Value, C
         .engine()
         .run_index()
         .record_refetch_stop(
-            runs::identity(&run),
+            &run.identity,
             params["domain"].as_str().unwrap_or_default().to_owned(),
             params["cause"].as_str().unwrap_or_default().to_owned(),
         )

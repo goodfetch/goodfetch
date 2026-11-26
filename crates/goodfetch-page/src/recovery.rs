@@ -25,7 +25,7 @@
 
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::Values;
 use goodfetch_protocol::page::{
     JudgedBy, LOGGED_OUT, LoggedOutDetails, PAGE_CHECK_FAILED, PageCheckFailedDetails, PageId,
@@ -38,6 +38,7 @@ use goodfetch_protocol::settings::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::browser_run::BrowserRun;
 use crate::cdp::CdpPage;
 use crate::cdp::driver::PageDriver;
 use crate::noindex;
@@ -75,7 +76,7 @@ impl Declared {
     /// The Page check a Session of `run` with its own settings `own`
     /// declares: its own `session.page_check`, else the Run's, if either
     /// is set.
-    pub(crate) fn of(run: &Run, own: &Values) -> Option<Self> {
+    pub(crate) fn of(run: &RunIdentity, own: &Values) -> Option<Self> {
         let (value, layer) = if let Some(value) = own.get(SESSION_PAGE_CHECK.name) {
             (value.clone(), SettingsLayer::Run)
         } else {
@@ -112,7 +113,7 @@ pub(crate) struct Checking {
 /// One judgement: the page, its Session and Run, its Page check if it
 /// declares one, and the URL its navigation was sent to, when it named one.
 pub(crate) struct Judging<'a> {
-    pub(crate) run: &'a Run,
+    pub(crate) run: &'a BrowserRun,
     pub(crate) session: &'a SessionId,
     pub(crate) page_id: &'a PageId,
     pub(crate) driver: &'a PageDriver,
@@ -176,7 +177,7 @@ async fn by_page_check(
         read(judging, &in_document).await?
     };
     let mut asked = 0;
-    let work = judging.run.metrics().counted_work();
+    let work = judging.run.identity.metrics().counted_work();
     let compilations = Row::NavigationCompilations;
     let mut matches = |matcher: &PageMatch| -> Result<bool, CallError> {
         let url = &response.url;
@@ -263,6 +264,7 @@ fn is_url(matcher: &PageMatch) -> bool {
 async fn read(judging: &Judging<'_>, matches: &[&PageMatch]) -> Result<Read, CallError> {
     judging
         .run
+        .identity
         .metrics()
         .counted_work()
         .count(Row::NavigationDetectionReads);

@@ -418,7 +418,8 @@ async fn store_body(params: StoreBody, context: CallContext) -> Result<BodyHandl
     let Started::New(run) = started else {
         return Err(failed("the body's Run began before".to_owned()));
     };
-    run.store_body(vec![b'x'; BODY_BYTES].into())
+    run.files
+        .store_body(vec![b'x'; BODY_BYTES].into())
         .await
         .map_err(|error| failed(error.to_string()))
 }

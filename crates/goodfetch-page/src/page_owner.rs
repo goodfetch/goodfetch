@@ -56,9 +56,6 @@ pub(crate) struct PageOwner {
     /// What an ask raises once the owner has gone: the page's `closed`,
     /// naming the Page ID this handle was given for.
     closed: Arc<CallError>,
-    /// The Page ID of the request the Page serves now, which a panic of one
-    /// of its tasks names (ADR 0146).
-    request: Arc<watch::Sender<PageId>>,
     /// `engine_panicked`, once a panic of one of its tasks closed it.
     panicked: watch::Receiver<Option<CallError>>,
     /// Where each ask is counted, its Run's (ADR 0140's
@@ -101,6 +98,11 @@ pub(crate) struct BrowserPagePart {
 /// replaces with it.
 #[derive(Clone)]
 pub(crate) struct RequestPart {
+    /// The Page ID of the request the Page serves now, which its parts and
+    /// a panic of one of its owner's tasks name: one cell, written once
+    /// per replacement, so that no reader sees one part name the next
+    /// request and another the earlier one.
+    pub(crate) page_id: Arc<watch::Sender<PageId>>,
     /// Its events: the requests and responses it follows, its waiters, its
     /// `page.on` listeners, what a body read needs and the arming of
     /// `Runtime`. Its following of the browser's page stays across a
@@ -116,15 +118,16 @@ pub(crate) struct RequestPart {
 }
 
 impl RequestPart {
-    /// Replaces it with the next request's, `next`: its events and dialogs
-    /// naming `next`, its earlier request's listeners, dialog handlers and
-    /// Routes ending, its init scripts removed, the failure a route
-    /// handler left and its pending navigation gone.
-    fn replace_request(&self, next: &PageId) {
-        self.events.replace_request(next.clone());
-        self.dialogs.replace_request(next.clone());
-        self.init_scripts.replace_request(next.clone());
-        self.interception.replace_request(next.clone());
+    /// Replaces it with the next request's, `next`: its Page ID names
+    /// `next`, written once by its events under their state, before its
+    /// earlier request's listeners, dialog handlers and Routes end, its
+    /// init scripts are removed, and the failure a route handler left and
+    /// its pending navigation go.
+    fn replace_request(&self, next: PageId) {
+        self.events.replace_request(&self.page_id, next);
+        self.dialogs.replace_request();
+        self.init_scripts.replace_request();
+        self.interception.replace_request();
     }
 }
 
@@ -161,7 +164,7 @@ struct Panicked {
 }
 
 impl PageOwner {
-    /// Starts the owner of the Page `page_id`, holding `parts` and the
+    /// Starts the owner of a Page, holding `parts` and the
     /// Gesture order `order`, its loop a task of `session`, its Session's
     /// owner, and its own tasks those of `tasks`, a child of `session` that
     /// the Page's opening may have started tasks on already; its loop runs
@@ -173,16 +176,15 @@ impl PageOwner {
     pub(crate) fn start(
         (session, owner): (&TaskStarter, TaskOwner),
         span: &tracing::Span,
-        (page_id, parts, order): (&PageId, PageParts, GestureOrder),
+        (parts, order): (PageParts, GestureOrder),
         closed: CallError,
         metrics: &Metrics,
     ) -> Self {
         let (asks, mailbox) = mpsc::channel(ASKS);
         let (told, panicked) = watch::channel(None);
-        let (request, named) = watch::channel(page_id.clone());
         let panic = Panicked {
             told,
-            page_id: named,
+            page_id: parts.request.page_id.subscribe(),
             metrics: metrics.clone(),
         };
         session.spawn(serve(owner, mailbox, order, panic).instrument(span.clone()));
@@ -190,7 +192,6 @@ impl PageOwner {
             parts: Arc::new(parts),
             asks,
             closed: Arc::new(closed),
-            request: Arc::new(request),
             panicked,
             work: metrics.counted_work().clone(),
         }
@@ -382,7 +383,6 @@ impl PageOwners {
     /// its browser-page part left as it is, and a panic of one of its
     /// tasks names `next`.
     pub(crate) fn renamed(&self, page_id: &PageId, next: PageId, owner: PageOwner) {
-        let request = Arc::clone(&owner.request);
         let part = owner.request_part().clone();
         let earlier = {
             let mut held = self.held();
@@ -391,8 +391,7 @@ impl PageOwners {
             earlier
         };
         drop(earlier);
-        part.replace_request(&next);
-        request.send_replace(next);
+        part.replace_request(next);
     }
 
     /// The owner of the open Page `page_id`.

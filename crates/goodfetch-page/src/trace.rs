@@ -10,40 +10,32 @@
 
 use goodfetch_counted_work::Row;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{Run, run_trace};
 
-/// Records `entry`, one Provenance entry of `run`, such as of one of its
-/// pages or of a request a fetch tier sent for it, as a line of
-/// the Run trace's Provenance log, appended through the Run's blocking
+use crate::browser_run::BrowserRun;
+
+/// Records `entry`, one Provenance entry of a Run, such as of one of its
+/// pages or of a request a fetch tier sent for it, as a line of `trace`,
+/// its Run trace's Provenance log, appended through the Run's blocking
 /// policy to the file the Run holds; a line that cannot be written is
 /// logged and lost.
 ///
 /// # Cancel safety
 ///
 /// Dropping the future never stops a line being written once it began.
-pub async fn provenance(run: &Run, entry: serde_json::Value) {
-    provenance_in(run_trace(run), entry).await;
-}
-
-/// Records `entry` as [`provenance`] does, in the Run trace `trace`, for a
-/// holder of the Run's trace alone (ADR 0145).
-///
-/// # Cancel safety
-///
-/// As [`provenance`]'s.
-pub(crate) async fn provenance_in(trace: &RunTrace, entry: serde_json::Value) {
+pub async fn provenance(trace: &RunTrace, entry: serde_json::Value) {
     if let Err(error) = trace.provenance(entry).await {
         tracing::warn!(%error, "a Provenance entry of the Run trace cannot be written");
     }
 }
 
-/// Records `entry` as [`provenance`] does, counted on `row`: an entry a
-/// Shared path's unit writes, such as a navigation's judgement (ADR 0140).
+/// Records `entry` in `run`'s Run trace as [`provenance`] does, counted on
+/// `row`: an entry a Shared path's unit writes, such as a navigation's
+/// judgement (ADR 0140).
 ///
 /// # Cancel safety
 ///
 /// As [`provenance`]'s.
-pub(crate) async fn counted_provenance(run: &Run, row: Row, entry: serde_json::Value) {
-    run.metrics().counted_work().count(row);
-    provenance(run, entry).await;
+pub(crate) async fn counted_provenance(run: &BrowserRun, row: Row, entry: serde_json::Value) {
+    run.identity.metrics().counted_work().count(row);
+    provenance(&run.trace, entry).await;
 }

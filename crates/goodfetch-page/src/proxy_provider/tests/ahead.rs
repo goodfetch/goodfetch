@@ -26,7 +26,7 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{EndedBy, Start, Started, charging, identity};
+use goodfetch_engine::runs::{EndedBy, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -115,8 +115,8 @@ async fn untaken_allowance(params: Value, context: CallContext) -> Result<Value,
         panic!("the Run began before");
     };
     let usage = Arc::new(ProxyUsage::new(
-        identity(&run).clone(),
-        charging(&run).clone(),
+        run.identity.clone(),
+        run.charging.clone(),
         ProxyKind::Isp,
         None,
     ));

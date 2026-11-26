@@ -87,10 +87,23 @@ use goodfetch_cdp::Command as _;
 use goodfetch_engine::CallError;
 
 pub(crate) use goodfetch_cdp::SessionId as TargetSession;
-/// One key event a keyboard sends, as [`keys::events`] spells a key.
-pub(crate) use goodfetch_cdp::generated::input::DispatchKeyEventParams as KeyEvent;
-/// The browser's ID of a target: a page, a frame or a worker.
-pub(crate) use goodfetch_cdp::generated::target::TargetID as TargetId;
+
+/// The browser's ID of a frame.
+pub(crate) type FrameId = String;
+
+/// The browser's ID of a world in a document.
+pub(crate) type ExecutionContextId = i64;
+
+/// The browser's ID of a page's target, which is its main frame's ID too:
+/// a popup names its opener by it. Held and compared, never read.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct TargetId(goodfetch_cdp::generated::target::TargetID);
+
+/// The key events that press one key or combination, from the first key
+/// down to the last key up, as [`keys::events`] spells them: sent whole by
+/// [`CdpPage::press_keys`], never read.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeyPress(Vec<goodfetch_cdp::generated::input::DispatchKeyEventParams>);
 
 /// The command that opens a page's target, which an ended lease withholds
 /// before it leaves (ADR 0087).
@@ -145,19 +158,15 @@ impl CdpPage {
         self.page.burst(&pointer_click(x, y), call).await
     }
 
-    /// Sends `events`, one key press's from the first key down to the last
-    /// key up, to the focused element, input the page receives as trusted:
-    /// one burst, as [`pointer_click`](Self::pointer_click)'s.
+    /// Sends `press`, from its first key down to its last key up, to the
+    /// focused element, input the page receives as trusted: one burst, as
+    /// [`pointer_click`](Self::pointer_click)'s.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future sends all of the burst or none of it, so it
     /// leaves no key down.
-    pub(crate) async fn press_keys(
-        &self,
-        events: &[KeyEvent],
-        call: &Call,
-    ) -> Result<(), CallError> {
-        self.page.burst(events, call).await
+    pub(crate) async fn press_keys(&self, press: &KeyPress, call: &Call) -> Result<(), CallError> {
+        self.page.burst(&press.0, call).await
     }
 }

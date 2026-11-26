@@ -11,7 +11,7 @@
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::plugin_kinds::Failure;
 use goodfetch_engine::plugin_kinds::extractor::ExtractorDriver;
-use goodfetch_engine::runs::{Run, plugins};
+use goodfetch_engine::run::accounts::RunAccounts;
 use goodfetch_engine::settings::{Resolved, RunSettings, Values};
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
@@ -24,6 +24,7 @@ use goodfetch_protocol::plugin::extractor::ExtractContentResult;
 use goodfetch_protocol::settings::TIMEOUT_PLUGIN;
 use url::Url;
 
+use crate::browser_run::BrowserRun;
 use crate::extractor;
 
 /// How a page whose formats are `asked` is read: the Extractor Plugin that
@@ -103,7 +104,7 @@ pub(super) fn cleaned_request(
 /// or it cannot start, and the call's failure, as the Extractor's driver
 /// reads it, when the Plugin fails it or the Run's Usage refuses it.
 pub(super) async fn answered(
-    run: &Run,
+    run: &BrowserRun,
     plugin: Option<&str>,
     asked: FormatsRequest,
     mut read: PageFormats,
@@ -124,12 +125,19 @@ pub(super) async fn answered(
             format!("the page's URL does not parse: {error}"),
         )
     })?;
-    let extractor = plugins(run).extractor(name).await?;
-    let clock = run.clock();
-    let deadline =
-        Deadline::of_resolved(run.settings().map(RunSettings::resolved), &TIMEOUT_PLUGIN);
+    let extractor = run.plugins.extractor(name).await?;
+    let clock = run.identity.clock();
+    let deadline = Deadline::of_resolved(
+        run.identity.settings().map(RunSettings::resolved),
+        &TIMEOUT_PLUGIN,
+    );
+    let accounts = RunAccounts {
+        identity: &run.identity,
+        charging: &run.charging,
+        trace: &run.trace,
+    };
     let ExtractContentResult { text, markdown, .. } =
-        ExtractorDriver::new(&extractor, run, &clock, &deadline)
+        ExtractorDriver::new(&extractor, &accounts, &clock, &deadline)
             .content(&url, cleaned)
             .await
             .map_err(Failure::into_error)?;

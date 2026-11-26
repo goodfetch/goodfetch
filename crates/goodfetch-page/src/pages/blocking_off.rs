@@ -187,7 +187,7 @@ impl Pages {
         self.events(page_id)?.judged(&response.request_id);
         let block = block_of(
             &page.driver,
-            page.run.metrics().counted_work(),
+            page.run.identity.metrics().counted_work(),
             self.blocks.as_ref(),
             &response,
             Some(again.operation()),

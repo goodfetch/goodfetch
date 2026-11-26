@@ -38,8 +38,12 @@ impl Destination {
 
 /// Each module that calls the HTTP client, with the kind of destination it
 /// connects to. A module that starts calling it joins here, with its kind.
-const CALLERS: [(&str, Destination); 4] = [
+const CALLERS: [(&str, Destination); 5] = [
     ("pinned_download", Destination::PinnedDownload),
+    (
+        "notification_endpoint",
+        Destination::Configured(ConfiguredKind::NotificationWebhook),
+    ),
     (
         "rule_sources",
         Destination::Configured(ConfiguredKind::CleanUpRulesSource),

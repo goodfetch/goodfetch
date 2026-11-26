@@ -1,0 +1,9 @@
+# Which of goodfetch-notification's top-level modules may import which
+# (ADR 0126).
+[modules]
+driver = ["failure", "ledger", "message", "rate_limit"]
+failure = []
+ledger = ["message"]
+message = []
+rate_limit = []
+webhook = ["driver", "failure", "message"]

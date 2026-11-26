@@ -11,7 +11,11 @@
 //! person, the proxy's exit country, the language and the device class it
 //! was fetched with, so a page fetched for one never answers another. A
 //! fresh entry is served with no request, a stale one revalidated with its
-//! validators, its stored body served on a 304. Its callers never store a
+//! validators, its stored body served on a 304. Under `replay` every
+//! response in the partition is stored, whatever its method, status or
+//! freshness, its key adding the SHA-256 of its request's canonical body
+//! ([`canonical`]), and served again as stored with no request; the two
+//! modes' entries never answer each other. Its callers never store a
 //! blocked request, an Effect, a payment, a Secret's response, one fetched
 //! under a certificate exception or a cut body; each entry records the Run
 //! that fetched it.
@@ -30,6 +34,7 @@
 //! `C5.cache_file_opens`, and a body file written, or the bodies' folder
 //! made, on `C5.cache_body_writes`; a miss opens no body file.
 
+mod canonical;
 pub mod freshness;
 pub mod source;
 
@@ -90,6 +95,7 @@ const SCHEMA: &[&str] = &["CREATE TABLE IF NOT EXISTS entries (
         method TEXT NOT NULL,
         url TEXT NOT NULL,
         vary_key TEXT NOT NULL,
+        replay_key TEXT NOT NULL,
         request_headers TEXT NOT NULL,
         status INTEGER NOT NULL,
         response_headers TEXT NOT NULL,
@@ -98,11 +104,15 @@ const SCHEMA: &[&str] = &["CREATE TABLE IF NOT EXISTS entries (
         body_size INTEGER NOT NULL,
         run_id TEXT,
         used_at TEXT NOT NULL,
-        PRIMARY KEY (partition, person, country, language, device, method, url, vary_key)
+        PRIMARY KEY (partition, person, country, language, device, method, url, vary_key, replay_key)
     ) STRICT"];
 
-/// A URL's entries in one partition, the newest first.
-const FIND: &str = "SELECT vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id FROM entries WHERE partition = ?1 AND person = ?2 AND country = ?3 AND language = ?4 AND device = ?5 AND method = ?6 AND url = ?7 ORDER BY fetched_at DESC";
+/// A URL's entries in one partition under one replay key, empty for
+/// `revalidate`'s, the newest first.
+const FIND: &str = "SELECT vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id FROM entries WHERE partition = ?1 AND person = ?2 AND country = ?3 AND language = ?4 AND device = ?5 AND method = ?6 AND url = ?7 AND replay_key = ?8 ORDER BY fetched_at DESC";
+
+/// The replay key of `revalidate`'s entries.
+const REVALIDATED: &str = "";
 
 /// Who a response was fetched for and how, which keeps one partition's
 /// entries from answering another's requests (ADR 0046).
@@ -157,6 +167,9 @@ pub struct Stale {
 struct Entry {
     partition: Partition,
     vary_key: String,
+    /// The SHA-256 of the request's canonical body under `replay`;
+    /// [`REVALIDATED`] for `revalidate`'s.
+    replay_key: String,
     stored: Stored,
     body_sha256: String,
     body_size: u64,
@@ -324,19 +337,62 @@ impl ResponseCache {
         let Some(variant) = freshness::storable(request, head) else {
             return false;
         };
+        let keyed = (variant, REVALIDATED.to_owned());
+        self.put(entry(partition, request, head, keyed, run_id, now), body)
+            .await
+    }
+
+    /// The response `replay` stored for `request` in `partition`, served
+    /// as it was stored with no request, whatever its age: the entry of
+    /// its method, its URL, its canonical body and the variant its stored
+    /// `Vary` names; none when the cache holds no such entry.
+    pub async fn replayed(&self, partition: &Partition, request: &CacheRequest) -> Option<Hit> {
+        if self.running_without() || freshness::credentialed(request) {
+            return None;
+        }
+        // Hashed once, before the request is handed to the reader.
+        request.replay_key();
+        let (partition, request) = (partition.clone(), request.clone());
+        let looked = self
+            .store
+            .read(Some(None), move |file, connection| {
+                file.replayed(connection, &partition, &request)
+            })
+            .await;
+        self.settled(looked).flatten()
+    }
+
+    /// Stores `head` and `body` under `replay`, the response to `request`
+    /// in `partition` received at `now` in the Run `run_id`, keyed by its
+    /// canonical body and in place of what `replay` held for it; whether
+    /// it was stored. Any method, status and freshness is stored, but
+    /// never a response the public partition does not hold.
+    pub async fn store_replayed(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        head: &ResponseHead,
+        body: Bytes,
+        run_id: Option<&RunId>,
+        now: SystemTime,
+    ) -> bool {
+        if self.running_without() {
+            return false;
+        }
+        let Some(variant) = freshness::replayable(request, head) else {
+            return false;
+        };
+        let keyed = (variant, request.replay_key().to_owned());
+        self.put(entry(partition, request, head, keyed, run_id, now), body)
+            .await
+    }
+
+    /// Stores `entry` with `body`, in place of what the cache held under
+    /// its key; whether it was stored.
+    async fn put(&self, entry: Entry, body: Bytes) -> bool {
         let entry = Entry {
-            partition: partition.clone(),
-            vary_key: variant.vary_key,
-            stored: Stored {
-                method: request.method.clone(),
-                url: request.url.clone(),
-                request_headers: variant.request_headers,
-                head: head.clone(),
-                fetched_at: now,
-            },
-            body_sha256: String::new(),
             body_size: u64::try_from(body.len()).unwrap_or(u64::MAX),
-            run_id: run_id.cloned(),
+            ..entry
         };
         let stored = self
             .store
@@ -380,7 +436,7 @@ impl CacheFile {
         now: SystemTime,
     ) -> Result<Lookup, ResponseCacheError> {
         self.work.count(Row::CacheLookups);
-        let rows = self.find(connection, partition, request)?;
+        let rows = self.find(connection, partition, request, REVALIDATED)?;
         for entry in rows {
             match freshness::freshness(&entry.stored, request, now) {
                 Freshness::Other => {}
@@ -408,13 +464,42 @@ impl CacheFile {
         Ok(Lookup::Miss)
     }
 
-    /// `request`'s entries in `partition`, the newest first; a row this
-    /// engine cannot read is left out.
+    /// The entry `replay` stored for `request`: its stored head, served as
+    /// it is, and its body, whatever their age; none when no entry's
+    /// variant is the one `request` asks for, or its body is gone.
+    fn replayed(
+        &self,
+        connection: &Connection,
+        partition: &Partition,
+        request: &CacheRequest,
+    ) -> Result<Option<Hit>, ResponseCacheError> {
+        self.work.count(Row::CacheLookups);
+        let rows = self.find(connection, partition, request, request.replay_key())?;
+        for entry in rows {
+            let asked = freshness::variant(request, &entry.stored.head);
+            if asked.is_none_or(|asked| asked.vary_key != entry.vary_key) {
+                continue;
+            }
+            let Some(body) = self.body(&entry)? else {
+                return Ok(None);
+            };
+            return Ok(Some(Hit {
+                head: entry.stored.head,
+                body,
+                run_id: entry.run_id,
+            }));
+        }
+        Ok(None)
+    }
+
+    /// `request`'s entries in `partition` under `replay_key`, the newest
+    /// first; a row this engine cannot read is left out.
     fn find(
         &self,
         connection: &Connection,
         partition: &Partition,
         request: &CacheRequest,
+        replay_key: &str,
     ) -> Result<Vec<Entry>, ResponseCacheError> {
         let mut statement = connection
             .prepare_cached(FIND)
@@ -429,6 +514,7 @@ impl CacheFile {
                     &partition.device,
                     &request.method,
                     &request.url,
+                    replay_key,
                 ),
                 |row| {
                     Ok((
@@ -470,6 +556,7 @@ impl CacheFile {
                         fetched_at: point_in_time::from_rfc3339(&fetched_at?).ok()?,
                     },
                     vary_key: vary_key.clone(),
+                    replay_key: replay_key.to_owned(),
                     body_sha256: sha256.filter(|sha256| is_sha256(sha256))?,
                     body_size: u64::try_from(size?).ok()?,
                     run_id: match run_id? {
@@ -493,7 +580,7 @@ impl CacheFile {
         let at = rfc3339(now);
         let updated = connection
             .prepare_cached(
-                "UPDATE entries SET response_headers = ?1, fetched_at = ?2, used_at = ?2 WHERE partition = ?3 AND person = ?4 AND country = ?5 AND language = ?6 AND device = ?7 AND method = ?8 AND url = ?9 AND vary_key = ?10 AND body_sha256 = ?11",
+                "UPDATE entries SET response_headers = ?1, fetched_at = ?2, used_at = ?2 WHERE partition = ?3 AND person = ?4 AND country = ?5 AND language = ?6 AND device = ?7 AND method = ?8 AND url = ?9 AND vary_key = ?10 AND body_sha256 = ?11 AND replay_key = ?12",
             )
             .and_then(|mut statement| {
                 statement.execute(rusqlite::params![
@@ -508,6 +595,7 @@ impl CacheFile {
                     entry.stored.url,
                     entry.vary_key,
                     entry.body_sha256,
+                    entry.replay_key,
                 ])
             })
             .map_err(|error| self.failed(&error))?;
@@ -537,9 +625,9 @@ impl CacheFile {
         let at = rfc3339(entry.stored.fetched_at);
         connection
             .prepare_cached(
-                "INSERT INTO entries (partition, person, country, language, device, method, url, vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, used_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?12)
-                 ON CONFLICT (partition, person, country, language, device, method, url, vary_key) DO UPDATE SET
+                "INSERT INTO entries (partition, person, country, language, device, method, url, vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, used_at, replay_key)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?12, ?16)
+                 ON CONFLICT (partition, person, country, language, device, method, url, vary_key, replay_key) DO UPDATE SET
                  request_headers = excluded.request_headers, status = excluded.status, response_headers = excluded.response_headers, fetched_at = excluded.fetched_at, body_sha256 = excluded.body_sha256, body_size = excluded.body_size, run_id = excluded.run_id, used_at = excluded.used_at",
             )
             .and_then(|mut statement| {
@@ -559,6 +647,7 @@ impl CacheFile {
                     entry.body_sha256,
                     i64::try_from(entry.body_size).unwrap_or(i64::MAX),
                     entry.run_id.as_ref().map(RunId::as_str),
+                    entry.replay_key,
                 ])
             })
             .map(drop)
@@ -708,6 +797,35 @@ impl StoreFile for CacheFile {
             path: self.index.clone(),
             message: stopped.to_string(),
         }
+    }
+}
+
+/// The entry `head`, the response to `request` in `partition` received at
+/// `now` in the Run `run_id`, is stored as under `keyed`, its variant and
+/// its replay key; its body's hash and length set as it is stored.
+fn entry(
+    partition: &Partition,
+    request: &CacheRequest,
+    head: &ResponseHead,
+    keyed: (freshness::Variant, String),
+    run_id: Option<&RunId>,
+    now: SystemTime,
+) -> Entry {
+    let (variant, replay_key) = keyed;
+    Entry {
+        partition: partition.clone(),
+        vary_key: variant.vary_key,
+        replay_key,
+        stored: Stored {
+            method: request.method.clone(),
+            url: request.url.clone(),
+            request_headers: variant.request_headers,
+            head: head.clone(),
+            fetched_at: now,
+        },
+        body_sha256: String::new(),
+        body_size: 0,
+        run_id: run_id.cloned(),
     }
 }
 

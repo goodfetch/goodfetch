@@ -3,5 +3,5 @@
 #![no_main]
 
 libfuzzer_sys::fuzz_target!(|data: &[u8]| {
-    goodfetch_engine::rpc::framing::fuzz_framing(data);
+    goodfetch_engine::framing::fuzz_framing(data);
 });

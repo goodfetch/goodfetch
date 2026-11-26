@@ -9,12 +9,13 @@
 
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
 use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{
-    CacheRequest, Freshness, ResponseHead, Stored, freshness, not_modified, served_headers,
-    storable,
+    CacheRequest, Freshness, ResponseHead, Stored, freshness, not_modified, replayable,
+    served_headers, storable,
 };
 use crate::clock::Clock;
 
@@ -31,10 +32,19 @@ fn pairs(headers: &[(&str, &str)]) -> Vec<(String, String)> {
 }
 
 fn get(headers: &[(&str, &str)]) -> CacheRequest {
+    CacheRequest::new(
+        "GET",
+        &"https://cache.test/page".parse().unwrap(),
+        &pairs(headers),
+        Bytes::new(),
+    )
+}
+
+fn post(headers: &[(&str, &str)]) -> CacheRequest {
     CacheRequest {
-        method: "GET".to_owned(),
-        url: "https://cache.test/page".to_owned(),
-        headers: pairs(headers),
+        method: "POST".to_owned(),
+        body: Bytes::from_static(br#"{"q":"shoes"}"#),
+        ..get(headers)
     }
 }
 
@@ -67,7 +77,7 @@ fn stored(request: &CacheRequest, response: &ResponseHead, fetched_at: SystemTim
 #[case::private(get(&[]), head(200, &[("cache-control", "private, max-age=60")]))]
 #[case::no_store(get(&[]), head(200, &[("cache-control", "no-store")]))]
 #[case::vary_star(get(&[]), head(200, &[("cache-control", "max-age=60"), ("vary", "Accept, *")]))]
-#[case::post(CacheRequest { method: "POST".to_owned(), ..get(&[]) }, head(200, &[("cache-control", "max-age=60")]))]
+#[case::post(post(&[]), head(200, &[("cache-control", "max-age=60")]))]
 #[case::partial(get(&[]), head(206, &[("cache-control", "max-age=60")]))]
 #[case::unparsable(get(&[]), head(200, &[("cache-control", "max-age=60"), ("x-bad", "a\nb")]))]
 fn what_the_public_partition_never_stores(
@@ -75,6 +85,60 @@ fn what_the_public_partition_never_stores(
     #[case] response: ResponseHead,
 ) {
     assert_eq!(storable(&request, &response), None);
+}
+
+/// `replay` stores what `revalidate` never would, a POST, `no-store`, an
+/// error status, keyed by the same `Vary`-named headers.
+/// Covers: story:6-36
+#[rstest]
+#[case::post(post(&[("accept", "application/json")]), head(200, &[("vary", "Accept")]))]
+#[case::no_store(get(&[("accept", "application/json")]), head(200, &[("cache-control", "no-store"), ("vary", "Accept")]))]
+#[case::server_error(get(&[("accept", "application/json")]), head(503, &[("vary", "Accept")]))]
+fn replay_stores_any_method_status_and_freshness(
+    #[case] request: CacheRequest,
+    #[case] response: ResponseHead,
+) {
+    assert_eq!(storable(&request, &response), None);
+    let variant = replayable(&request, &response).expect("replayable");
+    assert_eq!(variant, super::variant(&request, &response).unwrap());
+    assert_eq!(
+        variant.request_headers,
+        pairs(&[("accept", "application/json")])
+    );
+}
+
+/// Under `replay` too, a request with a cookie or a credential, a response
+/// that sets a cookie or is `private`, are the Session partition's (#795),
+/// and `Vary: *` keys nothing.
+#[rstest]
+#[case::cookie(post(&[("cookie", "session=1")]), head(200, &[]))]
+#[case::proxy_authorization(post(&[("proxy-authorization", "Basic YTpi")]), head(200, &[]))]
+#[case::set_cookie(post(&[]), head(200, &[("set-cookie", "a=1")]))]
+#[case::private(post(&[]), head(200, &[("cache-control", "private")]))]
+#[case::vary_star(post(&[]), head(200, &[("vary", "*")]))]
+fn what_replay_never_stores(#[case] request: CacheRequest, #[case] response: ResponseHead) {
+    assert_eq!(replayable(&request, &response), None);
+}
+
+/// The replay key is the canonical body's: another key order is the same
+/// request, another body another one.
+/// Covers: story:6-36
+#[test]
+fn a_requests_replay_key_is_its_canonical_bodys() {
+    let json = [("content-type", "application/json")];
+    let with = |body: &'static [u8]| CacheRequest {
+        body: Bytes::from_static(body),
+        ..post(&json)
+    };
+
+    assert_eq!(
+        with(br#"{"q":"shoes","page":1}"#).replay_key(),
+        with(br#"{"page":1,"q":"shoes"}"#).replay_key()
+    );
+    assert_ne!(
+        with(br#"{"q":"shoes"}"#).replay_key(),
+        with(br#"{"q":"boots"}"#).replay_key()
+    );
 }
 
 /// The variant keys the request headers `Vary` names, in any order and

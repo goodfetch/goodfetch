@@ -1,6 +1,7 @@
 //! The relays' own deadlines, on the Run's clock (ADR 0059): how long a
-//! client may take to send its request head, and the wait a connection the
-//! relay opens is held to.
+//! client may take to send its request head, how long a browser's
+//! connection may wait between two plain requests, and the wait a
+//! connection the relay opens is held to.
 
 use std::io;
 use std::time::Duration;
@@ -11,6 +12,11 @@ use goodfetch_engine::clock::Clock;
 /// the connection: a browser sends its head at once, so a client that sends
 /// none holds no task past it (deep review finding 577-8).
 pub const HEAD_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The longest the egress relay keeps a browser's connection open with no
+/// plain request on it, as a site's keep-alive timeout does: the browser
+/// opens a new connection for a request after it.
+pub const IDLE_DEADLINE: Duration = Duration::from_secs(60);
 
 /// What `work` gave, unless `deadline` passed on `clock` first.
 ///

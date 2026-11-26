@@ -88,14 +88,15 @@ done
 
 # The job's container lives as long as the VM, so what `just fetch` installs
 # before the deny serves every later step. CAP_SYS_ADMIN, inside rootless
-# containerd's user namespace, lets the container's default seccomp profile
-# allow `unshare` and `mount`, so `DnsNamespace` makes its user, network and
-# mount namespaces there as the container's root (ADR 0067), the way the
-# job declares.
+# containerd's user namespace, lets `DnsNamespace` make its user, network
+# and mount namespaces there as the container's root (ADR 0067), the way the
+# job declares. No seccomp profile: goodfetch-confinement's probes assert the
+# kernel's own answers unconfined as their positive controls, which the
+# default profile replaces (`ENOSYS` to `io_uring_setup` and `add_key`).
 for image in "${images[@]}"; do
   [[ "$image" == ci ]] || continue
   vm_shell nerdctl run --detach --name "$CONTAINER" --platform linux/amd64 \
-    --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+    --cap-add NET_ADMIN --cap-add SYS_ADMIN --security-opt seccomp=unconfined \
     --volume /work:/work --volume "/cache:/cache:$cache_flag" \
     --env CI=true --env "GOODFETCH_CACHE_MODE=$cache_mode" \
     --env GOODFETCH_TEST_DNS_NAMESPACE=user_namespace \

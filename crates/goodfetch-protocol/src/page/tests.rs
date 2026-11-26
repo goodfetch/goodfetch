@@ -4,7 +4,8 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    FormatsRequest, HtmlFormat, HtmlKind, MarkdownContent, MarkdownFormat, page_formats_schema,
+    EXTRACTOR_NAME_SHAPE, ExtractorName, FormatsRequest, HtmlFormat, HtmlKind, MarkdownContent,
+    MarkdownFormat, page_formats_schema,
 };
 
 #[expect(
@@ -241,6 +242,50 @@ fn the_schema_of_a_metadata_and_contacts_requests_result_holds_each(
     let schema = page_formats_schema(&request(json!({ "metadata": true, "contacts": true })));
 
     assert_eq!(valid(&schema, &result), holds);
+}
+
+#[rstest]
+#[case::a_plugins("kettle")]
+#[case::a_dotted_one(".kettle")]
+#[case::a_built_in("dom_smoothie")]
+fn an_extractors_name_is_text_with_no_path_in_it(#[case] name: &str) {
+    let parsed = serde_json::from_value::<ExtractorName>(json!(name));
+
+    assert_eq!(
+        (
+            parsed.map(|name| name.as_str().to_owned()).ok(),
+            (EXTRACTOR_NAME_SHAPE.check)(&json!(name)),
+            valid(&(EXTRACTOR_NAME_SHAPE.schema)(), &json!(name)),
+        ),
+        (Some(name.to_owned()), Ok(()), true)
+    );
+}
+
+#[rstest]
+#[case::empty("")]
+#[case::the_folder(".")]
+#[case::its_parent("..")]
+#[case::a_path("a/b")]
+#[case::a_windows_path("a\\b")]
+#[case::a_control_character("a\u{7}b")]
+fn a_name_holding_a_path_names_no_extractor(#[case] name: &str) {
+    let parsed = serde_json::from_value::<ExtractorName>(json!(name));
+
+    assert_eq!(
+        (
+            parsed.is_err(),
+            (EXTRACTOR_NAME_SHAPE.check)(&json!(name)).is_err(),
+            valid(&(EXTRACTOR_NAME_SHAPE.schema)(), &json!(name)),
+        ),
+        (true, true, false)
+    );
+}
+
+#[test]
+fn the_built_in_extractors_names_are_the_content_extractors() {
+    let built_in = [ExtractorName::DOM_SMOOTHIE, ExtractorName::TRAFILATURA];
+
+    assert_eq!(built_in.map(String::from), super::CONTENT_EXTRACTORS);
 }
 
 /// Covers: story:6-6, story:6-7

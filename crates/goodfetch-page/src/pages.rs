@@ -131,6 +131,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+mod plugin_extractor;
 pub(crate) mod served_formats;
 mod waits;
 
@@ -1782,33 +1783,37 @@ impl Pages {
             .await?;
         let request = params.formats;
         let (_, session) = self.sessions.own_settings(&page.session)?;
-        let extractor = extractor::chosen(
-            page.run.settings().map(RunSettings::resolved),
-            (&session, page.driver.value().extractor()),
-            &page.settings,
-        );
-        let measure = clean_up::ShareMeasure::of(page.run.settings().map(RunSettings::resolved));
+        let resolved = page.run.settings().map(RunSettings::resolved);
+        let label = page.driver.value().extractor();
+        // An Extractor Plugin reads the main content of the page the same
+        // one read cleaned (spec #596).
+        let (plugin, read_request, raw) =
+            plugin_extractor::chosen(request, resolved, (&session, label), &page.settings)?;
+        let extractor = extractor::chosen(resolved, (&session, label), &page.settings);
+        let measure = clean_up::ShareMeasure::of(resolved);
         let cosmetic = page.owner.interception().cosmetic();
         let hidden = page.owner.hiding().runner_hidden();
         let work = page.run.metrics().counted_work().clone();
-        let (formats, read) = page
+        let ((formats, read), raw) = page
             .run
             .owner()
             .analysis(page.run.metrics().counted_work(), move || {
-                clean_up::read(
+                let raw = raw.then(|| Serialization::Dom.as_content(&document.html));
+                let read = clean_up::read(
                     (&document, None),
                     Serialization::Dom,
-                    request,
+                    read_request,
                     (extractor.extractor(), measure),
                     (cosmetic.as_ref(), &hidden),
                     &work,
-                )
+                );
+                (read, raw)
             })
             .await;
         if let Some(read) = read {
             trace::provenance(&page.run, read.entry(&params.page_id, Some(&page.session))).await;
         }
-        Ok(formats)
+        plugin_extractor::answered(&page.run, plugin.as_deref(), request, formats, raw).await
     }
 
     /// The fields `params` declares, read from the browser page's document

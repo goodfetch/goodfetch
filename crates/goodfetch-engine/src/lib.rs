@@ -8,7 +8,7 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
-mod accounts;
+pub mod accounts;
 pub mod admission;
 pub mod age_notice;
 mod attached;
@@ -39,6 +39,7 @@ pub mod entropy;
 pub mod events;
 pub mod executables;
 mod forward;
+pub mod framing;
 pub mod governor;
 pub mod happy_eyeballs;
 pub mod heap;
@@ -63,6 +64,9 @@ pub mod notification_endpoint;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;
+pub mod plugin_host;
+pub mod plugin_kinds;
+pub mod plugin_store;
 pub mod politeness;
 mod product;
 pub mod recipe;

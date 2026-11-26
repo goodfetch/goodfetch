@@ -32,6 +32,8 @@ clap = { workspace = true, optional = true, features = ["string"] }
 dirs.workspace = true
 # The Rust SDK's connection to its linked engine (ADRs 0078 and 0081).
 goodfetch-collie-client.workspace = true
+# The executable's hidden `plugin-shim` mode, a Plugin's launcher (ADR 0033).
+goodfetch-confinement.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-page.workspace = true
 # The runtimes the executables and a linked engine build (ADR 0081).
@@ -111,6 +113,9 @@ goodfetch-clean-up-rules.workspace = true
 # The Rust runner's case-log writer, which the SDK tests that run a client
 # conformance case append their entries through (ADR 0069).
 goodfetch-conformance.workspace = true
+# The built-in main-content steps, run in process through the Extractor's
+# suite (tests/it/extractor_suite.rs).
+goodfetch-extractor.workspace = true
 goodfetch-test-client.workspace = true
 goodfetch-test-support.workspace = true
 gungraun.workspace = true

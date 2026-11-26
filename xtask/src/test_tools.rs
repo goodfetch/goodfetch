@@ -56,17 +56,19 @@ pub(crate) enum Tool {
     ProvingGround,
     TestEnv,
     ScriptedEngine,
+    ScriptedPlugin,
     Conformance,
     StubGateway,
 }
 
 impl Tool {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Collie,
         Self::Foxhound,
         Self::ProvingGround,
         Self::TestEnv,
         Self::ScriptedEngine,
+        Self::ScriptedPlugin,
         Self::Conformance,
         Self::StubGateway,
     ];
@@ -79,6 +81,7 @@ impl Tool {
             Self::ProvingGround => "goodfetch-proving-ground",
             Self::TestEnv => "goodfetch-test-env",
             Self::ScriptedEngine => "goodfetch-scripted-engine",
+            Self::ScriptedPlugin => "goodfetch-scripted-plugin",
             Self::Conformance => "goodfetch-conformance",
             Self::StubGateway => "goodfetch-stub-gateway",
         }

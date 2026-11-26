@@ -52,11 +52,12 @@ const SCRAPY_ITEMS: &str = "items.jsonl";
 impl Plan<'_> {
     /// Foxhound's Records, read by an engine of their own on `home` once
     /// the measured processes are gone: the code-free crawl's Dataset, or
-    /// the one Foxhound's program pushes to.
+    /// the one a Foxhound program pushes to.
     pub(super) fn records(&self, home: &Path) -> Result<Vec<Record>> {
-        let (mut child, mut engine, dataset) = if let Config::FoxhoundProgram = self.config {
-            // The program's own executable is Node's: the engine is the one
-            // its SDK started.
+        let (mut child, mut engine, dataset) = if self.config.is_program() {
+            // A program's own executable is Node's, or the Rust program's
+            // with its engine linked in: its Records are read through
+            // Foxhound's executable.
             let executable = self
                 .engine
                 .context("Foxhound's program takes Foxhound's executable, --engine")?;
@@ -97,7 +98,7 @@ impl Plan<'_> {
         let answers = extracted::answers(self.site.address, self.site.pages)?;
         if let Some(OutputCheck::Fields) = self.cell.output_check() {
             let pages = match self.config {
-                Config::FoxhoundProgram => records
+                Config::FoxhoundProgram | Config::FoxhoundRustProgram => records
                     .context("Foxhound's program keeps its Records")?
                     .into_iter()
                     .map(|record| {
@@ -141,7 +142,7 @@ fn written(config: Config) -> Result<Written> {
         | Config::Crawlberg => Written::Lines(SPIDER_PAGES),
         Config::Scrapy => Written::Lines(SCRAPY_ITEMS),
         Config::Crawlee | Config::CrawleeRs => Written::Dataset,
-        Config::Foxhound { .. } | Config::FoxhoundProgram => {
+        Config::Foxhound { .. } | Config::FoxhoundProgram | Config::FoxhoundRustProgram => {
             bail!("Foxhound's pages are its Records, not a file")
         }
     })

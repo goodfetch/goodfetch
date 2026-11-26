@@ -375,3 +375,11 @@ reason = "A Run's start takes every start option, its Plan file, Plugin changes 
 [[announced]]
 entry = "typescript @goodfetch/foxhound HandlerlessStartOptions"
 reason = "A Run's start takes every start option, its Plan file, Plugin changes and signal among them, which a Recipe's or catalog run's start does not (issue 2888): `HandlerlessStartOptions` extends what every start takes in place of `StartOptions`, and its `recording` and `timeout` come from there, with the same types, so a program that sets them still compiles."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunUsage"
+reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
+reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."

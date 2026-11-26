@@ -353,7 +353,7 @@ fn a_pages_record_holds_its_formats_then_its_fields_in_the_order_declared() {
 fn a_run_file_keeps_the_code_free_crawl_its_last_start_brought() {
     let connection = Connection::open_in_memory().unwrap();
     for statement in TABLES.statements {
-        connection.execute(statement, []).unwrap();
+        connection.execute_batch(statement).unwrap();
     }
     let declared = CodeFreeCrawl::Declaration(
         serde_json::from_value(json!({

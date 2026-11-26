@@ -16,7 +16,7 @@ use serde_json::{Map, Value, json};
 
 use super::{
     AccessMode, BrowserFamily, ChromiumBuild, FingerprintMethod, MethodSource, Refusal,
-    SessionIdentityPlan, SessionSettings, SigningPlan, StealthProfile, resolve,
+    SessionIdentityPlan, SessionSettings, SigningPlan, StealthProfile, Unbuilt, resolve,
 };
 
 /// The values `settings` sets in `layer`.
@@ -88,11 +88,11 @@ fn stealth(layer: SettingsLayer, set: impl FnOnce(&mut StealthProfile)) -> Sessi
 
 fn defaults(_: &mut StealthProfile) {}
 
-/// A profile whose Fingerprint method was set to `method`.
+/// A profile whose Fingerprint method was set to `method` in the Run.
 fn chosen(method: FingerprintMethod) -> impl FnOnce(&mut StealthProfile) {
     move |profile| {
         profile.fingerprint_method = method;
-        profile.method_source = MethodSource::Set;
+        profile.method_source = MethodSource::Set(RUN);
     }
 }
 
@@ -247,9 +247,10 @@ fn a_session_runs_on_its_sources_browser_family(
 /// one, but for the effects this engine does not build yet, each refused
 /// with `capability_unavailable` (ADR 0083) in the layer that set it, or
 /// the default's when `stealth` turns it on: the `engine` Fingerprint
-/// method, a generated identity, human-like input and a headful browser.
+/// method, a generated identity and what it is drawn from, human-like
+/// input, a chosen Chromium build and a headful browser.
 ///
-/// Covers: setting:stealth.fingerprint_method, setting:stealth.generated_identity, setting:stealth.human_input
+/// Covers: setting:stealth.fingerprint_method, setting:stealth.generated_identity, setting:stealth.human_input, setting:stealth.identity.os, setting:stealth.chromium_build
 #[rstest]
 #[case::standard(json!({}), json!({}), json!({}), Ok(()))]
 #[case::identified(json!({}), json!({}), json!({ "browser": { "access_mode": "identified" }, "identified": { "signing_key": "env:BOT_KEY", "signature_agent": "https://bot.example" } }), Ok(()))]
@@ -257,9 +258,11 @@ fn a_session_runs_on_its_sources_browser_family(
 #[case::stealth_with_a_method_set(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "js_injection","generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": false } }), json!({}), Ok(()))]
 #[case::the_engine_method(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "engine", "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::EngineUnavailable { layer: RUN }))]
 #[case::the_engine_method_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "fingerprint_method": "engine" } }), Err(Refusal::EngineUnavailable { layer: USER }))]
-#[case::a_generated_identity_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "human_input": false } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::UnbuiltItem { key: "stealth.generated_identity", layer: SettingsLayer::Default }))]
-#[case::human_input_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "human_input": true } }), Err(Refusal::UnbuiltItem { key: "stealth.human_input", layer: USER }))]
-#[case::a_headful_browser_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({}), json!({}), Err(Refusal::UnbuiltItem { key: "browser.headless", layer: SettingsLayer::Default }))]
+#[case::a_generated_identity_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "human_input": false } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::UnbuiltItem { key: "stealth.generated_identity", layer: SettingsLayer::Default, item: Unbuilt::On }))]
+#[case::human_input_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "human_input": true } }), Err(Refusal::UnbuiltItem { key: "stealth.human_input", layer: USER, item: Unbuilt::On }))]
+#[case::an_identity_os(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false, "identity": { "os": ["windows"] } } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::UnbuiltItem { key: "stealth.identity.os", layer: RUN, item: Unbuilt::Set }))]
+#[case::a_chromium_build_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "chromium_build": "clearcote" } }), Err(Refusal::UnbuiltItem { key: "stealth.chromium_build", layer: USER, item: Unbuilt::Set }))]
+#[case::a_headful_browser_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({}), json!({}), Err(Refusal::UnbuiltItem { key: "browser.headless", layer: SettingsLayer::Default, item: Unbuilt::Headful }))]
 fn only_what_this_engine_builds_opens(
     #[case] own: Value,
     #[case] run_settings: Value,

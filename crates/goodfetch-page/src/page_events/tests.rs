@@ -6,13 +6,14 @@ use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::PageEventName;
 use goodfetch_protocol::page::waits::LoadState;
-use goodfetch_protocol::settings::TIMEOUT_WAIT;
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_WAIT};
 use goodfetch_test_support::{TestEnv, runtime};
 use rstest::rstest;
 use serde_json::{Value, json};
 use tokio::sync::mpsc::error::TryRecvError;
 
 use super::{Listening, PageEvents, Refusals, Requested, listener_fell_behind};
+use crate::access_mode::runtime_under_stealth;
 use crate::cdp::driver::PageDriver;
 use crate::cdp::driver::replay::{answer, event};
 use crate::live_run::{LiveRun, played_page};
@@ -191,6 +192,42 @@ fn a_replaced_request_asks_for_runtime_again_and_its_events_name_its_page_id() {
     );
     assert_eq!(asked_again, "Runtime.enable");
     assert_eq!(heard["page_id"], "page-2", "{heard}");
+}
+
+/// A `stealth` Session's page refuses each `page.on` that needs `Runtime`
+/// with its refusal, and never asks for `Runtime`; its other events are
+/// listened to (#599's Q2).
+#[rstest]
+#[case::console(PageEventName::Console, Some("capability_unavailable"))]
+#[case::page_error(PageEventName::PageError, Some("capability_unavailable"))]
+#[case::request(PageEventName::Request, None)]
+fn a_page_that_refuses_runtime_refuses_what_needs_it(
+    #[case] event: PageEventName,
+    #[case] expected: Option<&str>,
+) {
+    let (refused, asked) = runtime().block_on(async {
+        let env = TestEnv::new();
+        let (live, engine) = LiveRun::start(&env).await;
+        let (driver, played, connection) = played_page();
+        let events = started(&PageId("page-1".to_owned()), &driver, &live);
+        events.refuse_runtime(runtime_under_stealth(SettingsLayer::Run));
+        let mut listening = events.listen(event);
+        let refused = match listening.armed.take() {
+            Some(armed) => armed
+                .await
+                .expect("an answer")
+                .err()
+                .map(|error| error.code()),
+            None => None,
+        };
+        let asked = *events.shared.arming.borrow();
+        drop((listening, events, live));
+        drop((driver, played));
+        tokio::join!(engine, connection);
+        (refused, asked)
+    });
+
+    assert_eq!((refused, asked), (expected, false));
 }
 
 /// What a request armed or kept belongs to it (ADR 0146): once the page's

@@ -339,6 +339,9 @@ impl Sessions {
             in_browser,
             (&stream, observer),
         );
+        if let (Some(fingerprint), Some(events)) = (&open.fingerprint, &taken_in.events) {
+            events.refuse_runtime(fingerprint.runtime_refusal());
+        }
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.
         let (order, pointer) = GestureOrder::new();

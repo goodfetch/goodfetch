@@ -548,7 +548,8 @@ pub(crate) enum Injection {
 }
 
 impl Injection {
-    /// The operation that injected, as Provenance names it.
+    /// The operation that injected, as Provenance names it, or the setting
+    /// when the engine injected on its own.
     fn by(self) -> &'static str {
         match self {
             Self::Evaluate => PAGE_EVALUATE.name,

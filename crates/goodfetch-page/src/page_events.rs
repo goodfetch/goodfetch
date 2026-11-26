@@ -255,6 +255,9 @@ struct Shared {
     /// Whether a `page.on` asked for `Runtime` and the browser has not
     /// answered yet: the page's calls wait while it is.
     arming: watch::Sender<bool>,
+    /// What a `page.on` that needs `Runtime` raises in its place, on a
+    /// `stealth` Session's page (#599's Q2).
+    runtime_refused: std::sync::OnceLock<CallError>,
     /// Whether its reader fell too far behind its target's events and
     /// stopped while the page was open: its calls on events then raise
     /// `page_events_lost`.
@@ -563,6 +566,7 @@ impl PageEvents {
             gone: watch::Sender::new(false),
             closed: watch::Sender::new(false),
             arming: watch::Sender::new(false),
+            runtime_refused: std::sync::OnceLock::new(),
             lost: watch::Sender::new(false),
             document: watch::Sender::new(Document::blank()),
             observing: observer.map(|observer| {
@@ -669,12 +673,33 @@ impl PageEvents {
         Some((response, received, requested))
     }
 
+    /// Has each later `page.on` that needs `Runtime` raise `refused` in
+    /// place of turning it on; a page's first refusal stands.
+    pub(crate) fn refuse_runtime(&self, refused: CallError) {
+        let _ = self.shared.runtime_refused.set(refused);
+    }
+
     /// Arms a listener for `event` now: the event is published while it
     /// listens. When the event needs `Runtime` and no listener asked for it
-    /// yet, it is asked for now, which the Run's clock dates.
+    /// yet, it is asked for now, which the Run's clock dates, unless the
+    /// page refuses it: the listener then raises its refusal.
     pub(crate) fn listen(&self, event: PageEventName) -> Listening {
         let (queue, events) = mpsc::channel(LISTENER_LIMIT);
         let (overflowed, overflow) = oneshot::channel();
+        let needs_runtime = matches!(event, PageEventName::Console | PageEventName::PageError);
+        if let Some(refused) = self.shared.runtime_refused.get().filter(|_| needs_runtime) {
+            // Nothing listens, and `Runtime` stays off: the call raises it.
+            let (answer, armed) = oneshot::channel();
+            let _ = answer.send(Err(refused.clone()));
+            return Listening {
+                shared: Arc::clone(&self.shared),
+                event,
+                id: u64::MAX,
+                events,
+                overflowed: overflow,
+                armed: Some(armed),
+            };
+        }
         let mut state = lock(&self.shared.state);
         let id = state.next_listener;
         state.next_listener += 1;
@@ -686,8 +711,7 @@ impl PageEvents {
                 overflowed: Some(overflowed),
             });
         }
-        let runtime = matches!(event, PageEventName::Console | PageEventName::PageError)
-            && state.runtime_since.is_none();
+        let runtime = needs_runtime && state.runtime_since.is_none();
         if runtime {
             state.runtime_since = Some(millis_since_epoch(self.shared.clock.wall()));
             self.shared.arming.send_replace(true);

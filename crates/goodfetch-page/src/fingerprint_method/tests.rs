@@ -1,6 +1,7 @@
 //! The Fingerprint method driver's pure part: which Sessions get a plan,
 //! where they are placed, which primitive each method fills, the warning
-//! each one leaves and the script `js_injection` writes.
+//! each one leaves, what its record says and the script `js_injection`
+//! writes.
 
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::warning::{
@@ -8,6 +9,7 @@ use goodfetch_protocol::run::warning::{
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use rstest::rstest;
+use serde_json::{Value, json};
 
 use super::{FingerprintPlan, Method, init_script};
 use crate::access_mode::{
@@ -15,6 +17,9 @@ use crate::access_mode::{
 };
 use crate::cdp::{Emulated, Geolocation};
 use crate::pool::Placement;
+
+const SET: MethodSource = MethodSource::Set(SettingsLayer::Run);
+const FELL_BACK: MethodSource = MethodSource::FellBack;
 
 /// A plan chosen in the Run's settings, whose method is `method`, from
 /// `source`.
@@ -41,11 +46,12 @@ fn identity(
     }
 }
 
-fn plan(method: Method, fell_back: bool, values: Emulated) -> FingerprintPlan {
+/// A plan whose `stealth` the Run's settings chose.
+fn plan(method: Method, source: MethodSource, values: Emulated) -> FingerprintPlan {
     FingerprintPlan {
         method,
-        fell_back,
-        layer: SettingsLayer::Run,
+        source,
+        stealth: SettingsLayer::Run,
         values,
     }
 }
@@ -64,28 +70,22 @@ fn values() -> Emulated {
 }
 
 /// Only a `stealth` Session with a built method gets a plan, which keeps
-/// whether its method fell back to `basic`.
+/// where its method came from.
 #[rstest]
-#[case::standard(
-    identity(AccessMode::Standard, FingerprintMethod::Basic, MethodSource::Set),
-    None
-)]
+#[case::standard(identity(AccessMode::Standard, FingerprintMethod::Basic, SET), None)]
 #[case::the_fallback(
-    identity(AccessMode::Stealth, FingerprintMethod::Basic, MethodSource::FellBack),
-    Some(plan(Method::Basic, true, Emulated::default()))
+    identity(AccessMode::Stealth, FingerprintMethod::Basic, FELL_BACK),
+    Some(plan(Method::Basic, FELL_BACK, Emulated::default()))
 )]
 #[case::js_injection(
-    identity(AccessMode::Stealth, FingerprintMethod::JsInjection, MethodSource::Set),
-    Some(plan(Method::JsInjection, false, Emulated::default()))
+    identity(AccessMode::Stealth, FingerprintMethod::JsInjection, SET),
+    Some(plan(Method::JsInjection, SET, Emulated::default()))
 )]
 #[case::none(
-    identity(AccessMode::Stealth, FingerprintMethod::None, MethodSource::Set),
-    Some(plan(Method::None, false, Emulated::default()))
+    identity(AccessMode::Stealth, FingerprintMethod::None, SET),
+    Some(plan(Method::None, SET, Emulated::default()))
 )]
-#[case::engine(
-    identity(AccessMode::Stealth, FingerprintMethod::Engine, MethodSource::Set),
-    None
-)]
+#[case::engine(identity(AccessMode::Stealth, FingerprintMethod::Engine, SET), None)]
 fn a_stealth_session_with_a_built_method_has_a_plan(
     #[case] identity: SessionIdentityPlan,
     #[case] expected: Option<FingerprintPlan>,
@@ -98,7 +98,7 @@ fn a_stealth_session_with_a_built_method_has_a_plan(
 fn every_built_method_shares_a_browser_process(
     #[values(Method::None, Method::JsInjection, Method::Basic)] method: Method,
 ) {
-    assert_eq!(plan(method, false, values()).placement(), Placement::Shared);
+    assert_eq!(plan(method, SET, values()).placement(), Placement::Shared);
 }
 
 /// `basic` shows its values through the browser's overrides and
@@ -113,8 +113,8 @@ fn each_method_fills_its_own_primitive(
     #[case] overrides: bool,
     #[case] script: bool,
 ) {
-    let masked = plan(method, false, values());
-    let unmasked = plan(method, false, Emulated::default());
+    let masked = plan(method, SET, values());
+    let unmasked = plan(method, SET, Emulated::default());
 
     assert_eq!(
         (masked.emulated().is_some(), masked.init_script().is_some()),
@@ -125,33 +125,79 @@ fn each_method_fills_its_own_primitive(
 
 /// Each method leaves its own warning on the Session, `basic`'s fallback
 /// one apart from a chosen `basic`; `none`'s stands once for every
-/// Session of the Run.
+/// Session of the Run, and a masking method without values says its pages
+/// show the machine's own.
 #[rstest]
-#[case::none(Method::None, false, FINGERPRINT_NONE, true)]
-#[case::js_injection(Method::JsInjection, false, FINGERPRINT_JS_INJECTION, false)]
-#[case::basic(Method::Basic, false, FINGERPRINT_BASIC, false)]
-#[case::the_fallback(Method::Basic, true, FINGERPRINT_BASIC_FALLBACK, false)]
+#[case::none(Method::None, SET, values(), FINGERPRINT_NONE, true, &[], false)]
+#[case::js_injection(Method::JsInjection, SET, values(), FINGERPRINT_JS_INJECTION, false, &["session-1"], false)]
+#[case::basic(Method::Basic, SET, values(), FINGERPRINT_BASIC, false, &["session-1"], false)]
+#[case::the_fallback(Method::Basic, FELL_BACK, values(), FINGERPRINT_BASIC_FALLBACK, false, &["session-1"], false)]
+#[case::basic_without_values(Method::Basic, SET, Emulated::default(), FINGERPRINT_BASIC, false, &["session-1"], true)]
+#[case::none_without_values(Method::None, SET, Emulated::default(), FINGERPRINT_NONE, true, &[], false)]
 fn each_method_leaves_its_warning(
     #[case] method: Method,
-    #[case] fell_back: bool,
+    #[case] source: MethodSource,
+    #[case] values: Emulated,
     #[case] code: &str,
     #[case] once: bool,
+    #[case] sessions: &[&str],
+    #[case] machine_values: bool,
 ) {
     let session = SessionId("session-1".to_owned());
 
-    let (warning, for_the_run) = plan(method, fell_back, Emulated::default()).warning(&session);
+    let (warning, for_the_run) = plan(method, source, values).warning(&session);
 
     assert_eq!(
-        (warning.code.as_str(), for_the_run, warning.sessions),
+        (
+            warning.code.as_str(),
+            for_the_run,
+            warning.sessions,
+            warning
+                .message
+                .contains("no Identity profile gives them values yet"),
+        ),
         (
             code,
             once,
-            if once {
-                Vec::new()
-            } else {
-                vec!["session-1".to_owned()]
-            }
+            sessions
+                .iter()
+                .map(|&session| session.to_owned())
+                .collect::<Vec<_>>(),
+            machine_values
         )
+    );
+}
+
+/// The record of a Session's choice names its method, whether it fell
+/// back, and the layer that chose the method: the one that set it, or the
+/// one that chose `stealth` for the fallback.
+#[rstest]
+#[case::set_in_the_user_configuration(
+    Method::JsInjection,
+    MethodSource::Set(SettingsLayer::UserConfiguration),
+    json!({ "session_id": "session-1", "method": "js_injection", "fell_back": false }),
+    SettingsLayer::UserConfiguration
+)]
+#[case::the_fallback(
+    Method::Basic,
+    FELL_BACK,
+    json!({ "session_id": "session-1", "method": "basic", "fell_back": true }),
+    SettingsLayer::Run
+)]
+fn the_record_names_the_layer_that_chose_the_method(
+    #[case] method: Method,
+    #[case] source: MethodSource,
+    #[case] details: Value,
+    #[case] layer: SettingsLayer,
+) {
+    let plan = plan(method, source, Emulated::default());
+
+    assert_eq!(
+        (
+            plan.details(&SessionId("session-1".to_owned())),
+            plan.layer()
+        ),
+        (details, layer)
     );
 }
 

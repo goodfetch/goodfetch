@@ -8,8 +8,9 @@
 //! and none needs a launch argument, so the launch-arguments source of
 //! #395 has nothing of theirs yet. `basic` has each page show its values
 //! through the browser's own overrides, and `js_injection` through a script
-//! run in each document's main world, which Provenance marks as a
-//! main-world injection (ADRs 0019 and 0048). `engine` is not built: a
+//! run in the main world of each document of the page's own process, which
+//! Provenance marks as a main-world injection (ADRs 0019 and 0048); its
+//! out-of-process frames and its workers are not masked yet (#913). `engine` is not built: a
 //! `stealth` Session that leaves the method unset falls back to `basic`
 //! with its warning, and one that asks for `engine` is refused (ADR 0083).
 //! The values come from the Session's Identity profile once it is built
@@ -68,13 +69,14 @@ impl Method {
 }
 
 /// How a `stealth` Session masks its browser's fingerprint: its method,
-/// whether it fell back to `basic` for want of a Goodfetch Chromium, the
-/// layer that chose `stealth`, and the values its pages show.
+/// the layer that set it or its fallback to `basic` for want of a
+/// Goodfetch Chromium, the layer that chose `stealth`, and the values its
+/// pages show.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FingerprintPlan {
     method: Method,
-    fell_back: bool,
-    layer: SettingsLayer,
+    source: MethodSource,
+    stealth: SettingsLayer,
     values: Emulated,
 }
 
@@ -86,10 +88,30 @@ impl FingerprintPlan {
         let profile = plan.profile.as_ref()?;
         Some(Self {
             method: Method::built(profile.fingerprint_method)?,
-            fell_back: profile.method_source == MethodSource::FellBack,
-            layer: plan.layer,
+            source: profile.method_source,
+            stealth: plan.layer,
             values: Emulated::default(),
         })
+    }
+
+    /// Whether its method fell back to `basic`.
+    fn fell_back(&self) -> bool {
+        self.source == MethodSource::FellBack
+    }
+
+    /// The layer that chose its method: the one that set it, or the one
+    /// that chose `stealth` for the fallback.
+    const fn layer(&self) -> SettingsLayer {
+        match self.source {
+            MethodSource::Set(layer) => layer,
+            MethodSource::FellBack => self.stealth,
+        }
+    }
+
+    /// The refusal of a `page.on` that needs the browser's `Runtime`
+    /// domain on one of its pages, which a detector sees (#599's Q2).
+    pub(crate) fn runtime_refusal(&self) -> goodfetch_engine::CallError {
+        crate::access_mode::runtime_under_stealth(self.stealth)
     }
 
     /// Where its Sessions are placed: every built method shares a browser
@@ -117,7 +139,7 @@ impl FingerprintPlan {
     /// The warning the Session `session`'s Run report carries, and whether
     /// one stands for every Session of the Run.
     fn warning(&self, session: &SessionId) -> (RunWarning, bool) {
-        let (code, message) = match (self.method, self.fell_back) {
+        let (code, message) = match (self.method, self.fell_back()) {
             (Method::None, _) => (
                 FINGERPRINT_NONE,
                 "A `stealth` Session ran with the Fingerprint method `none`: the machine's real fingerprint shows, and the Run's Sessions are linkable.",
@@ -136,9 +158,18 @@ impl FingerprintPlan {
             ),
         };
         let once = self.method == Method::None;
+        // Until an Identity profile gives it values (#993), a masking
+        // method shows the machine's own as well.
+        let unmasked = self.method != Method::None && self.values == Emulated::default();
         let warning = RunWarning {
             code: code.to_owned(),
-            message: message.to_owned(),
+            message: if unmasked {
+                format!(
+                    "{message} Its time zone, locale, geolocation and core count are the machine's own too, as no Identity profile gives them values yet."
+                )
+            } else {
+                message.to_owned()
+            },
             sessions: if once {
                 Vec::new()
             } else {
@@ -147,6 +178,16 @@ impl FingerprintPlan {
             folder: None,
         };
         (warning, once)
+    }
+
+    /// What its Provenance mark and its Audit record say of the Session
+    /// `session`'s choice.
+    fn details(&self, session: &SessionId) -> serde_json::Value {
+        json!({
+            "session_id": session,
+            "method": self.method.as_str(),
+            "fell_back": self.fell_back(),
+        })
     }
 
     /// Records that the Session `session` of `run` opened with this
@@ -158,11 +199,7 @@ impl FingerprintPlan {
     ///
     /// Dropping the future may lose the entries not yet written.
     pub(crate) async fn chosen(&self, run: &Run, session: &SessionId) {
-        let details = json!({
-            "session_id": session,
-            "method": self.method.as_str(),
-            "fell_back": self.fell_back,
-        });
+        let details = self.details(session);
         let mut mark = details.clone();
         mark["action"] = json!(FINGERPRINT_METHOD);
         trace::provenance(run, mark).await;
@@ -178,7 +215,7 @@ impl FingerprintPlan {
         let origin = Origin {
             actor: Actor::Engine,
             surface: None,
-            layer: Some(self.layer),
+            layer: Some(self.layer()),
             run_id: Some(run.id().clone()),
         };
         if let Err(error) = run

@@ -102,7 +102,7 @@ pub(crate) struct Kind {
 
 /// The kind `user_agent` says it is, when it is a Chrome, Edge or Firefox
 /// user agent with a reduced version, on a desktop or a phone of the four
-/// operating systems; tablets, iOS, ChromeOS and full-version user agents
+/// operating systems; tablets, iOS, `ChromeOS` and full-version user agents
 /// are left out of the population.
 pub(crate) fn kind(user_agent: &str) -> Option<Kind> {
     let inside = user_agent.strip_prefix("Mozilla/5.0 (")?;

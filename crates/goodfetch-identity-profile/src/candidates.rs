@@ -138,7 +138,7 @@ fn candidate(
             client_hints(raw, kind)
         }),
         platform: keep(of(fingerprint, "platform"), |raw| {
-            text(raw).filter(|platform| platforms(kind.os).contains(&platform.as_str()))
+            text(&raw).filter(|platform| platforms(kind.os).contains(&platform.as_str()))
         }),
         vendor: keep(of(fingerprint, "vendor"), |raw| match (raw, chromium) {
             (Raw::Text(vendor @ "Google Inc."), true) => Some(vendor.to_owned()),
@@ -146,9 +146,9 @@ fn candidate(
             _ => None,
         }),
         product_sub: keep(of(fingerprint, "productSub"), |raw| {
-            text(raw).filter(|sub| sub == if chromium { "20030107" } else { "20100101" })
+            text(&raw).filter(|sub| sub == if chromium { "20030107" } else { "20100101" })
         }),
-        app_version: keep(of(fingerprint, "appVersion"), text),
+        app_version: keep(of(fingerprint, "appVersion"), |raw| text(&raw)),
         oscpu: keep(of(fingerprint, "oscpu"), |raw| match (raw, chromium) {
             (Raw::Missing, true) => Some(None),
             (Raw::Text(oscpu), false) => Some(Some(oscpu.to_owned())),
@@ -173,8 +173,8 @@ fn candidate(
         }),
         screen: keep(of(fingerprint, "screen"), screen),
         video_card: keep(of(fingerprint, "videoCard"), |raw| video_card(raw, kind)),
-        accept: keep(of(header, "accept"), text),
-        accept_encoding: keep(of(header, "accept-encoding"), text),
+        accept: keep(of(header, "accept"), |raw| text(&raw)),
+        accept_encoding: keep(of(header, "accept-encoding"), |raw| text(&raw)),
         upgrade_insecure_requests: keep(of(header, "upgrade-insecure-requests"), |raw| match raw {
             Raw::Text("1") => Some(true),
             Raw::Missing => Some(false),
@@ -245,9 +245,9 @@ fn keep<T>(values: Vec<(Raw<'_>, f64)>, allowed: impl Fn(Raw<'_>) -> Option<T>) 
         .collect()
 }
 
-fn text(raw: Raw<'_>) -> Option<String> {
+fn text(raw: &Raw<'_>) -> Option<String> {
     match raw {
-        Raw::Text(text) => Some(text.to_owned()),
+        Raw::Text(text) => Some((*text).to_owned()),
         Raw::Missing | Raw::Json(_) => None,
     }
 }
@@ -287,6 +287,10 @@ pub(crate) fn hint_platform(os: Os) -> &'static str {
 /// Firefox's missing client hints, or Chromium's when they agree with the
 /// user agent: its platform, whether it is mobile, whether Edge is among
 /// the brands, and its major version.
+#[expect(
+    clippy::option_option,
+    reason = "the outer Option is `keep`'s verdict on the value, the inner the hints a browser sends, which Firefox does not"
+)]
 fn client_hints(raw: Raw<'_>, kind: Kind) -> Option<Option<Hints>> {
     let data = match (raw, kind.brand.family()) {
         (Raw::Missing, EngineFamily::Firefox) => return Some(None),

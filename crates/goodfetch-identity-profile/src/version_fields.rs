@@ -39,7 +39,7 @@ pub fn refresh_version_fields(profile: &mut IdentityProfile, version: BrowserVer
         let (brands, full_version_list) = brand_lists(profile.brand, &version);
         hints.brands = brands;
         hints.full_version_list = full_version_list;
-        hints.ua_full_version = version.full().to_owned();
+        version.full().clone_into(&mut hints.ua_full_version);
     }
     for (name, value) in &mut profile.http.headers {
         match (name.as_str(), &profile.client_hints) {

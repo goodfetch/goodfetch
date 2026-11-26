@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "id": "markdown-wmb-goodfetch",
+  "lane": "extraction",
+  "decisionIds": [
+    "D-markdown"
+  ],
+  "hostClass": {
+    "requested": "local-controlled",
+    "allowDowngrade": true
+  },
+  "config": {
+    "split": "test",
+    "corpus": "corpora/webmainbench",
+    "extractors": [
+      "goodfetch",
+      "goodfetch-htmd",
+      "goodfetch-mdka",
+      "goodfetch-trafilatura",
+      "goodfetch-trafilatura-mdka",
+      "rs-trafilatura-htmd",
+      "rs-trafilatura-mdka"
+    ],
+    "pageTypes": [
+      "simple",
+      "mid",
+      "hard"
+    ],
+    "shards": 64,
+    "markdown": true,
+    "blocks": 1,
+    "seed": 1616
+  }
+}

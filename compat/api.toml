@@ -177,6 +177,10 @@ entry = "typescript @goodfetch/collie-client/generated BlockCause"
 reason = "The six Block causes keep their values and stay open, now listed in the catalog's order, as the SDKs' typed details read them (issue 3603); no cause is added or removed."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client/generated AuditKind"
+reason = "An Audit kind joins the catalog, `fingerprint_method_chosen` (issue 913): the type stays open, and a switch over every kind needs its case."
+
+[[announced]]
 entry = "typescript @goodfetch/collie-client/generated RunSettings"
 reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
 

@@ -5,6 +5,7 @@ use goodfetch_protocol::settings::SettingsLayer;
 use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Value, json};
+use url::Url;
 
 use super::{PluginFetch, SettingsSource};
 use crate::clock::Clock;
@@ -42,15 +43,27 @@ fn fetch_of(settings: &Resolved) -> PluginFetch {
     .unwrap()
 }
 
-/// The origins of `fetch`'s endpoints, sorted.
-fn endpoints(fetch: &PluginFetch) -> Vec<String> {
-    let mut origins: Vec<String> = fetch
-        .endpoints
-        .iter()
-        .map(url::Origin::ascii_serialization)
-        .collect();
-    origins.sort();
-    origins
+/// The egress class `fetch` gives `destination`, which may be no URL.
+fn class_of(fetch: &PluginFetch, destination: &str) -> EgressClass {
+    fetch.class(Url::parse(destination).ok().as_ref())
+}
+
+/// The settings of the Plugin `kettle` that user configuration sets in
+/// [`configured_fetch`]: two endpoints, one of them at depth.
+fn configured_settings() -> Value {
+    json!({
+        "api": "https://api.example.com:8443/v1/items?page=2",
+        "nested": { "list": ["http://127.0.0.1:8080/x", "not a url", "ftp://files.example.com/", 3] },
+    })
+}
+
+/// The `net.fetch` of `kettle` when user configuration sets
+/// [`configured_settings`].
+fn configured_fetch() -> PluginFetch {
+    fetch_of(&resolved(
+        json!({ "plugins": { "kettle": { "settings": configured_settings() } } }),
+        json!({}),
+    ))
 }
 
 proptest! {
@@ -76,6 +89,29 @@ proptest! {
 
         prop_assert_eq!(class == EgressClass::OperatorConfigured, configured);
     }
+
+    /// A destination is one of the Plugin's endpoints exactly when its
+    /// scheme, host and port, the scheme's default when it names none, are
+    /// those of a URL its configured settings hold; its path and query do
+    /// not matter.
+    ///
+    /// Covers: story:7-57, story:7-58
+    #[test]
+    fn a_destination_is_an_endpoint_only_at_a_configured_origin(
+        scheme in proptest::sample::select(vec!["http", "https"]),
+        host in proptest::sample::select(vec!["api.example.com", "127.0.0.1", "other.example"]),
+        port in proptest::option::of(proptest::sample::select(vec![80_u16, 443, 8080, 8443])),
+        path in "(/[a-z0-9]{0,6}){0,3}",
+    ) {
+        let configured = [("https", "api.example.com", 8443), ("http", "127.0.0.1", 8080)];
+        let effective = port.unwrap_or(if scheme == "http" { 80 } else { 443 });
+        let expected = configured.contains(&(scheme, host, effective));
+        let authority = port.map_or_else(|| host.to_owned(), |port| format!("{host}:{port}"));
+
+        let class = class_of(&configured_fetch(), &format!("{scheme}://{authority}{path}"));
+
+        prop_assert_eq!(class == EgressClass::OperatorConfigured, expected);
+    }
 }
 
 /// The endpoints are the origins of the `http` and `https` URLs the
@@ -84,27 +120,26 @@ proptest! {
 /// none at all.
 ///
 /// Covers: story:7-57, story:7-58
-#[test]
-fn the_endpoints_are_the_origins_of_the_urls_a_configuration_layer_set() {
-    let settings = json!({
-        "api": "https://api.example.com/v1/items?page=2",
-        "nested": { "list": ["http://127.0.0.1:8080/x", "not a url", "ftp://files.example.com/", 3] },
-        "again": "https://api.example.com/other",
-    });
-    let user = resolved(
-        json!({ "plugins": { "kettle": { "settings": settings.clone() } } }),
+#[rstest]
+#[case::at_the_top("https://api.example.com:8443/other", true)]
+#[case::at_depth("http://127.0.0.1:8080/", true)]
+#[case::another_port("https://api.example.com/", false)]
+#[case::an_ftp_url("ftp://files.example.com/", false)]
+#[case::no_url("not a url", false)]
+fn the_endpoints_are_the_origins_of_the_urls_a_configuration_layer_set(
+    #[case] destination: &str,
+    #[case] endpoint: bool,
+) {
+    let run = fetch_of(&resolved(
         json!({}),
-    );
-    let run = resolved(
-        json!({}),
-        json!({ "plugins": { "kettle": { "settings": settings } } }),
-    );
+        json!({ "plugins": { "kettle": { "settings": configured_settings() } } }),
+    ));
 
     assert_eq!(
-        endpoints(&fetch_of(&user)),
-        ["http://127.0.0.1:8080", "https://api.example.com"]
+        class_of(&configured_fetch(), destination) == EgressClass::OperatorConfigured,
+        endpoint
     );
-    assert_eq!(endpoints(&fetch_of(&run)), Vec::<String>::new());
+    assert_eq!(class_of(&run, destination), EgressClass::PageReachable);
 }
 
 /// A request the engine would send for a Plugin is refused before any
@@ -120,6 +155,7 @@ fn the_endpoints_are_the_origins_of_the_urls_a_configuration_layer_set() {
 #[rstest]
 #[case::connect("CONNECT", "https://example.com/", &[], "plugin_call_back_refused")]
 #[case::an_effect("POST", "https://example.com/", &[], "plugin_call_back_refused")]
+#[case::method_override("GET", "https://example.com/", &[("X-HTTP-Method-Override", "DELETE")], "plugin_call_back_refused")]
 #[case::no_method("NOT A METHOD", "https://example.com/", &[], "invalid_params")]
 #[case::host_header("GET", "https://example.com/", &[("Host", "other.example")], "plugin_call_back_refused")]
 #[case::proxy_header("GET", "https://example.com/", &[("Proxy-Authorization", "Basic eA==")], "plugin_call_back_refused")]

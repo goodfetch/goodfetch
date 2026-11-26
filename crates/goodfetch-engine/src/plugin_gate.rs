@@ -22,8 +22,9 @@
 //! destination rather than through the Session's proxy, presents no client
 //! certificate and follows no redirect: the Plugin gets the redirect and
 //! asks for its location as a new `net.fetch`. A method other than `GET` or
-//! `HEAD` toward a destination checked as a page's is an Effect, refused
-//! until the `effects` permission comes (issue 845).
+//! `HEAD` toward a destination checked as a page's is an Effect, as is a
+//! header such as `X-HTTP-Method-Override` that asks for one, refused until
+//! the `effects` permission comes (issue 845).
 
 use bytes::Bytes;
 use goodfetch_protocol::egress::EgressRule;
@@ -52,6 +53,8 @@ use crate::http_client::{EndpointSettings, WholeFailure};
 use crate::response_limits::{LimitExceeded, Limits};
 use crate::settings::Resolved;
 use crate::tasks::BlockingThreads;
+use crate::tls::Trust;
+use tokio::sync::OnceCell;
 
 /// The most bytes of a response's body a `net.fetch` answers with: half a
 /// message to the Plugin, so that the body in Base64 and its headers fit
@@ -61,19 +64,19 @@ const BODY_LIMIT: usize = MAX_MESSAGE_BYTES / 2;
 /// Where a Plugin's settings came from, which classes the endpoints they
 /// hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SettingsSource {
+pub(crate) struct SettingsSource {
     /// The layer that set the Plugin's entry of `plugins`, none when
     /// nothing did.
-    pub layer: Option<SettingsLayer>,
+    pub(crate) layer: Option<SettingsLayer>,
     /// Whether a Client acting for a model gave that entry (ADR 0092).
-    pub for_model: bool,
+    pub(crate) for_model: bool,
     /// Whether the Run was opened on an Exposed Daemon.
-    pub on_an_exposed_daemon: bool,
+    pub(crate) on_an_exposed_daemon: bool,
 }
 
 impl SettingsSource {
     /// Where `settings` took the entry of the Plugin `plugin` from.
-    pub fn of(settings: &Resolved, plugin: &str) -> Self {
+    pub(crate) fn of(settings: &Resolved, plugin: &str) -> Self {
         Self {
             layer: settings.entry_layer(&PLUGINS, plugin),
             for_model: settings.entry_for_model(&PLUGINS, plugin),
@@ -84,7 +87,7 @@ impl SettingsSource {
     /// The egress class of a URL its settings hold: Operator-configured
     /// from a configuration layer, but for a project configuration a model
     /// or an Exposed Daemon's Client gave; checked as a page's otherwise.
-    pub fn class(self) -> EgressClass {
+    pub(crate) fn class(self) -> EgressClass {
         let Some(layer) = self.layer else {
             return EgressClass::PageReachable;
         };
@@ -109,6 +112,9 @@ pub struct PluginFetch {
     settings: EndpointSettings,
     /// `network.max_body_size`.
     max_body_size: u64,
+    /// The authorities `tls.trusted_cas` lists, read on the first
+    /// `net.fetch` and kept for the Plugin's others.
+    trust: OnceCell<Trust>,
 }
 
 impl PluginFetch {
@@ -139,6 +145,7 @@ impl PluginFetch {
             page: Policy::of(settings)?.for_plugin(),
             settings: EndpointSettings::of(settings, clock, blocking),
             max_body_size: Limits::of(settings).max_body_size,
+            trust: OnceCell::new(),
         })
     }
 
@@ -190,11 +197,23 @@ impl PluginFetch {
             .error());
         }
         let class = self.class(url.as_ref());
-        if class == EgressClass::PageReachable && method != Method::GET && method != Method::HEAD {
-            return Err(refused(&format!(
-                "a `{method}` to {}, checked as a page's destination, is an Effect, which needs the `effects` permission (issue 845)",
-                params.url
-            )));
+        if class == EgressClass::PageReachable {
+            if method != Method::GET && method != Method::HEAD {
+                return Err(refused(&format!(
+                    "a `{method}` to {}, checked as a page's destination, is an Effect, which needs the `effects` permission (issue 845)",
+                    params.url
+                )));
+            }
+            if let Some(header) = params.headers.iter().find(|header| {
+                METHOD_OVERRIDES
+                    .iter()
+                    .any(|name| header.name.eq_ignore_ascii_case(name))
+            }) {
+                return Err(refused(&format!(
+                    "the header `{}` to {}, checked as a page's destination, asks for another method, an Effect, which needs the `effects` permission (issue 845)",
+                    header.name, params.url
+                )));
+            }
         }
         let mut request = Request::new(
             params
@@ -213,11 +232,13 @@ impl PluginFetch {
                 kind: RequestKind::Fetch,
             },
         };
+        let trust = self.trust.get_or_init(|| self.settings.trust()).await;
         let response = self
             .settings
             .send_whole_through(
                 ConfiguredKind::PluginEndpoint,
                 gate,
+                trust,
                 &params.url,
                 request,
                 BODY_LIMIT,
@@ -302,6 +323,14 @@ const ENGINE_HEADERS: [&str; 8] = [
     "trailer",
     "transfer-encoding",
     "upgrade",
+];
+
+/// The headers some servers read as the request's method, so that a `GET`
+/// carrying one can act as a `POST` or a `DELETE`.
+const METHOD_OVERRIDES: [&str; 3] = [
+    "x-http-method-override",
+    "x-http-method",
+    "x-method-override",
 ];
 
 /// The name and value of `header`, a request's.

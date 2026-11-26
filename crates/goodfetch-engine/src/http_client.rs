@@ -522,8 +522,16 @@ impl EndpointSettings {
         limit: usize,
     ) -> Result<hyper::Response<Bytes>, WholeFailure> {
         let url = request.uri().to_string();
-        self.send_whole_through(kind, Gate::Endpoint(self.policy), &url, request, limit)
-            .await
+        let trust = self.trust().await;
+        self.send_whole_through(
+            kind,
+            Gate::Endpoint(self.policy),
+            &trust,
+            &url,
+            request,
+            limit,
+        )
+        .await
     }
 
     /// What the machine's settings let every Operator-configured endpoint
@@ -532,10 +540,11 @@ impl EndpointSettings {
         self.policy
     }
 
-    /// Sends `request` to `url`, as it was given, through `gate`, and
-    /// answers as [`Self::send_whole`]: a Plugin's `net.fetch` (ADR 0033),
-    /// whose destination [`Gate::Session`] judges as a page's, to which no
-    /// client certificate is presented, or [`Gate::PluginEndpoint`] as an
+    /// Sends `request` to `url`, as it was given, through `gate`, trusting
+    /// `trust`, which [`Self::trust`] read, and answers as
+    /// [`Self::send_whole`]: a Plugin's `net.fetch` (ADR 0033), whose
+    /// destination [`Gate::Session`] judges as a page's, to which no client
+    /// certificate is presented, or [`Gate::PluginEndpoint`] as an
     /// Operator-configured endpoint's.
     ///
     /// # Errors
@@ -549,11 +558,11 @@ impl EndpointSettings {
         &self,
         kind: ConfiguredKind,
         gate: Gate<'_>,
+        trust: &Trust,
         url: &str,
         request: Request<Bytes>,
         limit: usize,
     ) -> Result<hyper::Response<Bytes>, WholeFailure> {
-        let trust = self.trust().await;
         let presenting = match gate {
             Gate::Session { .. } => None,
             Gate::Endpoint(_) | Gate::PluginEndpoint(_) => Some(&self.client_certificates),
@@ -562,7 +571,7 @@ impl EndpointSettings {
             kind,
             gate,
             resolve: &self.resolve,
-            trust: &trust,
+            trust,
             presenting,
             clock: self.clock,
             delays: self.delays,
@@ -600,7 +609,7 @@ impl EndpointSettings {
     /// `tls.trusted_cas` lists for each domain, read now on its blocking
     /// threads, as [`Trust::of`] reads them for a site; a file that cannot
     /// be read is logged and trusts nothing.
-    async fn trust(&self) -> Trust {
+    pub(crate) async fn trust(&self) -> Trust {
         let listed = self.trusted_cas.clone();
         self.blocking
             .run(move || {

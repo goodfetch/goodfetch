@@ -87,18 +87,25 @@ fn run_settings(configuration: Value) -> Resolved {
     resolve(&layers, Product::Collie, Product::Collie).unwrap()
 }
 
-/// The Plugin's `net.fetch` of `url` with `GET` under `settings`.
-fn fetch(settings: &Resolved, url: &str) -> Result<NetFetchResult, CallError> {
-    let fetch = PluginFetch::of(
+/// The Plugin's `net.fetch` under `settings`.
+fn plugin_fetch(settings: &Resolved) -> PluginFetch {
+    PluginFetch::of(
         settings,
         PLUGIN,
         Clock::system(),
         TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
     )
-    .unwrap();
-    let params: NetFetchParams =
-        serde_json::from_value(json!({ "call_id": 1, "method": "GET", "url": url })).unwrap();
-    goodfetch_test_support::runtime().block_on(fetch.fetch(params))
+    .unwrap()
+}
+
+/// The params of a `net.fetch` of `url` with `GET`.
+fn get(url: &str) -> NetFetchParams {
+    serde_json::from_value(json!({ "call_id": 1, "method": "GET", "url": url })).unwrap()
+}
+
+/// The Plugin's `net.fetch` of `url` with `GET` under `settings`.
+fn fetch(settings: &Resolved, url: &str) -> Result<NetFetchResult, CallError> {
+    goodfetch_test_support::runtime().block_on(plugin_fetch(settings).fetch(get(url)))
 }
 
 /// The table's form of an `egress_refused`, none for another failure.
@@ -207,18 +214,26 @@ fn every_plugin_traffic_case_of_the_ssrf_table_is_refused_before_it_connects() {
 }
 
 /// A `net.fetch` to the Plugin's own endpoint that gets no response, a
-/// loopback port nothing listens on, fails with `plugin_fetch_failed`,
-/// which the Plugin may retry.
+/// loopback listener that closes the connection it accepts, fails with
+/// `plugin_fetch_failed`, which the Plugin may retry.
 ///
 /// Covers: story:7-57, error:plugin_fetch_failed
 #[test]
 fn a_request_that_gets_no_response_fails_with_plugin_fetch_failed() {
-    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/", closed.local_addr().unwrap());
-    drop(closed);
+    let runtime = goodfetch_test_support::runtime();
+    let listener = runtime
+        .block_on(tokio::net::TcpListener::bind("127.0.0.1:0"))
+        .unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
     let settings = run_settings(json!({ "plugins": { PLUGIN: { "settings": { "api": url } } } }));
+    let fetch = plugin_fetch(&settings);
+    let closing = async {
+        let (connection, _) = listener.accept().await.unwrap();
+        drop(connection);
+    };
 
-    let failure = fetch(&settings, &url).unwrap_err();
+    let ((), fetched) = runtime.block_on(async { tokio::join!(closing, fetch.fetch(get(&url))) });
+    let failure = fetched.unwrap_err();
 
     assert_eq!(
         (failure.code(), failure.retryable()),

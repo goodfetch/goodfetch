@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::metrics::Metrics;
-use goodfetch_engine::runs::identity;
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::PageId;
 use goodfetch_test_support::{TestEnv, runtime};
 use serde_json::{Value, json};
+use tokio::sync::watch;
 
 use super::{BrowserPagePart, PageOwner, PageParts, RequestPart};
 use crate::cdp::CdpPage;
@@ -20,21 +20,22 @@ use crate::gesture_order::GestureOrder;
 use crate::hiding::{Hiding, Sheets};
 use crate::init_scripts::InitScripts;
 use crate::interception::PageInterception;
-use crate::interception::tests::{hold_page, session_side};
+use crate::interception::tests::{hold_serving, session_side};
 use crate::live_run::{LiveRun, Served, played_page};
 use crate::page_events::PageEvents;
 use crate::page_events::tests::started;
 use crate::page_worlds::PageWorlds;
 
-/// The parts of the page `page_id`, which `driver` drives for the test's
-/// Run: `events` and `interception`, its dialogs, which `dialogs` answers,
-/// its init scripts, none yet, and no wall nor live hiding.
+/// The parts of the page whose request's Page ID `page_id` holds, which
+/// `driver` drives for the test's Run: `events` and `interception`, read
+/// from the same cell, its dialogs, which `dialogs` answers, its init
+/// scripts, none yet, and no wall nor live hiding.
 pub(crate) fn parts(
-    (page_id, driver, live): (&PageId, &PageDriver, &LiveRun),
+    (page_id, driver, live): (&Arc<watch::Sender<PageId>>, &PageDriver, &LiveRun),
     dialogs: &Dialogs,
     (events, interception): (PageEvents, PageInterception),
 ) -> PageParts {
-    let run = identity(&live.run);
+    let run = &live.run.identity;
     PageParts {
         browser: BrowserPagePart {
             walls: Walls::default(),
@@ -42,9 +43,10 @@ pub(crate) fn parts(
             worlds: PageWorlds::default(),
         },
         request: RequestPart {
+            page_id: Arc::clone(page_id),
             events,
-            dialogs: dialogs.start(page_id.clone(), CdpPage::of(driver), run),
-            init_scripts: InitScripts::new(CdpPage::of(driver), run.clone(), page_id.clone()),
+            dialogs: dialogs.start(page_id.subscribe(), CdpPage::of(driver), run),
+            init_scripts: InitScripts::new(CdpPage::of(driver), run.clone(), page_id.subscribe()),
             interception,
         },
         tasks: run.clone(),
@@ -58,12 +60,13 @@ async fn with_parts<T>(page_id: &PageId, body: impl AsyncFnOnce(PageParts) -> T)
     let env = TestEnv::new();
     let (live, mut engine): (LiveRun, Served) = LiveRun::start(&env).await;
     let (driver, played, mut connection) = played_page();
+    let cell = Arc::new(watch::Sender::new(page_id.clone()));
     let parts = parts(
-        (page_id, &driver, &live),
+        (&cell, &driver, &live),
         &Dialogs::default(),
         (
-            started(page_id, &driver, &live),
-            hold_page(page_id, &session_side()),
+            started(cell.subscribe(), &driver, &live),
+            hold_serving(&cell.subscribe(), &session_side()),
         ),
     );
     let ran = tokio::select! {
@@ -113,7 +116,7 @@ fn a_panic_of_one_of_its_tasks_closes_the_page_with_engine_panicked() {
             let page = PageOwner::start(
                 (&session, owner),
                 &tracing::Span::none(),
-                (&page_id, parts, GestureOrder::new().0),
+                (parts, GestureOrder::new().0),
                 page_closed(&page_id),
                 &Metrics::default(),
             );
@@ -145,7 +148,7 @@ fn an_ask_whose_owner_ended_without_a_panic_raises_closed() {
         let page = PageOwner::start(
             (&session, session.child()),
             &tracing::Span::none(),
-            (&page_id, parts, GestureOrder::new().0),
+            (parts, GestureOrder::new().0),
             page_closed(&page_id),
             &Metrics::default(),
         );

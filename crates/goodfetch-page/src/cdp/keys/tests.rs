@@ -115,7 +115,7 @@ fn each_key_name_presses_as_a_keyboard_does(
     #[case] expected: Vec<Sent>,
 ) {
     assert_eq!(
-        events(combination).map(|events| sent(&events)),
+        events(combination).map(|press| sent(&press.0)),
         Ok(expected)
     );
 }
@@ -126,7 +126,7 @@ fn each_key_name_presses_as_a_keyboard_does(
 #[case::alone("+", None)]
 #[case::after_a_modifier("Shift++", Some(8))]
 fn a_trailing_plus_is_the_plus_key(#[case] combination: &str, #[case] modifiers: Option<i64>) {
-    let pressed = events(combination).unwrap();
+    let pressed = events(combination).unwrap().0;
     let plus = pressed
         .iter()
         .find(|event| event.key.as_deref() == Some("+"))
@@ -166,7 +166,7 @@ proptest! {
             .collect::<Vec<_>>()
             .join("+");
 
-        let pressed = events(&combination).unwrap();
+        let pressed = events(&combination).unwrap().0;
 
         let downs: Vec<String> = pressed
             .iter()

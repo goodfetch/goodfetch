@@ -99,7 +99,7 @@ use proptest::sample::Index;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 use serde_json::{Value, json};
 use tokio::runtime::Runtime;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 use crate::cdp::CdpPage;
 use crate::cdp::driver::PageDriver;
@@ -107,7 +107,7 @@ use crate::cdp::driver::replay::{self, Played, SESSION};
 use crate::dialogs::{Answer, Dialogs};
 use crate::gesture_order::{GestureOrder, GestureTurn, LentPointer, PointerAsks};
 use crate::init_scripts::Registered;
-use crate::interception::tests::{hold_page, session_side};
+use crate::interception::tests::{hold_serving, session_side};
 use crate::live_run::LiveRun;
 use crate::page_events::Listening;
 use crate::page_events::tests::started;
@@ -1912,12 +1912,13 @@ impl StateMachineTest for Subject {
         let (order, pointer) = GestureOrder::new();
         let dialogs = Dialogs::default();
         let (sync, owner) = runtime.block_on(async {
-            let events = started(&page_id(), &driver, &live);
+            let cell = Arc::new(watch::Sender::new(page_id()));
+            let events = started(cell.subscribe(), &driver, &live);
             let sync = events.listen(PageEventName::Request);
             let parts = parts(
-                (&page_id(), &driver, &live),
+                (&cell, &driver, &live),
                 &dialogs,
-                (events, hold_page(&page_id(), &session_side())),
+                (events, hold_serving(&cell.subscribe(), &session_side())),
             );
             let closed = CallError::new(
                 &CLOSED,
@@ -1927,7 +1928,7 @@ impl StateMachineTest for Subject {
             let owner = PageOwner::start(
                 (&session, session.child()),
                 &tracing::Span::none(),
-                (&page_id(), parts, order),
+                (parts, order),
                 closed,
                 &metrics,
             );

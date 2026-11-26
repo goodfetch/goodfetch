@@ -40,7 +40,6 @@ use crate::effect::{Effects, Reconciled, Reconciliation};
 use crate::engine::Engine;
 use crate::product::{Channel, Identity};
 use crate::run_state::RunStateOptions;
-use crate::runs;
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
 
@@ -84,7 +83,7 @@ fn window(effects: &Effects) -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
                 let run = context.runs().live(run_id).await.map_err(failed)?;
-                runs::send_window(&run)
+                run.send_window
                     .sending(None, params["command"].as_str().unwrap())
                     .await?;
                 Ok::<Value, CallError>(json!({ "marked": true }))
@@ -104,7 +103,7 @@ fn window(effects: &Effects) -> Contribution {
                     };
                     let reconciled = effects
                         .reconcile(
-                            (runs::identity(&run), runs::state(&run)),
+                            (&run.identity, &run.state),
                             params["entry"].as_str().unwrap(),
                             answer,
                             &context,

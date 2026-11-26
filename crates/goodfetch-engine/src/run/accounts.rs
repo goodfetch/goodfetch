@@ -12,11 +12,24 @@ use goodfetch_protocol::usage::{PLUGIN_CALLS, PLUGIN_TIME};
 
 use super::{limit_not_understood, limit_reached, state_unavailable};
 use crate::call_error::CallError;
-use crate::ledger::{ChargeError, Refusal};
+use crate::ledger::{ChargeError, Refusal, RunCharging};
 use crate::plugin_kinds::{Accounts, PluginCall};
-use crate::runs::{self, Run};
+use crate::run_identity::RunIdentity;
+use crate::run_trace::RunTrace;
 
-impl Accounts for Run {
+/// What a Run's Plugin calls are accounted to: its identity, its charging
+/// and its Run trace, each the Run's own (ADR 0145).
+#[derive(Clone, Copy)]
+pub struct RunAccounts<'run> {
+    /// Which Run it is.
+    pub identity: &'run RunIdentity,
+    /// Its charging, which each call is charged to.
+    pub charging: &'run RunCharging,
+    /// Its Run trace, whose Plugin call log records each call.
+    pub trace: &'run RunTrace,
+}
+
+impl Accounts for RunAccounts<'_> {
     fn call_starts<'call>(
         &'call self,
         call: &'call PluginCall<'call>,
@@ -30,9 +43,9 @@ impl Accounts for Run {
     ) -> BoxFuture<'call, Result<(), CallError>> {
         Box::pin(async move {
             let charged = charged(self, PLUGIN_TIME, call.plugin, call.time).await;
-            if let Err(error) = runs::run_trace(self).plugin_call(call).await {
+            if let Err(error) = self.trace.plugin_call(call).await {
                 tracing::warn!(
-                    run_id = %self.id(),
+                    run_id = %self.identity.id(),
                     plugin = call.plugin,
                     method = call.method,
                     %error,
@@ -44,15 +57,26 @@ impl Accounts for Run {
     }
 }
 
-/// Charges `amount` of `usage_kind` to `run` under the part `plugin`, the
-/// implementation's name, read into the error a refused charge answers.
-async fn charged(run: &Run, usage_kind: &str, plugin: &str, amount: u64) -> Result<(), CallError> {
-    runs::charging(run)
+/// Charges `amount` of `usage_kind` to the Run `accounts` are of, under the
+/// part `plugin`, the implementation's name, read into the error a refused
+/// charge answers.
+async fn charged(
+    accounts: &RunAccounts<'_>,
+    usage_kind: &str,
+    plugin: &str,
+    amount: u64,
+) -> Result<(), CallError> {
+    accounts
+        .charging
         .charge_part(usage_kind, plugin, amount, None)
         .await
         .map_err(|error| match error {
             ChargeError::Refused(Refusal::Reached(reached)) => limit_reached(&reached),
             ChargeError::Refused(Refusal::NotUnderstood(limit)) => limit_not_understood(*limit),
-            error => state_unavailable(run.id().clone(), run.folder(), &error.to_string()),
+            error => state_unavailable(
+                accounts.identity.id().clone(),
+                accounts.identity.folder(),
+                &error.to_string(),
+            ),
         })
 }

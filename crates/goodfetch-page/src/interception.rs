@@ -587,8 +587,8 @@ pub(crate) struct HeldPage {
 pub(crate) struct PageInterception {
     state: Arc<PageState>,
     /// The Page ID of the request the page serves now, which its route
-    /// handlers' requests and its errors name.
-    page_id: Arc<watch::Sender<PageId>>,
+    /// handlers' requests and its errors name: its request part's one cell.
+    page_id: watch::Receiver<PageId>,
 }
 
 impl PageState {
@@ -636,8 +636,9 @@ impl Interception {
         self.shared.clean_up.versions()
     }
 
-    /// Puts the page `page_id` of the Session whose side is `session`,
-    /// which `driver` drives for `run`, under the interception, its own requests and its
+    /// Puts the page whose request's Page ID `page_id` holds, of the
+    /// Session whose side is `session`, which `driver` drives for `run`,
+    /// under the interception, its own requests and its
     /// frames' answered on `page_tasks`, the Run's identity that starts
     /// tasks on the page's owner: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
@@ -661,7 +662,7 @@ impl Interception {
     /// Dropping the future may leave the page's requests paused unanswered.
     pub(crate) async fn start(
         &self,
-        page_id: &PageId,
+        page_id: &watch::Receiver<PageId>,
         session: &Arc<SessionInterception>,
         driver: &PageDriver,
         (run, page_tasks): (&RunPowers, &RunIdentity),
@@ -725,7 +726,7 @@ impl Interception {
         // owner, its workers' on their browser's.
         let run = &run.of_page(page_tasks);
         let children = Self::children_of(
-            &page.page_id.subscribe(),
+            &page.page_id,
             (&state, answers.clone()),
             driver,
             run,
@@ -735,7 +736,7 @@ impl Interception {
         let context = Arc::new(
             PageContext::new(
                 driver.clone(),
-                Sender::Page(page.page_id.subscribe()),
+                Sender::Page(page.page_id.clone()),
                 state,
                 answers,
                 policy,
@@ -1105,13 +1106,14 @@ impl Interception {
 }
 
 impl PageInterception {
-    /// The page `page_id`'s side, `state`, listed among its Session's
-    /// pages, whose navigations its service workers' requests may carry.
-    fn joined(page_id: &PageId, state: &Arc<PageState>) -> Self {
+    /// The side, `state`, of the page whose request's Page ID `page_id`
+    /// holds, listed among its Session's pages, whose navigations its
+    /// service workers' requests may carry.
+    fn joined(page_id: &watch::Receiver<PageId>, state: &Arc<PageState>) -> Self {
         state.pending.join(state);
         Self {
             state: Arc::clone(state),
-            page_id: Arc::new(watch::Sender::new(page_id.clone())),
+            page_id: page_id.clone(),
         }
     }
 
@@ -1251,19 +1253,17 @@ impl PageInterception {
         }
     }
 
-    /// Replaces the request its page serves with `next` (ADR 0146): the
-    /// earlier request's routes' subscriptions end, the failure a handler
-    /// left for its next call goes, and a navigation pending on its page
-    /// gives back the permit a service worker's request took for it. Its
-    /// Filter lists' state and its Session's routes and failures stay with
-    /// the page; the next request's routes and requests name `next`.
-    pub(crate) fn replace_request(&self, next: PageId) {
+    /// Its page's request part was replaced (ADR 0146): the earlier
+    /// request's routes' subscriptions end, the failure a handler left for
+    /// its next call goes, and a navigation pending on its page gives back
+    /// the permit a service worker's request took for it. Its Filter lists'
+    /// state and its Session's routes and failures stay with the page.
+    pub(crate) fn replace_request(&self) {
         if let Some(state) = self.held() {
             state.routes.replace_request();
             lock(&state.failure).take();
             state.navigation.ended();
         }
-        self.page_id.send_replace(next);
     }
 }
 

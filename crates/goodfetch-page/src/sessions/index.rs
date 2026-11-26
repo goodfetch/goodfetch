@@ -66,7 +66,7 @@ impl Index {
     pub(super) fn panicked(&self, session: &SessionId, open: &Session, error: CallError) {
         self.entries()
             .panicked
-            .insert(session.clone(), (open.run.id().clone(), error));
+            .insert(session.clone(), (open.run.identity.id().clone(), error));
     }
 
     /// The `engine_panicked` of the panic that closed the Session
@@ -83,7 +83,7 @@ impl Index {
         self.entries()
             .sessions
             .iter()
-            .filter(|(_, open)| open.run.id() == run)
+            .filter(|(_, open)| open.run.identity.id() == run)
             .map(|(session, open)| (session.clone(), Arc::clone(open)))
             .collect()
     }
@@ -114,12 +114,14 @@ impl Index {
     /// names them nor their pages. Answers them.
     pub(super) fn run_ended(&self, run: &RunId) -> Vec<(SessionId, Arc<Session>)> {
         let mut entries = self.entries();
-        entries.pages.retain(|_, held| held.run.id() != run);
+        entries
+            .pages
+            .retain(|_, held| held.run.identity.id() != run);
         entries.panicked.retain(|_, (of, _)| of != run);
         let ended: Vec<SessionId> = entries
             .sessions
             .iter()
-            .filter(|(_, open)| open.run.id() == run)
+            .filter(|(_, open)| open.run.identity.id() == run)
             .map(|(session, _)| session.clone())
             .collect();
         ended

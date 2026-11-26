@@ -43,6 +43,11 @@ pub(crate) enum Step {
     /// previous release (ADR 0030, issue 148): minutes of rustdoc builds of
     /// both trees, too long for the Quick suite's `just lint`.
     SemverChecks,
+    /// deslop-please's module structure check (`ci/deslop-please.sh`, ADR
+    /// 0126's note of 2026-11-26): it indexes the whole workspace again
+    /// after any change, about 6 minutes and 10 GB, too long for the quick
+    /// form's `just lint`.
+    DeslopPlease,
     FuzzCheck,
     Proofs,
     Msrv,
@@ -84,7 +89,7 @@ pub(crate) enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 28] = [
+    pub(crate) const ALL: [Self; 29] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -102,6 +107,7 @@ impl Step {
         Self::Lint,
         Self::FeatureCombinations,
         Self::SemverChecks,
+        Self::DeslopPlease,
         Self::FuzzCheck,
         Self::Proofs,
         Self::Msrv,
@@ -124,6 +130,7 @@ impl Step {
             Self::Lint => "lint",
             Self::FeatureCombinations => "feature-combinations",
             Self::SemverChecks => "semver-checks",
+            Self::DeslopPlease => "deslop-please",
             Self::Audit => "audit",
             Self::CommitLeaks => "commit-leaks",
             Self::FuzzCheck => "fuzz-check",
@@ -168,6 +175,7 @@ impl Step {
             | Self::FeaturesTests
             | Self::FeatureCombinations
             | Self::SemverChecks
+            | Self::DeslopPlease
             | Self::FuzzCheck
             | Self::Proofs
             | Self::JourneysTasks
@@ -354,7 +362,8 @@ pub(crate) enum Owner {
     /// ADR 0135's note of 2026-11-23 on the full gate's hosted steps), and
     /// the semver checks, which build both the tree's and the previous
     /// release's rustdoc of each Product and install cargo-semver-checks
-    /// (issue 148). The Simulation stays here too, as loom does: it builds
+    /// (issue 148), and deslop-please's module structure check, whose index
+    /// of the workspace lives in the gate host's `target/`. The Simulation stays here too, as loom does: it builds
     /// its crates again under a cfg of its own, in a folder of its own, and
     /// no hosted job runs it (issue 359).
     Local,
@@ -387,6 +396,7 @@ impl Owner {
                     | Step::FuzzCheck
                     | Step::FeatureCombinations
                     | Step::SemverChecks
+                    | Step::DeslopPlease
                     | Step::Loom
                     | Step::Simulation
                     | Step::Miri

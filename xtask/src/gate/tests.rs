@@ -183,7 +183,7 @@ fn reruns(plan: &[Planned]) -> (BTreeSet<&'static str>, BTreeMap<&'static str, V
 }
 
 /// The checks every run on another tree reruns, whatever the change.
-const ALWAYS: [&str; 13] = [
+const ALWAYS: [&str; 14] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -193,6 +193,7 @@ const ALWAYS: [&str; 13] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -970,10 +971,11 @@ fn a_result_that_names_no_known_layer_is_an_error(#[case] text: &str) {
 
 /// The checks a run on the tree of their green result reuses (the codegen
 /// tests too, which the full form's Pre-merge suite covers).
-const TREE_ONLY: [Step; 7] = [
+const TREE_ONLY: [Step; 8] = [
     Step::Lint,
     Step::FeatureCombinations,
     Step::SemverChecks,
+    Step::DeslopPlease,
     Step::FuzzCheck,
     Step::Proofs,
     Step::JourneysTasks,
@@ -1044,6 +1046,7 @@ fn lint_reruns_on_the_same_tree_when_what_it_reads_besides_the_tree_no_longer_ho
     for step in [
         Step::FeatureCombinations,
         Step::SemverChecks,
+        Step::DeslopPlease,
         Step::FuzzCheck,
         Step::Proofs,
     ] {
@@ -1257,12 +1260,13 @@ const BESIDE_STEPS: [&str; 8] = [
 #[case::preflight(Form::Preflight)]
 fn each_entry_has_the_owner_the_table_of_owning_layers_names(#[case] form: Form) {
     const GATE_HOST: [&str; 3] = ["perf", "counts", "stress"];
-    const TOO_LONG_FOR_A_HOSTED_JOB: [&str; 7] = [
+    const TOO_LONG_FOR_A_HOSTED_JOB: [&str; 8] = [
         "windows",
         "tlc",
         "fuzz-check",
         "feature-combinations",
         "semver-checks",
+        "deslop-please",
         "loom",
         "miri",
     ];

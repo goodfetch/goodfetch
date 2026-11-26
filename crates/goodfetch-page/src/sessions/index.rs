@@ -66,9 +66,9 @@ impl Index {
     }
 
     /// Names the Session `open` `session`.
-    pub(super) fn opened(&self, session: SessionId, open: Arc<Session>) {
+    pub(super) fn opened(&self, session: &SessionId, open: Arc<Session>) {
         self.entries().sessions.insert(session.clone(), open);
-        self.watched.session_opened(&session);
+        self.watched.session_opened(session);
     }
 
     /// A panic of one of the Session `session`'s owner's tasks closes it:
@@ -152,7 +152,7 @@ impl Index {
 
     /// Names the page `page`, which `open`, named `session`, holds, while
     /// the index names `open`: whether it did.
-    pub(super) fn kept(&self, page: PageId, (session, open): (&SessionId, &Arc<Session>)) -> bool {
+    pub(super) fn kept(&self, page: &PageId, (session, open): (&SessionId, &Arc<Session>)) -> bool {
         let mut entries = self.entries();
         let named = entries
             .sessions
@@ -162,9 +162,9 @@ impl Index {
             entries.pages.insert(page.clone(), Arc::clone(open));
         }
         drop(entries);
-        if named && let Some(held) = open.pages.get(&page) {
+        if named && let Some(held) = open.pages.get(page) {
             self.watched
-                .page_opened(session, &page, Arc::new(held.driver.clone()));
+                .page_opened(session, page, Arc::new(held.driver.clone()));
         }
         named
     }

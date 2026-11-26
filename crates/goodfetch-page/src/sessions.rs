@@ -640,7 +640,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
             });
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session.clone(), &open);
             (session, life, open)
         };
@@ -792,7 +792,7 @@ impl Sessions {
         });
         let mut state = self.state.lock().await;
         reached(&mut state, run)?;
-        self.index.opened(session.clone(), Arc::clone(&held));
+        self.index.opened(&session, Arc::clone(&held));
         self.watch_session(session, &held);
         Ok(position)
     }
@@ -1272,7 +1272,7 @@ impl Sessions {
         for open in reopened {
             let session = session_id(run.id(), open.position);
             let open = Arc::new(open);
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session, &open);
         }
         state.runs.insert(run.id().clone(), runs);

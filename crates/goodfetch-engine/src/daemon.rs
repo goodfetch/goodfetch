@@ -617,6 +617,15 @@ async fn record_termination(serving: &Serving, shared: &Shared) {
     }
 }
 
+/// Serves the ops endpoint on `ops` when its starter opened one (ADR 0050),
+/// a task of `owner`'s.
+fn serve_ops(ops: Option<ops::OpsOptions>, serving: &Serving, shared: &Shared, owner: &TaskOwner) {
+    if let Some(ops) = ops {
+        let (health, engine) = (shared.health.clone(), serving.engine.clone());
+        owner.spawn(ops::serve(ops, health, owner.part("ops endpoint"), engine));
+    }
+}
+
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
 /// those of children of `owner`.
 pub(crate) async fn serve(
@@ -646,10 +655,7 @@ pub(crate) async fn serve(
     ));
     serving.metrics.draining(false);
     record_termination(&serving, &shared).await;
-    if let Some(ops) = ops {
-        let (health, engine) = (shared.health.clone(), serving.engine.clone());
-        owner.spawn(ops::serve(ops, health, owner.part("ops endpoint"), engine));
-    }
+    serve_ops(ops, &serving, &shared, owner);
     let connections_owner = owner.part("Daemon's listener");
     let (ended, mut endings_of_connections) = mpsc::channel::<ConnectionId>(ENDED_CONNECTIONS);
     let mut open: BTreeMap<ConnectionId, Closing> = BTreeMap::new();

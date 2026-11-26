@@ -111,19 +111,7 @@ pub(super) fn emit() -> Emitted {
     let releases = generator.subschema_for::<ReleasesFile>();
     let journey = generator.subschema_for::<Journey>();
     let journey_catalog = generator.subschema_for::<JourneyCatalog>();
-    let formats: Vec<Value> = FORMATS
-        .iter()
-        .map(|format| {
-            json!({
-                "name": format.name,
-                "version": format.version.to_string(),
-                "storage": format.storage.as_str(),
-                "rule": format.rule.as_str(),
-                "hello_from": format.hello_from.iter().map(|from| from.as_str()).collect::<Vec<_>>(),
-                "schema": (format.schema)(&mut generator),
-            })
-        })
-        .collect();
+    let formats = formats(&mut generator);
     let connection = json!({
         "hello": {
             "params": generator.subschema_for::<HelloParams>(),
@@ -205,6 +193,23 @@ pub(super) fn emit() -> Emitted {
         }),
         catalog: sections.into_catalog(&exit_codes, &protocol_failures),
     }
+}
+
+/// Each registered format's name, version, storage, rule and schema.
+fn formats(generator: &mut SchemaGenerator) -> Vec<Value> {
+    FORMATS
+        .iter()
+        .map(|format| {
+            json!({
+                "name": format.name,
+                "version": format.version.to_string(),
+                "storage": format.storage.as_str(),
+                "rule": format.rule.as_str(),
+                "hello_from": format.hello_from.iter().map(|from| from.as_str()).collect::<Vec<_>>(),
+                "schema": (format.schema)(generator),
+            })
+        })
+        .collect()
 }
 
 /// The schema of each command's `--json` output, by the command's name.

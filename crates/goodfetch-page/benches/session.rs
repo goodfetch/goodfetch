@@ -78,7 +78,6 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, LiveViewAt, Succession};
-use goodfetch_engine::endpoint::Authorities;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::metrics::Metrics;
@@ -168,13 +167,16 @@ pub(crate) enum Viewer {
     Off,
 }
 
-/// The address the Daemon's listener names, on the in-memory network: its
-/// Live view channels open there too.
+/// The Daemon's `daemon.address`, on the in-memory network, where its Live
+/// view channels open.
 const ADDRESS: &str = "127.0.0.1:7900";
 
 /// The Daemon's per-launch token, which the program's `hello` and the
 /// viewer's `open` carry.
 const TOKEN: &str = "b2-launch-token";
+
+/// The Daemon's socket, in memory.
+const SOCKET: &str = "b2.sock";
 
 /// How long the Daemon waits once its Client left before it stops.
 const IDLE: Duration = Duration::from_millis(200);
@@ -1257,11 +1259,19 @@ impl Client {
         }
     }
 
-    /// Opens the Connection and starts the Run [`RUN`] with `settings`.
+    /// Opens the Connection with [`TOKEN`], which the scenario's Daemon
+    /// asks for and an engine with no token ignores, and starts the Run
+    /// [`RUN`] with `settings`.
     pub(crate) async fn start_run(&mut self, settings: Map<String, Value>) {
         self.call(
             "hello",
-            &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
+            &json!({
+                "protocol_version": "0.1",
+                "surface": "rust",
+                "needs": "collie",
+                "product_version": "0.0.0",
+                "token": TOKEN,
+            }),
         )
         .await;
         self.call("run.start", &json!({ "run_id": RUN, "settings": settings }))
@@ -1428,14 +1438,20 @@ impl Succession for Pick {
     }
 }
 
-/// The Daemon the scenario's engine runs as, on `listener`, at [`ADDRESS`],
-/// its Live view channels there too, which stops once idle for [`IDLE`]
-/// after its Client left.
-async fn daemon(engine: &Engine, listener: DaemonListener, dependencies: Dependencies) {
+/// The machine's Daemon the scenario's engine runs as, on `listener`, its
+/// Live view channels on `live_view`, its `daemon.address` at [`ADDRESS`],
+/// which stops once idle for [`IDLE`] after its Client left. Its Clients
+/// are the machine's own, so a borrowed browser at loopback is theirs to
+/// reach (ADR 0056), as it is not an Exposed Daemon's.
+async fn daemon(
+    engine: &Engine,
+    (listener, live_view): (DaemonListener, DaemonListener),
+    dependencies: Dependencies,
+) {
     let address: SocketAddr = ADDRESS.parse().expect("invariant: a literal address");
     let options = DaemonOptions {
         token: TOKEN.to_owned(),
-        endpoint: DaemonEndpoint::Tcp(address),
+        endpoint: DaemonEndpoint::Unix(SOCKET.into()),
         pid: 1,
         idle_timeout: IDLE,
         keep_alive: false,
@@ -1447,8 +1463,9 @@ async fn daemon(engine: &Engine, listener: DaemonListener, dependencies: Depende
         },
         install: None,
         ops: Ops::default(),
-        websocket: Some(Authorities::loopback(address)),
-        live_view: Some(LiveViewAt::Listener(address)),
+        websocket: None,
+        accounts: None,
+        live_view: Some(LiveViewAt::Address(live_view, address)),
     };
     let end = engine.run_daemon(listener, dependencies, options).await;
     assert!(
@@ -1473,21 +1490,7 @@ async fn program(
     (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
     watch: Option<oneshot::Sender<Watch>>,
 ) -> (BTreeMap<&'static str, u64>, u64) {
-    client
-        .call(
-            "hello",
-            &json!({
-                "protocol_version": "0.1",
-                "surface": "rust",
-                "needs": "collie",
-                "product_version": "0.0.0",
-                "token": TOKEN,
-            }),
-        )
-        .await;
-    client
-        .call("run.start", &json!({ "run_id": RUN, "settings": settings }))
-        .await;
+    client.start_run(settings).await;
     let mut attempts = BTreeMap::new();
     if browsers == Browsers::Pool {
         // Every page opens in the one Session `pooled` names.
@@ -1893,12 +1896,12 @@ pub(crate) fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
         .with_metrics(metrics)
 }
 
-/// The in-memory listener the engine serves at as a Daemon, and the dialer
-/// its Clients connect by.
-fn in_memory_daemon() -> (DaemonListener, InMemoryDialer) {
+/// An in-memory listener at `path` the engine serves at as a Daemon, and
+/// the dialer that connects to it.
+fn in_memory_daemon(path: &str) -> (DaemonListener, InMemoryDialer) {
     let (network, dialer) = transport::in_memory();
     let (listener, _) = Network::InMemory(network)
-        .listen(Path::new("b2.sock"))
+        .listen(Path::new(path))
         .expect("invariant: an in-memory listener");
     (listener, dialer)
 }
@@ -1945,7 +1948,8 @@ pub(crate) fn counted(
         .expect("invariant: the runtime starts");
     let ((attempts, sessions_opened), frames) = runtime.block_on(async {
         let (listener, cdp_url) = devtools_listener().await;
-        let (daemon_listener, dialer) = in_memory_daemon();
+        let (daemon_listener, dialer) = in_memory_daemon(SOCKET);
+        let (live_view_listener, live_view_dialer) = in_memory_daemon("b2-daemon-address");
         let served: std::pin::Pin<Box<dyn Future<Output = ()>>> = match browsers {
             Browsers::Borrowed => Box::pin(browser_end(listener, heard.clone(), plant)),
             Browsers::Pool => Box::pin(launched_ends(started, heard.clone(), plant)),
@@ -1968,7 +1972,7 @@ pub(crate) fn counted(
                 let _ = leave.send(());
                 programmed
             };
-            let watching = view(&dialer, watched, left);
+            let watching = view(&live_view_dialer, watched, left);
             let (programmed, frames) = tokio::join!(driven, watching);
             // The screencast stops once its viewer left.
             quiet(&heard.units, &work).await;
@@ -1976,7 +1980,12 @@ pub(crate) fn counted(
             (programmed, frames)
         };
         let dependencies = dependencies(home);
-        let ran = async { tokio::join!(daemon(&engine, daemon_listener, dependencies), client) };
+        let ran = async {
+            tokio::join!(
+                daemon(&engine, (daemon_listener, live_view_listener), dependencies),
+                client
+            )
+        };
         tokio::pin!(ran);
         // The pool's browsers are played until the engine is done with them.
         let ((), programmed) = tokio::select! {

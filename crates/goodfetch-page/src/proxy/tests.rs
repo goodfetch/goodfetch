@@ -16,12 +16,12 @@ use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use goodfetch_engine::egress::EndpointPolicy;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_test_support::{Outcome, Refusal, Runner, SsrfCase, SsrfTable};
 
 use super::{
     Answer, Party, SessionProxy, party, proxy_addresses, relay_unavailable, too_long_for_socks5,
 };
-use crate::errors::NetError;
 
 /// A Session's proxy at `server`, with `bypass`, and no relay or limits.
 fn proxy(server: &str, bypass: Option<&str>) -> SessionProxy {

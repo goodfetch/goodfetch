@@ -8,7 +8,7 @@ use goodfetch_engine::egress::BrowserLocation;
 use goodfetch_engine::http_client;
 use tokio::sync::OnceCell;
 
-use crate::borrowed::CdpUrl;
+use crate::cdp::borrowed::CdpUrl;
 
 /// The browser of a Session that interception alone holds to the policy,
 /// with no egress relay under it.

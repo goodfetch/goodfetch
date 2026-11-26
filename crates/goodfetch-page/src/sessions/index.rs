@@ -66,7 +66,7 @@ impl Index {
     pub(super) fn panicked(&self, session: &SessionId, open: &Session, error: CallError) {
         self.entries()
             .panicked
-            .insert(session.clone(), (open.run.id().clone(), error));
+            .insert(session.clone(), (open.run.identity.id().clone(), error));
     }
 
     /// The `engine_panicked` of the panic that closed the Session
@@ -83,7 +83,7 @@ impl Index {
         self.entries()
             .sessions
             .iter()
-            .filter(|(_, open)| open.run.id() == run)
+            .filter(|(_, open)| open.run.identity.id() == run)
             .map(|(session, open)| (session.clone(), Arc::clone(open)))
             .collect()
     }
@@ -114,12 +114,14 @@ impl Index {
     /// names them nor their pages. Answers them.
     pub(super) fn run_ended(&self, run: &RunId) -> Vec<(SessionId, Arc<Session>)> {
         let mut entries = self.entries();
-        entries.pages.retain(|_, held| held.run.id() != run);
+        entries
+            .pages
+            .retain(|_, held| held.run.identity.id() != run);
         entries.panicked.retain(|_, (of, _)| of != run);
         let ended: Vec<SessionId> = entries
             .sessions
             .iter()
-            .filter(|(_, open)| open.run.id() == run)
+            .filter(|(_, open)| open.run.identity.id() == run)
             .map(|(session, _)| session.clone())
             .collect();
         ended
@@ -161,6 +163,22 @@ impl Index {
             .into_iter()
             .flat_map(|(_, open)| open.pages.all())
             .collect()
+    }
+
+    /// The page `page` serves its next request as `next`, which `renamed`
+    /// is now: its Session holds it, and the index names it, by `next`
+    /// alone. Whether it did: not for a page that has gone.
+    pub(super) fn renamed(&self, page: &PageId, next: PageId, renamed: OpenPage) -> bool {
+        let Some(holder) = self.holder(page) else {
+            return false;
+        };
+        if !holder.pages.renamed(page, next.clone(), renamed) {
+            return false;
+        }
+        let mut entries = self.entries();
+        entries.pages.remove(page);
+        entries.pages.insert(next, holder);
+        true
     }
 
     /// The page `page` goes: its Session no longer holds it, and the index
@@ -245,6 +263,24 @@ impl HeldPages {
             .iter()
             .find(|(_, page)| found(page))
             .map(|(page_id, page)| (page_id.clone(), page.clone()))
+    }
+
+    /// The page `page`, still held, is held as `next`, `renamed`, from now
+    /// on: whether it was held.
+    fn renamed(&self, page: &PageId, next: PageId, renamed: OpenPage) -> bool {
+        let earlier = {
+            let mut held = self.held();
+            let Some(earlier) = held.pages.remove(page) else {
+                drop(held);
+                drop(renamed);
+                return false;
+            };
+            held.pages.insert(next, renamed);
+            earlier
+        };
+        // Dropped outside the lock, as a page that goes is.
+        drop(earlier);
+        true
     }
 
     /// The page `page` goes.

@@ -53,7 +53,7 @@ import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { RunView } from "./run-view.ts";
 import { Schedules } from "./schedules.ts";
-import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
+import { settingsOnWire, warnDeprecatedSettings, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
 import { SharedSubscription } from "./shared-subscription.ts";
@@ -170,23 +170,49 @@ export interface StartOptions {
    * `{ timeout: { navigation: 30_000 } }`.
    */
   readonly settings?: RunSettings | undefined;
-}
-
-/**
- * What starting a handler-less Run takes, a Recipe's or a code-free catalog
- * run's (ADRs 0036 and 0102): a start's options, and how it records, how
- * long it may last and whether it outlives its program.
- */
-export interface HandlerlessStartOptions extends StartOptions {
-  /** The Response recording it replays or records, a WARC file on the program's machine. */
-  readonly recording?: Recording | undefined;
   /**
    * How long the Run may last, in milliseconds, at least 1, as
-   * `timeout.run` for this Run: left out for the setting's value, `null`
-   * for none. Any other number fails with `setting_invalid` before
+   * `timeout.run` for this Run (ADR 0080): left out for the setting's
+   * value, `null` for none. Past it, the Run stops with a Checkpoint,
+   * resumable, and a start that resumes it counts its own on a fresh clock
+   * (ADR 0102). Any other number fails with `setting_invalid` before
    * anything is sent.
    */
   readonly timeout?: number | null | undefined;
+  /**
+   * The Plan file the Run follows, relative to the program's working
+   * directory (ADR 0091): an input of the Run, so a start that names the Run
+   * again with another fails with `run_conflict`.
+   */
+  readonly plan?: string | undefined;
+  /**
+   * The Response recording the Run replays or records, a WARC file on the
+   * program's machine (ADR 0105): an input of the Run, as `plan` is.
+   */
+  readonly recording?: Recording | undefined;
+  /**
+   * The third-party Plugins, by name, whose change since the Run last ran a
+   * start that resumes it accepts (ADR 0033), where it would otherwise refuse
+   * the resume.
+   */
+  readonly acceptPluginChange?: readonly string[] | undefined;
+  /**
+   * Gives the start up when it aborts: a start not yet sent is never sent,
+   * and one in flight is cancelled with `$/cancel`. The start fails with the
+   * signal's reason.
+   */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What every start takes, a Run its program drives or a handler-less one. */
+type CommonStartOptions = Omit<StartOptions, "plan" | "acceptPluginChange" | "signal">;
+
+/**
+ * What starting a handler-less Run takes, a Recipe's or a code-free catalog
+ * run's (ADRs 0036 and 0102): a start's options but its Plan file, its
+ * Plugin changes and its signal, and whether it outlives its program.
+ */
+export interface HandlerlessStartOptions extends CommonStartOptions {
   /**
    * Whether the Run outlives its program: closing its value then frees
    * only the value, `finish()` waits for its end and `stop()` stops it.
@@ -468,9 +494,20 @@ export class ClientConnection implements AsyncDisposable {
   async start(options: StartOptions = {}): Promise<Run> {
     warnEntry(collieOperations, "run.start");
     const params = startParams(options, this.project());
+    const { signal } = options;
     return this.startRun(
       "run.start",
-      () => this.#operations.runStart(params),
+      // `run.start` is not cancellable at the engine, so its generated call
+      // takes no signal: the Channel gives the start up in the Client and
+      // tells the engine with `$/cancel`, which it may ignore.
+      () => {
+        warnDeprecatedSettings(params.settings);
+        return this.#runHost.calls.call(
+          "run.start",
+          params,
+          signal === undefined ? {} : { signal },
+        );
+      },
       (host, started) => new Run(host, started),
     );
   }
@@ -1032,33 +1069,47 @@ function cancelledByClose(): CallCancelledError {
   });
 }
 
-/** The params every start carries, from `options` and the project file `connect()` read. */
-function startParams(options: StartOptions, project: ProjectSettings | undefined): RunStartParams {
+/**
+ * The params every start carries, from `options` and the project file
+ * `connect()` read; a `timeout` off its form fails with `setting_invalid`
+ * before anything is sent.
+ */
+function commonParams(
+  options: CommonStartOptions,
+  project: ProjectSettings | undefined,
+): Omit<RecipeStartParams, "recipe" | "detached"> {
   const limits = limitList(options.limits);
   const settings = settingsOnWire(options.settings);
+  const timeout = timeoutOf(options.timeout, "timeout.run");
   return {
     ...(options.runId === undefined ? {} : { runId: options.runId }),
     ...(options.tags === undefined ? {} : { tags: [...options.tags] }),
     ...(limits.length === 0 ? {} : { limits }),
     ...(settings === undefined ? {} : { settings }),
     ...(project === undefined ? {} : { project }),
+    ...(options.recording === undefined ? {} : { recording: options.recording }),
+    ...(timeout === undefined ? {} : { timeout }),
   };
 }
 
-/**
- * The params a handler-less start carries besides its target, from
- * `options`; a `timeout` off its form fails with `setting_invalid` before
- * anything is sent.
- */
+/** The params of `run.start`, from `options` and the project file `connect()` read. */
+function startParams(options: StartOptions, project: ProjectSettings | undefined): RunStartParams {
+  return {
+    ...commonParams(options, project),
+    ...(options.plan === undefined ? {} : { plan: options.plan }),
+    ...(options.acceptPluginChange === undefined || options.acceptPluginChange.length === 0
+      ? {}
+      : { acceptPluginChange: [...options.acceptPluginChange] }),
+  };
+}
+
+/** The params a handler-less start carries besides its target, from `options`. */
 function handlerlessParams(
   options: HandlerlessStartOptions,
   project: ProjectSettings | undefined,
 ): Omit<RecipeStartParams, "recipe"> {
-  const timeout = timeoutOf(options.timeout, "timeout.run");
   return {
-    ...startParams(options, project),
-    ...(options.recording === undefined ? {} : { recording: options.recording }),
-    ...(timeout === undefined ? {} : { timeout }),
+    ...commonParams(options, project),
     ...(options.detached === true ? { detached: true } : {}),
   };
 }

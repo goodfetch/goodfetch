@@ -19,7 +19,7 @@
 use std::sync::{Arc, Mutex, Weak};
 
 use super::{PageState, lock};
-use crate::driver::PageDriver;
+use crate::cdp::driver::PageDriver;
 use crate::page_events::Refusals;
 use crate::page_value::Permit;
 

@@ -99,8 +99,9 @@ describe("A start's options on the Scripted engine as the Attached engine", () =
           ]);
         },
       );
-      await clientCase.check("the engine's call_cancelled answer warns of nothing", () =>
-        expect(warned).toEqual([]),
+      await clientCase.check(
+        "the only warning is the ended start's: the engine's call_cancelled answer adds none",
+        () => expect(warned).toEqual([expect.stringContaining("the Run `done` ended")]),
       );
     },
   );

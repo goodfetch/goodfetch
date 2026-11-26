@@ -26169,6 +26169,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).",
+      "name": "fingerprint_method_chosen",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Session ran with no fingerprint.",
       "name": "fingerprint_none",
       "product": "collie",

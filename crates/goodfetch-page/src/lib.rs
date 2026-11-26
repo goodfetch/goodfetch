@@ -26,6 +26,7 @@ mod egress_relay;
 mod errors;
 pub mod extractor;
 pub mod fields;
+mod fingerprint_method;
 mod gesture_order;
 mod guard;
 mod hiding;

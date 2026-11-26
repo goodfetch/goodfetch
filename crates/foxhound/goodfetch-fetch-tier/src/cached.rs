@@ -10,7 +10,9 @@
 //!
 //! Each hop is judged as it leaves: the driver has added the headers its
 //! Session presents, a `Cookie` among them, which keeps a credentialed
-//! request out of the public partition. The partition is the Run's person;
+//! request out of the public partition; with no keeper, such a request is
+//! neither answered from the cache nor stored. The partition is the Run's
+//! person;
 //! the proxy's exit country, the language and the device class stay empty
 //! until the Run's Proxy and Identity profile give them.
 
@@ -20,7 +22,7 @@ use bytes::{Bytes, BytesMut};
 use goodfetch_engine::CALLER;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::response_cache::{
-    CacheRequest, Partition, ResponseHead, ResponseSource, Source,
+    CacheRequest, KeptOut, Partition, ResponseHead, ResponseSource, Source,
 };
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
@@ -88,9 +90,14 @@ impl Caching {
             status: sent.status,
             headers: sent.headers.clone(),
         };
+        let kept_out = sent
+            .certificate_exception
+            .is_some()
+            .then_some(KeptOut::CertificateException);
         if sent.decoded
-            || sent.certificate_exception.is_some()
-            || !self.source.stores(&request, &head)
+            || !self
+                .source
+                .stores(&self.partition, &request, &head, kept_out)
         {
             return sent;
         }
@@ -139,7 +146,13 @@ impl Transport for Cached {
             );
             let answered = caching
                 .source
-                .source(None, &caching.partition, &request, caching.clock.wall())
+                .source(
+                    None,
+                    &caching.partition,
+                    &request,
+                    None,
+                    caching.clock.wall(),
+                )
                 .await;
             let stale = match answered {
                 Source::Routed(served) | Source::Recorded(served) => {
@@ -241,6 +254,7 @@ impl Body for Teed {
                                 &storing.request,
                                 &storing.head,
                                 std::mem::take(&mut self.read).freeze(),
+                                None,
                                 Some(&caching.run_id),
                                 caching.clock.wall(),
                             )

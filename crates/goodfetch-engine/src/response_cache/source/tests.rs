@@ -2,7 +2,8 @@
 //! folder and a recording stand-in: a fulfilling route answers before the
 //! Run's Response recording, which answers before the cache, which answers
 //! before the network; with `cache.mode: off` the cache is never read nor
-//! written.
+//! written; what a fetch's outcome keeps out is never stored, and a Paid
+//! fetch never served.
 #![expect(
     clippy::disallowed_methods,
     reason = "Tokio's test runtime runs the tests, as in the cache's own tests"
@@ -14,9 +15,10 @@ use std::time::{Duration, SystemTime};
 use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::response_cache::CacheMode;
-use goodfetch_test_support::TestEnv;
+use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
+use rstest::rstest;
 
-use super::{Recording, Replaying, ResponseSource, Served, Source};
+use super::{KeptOut, Recording, Replaying, ResponseSource, Served, Source};
 use crate::response_cache::{CacheRequest, Partition, ResponseCache, ResponseHead};
 use crate::sync::Mutex;
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -142,15 +144,15 @@ async fn a_route_then_the_recording_then_the_cache_then_the_network_answers() {
     let now = start() + Duration::from_secs(1);
 
     let routed = recorded
-        .source(Some(served("route")), &ada(), &page(), now)
+        .source(Some(served("route")), &ada(), &page(), None, now)
         .await;
     let asked_after_route = recording.asked.lock().unwrap().len();
     let lookups_after_route = work.read(Row::CacheLookups);
-    let replayed = recorded.source(None, &ada(), &page(), now).await;
+    let replayed = recorded.source(None, &ada(), &page(), None, now).await;
     let lookups_after_recording = work.read(Row::CacheLookups);
-    let from_cache = unrecorded.source(None, &ada(), &page(), now).await;
+    let from_cache = unrecorded.source(None, &ada(), &page(), None, now).await;
     let other = request("GET", "/other", &[], "");
-    let sent = unrecorded.source(None, &ada(), &other, now).await;
+    let sent = unrecorded.source(None, &ada(), &other, None, now).await;
 
     assert_eq!(body(&routed), Some(&b"<p>route</p>"[..]));
     assert_eq!((asked_after_route, lookups_after_route), (0, 0));
@@ -173,7 +175,7 @@ async fn with_the_cache_off_nothing_is_looked_up_or_stored() {
     let source = ResponseSource::of(&cache, CacheMode::Off);
     let response = served("network");
 
-    let storable = source.stores(&page(), &response.head);
+    let storable = source.stores(&ada(), &page(), &response.head, None);
     let stored = source
         .store(
             &ada(),
@@ -181,10 +183,11 @@ async fn with_the_cache_off_nothing_is_looked_up_or_stored() {
             &response.head,
             response.body,
             None,
+            None,
             start(),
         )
         .await;
-    let answered = source.source(None, &ada(), &page(), start()).await;
+    let answered = source.source(None, &ada(), &page(), None, start()).await;
 
     assert_eq!((storable, stored), (false, false));
     assert_eq!(answered, Source::Network);
@@ -212,9 +215,17 @@ async fn replay_serves_a_post_by_its_canonical_body_whatever_its_age() {
     let first = search(r#"{"q":"shoes","page":1}"#);
     let response = answered("site");
 
-    let judged = source.stores(&first, &response.head);
+    let judged = source.stores(&ada(), &first, &response.head, None);
     let kept = source
-        .store(&ada(), &first, &response.head, response.body, None, start())
+        .store(
+            &ada(),
+            &first,
+            &response.head,
+            response.body,
+            None,
+            None,
+            start(),
+        )
         .await;
     let a_day_later = start() + Duration::from_hours(24);
     let reordered = source
@@ -222,6 +233,7 @@ async fn replay_serves_a_post_by_its_canonical_body_whatever_its_age() {
             None,
             &ada(),
             &search(r#"{ "page": 1, "q": "shoes" }"#),
+            None,
             a_day_later,
         )
         .await;
@@ -230,6 +242,7 @@ async fn replay_serves_a_post_by_its_canonical_body_whatever_its_age() {
             None,
             &ada(),
             &search(r#"{"q":"boots","page":1}"#),
+            None,
             a_day_later,
         )
         .await;
@@ -255,13 +268,14 @@ async fn revalidate_and_replay_never_answer_each_other() {
     let response = answered("site");
     let kept = served("cache");
 
-    let post_judged = revalidate.stores(&post, &response.head);
+    let post_judged = revalidate.stores(&ada(), &post, &response.head, None);
     let post_kept = revalidate
         .store(
             &ada(),
             &post,
             &response.head,
             response.body.clone(),
+            None,
             None,
             start(),
         )
@@ -274,29 +288,183 @@ async fn revalidate_and_replay_never_answer_each_other() {
                 &kept.head,
                 kept.body.clone(),
                 None,
+                None,
                 start()
             )
             .await
     );
-    let page_replayed = replay.source(None, &ada(), &page(), start()).await;
+    let page_replayed = replay.source(None, &ada(), &page(), None, start()).await;
     let replayed_page = request("GET", "/replayed", &[], "");
     assert!(
         replay
-            .store(&ada(), &replayed_page, &kept.head, kept.body, None, start())
+            .store(
+                &ada(),
+                &replayed_page,
+                &kept.head,
+                kept.body,
+                None,
+                None,
+                start()
+            )
             .await
     );
     assert!(
         replay
-            .store(&ada(), &post, &response.head, response.body, None, start())
+            .store(
+                &ada(),
+                &post,
+                &response.head,
+                response.body,
+                None,
+                None,
+                start()
+            )
             .await
     );
     let page_revalidated = revalidate
-        .source(None, &ada(), &replayed_page, start())
+        .source(None, &ada(), &replayed_page, None, start())
         .await;
-    let post_revalidated = revalidate.source(None, &ada(), &post, start()).await;
+    let post_revalidated = revalidate.source(None, &ada(), &post, None, start()).await;
 
     assert_eq!((post_judged, post_kept), (false, false));
     assert_eq!(page_replayed, Source::Network);
     assert_eq!(page_revalidated, Source::Network);
     assert_eq!(post_revalidated, Source::Network);
+}
+
+/// A response its fetch's own outcome keeps out is never stored, under
+/// either mode, so the next request for it goes to the network.
+/// Covers: story:6-40
+#[rstest]
+#[case::blocked(CacheMode::Revalidate, KeptOut::Blocked)]
+#[case::soft_blocked(CacheMode::Revalidate, KeptOut::SoftBlocked)]
+#[case::failed_page_check(CacheMode::Revalidate, KeptOut::FailedPageCheck)]
+#[case::cut_body(CacheMode::Revalidate, KeptOut::CutBody)]
+#[case::paid(CacheMode::Revalidate, KeptOut::Paid)]
+#[case::resolved_secret(CacheMode::Revalidate, KeptOut::ResolvedSecret)]
+#[case::certificate_exception(CacheMode::Revalidate, KeptOut::CertificateException)]
+#[case::replayed_block(CacheMode::Replay, KeptOut::Blocked)]
+#[case::replayed_resolved_secret(CacheMode::Replay, KeptOut::ResolvedSecret)]
+#[tokio::test]
+async fn a_response_its_outcome_keeps_out_is_never_stored(
+    #[case] mode: CacheMode,
+    #[case] kept_out: KeptOut,
+) {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let source = ResponseSource::of(&cache(&env, &work), mode);
+    let response = served("site");
+
+    let judged = source.stores(&ada(), &page(), &response.head, Some(kept_out));
+    let stored = source
+        .store(
+            &ada(),
+            &page(),
+            &response.head,
+            response.body,
+            Some(kept_out),
+            None,
+            start(),
+        )
+        .await;
+    let next = source.source(None, &ada(), &page(), None, start()).await;
+
+    assert_eq!((judged, stored), (false, false));
+    assert_eq!(next, Source::Network);
+    assert_eq!(work.read(Row::CacheBodyWrites), 0);
+}
+
+/// A request carrying a resolved secret, in its URL and echoed in its
+/// response's body, leaves no trace in the cache's files under either
+/// mode (ADR 0067): neither the index, its write-ahead log nor a body
+/// file holds the canary, while the entry stored beside it holds its own.
+/// Covers: story:6-40
+#[rstest]
+#[case::revalidate(CacheMode::Revalidate)]
+#[case::replay(CacheMode::Replay)]
+#[tokio::test]
+async fn a_resolved_secrets_canary_is_nowhere_in_the_cache(#[case] mode: CacheMode) {
+    let env = TestEnv::new();
+    let mut canaries = Canaries::new(env.seed());
+    let secret = canaries.plant(SecretKind::EndpointToken).value().to_owned();
+    let control = canaries.plant(SecretKind::SessionCookie).value().to_owned();
+    let source = ResponseSource::of(&cache(&env, &CountedWork::default()), mode);
+    let query: String = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("token", &secret)
+        .finish();
+    let carrying = request("GET", &format!("/page?{query}"), &[], "");
+    let echoed = Served {
+        body: Bytes::from(format!("<p>{secret}</p>")),
+        ..served("site")
+    };
+    let beside = Served {
+        body: Bytes::from(format!("<p>{control}</p>")),
+        ..served("site")
+    };
+
+    let stored = source
+        .store(
+            &ada(),
+            &carrying,
+            &echoed.head,
+            echoed.body,
+            Some(KeptOut::ResolvedSecret),
+            None,
+            start(),
+        )
+        .await;
+    let control_stored = source
+        .store(
+            &ada(),
+            &page(),
+            &beside.head,
+            beside.body,
+            None,
+            None,
+            start(),
+        )
+        .await;
+
+    let found: Vec<&str> = canaries
+        .search(&[Output::Path(&env.home().join("0.1").join("response-cache"))])
+        .unwrap()
+        .into_iter()
+        .map(|hit| hit.kind.name())
+        .collect();
+    assert_eq!((stored, control_stored), (false, true));
+    assert!(
+        !found.is_empty()
+            && found
+                .iter()
+                .all(|kind| *kind == SecretKind::SessionCookie.name()),
+        "{found:?}"
+    );
+}
+
+/// A Paid fetch is never answered from the cache, even by a fresh entry
+/// another fetch stored, and does not look it up; the fetch that is not
+/// Paid is answered from it.
+/// Covers: story:6-40
+#[tokio::test]
+async fn a_paid_fetch_is_never_served_from_the_cache() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let source = ResponseSource::of(&cache(&env, &work), CacheMode::Revalidate);
+    let kept = served("cache");
+    assert!(
+        source
+            .store(&ada(), &page(), &kept.head, kept.body, None, None, start())
+            .await
+    );
+    let now = start() + Duration::from_secs(1);
+
+    let paid = source
+        .source(None, &ada(), &page(), Some(KeptOut::Paid), now)
+        .await;
+    let lookups_after_paid = work.read(Row::CacheLookups);
+    let unpaid = source.source(None, &ada(), &page(), None, now).await;
+
+    assert_eq!(paid, Source::Network);
+    assert_eq!(lookups_after_paid, 0);
+    assert_eq!(body(&unpaid), Some(&b"<p>cache</p>"[..]));
 }

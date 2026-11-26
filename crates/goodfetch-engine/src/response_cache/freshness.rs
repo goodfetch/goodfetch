@@ -126,9 +126,9 @@ pub(crate) enum Freshness {
     Other,
 }
 
-/// The request headers that make a request the Session partition's
-/// (#795), never the public one, and that a Response recording's replay
-/// leaves out of a `Vary` match, since a replayed Run sends its own.
+/// The request headers that keep a request out of the public partition
+/// ([`partition`](super::partition)), and that a Response recording's
+/// replay leaves out of a `Vary` match, since a replayed Run sends its own.
 pub(crate) const CREDENTIALS: &[&str] = &["cookie", "authorization", "proxy-authorization"];
 
 /// The validators a revalidation sends.
@@ -144,11 +144,10 @@ fn options() -> CacheOptions {
     }
 }
 
-/// Whether the public partition answers `request`: a GET or a HEAD sent
-/// with no cookie or credential. Any other is sent as it is, or answered
-/// from the Session partition (#795).
-pub(crate) fn public(request: &CacheRequest) -> bool {
-    matches!(request.method.as_str(), "GET" | "HEAD") && !credentialed(request)
+/// Whether `revalidate` answers `request` from the cache: a GET or a HEAD.
+/// Any other is sent as it is.
+pub(crate) fn revalidates(request: &CacheRequest) -> bool {
+    matches!(request.method.as_str(), "GET" | "HEAD")
 }
 
 /// Whether `request` carries a cookie or a credential.
@@ -161,18 +160,19 @@ pub(crate) fn credentialed(request: &CacheRequest) -> bool {
 
 /// Whether `head` keeps its response out of the public partition: it sets
 /// a cookie or is `private`.
-fn personal(head: &ResponseHead) -> bool {
+pub(crate) fn personal(head: &ResponseHead) -> bool {
     head.headers.iter().any(|(name, _)| name == "set-cookie")
         || directives(&head.headers, "cache-control").any(|directive| directive == "private")
 }
 
-/// The variant `head`, the response to `request`, is stored as in the
-/// public partition; none when it is not storable there: a method other
-/// than GET or HEAD, a request with a cookie or a credential, a response
-/// that sets a cookie or is `private`, `no-store`, `Vary: *`, a status RFC
-/// 9111 does not let a cache store or a header the `http` crate refuses.
+/// The variant `head`, the response to `request`, is stored as under
+/// `revalidate`, in whichever partition keeps it
+/// ([`partition`](super::partition)); none when it is not storable: a
+/// method other than GET or HEAD, `no-store`, `Vary: *`, a status RFC 9111
+/// does not let a private cache store or a header the `http` crate
+/// refuses.
 pub(crate) fn storable(request: &CacheRequest, head: &ResponseHead) -> Option<Variant> {
-    if !public(request) || personal(head) {
+    if !revalidates(request) {
         return None;
     }
     let policy = CachePolicy::new_options(
@@ -182,17 +182,6 @@ pub(crate) fn storable(request: &CacheRequest, head: &ResponseHead) -> Option<Va
         options(),
     );
     if !policy.is_storable() {
-        return None;
-    }
-    variant(request, head)
-}
-
-/// The variant `head`, the response to `request`, is stored as under
-/// `replay` in the public partition, whatever its method, status or
-/// freshness; none for a request with a cookie or a credential, a response
-/// that sets a cookie or is `private`, or `Vary: *`.
-pub(crate) fn replayable(request: &CacheRequest, head: &ResponseHead) -> Option<Variant> {
-    if credentialed(request) || personal(head) {
         return None;
     }
     variant(request, head)

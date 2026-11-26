@@ -207,7 +207,7 @@ The rows of counted work, and those read under Valgrind, promoted from the Measu
 | `C2.owner_round_trips` | asks to its Page's owner per engine read in a frame (ADR 0146): one per read, a wait asking once for all its checks, while a navigation's own reads ask none | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C3.check_commands` | CDP commands (`Runtime.callFunctionOn`) per check | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
-| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | click 5, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done, merge gate |
+| `C3.commands` | CDP commands per attempt, per action kind, human-like input and typing as their own | no cap yet (ADR 0140, open question 2) | click 5, fill 2, press 4; a scroll collection's scroll, human-like input and typing not run yet (#807, #1018, #1022) | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C3.owner_round_trips` | asks to its Page's owner per action attempt, over every kind's attempts (ADR 0146): its turn in the Gesture order | 1 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done, merge gate |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done, merge gate |

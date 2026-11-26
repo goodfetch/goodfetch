@@ -36,7 +36,7 @@ use super::{Client, attached_on, engine_with, hello};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::run_state::RunStateError;
-use crate::runs::{self, EndedBy, Ending, ReportPart, Run, Start, Started};
+use crate::runs::{EndedBy, Ending, ReportPart, RunParts, Start, Started};
 
 /// Acts on a live Run as an area does.
 const HAND_OVER: Operation = Operation {
@@ -79,7 +79,7 @@ const STRAY: Operation = Operation {
 };
 
 /// The stray handle `test.stray` holds.
-type Held = Arc<tokio::sync::Mutex<Option<Run>>>;
+type Held = Arc<tokio::sync::Mutex<Option<RunParts>>>;
 
 /// `test.stray`: `hold` takes a handle on the live Run `run_id`, `write`
 /// writes its progress message through that handle's run state, answering
@@ -95,7 +95,7 @@ async fn stray(held: Held, params: Value, context: CallContext) -> Result<Value,
         "write" => {
             let run = held.as_ref().unwrap();
             let written = run
-                .state()
+                .state
                 .write(|connection| {
                     connection
                         .execute("UPDATE run SET progress_message = 'late'", [])
@@ -123,15 +123,17 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
             .as_str()
             .map(|currency| (currency, charge["price"]["amount"].as_u64().unwrap()));
         match charge["part"].as_str() {
-            Some(part) => runs::charging(&run)
+            Some(part) => run
+                .charging
                 .charge_part(usage_kind, part, amount, price)
                 .await
                 .ok(),
-            None => runs::charging(&run).charge(usage_kind, amount).await.ok(),
+            None => run.charging.charge(usage_kind, amount).await.ok(),
         };
     }
     if let Some(reserve) = params.get("reserve") {
-        let reservation = runs::charging(&run)
+        let reservation = run
+            .charging
             .reserve(
                 reserve["usage_kind"].as_str().unwrap(),
                 reserve["currency"].as_str(),
@@ -139,29 +141,28 @@ async fn hand_over(params: Value, context: CallContext) -> Result<Value, CallErr
             )
             .await
             .unwrap();
-        runs::charging(&run)
+        run.charging
             .settle(reservation, reserve["cost"].as_u64().unwrap())
             .await
             .unwrap();
     }
     for warning in params["warnings"].as_array().into_iter().flatten() {
         let warning: RunWarning = serde_json::from_value(warning.clone()).unwrap();
-        runs::warnings(&run).warn(warning).await.unwrap();
+        run.warnings.warn(warning).await.unwrap();
     }
     if let Some(nothing_done) = params.get("nothing_done") {
         let nothing_done: NothingDone = serde_json::from_value(nothing_done.clone()).unwrap();
-        runs::warnings(&run)
-            .nothing_done(nothing_done)
-            .await
-            .unwrap();
+        run.warnings.nothing_done(nothing_done).await.unwrap();
     }
     let ends = if let Some(error) = params.get("fail") {
         let error: EndingError = serde_json::from_value(error.clone()).unwrap();
-        runs::end(&run).end(Ending::Failed(error)).await;
+        run.end.end(Ending::Failed(error)).await;
         true
     } else if let Some(reason) = params.get("stop") {
+        // The Run's stop at its safe point ends it so; the registry alone
+        // asks for one (ADR 0145), and the timeout's case goes through it.
         let reason: StopReason = serde_json::from_value(reason.clone()).unwrap();
-        runs::stop_at_safe_point(&run, reason);
+        run.end.end(Ending::Stopped(reason)).await;
         true
     } else {
         false
@@ -203,21 +204,21 @@ async fn drive(params: Value, context: CallContext) -> Result<Value, CallError> 
     let slow = params["slow"].as_bool() == Some(true);
     let driver = run.clone();
     // The driver reads its stop from the Run's identity alone (ADR 0145).
-    let identity = runs::identity(&run).clone();
-    runs::identity(&run).spawn(async move {
+    let identity = run.identity.clone();
+    run.identity.spawn(async move {
         let stopping = async {
             let reason = identity.stopping().await;
             if slow {
                 identity.clock().sleep(Duration::from_mins(1)).await;
             }
-            runs::end(&driver).end(Ending::Stopped(reason)).await;
+            driver.end.end(Ending::Stopped(reason)).await;
         };
         tokio::select! {
             () = identity.owner().cancelled() => {}
             () = stopping => {}
         }
     });
-    Ok(json!({ "run_id": runs::identity(&run).id() }))
+    Ok(json!({ "run_id": run.identity.id() }))
 }
 
 /// Polls the engine's own `run.stop` of `params` once, as its call's task

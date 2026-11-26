@@ -77,6 +77,7 @@ use goodfetch_engine::endpoint::{REFUSAL_TARGET, Refusals, new_token};
 use goodfetch_engine::http_client::{self, LocalBinding};
 use goodfetch_engine::known_certificates::ExceptionKind;
 use goodfetch_engine::local_addresses::SessionAddresses;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::{RequestLog, RunTrace};
 use goodfetch_engine::runs::outcome::record_outcome;
@@ -102,7 +103,6 @@ use self::client_hello::ClientHello;
 use self::leg::Leg;
 use self::serve::{Met, Network, Observe, ProxyRefused, Relaying, Resolved, Unreached, Upstream};
 use self::terminate::{Stop, Terminating};
-use crate::errors::NetError;
 
 /// The most refusals a relay keeps for the calls that wait on them.
 const KEPT_REFUSALS: usize = 64;

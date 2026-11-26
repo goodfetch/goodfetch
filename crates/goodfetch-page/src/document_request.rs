@@ -11,7 +11,7 @@
 //! Chromium fixes all of it by its major version and its platform:
 //!
 //! - **The user agent** is Chrome's reduced one, the window's (the
-//!   `driver`'s `identity` module gives a headless page the same): its
+//!   CDP driver's `identity` module gives a headless page the same): its
 //!   platform part is one constant for each operating system and its
 //!   version is the major alone.
 //! - **The brands** of `Sec-CH-UA` are `Chromium` and one made-up brand,
@@ -32,7 +32,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::children::Children;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::tasks::BlockingThreads;
 use goodfetch_protocol::browser_cache::ArtifactKind;
 use goodfetch_protocol::catalog::Product;
@@ -165,7 +165,10 @@ impl DocumentRequest {
     /// # Cancel safety
     ///
     /// Dropping the future kills the version read's processes.
-    pub async fn of_browser(pins: &[PinnedArtifact], run: &Run) -> Result<Option<Self>, Unread> {
+    pub async fn of_browser(
+        pins: &[PinnedArtifact],
+        run: &RunIdentity,
+    ) -> Result<Option<Self>, Unread> {
         let source = browser_source(
             Platform::current(),
             &BrowserChoice::Default,

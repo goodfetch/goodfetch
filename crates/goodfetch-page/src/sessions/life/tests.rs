@@ -367,6 +367,36 @@ fn a_failed_call_under_a_lease_that_holds_leaves_its_page_open() {
     );
 }
 
+/// A page whose request part was replaced answers to its next request's
+/// lease check alone: the earlier request's ended lease no longer ends it
+/// (ADR 0146, #2277).
+#[test]
+fn a_replaced_request_s_ended_lease_leaves_its_page_open() {
+    let life = PageLife::new(
+        PageId("page-1".to_owned()),
+        Some(Arc::new(Ended)),
+        no_routes(),
+    );
+    life.renamed(PageId("page-2".to_owned()), Some(Arc::new(Holds)));
+
+    let answered = runtime().block_on(life.call(PageEvent::Gesture, async {
+        Err::<(), _>(renderer_crashed())
+    }));
+
+    assert_eq!(
+        (
+            answered.map_err(|error| error.code()),
+            life.page_id(),
+            state_of(&life),
+        ),
+        (
+            Err("page_crashed"),
+            PageId("page-2".to_owned()),
+            PageState::Open
+        )
+    );
+}
+
 /// A lease check whose lease holds.
 #[derive(Debug)]
 struct Holds;

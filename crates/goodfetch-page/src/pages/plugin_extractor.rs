@@ -12,8 +12,8 @@ use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::plugin_kinds::Failure;
 use goodfetch_engine::plugin_kinds::extractor::ExtractorDriver;
 use goodfetch_engine::plugin_kinds::run_plugins::StartError;
+use goodfetch_engine::run::accounts::RunAccounts;
 use goodfetch_engine::run::secret_error;
-use goodfetch_engine::runs::{Run, plugins};
 use goodfetch_engine::settings::{Resolved, RunSettings, Values};
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
@@ -26,6 +26,7 @@ use goodfetch_protocol::plugin::extractor::ExtractContentResult;
 use goodfetch_protocol::settings::TIMEOUT_PLUGIN;
 use url::Url;
 
+use crate::browser_run::BrowserRun;
 use crate::extractor;
 
 /// How a page whose formats are `asked` is read: the Extractor Plugin that
@@ -106,7 +107,7 @@ pub(super) fn cleaned_request(
 /// its schema refuses, and the call's failure, as the Extractor's driver
 /// reads it, when the Plugin fails it or the Run's Usage refuses it.
 pub(super) async fn answered(
-    run: &Run,
+    run: &BrowserRun,
     plugin: Option<&str>,
     asked: FormatsRequest,
     mut read: PageFormats,
@@ -127,18 +128,29 @@ pub(super) async fn answered(
             format!("the page's URL does not parse: {error}"),
         )
     })?;
-    let settings = run.settings().map(RunSettings::resolved);
-    let extractor = plugins(run)
-        .extractor(name, settings, run.secrets(), run.sandbox_probe())
+    let settings = run.identity.settings().map(RunSettings::resolved);
+    let extractor = run
+        .plugins
+        .extractor(
+            name,
+            settings,
+            run.keys.secrets(),
+            run.engine.sandbox_probe(),
+        )
         .await
         .map_err(|error| match error {
             StartError::Refused(error) => error,
             StartError::Secret(error) => secret_error(&error),
         })?;
-    let clock = run.clock();
+    let clock = run.identity.clock();
     let deadline = Deadline::of_resolved(settings, &TIMEOUT_PLUGIN);
+    let accounts = RunAccounts {
+        identity: &run.identity,
+        charging: &run.charging,
+        trace: &run.trace,
+    };
     let ExtractContentResult { text, markdown, .. } =
-        ExtractorDriver::new(&extractor, run, &clock, &deadline)
+        ExtractorDriver::new(&extractor, &accounts, &clock, &deadline)
             .content(&url, cleaned)
             .await
             .map_err(Failure::into_error)?;

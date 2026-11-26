@@ -1895,7 +1895,6 @@ version = "0.0.0"
 dependencies = [
  "data-encoding",
  "encoding_rs",
- "goodfetch-cdp",
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-page",

@@ -11,11 +11,11 @@ use goodfetch_engine::CallError;
 use goodfetch_protocol::page::WaitUntil;
 
 use super::CdpPage;
-use super::paused::NotTaken;
-use crate::driver::detached;
-use crate::driver::navigation::{
+use super::driver::detached;
+use super::driver::navigation::{
     Arrived, Ended, Expected, Followed, Navigation, abandoned, navigated,
 };
+use super::paused::NotTaken;
 
 use crate::errors::Call;
 

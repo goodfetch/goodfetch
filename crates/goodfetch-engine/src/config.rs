@@ -36,7 +36,6 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::plugin_store::PluginStore;
 use crate::run::{run_error, run_id, settings_error};
-use crate::runs;
 use crate::settings::{
     Opening, Policy, SettingsError, Values, beneath_connection, operator_policy, policy_version,
 };
@@ -105,7 +104,7 @@ async fn explain(
     };
     let resolved = live
         .as_ref()
-        .and_then(|live| runs::identity(live).settings())
+        .and_then(|live| live.identity.settings())
         .unwrap_or(&run)
         .resolved();
     let mut files = machine.files;

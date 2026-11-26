@@ -1374,6 +1374,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Response recording a start names cannot be read, is not WARC, is a WARC version the engine does not read, or holds a record that is not what it says, so no Run started. The details name the recording and what is wrong with it. Record the file again, or name another.",
+      "details": {
+        "$ref": "#/$defs/RecordingInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recording_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
       "exit_code": null,
       "group": "program",
@@ -1439,6 +1452,19 @@
       "json_rpc_class": -32003,
       "name": "response_not_ok",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run replays a Response recording that holds no response for a request it would send, so the request was refused and nothing reached the site. The details name the request's method and URL, the recording, and the recorded URLs of the same host and path, which show what differs, such as a cache-buster in the query. Record the file again, or answer the request with a route.",
+      "details": {
+        "$ref": "#/$defs/ResponseNotRecordedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "response_not_recorded",
+      "product": "collie",
       "retryable": false
     },
     {
@@ -3152,6 +3178,63 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/AuditVerified"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cache.clear",
+      "params": {
+        "$ref": "#/$defs/CacheClearParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheCleared"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "query",
+      "name": "cache.stats",
+      "params": {
+        "$ref": "#/$defs/CacheStatsParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheStats"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "cache.verify",
+      "params": {
+        "$ref": "#/$defs/CacheVerifyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/CacheVerified"
       },
       "stability": "experimental"
     },

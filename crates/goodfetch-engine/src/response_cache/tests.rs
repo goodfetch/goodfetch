@@ -540,7 +540,7 @@ async fn a_body_larger_than_the_cap_is_not_stored() {
 /// Past `cache.max_age_ceiling`, an entry is served in neither mode,
 /// however fresh its headers say it is, and the next store deletes it
 /// with its body file.
-/// Covers: story:6-43, setting:cache.max_age_ceiling
+/// Covers: story:6-42, setting:cache.max_age_ceiling
 #[tokio::test]
 async fn past_the_age_ceiling_an_entry_is_served_in_neither_mode_and_leaves() {
     let env = TestEnv::new();
@@ -567,6 +567,70 @@ async fn past_the_age_ceiling_an_entry_is_served_in_neither_mode_and_leaves() {
     assert_eq!(body_files(&env), [sha256(&body())]);
 }
 
+/// The URLs of the entries `env`'s index holds, in their order.
+fn urls(env: &TestEnv) -> Vec<String> {
+    rows(env).into_iter().map(|(url, _)| url).collect()
+}
+
+/// Eviction weighs the bytes held again after each page of 64 entries it
+/// takes, those entries' bodies gone, so a store that needs more than a
+/// page taken takes no more than it needs: of seventy entries of a
+/// quarter MiB under a cap with room for seventy and seven eighths, a body
+/// of sixty-six takes the sixty-six least recently used and leaves the
+/// last four.
+/// Covers: story:6-42, setting:cache.max_size
+#[tokio::test]
+async fn an_eviction_past_one_page_takes_only_the_entries_it_needs() {
+    const QUARTER: usize = MIB / 4;
+    let env = TestEnv::new();
+    let cap = 70 * QUARTER + 7 * QUARTER / 8;
+    let cache = bounded(&env, cap as u64, Duration::from_secs(3600));
+    for number in 0..70_u8 {
+        let body = Bytes::from(vec![number; QUARTER]);
+        let path = format!("/{number:02}");
+        assert!(replay_stored(&cache, &path, body, at(u64::from(number))).await);
+    }
+
+    let new = Bytes::from(vec![b'n'; 66 * QUARTER]);
+    assert!(replay_stored(&cache, "/new", new.clone(), at(70)).await);
+
+    assert_eq!(
+        urls(&env),
+        ["66", "67", "68", "69", "new"].map(|path| format!("https://cache.test/{path}"))
+    );
+    let mut kept: Vec<String> = (66..70_u8)
+        .map(|number| sha256(&vec![number; QUARTER]))
+        .collect();
+    kept.push(sha256(&new));
+    assert_eq!(body_files(&env), sorted(kept));
+}
+
+/// The entries past the age ceiling that a store deletes free their bytes
+/// before it weighs what to evict, so no live entry leaves to make room
+/// they held: under a cap of two and a half MiB, the entry stored half an
+/// hour in stays beside the new one when the first passes the ceiling.
+/// Covers: story:6-42, setting:cache.max_size, setting:cache.max_age_ceiling
+#[tokio::test]
+async fn the_entries_past_the_age_ceiling_make_room_before_any_eviction() {
+    let env = TestEnv::new();
+    let hour = Duration::from_secs(3600);
+    let cache = bounded(&env, (5 * MIB / 2) as u64, hour);
+    assert!(replay_stored(&cache, "/old", mebibyte(b'o'), start()).await);
+    assert!(replay_stored(&cache, "/kept", mebibyte(b'k'), at(1800)).await);
+
+    let later = start() + hour + Duration::from_secs(1);
+    assert!(replay_stored(&cache, "/new", mebibyte(b'n'), later).await);
+
+    assert_eq!(
+        urls(&env),
+        ["https://cache.test/kept", "https://cache.test/new"]
+    );
+    assert_eq!(
+        body_files(&env),
+        sorted(vec![sha256(&mebibyte(b'k')), sha256(&mebibyte(b'n'))])
+    );
+}
+
 /// A sample with `folder`'s filesystem at `level`.
 fn sample(folder: PathBuf, level: StorageLevel) -> Arc<StorageSample> {
     Arc::new(StorageSample {
@@ -584,7 +648,7 @@ fn sample(folder: PathBuf, level: StorageLevel) -> Arc<StorageSample> {
 /// While its filesystem is at `low` or `critical`, the cache stores
 /// nothing new and evicts nothing, and still serves what it holds
 /// (ADR 0122).
-/// Covers: story:6-42
+/// Covers: story:6-43
 #[rstest::rstest]
 #[case::low(StorageLevel::Low)]
 #[case::critical(StorageLevel::Critical)]

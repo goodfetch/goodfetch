@@ -30,7 +30,7 @@ pub(crate) const HOST: &str = "cache.test";
 const LAST_MODIFIED: &str = "Thu, 01 Jan 2026 00:00:00 GMT";
 
 /// The settings of a crawl under `cache.mode`, its default when `None`.
-fn settings(mode: Option<&str>) -> Value {
+pub(super) fn settings(mode: Option<&str>) -> Value {
     let mut settings = json!({ "fetch": { "tier": "http" } });
     if let Some(mode) = mode {
         settings["cache"] = json!({ "mode": mode });
@@ -42,7 +42,7 @@ fn settings(mode: Option<&str>) -> Value {
 /// Proving ground's names, its handler reading the page's Markdown and
 /// answering no Record; the Run finished. The Markdown, empty when no
 /// handler was asked.
-fn crawl(
+pub(super) fn crawl(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
@@ -56,7 +56,7 @@ fn crawl(
 
 /// Crawls a `POST` of `body` to `path` on the cache host, sent with no
 /// `Content-Type`, as [`crawl`] crawls a `GET`.
-fn post(
+pub(super) fn post(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
@@ -130,7 +130,7 @@ fn crawl_seed(
 }
 
 /// The requests the cache host received for `path`, in arrival order.
-fn requests_for(site: &Site, path: &str) -> Vec<ObservedRequest> {
+pub(super) fn requests_for(site: &Site, path: &str) -> Vec<ObservedRequest> {
     site.received_requests()
         .every()
         .filter(|request| request.host == HOST && request.target == path)
@@ -139,7 +139,7 @@ fn requests_for(site: &Site, path: &str) -> Vec<ObservedRequest> {
 }
 
 /// Whether `markdown` is the site's answer `answer` to `path`.
-fn is_answer(markdown: &str, answer: u64, path: &str) -> bool {
+pub(super) fn is_answer(markdown: &str, answer: u64, path: &str) -> bool {
     markdown.contains(&format!("Answer {answer} of {path}."))
 }
 

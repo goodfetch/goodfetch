@@ -28,6 +28,23 @@ fn a_fresh_page_is_kept_an_hour_and_names_its_answer() {
 }
 
 #[test]
+fn a_large_page_is_kept_an_hour_and_weighs_over_a_mebibyte() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let large = raw_clients::get(&proving_ground, HOST, "/large/one", &[]);
+
+    assert_eq!(
+        (
+            large.status(),
+            large.header("cache-control"),
+            String::from_utf8_lossy(large.body()).contains("Answer 1 of /large/one."),
+            large.body().len() > 1 << 20,
+        ),
+        (Some(200), Some("max-age=3600".to_owned()), true, true)
+    );
+}
+
+#[test]
 fn a_stale_page_answers_either_of_its_validators_with_a_304() {
     let proving_ground = ProvingGround::start(SEED);
 

@@ -32,9 +32,9 @@ use tokio::sync::oneshot;
 
 use super::{
     Context, DELEGATE, DELEGATION, DELEGATIONS_PER_TRANSACTION, Ending, Erased, GONE_WAITERS,
-    Holder, InTurn, KeyState, NEXT_GENERATION, Permit, PolitenessError, REHOLD, STOP_WAITING,
-    SharedRule, TAKE, Taken, Turn, UNDELEGATE, WAITERS_OF, changed, in_flight, memory,
-    milliseconds, next_turn, reclaim, sqlite_error,
+    Holder, KeyState, NEXT_GENERATION, Permit, PolitenessError, REHOLD, STOP_WAITING, SharedRule,
+    TAKE, Take, Taken, Turn, UNDELEGATE, WAITERS_OF, changed, in_flight, memory, milliseconds,
+    next_turn, reclaim, sqlite_error,
 };
 use crate::sqlite_store;
 use crate::sync::{Arc, Mutex};
@@ -86,11 +86,7 @@ struct Delegation {
 
 /// A take waiting for its group's Delegations.
 struct Asked {
-    key: String,
-    holder: Holder,
-    rule: SharedRule,
-    now: SystemTime,
-    in_turn: InTurn,
+    take: Take<'static>,
     answer: Answer,
 }
 
@@ -137,43 +133,21 @@ impl FileBackend {
         }
     }
 
-    /// Takes a Permit under `key` for `holder` at `now` and sends the
-    /// answer to `answer`: from memory when the engine holds the key's
-    /// Delegation, whatever `holder`'s `politeness.delegation`, so the
-    /// key's limits hold across its Runs; after the group's Delegations are
-    /// taken ([`take_asked_delegations`](Self::take_asked_delegations)) when
-    /// `holder` delegates and `rule` may; otherwise in one transaction of
+    /// Takes a Permit as `take` says and sends the answer to `answer`: from
+    /// memory when the engine holds the key's Delegation, whatever its
+    /// holder's `politeness.delegation`, so the key's limits hold across
+    /// its Runs; after the group's Delegations are taken
+    /// ([`take_asked_delegations`](Self::take_asked_delegations)) when its
+    /// holder delegates and its rule may; otherwise in one transaction of
     /// the file.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a take's own arguments, beside where its answer goes"
-    )]
-    pub(super) fn take(
-        &mut self,
-        context: &Context,
-        key: String,
-        holder: Holder,
-        rule: SharedRule,
-        now: SystemTime,
-        in_turn: InTurn,
-        answer: Answer,
-    ) {
-        let delegates = rule.0.delegates();
-        if delegates && self.delegations.contains_key(&key) {
-            let _ = answer.send(Ok(
-                self.taken_delegated(context, &key, &holder, &rule, now, in_turn)
-            ));
-        } else if delegates && holder.delegates && !self.shared.contains(&key) {
-            self.asked.push(Asked {
-                key,
-                holder,
-                rule,
-                now,
-                in_turn,
-                answer,
-            });
+    pub(super) fn take(&mut self, context: &Context, take: Take<'static>, answer: Answer) {
+        let delegates = take.rule.0.delegates();
+        if delegates && self.delegations.contains_key(&*take.key) {
+            let _ = answer.send(Ok(self.taken_delegated(context, &take)));
+        } else if delegates && take.holder.delegates && !self.shared.contains(&*take.key) {
+            self.asked.push(Asked { take, answer });
         } else {
-            let _ = answer.send(self.taken_in_file(context, &key, &holder, &rule, now, in_turn));
+            let _ = answer.send(self.taken_in_file(context, &take));
         }
     }
 
@@ -181,36 +155,22 @@ impl FileBackend {
     fn taken_in_file(
         &self,
         context: &Context,
-        key: &str,
-        holder: &Holder,
-        rule: &SharedRule,
-        now: SystemTime,
-        in_turn: InTurn,
+        take: &Take<'_>,
     ) -> Result<(Taken, Option<Turn>), PolitenessError> {
         transaction(
             &self.connection,
             &self.commits,
             Row::PolitenessTransactions,
-            |transaction| {
-                rule.0
-                    .taken(transaction, context, key, holder, now, in_turn)
-            },
+            |transaction| take.in_file(transaction, context),
         )
         .map_err(|error| sqlite_error(&context.path, &error))
     }
 
     /// A take under the key's Delegation, in memory: its waiter is woken
     /// within the engine.
-    fn taken_delegated(
-        &mut self,
-        context: &Context,
-        key: &str,
-        holder: &Holder,
-        rule: &SharedRule,
-        now: SystemTime,
-        in_turn: InTurn,
-    ) -> (Taken, Option<Turn>) {
-        if let Some(delegation) = self.delegations.get_mut(key)
+    fn taken_delegated(&mut self, context: &Context, take: &Take<'_>) -> (Taken, Option<Turn>) {
+        let holder = &*take.holder;
+        if let Some(delegation) = self.delegations.get_mut(&*take.key)
             && !delegation
                 .runs
                 .iter()
@@ -218,9 +178,7 @@ impl FileBackend {
         {
             delegation.runs.push(holder.clone());
         }
-        let (mut taken, turn) = rule
-            .0
-            .taken_in_memory(&mut self.store, key, holder, now, in_turn);
+        let (mut taken, turn) = take.in_memory(&mut self.store);
         if let Taken::Granted(permit) = &mut taken {
             permit.delegated = true;
         }
@@ -240,31 +198,17 @@ impl FileBackend {
         let keys: Vec<&Asked> = asked
             .iter()
             .filter(|asked| {
-                !self.delegations.contains_key(&asked.key) && seen.insert(asked.key.as_str())
+                !self.delegations.contains_key(&*asked.take.key) && seen.insert(&*asked.take.key)
             })
             .collect();
         for group in keys.chunks(DELEGATIONS_PER_TRANSACTION) {
             self.delegate(context, group);
         }
         for asked in asked {
-            let answer = if self.delegations.contains_key(&asked.key) {
-                Ok(self.taken_delegated(
-                    context,
-                    &asked.key,
-                    &asked.holder,
-                    &asked.rule,
-                    asked.now,
-                    asked.in_turn,
-                ))
+            let answer = if self.delegations.contains_key(&*asked.take.key) {
+                Ok(self.taken_delegated(context, &asked.take))
             } else {
-                self.taken_in_file(
-                    context,
-                    &asked.key,
-                    &asked.holder,
-                    &asked.rule,
-                    asked.now,
-                    asked.in_turn,
-                )
+                self.taken_in_file(context, &asked.take)
             };
             let _ = asked.answer.send(answer);
         }
@@ -297,25 +241,32 @@ impl FileBackend {
         match taken {
             Ok(()) => {
                 for asked in group {
-                    if !delegated.iter().any(|taken| taken.key == asked.key) {
-                        self.shared.insert(asked.key.clone());
+                    if !delegated
+                        .iter()
+                        .any(|taken| taken.take.key == asked.take.key)
+                    {
+                        self.shared.insert(asked.take.key.clone().into_owned());
                     }
                 }
                 for asked in delegated {
                     self.work.count(Row::PolitenessDelegations);
                     self.delegations.insert(
-                        asked.key.clone(),
+                        asked.take.key.clone().into_owned(),
                         Delegation {
-                            holder: asked.holder.clone(),
+                            holder: asked.take.holder.clone().into_owned(),
                             runs: Vec::new(),
-                            rule: asked.rule.clone(),
+                            rule: asked.take.rule.clone().into_owned(),
                         },
                     );
                 }
             }
             Err(error) => {
                 for asked in delegated {
-                    asked.rule.0.forget(&mut self.store.tables, &asked.key);
+                    asked
+                        .take
+                        .rule
+                        .0
+                        .forget(&mut self.store.tables, &asked.take.key);
                 }
                 tracing::warn!(%error, "the Politeness file's Delegations were not taken; their Permits are taken in the file");
             }
@@ -758,8 +709,9 @@ fn delegated_in(
     asked: &Asked,
     tables: &mut memory::MemoryTables,
 ) -> rusqlite::Result<bool> {
-    let key = asked.key.as_str();
-    if held_elsewhere(transaction, context, key, &*asked.rule.0, asked.now)?.is_some() {
+    let take = &asked.take;
+    let key = &*take.key;
+    if held_elsewhere(transaction, context, key, &*take.rule.0, take.now)?.is_some() {
         return Ok(false);
     }
     reclaim(transaction, context, key)?;
@@ -769,7 +721,7 @@ fn delegated_in(
     if in_flight(transaction, key)? > 0 || waiters > 0 {
         return Ok(false);
     }
-    let holder = &asked.holder;
+    let holder = &*take.holder;
     transaction.prepare_cached(DELEGATE)?.execute((
         key,
         &holder.run_id,
@@ -778,6 +730,6 @@ fn delegated_in(
         &context.engine,
         endpoint,
     ))?;
-    asked.rule.0.delegate(transaction, key, tables)?;
+    take.rule.0.delegate(transaction, key, tables)?;
     Ok(true)
 }

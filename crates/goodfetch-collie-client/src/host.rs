@@ -23,6 +23,7 @@ use crate::call::{Call, Note, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
 use crate::event_stream::{EventStream, Opens};
+use crate::logging;
 use crate::published::Interest;
 use crate::raw_call::{RawCall, RawValue};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
@@ -383,7 +384,7 @@ impl Drop for HeldValue {
             return;
         }
         tracing::warn!(
-            target: "goodfetch::client",
+            target: logging::CLIENT,
             id = %dropped.id,
             "a {} was dropped without close(): it closes without waiting",
             dropped.value
@@ -602,7 +603,7 @@ impl Drop for HeldRun {
         // A detached Run outlives its value.
         if state == State::Running && !self.detached && self.connection.in_opener() {
             tracing::warn!(
-                target: "goodfetch::client",
+                target: logging::CLIENT,
                 run_id = %self.run_id,
                 "a running Run was dropped without close(): it is aborted without waiting"
             );

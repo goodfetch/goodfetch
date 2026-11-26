@@ -25,8 +25,8 @@ use crate::runners::{Runner, listing};
 
 use super::variants::{self, Carried, JourneyTest};
 
-/// Each runner's listing file in the folder.
-fn file(runner: Runner) -> &'static str {
+/// Each runner's listing file in the folder, which the Feature audit reads.
+pub(crate) fn file(runner: Runner) -> &'static str {
     match runner {
         Runner::Nextest => "nextest.json",
         Runner::Vitest => "vitest.json",

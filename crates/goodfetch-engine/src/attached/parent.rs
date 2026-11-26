@@ -178,14 +178,12 @@ mod windows {
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,
     };
-    use windows_sys::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject,
-    };
+    use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
     use windows_sys::Win32::System::Threading::{
         GetCurrentProcess, GetCurrentProcessId, OpenProcess, PROCESS_DUP_HANDLE,
     };
+
+    use crate::children::Job;
 
     /// A handle this process owns, closed when it drops.
     struct Owned(HANDLE);
@@ -204,30 +202,9 @@ mod windows {
     /// its parent holds, so the parent's end kills it.
     pub(super) fn kill_with_parent() -> io::Result<()> {
         let parent = parent_id()?;
-        // SAFETY: no security attributes and no name: an anonymous job.
-        let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-        if job.is_null() {
-            return Err(io::Error::last_os_error());
-        }
-        let job = Owned(job);
-        // SAFETY: a zeroed limit information is valid; only its flags are
-        // set below.
-        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
-        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        // SAFETY: the job handle is live, and the pointer and size describe
-        // the local above.
-        let set = unsafe {
-            SetInformationJobObject(
-                job.0,
-                JobObjectExtendedLimitInformation,
-                (&raw const limits).cast(),
-                u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-                    .expect("invariant: the structure is small"),
-            )
-        };
-        if set == FALSE {
-            return Err(io::Error::last_os_error());
-        }
+        // Its handle closes as `job` drops, at the end, once the parent
+        // holds its own copy.
+        let job = Job::new()?;
         // SAFETY: `PROCESS_DUP_HANDLE` on a process ID, checked below.
         let opened = unsafe { OpenProcess(PROCESS_DUP_HANDLE, FALSE, parent) };
         if opened.is_null() {
@@ -236,7 +213,7 @@ mod windows {
         let parent = Owned(opened);
         // SAFETY: both handles are live; the pseudo-handle of this process
         // needs no closing.
-        if unsafe { AssignProcessToJobObject(job.0, GetCurrentProcess()) } == FALSE {
+        if unsafe { AssignProcessToJobObject(job.handle(), GetCurrentProcess()) } == FALSE {
             return Err(io::Error::last_os_error());
         }
         let mut theirs: HANDLE = std::ptr::null_mut();
@@ -246,7 +223,7 @@ mod windows {
         let duplicated = unsafe {
             DuplicateHandle(
                 GetCurrentProcess(),
-                job.0,
+                job.handle(),
                 parent.0,
                 &raw mut theirs,
                 0,

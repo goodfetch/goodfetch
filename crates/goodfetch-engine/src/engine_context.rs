@@ -9,25 +9,31 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::{Arc, PoisonError};
 
 use goodfetch_confinement::deny_list::Places;
 use goodfetch_counted_work::CountedWork;
-use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::catalog::Operation;
+use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
+use serde_json::Value;
 
 use crate::audit::AuditLog;
+use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::endpoint::Refusals;
 use crate::entropy::Entropy;
+use crate::governor::Governor;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
-use crate::response_cache::{ResponseCache, ResponseSource};
+use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::{Resolved, Settings};
@@ -101,6 +107,23 @@ pub(crate) fn places(home: &Home, environment: &BTreeMap<OsString, OsString>) ->
     })
 }
 
+/// What sends the calls its major's Daemon keeps, such as `schedule.*`
+/// (spec 589), from an Attached engine to that Daemon, starting it when
+/// none runs: the forward module's, which this module cannot name.
+pub(crate) trait ToTheDaemon: Send + Sync {
+    /// Sends `operation` with `params` to the Daemon as a Client of the
+    /// `client`'s surface and form would, running the Daemon's start on
+    /// `owner`'s blocking threads, and answers the Daemon's result or
+    /// failure.
+    fn forward(
+        &self,
+        owner: Arc<TaskOwner>,
+        operation: &'static Operation,
+        params: Value,
+        client: (Surface, Form),
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
+}
+
 /// What the engine knows of its host beside its stores: the person it
 /// acts for, its time zone, the stream its handlers draw from and the
 /// person's folders a Plugin's confinement denies.
@@ -113,6 +136,9 @@ pub(crate) struct Host {
     pub(crate) entropy: Entropy,
     /// The person's folders ([`places`]).
     pub(crate) places: Option<Places>,
+    /// What forwards the calls the major's Daemon keeps to it: an
+    /// Attached engine's that can start its Daemon; none on a Daemon.
+    pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -135,13 +161,14 @@ impl Stores {
     /// 0060), their blocking work under `owner` and the actors that keep
     /// their connections under `connections`, which the engine stops once
     /// its Runs and Connections have, the Response cache's work counted on
-    /// `work`; with the contributions' `user_stores` in the major's folder.
+    /// `work` and its filesystem sampled by `governor`; with the
+    /// contributions' `user_stores` in the major's folder.
     pub(crate) fn of(
         home: &Home,
         version: &ProductVersion,
         vfs: Option<String>,
         (owner, connections): (Arc<TaskOwner>, Arc<TaskOwner>),
-        work: CountedWork,
+        (work, governor): (CountedWork, &Governor),
         user_stores: &[&'static UserStoreKind],
     ) -> Self {
         let contributed = user_stores
@@ -155,14 +182,16 @@ impl Stores {
                 )
             })
             .collect();
+        let cache_folder = home.response_cache(version);
         Self {
             known_certificates: KnownCertificates::of(home, vfs.clone(), Arc::clone(&connections)),
             response_cache: ResponseCache::of(
-                home.response_cache(version),
+                cache_folder.clone(),
                 vfs.clone(),
                 Arc::clone(&connections),
                 work,
-            ),
+            )
+            .watching(governor.sample(cache_folder), governor.storage()),
             run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
             ledger: Ledger::at(home.usage_ledger(), vfs),
             owner,
@@ -209,6 +238,7 @@ struct Held {
     zone: String,
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
+    daemon: Option<Arc<dyn ToTheDaemon>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -245,6 +275,7 @@ impl EngineContext {
             zone,
             entropy,
             places,
+            daemon,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -260,6 +291,7 @@ impl EngineContext {
                 zone,
                 entropy: Mutex::new(entropy),
                 places: places.map(Arc::new),
+                daemon,
             }),
         }
     }
@@ -312,7 +344,10 @@ impl EngineContext {
     /// cache of the engine's major unless the Run's `cache.mode` is `off`.
     pub fn response_source(&self, settings: &Resolved) -> ResponseSource {
         let mode = CacheMode::parse(settings.get(&CACHE_MODE)).unwrap_or(CacheMode::Off);
-        ResponseSource::of(&self.stores.response_cache, mode)
+        ResponseSource::of(
+            &self.stores.response_cache.bounded(Bounds::of(settings)),
+            mode,
+        )
     }
 
     /// Where reads and writes of these stores block, which the Run registry
@@ -341,6 +376,12 @@ impl EngineContext {
     /// environment map ([`host_zone`]).
     pub fn host_zone(&self) -> &str {
         &self.held.zone
+    }
+
+    /// What forwards the calls the major's Daemon keeps to it; `None` on
+    /// a Daemon and on an engine that cannot start one.
+    pub(crate) fn daemon(&self) -> Option<&Arc<dyn ToTheDaemon>> {
+        self.held.daemon.as_ref()
     }
 
     /// A draw of 64 random bits from the handlers' own stream of the

@@ -62,7 +62,7 @@ impl Policy {
     ///
     /// `setting_invalid` for a cap on any other kind.
     pub fn check_caps(&self) -> Result<(), SettingsError> {
-        for name in self.cap.applied.keys() {
+        for name in self.cap.keys() {
             let capped = keys::find(name).map(|key| key.setting.kind);
             if !matches!(
                 capped,
@@ -327,7 +327,7 @@ impl Resolved {
     /// ([`Resolved::refuse_unbuilt`]).
     pub fn beneath(&self, own: &Values) -> Result<Self, SettingsError> {
         let mut beneath = self.clone();
-        for (name, value) in &own.applied {
+        for (name, value) in own.applied() {
             let (Some(key), Some(effective)) = (keys::find(name), self.settings.get(name)) else {
                 return Err(SettingsError::NotApplicable {
                     key: (*name).to_owned(),
@@ -728,7 +728,7 @@ fn honouring(product: Product) -> Vec<Product> {
 /// or on a Run of a Product that does not honour it.
 pub fn resolve(layers: &Layers, engine: Product, run: Product) -> Result<Resolved, SettingsError> {
     for (layer, values) in explicit_layers(layers) {
-        for name in values.applied.keys() {
+        for name in values.keys() {
             let product = keys::find(name).map_or(Product::Collie, |key| key.product);
             if !run.contains(product) {
                 return Err(SettingsError::NotApplicable {
@@ -834,10 +834,10 @@ fn unapplied(layers: &Layers) -> BTreeMap<&'static str, Unapplied> {
             &layers.project_configuration,
         ),
     ] {
-        for (name, value) in &values.others {
+        for (name, value) in values.others() {
             let product = keys::find(name).map_or(Product::Foxhound, |key| key.product);
             unapplied.insert(
-                *name,
+                name,
                 Unapplied {
                     value: value.clone(),
                     layer,

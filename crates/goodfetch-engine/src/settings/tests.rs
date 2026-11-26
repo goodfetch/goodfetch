@@ -1058,6 +1058,42 @@ fn timeout_connect_is_set_only_in_the_project_file(
     );
 }
 
+/// The Response cache's bounds are the machine's: taken from user
+/// configuration and an Operator policy, and refused from the project file,
+/// a Recipe and a Run, naming where they are set (ADR 0046).
+///
+/// Covers: setting:cache.max_size, setting:cache.max_age_ceiling, error:setting_not_applicable
+#[rstest]
+fn the_response_caches_bounds_are_set_in_configuration_or_policy_only(
+    #[values(("cache.max_size", json!(1_000_000)), ("cache.max_age_ceiling", json!(60_000)))]
+    setting: (&str, serde_json::Value),
+    #[values(
+        (SettingsLayer::OperatorPolicy, true),
+        (SettingsLayer::UserConfiguration, true),
+        (SettingsLayer::ProjectConfiguration, false),
+        (SettingsLayer::Recipe, false),
+        (SettingsLayer::Run, false)
+    )]
+    layer: (SettingsLayer, bool),
+) {
+    let ((key, value), (layer, taken)) = (setting, layer);
+
+    let outcome = resolve(&only(layer, key, &value), Product::Collie, Product::Collie);
+
+    match &outcome {
+        Ok(_) => assert!(taken, "{key} set by {layer:?} was taken"),
+        Err(error @ SettingsError::NotApplicable { fix, .. }) => {
+            assert!(!taken, "{key} set by {layer:?} was refused: {error:?}");
+            assert_eq!(error.code(), "setting_not_applicable");
+            assert!(
+                fix.contains("user configuration or an Operator policy"),
+                "{fix}"
+            );
+        }
+        Err(error) => panic!("{error:?}"),
+    }
+}
+
 /// A Client's own bound is taken from `connect()`'s own `settings`, the
 /// run layer, alone: configuration, an Operator policy and a Recipe never
 /// reach the Client's transport, so each is refused naming `connect()`

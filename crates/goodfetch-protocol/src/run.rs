@@ -67,8 +67,9 @@ pub use self::report::{
 };
 pub use self::starts::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, DETACH_UNSUPPORTED,
-    DetachUnsupportedDetails, RECIPE_START, RUN_TARGET_UNBUILT, RecipeStartParams, Recording,
-    RecordingMode, RunTargetUnbuiltDetails,
+    DetachUnsupportedDetails, RECIPE_START, RECORDING_INVALID, RESPONSE_NOT_RECORDED,
+    RUN_TARGET_UNBUILT, RecipeStartParams, Recording, RecordingInvalidDetails, RecordingMode,
+    ResponseNotRecordedDetails, RunTargetUnbuiltDetails,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -1484,6 +1485,8 @@ pub const ENTRIES: Entries = Entries {
         RUN_INTERRUPTED,
         RUN_TARGET_UNBUILT,
         DETACH_UNSUPPORTED,
+        RESPONSE_NOT_RECORDED,
+        RECORDING_INVALID,
     ],
     plugin_kinds: &[],
     metrics: &[],

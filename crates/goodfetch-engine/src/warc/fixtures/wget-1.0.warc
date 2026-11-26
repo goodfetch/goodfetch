@@ -1,0 +1,45 @@
+WARC/1.0
+WARC-Type: warcinfo
+Content-Type: application/warc-fields
+WARC-Date: 2026-11-20T10:00:00Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000001>
+WARC-Filename: example.warc
+Content-Length: 63
+
+software: Wget/1.21.4 (linux-gnu)
+format: WARC File Format 1.0
+
+
+WARC/1.0
+WARC-Type: request
+WARC-Target-URI: <http://example.test/page?a=1>
+Content-Type: application/http;msgtype=request
+WARC-Date: 2026-11-20T10:00:01Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000002>
+WARC-Concurrent-To: <urn:uuid:00000000-0000-4000-8000-000000000003>
+Content-Length: 55
+
+GET /page?a=1 HTTP/1.1
+Host: example.test
+Accept: */*
+
+
+
+WARC/1.0
+WARC-Type: response
+WARC-Target-URI: <http://example.test/page?a=1>
+Content-Type: application/http;msgtype=response
+WARC-Date: 2026-11-20T10:00:02Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000003>
+WARC-Concurrent-To: <urn:uuid:00000000-0000-4000-8000-000000000002>
+WARC-Block-Digest: sha1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+WARC-Payload-Digest: sha1:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB
+Content-Length: 73
+
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 13
+
+<p>hello</p>
+
+

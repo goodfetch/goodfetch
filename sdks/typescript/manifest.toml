@@ -305,6 +305,24 @@ form = "read"
 
 [[member]]
 package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "records"
+entry = "none"
+reason = "Reads `run.records` through the last Record `dataset.page` answers as committed, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "rejectedRecords"
+entry = "none"
+reason = "Reads `run.rejected_records` through the last entry `dataset.list` counts, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
 member = "page"
 entry = "none"
@@ -349,7 +367,6 @@ package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
 member = "rejectedRecords"
 entry = "run.rejected_records"
-only = "Rust's read of the rejection table comes in a later part of spec 611 (issue 1487)."
 words = ["rejected", "records"]
 form = "opener"
 
@@ -3111,7 +3128,7 @@ receiver = "(module)"
 member = "RecordsOptions"
 entry = "none"
 reason = "What `CrawlRun.records()` takes."
-only = "Rust's `CrawlRun::records` takes the Dataset alone, reads every Record from the first, its value as JSON, and does not resume on a new connection."
+only = "Rust's `CrawlRun::records` returns the builder `ReadRecords`, whose `after` sets the number to read past, and does not resume on a new connection; Python's `records` takes `after` as a keyword argument."
 words = ["records", "options"]
 form = "type"
 
@@ -3121,7 +3138,7 @@ receiver = "(module)"
 member = "RejectedRecordsOptions"
 entry = "none"
 reason = "What `CrawlRun.rejectedRecords()` takes: the number of the last entry a reader handled, and its signal."
-only = "Python's `rejected_records` takes `after` as a keyword argument; Rust's read of the rejection table comes in a later part of spec 611 (issue 1487)."
+only = "Python's `rejected_records` takes `after` as a keyword argument, and Rust's `rejected_records` returns the builder `ReadRejectedRecords`, whose `after` sets it."
 words = ["rejected", "records", "options"]
 form = "type"
 
@@ -3131,7 +3148,6 @@ receiver = "(module)"
 member = "DatasetRecord"
 entry = "none"
 reason = "A committed Record as `CrawlRun.records()` reads it: the wire's Record with its value of the Dataset's own output type, parsed by its typed schema (ADR 0103, G3)."
-only = "Rust's Records read as their Dataset's own type come in a later part of spec 611 (issue 1487)."
 words = ["dataset", "record"]
 form = "type"
 

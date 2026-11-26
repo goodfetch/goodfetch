@@ -1767,6 +1767,14 @@ class RunRejectedRecordsParams(BaseModel):
     """The Dataset whose rejection table to read."""
     run_id: RunId
     """The crawl's Run."""
+    through: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last entry to read, such as the `rejected` count
+    `dataset.list` answers, the last entry's number since they have no
+    gaps: no entry past it is read, and a page says `ended` once it
+    reaches it, a live Run's included, without waiting. Absent, it
+    follows a live Run until the Run ends.
+    """
 
 
 class RunRetryFailedParams(BaseModel):

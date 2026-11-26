@@ -1851,6 +1851,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "blocking::ClientConnection"
+member = "iter"
+entry = "none"
+reason = "Reads a stream a Product builds of its own on this Connection, such as Foxhound's Records read as their Dataset's type, as an iterator that blocks, with no round trip of its own."
+words = ["iter"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
 member = "raw_call"
 entry = "none"
 reason = "The raw call of `operation`, as `crate::ClientConnection::raw_call`'s, which `send()` sends."

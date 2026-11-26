@@ -44,7 +44,7 @@ struct Visit {
 }
 
 /// The Record each page pushes.
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct Visited {
     url: String,
     depth: u32,
@@ -135,9 +135,11 @@ fn a_crawl_serves_its_run_on_the_linked_engine_until_the_run_ends() {
 /// A program that does not use async declares the tracer crawl on a
 /// `blocking::Crawl`: its handlers are plain functions, whose calls block
 /// until answered, and its `serve` blocks the test's thread, which runs no
-/// runtime, until the Run ends and its report returns.
+/// runtime, until the Run ends and its report returns. Its Records then
+/// read back from the same thread, as the Dataset's type, past `after`
+/// too, and its rejection table reads empty.
 ///
-/// Covers: story:11-1013, story:11-1104
+/// Covers: story:11-1013, story:11-1104, story:11-1060
 #[test]
 fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
     let env = TestEnv::new();
@@ -151,7 +153,7 @@ fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
     let mut crawl = blocking::Crawl::new();
     let page = crawl.label::<Visit>("page").unwrap();
     let pages = crawl.dataset::<Visited>("pages").unwrap();
-    let next = page.clone();
+    let (next, shelf, queued) = (page.clone(), pages.clone(), empty.clone());
     crawl
         .handle(&page, move |ctx: blocking::CrawlContext<Visit>| {
             let depth = ctx.payload().depth;
@@ -159,9 +161,9 @@ fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
                 url: ctx.url().to_owned(),
                 depth,
             };
-            ctx.push(&pages, &visited)?;
+            ctx.push(&shelf, &visited)?;
             if depth == 0 {
-                ctx.enqueue(empty.clone(), &next, Visit { depth: 1 })
+                ctx.enqueue(queued.clone(), &next, Visit { depth: 1 })
                     .send()?;
             }
             Ok(())
@@ -174,6 +176,16 @@ fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
         .send()
         .unwrap();
     let report = crawl.serve(&run).unwrap();
+    let visited: Vec<_> = run
+        .records(&pages)
+        .map(|record| record.unwrap().value)
+        .collect();
+    let past_the_first: Vec<_> = run
+        .records(&pages)
+        .after(1)
+        .map(|record| record.unwrap().number)
+        .collect();
+    let rejected = run.rejected_records(&pages).count();
     foxhound.close().unwrap();
 
     assert_eq!(report.report.run_id, tracer);
@@ -183,6 +195,23 @@ fn a_blocking_crawl_serves_its_run_from_a_thread_with_no_runtime() {
         (requests.succeeded, requests.failed),
         (2, 0),
         "{requests:?}"
+    );
+    assert_eq!(
+        (visited, past_the_first, rejected),
+        (
+            vec![
+                Visited {
+                    url: book,
+                    depth: 0
+                },
+                Visited {
+                    url: empty,
+                    depth: 1
+                },
+            ],
+            vec![2],
+            0
+        )
     );
 }
 

@@ -31,6 +31,8 @@ import {
   FOLLOWED_VALUE,
   paged,
   Sequence,
+  type SequenceOptions,
+  type Stream,
   type ClientConnection,
   type CollieWireType,
   fromWire,
@@ -192,23 +194,49 @@ export class CrawlRun extends Run {
     dataset: Dataset<I, O>,
     options: RecordsOptions = {},
   ): Sequence<DatasetRecord<O>> {
+    return this.#records(dataset, options, "follows");
+  }
+
+  #records<I extends object, O>(
+    dataset: Dataset<I, O>,
+    options: RecordsOptions,
+    reach: Reach,
+  ): Sequence<DatasetRecord<O>> {
     warnEntry(foxhoundOperations, "run.records");
     ensureRunOpen(this, "run.records");
     const connection = this.#crawlHost.connection;
-    const params = {
-      run_id: this.id(),
+    const calls = this.#crawlHost.calls;
+    const runId = this.id();
+    const params: { run_id: string; dataset: string; after?: number; through?: number } = {
+      run_id: runId,
       dataset: dataset.name,
       ...(options.after === undefined ? {} : { after: options.after }),
     };
+    const send = (opened: Opened, sending: typeof params): Stream =>
+      resumable<number>((sent) => connection.stream("run.records", sending, sent), opened, {
+        read: (method, notification) => {
+          const number = method === "$/record" ? recordNumberOf(notification) : undefined;
+          return number === undefined ? undefined : { count: 1, last: number };
+        },
+        params: (last) => (last === undefined ? sending : { ...sending, after: last }),
+      });
     return new Sequence({
       open: (opened) =>
-        resumable<number>((sent) => connection.stream("run.records", params, sent), opened, {
-          read: (method, notification) => {
-            const number = method === "$/record" ? recordNumberOf(notification) : undefined;
-            return number === undefined ? undefined : { count: 1, last: number };
-          },
-          params: (last) => (last === undefined ? params : { ...params, after: last }),
-        }),
+        reach === "follows"
+          ? send(opened, params)
+          : // The last Record committed now, which `dataset.page` answers
+            // as its `through` even for a page of one Record.
+            sentAfter(
+              async () => {
+                const page = await calls.call(
+                  "dataset.page",
+                  { runId, dataset: dataset.name, columns: [], limit: 1 },
+                  { signal: opened.signal },
+                );
+                return page.through;
+              },
+              (through) => send(opened, { ...params, through }),
+            ),
       itemOf: (method, notification) => {
         const record = recordOf(method, notification);
         return record === undefined ? undefined : readRecord(dataset, record);
@@ -227,8 +255,11 @@ export class CrawlRun extends Run {
    * first entry, or after `after`, the number a reader last handled. While
    * the Run is live and nothing follows, it waits for the next commit; a
    * page says `ended` once the Run has ended, or has no live writer, and no
-   * entry follows. A reader never slows the Run. A Dataset the crawl does
-   * not declare fails with `dataset_unknown`.
+   * entry follows. With `through`, such as the `rejected` count
+   * `dataset.list` answers, it reads no entry numbered past it, and a page
+   * says `ended` once it reaches it, a live Run's included, without
+   * waiting. A reader never slows the Run. A Dataset the crawl does not
+   * declare fails with `dataset_unknown`.
    *
    * Reads `dataset`'s rejected Records (ADRs 0103, 0104) page after page,
    * each Record's JSON as it was pushed, never parsed, and the iteration
@@ -244,6 +275,14 @@ export class CrawlRun extends Run {
     dataset: Dataset<I, O>,
     options: RejectedRecordsOptions = {},
   ): Sequence<RejectedRecord> {
+    return this.#rejectedRecords(dataset, options, "follows");
+  }
+
+  #rejectedRecords<I extends object, O>(
+    dataset: Dataset<I, O>,
+    options: RejectedRecordsOptions,
+    reach: Reach,
+  ): Sequence<RejectedRecord> {
     warnEntry(foxhoundOperations, "run.rejected_records");
     ensureRunOpen(this, "run.rejected_records");
     const calls = this.#crawlHost.calls;
@@ -251,15 +290,30 @@ export class CrawlRun extends Run {
     let take: (() => RejectedRecord | undefined) | undefined;
     return new Sequence({
       open: (opened) => {
+        // The entries rejected now, numbered without gaps, so the count
+        // `dataset.list` answers is the last one's number.
+        let bound: Promise<number> | undefined;
+        const through = async (signal: AbortSignal | undefined): Promise<number | undefined> => {
+          if (reach === "follows") return undefined;
+          bound ??= calls
+            .call("dataset.list", { runId }, { signal })
+            .then(
+              (list) =>
+                list.datasets.find((summary) => summary.name === dataset.name)?.rejected ?? 0,
+            );
+          return bound;
+        };
         const reading = paged<RejectedRecords, RejectedRecord>(
           {
             read: async (read, signal) => {
               ensureRunOpen(this, "run.rejected_records");
               const after = read ?? options.after;
+              const last = await through(signal);
               const params = {
                 runId,
                 dataset: dataset.name,
                 ...(after === undefined ? {} : { after }),
+                ...(last === undefined ? {} : { through: last }),
               };
               return calls.call("run.rejected_records", params, { signal });
             },
@@ -444,7 +498,13 @@ export class CrawlRun extends Run {
     const page =
       pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
-      run: { id: () => attempt.runId, keyValueStore: attemptStoreOf(this, lease, signal) },
+      run: {
+        id: () => attempt.runId,
+        keyValueStore: attemptStoreOf(this, lease, signal),
+        records: (dataset, reading = {}) => this.#records(dataset, reading, "committed"),
+        rejectedRecords: (dataset, reading = {}) =>
+          this.#rejectedRecords(dataset, reading, "committed"),
+      },
       get page(): Page {
         if (page === undefined) {
           throw new ResponseNotDocumentError(
@@ -608,6 +668,39 @@ function crawlOwnFields(type: FoxhoundWireType, base: CollieWireType): WirePath 
 /** The fields `path` names, none when it names no object. */
 function fieldsOf(path: WirePath): Readonly<Record<string, WireField>> {
   return typeof path === "object" && "fields" in path ? path.fields : {};
+}
+
+/**
+ * How far a read of a Run's Records goes: `follows` follows a live Run to
+ * its end, as the program's own Run reads; `committed` reads through what
+ * has committed when it is sent, then ends, as a handler's `ctx.run` reads,
+ * whose Run cannot end while the handler holds its request (ADR 0103).
+ */
+type Reach = "follows" | "committed";
+
+/** What a sequence's stream is opened with. */
+type Opened = Parameters<SequenceOptions<unknown>["open"]>[0];
+
+/**
+ * A stream that asks `bound` first, then sends the one `open` opens
+ * through it, the credits granted meanwhile handed on. A failed `bound`
+ * fails the stream.
+ */
+function sentAfter(bound: () => Promise<number>, open: (through: number) => Stream): Stream {
+  let stream: Stream | undefined;
+  let granted = 0;
+  const result = bound().then((through) => {
+    stream = open(through);
+    if (granted > 0) stream.grant(granted);
+    return stream.result;
+  });
+  return {
+    result,
+    grant: (credits) => {
+      if (stream === undefined) granted += credits;
+      else stream.grant(credits);
+    },
+  };
 }
 
 /** The number of the Record a `$/record` carries, read from its wire form alone. */

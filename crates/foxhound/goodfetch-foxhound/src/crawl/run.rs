@@ -7,18 +7,16 @@ use std::pin::Pin;
 use std::sync::{Arc, PoisonError};
 use std::task::{Context, Poll, ready};
 
-use futures_util::{Stream, StreamExt as _};
+use futures_util::Stream;
 use goodfetch_collie_client::{
     Answer, BoxError, Call, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
-};
-use goodfetch_protocol::foxhound::dataset::{
-    DatasetRecord, RECORD, RUN_RECORDS, RecordRead, RunRecordsParams,
 };
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams};
 use serde_json::Value;
 
+use super::records::{Reach, ReadRecords, ReadRejectedRecords};
 use super::{
     CrawlContext, CrawlId, Dataset, Delivered, Forget, answer, delivered, params_unread, sent,
 };
@@ -211,7 +209,15 @@ impl CrawlRun {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// Each Record is a [`DatasetRecord`], its value the Record's JSON.
+    /// Each Record is a [`DatasetRecord`] whose value is the Dataset's own
+    /// type `I`, which `I`'s `Deserialize` parses from the Record's JSON
+    /// (ADR 0103). A field `I` does not declare is kept as `I` keeps it: a
+    /// `#[serde(flatten)]` map holds each one, and a Dataset of
+    /// [`serde_json::Value`] of the same name, from any [`Crawl`](super::Crawl),
+    /// reads each Record's JSON whole. A Record `I` refuses ends the stream
+    /// with `record_invalid`, whose details name the Dataset and the
+    /// Record's number, with one issue at the root that carries serde's
+    /// message; [`ReadRecords::after`] resumes past it.
     ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, Foxhound, Seed};
@@ -238,31 +244,60 @@ impl CrawlRun {
     /// # Errors
     ///
     /// An item is `dataset_unknown` for a Dataset the crawl does not
-    /// declare, `closed` once the connection has ended, and the engine's
-    /// error when the read fails, after which the stream ends.
+    /// declare, `record_invalid` for a Record `I` refuses, `closed` once
+    /// the connection has ended, and the engine's error when the read
+    /// fails, after which the stream ends.
     ///
     /// # Cancel safety
     ///
     /// Dropping the stream cancels the read, and leaves the Run as it is.
-    pub fn records<I>(&self, dataset: &Dataset<I>) -> EventStream<DatasetRecord> {
-        let reads = self.connection.stream::<RecordRead>(
-            RUN_RECORDS.name,
-            &self.records_params(dataset),
-            RECORD,
-        );
-        EventStream::from_items(reads.map(|read| read.map(|read| read.record)))
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> ReadRecords<I> {
+        ReadRecords::new(
+            self.connection.clone(),
+            self.id().clone(),
+            &dataset.name,
+            Reach::Follows,
+        )
     }
 
-    /// The read of all of `dataset`'s Records in the Run, from the first,
-    /// which [`CrawlRun::records`] and its blocking twin send.
-    pub(crate) fn records_params<I>(&self, dataset: &Dataset<I>) -> RunRecordsParams {
-        RunRecordsParams {
-            run_id: self.id().clone(),
-            dataset: dataset.name.to_string(),
-            after: None,
-            through: None,
-            wall: None,
-        }
+    /// Reads one Dataset's rejection table from a crawl's committed state:
+    /// each Record rejected rather than committed, numbered from 1 in
+    /// commit order, with the Record as JSON, the reason, each issue's
+    /// path, the Hook when one rejected it, and the request's ID and URL.
+    /// It starts at the first entry, or after `after`, the number a reader
+    /// last handled. While the Run is live and nothing follows, it waits
+    /// for the next commit; a page says `ended` once the Run has ended, or
+    /// has no live writer, and no entry follows. With `through`, such as
+    /// the `rejected` count `dataset.list` answers, it reads no entry
+    /// numbered past it, and a page says `ended` once it reaches it, a live
+    /// Run's included, without waiting. A reader never slows the Run. A
+    /// Dataset the crawl does not declare fails with `dataset_unknown`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Each entry is a [`RejectedRecord`]; the stream reads the table page
+    /// after page and ends with the page that says it ended (ADR 0104).
+    /// [`ReadRejectedRecords::after`] sets `after`; a handler reads through
+    /// [`AttemptRun::rejected_records`](crate::AttemptRun::rejected_records),
+    /// which sets `through`.
+    ///
+    /// # Errors
+    ///
+    /// An item is `dataset_unknown` for a Dataset the crawl does not
+    /// declare, `closed` once the connection has ended, and the engine's
+    /// error when a page's read fails, after which the stream ends.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the stream cancels the page being read, and leaves the Run
+    /// as it is.
+    pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.connection.clone(),
+            self.id().clone(),
+            &dataset.name,
+            Reach::Follows,
+        )
     }
 
     /// The Run's report, which the engine answers once the Run ends.

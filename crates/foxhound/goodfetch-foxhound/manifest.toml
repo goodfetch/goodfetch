@@ -667,6 +667,14 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "CrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -892,6 +900,91 @@ member = "key_value_store"
 entry = "none"
 reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
 words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "records"
+entry = "none"
+reason = "Reads `run.records` through the last Record `dataset.page` answers as committed, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "rejected_records"
+entry = "none"
+reason = "Reads `run.rejected_records` through the last entry `dataset.list` counts, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "DatasetRecord"
+entry = "none"
+reason = "A committed Record as a Run's `records` reads it: the wire's Record with its value of the Dataset's own type, parsed by its `Deserialize` (ADR 0103, G3)."
+words = ["dataset", "record"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ReadRecords"
+entry = "none"
+reason = "The builder `CrawlRun::records` and `AttemptRun::records` return, a stream that sends `run.records` once first polled (ADR 0099)."
+only = "TypeScript's `records` takes its options as an object, `RecordsOptions`, and Python's as keyword arguments."
+words = ["read", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last Record a reader handled, carried by `run.records`, with no round trip of its own."
+only = "TypeScript's `records` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRecords"
+member = "next"
+entry = "none"
+reason = "The next Record, or `None` once the read has ended; the first call sends the read."
+words = ["next"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ReadRejectedRecords"
+entry = "none"
+reason = "The builder `CrawlRun::rejected_records` and `AttemptRun::rejected_records` return, a stream that reads `run.rejected_records` page after page once first polled (ADR 0099)."
+only = "TypeScript's `rejectedRecords` takes its options as an object, `RejectedRecordsOptions`, and Python's as keyword arguments."
+words = ["read", "rejected", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRejectedRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last entry a reader handled, carried by `run.rejected_records`, with no round trip of its own."
+only = "TypeScript's `rejectedRecords` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRejectedRecords"
+member = "next"
+entry = "none"
+reason = "The next entry, or `None` once the read has ended; the first call asks the first page."
+words = ["next"]
 form = "read"
 
 [[member]]
@@ -1293,6 +1386,14 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::CrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -1482,6 +1583,64 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "records"
+entry = "none"
+reason = "`AttemptRun::records` without async: reads `run.records` through the last Record `dataset.page` answers as committed, then ends (ADRs 0081, 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "rejected_records"
+entry = "none"
+reason = "`AttemptRun::rejected_records` without async: reads `run.rejected_records` through the last entry `dataset.list` counts, then ends (ADRs 0081, 0103)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ReadRecords"
+entry = "none"
+reason = "`ReadRecords` without async: the builder `blocking::CrawlRun::records` and `blocking::AttemptRun::records` return, an iterator that sends `run.records` once first advanced (ADRs 0081, 0099)."
+only = "TypeScript's `records` takes its options as an object, `RecordsOptions`, and Python's as keyword arguments."
+words = ["read", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last Record a reader handled, carried by `run.records`, with no round trip of its own."
+only = "TypeScript's `records` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ReadRejectedRecords"
+entry = "none"
+reason = "`ReadRejectedRecords` without async: the builder `blocking::CrawlRun::rejected_records` and `blocking::AttemptRun::rejected_records` return, an iterator that reads `run.rejected_records` page after page once first advanced (ADRs 0081, 0099)."
+only = "TypeScript's `rejectedRecords` takes its options as an object, `RejectedRecordsOptions`, and Python's as keyword arguments."
+words = ["read", "rejected", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadRejectedRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last entry a reader handled, carried by `run.rejected_records`, with no round trip of its own."
+only = "TypeScript's `rejectedRecords` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "blocking"
 member = "Enqueue"
 entry = "none"
@@ -1650,10 +1809,6 @@ reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl
 [[unreached]]
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
-
-[[unreached]]
-entries = ["run.rejected_records"]
-reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[target]]
 crate = "goodfetch-collie-client"

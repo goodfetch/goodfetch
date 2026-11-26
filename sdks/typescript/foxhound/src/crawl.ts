@@ -13,9 +13,11 @@ import type {
   Page,
   SchemaInput,
   SchemaOutput,
+  Sequence,
   TypedSchema,
 } from "@goodfetch/collie-client";
 import { nonJSON, parse, wireSchema, type SchemaIssue } from "@goodfetch/collie-client/runtime";
+import type { RecordsOptions, RejectedRecordsOptions } from "./crawl-run.ts";
 import type {
   CrawlRequestEnqueueLinksParams,
   CrawlStartParams,
@@ -27,6 +29,7 @@ import type {
   InvalidRecord,
   LabelDeclaration,
   MatchedLink,
+  RejectedRecord,
   RequestSeed,
   Seed,
   SitemapSeed,
@@ -403,6 +406,30 @@ export interface AttemptRun {
    * call fails.
    */
   readonly keyValueStore: KeyValueStore;
+  /**
+   * Reads `dataset`'s Records as the Run's own `records` does, through the
+   * last one committed when the read is sent, then ends (ADR 0103): it
+   * never follows the Run, which cannot end while this attempt holds its
+   * request. It reads only what has committed, never the attempt's own
+   * staged Records.
+   *
+   * @experimental
+   */
+  records<I extends object, O>(
+    dataset: Dataset<I, O>,
+    options?: RecordsOptions,
+  ): Sequence<DatasetRecord<O>>;
+  /**
+   * Reads `dataset`'s rejected Records as the Run's own `rejectedRecords`
+   * does, through the last entry rejected when the read is sent, then ends
+   * (ADR 0103), never waiting for the Run.
+   *
+   * @experimental
+   */
+  rejectedRecords<I extends object, O>(
+    dataset: Dataset<I, O>,
+    options?: RejectedRecordsOptions,
+  ): Sequence<RejectedRecord>;
 }
 
 /**

@@ -28,7 +28,7 @@ use serde_json::json;
 use tokio::sync::Notify;
 
 use super::blocked::scripted_daemon;
-use super::catalog::{SEED, TASK, catalog, judged};
+use super::catalog::{SEED, TASK, catalog, judged, products_json};
 use super::crawl::options;
 
 /// The Proving ground's seed the crawls of one site read.
@@ -93,7 +93,7 @@ fn finished(settings: impl FnOnce(&str) -> Settings) -> Finished {
     let settings = settings(&start);
     let (report, records) = real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
-        let (crawl, listing, products) = catalog();
+        let (crawl, listing) = catalog();
         let run = foxhound
             .start_crawl(&crawl, [Seed::new(&start, &listing, ())])
             .settings(settings)
@@ -103,7 +103,7 @@ fn finished(settings: impl FnOnce(&str) -> Settings) -> Finished {
         let finished: Answer<CrawlRunReport> = run.finish().await.unwrap();
         let reported: Answer<CrawlRunReport> = run.report().await.unwrap();
         let mut records = Vec::new();
-        let mut read = run.records(&products);
+        let mut read = run.records(&products_json());
         while let Some(record) = read.next().await {
             records.push(record.unwrap().value);
         }

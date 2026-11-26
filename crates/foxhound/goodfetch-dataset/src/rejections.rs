@@ -96,10 +96,10 @@ pub(crate) struct Page {
 /// has.
 pub type RequestUrl = fn(&Connection, &str) -> rusqlite::Result<Option<String>>;
 
-/// The entries of `dataset`'s rejection table after `after`, at most a
-/// page, in number order, read in one transaction. Each entry's URL is its
-/// crawl request's, as `request_url` reads it, empty for a request it does
-/// not find.
+/// The entries of `dataset`'s rejection table after `after`, and through
+/// `through` when it is given, at most a page, in number order, read in one
+/// transaction. Each entry's URL is its crawl request's, as `request_url`
+/// reads it, empty for a request it does not find.
 ///
 /// # Errors
 ///
@@ -109,14 +109,16 @@ pub(crate) fn page(
     connection: &Connection,
     dataset: &str,
     after: u64,
+    through: Option<u64>,
     request_url: RequestUrl,
 ) -> rusqlite::Result<Page> {
+    let through = through.unwrap_or(u64::MAX);
     let transaction = connection.unchecked_transaction()?;
     let records = transaction
         .prepare_cached(
             "SELECT number, data, rejection, work_item
              FROM rejected_records
-             WHERE dataset = ?1 AND number > ?2
+             WHERE dataset = ?1 AND number > ?2 AND number <= ?4
              ORDER BY number LIMIT ?3",
         )?
         .query_map(
@@ -124,6 +126,7 @@ pub(crate) fn page(
                 dataset,
                 integer(after),
                 integer(u64::try_from(REJECTED_RECORDS_PAGE).unwrap_or(u64::MAX)),
+                integer(through),
             ),
             |row| {
                 Ok((
@@ -162,7 +165,10 @@ pub(crate) fn page(
     transaction.finish()?;
     let next = match records.last() {
         Some(entry) if records.len() == REJECTED_RECORDS_PAGE => entry.number,
-        _ => u64::try_from(last).unwrap_or_default().max(after),
+        _ => u64::try_from(last)
+            .unwrap_or_default()
+            .min(through)
+            .max(after),
     };
     Ok(Page { records, next })
 }

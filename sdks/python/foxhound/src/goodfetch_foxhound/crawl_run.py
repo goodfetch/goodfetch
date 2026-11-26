@@ -20,7 +20,16 @@ import functools
 import traceback
 import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    cast,
+    final,
+)
 
 import anyio
 import anyio.to_thread
@@ -42,6 +51,7 @@ from goodfetch_collie_client.portal import CallGroup, LoopStopped
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.sequence import Sequence
 from goodfetch_collie_client.settings import settings_on_wire
+from pydantic import BaseModel, ConfigDict
 
 from goodfetch_foxhound.crawl import (
     AsyncAttemptRun,
@@ -58,7 +68,7 @@ from goodfetch_foxhound.crawl import (
     payload_of,
     read_record,
 )
-from goodfetch_foxhound.generated.errors import HandlerFailedError
+from goodfetch_foxhound.generated.errors import HandlerFailedError, RecordInvalidError
 from goodfetch_foxhound.generated.models import (
     CrawlDeclaration,
     CrawlExtraction,
@@ -66,6 +76,9 @@ from goodfetch_foxhound.generated.models import (
     CrawlRunProgress,
     CrawlRunReport,
     CrawlStartParams,
+    DatasetList,
+    DatasetListParams,
+    DatasetPageParams,
     RejectedRecord,
     RejectedRecords,
     RunRejectedRecordsParams,
@@ -94,7 +107,6 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.portal import PrivateLoop
     from goodfetch_collie_client.sequence import AsyncSequence
-    from pydantic import BaseModel
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Dataset
     from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
@@ -120,6 +132,9 @@ RECORD = "$/record"
 
 R = TypeVar("R")
 """What a Dataset's Records read as."""
+
+_Item = TypeVar("_Item")
+"""What a read hands the program, one at a time."""
 
 
 class _Served(Protocol):
@@ -250,8 +265,11 @@ class AsyncCrawlRun(AsyncRun):
         the first entry, or after `after`, the number a reader last handled.
         While the Run is live and nothing follows, it waits for the next
         commit; a page says `ended` once the Run has ended, or has no live
-        writer, and no entry follows. A reader never slows the Run. A Dataset
-        the crawl does not declare fails with `dataset_unknown`.
+        writer, and no entry follows. With `through`, such as the `rejected`
+        count `dataset.list` answers, it reads no entry numbered past it, and
+        a page says `ended` once it reaches it, a live Run's included,
+        without waiting. A reader never slows the Run. A Dataset the crawl
+        does not declare fails with `dataset_unknown`.
 
         Each entry's `data` is the Record's JSON as it was pushed, never
         parsed. The read goes page after page: its first page is asked when
@@ -267,10 +285,84 @@ class AsyncCrawlRun(AsyncRun):
             ClosedError: The Run is closed; nothing is sent.
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
+        return self._rejected(dataset, after, committed=False)
+
+    def _committed_records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> AsyncSequence[DatasetRecord[R]]:
+        """`ctx.run.records`: the Records of `dataset` committed when it is sent.
+
+        It pages `dataset.page`, whose `through` bounds every page to the
+        last Record committed when the first was read, rather than following
+        `run.records`, whose stream would hold the Run's order while the
+        first page is asked (ADR 0103).
+        """
+        warn_entry("run.records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        host = self._host
+        through: int | None = None
+        refused: RecordInvalidError | None = None
+
+        async def read(position: int | None) -> _CommittedRecords[R]:
+            nonlocal through, refused
+            if refused is not None:
+                # The Records before it were read: the read ends on it.
+                raise refused
+            params = DatasetPageParams(
+                run_id=host.id,
+                dataset=dataset.name,
+                after=after if position is None else position,
+                through=through,
+            )
+            page = result_of(_CommittedPage, await host.call("dataset.page", params))
+            through = page.through
+            records: list[DatasetRecord[R]] = []
+            for record in page.records:
+                try:
+                    records.append(read_record(dataset, record))
+                except RecordInvalidError as error:
+                    refused = error
+                    break
+            return _CommittedRecords(
+                records, page.next or 0, ended=refused is None and page.next is None
+            )
+
+        return self._paged(
+            "run.records",
+            read,
+            items=lambda page: page.records,
+            position=lambda page: page.next,
+            last=lambda page: page.ended,
+            credits=CREDITS,
+            regrant=REGRANT,
+        )
+
+    def _rejected(
+        self, dataset: Dataset[Any], after: int | None, *, committed: bool
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset`, followed, or `committed` when it is sent.
+
+        A `committed` read, `ctx.run.rejected_records`, reads through the
+        `rejected` count `dataset.list` answers first, the last entry's
+        number since entries have no gaps, so it ends on a live Run (ADR
+        0103).
+        """
         warn_entry(
             "run.rejected_records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
         )
         host = self._host
+        bound: int | None = None
+
+        async def through() -> int | None:
+            # Asked once, before the first page: every page reads through it.
+            nonlocal bound
+            if committed and bound is None:
+                answer = await host.call(
+                    "dataset.list", DatasetListParams(run_id=host.id)
+                )
+                summaries = result_of(DatasetList, answer).datasets
+                rejected = (s.rejected for s in summaries if s.name == dataset.name)
+                bound = next(rejected, 0)
+            return bound
 
         async def read(position: int | None) -> RejectedRecords:
             # The first page is read past `after`, each next past the last.
@@ -279,6 +371,10 @@ class AsyncCrawlRun(AsyncRun):
                 dataset=dataset.name,
                 after=after if position is None else position,
             )
+            bound = await through()
+            if bound is not None:
+                # Set only when bounded: an unset field stays off the wire.
+                params = params.model_copy(update={"through": bound})
             answer = await host.call("run.rejected_records", params)
             return result_of(RejectedRecords, answer)
 
@@ -454,7 +550,7 @@ class AsyncCrawlRun(AsyncRun):
             )
             operations = AsyncFoxhoundOperations(self._host)
             store = self._attempt_key_value_store(lease.key_value_store_attempt())
-            run = AsyncAttemptRun(self.id, store)
+            run = AsyncAttemptRun(self.id, store, _AttemptReads(self))
             context = AsyncCrawlContext(crawl_request, lease, run, operations, page)
             await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
                 context
@@ -468,7 +564,9 @@ class AsyncCrawlRun(AsyncRun):
             None if page_id is None else threaded.page_of(page_id, request.session.id)
         )
         sync_run = AttemptRun(
-            self.id, threaded.key_value_store(lease.key_value_store_attempt())
+            self.id,
+            threaded.key_value_store(lease.key_value_store_attempt()),
+            _ThreadedReads(threaded.loop, _AttemptReads(self)),
         )
         sync_context = CrawlContext(
             crawl_request,
@@ -548,7 +646,7 @@ class CrawlRun(Run):
         super().__init__(loop, run)
         self._crawl_run = run
         _threaded[run] = _Threaded(
-            self._host, self._sessions, self._attempt_key_value_store
+            loop, self._host, self._sessions, self._attempt_key_value_store
         )
 
     def records(
@@ -594,11 +692,7 @@ class CrawlRun(Run):
         async def reading() -> AsyncSequence[DatasetRecord[R]]:
             return run.records(dataset, after=after)
 
-        try:
-            sequence = self._loop.call(reading)
-        except LoopStopped:
-            raise closed_error("run.records") from None
-        return Sequence(self._loop, sequence, lambda: closed_error("run.records"))
+        return _on_thread(self._loop, "run.records", reading)
 
     def rejected_records(
         self, dataset: Dataset[Any], *, after: int | None = None
@@ -612,8 +706,11 @@ class CrawlRun(Run):
         the first entry, or after `after`, the number a reader last handled.
         While the Run is live and nothing follows, it waits for the next
         commit; a page says `ended` once the Run has ended, or has no live
-        writer, and no entry follows. A reader never slows the Run. A Dataset
-        the crawl does not declare fails with `dataset_unknown`.
+        writer, and no entry follows. With `through`, such as the `rejected`
+        count `dataset.list` answers, it reads no entry numbered past it, and
+        a page says `ended` once it reaches it, a live Run's included,
+        without waiting. A reader never slows the Run. A Dataset the crawl
+        does not declare fails with `dataset_unknown`.
 
         Each entry's `data` is the Record's JSON as it was pushed, never
         parsed. The read goes page after page, each next page once the
@@ -636,13 +733,7 @@ class CrawlRun(Run):
         async def reading() -> AsyncSequence[RejectedRecord]:
             return run.rejected_records(dataset, after=after)
 
-        try:
-            sequence = self._loop.call(reading)
-        except LoopStopped:
-            raise closed_error("run.rejected_records") from None
-        return Sequence(
-            self._loop, sequence, lambda: closed_error("run.rejected_records")
-        )
+        return _on_thread(self._loop, "run.rejected_records", reading)
 
     def finish(
         self, *, timeout: timedelta | NotGiven | None = not_given
@@ -731,6 +822,100 @@ class CrawlRun(Run):
         return cast("Sequence[CrawlRunProgress]", super().progress())
 
 
+class _CommittedPage(BaseModel):
+    """One page of `dataset.page`, its Records ready to read as their Dataset's type."""
+
+    model_config = ConfigDict(extra="allow")
+    next: int | None = None
+    """The next page's `after`; absent once no Record follows."""
+    records: list[DatasetRecord[Any]]
+    """The Records, in number order."""
+    through: int
+    """The last Record committed when the first page was read."""
+
+
+@dataclass(frozen=True)
+class _CommittedRecords(Generic[R]):
+    """One page of a handler's committed read, its Records of their Dataset's type."""
+
+    records: list[DatasetRecord[R]]
+    """The Records its Dataset's model read, up to one it refused."""
+    next: int
+    """The next page's `after`."""
+    ended: bool
+    """Whether no Record follows and none was refused."""
+
+
+@final
+class _AttemptReads:
+    """What an `AsyncAttemptRun` reads its Run's committed Records through."""
+
+    def __init__(self, run: AsyncCrawlRun) -> None:
+        """Takes the crawl's Run the attempt belongs to."""
+        self._run = run
+
+    def records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> AsyncSequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is sent, past `after`."""
+        return self._run._committed_records(dataset, after)  # pyright: ignore[reportPrivateUsage]
+
+    def rejected_records(
+        self, dataset: Dataset[Any], after: int | None
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        return self._run._rejected(dataset, after, committed=True)  # pyright: ignore[reportPrivateUsage]
+
+
+@final
+class _ThreadedReads:
+    """What an `AttemptRun` reads its Run's committed Records through, on the loop."""
+
+    def __init__(self, loop: PrivateLoop, reads: _AttemptReads) -> None:
+        """Takes the Connection's private loop and the async reads it drives there."""
+        self._loop = loop
+        self._reads = reads
+
+    def records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> Sequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is sent, past `after`."""
+        reads = self._reads
+
+        async def reading() -> AsyncSequence[DatasetRecord[R]]:
+            return reads.records(dataset, after)
+
+        return _on_thread(self._loop, "run.records", reading)
+
+    def rejected_records(
+        self, dataset: Dataset[Any], after: int | None
+    ) -> Sequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        reads = self._reads
+
+        async def reading() -> AsyncSequence[RejectedRecord]:
+            return reads.rejected_records(dataset, after)
+
+        return _on_thread(self._loop, "run.rejected_records", reading)
+
+
+def _on_thread(
+    loop: PrivateLoop,
+    operation: str,
+    reading: Callable[[], Awaitable[AsyncSequence[_Item]]],
+) -> Sequence[_Item]:
+    """The async read `reading` opens on `loop`, read from the calling thread.
+
+    Raises:
+        ClosedError: The Connection is closed; nothing is sent.
+    """
+    try:
+        sequence = loop.call(reading)
+    except LoopStopped:
+        raise closed_error(operation) from None
+    return Sequence(loop, sequence, lambda: closed_error(operation))
+
+
 @dataclass(frozen=True)
 class _Threaded:
     """What a sync crawl's handlers reach its Run through, from the loop.
@@ -739,6 +924,8 @@ class _Threaded:
     `CrawlRun`, which holds the async Run that keys it in `_threaded`.
     """
 
+    loop: PrivateLoop
+    """The Connection's private loop, which its handlers' reads run on."""
     host: HandleHost[RunId]
     """The sync host its handlers call through."""
     sessions: dict[str, tuple[HandleHost[SessionId], Session]]

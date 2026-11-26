@@ -356,16 +356,25 @@ fn record_refused(dataset: &str, error: &SchemaError) -> Error {
         &RECORD_INVALID,
         &format!("the Dataset `{dataset}` did not stage the Record: {error}"),
         "Push a Record that is JSON and that its type's `Deserialize` reads back as it was given.",
-        &RecordInvalidDetails {
-            dataset: dataset.to_owned(),
-            records: vec![InvalidRecord {
-                position: 0,
-                issues: vec![RecordIssue {
-                    path,
-                    message: error.to_string(),
-                }],
-            }],
-            number: None,
-        },
+        &one_invalid_record(dataset, path, error.to_string(), None),
     )
+}
+
+/// The details of a `record_invalid` that names one Record of `dataset`,
+/// at position 0, with one issue at `path`, a JSON Pointer, and its
+/// `number` when it is a committed Record a reader could not parse.
+pub(super) fn one_invalid_record(
+    dataset: &str,
+    path: String,
+    message: String,
+    number: Option<u64>,
+) -> RecordInvalidDetails {
+    RecordInvalidDetails {
+        dataset: dataset.to_owned(),
+        records: vec![InvalidRecord {
+            position: 0,
+            issues: vec![RecordIssue { path, message }],
+        }],
+        number,
+    }
 }

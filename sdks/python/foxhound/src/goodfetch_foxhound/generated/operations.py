@@ -178,7 +178,7 @@ class AsyncFoxhoundOperations:
         return result_of(RecordsRead, await self._caller.call("run.records", params))
 
     async def run_rejected_records(self, params: RunRejectedRecordsParams) -> RejectedRecords:
-        """Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.
+        """Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. With `through`, such as the `rejected` count `dataset.list` answers, it reads no entry numbered past it, and a page says `ended` once it reaches it, a live Run's included, without waiting. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -369,7 +369,7 @@ class FoxhoundOperations:
         return result_of(RecordsRead, self._caller.call("run.records", params))
 
     def run_rejected_records(self, params: RunRejectedRecordsParams) -> RejectedRecords:
-        """Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.
+        """Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. With `through`, such as the `rejected` count `dataset.list` answers, it reads no entry numbered past it, and a page says `ended` once it reaches it, a live Run's included, without waiting. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

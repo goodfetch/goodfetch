@@ -4,8 +4,16 @@
 // through it commits with the attempt's Records and enqueues or is
 // discarded with them, while a write through the program's own Run value,
 // captured by the handler, commits at once, on every attempt that runs it
-// (ADRs 0093 and 0103).
-import { Crawl, Foxhound, seed, type CrawlRun, type DatasetRecord } from "@goodfetch/foxhound";
+// (ADRs 0093 and 0103). Its reads of Records and rejections end at what
+// had committed.
+import {
+  Crawl,
+  Foxhound,
+  RecordInvalidError,
+  seed,
+  type CrawlRun,
+  type DatasetRecord,
+} from "@goodfetch/foxhound";
 import { judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { describe, expect } from "vitest";
 import { crawlListing, type Product } from "./programs/catalog.ts";
@@ -149,6 +157,60 @@ describe("a handler's `ctx.run` on an Attached engine", () => {
       expect(seen).toEqual([sees(1, [null, null]), sees(2, [null, 1])]);
       expect(ids).toEqual([run.id(), run.id()]);
       expect(committed).toEqual([2, null, 2]);
+    },
+  );
+
+  test(
+    "reads through `ctx.run` the Records and rejections its Run had committed, not its own attempt's, and each read ends while the Run is live",
+    { tags: ["attached", "story:11-1060", "story:11-1061"] },
+    async ({ env, provingGround }) => {
+      const start = await taskStartUrl(provingGround, "catalog/1");
+      const crawl = new Crawl();
+      const page = crawl.label("page");
+      const notes = crawl.dataset<{ readonly id?: string; readonly name?: string }>("notes", {
+        key: ["id"],
+      });
+      const read: unknown[] = [];
+      crawl.handle(page, async (context) => {
+        const first = read.length === 0;
+        // The first request pushes a Record the Run commits and one the
+        // engine rejects for its missing key; the second one more Record.
+        const pushed = first ? [{ id: "kept" }, { name: "keyless" }] : [{ id: "own" }];
+        for (const record of pushed) {
+          await context.push(notes, record).catch((error: unknown) => {
+            if (!(error instanceof RecordInvalidError)) throw error;
+          });
+        }
+        const values: unknown[] = [];
+        for await (const record of context.run.records(notes)) values.push(record.value);
+        const rejections: unknown[] = [];
+        for await (const entry of context.run.rejectedRecords(notes)) {
+          rejections.push([entry.number, entry.data]);
+        }
+        read.push([values, rejections]);
+        if (first) await context.enqueue(start, page, { key: "second" });
+      });
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const foxhound = await Foxhound.connect({ env });
+
+      const run = await foxhound.startCrawl(crawl, {
+        seeds: [seed(start, page)],
+        // At `full` each attempt's outcome is committed as it ends: at
+        // `batch` a reader sees it only once its batch is written (ADR 0142).
+        settings: {
+          fetch: { tier: "http" },
+          crawl: { handler: { concurrency: 1 } },
+          runState: { durability: "full" },
+        },
+      });
+      const report = await run.finish();
+      await foxhound.close();
+
+      expect(report.lifecycle).toBe("finished");
+      expect(read).toEqual([
+        [[], []],
+        [[{ id: "kept" }], [[1, { name: "keyless" }]]],
+      ]);
     },
   );
 });

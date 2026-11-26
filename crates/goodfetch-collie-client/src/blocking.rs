@@ -70,6 +70,14 @@ impl ClientConnection {
         EventIter::new(self.0.stream(method, params, item), &self.0)
     }
 
+    /// The blocking face of `stream`, a stream on this Connection that a
+    /// Product builds of its own, such as Foxhound's Records read as their
+    /// Dataset's type: an iterator that blocks the calling thread until
+    /// its next item.
+    pub fn iter<T: Send + 'static>(&self, stream: crate::EventStream<T>) -> EventIter<T> {
+        EventIter::new(stream, &self.0)
+    }
+
     /// The raw call of `operation`, as
     /// [`crate::ClientConnection::raw_call`]'s, which `send()` sends.
     pub fn raw_call(&self, operation: &str) -> RawCall {

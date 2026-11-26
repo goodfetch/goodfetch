@@ -50,6 +50,7 @@ use crate::sync::AtomicU64;
 mod context;
 mod declaration;
 mod handles;
+mod records;
 mod run;
 #[cfg(test)]
 mod tests;
@@ -59,6 +60,7 @@ pub use context::{AttemptRun, CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
 pub use declaration::{DatasetDeclaration, LabelDeclaration};
 use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
+pub use records::{DatasetRecord, ReadRecords, ReadRejectedRecords};
 pub use run::{CrawlCall, CrawlRun};
 
 /// The source of each crawl's own number, which its Labels and Datasets

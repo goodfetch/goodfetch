@@ -10,9 +10,9 @@ use std::future::IntoFuture as _;
 use std::sync::Arc;
 
 use goodfetch_collie_client::{Answer, BoxError, Error, Limits};
-use goodfetch_protocol::foxhound::dataset::{DatasetRecord, RECORD, RUN_RECORDS, RecordRead};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, HttpMethod};
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
+use goodfetch_protocol::foxhound::rejections::RejectedRecord;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RunFinishParams, RunId, RunParams, RunStopParams, Tags};
 use serde::Serialize;
@@ -20,7 +20,9 @@ use serde::de::DeserializeOwned;
 
 use super::{Call, EventIter, Foxhound, Run, blocking};
 use crate::settings::Settings;
-use crate::{Dataset, DatasetDeclaration, Label, LabelDeclaration, LinkPayload, Seed};
+use crate::{
+    Dataset, DatasetDeclaration, DatasetRecord, Label, LabelDeclaration, LinkPayload, Seed,
+};
 
 /// A crawl the program declares, as [`crate::Crawl`], whose handlers are
 /// plain functions and whose [`Crawl::serve`] blocks. It holds no
@@ -149,19 +151,54 @@ impl Crawl {
 /// A crawl's Run bound to one attempt of its handler, as
 /// [`crate::AttemptRun`].
 #[derive(Clone, Debug)]
-pub struct AttemptRun(crate::AttemptRun);
+pub struct AttemptRun {
+    inner: crate::AttemptRun,
+    connection: blocking::ClientConnection,
+}
 
 impl AttemptRun {
     /// The Run's ID, read without a round trip.
     pub fn id(&self) -> &RunId {
-        self.0.id()
+        self.inner.id()
     }
 
     /// The Run's Key-value store, its writes staged with the attempt, as
     /// [`crate::AttemptRun::key_value_store`].
     #[must_use]
     pub fn key_value_store(&self) -> blocking::KeyValueStore {
-        blocking::KeyValueStore::from(self.0.key_value_store())
+        blocking::KeyValueStore::from(self.inner.key_value_store())
+    }
+
+    /// The Records of `dataset` committed when the read is first iterated,
+    /// as [`crate::AttemptRun::records`], as an iterator that blocks the
+    /// calling thread until the next one, and ends once it read them.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::records`]'s does, after which
+    /// the iterator ends.
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> ReadRecords<I> {
+        ReadRecords::new(self.inner.records(dataset), self.connection.clone())
+    }
+
+    /// The entries of `dataset`'s rejection table committed when the read
+    /// is first iterated, as [`crate::AttemptRun::rejected_records`], as an
+    /// iterator that blocks the calling thread until the next one, and
+    /// ends once it read them.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::rejected_records`]'s does,
+    /// after which the iterator ends.
+    pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.inner.rejected_records(dataset),
+            self.connection.clone(),
+        )
     }
 }
 
@@ -208,7 +245,10 @@ impl<P> CrawlContext<P> {
     /// [`crate::CrawlContext::run`].
     #[must_use]
     pub fn run(&self) -> AttemptRun {
-        AttemptRun(self.inner.run().clone())
+        AttemptRun {
+            inner: self.inner.run().clone(),
+            connection: self.blocking_connection(),
+        }
     }
 
     /// Already navigated. The handler runs once the request's navigation
@@ -712,17 +752,128 @@ impl CrawlRun {
     ///
     /// An item fails as [`crate::CrawlRun::records`]'s does, after which
     /// the iterator ends.
-    pub fn records<I>(
-        &self,
-        dataset: &Dataset<I>,
-    ) -> impl Iterator<Item = Result<DatasetRecord, Error>> + Send + 'static {
-        self.connection
-            .stream::<RecordRead>(
-                RUN_RECORDS.name,
-                &self.inner.records_params(dataset),
-                RECORD,
-            )
-            .map(|read| read.map(|read| read.record))
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> ReadRecords<I> {
+        ReadRecords::new(self.inner.records(dataset), self.connection.clone())
+    }
+
+    /// Reads one Dataset's rejection table from a crawl's committed state:
+    /// each Record rejected rather than committed, numbered from 1 in
+    /// commit order, with the Record as JSON, the reason, each issue's
+    /// path, the Hook when one rejected it, and the request's ID and URL.
+    /// It starts at the first entry, or after `after`, the number a reader
+    /// last handled. While the Run is live and nothing follows, it waits
+    /// for the next commit; a page says `ended` once the Run has ended, or
+    /// has no live writer, and no entry follows. With `through`, such as
+    /// the `rejected` count `dataset.list` answers, it reads no entry
+    /// numbered past it, and a page says `ended` once it reaches it, a live
+    /// Run's included, without waiting. A reader never slows the Run. A
+    /// Dataset the crawl does not declare fails with `dataset_unknown`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The entries of `dataset`'s rejection table, as
+    /// [`crate::CrawlRun::rejected_records`], as an iterator that blocks
+    /// the calling thread until the next one. Dropping it cancels the page
+    /// being read.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::rejected_records`]'s does,
+    /// after which the iterator ends.
+    pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.inner.rejected_records(dataset),
+            self.connection.clone(),
+        )
+    }
+}
+
+/// The read of one Dataset's Records, as [`crate::ReadRecords`], as an
+/// iterator that blocks the calling thread until the next one. It is sent
+/// when first iterated; dropping it cancels the read.
+#[must_use = "a read sends nothing until it is iterated"]
+#[derive(Debug)]
+pub struct ReadRecords<I> {
+    /// The read, until first iterated.
+    unsent: Option<crate::ReadRecords<I>>,
+    /// The read, once sent.
+    sent: Option<EventIter<DatasetRecord<I>>>,
+    connection: blocking::ClientConnection,
+}
+
+impl<I> ReadRecords<I> {
+    fn new(read: crate::ReadRecords<I>, connection: blocking::ClientConnection) -> Self {
+        Self {
+            unsent: Some(read),
+            sent: None,
+            connection,
+        }
+    }
+
+    /// Reads the Records numbered past `after`, as
+    /// [`crate::ReadRecords::after`]. Set before the read is first
+    /// iterated.
+    pub fn after(mut self, after: u64) -> Self {
+        self.unsent = self.unsent.map(|read| read.after(after));
+        self
+    }
+}
+
+impl<I: DeserializeOwned + Send + Sync + 'static> Iterator for ReadRecords<I> {
+    type Item = Result<DatasetRecord<I>, Error>;
+
+    /// The next Record, blocking until it comes, or `None` once the read
+    /// ended.
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(read) = self.unsent.take() {
+            self.sent = Some(self.connection.iter(read.sent()));
+        }
+        self.sent.as_mut()?.next()
+    }
+}
+
+/// The read of one Dataset's rejection table, as
+/// [`crate::ReadRejectedRecords`], as an iterator that blocks the calling
+/// thread until the next entry. It is sent when first iterated; dropping
+/// it cancels the page being read.
+#[must_use = "a read sends nothing until it is iterated"]
+#[derive(Debug)]
+pub struct ReadRejectedRecords {
+    /// The read, until first iterated.
+    unsent: Option<crate::ReadRejectedRecords>,
+    /// The read, once sent.
+    sent: Option<EventIter<RejectedRecord>>,
+    connection: blocking::ClientConnection,
+}
+
+impl ReadRejectedRecords {
+    fn new(read: crate::ReadRejectedRecords, connection: blocking::ClientConnection) -> Self {
+        Self {
+            unsent: Some(read),
+            sent: None,
+            connection,
+        }
+    }
+
+    /// Reads the entries numbered past `after`, as
+    /// [`crate::ReadRejectedRecords::after`]. Set before the read is first
+    /// iterated.
+    pub fn after(mut self, after: u64) -> Self {
+        self.unsent = self.unsent.map(|read| read.after(after));
+        self
+    }
+}
+
+impl Iterator for ReadRejectedRecords {
+    type Item = Result<RejectedRecord, Error>;
+
+    /// The next entry, blocking until it comes, or `None` once the read
+    /// ended.
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(read) = self.unsent.take() {
+            self.sent = Some(self.connection.iter(read.sent()));
+        }
+        self.sent.as_mut()?.next()
     }
 }
 
@@ -737,4 +888,6 @@ const _: () = {
     send_static::<StartCrawl>();
     send_static::<Enqueue>();
     send_static::<EnqueueLinks>();
+    send_sync_static::<ReadRecords<()>>();
+    send_sync_static::<ReadRejectedRecords>();
 };

@@ -671,6 +671,16 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "Error"
+member = "fake"
+entry = "none"
+reason = "The error the engine would answer with a code, of the group and retryable flag the catalog gives it, for a program's own tests, behind the `test-util` feature (ADR 0105)."
+only = "Rust builds it on `Error` behind `test-util`, since no struct literal builds it outside the crate; TypeScript's and Python's testing kits hold `fakeError` and `fake_error` (ADR 0105)."
+words = ["fake"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Error"
 member = "refused"
 entry = "none"
 reason = "A call a Product crate's SDK refuses before it is sent, as the engine would refuse its params: `invalid_params`, with `fix` and the operation."

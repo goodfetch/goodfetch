@@ -293,6 +293,37 @@ impl Error {
         Self::of_runtime(defined, what_failed, fix).with_details(details)
     }
 
+    /// The error the engine would answer a call with, of `code` and
+    /// `message`, for a program's own tests (ADR 0105): its group and
+    /// retryable flag are those the catalog gives the code, either
+    /// Product's, and a code neither Product knows, as a newer engine's,
+    /// is `internal` and not retryable.
+    ///
+    /// ```
+    /// use goodfetch_collie_client::{Error, ErrorCode};
+    /// use goodfetch_protocol::catalog::ErrorGroup;
+    ///
+    /// let error = Error::fake(ErrorCode::NAVIGATION_FAILED, "the page never loaded");
+    /// assert_eq!((error.group(), error.retryable()), (ErrorGroup::Page, true));
+    /// ```
+    #[cfg(feature = "test-util")]
+    #[must_use]
+    pub fn fake(code: ErrorCode, message: impl Into<String>) -> Self {
+        let (group, retryable) = entries::error_code(code.as_str())
+            .map_or((ErrorGroup::Internal, false), |defined| {
+                (defined.group, defined.retryable)
+            });
+        Self(Box::new(Inner {
+            code,
+            group,
+            retryable,
+            message: message.into(),
+            data: Map::new(),
+            answered: true,
+            source: None,
+        }))
+    }
+
     /// A call refused before it is sent, as the engine would refuse its
     /// params: `invalid_params`, group `program`, not retryable, with `fix`
     /// and the operation. A Product crate's SDK refuses its own calls'

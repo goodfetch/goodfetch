@@ -138,7 +138,13 @@ describe("A Collie Connection on the Scripted engine", () => {
   test(
     "keeps each value a newer engine sends as it was sent, raising nothing of its own",
     {
-      tags: ["client_case/unknown-values-are-kept", "attached", "story:11-33", "story:11-188"],
+      tags: [
+        "client_case/unknown-values-are-kept",
+        "attached",
+        "story:11-33",
+        "story:11-188",
+        "story:11-1143",
+      ],
     },
     async ({ testEnv, clientCase }) => {
       const env = scriptedEngineEnv(testEnv, "collie", "run/unknown-values-are-kept.json");
@@ -156,7 +162,13 @@ describe("A Collie Connection on the Scripted engine", () => {
   test(
     "keeps the same values from a Daemon",
     {
-      tags: ["client_case/unknown-values-are-kept", "daemon", "story:11-33", "story:11-188"],
+      tags: [
+        "client_case/unknown-values-are-kept",
+        "daemon",
+        "story:11-33",
+        "story:11-188",
+        "story:11-1143",
+      ],
     },
     async ({ testEnv, processes, clientCase }) => {
       const daemon = await startScriptedDaemon(

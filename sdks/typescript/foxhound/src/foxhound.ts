@@ -303,9 +303,7 @@ export class Foxhound implements Connection {
    * `CrawlDeclaration`, whose seeds follow `options.seeds`, or a code-free
    * `extraction`. Each seed names its Label by name. With `detached`, on a
    * Daemon, the Run outlives the program that started it. A start naming
-   * both a declaration and an extraction fails with `setting_invalid`, and
-   * one whose declaration also declares Labels or Datasets of the start's
-   * own with `invalid_params`.
+   * both a declaration and an extraction fails with `setting_invalid`.
    *
    * @experimental
    */
@@ -425,8 +423,11 @@ function crawlShape(
   target: Crawl | CodeFreeCrawl,
 ): Pick<CrawlStartParams, "labels" | "datasets" | "declaration" | "extraction"> {
   if (target instanceof Crawl) return crawlDeclaration(target);
-  if (target.extraction !== undefined) return { extraction: target.extraction };
-  return { declaration: target };
+  if (target.labels === undefined) return { extraction: target.extraction };
+  // A value typed loosely may name both: each goes as its own, and the
+  // engine refuses the start with `setting_invalid`.
+  const { extraction, ...declaration } = target;
+  return { declaration, ...(extraction === undefined ? {} : { extraction }) };
 }
 
 /**

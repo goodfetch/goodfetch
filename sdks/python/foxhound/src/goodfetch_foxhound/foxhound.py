@@ -18,7 +18,7 @@ from __future__ import annotations
 import functools
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from goodfetch_collie_client.connection import ClientConnection, closed_error
 from goodfetch_collie_client.connection_type import AsyncConnection, Connection
@@ -334,6 +334,29 @@ class AsyncFoxhound(AsyncConnection):
             detached=detached,
         )
 
+    @overload
+    async def start_crawl(
+        self,
+        crawl: AsyncCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> AsyncCrawlRun: ...
+    @overload
+    async def start_crawl(
+        self,
+        crawl: CodeFreeCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+        detached: bool = False,
+    ) -> AsyncCrawlRun: ...
     async def start_crawl(
         self,
         crawl: AsyncCrawl | CodeFreeCrawl,
@@ -370,9 +393,9 @@ class AsyncFoxhound(AsyncConnection):
         Records into its Datasets, or from a code-free `CrawlExtraction`
         (ADR 0093); each seed names its Label by name, and the program reads
         a declared Dataset by its name. With `detached`, on a Daemon, its
-        Run outlives the program that started it (ADR 0102); a crawl the
-        program serves, or an engine that is no Daemon, refuses it with
-        `detach_unsupported`.
+        Run outlives the program that started it (ADR 0102), and an engine
+        that is no Daemon refuses it with `detach_unsupported`; a crawl the
+        program serves takes no `detached`, since it waits on its handlers.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -694,6 +717,29 @@ class Foxhound(Connection):
             raise closed_error("catalog_run.start") from None
         return Run(self._loop, run)
 
+    @overload
+    def start_crawl(
+        self,
+        crawl: Crawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+    ) -> CrawlRun: ...
+    @overload
+    def start_crawl(
+        self,
+        crawl: CodeFreeCrawl,
+        *,
+        seeds: Iterable[RequestSeed | SitemapSeed],
+        run_id: str | None = None,
+        tags: Iterable[str] | None = None,
+        limits: Limits | None = None,
+        settings: CrawlSettings | None = None,
+        detached: bool = False,
+    ) -> CrawlRun: ...
     def start_crawl(
         self,
         crawl: Crawl | CodeFreeCrawl,

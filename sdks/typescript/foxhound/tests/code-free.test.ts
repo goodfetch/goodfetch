@@ -37,13 +37,19 @@ const catalog: CrawlDeclaration = {
   settings: { fetch: { tier: "http" }, politeness: { domain: { delay: 0 } } },
 };
 
-/** The values of a `dataset.page` answer's Records. */
-function values(page: unknown): unknown[] {
+/** The values of a `dataset.page` answer's Records, each an object. */
+function values(page: unknown): object[] {
   if (typeof page !== "object" || page === null || !("records" in page)) return [];
   const { records } = page;
   if (!Array.isArray(records)) return [];
-  return records.map((record: unknown) =>
-    typeof record === "object" && record !== null && "value" in record ? record.value : undefined,
+  return records.flatMap((record: unknown) =>
+    typeof record === "object" &&
+    record !== null &&
+    "value" in record &&
+    typeof record.value === "object" &&
+    record.value !== null
+      ? [record.value]
+      : [],
   );
 }
 

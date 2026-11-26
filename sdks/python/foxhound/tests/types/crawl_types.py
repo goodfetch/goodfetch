@@ -154,14 +154,14 @@ def refuses_an_async_crawl_on_the_sync_api(
     """`Foxhound` starts a `Crawl`, whose Run is a `CrawlRun`, and no `AsyncCrawl`."""
     seeds = [seed("https://shop.test/", label)]
     assert_type(foxhound.start_crawl(crawl, seeds=seeds), CrawlRun)
-    foxhound.start_crawl(async_crawl, seeds=seeds)  # type: ignore[arg-type]
+    foxhound.start_crawl(async_crawl, seeds=seeds)  # type: ignore[call-overload]
 
 
 async def refuses_a_sync_crawl_on_the_async_api(
     foxhound: AsyncFoxhound, crawl: Crawl, label: Label[None]
 ) -> None:
     """`AsyncFoxhound` starts an `AsyncCrawl` alone."""
-    await foxhound.start_crawl(crawl, seeds=[seed("https://shop.test/", label)])  # type: ignore[arg-type]
+    await foxhound.start_crawl(crawl, seeds=[seed("https://shop.test/", label)])  # type: ignore[call-overload]
 
 
 def refuses_a_misspelled_or_string_label(crawl: AsyncCrawl) -> None:

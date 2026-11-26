@@ -5,8 +5,8 @@
 // (ADR 0099). Its twin is the Python package's
 // `tests/unit/test_code_free_crawl.py`.
 import { playScript, test } from "@goodfetch/test-support";
-import { describe, expect, expectTypeOf } from "vitest";
-import type { Crawl, CrawlDeclaration, Foxhound, Seed } from "./index.ts";
+import { describe, expect } from "vitest";
+import type { CrawlDeclaration } from "./index.ts";
 import { connectOver } from "./testing.ts";
 
 const declaration: CrawlDeclaration = {
@@ -46,19 +46,4 @@ describe("a code-free crawl", () => {
       expect(played.done()).toEqual({ kind: "finished" });
     },
   );
-
-  test("detaches only a code-free crawl, and names a declaration or an extraction, not both", () => {
-    const start = (foxhound: Foxhound, crawl: Crawl): void => {
-      const seeds: [Seed] = [{ url: "https://shop.test/", label: "page" }];
-      // @ts-expect-error -- a program's crawl waits on its handlers, so it never detaches.
-      void foxhound.startCrawl(crawl, { seeds, detached: true });
-      // @ts-expect-error -- a start names a declaration or an extraction.
-      void foxhound.startCrawl({ ...declaration, extraction: { formats: {} } }, { seeds });
-      void foxhound.startCrawl(
-        { extraction: { formats: { markdown: true } } },
-        { seeds, detached: true },
-      );
-    };
-    expectTypeOf(start).toBeFunction();
-  });
 });

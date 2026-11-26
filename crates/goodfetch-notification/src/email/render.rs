@@ -14,6 +14,28 @@ use url::Url;
 use super::Address;
 use crate::message::Message;
 
+/// What an email that reports a Notification says: its subject and its
+/// two parts, as a provider's HTTP API takes them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Parts {
+    /// The title, on one line.
+    pub(super) subject: String,
+    /// The plain-text part.
+    pub(super) text: String,
+    /// The HTML part.
+    pub(super) html: String,
+}
+
+/// The subject and the two parts that report `message`.
+pub(super) fn parts(message: &Message) -> Parts {
+    let link = message.link.as_ref().map(without_credentials);
+    Parts {
+        subject: one_line(&message.title),
+        text: text(message, link.as_ref()),
+        html: html(message, link.as_ref()),
+    }
+}
+
 /// The message that reports `message`, from `from` to each of `to`, dated
 /// `at`.
 pub(super) fn message(
@@ -22,18 +44,22 @@ pub(super) fn message(
     to: &[Address],
     at: SystemTime,
 ) -> Vec<u8> {
-    let link = message.link.as_ref().map(without_credentials);
+    let Parts {
+        subject,
+        text,
+        html,
+    } = parts(message);
     let seconds = at.duration_since(UNIX_EPOCH).map_or(0, |since| {
         i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
     });
     MessageBuilder::new()
         .from(from.as_str())
         .to(to.iter().map(Address::as_str).collect::<Vec<_>>())
-        .subject(one_line(&message.title))
+        .subject(subject)
         .date(Date::new(seconds))
         .message_id(format!("{}@{}", message.event_id.as_str(), from.domain()))
-        .text_body(text(message, link.as_ref()))
-        .html_body(html(message, link.as_ref()))
+        .text_body(text)
+        .html_body(html)
         .write_to_vec()
         .expect("invariant: writing a message to memory cannot fail")
 }

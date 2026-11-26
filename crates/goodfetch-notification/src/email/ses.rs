@@ -5,12 +5,9 @@
 //! `x-amzn-ErrorType` header or its body, else by its status, to the
 //! driver's [`Failure`].
 
-use std::time::Duration;
-
 use data_encoding::BASE64;
 use goodfetch_engine::aws_signing::{self, Credentials, Scope, Unsignable};
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::http_client::WholeFailure;
 use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::retry_after;
 use hyper::body::Bytes;
@@ -18,14 +15,23 @@ use hyper::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 use url::Url;
 
-use super::{Address, PARTY_TEXT_LIMIT};
-use crate::failure::{ChannelText, Failure};
+use super::Address;
+use super::api::{self, ApiFailure, Known, Table};
+use crate::failure::Failure;
 
 /// The path of SES v2's `SendEmail`.
 const SEND_EMAIL_PATH: &str = "/v2/email/outbound-emails";
 
 /// The service name SES requests are signed for.
 const SERVICE: &str = "ses";
+
+/// SES's translation table.
+const TABLE: Table = Table {
+    party: "SES",
+    kind: error_type,
+    wait: retry_after::wait_of,
+    known,
+};
 
 /// An `ses` provider: the region, the access key, and how the channel
 /// reaches SES.
@@ -47,23 +53,11 @@ pub struct RegionUnusable;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum SesFailure {
-    /// The endpoint refused SES, failed its certificate, or gave no whole
-    /// answer.
-    Endpoint(WholeFailure),
     /// The access key cannot sign a request, so none was sent.
     Unsignable(Unsignable),
-    /// An answer that is no success.
-    Status {
-        /// Its status.
-        status: StatusCode,
-        /// The error type SES named, such as `MessageRejected`, without
-        /// its `Exception` suffix.
-        kind: Option<String>,
-        /// The wait its `Retry-After` asked for.
-        retry_after: Option<Duration>,
-        /// The start of its body.
-        text: ChannelText,
-    },
+    /// The endpoint's failure, or an answer that is no success, its error
+    /// type without its `Exception` suffix, such as `MessageRejected`.
+    Api(ApiFailure),
 }
 
 impl Ses {
@@ -139,33 +133,9 @@ impl Ses {
             clock.wall(),
         )
         .map_err(SesFailure::Unsignable)?;
-        let answer = match self.endpoint.send(request).await {
-            Ok(answer) => answer,
-            // An answer over the endpoint's limit still has its status: a
-            // success took the message, whatever followed it.
-            Err(WholeFailure::TooLong { status }) if status.is_success() => return Ok(()),
-            Err(WholeFailure::TooLong { status }) => {
-                return Err(SesFailure::Status {
-                    status,
-                    kind: None,
-                    retry_after: None,
-                    text: ChannelText::new(String::new()),
-                });
-            }
-            Err(failure) => return Err(SesFailure::Endpoint(failure)),
-        };
-        let status = answer.status();
-        if status.is_success() {
-            return Ok(());
-        }
-        let body = answer.body();
-        let start = body.get(..PARTY_TEXT_LIMIT).unwrap_or(body);
-        Err(SesFailure::Status {
-            status,
-            kind: error_type(answer.headers(), body),
-            retry_after: retry_after::wait_of(answer.headers(), clock.wall()),
-            text: ChannelText::new(String::from_utf8_lossy(start)),
-        })
+        api::send(&self.endpoint, request, clock, &TABLE)
+            .await
+            .map_err(SesFailure::Api)
     }
 }
 
@@ -192,44 +162,15 @@ fn error_type(headers: &HeaderMap, body: &[u8]) -> Option<String> {
 /// other.
 pub(super) fn translate(failure: SesFailure) -> Failure {
     match failure {
-        SesFailure::Endpoint(
-            WholeFailure::CertificateInvalid(_)
-            | WholeFailure::ClientCertificate(_)
-            | WholeFailure::Network,
-        ) => Failure::Unreachable,
-        SesFailure::Endpoint(WholeFailure::Refused(_)) => Failure::Rejected,
-        SesFailure::Endpoint(other) => ChannelText::new(format!("{other:?}"))
-            .unrecognized("SES's endpoint failed in a way its translation table does not know"),
         SesFailure::Unsignable(_) => Failure::Unauthorized,
-        SesFailure::Status {
-            status,
-            kind,
-            retry_after,
-            text,
-        } => match kind
-            .as_deref()
-            .and_then(by_type)
-            .or_else(|| by_status(status))
-        {
-            Some(Known::RateLimited) => Failure::RateLimited { retry_after },
-            Some(Known::Is(failure)) => failure,
-            None => {
-                tracing::warn!(
-                    status = status.as_u16(),
-                    kind,
-                    "SES answered with an error its translation table does not know"
-                );
-                text.unrecognized("the start of SES's answer")
-            }
-        },
+        SesFailure::Api(failure) => api::translate(failure, &TABLE),
     }
 }
 
-/// A failure the SES table knows: rate limited, with the answer's own
-/// wait, or any other.
-enum Known {
-    RateLimited,
-    Is(Failure),
+/// The failure an SES answer is, by its error type and else by its
+/// status, if the table knows it.
+fn known(status: StatusCode, kind: Option<&str>) -> Option<Known> {
+    kind.and_then(by_type).or_else(|| api::by_status(status))
 }
 
 /// The failure an error type SES names is, if the table knows it.
@@ -249,18 +190,6 @@ fn by_type(kind: &str) -> Option<Known> {
         "MessageRejected" | "MailFromDomainNotVerified" | "BadRequest" | "NotFound" => {
             Some(Known::Is(Failure::Rejected))
         }
-        _ => None,
-    }
-}
-
-/// The failure an answer's status is when its error type is unknown, if
-/// the table knows the status.
-fn by_status(status: StatusCode) -> Option<Known> {
-    match status {
-        StatusCode::TOO_MANY_REQUESTS => Some(Known::RateLimited),
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => Some(Known::Is(Failure::Unauthorized)),
-        StatusCode::REQUEST_TIMEOUT => Some(Known::Is(Failure::Timeout)),
-        status if status.is_server_error() => Some(Known::Is(Failure::ServerError)),
         _ => None,
     }
 }

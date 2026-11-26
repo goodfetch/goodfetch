@@ -12,4 +12,5 @@
 )]
 
 mod email;
+mod email_api;
 mod webhook;

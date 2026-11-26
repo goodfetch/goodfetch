@@ -133,10 +133,20 @@ pub struct ChannelMailgun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub domain: Option<String>,
-    /// The region, `us` or `eu`.
+    /// The region its domain lives in: `us` when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub region: Option<String>,
+    pub region: Option<MailgunRegion>,
+}
+
+/// The Mailgun region a sending domain lives in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MailgunRegion {
+    /// The United States, at `api.mailgun.net`.
+    Us,
+    /// The European Union, at `api.eu.mailgun.net`.
+    Eu,
 }
 
 /// An `email` channel's keys.
@@ -334,7 +344,7 @@ fn email_needs(email: Option<&ChannelEmail>) -> Result<(), String> {
         ))
     };
     let Some((email, provider)) = email.and_then(|email| Some((email, email.provider?))) else {
-        return missing("email.provider", "`smtp` or `ses`");
+        return missing("email.provider", "`smtp`, `ses` or `resend`");
     };
     if email.to.as_ref().is_none_or(Vec::is_empty) {
         return missing("email.to", "`[\"ops@example.com\"]`");
@@ -349,7 +359,28 @@ fn email_needs(email: Option<&ChannelEmail>) -> Result<(), String> {
         EmailProvider::Ses if email.ses.as_ref().is_none_or(|ses| ses.region.is_none()) => {
             missing("email.ses.region", "`eu-west-1`")
         }
-        _ => Ok(()),
+        EmailProvider::Resend
+        | EmailProvider::Postmark
+        | EmailProvider::Sendgrid
+        | EmailProvider::Mailgun
+            if email.api_key.is_none() =>
+        {
+            missing("email.api_key", "`env:EMAIL_API_KEY`")
+        }
+        EmailProvider::Mailgun
+            if email
+                .mailgun
+                .as_ref()
+                .is_none_or(|mailgun| mailgun.domain.is_none()) =>
+        {
+            missing("email.mailgun.domain", "`mg.example.com`")
+        }
+        EmailProvider::Smtp
+        | EmailProvider::Ses
+        | EmailProvider::Resend
+        | EmailProvider::Postmark
+        | EmailProvider::Sendgrid
+        | EmailProvider::Mailgun => Ok(()),
     }
 }
 

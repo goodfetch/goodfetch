@@ -78,7 +78,10 @@ const PAGE_REQUEST: Part = (
 );
 const DIALOGS: Part = ("dialogs", &["dialogs"]);
 const POPUPS: Part = ("popups", &["popups"]);
-const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
+const PAGE_FUNCTIONS: Part = (
+    "page-functions",
+    &["page_functions", "page_functions.scroll_collect"],
+);
 const READ: Part = ("read", &["read"]);
 const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
@@ -333,7 +336,7 @@ fn the_page_suite_proves_popups_against_collies_attached_engine() {
     prove(POPUPS);
 }
 
-/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed, operation:locator.evaluate_all
+/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed, operation:locator.evaluate_all, story:6-23, story:6-24, story:6-25, story:6-26, story:6-27, operation:locator.scroll_collect, error:deadline_exceeded, setting:timeout.action
 #[test]
 fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
     prove(PAGE_FUNCTIONS);

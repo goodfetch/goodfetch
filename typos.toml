@@ -33,10 +33,12 @@ extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crat
 # Ed25519 test key (Appendix B.1.4) in Base64url, which tests sign with. And
 # Akamai's `_abck` cookie, which the sensor page sets (#1539). And
 # WebAuthn's `COSE` keys (RFC 9052), which the Accounts store keeps. And
-# `mail-send`'s `Error::UnparseableReply`, as the crate spells it.
+# `mail-send`'s `Error::UnparseableReply`, as the crate spells it. And the
+# `whpk_` key the webhook verification tests give with no endpoint (#1391).
 # One entry a line, so two branches that each add one do not edit the same
 # line.
 extend-ignore-re = [
+  "2zPwzAhd9xyyTX6hydEXQjvUWwvpqA",
   "\\bUnparseableReply\\b",
   "(?i)abck",
   "\\bCOSE\\b",

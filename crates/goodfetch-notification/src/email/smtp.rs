@@ -12,7 +12,8 @@ use mail_send::smtp::message::Parameters;
 use secrecy::{ExposeSecret as _, SecretString};
 use smtp_proto::{EXT_START_TLS, EhloResponse, Response};
 
-use super::{Address, PARTY_TEXT_LIMIT, SEND_TIMEOUT};
+use super::{Address, SEND_TIMEOUT};
+use crate::api::PARTY_TEXT_LIMIT;
 use crate::failure::{ChannelText, Failure};
 
 /// The port of SMTP over TLS from the first byte (RFC 8314).

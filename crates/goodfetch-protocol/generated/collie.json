@@ -4134,6 +4134,48 @@
         }
       ]
     },
+    "GroupFormed": {
+      "description": "What `group.init` answers.",
+      "properties": {
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`sha256/` and its standard base64.",
+          "type": "string"
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The group's lead epoch: 1, the first."
+        }
+      },
+      "required": [
+        "lead_epoch",
+        "authority_key"
+      ],
+      "type": "object"
+    },
+    "GroupInitParams": {
+      "additionalProperties": false,
+      "description": "What `group.init` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "GroupTokenParams": {
+      "additionalProperties": false,
+      "description": "What `group.token` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "HeaderCharacter": {
       "description": "A character no header value may hold.",
       "oneOf": [
@@ -4411,6 +4453,32 @@
           "type": "string"
         }
       ]
+    },
+    "JoinTokenMinted": {
+      "description": "What `group.token` answers: the join token, the one place it shows.",
+      "properties": {
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`sha256/` and its standard base64, which the Daemon that joins pins.",
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it stops being valid, in RFC 3339, UTC."
+        },
+        "token": {
+          "arrived_in": "0.1",
+          "description": "The token, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "expires_at",
+        "authority_key"
+      ],
+      "type": "object"
     },
     "JsonSecret": {
       "additionalProperties": false,
@@ -16070,6 +16138,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
       "details": {
         "$ref": "#/$defs/HeaderValueInvalidDetails"
@@ -16296,6 +16374,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "not_in_product",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "not_lead_daemon",
       "product": "collie",
       "retryable": false
     },
@@ -18563,6 +18651,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/SubscriptionEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.init",
+      "params": {
+        "$ref": "#/$defs/GroupInitParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupFormed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.token",
+      "params": {
+        "$ref": "#/$defs/GroupTokenParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/JoinTokenMinted"
       },
       "stability": "experimental"
     },

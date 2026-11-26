@@ -20,6 +20,8 @@ use rustls::pki_types::{
 };
 use time::OffsetDateTime;
 
+use crate::known_certificates::KeyHash;
+
 /// How long the group's certificate authority is valid: 87,600 hours, 10
 /// years **(shape)**, Consul's built-in authority's default `root_cert_ttl`.
 pub const AUTHORITY_LIFETIME: Duration = Duration::from_hours(87_600);
@@ -207,9 +209,25 @@ pub struct RevocationList {
 /// The group's certificate authority: its key, its certificate and the
 /// number of the last revocation list it issued.
 pub struct GroupAuthority {
+    name: String,
     issuer: Issuer<'static, KeyPair>,
     certificate: CertificateDer<'static>,
     lists_issued: u64,
+}
+
+/// What the Lead Daemon keeps of the group's certificate authority, from
+/// which [`GroupAuthority::restore`] makes it again.
+#[derive(Debug)]
+pub struct KeptAuthority {
+    /// Its certificate's common name, which names it as the issuer of what
+    /// it signs.
+    pub name: String,
+    /// Its private key, PKCS #8.
+    pub key: PrivatePkcs8KeyDer<'static>,
+    /// Its certificate.
+    pub certificate: CertificateDer<'static>,
+    /// The number of the last revocation list it issued.
+    pub lists_issued: u64,
 }
 
 impl std::fmt::Debug for GroupAuthority {
@@ -230,34 +248,60 @@ impl GroupAuthority {
     /// cannot make the certificate.
     pub fn create(now: SystemTime) -> Result<Self, AuthorityError> {
         let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
-        let mut params = CertificateParams::default();
-        params.distinguished_name.push(
-            DnType::CommonName,
-            format!(
-                "Goodfetch Daemon group {}",
-                data_encoding::HEXLOWER.encode(&random()?)
-            ),
+        let name = format!(
+            "Goodfetch Daemon group {}",
+            data_encoding::HEXLOWER.encode(&random()?)
         );
-        params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
-        params.key_usages = vec![
-            KeyUsagePurpose::KeyCertSign,
-            KeyUsagePurpose::CrlSign,
-            KeyUsagePurpose::DigitalSignature,
-        ];
+        let mut params = issuer_params(&name);
         params.serial_number = Some(serial()?);
         params.not_before = date(backdated(now));
         params.not_after = date(now + AUTHORITY_LIFETIME);
         let certificate = params.self_signed(&key)?.der().clone();
         Ok(Self {
+            name,
             issuer: Issuer::new(params, key),
             certificate,
             lists_issued: 0,
         })
     }
 
+    /// The authority `kept` names, which signs as it did and numbers its
+    /// next revocation list one above the last it kept.
+    ///
+    /// # Errors
+    ///
+    /// [`AuthorityError::Certificate`] when the kept key is no key rcgen
+    /// reads.
+    pub fn restore(kept: KeptAuthority) -> Result<Self, AuthorityError> {
+        let key = KeyPair::try_from(&kept.key)?;
+        Ok(Self {
+            issuer: Issuer::new(issuer_params(&kept.name), key),
+            name: kept.name,
+            certificate: kept.certificate,
+            lists_issued: kept.lists_issued,
+        })
+    }
+
+    /// What the Lead Daemon keeps of it.
+    pub fn kept(&self) -> KeptAuthority {
+        KeptAuthority {
+            name: self.name.clone(),
+            key: PrivatePkcs8KeyDer::from(self.issuer.key().serialize_der()),
+            certificate: self.certificate.clone(),
+            lists_issued: self.lists_issued,
+        }
+    }
+
     /// Its certificate, which every Group member trusts for the peer link.
     pub fn certificate(&self) -> &CertificateDer<'static> {
         &self.certificate
+    }
+
+    /// The SHA-256 of its public key, which a Daemon that joins pins
+    /// before it trusts the certificate the Lead Daemon shows, as
+    /// `kubeadm join` pins its cluster's CA.
+    pub fn key_hash(&self) -> KeyHash {
+        KeyHash::of_public_key(&self.issuer.key().subject_public_key_info())
     }
 
     /// The certificate of the Group member `name`, for `key`, signed at
@@ -332,6 +376,21 @@ impl GroupAuthority {
         self.lists_issued = number;
         Ok(RevocationList { number, list })
     }
+}
+
+/// The parameters an authority named `name` issues with: its name, a CA
+/// that signs Group member certificates only, and its key usages. Its
+/// signatures name it by these, so a restored authority signs as it did.
+fn issuer_params(name: &str) -> CertificateParams {
+    let mut params = CertificateParams::default();
+    params.distinguished_name.push(DnType::CommonName, name);
+    params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));
+    params.key_usages = vec![
+        KeyUsagePurpose::KeyCertSign,
+        KeyUsagePurpose::CrlSign,
+        KeyUsagePurpose::DigitalSignature,
+    ];
+    params
 }
 
 /// `now` less [`BACKDATE`], or the epoch for a reading before it.

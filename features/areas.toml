@@ -113,6 +113,28 @@ number = 3
 kind = "error"
 prefix = "lead_epoch"
 
+# Forming a Daemon group (spec #213, #242): `group init`, `group token` and
+# their refusals.
+[[area]]
+number = 3
+kind = "operation"
+prefix = "group."
+
+[[area]]
+number = 3
+kind = "command"
+prefix = "group."
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "group_exists"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_lead_daemon"
+
 # Area 3's Runs (spec #213, #215): the run operations, a crawl's start, their
 # Error codes, run state's location and the run-state and Run index formats.
 # `run.new_page` is area 5's.

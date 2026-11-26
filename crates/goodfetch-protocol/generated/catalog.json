@@ -666,6 +666,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
       "details": {
         "$ref": "#/$defs/HandlerFailedDetails"
@@ -1010,6 +1020,16 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "not_in_product",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "not_lead_daemon",
       "product": "collie",
       "retryable": false
     },
@@ -3778,6 +3798,44 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/ExportStreamed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.init",
+      "params": {
+        "$ref": "#/$defs/GroupInitParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupFormed"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.token",
+      "params": {
+        "$ref": "#/$defs/GroupTokenParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/JoinTokenMinted"
       },
       "stability": "experimental"
     },

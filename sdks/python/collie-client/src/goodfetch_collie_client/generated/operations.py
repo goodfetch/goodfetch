@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, GroupFormed, GroupInitParams, GroupTokenParams, InitScriptEnded, JoinTokenMinted, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -133,6 +133,22 @@ class AsyncCollieOperations:
         """
         warn_experimental("events.subscribe")
         return result_of(SubscriptionEnded, await self._caller.call("events.subscribe", params))
+
+    async def group_init(self, params: GroupInitParams) -> GroupFormed:
+        """Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.init")
+        return result_of(GroupFormed, await self._caller.call("group.init", params))
+
+    async def group_token(self, params: GroupTokenParams) -> JoinTokenMinted:
+        """Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.token")
+        return result_of(JoinTokenMinted, await self._caller.call("group.token", params))
 
     async def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
         """Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
@@ -846,6 +862,22 @@ class CollieOperations:
         warn_experimental("events.subscribe")
         return result_of(SubscriptionEnded, self._caller.call("events.subscribe", params))
 
+    def group_init(self, params: GroupInitParams) -> GroupFormed:
+        """Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.init")
+        return result_of(GroupFormed, self._caller.call("group.init", params))
+
+    def group_token(self, params: GroupTokenParams) -> JoinTokenMinted:
+        """Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.token")
+        return result_of(JoinTokenMinted, self._caller.call("group.token", params))
+
     def key_value_store_delete(self, params: KeyValueStoreKeyParams) -> KeyValueStoreDeleted:
         """Removes a key from a live Run's Key-value store and answers whether it existed. Through a crawl attempt (`attempt`), the removal is staged with the attempt, and whether the key existed counts what the attempt staged.
 
@@ -1452,6 +1484,8 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "effect.close",
     "effect.open",
     "events.subscribe",
+    "group.init",
+    "group.token",
     "key_value_store.delete",
     "key_value_store.get",
     "key_value_store.get_bytes",
@@ -1551,6 +1585,8 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "effect.open": "idempotent_write",
     "engine.info": "read",
     "events.subscribe": "read",
+    "group.init": "effect",
+    "group.token": "effect",
     "key_value_store.delete": "idempotent_write",
     "key_value_store.get": "read",
     "key_value_store.get_bytes": "read",

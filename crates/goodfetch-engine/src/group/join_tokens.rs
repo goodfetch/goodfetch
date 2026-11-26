@@ -1,14 +1,17 @@
 //! The join tokens of a Daemon group (ADR 0055): `group token` mints one on
 //! the Lead Daemon, and a Daemon that presents it with `group join` gets its
 //! certificate signed. A token works once and for
-//! [`JOIN_TOKEN_LIFETIME`]; the Lead Daemon keeps the tokens in memory only,
-//! so a restart forgets the ones not yet redeemed.
+//! [`JOIN_TOKEN_LIFETIME`]. The group store keeps each pending token by its
+//! SHA-256 only ([`super::store`]), so a restart of the Lead Daemon forgets
+//! none, and a copy of the store redeems none.
 
 use std::time::{Duration, SystemTime};
 
+use data_encoding::HEXLOWER;
 use secrecy::{ExposeSecret, SecretString};
+use sha2::{Digest, Sha256};
 
-use crate::endpoint::{new_token, same_token};
+use crate::endpoint::new_token;
 
 /// How long a join token is valid: 30 minutes **(shape)**, the default
 /// lifetime of a Teleport join token that `tctl tokens add` mints.
@@ -24,70 +27,40 @@ pub struct JoinToken {
     pub expires: SystemTime,
 }
 
+impl JoinToken {
+    /// A new token, minted at `now` and valid for [`JOIN_TOKEN_LIFETIME`].
+    ///
+    /// # Errors
+    ///
+    /// When the OS generator gives nothing.
+    pub fn mint(now: SystemTime) -> Result<Self, getrandom::Error> {
+        Ok(Self {
+            token: SecretString::from(new_token()?),
+            expires: now + JOIN_TOKEN_LIFETIME,
+        })
+    }
+
+    /// Its SHA-256 in lowercase hex, which the group store keeps in its
+    /// place.
+    pub fn digest(&self) -> String {
+        digest(self.token.expose_secret())
+    }
+}
+
+/// The SHA-256 of the token `text`, in lowercase hex.
+pub(super) fn digest(text: &str) -> String {
+    HEXLOWER.encode(&Sha256::digest(text.as_bytes()))
+}
+
 /// Why a join token was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum JoinTokenRefused {
-    /// No pending token is this one: never minted, already redeemed,
-    /// expired a lifetime ago or more and forgotten, or minted before the
-    /// Lead Daemon restarted.
+    /// No pending token is this one: never minted, already redeemed, or
+    /// expired a lifetime ago or more and forgotten.
     #[error("the join token is unknown or already used")]
     Unknown,
     /// The token's lifetime ended before it was presented.
     #[error("the join token has expired")]
     Expired,
 }
-
-/// The join tokens minted and not yet redeemed.
-#[derive(Debug, Default)]
-pub struct JoinTokens {
-    pending: Vec<JoinToken>,
-}
-
-impl JoinTokens {
-    /// A new token, minted at `now` and valid for [`JOIN_TOKEN_LIFETIME`].
-    /// Tokens that expired a lifetime ago or more are forgotten, so the
-    /// pending ones stay few.
-    ///
-    /// # Errors
-    ///
-    /// When the OS generator gives nothing.
-    pub fn mint(&mut self, now: SystemTime) -> Result<JoinToken, getrandom::Error> {
-        self.pending
-            .retain(|pending| pending.expires + JOIN_TOKEN_LIFETIME > now);
-        let token = new_token()?;
-        let expires = now + JOIN_TOKEN_LIFETIME;
-        self.pending.push(JoinToken {
-            token: SecretString::from(token.clone()),
-            expires,
-        });
-        Ok(JoinToken {
-            token: SecretString::from(token),
-            expires,
-        })
-    }
-
-    /// Redeems `given` at `now`: a pending token, compared in constant time,
-    /// is used up whether or not it is still valid.
-    ///
-    /// # Errors
-    ///
-    /// [`JoinTokenRefused::Unknown`] when no pending token is `given`, and
-    /// [`JoinTokenRefused::Expired`] when it is past its lifetime.
-    pub fn redeem(&mut self, given: &str, now: SystemTime) -> Result<(), JoinTokenRefused> {
-        let found = self
-            .pending
-            .iter()
-            .position(|pending| same_token(given, pending.token.expose_secret()))
-            .ok_or(JoinTokenRefused::Unknown)?;
-        let redeemed = self.pending.swap_remove(found);
-        if now < redeemed.expires {
-            Ok(())
-        } else {
-            Err(JoinTokenRefused::Expired)
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests;

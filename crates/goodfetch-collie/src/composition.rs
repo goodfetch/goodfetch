@@ -30,6 +30,7 @@ pub fn composition() -> Composition {
 pub fn composition_with(handler_pages: impl HandlerPages + 'static) -> Composition {
     Composition::default()
         .with(goodfetch_engine::contribution())
+        .with(goodfetch_engine::group::contribution())
         .with(sample::contribution())
         .with(goodfetch_secret_providers::contribution())
         .with(goodfetch_schedule::contribution())

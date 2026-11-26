@@ -63,10 +63,12 @@ export type CollieWireType =
   | "FillParams"
   | "FormatsParams"
   | "GotoParams"
+  | "GroupFormed"
   | "HelloParams"
   | "HelloResult"
   | "HookFailedDetails"
   | "HumanPause"
+  | "JoinTokenMinted"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
   | "KeyValueStoreBytesValue"
@@ -286,10 +288,12 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "FillParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "FormatsParams": { fields: { "page_id": "pageId" } },
     "GotoParams": { fields: { "page_id": "pageId", "wait_until": "waitUntil" } },
+    "GroupFormed": { fields: { "authority_key": "authorityKey", "lead_epoch": "leadEpoch" } },
     "HelloParams": { fields: { "client_surface": "clientSurface", "keep_daemon_alive": "keepDaemonAlive", "log_level": "logLevel", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
+    "JoinTokenMinted": { fields: { "authority_key": "authorityKey", "expires_at": ["expiresAt", "time"] } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },
     "KeyValueStoreBytesValue": { fields: { "bytes": ["bytes", { type: "KeyValueStoreBytes" }] } },
@@ -539,6 +543,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "effect.close": { type: "EffectClosed" },
     "effect.open": { type: "EffectOpened" },
     "engine.info": { type: "EngineInfo" },
+    "group.init": { type: "GroupFormed" },
+    "group.token": { type: "JoinTokenMinted" },
     "key_value_store.get_bytes": { type: "KeyValueStoreBytesValue" },
     "needs_you.list": { type: "NeedsYouList" },
     "page.formats": { type: "PageFormats" },

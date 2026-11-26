@@ -16,19 +16,24 @@
 //! The lines come from the peer link's mutual TLS (ADR 0060), whose
 //! configurations [`accepting`] and [`connecting`] make. The group's
 //! certificate authority, [`GroupAuthority`], signs each Group member's
-//! certificate for it once that Group member presents a [`JoinTokens`] token, and
-//! revokes one through its revocation list.
+//! certificate for it once that Group member presents a [`JoinToken`], and
+//! revokes one through its revocation list. `group.init` forms the group
+//! and `group.token` mints a join token ([`contribution`]); the group store
+//! keeps both across restarts.
 
 mod authority;
 mod join_tokens;
+mod operations;
 mod peer_tls;
+mod store;
 
 pub use authority::{
     AUTHORITY_LIFETIME, AuthorityError, CERTIFICATE_LIFETIME, GroupAuthority,
     GroupMemberCertificate, GroupMemberKey, GroupMemberName, GroupMemberNameInvalid,
-    GroupMemberPublicKey, GroupMemberPublicKeyInvalid, RevocationList,
+    GroupMemberPublicKey, GroupMemberPublicKeyInvalid, KeptAuthority, RevocationList,
 };
-pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused, JoinTokens};
+pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused};
+pub use operations::contribution;
 pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting};
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};

@@ -1394,6 +1394,22 @@ class GovernorLevel(StrEnum):
     """Memory passed `governor.critical`, or the host's is critical."""
 
 
+class GroupInitParams(BaseModel):
+    """What `group.init` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class GroupTokenParams(BaseModel):
+    """What `group.token` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
 class HeaderCharacter(StrEnum):
     """A character no header value may hold."""
 
@@ -1539,6 +1555,24 @@ class IpFamily(StrEnum):
     """IPv4."""
     ipv6 = "ipv6"
     """IPv6."""
+
+
+class JoinTokenMinted(BaseModel):
+    """What `group.token` answers: the join token, the one place it shows."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    authority_key: str
+    """
+    The SHA-256 of the group's certificate authority's public key, as
+    `sha256/` and its standard base64, which the Daemon that joins pins.
+    """
+    expires_at: PointInTime
+    """When it stops being valid, in RFC 3339, UTC."""
+    token: str
+    """The token, in lowercase hex."""
 
 
 class JsonSecret(BaseModel):
@@ -6565,6 +6599,21 @@ class GotoParams(BaseModel):
     """The URL."""
     wait_until: WaitUntil | None = None
     """When the navigation answers; `load` when absent."""
+
+
+class GroupFormed(BaseModel):
+    """What `group.init` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    authority_key: str
+    """
+    The SHA-256 of the group's certificate authority's public key, as
+    `sha256/` and its standard base64.
+    """
+    lead_epoch: LeadEpoch
+    """The group's lead epoch: 1, the first."""
 
 
 class HelloParams(BaseModel):

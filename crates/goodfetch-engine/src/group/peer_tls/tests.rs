@@ -97,6 +97,19 @@ fn two_group_members_of_one_group_open_a_peer_link() {
 }
 
 #[test]
+fn a_restored_authority_signs_for_the_group_it_kept() {
+    let mut created = GroupAuthority::create(signed_at()).unwrap();
+    let lead = GroupMember::signed(&created, "lead");
+    let restored = GroupAuthority::restore(created.kept()).unwrap();
+    let crawler = GroupMember::signed(&restored, "crawler-1");
+    let trust = trust(&mut created, &[]);
+
+    let shaken = hand_shake((&crawler, &trust), (&lead, &trust), &lead.name, signed_at());
+
+    assert_eq!(shaken, Ok(()));
+}
+
+#[test]
 fn a_group_member_refuses_a_server_another_group_signed() {
     let mut ours = GroupAuthority::create(signed_at()).unwrap();
     let mut theirs = GroupAuthority::create(signed_at()).unwrap();

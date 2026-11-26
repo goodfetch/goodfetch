@@ -33,6 +33,7 @@ Commands:
   key-value-store  Calls the catalog's `key_value_store` operations
   sample           Calls the catalog's `sample` operations
   schedule         Calls the catalog's `schedule` operations
+  group            Calls the catalog's `group` operations
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1537,3 +1538,40 @@ Options:
       --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                Print help
+
+$ goodfetch-collie group --help
+Calls the catalog's `group` operations
+
+Usage: goodfetch-collie group [OPTIONS] <COMMAND>
+
+Commands:
+  init   Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
+  token  Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie group init --help
+Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator, keeps it in the Daemon's group store at lead epoch 1, and answers the lead epoch and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
+
+Usage: goodfetch-collie group init [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie group token --help
+Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`
+
+Usage: goodfetch-collie group token [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help

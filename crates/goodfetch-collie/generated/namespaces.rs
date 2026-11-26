@@ -116,6 +116,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "group",
+        spelled: "group",
+        about: "Calls the catalog's `group` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "crawl",
         spelled: "crawl",
         about: "Calls the catalog's `crawl` operations",

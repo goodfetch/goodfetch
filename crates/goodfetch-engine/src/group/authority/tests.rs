@@ -60,6 +60,19 @@ fn each_revocation_list_is_numbered_one_above_the_last() {
     assert_eq!([first.number, second.number], [1, 2]);
 }
 
+#[test]
+fn a_restored_authority_numbers_its_next_list_one_above_the_last_it_kept() {
+    let issued_at = SystemTime::UNIX_EPOCH + Duration::from_hours(500_000);
+    let mut created = GroupAuthority::create(issued_at).unwrap();
+    created.revocation_list(&[], issued_at).unwrap();
+
+    let mut restored = GroupAuthority::restore(created.kept()).unwrap();
+
+    assert_eq!(restored.certificate(), created.certificate());
+    assert_eq!(restored.key_hash(), created.key_hash());
+    assert_eq!(restored.revocation_list(&[], issued_at).unwrap().number, 2);
+}
+
 #[rstest]
 #[case::too_short(vec![0x04; 64])]
 #[case::compressed({ let mut point = vec![0x02]; point.extend([1; 32]); point })]

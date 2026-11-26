@@ -557,6 +557,14 @@ class FormatVersionUnsupportedError(UnavailableError):
         self.typed_details = details_of(FormatVersionUnsupportedDetails, self.details)
 
 
+class GroupExistsError(RefusedError):
+    """This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_exists", group="refused", retryable=False, **fields)
+
+
 class HeaderValueInvalidError(ProgramError):
     """A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value."""
 
@@ -759,6 +767,14 @@ class NotInProductError(UnavailableError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="not_in_product", group="unavailable", retryable=False, **fields)
         self.typed_details = details_of(NotInProductDetails, self.details)
+
+
+class NotLeadDaemonError(RefusedError):
+    """Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="not_lead_daemon", group="refused", retryable=False, **fields)
 
 
 class NotVerifiedError(PageError):
@@ -1581,6 +1597,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "extractor_unavailable": ExtractorUnavailableError,
     "file_write_failed": FileWriteFailedError,
     "format_version_unsupported": FormatVersionUnsupportedError,
+    "group_exists": GroupExistsError,
     "header_value_invalid": HeaderValueInvalidError,
     "hook_failed": HookFailedError,
     "lead_epoch_stale": LeadEpochStaleError,
@@ -1598,6 +1615,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "navigation_interrupted": NavigationInterruptedError,
     "not_a_daemon": NotADaemonError,
     "not_in_product": NotInProductError,
+    "not_lead_daemon": NotLeadDaemonError,
     "not_verified": NotVerifiedError,
     "page_check_failed": PageCheckFailedError,
     "page_crashed": PageCrashedError,

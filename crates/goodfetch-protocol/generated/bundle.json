@@ -8566,6 +8566,48 @@
         }
       ]
     },
+    "GroupFormed": {
+      "description": "What `group.init` answers.",
+      "properties": {
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`sha256/` and its standard base64.",
+          "type": "string"
+        },
+        "lead_epoch": {
+          "$ref": "#/$defs/LeadEpoch",
+          "arrived_in": "0.1",
+          "description": "The group's lead epoch: 1, the first."
+        }
+      },
+      "required": [
+        "lead_epoch",
+        "authority_key"
+      ],
+      "type": "object"
+    },
+    "GroupInitParams": {
+      "additionalProperties": false,
+      "description": "What `group.init` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "GroupTokenParams": {
+      "additionalProperties": false,
+      "description": "What `group.token` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
     "GuaranteeClass": {
       "description": "What a Sink's probe proves of its destination (ADR 0026), from the\nstrongest.",
       "oneOf": [
@@ -9622,6 +9664,32 @@
           "type": "string"
         }
       ]
+    },
+    "JoinTokenMinted": {
+      "description": "What `group.token` answers: the join token, the one place it shows.",
+      "properties": {
+        "authority_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the group's certificate authority's public key, as\n`sha256/` and its standard base64, which the Daemon that joins pins.",
+          "type": "string"
+        },
+        "expires_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it stops being valid, in RFC 3339, UTC."
+        },
+        "token": {
+          "arrived_in": "0.1",
+          "description": "The token, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "token",
+        "expires_at",
+        "authority_key"
+      ],
+      "type": "object"
     },
     "Journey": {
       "additionalProperties": false,

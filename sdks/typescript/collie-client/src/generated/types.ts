@@ -1001,6 +1001,15 @@ export type WaitUntil = "commit" | "domcontentloaded" | "load";
  */
 export type GovernorLevel = "normal" | "pressure" | "critical";
 /**
+ * A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
+ * promoted takes a higher one, and a Group member refuses a peer message
+ * carrying a lower epoch than the highest it has recorded.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LeadEpoch".
+ */
+export type LeadEpoch = number;
+/**
  * A character no header value may hold.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1090,15 +1099,6 @@ export type JudgedBy = "page_check" | "built_in";
  * via the `definition` "KeyValueStoreContent".
  */
 export type KeyValueStoreContent = string;
-/**
- * A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
- * promoted takes a higher one, and a Group member refuses a peer message
- * carrying a lower epoch than the highest it has recorded.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "LeadEpoch".
- */
-export type LeadEpoch = number;
 /**
  * Where a Run is (ADR 0029).
  *
@@ -4624,6 +4624,37 @@ export interface GotoParams {
   waitUntil?: WaitUntil | null;
 }
 /**
+ * What `group.init` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupFormed".
+ */
+export interface GroupFormed {
+  /**
+   * The SHA-256 of the group's certificate authority's public key, as
+   * `sha256/` and its standard base64.
+   */
+  authorityKey: string;
+  /**
+   * The group's lead epoch: 1, the first.
+   */
+  leadEpoch: LeadEpoch;
+}
+/**
+ * What `group.init` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupInitParams".
+ */
+export interface GroupInitParams {}
+/**
+ * What `group.token` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupTokenParams".
+ */
+export interface GroupTokenParams {}
+/**
  * What `header_value_invalid` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -4914,6 +4945,27 @@ export interface InternalDetails {
    * Its state.
    */
   state: string;
+}
+/**
+ * What `group.token` answers: the join token, the one place it shows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "JoinTokenMinted".
+ */
+export interface JoinTokenMinted {
+  /**
+   * The SHA-256 of the group's certificate authority's public key, as
+   * `sha256/` and its standard base64, which the Daemon that joins pins.
+   */
+  authorityKey: string;
+  /**
+   * When it stops being valid, in RFC 3339, UTC.
+   */
+  expiresAt: PointInTime;
+  /**
+   * The token, in lowercase hex.
+   */
+  token: string;
 }
 /**
  * A string of a JSON body that holds a Secret placeholder's value

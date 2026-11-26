@@ -822,6 +822,15 @@ export class FormatVersionUnsupportedError extends UnavailableError<"format_vers
 }
 
 /**
+ * This Daemon belongs to a Daemon group already, so `group init` forms no other: a Daemon forms or joins one group, and stays in it until it leaves.
+ */
+export class GroupExistsError extends RefusedError<"group_exists"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "GroupExistsError", code: "group_exists", group: "refused", retryable: false });
+  }
+}
+
+/**
  * A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.
  */
 export class HeaderValueInvalidError extends ProgramError<"header_value_invalid"> {
@@ -1091,6 +1100,15 @@ export class NotInProductError extends UnavailableError<"not_in_product"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "NotInProductError", code: "not_in_product", group: "unavailable", retryable: false });
     this.typedDetails = detailsOf<NotInProductDetails>(fields.details, ["product", "productVersion", "needs"], { path: { type: "NotInProductDetails" }, types: collieWire.types });
+  }
+}
+
+/**
+ * Only a Daemon group's Lead Daemon mints join tokens, and this Daemon is not one: run `group token` on the Lead Daemon, or `group init` to form a group with this Daemon as its Lead Daemon.
+ */
+export class NotLeadDaemonError extends RefusedError<"not_lead_daemon"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "NotLeadDaemonError", code: "not_lead_daemon", group: "refused", retryable: false });
   }
 }
 
@@ -2113,6 +2131,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   extractor_unavailable: ExtractorUnavailableError,
   file_write_failed: FileWriteFailedError,
   format_version_unsupported: FormatVersionUnsupportedError,
+  group_exists: GroupExistsError,
   header_value_invalid: HeaderValueInvalidError,
   hook_failed: HookFailedError,
   lead_epoch_stale: LeadEpochStaleError,
@@ -2130,6 +2149,7 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   navigation_interrupted: NavigationInterruptedError,
   not_a_daemon: NotADaemonError,
   not_in_product: NotInProductError,
+  not_lead_daemon: NotLeadDaemonError,
   not_verified: NotVerifiedError,
   page_check_failed: PageCheckFailedError,
   page_crashed: PageCrashedError,
@@ -2247,6 +2267,7 @@ export type CollieErrorCode =
   | "extractor_unavailable"
   | "file_write_failed"
   | "format_version_unsupported"
+  | "group_exists"
   | "header_value_invalid"
   | "hook_failed"
   | "internal"
@@ -2265,6 +2286,7 @@ export type CollieErrorCode =
   | "navigation_interrupted"
   | "not_a_daemon"
   | "not_in_product"
+  | "not_lead_daemon"
   | "not_verified"
   | "page_check_failed"
   | "page_crashed"
@@ -2331,7 +2353,7 @@ export type CollieErrorCode =
   | "upgrade_source_unsupported"
   | "value_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "lead_epoch_stale", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "group_exists", "header_value_invalid", "hook_failed", "internal", "lead_epoch_stale", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_lead_daemon", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -2383,6 +2405,7 @@ export type CollieError =
   | ExtractorUnavailableError
   | FileWriteFailedError
   | FormatVersionUnsupportedError
+  | GroupExistsError
   | HeaderValueInvalidError
   | HookFailedError
   | InternalError<"internal">
@@ -2401,6 +2424,7 @@ export type CollieError =
   | NavigationInterruptedError
   | NotADaemonError
   | NotInProductError
+  | NotLeadDaemonError
   | NotVerifiedError
   | PageCheckFailedError
   | PageCrashedError

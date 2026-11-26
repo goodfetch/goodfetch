@@ -37,11 +37,12 @@
 //!   it; one started once the page closed raises `closed`; and each request
 //!   names the Page ID of the request the page serves then;
 //! - each wait is answered by the first request the page sent after it
-//!   armed, or raises `closed` once the page closed first, or at once when
-//!   it closed before; a page whose target detached leaves its waits
+//!   armed, or raises `closed` once the page closed or its request part
+//!   was replaced first, or at once when it closed before; a page whose target detached leaves its waits
 //!   waiting until it closes, so no call is left unanswered; a wait still
 //!   waiting when the reader fell behind while the page was open, or armed
-//!   since, raises `page_events_lost`, at once or once the page closes;
+//!   since, raises `page_events_lost`, at once, or once the page closes
+//!   or its request part is replaced;
 //! - the Gestures got the turn in the order they asked for it, one at a
 //!   time, whatever else the page did; the pointer is at one holder at a
 //!   time, lent while no Gesture has the turn or as the one that has it
@@ -726,8 +727,9 @@ impl Reference {
         }
     }
 
-    /// The page's request part is replaced: what listened or was armed for
-    /// its earlier request ends, the failure a dialog handler left goes,
+    /// The page's request part is replaced: what listened, waited or was
+    /// armed for its earlier request ends, a wait raising `closed`, or
+    /// `page_events_lost` once the reader fell behind, the failure a dialog handler left goes,
     /// its init scripts' calls end, each registered script removed and each
     /// other removed once its addition was taken, and what belongs to its
     /// browser's page, its parts' subscriptions and its frames, stays.
@@ -741,6 +743,16 @@ impl Reference {
         for heard in &mut self.listeners {
             if heard.listened == Listened::Going {
                 heard.listened = Listened::Ended;
+            }
+        }
+        let ended = if self.events_lost() {
+            Waited::Lost
+        } else {
+            Waited::Ended
+        };
+        for waited in &mut self.waits {
+            if *waited == Waited::Waiting {
+                *waited = ended.clone();
             }
         }
         for (_, handled) in &mut self.handlers {

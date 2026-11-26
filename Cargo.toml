@@ -641,22 +641,38 @@ wreq-util = { path = "vendor/wreq-util" }
 # below, since its archived test binaries run away from the objects.
 [profile.dev]
 split-debuginfo = "unpacked"
+# No LTO pass at all: Cargo's default `false` still runs a thin LTO over each
+# crate's codegen units, a cost on every build of the optimized dependencies
+# below, as ruff and uv found (the implementation audit of 2026-11-25,
+# measure 8).
+lto = "off"
+
+# Dependencies carry no debug information: a backtrace names their functions
+# and reads file and line in the workspace's own crates alone, which get line
+# tables (`ci-test` below, and `CARGO_PROFILE_DEV_DEBUG` on the gate host).
+# The debug information of some 590 dependencies was most of what each build
+# wrote and each link read, on a volume that was the build's bottleneck; uv
+# measured about 20 % of its build time in these settings (the implementation
+# audit of 2026-11-25, measure 8). Build scripts and proc-macros match it
+# below, so a crate both the build and the code use is still built once.
+[profile.dev.package."*"]
+debug = false
 
 [profile.dev.package.sha2]
 opt-level = 3
 
-# Build scripts, proc-macros and the crates they use get line tables, as the
-# workspace's other crates get them in `ci-test` and in the gate host's
-# local builds (`CARGO_PROFILE_DEV_DEBUG`); Cargo's default gives them none.
-# Cargo builds a crate that both the build and the code use once when the
-# two settings match, and once for each when they differ, so with the
-# default whether it was shared, and with it every crate above it, hung on
-# what else a command built: `cargo run --bin xtask` and the test tools'
-# build compiled the engine, Page and Collie apart, and the test tools' and
-# the Quick suite's builds DuckDB apart. With them matching, those builds
-# share them.
+# Build scripts, proc-macros and the crates they use get no debug
+# information, as the dependencies the code uses (`package."*"` above), and
+# Cargo's default. Cargo builds a crate that both the build and the code use
+# once when the two settings match, and once for each when they differ. When
+# the workspace's crates got line tables and the dependencies kept full debug
+# information, whether a shared crate was built once, and with it every crate
+# above it, hung on what else a command built: `cargo run --bin xtask` and
+# the test tools' build compiled the engine, Page and Collie apart, and the
+# test tools' and the Quick suite's builds DuckDB apart. Kept explicit so the
+# two settings stay matched.
 [profile.dev.build-override]
-debug = "line-tables-only"
+debug = false
 
 # And for literal search: the reset gate searches every file of a Goodfetch
 # home for each Secret canary in a dozen encodings, the Browser cache's
@@ -674,9 +690,9 @@ opt-level = 3
 # DuckDB's C++ sources, which the `duckdb` crate builds through
 # `libduckdb-sys`'s build script: unoptimized, a query of the SQL tab's
 # tests takes minutes, so its tests and a debug Foxhound run them optimized;
-# without debug information, which made each build of it 4 to 8 GB of target/.
+# without debug information, as every dependency above (its own made each
+# build of it 4 to 8 GB of target/).
 [profile.dev.package.libduckdb-sys]
-debug = false
 opt-level = 3
 
 # rs-trafilatura writes its debug notes to stderr whenever debug assertions

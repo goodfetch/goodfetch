@@ -905,6 +905,14 @@ class PersonRequiredError(RefusedError):
         self.typed_details = details_of(PersonRequiredDetails, self.details)
 
 
+class PluginCallBackRefusedError(RefusedError):
+    """The engine refused a Plugin's call back: it came while the Plugin served no call the engine made to it, it named another call's `call_id`, or it asked for what the Plugin may not do, such as a `net.fetch` other than `GET` or `HEAD` toward a destination checked as a page's, which is an Effect, or a request that sets a header the engine sets itself. Call back only while serving a call, with that call's `call_id`."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_call_back_refused", group="refused", retryable=False, **fields)
+
+
 class PluginCrashedError(UnavailableError):
     """The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin."""
 
@@ -1602,6 +1610,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "path_unsafe": PathUnsafeError,
     "pattern_unsupported": PatternUnsupportedError,
     "person_required": PersonRequiredError,
+    "plugin_call_back_refused": PluginCallBackRefusedError,
     "plugin_crashed": PluginCrashedError,
     "plugin_manifest_mismatch": PluginManifestMismatchError,
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,

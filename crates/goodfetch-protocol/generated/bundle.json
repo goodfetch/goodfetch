@@ -12938,6 +12938,109 @@
       ],
       "type": "object"
     },
+    "NetFetchBody": {
+      "contentEncoding": "base64",
+      "description": "The bytes of a `net.fetch` body, in Base64 (RFC 4648, with padding).",
+      "type": "string"
+    },
+    "NetFetchHeader": {
+      "description": "One header of a `net.fetch` request or response.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "Its value; in a response, a value that is no UTF-8 is read with each\ninvalid sequence replaced.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    },
+    "NetFetchParams": {
+      "description": "What `net.fetch` asks the engine to send.",
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetFetchBody"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The request's body, when it has one."
+        },
+        "call_id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the engine's call the Plugin is serving."
+        },
+        "headers": {
+          "arrived_in": "0.1",
+          "description": "The request's headers, in order. The engine sets `Host`,\n`Content-Length` and the connection's own headers itself and\nrefuses a request that sets them.",
+          "items": {
+            "$ref": "#/$defs/NetFetchHeader"
+          },
+          "type": "array"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The HTTP method, such as `GET`.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The absolute URL, `http` or `https`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "method",
+        "url"
+      ],
+      "type": "object"
+    },
+    "NetFetchResult": {
+      "description": "What the engine answers to `net.fetch`: the response it received, a\nredirect included, never followed.",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/NetFetchBody",
+          "arrived_in": "0.1",
+          "description": "The response's body, whole."
+        },
+        "headers": {
+          "arrived_in": "0.1",
+          "description": "The response's headers, in order.",
+          "items": {
+            "$ref": "#/$defs/NetFetchHeader"
+          },
+          "type": "array"
+        },
+        "status": {
+          "arrived_in": "0.1",
+          "description": "The response's status code.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "headers",
+        "body"
+      ],
+      "type": "object"
+    },
     "NetworkLevel": {
       "description": "What a process Plugin may reach on the network (ADR 0033), derived from\nits kinds rather than chosen: see [`NetworkLevel::allowed_for`].",
       "oneOf": [
@@ -41204,6 +41307,14 @@
     },
     "manifest": {
       "$ref": "#/$defs/PluginManifest"
+    },
+    "net_fetch": {
+      "params": {
+        "$ref": "#/$defs/NetFetchParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NetFetchResult"
+      }
     },
     "ping": {
       "params": {

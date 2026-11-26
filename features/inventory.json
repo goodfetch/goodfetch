@@ -2175,6 +2175,17 @@
       ]
     },
     {
+      "id": "error:plugin_call_back_refused",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_crashed",
       "kind": "error",
       "area": 7,

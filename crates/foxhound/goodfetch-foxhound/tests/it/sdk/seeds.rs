@@ -35,10 +35,10 @@ pub(super) const CATALOG: u64 = 1467;
 pub(super) const CATALOG_HOST: &str = "catalog.test";
 
 /// The Proving ground's seed of the `sitemap-seed` family.
-const SITEMAPS: u64 = 903;
+pub(super) const SITEMAPS: u64 = 903;
 
 /// The `sitemap-seed` family's host.
-const SITEMAP_HOST: &str = "sitemap-seed.test";
+pub(super) const SITEMAP_HOST: &str = "sitemap-seed.test";
 
 /// A product seed's Payload: the listing page it is listed on.
 #[derive(Debug, Serialize, Deserialize)]
@@ -279,6 +279,60 @@ fn a_sitemap_seed_routes_each_entry_to_the_label_of_its_first_matching_rule() {
     );
 }
 
+/// A sitemap seed whose rules name their Labels by name, as a code-free
+/// crawl's do, starts a `Crawl` that declares each of them: its entries
+/// are handled by the Labels so named.
+///
+/// Covers: story:11-1069, operation:crawl.start
+#[test]
+fn a_named_sitemap_seed_starts_a_crawl_declaring_its_labels() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITEMAPS).unwrap();
+    let url = |path: &str| site.url(SITEMAP_HOST, path);
+    let seen: Seen = Arc::default();
+    let mut crawl = Crawl::new();
+    for name in ["book", "author"] {
+        let label = crawl.label::<()>(name).unwrap();
+        let on_label = Arc::clone(&seen);
+        crawl
+            .handle(&label, move |ctx: CrawlContext<()>| async move {
+                see(&on_label, &ctx, Value::Null);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    let report = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let run = foxhound
+            .start_crawl(
+                &crawl,
+                [Seed::named_sitemap(
+                    url("/sitemap-index.xml"),
+                    [("**/books/*", "book"), ("**/authors/*", "author")],
+                )],
+            )
+            .await
+            .unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+        report
+    });
+
+    assert_eq!(report.report.lifecycle, Lifecycle::Finished);
+    let handled = |label: &str, path: &str| (label.to_owned(), url(path), Value::Null);
+    assert_eq!(
+        sorted(&seen),
+        vec![
+            handled("author", "/authors/1"),
+            handled("author", "/authors/2"),
+            handled("book", "/books/1"),
+            handled("book", "/books/2"),
+            handled("book", "/books/3"),
+        ]
+    );
+}
+
 /// A crawl with one handled Label, `page`, and the `page` Label.
 fn one_label() -> (Crawl<'static>, Label<()>) {
     let mut crawl = Crawl::new();
@@ -291,10 +345,10 @@ fn one_label() -> (Crawl<'static>, Label<()>) {
 
 /// A sitemap seed takes no request option, and its rules only the
 /// crawl's own Labels: a method given to one fails the start with
-/// `invalid_params`, and a rule of another crawl's Label with
-/// `label_unknown`, before anything is sent.
+/// `invalid_params`, and a rule of another crawl's Label, held or named,
+/// with `label_unknown`, before anything is sent.
 ///
-/// Covers: story:11-1019, error:label_unknown
+/// Covers: story:11-1019, story:11-1069, error:label_unknown
 #[test]
 fn a_sitemap_seed_given_a_request_option_or_another_crawls_label_is_refused() {
     let env = TestEnv::new();
@@ -304,36 +358,47 @@ fn a_sitemap_seed_given_a_request_option_or_another_crawls_label_is_refused() {
 
     let post = HttpMethod::parse("POST").unwrap();
 
-    let (with_a_method, of_another_crawl): (Error, Error) = real_time_runtime().block_on(async {
-        let foxhound = Foxhound::connect(super::options(&env)).await.unwrap();
-        let with_a_method = foxhound
-            .start_crawl(
-                &crawl,
-                [Seed::sitemap(sitemap, [("**", &page)]).method(post)],
-            )
-            .await
-            .unwrap_err();
-        let of_another_crawl = foxhound
-            .start_crawl(&crawl, [Seed::sitemap(sitemap, [("**", &elsewhere)])])
-            .await
-            .unwrap_err();
-        foxhound.close().await.unwrap();
-        (with_a_method, of_another_crawl)
-    });
+    let (with_a_method, of_another_crawl, named): (Error, Error, Error) = real_time_runtime()
+        .block_on(async {
+            let foxhound = Foxhound::connect(super::options(&env)).await.unwrap();
+            let with_a_method = foxhound
+                .start_crawl(
+                    &crawl,
+                    [Seed::sitemap(sitemap, [("**", &page)]).method(post)],
+                )
+                .await
+                .unwrap_err();
+            let of_another_crawl = foxhound
+                .start_crawl(&crawl, [Seed::sitemap(sitemap, [("**", &elsewhere)])])
+                .await
+                .unwrap_err();
+            let named = foxhound
+                .start_crawl(
+                    &crawl,
+                    [Seed::named_sitemap(sitemap, [("**", "elsewhere")])],
+                )
+                .await
+                .unwrap_err();
+            foxhound.close().await.unwrap();
+            (with_a_method, of_another_crawl, named)
+        });
 
     let details: LabelUnknownDetails = of_another_crawl.details().unwrap();
+    let named_details: LabelUnknownDetails = named.details().unwrap();
     assert_eq!(
         (
             with_a_method.code().as_str(),
             of_another_crawl.code(),
-            details.label.as_str(),
-            details.declared
+            (details.label.as_str(), details.declared),
+            named.code(),
+            named_details.label.as_str(),
         ),
         (
             "invalid_params",
             error_code::LABEL_UNKNOWN,
+            ("elsewhere", vec!["page".to_owned()]),
+            error_code::LABEL_UNKNOWN,
             "elsewhere",
-            vec!["page".to_owned()]
         ),
         "{with_a_method}"
     );

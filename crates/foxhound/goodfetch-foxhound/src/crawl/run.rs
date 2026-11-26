@@ -269,8 +269,9 @@ impl CrawlRun {
     /// for the next commit; a page says `ended` once the Run has ended, or
     /// has no live writer, and no entry follows. With `through`, such as
     /// the `rejected` count `dataset.list` answers, it reads no entry
-    /// numbered past it, and a page says `ended` once it reaches it, a live
-    /// Run's included, without waiting. A reader never slows the Run. A
+    /// numbered past it and never waits, a live Run's included: a page says
+    /// `ended` once it reaches that number or has read every committed
+    /// entry. A reader never slows the Run. A
     /// Dataset the crawl does not declare fails with `dataset_unknown`.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).

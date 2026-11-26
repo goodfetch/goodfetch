@@ -241,7 +241,9 @@ impl ReadRejectedRecords {
 
     /// Sends the read. A read of what had committed first asks
     /// `dataset.list` how many entries the table holds, the last one's
-    /// number since they have no gaps, and reads through it.
+    /// number since they have no gaps, and reads through it; after an
+    /// erase the count can pass the last number, and the read, which never
+    /// waits, ends at the last committed entry.
     pub(crate) fn sent(self) -> EventStream<RejectedRecord> {
         let Self {
             connection,

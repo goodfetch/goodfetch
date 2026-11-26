@@ -266,15 +266,17 @@ class AsyncCrawlRun(AsyncRun):
         While the Run is live and nothing follows, it waits for the next
         commit; a page says `ended` once the Run has ended, or has no live
         writer, and no entry follows. With `through`, such as the `rejected`
-        count `dataset.list` answers, it reads no entry numbered past it, and
-        a page says `ended` once it reaches it, a live Run's included,
-        without waiting. A reader never slows the Run. A Dataset the crawl
-        does not declare fails with `dataset_unknown`.
+        count `dataset.list` answers, it reads no entry numbered past it and
+        never waits, a live Run's included: a page says `ended` once it
+        reaches that number or has read every committed entry. A reader never
+        slows the Run. A Dataset the crawl does not declare fails with
+        `dataset_unknown`.
 
         Each entry's `data` is the Record's JSON as it was pushed, never
         parsed. The read goes page after page: its first page is asked when
         it is called, each next one once the program has read on, and it ends
-        once a page says the table is read to its end.
+        once a page says the table is read to its end. `through` is not taken
+        here: a handler's `ctx.run` read bounds itself.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -707,15 +709,17 @@ class CrawlRun(Run):
         While the Run is live and nothing follows, it waits for the next
         commit; a page says `ended` once the Run has ended, or has no live
         writer, and no entry follows. With `through`, such as the `rejected`
-        count `dataset.list` answers, it reads no entry numbered past it, and
-        a page says `ended` once it reaches it, a live Run's included,
-        without waiting. A reader never slows the Run. A Dataset the crawl
-        does not declare fails with `dataset_unknown`.
+        count `dataset.list` answers, it reads no entry numbered past it and
+        never waits, a live Run's included: a page says `ended` once it
+        reaches that number or has read every committed entry. A reader never
+        slows the Run. A Dataset the crawl does not declare fails with
+        `dataset_unknown`.
 
         Each entry's `data` is the Record's JSON as it was pushed, never
         parsed. The read goes page after page, each next page once the
         program has read on, and ends once a page says the table is read to
-        its end.
+        its end. `through` is not taken here: a handler's `ctx.run` read
+        bounds itself.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 

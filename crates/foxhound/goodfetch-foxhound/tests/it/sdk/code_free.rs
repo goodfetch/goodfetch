@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use super::catalog::{SEED, TASK, judged};
 use super::crawl::options;
+use super::seeds::{SITEMAP_HOST, SITEMAPS};
 
 /// The catalog crawled as data, as the engine's own test declares it:
 /// each listing page follows its Next link as a listing and each
@@ -138,6 +139,64 @@ fn a_program_starts_an_extraction_and_reads_its_pages() {
     );
 }
 
+/// A code-free crawl's sitemap seed names its rules' Labels by name: an
+/// extraction seeded from a sitemap index, whose rule gives each book the
+/// engine's Label `page`, reads one Record of each book and none of the
+/// entries no rule matches.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_program_seeds_an_extraction_from_a_sitemap_naming_its_label() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SITEMAPS).unwrap();
+    let url = |path: &str| site.url(SITEMAP_HOST, path);
+    let extraction: CrawlExtraction =
+        serde_json::from_value(json!({ "formats": { "markdown": true }, "follow": "none" }))
+            .unwrap();
+    let (lifecycle, records) = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
+        let run = foxhound
+            .start_crawl(
+                extraction,
+                [Seed::named_sitemap(
+                    url("/sitemap-index.xml"),
+                    [("**/books/*", CODE_FREE_LABEL)],
+                )],
+            )
+            .run_id(&RunId::parse("sitemap-extraction").unwrap())
+            .await
+            .unwrap();
+        let report = run.finish().await.unwrap().into_inner();
+        let page: Value = foxhound
+            .call("dataset.page")
+            .params(json!({ "run_id": "sitemap-extraction", "dataset": CODE_FREE_DATASET }))
+            .await
+            .unwrap();
+        foxhound.close().await.unwrap();
+        (
+            report.report.lifecycle,
+            page["records"].as_array().unwrap().clone(),
+        )
+    });
+
+    let mut pages: Vec<&str> = records
+        .iter()
+        .map(|record| record["value"]["url"].as_str().unwrap())
+        .collect();
+    pages.sort_unstable();
+    assert_eq!(
+        (lifecycle, pages),
+        (
+            Lifecycle::Finished,
+            vec![
+                url("/books/1").as_str(),
+                url("/books/2").as_str(),
+                url("/books/3").as_str(),
+            ]
+        )
+    );
+}
+
 /// The linked engine ends with its Connection, so a detached code-free
 /// crawl is refused with `detach_unsupported`.
 ///
@@ -159,9 +218,9 @@ fn a_detached_code_free_crawl_is_refused_on_an_engine_that_is_no_daemon() {
     assert_eq!(refused.code().as_str(), "detach_unsupported", "{refused}");
 }
 
-/// A code-free crawl's seed names its Label by name: one holding a
-/// `Label`, of a crawl the program declares, is refused with
-/// `invalid_params` before anything is sent.
+/// A code-free crawl's seed names its Label by name: a request seed or a
+/// sitemap seed holding a `Label`, of a crawl the program declares, is
+/// refused with `invalid_params` before anything is sent.
 ///
 /// Covers: story:11-1069
 #[test]
@@ -170,13 +229,17 @@ fn a_code_free_seed_holding_a_label_is_refused() {
     let listing = Crawl::new().label::<()>("listing").unwrap();
     let refused = real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(super::options(&env)).await.unwrap();
-        let refused = foxhound
-            .start_crawl(catalog(), [Seed::new("https://shop.test/", &listing, ())])
-            .await
-            .unwrap_err();
+        let mut refused = Vec::new();
+        for seed in [
+            Seed::new("https://shop.test/", &listing, ()),
+            Seed::sitemap("https://shop.test/sitemap.xml", [("**", &listing)]),
+        ] {
+            let error = foxhound.start_crawl(catalog(), [seed]).await.unwrap_err();
+            refused.push(error.code().as_str().to_owned());
+        }
         foxhound.close().await.unwrap();
         refused
     });
 
-    assert_eq!(refused.code().as_str(), "invalid_params", "{refused}");
+    assert_eq!(refused, ["invalid_params", "invalid_params"]);
 }

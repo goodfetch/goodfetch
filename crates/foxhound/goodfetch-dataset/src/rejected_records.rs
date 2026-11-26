@@ -49,15 +49,18 @@ async fn rejected_records(
             .await
             .map_err(failed)?;
         let full = records.len() == REJECTED_RECORDS_PAGE;
-        // A read through a number ends once it reaches it, a live Run's
-        // included: a handler reads what had committed, and the Run its
-        // attempt holds would never end under it (ADR 0103).
+        // A read through a number never waits, a live Run's included: a
+        // handler reads what had committed, and the Run its attempt holds
+        // would never end under it (ADR 0103). It ends once it reaches the
+        // number or has read every committed entry, so a number past the
+        // last one, as after an erase, ends it too.
         let reached = through.is_some_and(|through| next >= through);
-        if !records.is_empty() || !live || reached {
+        let waits = live && through.is_none();
+        if !records.is_empty() || !waits {
             return Ok(RejectedRecords {
                 records,
                 next,
-                ended: reached || (!live && !full),
+                ended: reached || (!waits && !full),
             });
         }
         after = next;

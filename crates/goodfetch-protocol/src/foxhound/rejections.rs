@@ -68,10 +68,11 @@ pub struct RunRejectedRecordsParams {
     #[schemars(extend("arrived_in" = "0.1"))]
     pub after: Option<u64>,
     /// The number of the last entry to read, such as the `rejected` count
-    /// `dataset.list` answers, the last entry's number since they have no
-    /// gaps: no entry past it is read, and a page says `ended` once it
-    /// reaches it, a live Run's included, without waiting. Absent, it
-    /// follows a live Run until the Run ends.
+    /// `dataset.list` answers: no entry past it is read, and the read never
+    /// waits, a live Run's included. A page says `ended` once it reaches
+    /// that number or has read every committed entry, as when an erase left
+    /// fewer entries than the count. Absent, it follows a live Run until
+    /// the Run ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub through: Option<u64>,
@@ -95,7 +96,7 @@ pub struct RejectedRecords {
 /// `run.rejected_records`.
 pub const RUN_REJECTED_RECORDS: Operation = Operation {
     name: "run.rejected_records",
-    description: "Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. With `through`, such as the `rejected` count `dataset.list` answers, it reads no entry numbered past it, and a page says `ended` once it reaches it, a live Run's included, without waiting. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+    description: "Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. With `through`, such as the `rejected` count `dataset.list` answers, it reads no entry numbered past it and never waits, a live Run's included: a page says `ended` once it reaches that number or has read every committed entry. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.",
     class: OperationClass::Read,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

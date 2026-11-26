@@ -202,7 +202,9 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
 /// read of the rejection table reads no entry past it, and its page says
 /// `ended` once it reaches it, a live Run's included: a handler reads the
 /// entries committed before its attempt at once, where a read that followed
-/// would wait for a Run its own attempt keeps live (ADR 0103).
+/// would wait for a Run its own attempt keeps live (ADR 0103). A number past
+/// the last entry, as the count is after an erase, never makes it wait: its
+/// page ends at the last committed entry.
 ///
 /// Covers: story:6-270, operation:run.rejected_records, operation:dataset.list
 #[test]
@@ -248,11 +250,18 @@ fn a_read_through_a_number_ends_there_even_while_its_run_is_live() {
                 "run.rejected_records",
                 &json!({ "run_id": "bounded", "dataset": "notes", "through": committed }),
             );
+            let beyond = committed.as_u64().unwrap() + 5;
+            let past_last = inside.call(
+                "run.rejected_records",
+                &json!({ "run_id": "bounded", "dataset": "notes", "through": beyond }),
+            );
             live.push((
                 committed,
                 numbers(&read["result"]),
                 read["result"]["next"].clone(),
                 read["result"]["ended"].clone(),
+                numbers(&past_last["result"]),
+                past_last["result"]["ended"].clone(),
             ));
             push(inside, handle, "notes", &json!({ "n": 1 }));
             json!({ "result": { "records": [] } })
@@ -277,8 +286,15 @@ fn a_read_through_a_number_ends_there_even_while_its_run_is_live() {
         (
             &json!("finished"),
             vec![
-                (json!(0), vec![], json!(0), json!(true)),
-                (json!(1), vec![json!(1)], json!(1), json!(true)),
+                (json!(0), vec![], json!(0), json!(true), vec![], json!(true)),
+                (
+                    json!(1),
+                    vec![json!(1)],
+                    json!(1),
+                    json!(true),
+                    vec![json!(1)],
+                    json!(true),
+                ),
             ],
             vec![json!(1)],
             (&json!(1), &json!(true)),

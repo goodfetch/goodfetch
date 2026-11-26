@@ -16,6 +16,7 @@
 mod access_mode;
 pub mod blocks;
 mod browser_fetch;
+mod browser_run;
 mod cdp;
 mod clean_up_versions;
 mod consent;
@@ -57,6 +58,7 @@ mod trace;
 pub mod url_pattern;
 mod version_check;
 
+pub use browser_run::BrowserRun;
 pub use cdp::launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use clean_up_versions::manifest_file;
 pub use pages::{contribution, contribution_with};

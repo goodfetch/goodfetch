@@ -76,11 +76,9 @@ fn abort_then_finish() -> Contribution {
             // The abort reaches the registry first; the driver's finish
             // follows it into the registry before the abort's end is written,
             // and the driver lets its Run go, as a driver does once it ends.
-            let run_id = crate::runs::identity(&run).id().clone();
+            let run_id = run.identity.id().clone();
             let driver = async move {
-                crate::runs::end(&run)
-                    .end(Ending::Finished(Vec::new()))
-                    .await;
+                run.end.end(Ending::Finished(Vec::new())).await;
             };
             let (aborted, ()) = tokio::join!(
                 runs.abort(

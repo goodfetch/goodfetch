@@ -27,7 +27,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
 use crate::engine::{Dependencies, Engine};
 use crate::ops::Ops;
-use crate::runs::{EndedBy, Run, Start, Started};
+use crate::runs::{EndedBy, RunParts, Start, Started};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, InMemoryDialer, Network};
 
@@ -1210,7 +1210,7 @@ pub(super) fn stuck() -> Contribution {
 pub(super) fn stuck_handler() -> Handler {
     Handler::new(&STUCK, |params: Value, context: CallContext| async move {
         let run = driven(&context, &params).await;
-        let identity = crate::runs::identity(&run);
+        let identity = &run.identity;
         identity.spawn(std::future::pending());
         Ok::<Value, CallError>(json!({ "run_id": identity.id().to_string() }))
     })
@@ -1218,7 +1218,7 @@ pub(super) fn stuck_handler() -> Handler {
 
 /// The new Run of the Run ID in `params`, which its driver ends, begun
 /// for a call in `context`.
-pub(super) async fn driven(context: &CallContext, params: &Value) -> Run {
+pub(super) async fn driven(context: &CallContext, params: &Value) -> RunParts {
     let started = context
         .runs()
         .start(Start {

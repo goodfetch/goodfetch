@@ -27,13 +27,13 @@ use std::sync::Arc;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, NotRead, RobotsTxt};
 use goodfetch_engine::run_identity::RunIdentity;
-use goodfetch_engine::runs::Run;
 use goodfetch_protocol::page::{PageId, SessionId};
 use serde_json::{Value, json};
 use url::Url;
 
 use super::{EngineWork, Sessions};
 use crate::browser_fetch::{self, Body};
+use crate::browser_run::BrowserRun;
 use crate::interception::{EngineRequests, OnDocument};
 use crate::page_value::PageValue;
 use crate::robots_txt::{Group, applicable_rules};
@@ -52,7 +52,7 @@ pub(crate) struct Reader {
     page_id: PageId,
     session: SessionId,
     value: PageValue,
-    run: Run,
+    run: Arc<BrowserRun>,
     tasks: RunIdentity,
 }
 
@@ -73,14 +73,14 @@ impl Reader {
         page_id: &PageId,
         session: &SessionId,
         value: &PageValue,
-        (run, tasks): (&Run, &RunIdentity),
+        (run, tasks): (&Arc<BrowserRun>, &RunIdentity),
     ) -> Option<Self> {
         value.gate().is_none().then(|| Self {
             sessions: sessions.clone(),
             page_id: page_id.clone(),
             session: session.clone(),
             value: value.clone(),
-            run: run.clone(),
+            run: Arc::clone(run),
             tasks: tasks.clone(),
         })
     }
@@ -98,14 +98,15 @@ impl Reader {
             return;
         };
         let reader = self.clone();
-        let limits = Limits::of_run(self.run.settings());
+        let limits = Limits::of_run(self.run.identity.settings());
         self.tasks.spawn(async move {
             // Boxed: the fetch holds a browser load's state (clippy's
             // `large_futures`).
             let fetched = Box::pin(
                 reader
                     .run
-                    .own_robots_txt(&location, reader.fetch(&steps, &location, limits)),
+                    .own_robots_txt
+                    .copy_or_fetch(&location, reader.fetch(&steps, &location, limits)),
             )
             .await;
             let reading = Reading {
@@ -114,7 +115,7 @@ impl Reader {
                 url: &url,
                 location: &location,
             };
-            trace::provenance(&reader.run, reading.entry(&fetched)).await;
+            trace::provenance(&reader.run.trace, reading.entry(&fetched)).await;
         });
     }
 

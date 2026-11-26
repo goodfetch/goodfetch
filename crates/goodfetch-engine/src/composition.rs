@@ -50,7 +50,7 @@ use crate::needs_you::NeedsYouSource;
 use crate::politeness::PolitenessTables;
 use crate::product::Identity;
 use crate::run_state::RunStateTables;
-use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, Run, Runs, SendWindow};
+use crate::runs::{CleanUpVersions, Driving, ProgressPart, ReportPart, RunParts, Runs, SendWindow};
 use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use crate::staging::{AttemptStaging, AttemptWrites};
@@ -412,11 +412,13 @@ impl Answered {
 }
 
 /// What drives a kind of Run, such as Foxhound's crawl's delivery, given
-/// the Run, the context of the call that resumed it, whose Connection's
-/// Client serves it, and its settings: a resume starts it again on the
-/// Run's committed state.
+/// the Run's parts (ADR 0145), the context of the call that resumed it,
+/// whose Connection's Client serves it, and its settings: a resume starts
+/// it again on the Run's committed state.
 pub type Driver = Arc<
-    dyn Fn(Run, CallContext, RunSettings) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
+    dyn Fn(RunParts, CallContext, RunSettings) -> Pin<Box<dyn Future<Output = ()> + Send>>
+        + Send
+        + Sync,
 >;
 
 /// What finds the Run a call names by its page or its Session, IDs only

@@ -70,10 +70,7 @@ fn walls() -> Contribution {
             context
                 .engine()
                 .run_index()
-                .record_consent_wall(
-                    crate::runs::identity(&run),
-                    params["domain"].as_str().unwrap().to_owned(),
-                )
+                .record_consent_wall(&run.identity, params["domain"].as_str().unwrap().to_owned())
                 .await
                 .unwrap();
             Ok::<Value, CallError>(json!({}))

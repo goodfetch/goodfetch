@@ -27,6 +27,7 @@ use goodfetch_engine::client::{ClientRequestError, Sent};
 use goodfetch_engine::egress::{self, Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::http_client;
 use goodfetch_engine::mask::Masks;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_trace::RequestLog;
@@ -46,7 +47,7 @@ use goodfetch_protocol::page::{
 use goodfetch_protocol::secrets::{
     SECRET_INPUT_REFUSED, SecretInputRefusedDetails, SecretInputRefusedReason,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 
 use super::answers::{Answer, Answers, Fulfillment, Reply, already_handled};
 use super::authentication;
@@ -55,11 +56,11 @@ use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
 use super::{PageState, RunPowers, lock};
+use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
-    InterceptionEvents, LoadingFailed, NetError, NetworkId, PausedId, PausedRequest,
+    InterceptionEvents, LoadingFailed, NetworkId, PausedId, PausedRequest,
 };
-use crate::driver::{PageDriver, cdp_response};
 use crate::errors::{gate_failure, gate_refused};
 use crate::page_events::Refusals;
 use crate::page_value::{
@@ -71,12 +72,13 @@ use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
 /// Whose requests a pipeline holds.
 pub(crate) enum Sender {
-    /// A page's.
-    Page(PageId),
-    /// An out-of-process frame's of the page `page`, whose target is not
-    /// the page's: they pass the page's routes, and its page's events never
-    /// see them, so each one refused is recorded in the Run trace at once.
-    Frame(PageId),
+    /// A page's, which the Page ID of the request it serves names, as its
+    /// request part is replaced (ADR 0146).
+    Page(watch::Receiver<PageId>),
+    /// An out-of-process frame's of a page, whose target is not the page's:
+    /// they pass the page's routes, and its page's events never see them,
+    /// so each one refused is recorded in the Run trace at once.
+    Frame(watch::Receiver<PageId>),
     /// A site's service worker's, which belongs to no page, of the Session
     /// `session`: each one is recorded in the Run trace's request `log`
     /// (ADR 0121).
@@ -90,12 +92,18 @@ pub(crate) enum Sender {
 }
 
 impl Sender {
-    /// The page, when a page or one of its frames sends the requests.
-    fn page_id(&self) -> Option<&PageId> {
+    /// The Page ID of the request the page serves now, when a page or one
+    /// of its frames sends the requests.
+    fn page_id(&self) -> Option<PageId> {
         match self {
-            Self::Page(page_id) | Self::Frame(page_id) => Some(page_id),
+            Self::Page(page_id) | Self::Frame(page_id) => Some(page_id.borrow().clone()),
             Self::ServiceWorker { .. } | Self::SharedWorker => None,
         }
+    }
+
+    /// Whether a page or one of its frames sends the requests.
+    fn is_pages(&self) -> bool {
+        matches!(self, Self::Page(_) | Self::Frame(_))
     }
 
     /// Whether a refusal is recorded in the Run trace at once, since no
@@ -272,7 +280,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
                 url,
                 same_document,
             } => {
-                if context.sender.page_id().is_some()
+                if context.sender.is_pages()
                     && frame == context.driver.main_frame().as_str()
                     && !same_document
                 {
@@ -546,7 +554,7 @@ impl PageContext {
     /// Whether `paused` is a request, or a response, of the document of
     /// the page's main frame: a service worker has none.
     fn main_document(&self, paused: &PausedRequest) -> bool {
-        self.sender.page_id().is_some()
+        self.sender.is_pages()
             && paused.loads_document()
             && paused.frame() == self.driver.main_frame().as_str()
     }
@@ -595,7 +603,7 @@ impl PageContext {
         let params = RouteHandleParams {
             id: route.call.clone(),
             route_id: route_id.clone(),
-            page_id: self.sender.page_id().cloned(),
+            page_id: self.sender.page_id(),
             request: held.view(self.run.secrets.mask().masks()),
         };
         let Ok(mut sent) = route
@@ -837,21 +845,26 @@ impl PageContext {
         );
         self.run.identity().spawn(async move {
             if let Err(ClientRequestError::Failed { message, .. }) = sent.answer().await {
-                route.fail(handler_failed(&url, &message));
+                let live = route.fail(handler_failed(&url, &message));
                 state.routes.remove(&route);
                 state.session.remove(&route);
-                state.leave(handler_failed(&url, &message));
+                if live {
+                    state.leave(handler_failed(&url, &message));
+                }
             }
         });
     }
 
     /// `route`'s handler failed on `held`: its route goes, its subscription
-    /// ends, and its failure waits for the page's next call.
+    /// ends, and its failure waits for the page's next call, unless the
+    /// route was no longer live, as one its page's earlier request armed.
     fn handler_failed(&self, route: &Arc<Route>, held: &Held, message: &str) {
         let url = held.url().to_owned();
-        route.fail(handler_failed(&url, message));
+        let live = route.fail(handler_failed(&url, message));
         self.remove(route);
-        self.state.leave(handler_failed(&url, message));
+        if live {
+            self.state.leave(handler_failed(&url, message));
+        }
     }
 
     /// Takes `route` out of the page's and its Session's tables.
@@ -1182,7 +1195,7 @@ impl PageContext {
     /// hop the relay refused at the address it connects to, which the
     /// browser reports only as a network error.
     fn refused_by_relay(&self, failed: &LoadingFailed) {
-        let (Some(relay), Some(_)) = (self.driver.relay(), self.sender.page_id()) else {
+        let (Some(relay), true) = (self.driver.relay(), self.sender.is_pages()) else {
             return;
         };
         if !failed.loads_document() {
@@ -1367,7 +1380,7 @@ impl PageContext {
     /// no request for it, and the call waiting on the page's navigation, or
     /// else its next call, raises the refusal.
     fn scheduled(&self, frame: &str, url: &str) {
-        if self.sender.page_id().is_none() || frame != self.driver.main_frame().as_str() {
+        if !self.sender.is_pages() || frame != self.driver.main_frame().as_str() {
             return;
         }
         if let Some(refused) = hops::scheduled(url, &self.policy) {
@@ -1460,7 +1473,7 @@ impl PageContext {
             .map(NetworkId::as_str)
             .unwrap_or_default();
         let document = ReadDocument {
-            page_id,
+            page_id: &page_id,
             request_id,
             own: reader.take_own(),
             url: paused.url(),
@@ -1553,11 +1566,8 @@ impl PageContext {
         carried: Option<&PageState>,
         body: Option<&[u8]>,
     ) -> Option<CallError> {
-        let gate = self
-            .driver
-            .value()
-            .gate()
-            .filter(|_| !cdp_response::redirects(status))?;
+        let value = self.driver.value();
+        let gate = value.gate().filter(|_| !cdp_response::redirects(status))?;
         let read;
         let body = match body {
             Some(body) => body,

@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use goodfetch_protocol::page::events::PageRequest;
 use goodfetch_protocol::page::read::{PageRead, PageReadParams};
-use goodfetch_protocol::run::{CatalogTarget, Recording, RunId, RunProgress, RunReport, Tags};
+use goodfetch_protocol::run::{CatalogTarget, RunId, RunProgress, RunReport};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -25,10 +25,12 @@ use crate::field_values::FieldValues;
 use crate::run_view::RunView;
 pub use key_value_store::KeyValueStore;
 pub use schedules::{CreatedSchedule, Schedules};
+pub use start::{HandlerlessStart, Start};
 pub use twins::{Locator, Page, Run, Schedule, Session, WebSocket};
 
 mod key_value_store;
 mod schedules;
+mod start;
 /// The blocking twins of the handles, which `xtask codegen` writes.
 #[path = "generated/blocking.rs"]
 mod twins;
@@ -602,114 +604,6 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
     /// As awaiting [`crate::SaveFile`].
     pub fn send(self) -> Result<T, Error> {
         self.connection.wait(self.save.into_future())
-    }
-}
-
-/// The start of a Run (`run.start`). Nothing is sent until
-/// [`Start::send`].
-#[must_use = "a start is sent only by send()"]
-#[derive(Debug)]
-pub struct Start(crate::Start, crate::ClientConnection);
-
-impl Start {
-    /// Names the Run for good: a start with an existing Run ID resumes the
-    /// Run if it was interrupted, or returns it as it ended (ADR 0102), as
-    /// [`crate::Start::run_id`] says.
-    pub fn run_id(self, run_id: &RunId) -> Self {
-        Self(self.0.run_id(run_id), self.1)
-    }
-
-    /// Sets the Run's own Limits, as [`crate::Start::limits`] does.
-    pub fn limits(self, limits: crate::Limits) -> Self {
-        Self(self.0.limits(limits), self.1)
-    }
-
-    /// Tags the Run, as [`crate::Start::tags`] does.
-    pub fn tags(self, tags: Tags) -> Self {
-        Self(self.0.tags(tags), self.1)
-    }
-
-    /// Sets the Run's own settings, as [`crate::Start::settings`] does.
-    pub fn settings(self, settings: crate::settings::Settings) -> Self {
-        Self(self.0.settings(settings), self.1)
-    }
-
-    /// Starts the Run and blocks the calling thread until it is started.
-    ///
-    /// # Errors
-    ///
-    /// What `run.start` fails with.
-    pub fn send(self) -> Result<Run, Error> {
-        let Self(start, connection) = self;
-        let inner = connection.wait(start.into_future())?;
-        Ok(Run { inner })
-    }
-}
-
-/// The start of a Run with no handler in the program, a Recipe's run or a
-/// code-free catalog run. Nothing is sent until
-/// [`HandlerlessStart::send`].
-#[must_use = "a start is sent only by send()"]
-#[derive(Debug)]
-pub struct HandlerlessStart(crate::HandlerlessStart, crate::ClientConnection);
-
-impl HandlerlessStart {
-    /// Names the Run for good, as [`crate::HandlerlessStart::run_id`] does.
-    pub fn run_id(self, run_id: &RunId) -> Self {
-        Self(self.0.run_id(run_id), self.1)
-    }
-
-    /// Tags the Run, as [`crate::HandlerlessStart::tags`] does.
-    pub fn tags(self, tags: Tags) -> Self {
-        Self(self.0.tags(tags), self.1)
-    }
-
-    /// Sets the Run's own Limits, as [`crate::HandlerlessStart::limits`]
-    /// does.
-    pub fn limits(self, limits: crate::Limits) -> Self {
-        Self(self.0.limits(limits), self.1)
-    }
-
-    /// Sets the Run's own settings, as
-    /// [`crate::HandlerlessStart::settings`] does.
-    pub fn settings(self, settings: crate::settings::Settings) -> Self {
-        Self(self.0.settings(settings), self.1)
-    }
-
-    /// Sets the Response recording the Run replays or records, as
-    /// [`crate::HandlerlessStart::recording`] does.
-    pub fn recording(self, recording: Recording) -> Self {
-        Self(self.0.recording(recording), self.1)
-    }
-
-    /// Bounds how long the Run may last, as
-    /// [`crate::HandlerlessStart::timeout`] does.
-    pub fn timeout(self, timeout: Duration) -> Self {
-        Self(self.0.timeout(timeout), self.1)
-    }
-
-    /// Lets the Run last as long as it takes, as
-    /// [`crate::HandlerlessStart::no_timeout`] does.
-    pub fn no_timeout(self) -> Self {
-        Self(self.0.no_timeout(), self.1)
-    }
-
-    /// Lets the Run outlive the program that started it, as
-    /// [`crate::HandlerlessStart::detached`] does.
-    pub fn detached(self) -> Self {
-        Self(self.0.detached(), self.1)
-    }
-
-    /// Starts the Run and blocks the calling thread until it is started.
-    ///
-    /// # Errors
-    ///
-    /// What its opener fails with, and `setting_invalid` for a zero
-    /// `timeout`, before anything is sent.
-    pub fn send(self) -> Result<Run, Error> {
-        let Self(start, connection) = self;
-        let inner = connection.wait(start.into_future())?;
-        Ok(Run { inner })
     }
 }
 

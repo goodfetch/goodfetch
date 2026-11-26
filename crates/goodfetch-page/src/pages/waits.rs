@@ -317,7 +317,7 @@ impl Pages {
                 Ok(deadline.deadline().cloned())
             })
             .await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let deadline = self
             .events(wait.page_id)?
             .wait_deadline(wait.timeout)?
@@ -325,7 +325,7 @@ impl Pages {
         let world = wait.world.unwrap_or_default();
         if world == World::Main {
             page.injections
-                .mark(&page.run, &page.session, wait.page_id, injection)
+                .mark(&page.run.trace, &page.session, wait.page_id, injection)
                 .await;
         }
         let cdp = &CdpPage::of(&page.driver);
@@ -356,7 +356,7 @@ impl Pages {
         let (page, spent) = self
             .open(&locator.page_id, |_| Ok(deadline.deadline().cloned()))
             .await?;
-        tracing::Span::current().record("run_id", page.run.id().as_str());
+        tracing::Span::current().record("run_id", page.run.identity.id().as_str());
         let wait = Wait {
             operation,
             selector: &locator.selector,

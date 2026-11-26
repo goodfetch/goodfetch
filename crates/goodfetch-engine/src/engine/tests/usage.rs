@@ -35,7 +35,7 @@ use crate::call_error::CallError;
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Dependencies;
 use crate::ledger::{ChargeError, Ledger, Refusal, UnjournaledCharges};
-use crate::runs::{self, EndedBy, Start, Started};
+use crate::runs::{EndedBy, RunParts, Start, Started};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
 
@@ -101,7 +101,7 @@ const HELD_AT_MOST: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Starts a new Collie Run named by `params`' `run_id`, tagged with its
 /// `tags`.
-async fn started(params: &Value, context: &CallContext) -> Result<crate::runs::Run, CallError> {
+async fn started(params: &Value, context: &CallContext) -> Result<RunParts, CallError> {
     let started = context
         .runs()
         .start(Start {
@@ -156,7 +156,7 @@ pub(super) fn charging() -> Contribution {
                 let mut refused = false;
                 let mut unjournaled = UnjournaledCharges::default();
                 for _ in 0..params["unjournaled"].as_u64().unwrap_or(0) {
-                    runs::charging(&run)
+                    run.charging
                         .charge_unjournaled(&mut unjournaled, "requests", 1)
                         .await
                         .unwrap();
@@ -168,7 +168,7 @@ pub(super) fn charging() -> Contribution {
                             .add_limit(&newer_limit(), Timestamp::UNIX_EPOCH)
                             .unwrap();
                     }
-                    match runs::charging(&run).charge("requests", 1).await {
+                    match run.charging.charge("requests", 1).await {
                         Ok(()) => charged += 1,
                         Err(ChargeError::Refused(_)) => {
                             refused = true;
@@ -178,7 +178,7 @@ pub(super) fn charging() -> Contribution {
                     }
                 }
                 if !unjournaled.is_empty() {
-                    runs::charging(&run)
+                    run.charging
                         .queue_charged(unjournaled, |_| Ok(()))
                         .await
                         .unwrap()
@@ -195,7 +195,8 @@ pub(super) fn charging() -> Contribution {
             &RESERVE,
             |params: Value, context: CallContext| async move {
                 let run = started(&params, &context).await?;
-                let reserved = runs::charging(&run)
+                let reserved = run
+                    .charging
                     .reserve(
                         "paid_solves",
                         Some("USD"),
@@ -206,10 +207,7 @@ pub(super) fn charging() -> Contribution {
                     return Ok::<Value, CallError>(json!({ "refused": true }));
                 };
                 if let Some(cost) = params["cost"].as_u64() {
-                    runs::charging(&run)
-                        .settle(reservation, cost)
-                        .await
-                        .unwrap();
+                    run.charging.settle(reservation, cost).await.unwrap();
                 }
                 Ok(json!({ "refused": false }))
             },
@@ -221,7 +219,7 @@ async fn charge_live(params: Value, context: CallContext) -> Result<Value, CallE
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = context.runs().live(run_id).await.unwrap();
     for _ in 0..params["amount"].as_u64().unwrap() {
-        match runs::charging(&run).charge("requests", 1).await {
+        match run.charging.charge("requests", 1).await {
             Ok(()) => {}
             Err(ChargeError::Refused(Refusal::Reached(reached))) => {
                 return Err(crate::run::limit_reached(&reached));
@@ -256,7 +254,7 @@ async fn covered(params: Value, context: CallContext) -> Result<Value, CallError
     // The clock stands still from here, so the Limits the Run reads as it
     // takes its Slice stay current, and the other thread serves that charge.
     let first = held_thread().await;
-    let charging = runs::charging(&run);
+    let charging = &run.charging;
     charging.charge("requests", 1).await.unwrap();
     let priced = charging.reserve("requests", Some("USD"), 1).await.unwrap();
     charging.settle(priced, 1).await.unwrap();
@@ -311,7 +309,7 @@ async fn covered(params: Value, context: CallContext) -> Result<Value, CallError
         None => Some(another_slice.await.is_ok()),
     };
     if let Some(unjournaled) = unjournaled {
-        runs::charging(&run)
+        run.charging
             .queue_charged(unjournaled, |_| Ok(()))
             .await
             .unwrap()
@@ -333,8 +331,8 @@ async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value,
         .map(|task| {
             let (end, ended) = tokio::sync::oneshot::channel();
             let held = run.clone();
-            runs::identity(&run).spawn(async move {
-                let charging = runs::charging(&held);
+            run.identity.spawn(async move {
+                let charging = &held.charging;
                 let mut charged = 0_u64;
                 for charge in 0..each {
                     // Every third charge is a claim's, journaled in a write
@@ -383,7 +381,7 @@ async fn charge_from_tasks(params: Value, context: CallContext) -> Result<Value,
     // A claim's journal rides the open batch at a level that batches
     // attempts, answered before the batch commits and seen by a reader only
     // once it does (ADR 0142): the last read follows the batch's seal.
-    runs::state(&run).seal().await.unwrap();
+    run.state.seal().await.unwrap();
     journal.read(journaled_slices(&run).await);
     Ok(json!({
         "charged": charged,
@@ -412,8 +410,8 @@ impl Journal {
 }
 
 /// Each Slice `run`'s state journals, with the Run's Usage of it.
-async fn journaled_slices(run: &crate::runs::Run) -> Vec<(String, u64)> {
-    runs::state(run)
+async fn journaled_slices(run: &RunParts) -> Vec<(String, u64)> {
+    run.state
         .read(|connection| {
             connection
                 .prepare("SELECT CAST(slice_id AS TEXT), used FROM usage")?

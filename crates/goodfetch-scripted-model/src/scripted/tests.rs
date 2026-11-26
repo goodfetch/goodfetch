@@ -118,7 +118,7 @@ fn called(model: ScriptedModel, requests: Vec<ModelRequest>) -> (ScriptedModel, 
                         let mut answers = Vec::new();
                         for request in &calls.requests {
                             let context = CallContext {
-                                run: &run,
+                                run: &run.identity,
                                 reservation: &reservation,
                                 deadline: None,
                                 cancellation: &cancellation,

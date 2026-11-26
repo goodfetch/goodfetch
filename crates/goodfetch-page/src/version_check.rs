@@ -14,7 +14,8 @@
 
 use std::sync::LazyLock;
 
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::runs::ReportWarnings;
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::BROWSER_BUILD_OUTDATED;
 use jiff::civil::Date;
@@ -164,10 +165,10 @@ pub(crate) enum Level {
 }
 
 /// Grades the build whose `Browser.getVersion` product is `product` on
-/// `run`'s day, against the shipped table: an outdated build warns in the
-/// Run report, once, and a build less behind is logged. The run goes on
-/// either way.
-pub(crate) async fn check(run: &Run, product: &str) {
+/// the day of the Run `run`, against the shipped table: an outdated build
+/// warns in the Run report, through its `warnings`, once, and a build less
+/// behind is logged. The run goes on either way.
+pub(crate) async fn check(run: &RunIdentity, warnings: &ReportWarnings, product: &str) {
     let Some((major, channel)) = of_product(product) else {
         return;
     };
@@ -190,7 +191,7 @@ pub(crate) async fn check(run: &Run, product: &str) {
                 sessions: Vec::new(),
                 folder: None,
             };
-            if let Err(error) = run.warn_once(warning).await {
+            if let Err(error) = warnings.warn_once(warning).await {
                 tracing::warn!(%error, "the warning of the outdated browser build was not kept");
             }
         }

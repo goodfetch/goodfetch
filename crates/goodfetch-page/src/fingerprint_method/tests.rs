@@ -89,7 +89,7 @@ fn drawn(exit: ExitFacts) -> IdentityProfile {
 }
 
 /// One drawn before its exit is known: no time zone nor geolocation.
-fn profile() -> IdentityProfile {
+fn identity_profile() -> IdentityProfile {
     drawn(ExitFacts::default())
 }
 
@@ -113,22 +113,25 @@ fn at_the_exit() -> IdentityProfile {
 #[case::standard(identity(AccessMode::Standard, FingerprintMethod::Basic, SET), None)]
 #[case::the_fallback(
     identity(AccessMode::Stealth, FingerprintMethod::Basic, FELL_BACK),
-    Some(plan(Method::Basic, FELL_BACK, Some(profile())))
+    Some(plan(Method::Basic, FELL_BACK, Some(identity_profile())))
 )]
 #[case::js_injection(
     identity(AccessMode::Stealth, FingerprintMethod::JsInjection, SET),
-    Some(plan(Method::JsInjection, SET, Some(profile())))
+    Some(plan(Method::JsInjection, SET, Some(identity_profile())))
 )]
 #[case::none(
     identity(AccessMode::Stealth, FingerprintMethod::None, SET),
-    Some(plan(Method::None, SET, Some(profile())))
+    Some(plan(Method::None, SET, Some(identity_profile())))
 )]
 #[case::engine(identity(AccessMode::Stealth, FingerprintMethod::Engine, SET), None)]
 fn a_stealth_session_with_a_built_method_has_a_plan(
     #[case] identity: SessionIdentityPlan,
     #[case] expected: Option<FingerprintPlan>,
 ) {
-    assert_eq!(FingerprintPlan::of(&identity, Some(profile())), expected);
+    assert_eq!(
+        FingerprintPlan::of(&identity, Some(identity_profile())),
+        expected
+    );
 }
 
 /// Every built method shares a browser process as contexts.
@@ -137,31 +140,29 @@ fn every_built_method_shares_a_browser_process(
     #[values(Method::None, Method::JsInjection, Method::Basic)] method: Method,
 ) {
     assert_eq!(
-        plan(method, SET, Some(profile())).placement(),
+        plan(method, SET, Some(identity_profile())).placement(),
         Placement::Shared
     );
 }
 
 /// `basic` shows its Identity profile through the browser's overrides and
 /// `js_injection` through its script; `none` shows the machine's own, and
-/// no method writes anything without a profile, `stealth.generated_identity`
-/// off.
+/// no method writes anything without an Identity profile,
+/// `stealth.generated_identity` off.
 #[rstest]
-#[case::basic(Method::Basic, true, false)]
-#[case::js_injection(Method::JsInjection, false, true)]
-#[case::none(Method::None, false, false)]
+#[case::basic(Method::Basic, Some(identity_profile()), (true, false))]
+#[case::js_injection(Method::JsInjection, Some(identity_profile()), (false, true))]
+#[case::none(Method::None, Some(identity_profile()), (false, false))]
+#[case::basic_without_an_identity_profile(Method::Basic, None, (false, false))]
+#[case::js_injection_without_an_identity_profile(Method::JsInjection, None, (false, false))]
 fn each_method_fills_its_own_primitive(
     #[case] method: Method,
-    #[case] overrides: bool,
-    #[case] script: bool,
+    #[case] identity: Option<IdentityProfile>,
+    #[case] (overrides, script): (bool, bool),
 ) {
-    let (emulated, init) = plan(method, SET, Some(profile())).primitives(Some(PRODUCT));
+    let (emulated, init) = plan(method, SET, identity).primitives(Some(PRODUCT));
 
     assert_eq!((emulated.is_some(), init.is_some()), (overrides, script));
-    assert_eq!(
-        plan(method, SET, None).primitives(Some(PRODUCT)),
-        (None, None)
-    );
 }
 
 /// `basic` shows the profile's user agent and client hints at the
@@ -169,9 +170,9 @@ fn each_method_fills_its_own_primitive(
 /// core count, screen, and the exit's time zone and geolocation.
 #[test]
 fn basic_shows_the_profile_at_the_browsers_version() {
-    let profile = at_the_exit();
+    let identity = at_the_exit();
 
-    let (emulated, _) = plan(Method::Basic, SET, Some(profile.clone())).primitives(Some(PRODUCT));
+    let (emulated, _) = plan(Method::Basic, SET, Some(identity.clone())).primitives(Some(PRODUCT));
 
     let emulated = emulated.expect("values to show");
     let agent = emulated.user_agent.expect("a user agent");
@@ -206,10 +207,12 @@ fn basic_shows_the_profile_at_the_browsers_version() {
                 longitude: 2.35,
                 accuracy: 10.0,
             }),
-            Some(profile.navigator.hardware_concurrency),
+            Some(identity.navigator.hardware_concurrency),
             Some(ScreenSize {
-                width: profile.screen.width,
-                height: profile.screen.height,
+                width: identity.screen.width,
+                height: identity.screen.height,
+                avail_width: identity.screen.avail_width,
+                avail_height: identity.screen.avail_height,
             }),
         )
     );
@@ -221,13 +224,13 @@ fn basic_shows_the_profile_at_the_browsers_version() {
 #[case::unknown(None)]
 #[case::unreadable(Some("Chrome"))]
 fn an_unread_version_keeps_the_drawn_one(#[case] product: Option<&str>) {
-    let profile = profile();
+    let identity = identity_profile();
 
-    let (emulated, _) = plan(Method::Basic, SET, Some(profile.clone())).primitives(product);
+    let (emulated, _) = plan(Method::Basic, SET, Some(identity.clone())).primitives(product);
 
     assert_eq!(
         emulated.and_then(|values| values.user_agent.map(|agent| agent.user_agent)),
-        Some(profile.user_agent)
+        Some(identity.user_agent)
     );
 }
 
@@ -243,7 +246,7 @@ fn an_unread_version_keeps_the_drawn_one(#[case] product: Option<&str>) {
 #[case::basic(Method::Basic, SET, Some(at_the_exit()), FINGERPRINT_BASIC, false, &["session-1"], (false, false))]
 #[case::the_fallback(Method::Basic, FELL_BACK, Some(at_the_exit()), FINGERPRINT_BASIC_FALLBACK, false, &["session-1"], (false, false))]
 #[case::basic_without_a_profile(Method::Basic, SET, None, FINGERPRINT_BASIC, false, &["session-1"], (true, false))]
-#[case::basic_before_its_exit(Method::Basic, SET, Some(profile()), FINGERPRINT_BASIC, false, &["session-1"], (false, true))]
+#[case::basic_before_its_exit(Method::Basic, SET, Some(identity_profile()), FINGERPRINT_BASIC, false, &["session-1"], (false, true))]
 #[case::none_without_a_profile(Method::None, SET, None, FINGERPRINT_NONE, true, &[], (false, false))]
 fn each_method_leaves_its_warning(
     #[case] method: Method,
@@ -334,7 +337,7 @@ fn the_runtime_domain_opens_only_where_the_setting_allows_it(
     let session = SessionId("session-1".to_owned());
     let plan = FingerprintPlan {
         runtime,
-        ..plan(Method::Basic, SET, Some(profile()))
+        ..plan(Method::Basic, SET, Some(identity_profile()))
     };
 
     let refused = plan
@@ -374,6 +377,8 @@ fn the_script_writes_each_value_as_a_literal() {
         screen: Some(ScreenSize {
             width: 1920,
             height: 1080,
+            avail_width: 1920,
+            avail_height: 1040,
         }),
         ..Emulated::default()
     })
@@ -384,6 +389,7 @@ fn the_script_writes_each_value_as_a_literal() {
     assert!(script.contains(r#""fr\"});alert(1);//""#), "{script}");
     assert!(script.contains("\"hardwareConcurrency\", 4)"), "{script}");
     assert!(script.contains("\"width\", 1920)"), "{script}");
+    assert!(script.contains("\"availHeight\", 1040)"), "{script}");
     assert!(!script.contains("timeZone"), "{script}");
     assert!(!script.contains("geolocation"), "{script}");
 }

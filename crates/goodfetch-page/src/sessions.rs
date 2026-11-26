@@ -673,7 +673,7 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
-        let row = (position, false, seed);
+        let row = SessionRow::opened(position, seed);
         self.record(&run, row, &settings, borrowed.as_ref(), context)
             .await?;
         mark_egress(&open, &session).await;
@@ -773,7 +773,7 @@ impl Sessions {
         if let Opener::Default = opener {
             self.record(
                 run,
-                (position, true, seed),
+                SessionRow::the_default(position, seed),
                 &Values::default(),
                 borrowed,
                 context,
@@ -1287,7 +1287,7 @@ impl Sessions {
             }
             let settings = recorded_settings(&settings, run, context)?;
             reopened.push(
-                reopened_session((run, &pool), (position, seed), settings, source, context).await?,
+                reopened_session((run, &pool), position, seed, settings, source, context).await?,
             );
         }
         let mut state = self.state.lock().await;
@@ -1375,14 +1375,17 @@ impl Sessions {
         });
     }
 
-    /// Records the Session at `position` of `run`, the default Session when
-    /// `is_default`, with the `seed` its Identity profile is drawn from,
-    /// its own `settings` and the `cdp_url` of the Borrowed browser it is
-    /// on, `borrowed`, if it is, in its run state.
+    /// Records the Session `row` of `run`, with its own `settings` and the
+    /// `cdp_url` of the Borrowed browser it is on, `borrowed`, if it is, in
+    /// its run state.
     async fn record(
         &self,
         run: &Arc<BrowserRun>,
-        (position, is_default, seed): (u32, bool, IdentitySeed),
+        SessionRow {
+            position,
+            is_default,
+            seed,
+        }: SessionRow,
         settings: &Values,
         borrowed: Option<&CdpUrl>,
         context: &CallContext,
@@ -1727,6 +1730,36 @@ fn recorded_source(
     })
 }
 
+/// What the run state records of a Session as it opens: its position,
+/// whether it is the default Session, and the seed its Identity profile is
+/// drawn from.
+#[derive(Clone, Copy, Debug)]
+struct SessionRow {
+    position: u32,
+    is_default: bool,
+    seed: IdentitySeed,
+}
+
+impl SessionRow {
+    /// A Session a client opens, at `position`.
+    const fn opened(position: u32, seed: IdentitySeed) -> Self {
+        Self {
+            position,
+            is_default: false,
+            seed,
+        }
+    }
+
+    /// The Run's default Session, at `position`.
+    const fn the_default(position: u32, seed: IdentitySeed) -> Self {
+        Self {
+            position,
+            is_default: true,
+            seed,
+        }
+    }
+}
+
 /// A Session as the run state records it: its position, whether it is the
 /// default Session, whether it closed, its own settings, its identity seed
 /// and, for one on a Borrowed browser, its sealed source.
@@ -1784,7 +1817,8 @@ fn recorded_settings(
 /// page it is asked for raises.
 async fn reopened_session(
     (run, pool): (&Arc<BrowserRun>, &Pool),
-    (position, seed): (u32, IdentitySeed),
+    position: u32,
+    seed: IdentitySeed,
     settings: Values,
     source: Option<Sealed>,
     context: &CallContext,
@@ -1920,8 +1954,9 @@ fn access_mode_opens(
 /// The Fingerprint method a Session of `run`, opening as `plan` says with
 /// its `own` settings, masks its pages with, if it does: with the Identity
 /// profile `seed` draws from its narrowing of its browser family's
-/// population (#913), none when it generates none. The population is read
-/// on one of the Run's blocking threads.
+/// population on the machine's operating system (#913), none when it
+/// generates none. The population is read on one of the Run's blocking
+/// threads.
 ///
 /// # Errors
 ///
@@ -1935,23 +1970,20 @@ async fn fingerprint_of(
     seed: IdentitySeed,
     context: &CallContext,
 ) -> Result<Option<FingerprintPlan>, CallError> {
-    let profile = match plan.narrowing() {
-        Some(narrowing) => Some(
-            run.identity
-                .owner()
-                .blocking(move || narrowing.identity(seed))
-                .await
-                .map_err(|error| {
-                    let settings = SessionSettings::new(
-                        own,
-                        run.identity.settings().map(RunSettings::resolved),
-                    );
-                    Refusal::outside_population(&settings, &error).call_error(context)
-                })?,
-        ),
+    let identity = match plan.narrowing() {
+        Some(narrowing) => run
+            .identity
+            .owner()
+            .blocking(move || narrowing.identity(seed))
+            .await
+            .map_err(|error| {
+                let settings =
+                    SessionSettings::new(own, run.identity.settings().map(RunSettings::resolved));
+                Refusal::outside_population(&settings, &error).call_error(context)
+            })?,
         None => None,
     };
-    Ok(FingerprintPlan::of(plan, profile))
+    Ok(FingerprintPlan::of(plan, identity))
 }
 
 /// The signer of a Session of `run` that opens `identified` with the

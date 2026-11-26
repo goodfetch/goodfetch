@@ -43,11 +43,15 @@ pub(crate) struct UserAgentOverride {
     pub(crate) client_hints: Option<ClientHints>,
 }
 
-/// The size of the screen a page reports, in CSS pixels.
+/// The size of the screen a page reports, in CSS pixels, and the part of
+/// it a window may take. `basic` shows the whole screen as available:
+/// `Emulation.setDeviceMetricsOverride` takes no available size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ScreenSize {
     pub(crate) width: u32,
     pub(crate) height: u32,
+    pub(crate) avail_width: u32,
+    pub(crate) avail_height: u32,
 }
 
 /// A position a page's geolocation answers with.

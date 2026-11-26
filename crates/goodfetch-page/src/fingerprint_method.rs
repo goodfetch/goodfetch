@@ -152,28 +152,14 @@ impl FingerprintPlan {
     /// The values its pages show through the browser's own overrides,
     /// `basic`'s, and the script they run before each document's own,
     /// `js_injection`'s: its Identity profile at the version of the browser
-    /// that reports `product`, such as `HeadlessChrome/131.0.6778.85`, or
-    /// at the drawn version when `product` names none it can read. Neither
-    /// without a profile.
+    /// that reports `product`. Neither without an Identity profile.
     fn primitives(&self, product: Option<&str>) -> (Option<Emulated>, Option<String>) {
-        let Some(identity) = self.identity.as_deref() else {
-            return (None, None);
-        };
-        if self.method == Method::None {
-            return (None, None);
-        }
-        let mut identity = identity.clone();
-        if let Some(version) = product
-            .and_then(|product| product.split_once('/'))
-            .and_then(|(_, version)| BrowserVersion::parse(version))
-        {
-            refresh_version_fields(&mut identity, version);
-        }
-        let values = shown(&identity);
-        match self.method {
-            Method::None => (None, None),
-            Method::Basic => (Some(values), None),
-            Method::JsInjection => (None, init_script(&values)),
+        match (self.method, self.identity.as_deref()) {
+            (Method::None, _) | (_, None) => (None, None),
+            (Method::Basic, Some(identity)) => (Some(shown_at(identity, product)), None),
+            (Method::JsInjection, Some(identity)) => {
+                (None, init_script(&shown_at(identity, product)))
+            }
         }
     }
 
@@ -316,6 +302,20 @@ impl FingerprintPlan {
     }
 }
 
+/// The values a page shows of `identity` at the version of the browser
+/// that reports `product`, such as `HeadlessChrome/131.0.6778.85`, or at
+/// the drawn version when `product` names none it can read.
+fn shown_at(identity: &IdentityProfile, product: Option<&str>) -> Emulated {
+    let mut identity = identity.clone();
+    if let Some(version) = product
+        .and_then(|product| product.split_once('/'))
+        .and_then(|(_, version)| BrowserVersion::parse(version))
+    {
+        refresh_version_fields(&mut identity, version);
+    }
+    shown(&identity)
+}
+
 /// The values a page shows of `identity`: its user agent with its
 /// `Accept-Language` header, `navigator.platform` and client hints, its
 /// screen, its first language, its core count, and the exit's time zone
@@ -337,6 +337,8 @@ fn shown(identity: &IdentityProfile) -> Emulated {
         screen: Some(ScreenSize {
             width: identity.screen.width,
             height: identity.screen.height,
+            avail_width: identity.screen.avail_width,
+            avail_height: identity.screen.avail_height,
         }),
         time_zone: identity.exit.time_zone.clone(),
         locale: identity.navigator.languages.first().cloned(),
@@ -362,9 +364,14 @@ fn init_script(values: &Emulated) -> Option<String> {
         ));
     }
     if let Some(screen) = values.screen {
-        let (width, height) = (screen.width, screen.height);
+        let ScreenSize {
+            width,
+            height,
+            avail_width,
+            avail_height,
+        } = screen;
         lines.push(format!(
-            "define(Screen.prototype, \"width\", {width});\n  define(Screen.prototype, \"height\", {height});\n  define(Screen.prototype, \"availWidth\", {width});\n  define(Screen.prototype, \"availHeight\", {height});"
+            "define(Screen.prototype, \"width\", {width});\n  define(Screen.prototype, \"height\", {height});\n  define(Screen.prototype, \"availWidth\", {avail_width});\n  define(Screen.prototype, \"availHeight\", {avail_height});"
         ));
     }
     if let Some(cores) = values.core_count {

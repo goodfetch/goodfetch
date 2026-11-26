@@ -271,9 +271,9 @@ impl SessionIdentityPlan {
     /// and so does `stealth`, but for the `engine` Fingerprint method,
     /// human-like input, a chosen Chromium build and the headful launch it
     /// defaults to, which open only once their tickets land. A generated
-    /// identity that falls back to `basic` keeps the machine's operating
-    /// system (#599's Q5), so a `stealth.identity.os` that leaves it out is
-    /// refused.
+    /// identity keeps the machine's operating system under every method
+    /// but `engine` (#599's Q5 and its re-cut of #997), so a
+    /// `stealth.identity.os` that leaves it out is refused.
     pub(crate) fn built(self, settings: &SessionSettings<'_>) -> Result<Self, Refusal> {
         let Some(profile) = &self.profile else {
             return Ok(self);
@@ -285,7 +285,6 @@ impl SessionIdentityPlan {
             });
         }
         if profile.generated_identity
-            && profile.method_source == MethodSource::FellBack
             && !profile.os.is_empty()
             && !profile.os.iter().any(|os| os == HOST_OS)
         {
@@ -293,7 +292,7 @@ impl SessionIdentityPlan {
                 key: STEALTH_IDENTITY_OS.name,
                 layer: scope(&STEALTH_IDENTITY_OS).layer(),
                 reason: format!(
-                    "a Session that falls back to the Fingerprint method `basic` keeps the machine's operating system, `{HOST_OS}`"
+                    "a Session masked by a Fingerprint method other than `engine` keeps the machine's operating system, `{HOST_OS}`"
                 ),
             });
         }
@@ -334,8 +333,8 @@ pub(crate) struct SigningPlan {
 }
 
 /// The operating system this engine runs on, as `stealth.identity.os`
-/// names it: the one a Session that falls back to `basic` keeps (#599's
-/// Q5).
+/// names it: the one a generated identity keeps under every Fingerprint
+/// method but `engine` (#599's Q5).
 pub(crate) const HOST_OS: &str = if cfg!(target_os = "windows") {
     "windows"
 } else if cfg!(target_os = "macos") {
@@ -739,51 +738,60 @@ pub(crate) fn resolve(
 }
 
 /// What a `stealth` Session's `stealth.identity.*` values narrow its
-/// browser family's population to.
+/// browser family's population to, and whether it draws its Identity
+/// profile from it.
 #[derive(Debug)]
 pub(crate) struct Narrowing {
     family: EngineFamily,
     os: Vec<String>,
     device: Vec<String>,
     brand: Vec<String>,
+    generated: bool,
 }
 
 impl SessionIdentityPlan {
-    /// The narrowing of its browser family's population that its Identity
-    /// profile is drawn from, as its `stealth.identity.*` values ask: none
-    /// when it generates none. One that falls back to `basic` keeps the
-    /// machine's operating system (#599's Q5), which
-    /// [`built`](Self::built) refuses a `stealth.identity.os` to leave out.
+    /// The narrowing of its browser family's population that a `stealth`
+    /// Session's `stealth.identity.*` values ask for, which its Identity
+    /// profile is drawn from when it generates one; none for another
+    /// Access mode.
     pub(crate) fn narrowing(&self) -> Option<Narrowing> {
-        let profile = self
-            .profile
-            .as_ref()
-            .filter(|profile| profile.generated_identity)?;
-        let os = match profile.method_source {
-            MethodSource::FellBack => vec![HOST_OS.to_owned()],
-            MethodSource::Set(_) => profile.os.clone(),
-        };
+        let profile = self.profile.as_ref()?;
         Some(Narrowing {
             family: profile.family,
-            os,
+            os: profile.os.clone(),
             device: profile.device.clone(),
             brand: profile.brand.clone(),
+            generated: profile.generated_identity,
         })
     }
 }
 
 impl Narrowing {
     /// The Identity profile drawn from this narrowing with `seed`, before
-    /// any proxy exit gives it its facts (#997). It blocks: the first
-    /// narrowing of a process reads the whole embedded population, so it
-    /// runs on a blocking thread.
+    /// any proxy exit gives it its facts (#997): none when the Session
+    /// generates none, once its values are checked against the population
+    /// all the same. The profile keeps the machine's operating system,
+    /// `HOST_OS`, as every Fingerprint method but `engine` does (#599's
+    /// Q5), which [`built`](SessionIdentityPlan::built) refuses a
+    /// `stealth.identity.os` to leave out. It blocks: the first narrowing of
+    /// a process reads the whole embedded population, so it runs on a
+    /// blocking thread.
     ///
     /// # Errors
     ///
-    /// The setting the population draws no browser from.
-    pub(crate) fn identity(self, seed: IdentitySeed) -> Result<IdentityProfile, NarrowingError> {
-        let constraints = Constraints::narrowed(self.family, &self.os, &self.device, &self.brand)?;
-        Ok(generate(seed, &constraints, ExitFacts::default()))
+    /// The setting the population draws no browser from, on the machine's
+    /// operating system when the Session generates its identity.
+    pub(crate) fn identity(
+        self,
+        seed: IdentitySeed,
+    ) -> Result<Option<IdentityProfile>, NarrowingError> {
+        Constraints::narrowed(self.family, &self.os, &self.device, &self.brand)?;
+        if !self.generated {
+            return Ok(None);
+        }
+        let host = [HOST_OS.to_owned()];
+        let constraints = Constraints::narrowed(self.family, &host, &self.device, &self.brand)?;
+        Ok(Some(generate(seed, &constraints, ExitFacts::default())))
     }
 }
 

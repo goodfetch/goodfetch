@@ -1,13 +1,20 @@
 //! The `email` channel (ADR 0027; issue 1388): a Notification rendered as
 //! one message of two parts, plain text and a minimal HTML, its link
 //! without the user and password it may carry, sent through the channel's
-//! provider: an SMTP server ([`Smtp`]) or Amazon SES ([`Ses`]). Each
+//! provider: an SMTP server ([`Smtp`]) or Amazon SES ([`Ses`]), which take
+//! the rendered message raw, or the HTTP APIs of Resend ([`Resend`]),
+//! Postmark ([`Postmark`]), SendGrid ([`Sendgrid`]) and Mailgun
+//! ([`Mailgun`]) (issue 1389), which take its subject and parts. Each
 //! provider reaches its server through the engine's Notification channel
 //! endpoint, its own client and never a Session's (ADR 0088), and is a
 //! translation point of its own (ADR 0127), mapping its replies to the
 //! driver's [`Failure`].
 
+mod mailgun;
+mod postmark;
 mod render;
+mod resend;
+mod sendgrid;
 mod ses;
 mod smtp;
 
@@ -15,20 +22,21 @@ use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
 
+use crate::api::{self, ApiFailure};
 use crate::driver::Channel;
 use crate::failure::Failure;
 use crate::message::Message;
 
+pub use mailgun::Mailgun;
+pub use postmark::Postmark;
+pub use resend::Resend;
+pub use sendgrid::Sendgrid;
 pub use ses::{RegionUnusable, Ses, SesFailure};
 pub use smtp::{Login, Smtp, SmtpFailure};
 
 /// How long a delivery waits for its provider to take the message before
 /// it counts as [`Failure::Timeout`].
 pub const SEND_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The most bytes of a provider's answer an unknown answer keeps as its
-/// party text.
-const PARTY_TEXT_LIMIT: usize = 1024;
 
 /// An email address, `local@domain`, as an SMTP envelope and a message's
 /// header carry it.
@@ -86,6 +94,14 @@ pub enum Provider {
     Smtp(Smtp),
     /// Amazon SES.
     Ses(Ses),
+    /// Resend.
+    Resend(Resend),
+    /// Postmark.
+    Postmark(Postmark),
+    /// SendGrid.
+    Sendgrid(Sendgrid),
+    /// Mailgun.
+    Mailgun(Mailgun),
 }
 
 /// An `email` channel.
@@ -114,6 +130,14 @@ pub enum EmailFailure {
     Smtp(SmtpFailure),
     /// Amazon SES's failure.
     Ses(SesFailure),
+    /// Resend's failure.
+    Resend(ApiFailure),
+    /// Postmark's failure.
+    Postmark(ApiFailure),
+    /// SendGrid's failure.
+    Sendgrid(ApiFailure),
+    /// Mailgun's failure.
+    Mailgun(ApiFailure),
 }
 
 impl Email {
@@ -154,21 +178,49 @@ impl Channel for Email {
         match &self.provider {
             Provider::Smtp(smtp) => smtp.host(),
             Provider::Ses(ses) => ses.host(),
+            Provider::Resend(resend) => resend.host(),
+            Provider::Postmark(postmark) => postmark.host(),
+            Provider::Sendgrid(sendgrid) => sendgrid.host(),
+            Provider::Mailgun(mailgun) => mailgun.host(),
         }
     }
 
     async fn send(&self, message: &Message) -> Result<(), EmailFailure> {
-        let rendered = render::message(message, &self.from, &self.to, self.clock.wall());
+        let raw = || render::message(message, &self.from, &self.to, self.clock.wall());
+        let (from, to, clock) = (&self.from, self.to.as_slice(), self.clock);
         let sent = async {
             match &self.provider {
                 Provider::Smtp(smtp) => smtp
-                    .send(&self.from, &self.to, &rendered)
+                    .send(from, to, &raw())
                     .await
                     .map_err(EmailFailure::Smtp),
                 Provider::Ses(ses) => ses
-                    .send(&self.from, &self.to, rendered, self.clock)
+                    .send(from, to, raw(), clock)
                     .await
                     .map_err(EmailFailure::Ses),
+                Provider::Resend(resend) => resend
+                    .send(
+                        from,
+                        to,
+                        &render::parts(message),
+                        &self.name,
+                        &message.event_id,
+                        clock,
+                    )
+                    .await
+                    .map_err(EmailFailure::Resend),
+                Provider::Postmark(postmark) => postmark
+                    .send(from, to, &render::parts(message), clock)
+                    .await
+                    .map_err(EmailFailure::Postmark),
+                Provider::Sendgrid(sendgrid) => sendgrid
+                    .send(from, to, &render::parts(message), clock)
+                    .await
+                    .map_err(EmailFailure::Sendgrid),
+                Provider::Mailgun(mailgun) => mailgun
+                    .send(from, to, &render::parts(message), clock)
+                    .await
+                    .map_err(EmailFailure::Mailgun),
             }
         };
         tokio::select! {
@@ -182,6 +234,10 @@ impl Channel for Email {
             EmailFailure::TimedOut => Failure::Timeout,
             EmailFailure::Smtp(failure) => smtp::translate(failure),
             EmailFailure::Ses(failure) => ses::translate(failure),
+            EmailFailure::Resend(failure) => api::translate(failure, &resend::TABLE),
+            EmailFailure::Postmark(failure) => api::translate(failure, &postmark::TABLE),
+            EmailFailure::Sendgrid(failure) => api::translate(failure, &sendgrid::TABLE),
+            EmailFailure::Mailgun(failure) => api::translate(failure, &mailgun::TABLE),
         }
     }
 }

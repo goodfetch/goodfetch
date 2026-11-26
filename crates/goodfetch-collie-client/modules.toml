@@ -72,6 +72,8 @@
 # `testing` is the testing kit's shared part (ADR 0105): the options a
 # Product's test engine starts with, the settings it isolates it with, and
 # what every Product's test engine is.
+# `webhook` checks a `webhook` channel's delivery in the program that
+# receives it, with no engine and no Connection (ADR 0027; issue 1391).
 [modules]
 ai_work = ["error"]
 answer = []
@@ -110,4 +112,5 @@ sync = []
 testing = ["error", "settings"]
 trace_context = []
 transport = ["logging"]
+webhook = ["error"]
 write_queue = ["sync"]

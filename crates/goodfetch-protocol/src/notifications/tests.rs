@@ -85,6 +85,9 @@ fn a_value_in_a_secret_references_place_is_refused_without_repeating_it(
     json!({ "type": "webhook", "url": "env:U", "webhook": { "secret": "env:S", "payload": "batch" } })
 )]
 #[case::unknown_email_provider(json!({ "type": "email", "email": { "provider": "sendmail" } }))]
+#[case::unknown_mailgun_region(
+    json!({ "type": "email", "email": { "mailgun": { "domain": "mg.example.com", "region": "ap" } } })
+)]
 fn an_entry_outside_the_shape_is_refused(#[case] entry: Value) {
     assert!((CHANNEL_SHAPE.check)(&entry).is_err(), "{entry}");
 }
@@ -97,7 +100,8 @@ fn email(keys: Value) -> Value {
 }
 
 /// An `email` channel names its provider, its addresses and what its
-/// provider needs to send: `smtp.host` for SMTP, `ses.region` for SES.
+/// provider needs to send: `smtp.host` for SMTP, `ses.region` for SES, an
+/// `api_key` for the HTTP API providers and `mailgun.domain` for Mailgun.
 ///
 /// Covers: setting:notifications.channels
 #[rstest]
@@ -112,6 +116,31 @@ fn email(keys: Value) -> Value {
     "to": ["ops@example.com"],
     "from": "goodfetch@example.com",
     "ses": { "region": "eu-west-1" },
+})))]
+#[case::resend(email(json!({
+    "provider": "resend",
+    "to": ["ops@example.com"],
+    "from": "goodfetch@example.com",
+    "api_key": "env:EMAIL_API_KEY",
+})))]
+#[case::postmark(email(json!({
+    "provider": "postmark",
+    "to": ["ops@example.com"],
+    "from": "goodfetch@example.com",
+    "api_key": "env:EMAIL_API_KEY",
+})))]
+#[case::sendgrid(email(json!({
+    "provider": "sendgrid",
+    "to": ["ops@example.com"],
+    "from": "goodfetch@example.com",
+    "api_key": "env:EMAIL_API_KEY",
+})))]
+#[case::mailgun(email(json!({
+    "provider": "mailgun",
+    "to": ["ops@example.com"],
+    "from": "goodfetch@example.com",
+    "api_key": "env:EMAIL_API_KEY",
+    "mailgun": { "domain": "mg.example.com", "region": "eu" },
 })))]
 fn an_email_channel_with_what_its_provider_needs_is_read(#[case] entry: Value) {
     (CHANNEL_SHAPE.check)(&entry).unwrap();
@@ -143,6 +172,14 @@ fn an_email_channel_with_what_its_provider_needs_is_read(#[case] entry: Value) {
 #[case::ses_without_region(
     email(json!({ "provider": "ses", "to": ["ops@example.com"], "from": "goodfetch@example.com" })),
     "email.ses.region"
+)]
+#[case::resend_without_api_key(
+    email(json!({ "provider": "resend", "to": ["ops@example.com"], "from": "goodfetch@example.com" })),
+    "email.api_key"
+)]
+#[case::mailgun_without_domain(
+    email(json!({ "provider": "mailgun", "to": ["ops@example.com"], "from": "goodfetch@example.com", "api_key": "env:K" })),
+    "email.mailgun.domain"
 )]
 fn an_email_channel_missing_what_its_provider_needs_is_refused(
     #[case] entry: Value,

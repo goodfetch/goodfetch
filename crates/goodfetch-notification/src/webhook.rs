@@ -9,34 +9,27 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
-use goodfetch_engine::clock::{Clock, rfc3339};
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::http_client::WholeFailure;
 use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::retry_after;
 use goodfetch_engine::webhook_signing::{self, Signer};
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::run::RunId;
-use goodfetch_protocol::schedule::ScheduleId;
+use goodfetch_protocol::notifications::{
+    FullNotification, NOTIFICATION_PAYLOAD_VERSION, NotificationData, NotificationPayload,
+    ThinNotification,
+};
 use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode, Uri};
-use serde::Serialize;
 use url::Url;
 
+use crate::api::PARTY_TEXT_LIMIT;
 use crate::driver::Channel;
 use crate::failure::{ChannelText, Failure};
 use crate::message::Message;
 
-/// The `major.minor` version of the delivery's body, a contract of its own
-/// (ADR 0030), in its `format` field.
-pub const FORMAT: &str = "0.1";
-
 /// How long a delivery waits for the receiver's whole answer before it
 /// counts as [`Failure::Timeout`].
 pub const SEND_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// The most bytes of a receiver's answer an unknown answer keeps as its
-/// party text.
-const PARTY_TEXT_LIMIT: usize = 1024;
 
 /// What a delivery's `data` holds: the channel's `webhook.payload`.
 pub use goodfetch_protocol::notifications::WebhookPayload as Payload;
@@ -242,76 +235,42 @@ fn translate(failure: WebhookFailure) -> Failure {
     }
 }
 
-/// A delivery's body: the Standard Webhooks envelope around `message`'s
-/// `payload`.
-fn body(message: &Message, payload: Payload) -> Vec<u8> {
-    let run_id = message.run_id.as_ref().map(RunId::as_str);
-    let schedule_id = message.schedule_id.as_ref().map(ScheduleId::as_str);
-    let link = message.link.as_ref().map(Url::as_str);
-    let event_id = message.event_id.as_str();
-    let envelope = |data| Delivery {
-        kind: format!("notification.{}", message.event),
-        timestamp: rfc3339(message.occurred_at),
-        format: FORMAT,
-        data,
-    };
-    match payload {
-        Payload::Full => serde_json::to_vec(&envelope(Data::Full(Full {
+/// The Notification payload of `message` (issue 1391): the Standard
+/// Webhooks envelope around its `payload`, the type each SDK's verification
+/// helper reads back.
+#[must_use]
+pub fn payload(message: &Message, payload: Payload) -> NotificationPayload {
+    let event_id = message.event_id.as_str().to_owned();
+    let link = message.link.as_ref().map(|link| link.as_str().to_owned());
+    let data = match payload {
+        Payload::Full => NotificationData::Full(FullNotification {
             event_id,
-            event: message.event.as_str(),
-            run_id,
-            schedule_id,
+            event: message.event,
+            run_id: message.run_id.clone(),
+            schedule_id: message.schedule_id.clone(),
             product: message.product,
-            title: &message.title,
-            text: &message.text,
+            title: message.title.clone(),
+            text: message.text.clone(),
             link,
-        }))),
-        Payload::Thin => serde_json::to_vec(&envelope(Data::Thin(Thin {
+        }),
+        Payload::Thin => NotificationData::Thin(ThinNotification {
             event_id,
-            run_id,
-            schedule_id,
+            run_id: message.run_id.clone(),
+            schedule_id: message.schedule_id.clone(),
             link,
-        }))),
+        }),
+    };
+    NotificationPayload {
+        kind: format!("notification.{}", message.event),
+        timestamp: message.occurred_at,
+        format: NOTIFICATION_PAYLOAD_VERSION,
+        data,
     }
-    .expect("invariant: a delivery's body is strings and a Product, which always serialize")
 }
 
-/// The Standard Webhooks envelope.
-#[derive(Serialize)]
-struct Delivery<'a> {
-    #[serde(rename = "type")]
-    kind: String,
-    timestamp: String,
-    format: &'static str,
-    data: Data<'a>,
-}
-
-/// A delivery's `data`.
-#[derive(Serialize)]
-#[serde(untagged)]
-enum Data<'a> {
-    Full(Full<'a>),
-    Thin(Thin<'a>),
-}
-
-/// The whole Notification.
-#[derive(Serialize)]
-struct Full<'a> {
-    event_id: &'a str,
-    event: &'a str,
-    run_id: Option<&'a str>,
-    schedule_id: Option<&'a str>,
-    product: Product,
-    title: &'a str,
-    text: &'a str,
-    link: Option<&'a str>,
-}
-
-/// The thin payload: IDs and link only.
-#[derive(Serialize)]
-struct Thin<'a> {
-    event_id: &'a str,
-    run_id: Option<&'a str>,
-    schedule_id: Option<&'a str>,
-    link: Option<&'a str>,
+/// A delivery's body: [`payload`] as JSON.
+fn body(message: &Message, kind: Payload) -> Vec<u8> {
+    serde_json::to_vec(&payload(message, kind)).expect(
+        "invariant: a delivery's body is strings, IDs, a Product and a point in time the engine's clock read, which always serialize",
+    )
 }

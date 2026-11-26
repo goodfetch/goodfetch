@@ -1396,12 +1396,28 @@
                               ]
                             },
                             "region": {
+                              "anyOf": [
+                                {
+                                  "description": "The Mailgun region a sending domain lives in.",
+                                  "oneOf": [
+                                    {
+                                      "const": "us",
+                                      "description": "The United States, at `api.mailgun.net`.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "eu",
+                                      "description": "The European Union, at `api.eu.mailgun.net`.",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
                               "arrived_in": "0.1",
-                              "description": "The region, `us` or `eu`.",
-                              "type": [
-                                "string",
-                                "null"
-                              ]
+                              "description": "The region its domain lives in: `us` when left out."
                             }
                           },
                           "type": [

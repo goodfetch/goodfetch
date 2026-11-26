@@ -18,9 +18,10 @@ use std::task::{Context, Poll};
 use hyper::Request;
 use hyper::body::Bytes;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use url::Url;
 
 use crate::clock::Clock;
-use crate::egress::ConfiguredKind;
+use crate::egress::{ConfiguredKind, Refused};
 use crate::http_client::{EndpointSettings, TcpStream, WholeFailure};
 use crate::settings::Resolved;
 use crate::tasks::BlockingThreads;
@@ -45,6 +46,20 @@ impl NotificationEndpoint {
         Self {
             endpoint: EndpointSettings::of(settings, clock, blocking),
         }
+    }
+
+    /// Judges `url`, a channel's destination, as its configuration is
+    /// checked (ADR 0017): its scheme, and a host written as an address
+    /// under `egress.no_private_endpoints`, so a refused destination fails
+    /// the channel rather than each delivery. A host written as a name is
+    /// judged again with its addresses at each delivery.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] for a scheme other than HTTP's or an address the policy
+    /// refuses.
+    pub fn judge(&self, url: &Url) -> Result<(), Refused> {
+        self.endpoint.judge(url.as_str())
     }
 
     /// Sends `request`, whose URI is the channel's absolute URL, and

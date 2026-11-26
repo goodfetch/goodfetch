@@ -6,8 +6,10 @@ V1 ships first-party Sinks for about sixty destinations, in seven families:
 - **Warehouses and lakes**: Snowflake, BigQuery, Redshift, ClickHouse, Databricks/Delta, Iceberg, DuckDB/MotherDuck.
 - **Vector stores**: Qdrant, Pinecone, Weaviate, Milvus, Chroma, LanceDB.
 - **Files and apps**: S3-compatible stores, GCS, Azure Blob, SFTP, FTP/FTPS, Google Drive, Google Sheets, Dropbox, OneDrive/SharePoint, Box, Airtable, Notion.
-- **Queues and streams**: Kafka/Redpanda, SQS, SNS, Kinesis, Firehose, Pub/Sub, Service Bus, Event Hubs, RabbitMQ, NATS JetStream, Redis Streams.
+- **Queues and streams**: Kafka/Redpanda, SQS, Kinesis, Firehose, Pub/Sub, Service Bus, Event Hubs, RabbitMQ, NATS JetStream, Redis Streams.
 - **Email and webhooks**: SMTP, SES, Resend, Postmark, SendGrid, Mailgun and signed webhooks.
+
+> Note (2026-11-24, the Kept ready parity re-check, `.claude/handoff/ticket-merge-review-20261123/parity-recheck-sinks.md`): SNS leaves this catalog for ADR 0027's Notification channels (#3680, split from #1190). What changedetection.io publishes to an SNS topic, through Apprise, is an event, not a Dataset's Records.
 
 Every Sink keeps ADR 0008's contract: a delivery ID and the run epoch on every write, and retries.
 
@@ -39,8 +41,8 @@ Evidence: [sinks, notifications and integrations research](https://github.com/go
 | --- | --- |
 | Fenced | PostgreSQL, pgvector, Supabase direct, MySQL/MariaDB, SQL Server, SQLite on a local disk, MongoDB replica sets, DuckDB. Lab: Snowflake, BigQuery, Redshift, MotherDuck, Databricks (multi-statement transactions), Supabase through a fencing function, Kafka/Redpanda (one `transactional.id` kept across a run's epochs, so Kafka's own producer epoch fences the zombie), NATS JetStream (expected sequence), AWS S3, R2 (single-part writes; its multipart completion has no condition), GCS, Azure Blob, Dropbox, OneDrive/SharePoint and Box (their conditional writes are documented; using them as an epoch fence through a fence object is an inference), Iceberg (Goodfetch sends the REST catalog commit itself, because `iceberg-rust` re-asserts against a reloaded snapshot) |
 | Record-fenced | Elasticsearch, OpenSearch, Qdrant, LanceDB, standalone MongoDB |
-| Keyed | ClickHouse, Pinecone, Weaviate, Milvus, Chroma, SFTP, FTP, Google Drive, Airtable, SQS/SNS FIFO, Service Bus, RabbitMQ Streams, Redis keys and Redis Streams (a crash or failover can lose an acknowledged fence write), S3-compatibles without conditional writes, Resend |
-| At-least-once | Webhooks, Google Sheets (a lab test may promote it to Keyed through developer metadata), Notion, SQS/SNS standard, Kinesis, Firehose, Pub/Sub, Event Hubs, RabbitMQ classic queues, SMTP, SES and Postmark |
+| Keyed | ClickHouse, Pinecone, Weaviate, Milvus, Chroma, SFTP, FTP, Google Drive, Airtable, SQS FIFO, Service Bus, RabbitMQ Streams, Redis keys and Redis Streams (a crash or failover can lose an acknowledged fence write), S3-compatibles without conditional writes, Resend |
+| At-least-once | Webhooks, Google Sheets (a lab test may promote it to Keyed through developer metadata), Notion, SQS standard, Kinesis, Firehose, Pub/Sub, Event Hubs, RabbitMQ classic queues, SMTP, SES and Postmark |
 
 **Reporting the class.** The class appears in `goodfetch sinks list`, in the run report and in the Console. When a retry falls outside a destination's dedup window, that delivery is reported as at-least-once.
 

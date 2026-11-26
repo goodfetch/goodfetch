@@ -17703,6 +17703,26 @@
       ],
       "type": "object"
     },
+    "RecordingInvalidDetails": {
+      "description": "What `recording_invalid`'s details hold.",
+      "properties": {
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "recording",
+        "reason"
+      ],
+      "type": "object"
+    },
     "RecordingMode": {
       "description": "What a Run does with the Response recording its start names (ADR 0105).",
       "oneOf": [
@@ -18847,6 +18867,47 @@
       "required": [
         "content_type",
         "call",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "ResponseNotRecordedDetails": {
+      "description": "What `response_not_recorded`'s details hold.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do: record the file again, or answer the request with a\nroute.",
+          "type": "string"
+        },
+        "method": {
+          "arrived_in": "0.1",
+          "description": "The request's method.",
+          "type": "string"
+        },
+        "nearest": {
+          "arrived_in": "0.1",
+          "description": "The recorded URLs of the request's host and path, in the order\nrecorded, at most five.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recording": {
+          "arrived_in": "0.1",
+          "description": "The Response recording's path, as the start named it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The request's URL, without its fragment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "method",
+        "url",
+        "recording",
+        "nearest",
         "fix"
       ],
       "type": "object"

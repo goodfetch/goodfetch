@@ -47,12 +47,12 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::Mutex;
 
+use crate::cdp::driver::PageDriver;
 use crate::cdp::{CdpPage, HidingEvent, HidingEvents, NotTaken};
-use crate::driver::PageDriver;
 use crate::errors::Unanswered;
 use crate::interception::{Cosmetic, PageCleanUp};
 use crate::page_reads::{Reads, Turn};
-use crate::trace::provenance_in;
+use crate::trace::provenance;
 
 use self::documents::FrameId;
 pub(crate) use self::documents::Part;
@@ -204,7 +204,7 @@ impl PageHiding {
     ) -> Result<Option<Arc<Self>>, CallError> {
         let mode = Mode::of(&clean_up.live_hiding);
         let cosmetic = clean_up.cosmetic.clone().filter(|_| mode != Mode::Off);
-        provenance_in(
+        provenance(
             trace,
             json!({
                 "action": "live_hiding",
@@ -415,7 +415,7 @@ impl PageHiding {
             .iter()
             .filter(|rule| hiding.contains(&rule.selector))
         {
-            provenance_in(
+            provenance(
                 &self.trace,
                 json!({
                     "action": "live_hiding_lifted",
@@ -496,7 +496,7 @@ impl Hidden<'_> {
                 tracing::debug!(%failure, "the Consent prompt runner's lifted rules were not written: its document went");
             }
             for rule in &runner {
-                provenance_in(
+                provenance(
                     self.trace,
                     json!({
                         "action": "live_hiding_lifted",

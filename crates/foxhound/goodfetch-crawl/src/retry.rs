@@ -27,7 +27,7 @@ use goodfetch_engine::run::{
 };
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
-use goodfetch_engine::runs::{self, Resume, Resumed, RunError};
+use goodfetch_engine::runs::{Resume, Resumed, RunError};
 use goodfetch_engine::settings::Opening;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_frontier::payload::PayloadRules;
@@ -159,8 +159,8 @@ async fn reopened(
         .map_err(|error| run_error(error, &context))?;
     match resumed {
         Resumed::New { run, kind, .. } => {
-            let identity = runs::identity(&run);
-            let readmitted = readmit(identity, runs::state(&run), blocked).await;
+            let identity = &run.identity;
+            let readmitted = readmit(identity, &run.state, blocked).await;
             if let Some(driver) = context.driver(kind) {
                 identity.spawn(driver(*run.clone(), context.clone(), settings));
             }

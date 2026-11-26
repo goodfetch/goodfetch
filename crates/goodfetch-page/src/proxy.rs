@@ -39,6 +39,7 @@ use goodfetch_engine::egress::{EndpointPolicy, Gate};
 use goodfetch_engine::endpoint::Refusals;
 use goodfetch_engine::http_client;
 use goodfetch_engine::ledger::RunCharging;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::politeness::RunPoliteness;
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::run_identity::RunIdentity;
@@ -67,7 +68,6 @@ pub(crate) use self::party::{PROXY_STATUS, proxy_error, refusal};
 use self::relay::{Credentials, Mode, Relay, basic};
 use crate::egress_relay::serve::{Met, Upstream};
 use crate::egress_relay::{Chain, Outcomes};
-use crate::errors::NetError;
 use crate::proxy_provider::failure::{ProviderAnswer, ProviderFailure};
 use crate::proxy_provider::{
     Chosen, ProxyDriver, ProxyUsage, Refusal, Wanted, apify, bright_data, list, oxylabs, priced,

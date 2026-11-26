@@ -17,6 +17,7 @@ use goodfetch_engine::run_state::{RunState, RunStateOptions};
 use goodfetch_engine::secrets::PartyText;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::notifications::NotificationEvent;
 use goodfetch_test_support::TestEnv;
 use rstest::rstest;
 use tokio::sync::Mutex;
@@ -128,7 +129,7 @@ impl Run {
 fn message(event: &str) -> Message {
     Message {
         event_id: EventId::new(event).unwrap(),
-        event: "run_failed".to_owned(),
+        event: NotificationEvent::RUN_FAILED,
         run_id: None,
         schedule_id: None,
         product: Product::Collie,

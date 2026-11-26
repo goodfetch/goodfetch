@@ -2,27 +2,32 @@
 //! `CallContext` hands out a `Run` or one of its powers (ADR 0145). It has
 //! `runs()`, the registry's handle, and `engine()`, the engine's context.
 
-/// The source of `CallContext`, and of the Runs' module, whose functions
-/// over a `&Run` hand out the Run's identity and its powers.
+/// The source of `CallContext`, and of the Runs' module, whose `RunParts`
+/// holds a live Run's identity and its powers.
 const COMPOSITION: &str = include_str!("../composition.rs");
 const RUNS: &str = include_str!("../runs.rs");
 
-/// The handle, the parts of a Run the handle hands out by a method, and
-/// the type each of the Runs' functions over a `&Run` hands out.
+/// A live Run's parts and the registry's own record of it, and the type of
+/// each of `RunParts`' fields.
 fn run_types() -> Vec<String> {
-    let mut types: Vec<String> = ["Run", "RunState", "RunSecrets"]
+    let mut types: Vec<String> = ["RunParts", "LiveRun", "RunSecrets"]
         .map(str::to_owned)
         .to_vec();
-    for line in RUNS.lines() {
-        let Some(signature) = line.strip_prefix("pub fn ") else {
+    let start = RUNS
+        .find("\npub struct RunParts {\n")
+        .expect("invariant: runs.rs declares RunParts");
+    let body = &RUNS[start..];
+    let end = body
+        .find("\n}\n")
+        .expect("invariant: RunParts' declaration ends");
+    for line in body[..end].lines() {
+        let Some(field) = line.trim().strip_prefix("pub ") else {
             continue;
         };
-        let Some((parameters, handed_out)) = signature.split_once(" -> ") else {
+        let Some((_, spelled)) = field.split_once(": ") else {
             continue;
         };
-        if parameters.ends_with("(run: &Run)") {
-            types.extend(identifiers(handed_out).last().map(str::to_owned));
-        }
+        types.extend(identifiers(spelled).last().map(str::to_owned));
     }
     types
 }

@@ -448,8 +448,12 @@ pub enum WholeFailure {
     ClientCertificate(ClientCertificateFailure),
     /// No answer, or a connection that broke.
     Network,
-    /// The answer was longer than the caller's limit.
-    TooLong,
+    /// The answer was longer than the caller's limit. Its status line came
+    /// first, so a caller that reads only the status can still act on it.
+    TooLong {
+        /// The status the endpoint answered with.
+        status: StatusCode,
+    },
 }
 
 impl EndpointSettings {
@@ -524,7 +528,9 @@ impl EndpointSettings {
         let mut body = Vec::new();
         while let Some(bytes) = answer.chunk().await.map_err(|_| WholeFailure::Network)? {
             if body.len() + bytes.len() > limit {
-                return Err(WholeFailure::TooLong);
+                return Err(WholeFailure::TooLong {
+                    status: answer.status,
+                });
             }
             body.extend_from_slice(&bytes);
         }

@@ -468,3 +468,28 @@ async fn a_paid_fetch_is_never_served_from_the_cache() {
     assert_eq!(lookups_after_paid, 0);
     assert_eq!(body(&unpaid), Some(&b"<p>cache</p>"[..]));
 }
+
+/// A browser pauses a response to keep it only where one may be stored:
+/// a GET under `revalidate`, a POST too under `replay`, nothing with the
+/// cache off or for a request an outcome keeps out.
+/// Covers: story:6-41
+#[rstest]
+#[case::revalidate_get(CacheMode::Revalidate, "GET", None, true)]
+#[case::revalidate_post(CacheMode::Revalidate, "POST", None, false)]
+#[case::replay_post(CacheMode::Replay, "POST", None, true)]
+#[case::off(CacheMode::Off, "GET", None, false)]
+#[case::secret(CacheMode::Revalidate, "GET", Some(KeptOut::ResolvedSecret), false)]
+fn a_response_is_paused_only_where_it_may_be_stored(
+    #[case] mode: CacheMode,
+    #[case] method: &str,
+    #[case] kept_out: Option<KeptOut>,
+    #[case] paused: bool,
+) {
+    let env = TestEnv::new();
+    let source = ResponseSource::of(&cache(&env, &CountedWork::default()), mode);
+
+    assert_eq!(
+        source.may_store(&request(method, "/page", &[], ""), kept_out),
+        paused
+    );
+}

@@ -56,6 +56,7 @@ use goodfetch_engine::tls::{
 };
 use goodfetch_page::BrowserRun;
 
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::{
     Answered, CALLER, CallContext, CallError, EngineContext, GuardAnswer, ReadParams, RunOfCall,
     named,
@@ -105,7 +106,7 @@ use goodfetch_protocol::settings::{
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES};
 use url::Url;
 
-use crate::cached::Caching;
+use crate::cached;
 use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
@@ -2592,7 +2593,7 @@ impl SessionTransports {
 /// send.
 fn answering(caching: Option<&Arc<Caching>>, transport: &Arc<dyn Transport>) -> Arc<dyn Transport> {
     match caching {
-        Some(caching) => caching.over(Arc::clone(transport)),
+        Some(caching) => cached::over(caching, Arc::clone(transport)),
         None => Arc::clone(transport),
     }
 }

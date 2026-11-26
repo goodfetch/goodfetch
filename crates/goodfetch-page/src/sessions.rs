@@ -63,6 +63,7 @@ use goodfetch_engine::governor::Permit;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::request_signing::{KeyError, RequestSigner};
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_key::Sealed;
@@ -1094,6 +1095,7 @@ impl Sessions {
         }
         if crashed {
             open.owner.stop().await;
+            forget_cached(open, session).await;
             return Ok(Ok(()));
         }
         open.life.apply(SessionEvent::ChildrenClosed, None)?;
@@ -1101,6 +1103,7 @@ impl Sessions {
         // Its owner stops last, waiting for every task it and its pages
         // started (ADR 0146).
         open.owner.stop().await;
+        forget_cached(open, session).await;
         Ok(ended)
     }
 
@@ -2160,7 +2163,26 @@ fn session_interception(
             browser,
         )
     });
-    Arc::new(SessionInterception::new(session.clone(), lookups, signing))
+    // Its requests are answered from its Run's sources, as the HTTP tier's
+    // are, so an entry either stored serves the other where the key
+    // matches (ADR 0046).
+    let caching = run.identity.settings().and_then(|settings| {
+        Caching::of(
+            run.engine.response_source(settings.resolved()),
+            &run.identity,
+        )
+        .map(|caching| caching.of_session(session))
+    });
+    Arc::new(SessionInterception::new(session.clone(), lookups, signing).with_caching(caching))
+}
+
+/// Forgets what `open`, the Session `session` that ended, kept in its own
+/// partition of its Run's cache, once no task of its own stores more
+/// (ADR 0046).
+async fn forget_cached(open: &Session, session: &SessionId) {
+    if let Some(caching) = open.interception.caching() {
+        caching.forget(session).await;
+    }
 }
 
 /// The browser interception alone holds for a Session: a Borrowed one at

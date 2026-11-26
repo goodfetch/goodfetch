@@ -55,6 +55,7 @@
 //! frees body files, reads beside the lookups it answers.
 
 mod bounds;
+mod caching;
 mod canonical;
 pub mod freshness;
 mod partition;
@@ -78,6 +79,7 @@ use tokio::sync::watch;
 
 pub use self::bounds::Bounds;
 use self::bounds::{Weighed, evictions, index_time};
+pub use self::caching::Caching;
 pub(crate) use self::canonical::body_sha256;
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};

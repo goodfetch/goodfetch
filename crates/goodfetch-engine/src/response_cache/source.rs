@@ -136,6 +136,19 @@ impl ResponseSource {
         matches!(self.cache, Keeping::Off) && self.recording.is_none()
     }
 
+    /// Whether some response to `request` may be stored, before its head
+    /// is known, so a browser pauses only those responses: the cache
+    /// stores, `kept_out` names no reason, and under `revalidate` the
+    /// request is a GET or a HEAD.
+    pub fn may_store(&self, request: &CacheRequest, kept_out: Option<KeptOut>) -> bool {
+        kept_out.is_none()
+            && match &self.cache {
+                Keeping::Off => false,
+                Keeping::Revalidate(cache) => cache.storing() && freshness::revalidates(request),
+                Keeping::Replay(cache) => cache.storing(),
+            }
+    }
+
     /// Where the response to `request` in `partition` comes from at `now`:
     /// `routed`, the response a route fulfilled it with, if any, then the
     /// recording, then the cache, then the network. An earlier source's

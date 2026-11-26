@@ -22,7 +22,7 @@ use bytes::Bytes;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::response_cache::{Partition, ResponseCache, ResponseSource};
+use goodfetch_engine::response_cache::{Caching, Partition, ResponseCache, ResponseSource};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::page::SessionId;
@@ -32,7 +32,7 @@ use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NA
 use goodfetch_test_support::TestEnv;
 use url::Url;
 
-use super::Caching;
+use super::over;
 use crate::driver::{
     Body, FetchBounds, Fetched, Hop, Reuse, Sending, Sent, Transport, TransportFailure, fetch,
 };
@@ -167,7 +167,7 @@ impl Fetching {
         let site = Arc::clone(site) as Arc<dyn Transport>;
         Self {
             clock,
-            transport: caching.over(Arc::clone(&site)),
+            transport: over(&caching, Arc::clone(&site)),
             caching,
             site,
             _env: env,
@@ -176,9 +176,7 @@ impl Fetching {
 
     /// The cached transport of the Run's pool Session `session`.
     fn of_session(&self, session: &SessionId) -> Arc<dyn Transport> {
-        self.caching
-            .of_session(session)
-            .over(Arc::clone(&self.site))
+        over(&self.caching.of_session(session), Arc::clone(&self.site))
     }
 
     async fn fetch(&self, hop: &Hop) -> Result<Fetched, &'static str> {

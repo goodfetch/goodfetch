@@ -20,7 +20,6 @@ mod framing;
     reason = "generated from the protocol file, whose names and shapes are Chromium's"
 )]
 pub mod generated;
-mod net_error;
 
 /// The fuzz target of the pipe's framing and message decoding (ADR 0067),
 /// whose seeds and past crashers `fuzz_replay!` replays on every OS.
@@ -31,7 +30,6 @@ pub use connection::{
 };
 pub use failure::{Failure, PartyText, Refusal};
 pub use framing::{Framer, FramingError, MAX_FRAME};
-pub use net_error::{BROWSER_REDIRECT_CHAIN, CertificateError, NetError};
 
 /// A command of the protocol: its params, tied to its method's name and to
 /// what it returns.

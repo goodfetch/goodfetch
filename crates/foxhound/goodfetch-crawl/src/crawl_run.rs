@@ -3,11 +3,12 @@
 //! crawl as it starts or resumes it, with the gate in admission the
 //! composition passes in. Each of the crawl's functions takes the record,
 //! or only the identity or the one power it uses. The record also carries
-//! that one `Run`, which it hands only to the fetch tier's and the page
-//! crate's interfaces that still take one (#2278 removes them).
+//! the page crate's record of the same Run, which the fetch tier's
+//! interfaces take.
 
 use std::sync::Arc;
 
+use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{self, Admission, AdmissionError, Gates};
 use goodfetch_engine::entropy::RunEntropy;
 use goodfetch_engine::governor::RunGovernor;
@@ -17,8 +18,9 @@ use goodfetch_engine::robots_txt::OwnCopies;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{self, Progress, ReportWarnings, Run, RunEnd, RunKeys, Runs};
+use goodfetch_engine::runs::{Progress, ReportWarnings, RunEnd, RunKeys, RunParts};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_fetch_tier::BrowserRun;
 
 /// A crawl's record of its live Run, which its delivery, its attempts and
 /// the calls that reach the live crawl share.
@@ -49,35 +51,31 @@ pub(crate) struct CrawlRun {
     pub(crate) own_robots_txt: OwnCopies,
     /// The gate in admission the composition passes in, if any.
     gates: Option<Arc<dyn Gates>>,
-    /// The Run itself, handed only to the interfaces that still take it.
-    run: Run,
+    /// The page crate's record of the Run, which the fetch tier's
+    /// interfaces take.
+    pub(crate) browser: Arc<BrowserRun>,
 }
 
 impl CrawlRun {
-    /// The record of `run`, which the registry `runs` handed the crawl.
-    pub(crate) fn of(run: Run, runs: &Runs) -> Arc<Self> {
+    /// The record of the Run whose `parts` the registry handed the crawl
+    /// in `context`.
+    pub(crate) fn of(parts: &RunParts, context: &CallContext) -> Arc<Self> {
         Arc::new(Self {
-            identity: runs::identity(&run).clone(),
-            state: runs::state(&run).clone(),
-            charging: runs::charging(&run).clone(),
-            keys: runs::keys(&run).clone(),
-            warnings: runs::warnings(&run).clone(),
-            end: runs::end(&run).clone(),
-            governor: runs::governor(&run).clone(),
-            entropy: runs::entropy(&run).clone(),
-            politeness: runs::politeness(&run).clone(),
-            progress: runs::progress(&run).clone(),
-            trace: runs::run_trace(&run).clone(),
-            own_robots_txt: runs::own_robots_txt(&run).clone(),
-            gates: runs.admission_gates().cloned(),
-            run,
+            identity: parts.identity.clone(),
+            state: parts.state.clone(),
+            charging: parts.charging.clone(),
+            keys: parts.keys.clone(),
+            warnings: parts.warnings.clone(),
+            end: parts.end.clone(),
+            governor: parts.governor.clone(),
+            entropy: parts.entropy.clone(),
+            politeness: parts.politeness.clone(),
+            progress: parts.progress.clone(),
+            trace: parts.trace.clone(),
+            own_robots_txt: parts.own_robots_txt.clone(),
+            gates: context.runs().admission_gates().cloned(),
+            browser: BrowserRun::of(parts, context.engine()),
         })
-    }
-
-    /// The Run, for the fetch tier's and the page crate's interfaces that
-    /// still take one (#2278 removes them); nothing else reads it.
-    pub(crate) fn handed_on(&self) -> &Run {
-        &self.run
     }
 
     /// The Run's admission under `settings`: [`admission::of_run`] over its

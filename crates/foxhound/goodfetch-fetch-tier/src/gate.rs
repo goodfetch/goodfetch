@@ -96,8 +96,8 @@ use goodfetch_engine::robots_txt::{self, Fetch};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{self, Run, run_trace};
 use goodfetch_frontier::DomainKeys;
+use goodfetch_page::BrowserRun;
 use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
     Sending,
@@ -249,7 +249,7 @@ pub trait HopChecks: Send + Sync {
 /// [`HandOver`].
 pub struct RunHandOver {
     /// The Run.
-    pub run: Run,
+    pub run: Arc<BrowserRun>,
     /// How the Run keys its requests' domains.
     pub keys: DomainKeys,
     /// The Politeness the Run shares, once it opened; none while the Run's
@@ -369,7 +369,7 @@ fn nanos(at: Option<SystemTime>) -> u64 {
 
 impl HandOver {
     /// The attempt's Run.
-    pub(crate) fn run(&self) -> &Run {
+    pub(crate) fn run(&self) -> &Arc<BrowserRun> {
         &self.of_run.run
     }
 
@@ -377,7 +377,7 @@ impl HandOver {
     /// [`HandOver::site_files`]; unreachable without it.
     pub async fn site_file(&self, location: Url) -> robots_txt::Answer {
         match &self.site_files {
-            Some(fetch) => fetch(runs::identity(&self.of_run.run).clone(), location).await,
+            Some(fetch) => fetch(self.of_run.run.identity.clone(), location).await,
             None => robots_txt::Answer::Unreachable(
                 "the crawl has no transport to fetch robots.txt with".to_owned(),
             ),
@@ -392,7 +392,7 @@ impl HandOver {
     /// Dropping the future ends the wait; it holds nothing else.
     pub(crate) async fn wait_until(&self, url: &str, until: SystemTime) {
         let _waiting = self.lease.permit_wait(url);
-        let clock = runs::identity(self.run()).clock();
+        let clock = self.run().identity.clock();
         if let Ok(wait) = until.duration_since(clock.wall()) {
             clock.sleep(wait).await;
         }
@@ -415,11 +415,11 @@ impl HandOver {
             status,
             retry_after: value.to_owned(),
         };
-        if let Err(error) = RequestLog::new(run_trace(run))
+        if let Err(error) = RequestLog::new(&run.trace)
             .note(RETRY_AFTER_UNPARSABLE, &note)
             .await
         {
-            tracing::warn!(%error, run_id = %run.id(), "a `Retry-After` that does not parse was not noted in the Run trace");
+            tracing::warn!(%error, run_id = %run.identity.id(), "a `Retry-After` that does not parse was not noted in the Run trace");
         }
     }
 
@@ -471,7 +471,7 @@ impl HandOver {
         let Some(politeness) = &of_run.politeness else {
             return Ok(());
         };
-        let run = runs::identity(&of_run.run);
+        let run = &of_run.run.identity;
         let key = of_run.keys.key(url);
         if let Some(send_at) = lead.then(|| self.reserved_send.take()).flatten() {
             if let Ok(wait) = send_at.duration_since(run.clock().wall())
@@ -544,7 +544,7 @@ impl RunHandOver {
         };
         let key = self.keys.key(hop.url.as_str());
         if let Err(error) = goodfetch_frontier::latency_measured(politeness, &key, latency).await {
-            tracing::warn!(%error, run_id = %runs::identity(&self.run).id(), "a response's latency was not recorded for its domain");
+            tracing::warn!(%error, run_id = %self.run.identity.id(), "a response's latency was not recorded for its domain");
         }
     }
 }
@@ -562,7 +562,7 @@ impl fmt::Debug for Gate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Gate")
-            .field("run", runs::identity(self.0.run()).id())
+            .field("run", self.0.run().identity.id())
             .field("domain_key", &self.0.domain_key)
             .finish_non_exhaustive()
     }
@@ -678,7 +678,7 @@ impl NavigationGate for Gate {
                     // encoding reads the same for them.
                     let html = String::from_utf8_lossy(response.body).into_owned();
                     let readers = Arc::clone(&self.0.untouched);
-                    let run = runs::identity(self.0.run());
+                    let run = &self.0.run().identity;
                     let counted = run.metrics().counted_work();
                     let work = counted.clone();
                     run.owner()
@@ -723,7 +723,7 @@ impl Gate {
     /// ([`SitePreferences::judged`]).
     pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, site_preferences::NotAllowed> {
         let hand_over = &self.0.of_run;
-        let run = runs::identity(&hand_over.run);
+        let run = &hand_over.run.identity;
         let preferences = &hand_over.site_preferences;
         let key = hand_over.keys.key(url.as_str());
         let own = key == self.0.domain_key;
@@ -783,7 +783,7 @@ impl Gate {
         crawl_delay: Duration,
     ) -> Option<SystemTime> {
         let hand_over = &self.0.of_run;
-        let run = runs::identity(&hand_over.run);
+        let run = &hand_over.run.identity;
         let spacing = hand_over.domain_delay.max(crawl_delay);
         if let Some(read) = read
             && let AfterRobotsTxt::At(start) = read
@@ -823,7 +823,7 @@ impl Gate {
         goodfetch_frontier::last_start(politeness, key)
             .await
             .unwrap_or_else(|error| {
-                tracing::warn!(%error, run_id = %runs::identity(self.0.run()).id(), "a domain's last start could not be read");
+                tracing::warn!(%error, run_id = %self.0.run().identity.id(), "a domain's last start could not be read");
                 None
             })
     }
@@ -831,7 +831,7 @@ impl Gate {
     /// A Permit of `key` beside the Run's own requests, once the domain
     /// has room, given back once released.
     async fn beside(&self, key: &str) -> Permit {
-        let run = runs::identity(self.0.run());
+        let run = &self.0.run().identity;
         let clock = run.clock();
         loop {
             let room = self.0.second_copies.take(key, clock.now()).await;
@@ -853,7 +853,7 @@ impl Gate {
     /// domain from its response's arrival.
     async fn robots_txt(&self, url: &Url, key: &str) -> Option<Reading> {
         let hand_over = &self.0.of_run;
-        let run = runs::identity(&hand_over.run);
+        let run = &hand_over.run.identity;
         let reading = hand_over
             .site_preferences
             .read_robots_txt(&hand_over.robots_txt, url, |location| {
@@ -881,7 +881,7 @@ impl ChainGate {
     /// another request. A run file that cannot answer leaves the hop to the
     /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
-        let run = runs::identity(self.hand_over.run());
+        let run = &self.hand_over.run().identity;
         self.hand_over
             .of_run
             .hops
@@ -1011,7 +1011,7 @@ impl HopGate for ChainGate {
     /// file that cannot answer lets the chain end on its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
-            let run = runs::identity(self.hand_over.run());
+            let run = &self.hand_over.run().identity;
             let recorded = self
                 .hand_over
                 .of_run

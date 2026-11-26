@@ -7,9 +7,12 @@
 //! `net::ERR_*`, which a failure reports as the browser's own
 //! (`navigation_failed`'s `error`); and a text that names none is
 //! unrecognized, logged at `warn`, and reported as `net::ERR_FAILED`,
-//! Chromium's generic network error.
+//! Chromium's generic network error. The fetch tier names its own
+//! failures by the same names, as Chrome does, so the type is the engine's
+//! rather than the CDP client's: the page crate's proxy and egress relay,
+//! which the CDP module's driver imports, read it too (ADR 0146).
 
-use crate::failure::PartyText;
+use crate::secrets::PartyText;
 
 /// The requests a navigation's redirect chain holds at most in the browser,
 /// its first included (Chromium's `kMaxRedirects`, ADR 0118): the pinned

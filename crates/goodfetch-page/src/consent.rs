@@ -67,16 +67,16 @@ use tokio::sync::{Mutex, OnceCell};
 
 use self::frames::{Frame, Frames};
 use self::messages::{ANSWER, Action, BINDING, DETECTING, Message, Outcome, RESTART, START};
+use crate::cdp::driver::{GUARD_WORLD, PageDriver};
 use crate::cdp::{CdpPage, ConsentEvent, ConsentEvents, NotTaken, TargetSession};
 use crate::consent_walls::{Approval, Wall, Walls};
-use crate::driver::{GUARD_WORLD, PageDriver};
 use crate::gesture_order::PointerAsks;
 use crate::guard::{self, Element, Readiness};
 use crate::hiding::{Part, Sheets};
 use crate::interception::{ConsentHandling, domain_key};
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_reads::Reads;
-use crate::trace::provenance_in;
+use crate::trace::provenance;
 
 /// How long the runner's click may wait for its target to be ready.
 const CLICK_WINDOW: Duration = Duration::from_secs(3);
@@ -558,7 +558,7 @@ async fn recorded(shared: &Shared, frame: &Frame, outcome: &Outcome) {
         .metrics()
         .counted_work()
         .count(Row::NavigationProvenanceEntries);
-    provenance_in(&shared.trace, entry).await;
+    provenance(&shared.trace, entry).await;
 }
 
 /// Whether `frame` is the page's main frame.

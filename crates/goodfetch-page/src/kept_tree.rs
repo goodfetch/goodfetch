@@ -31,7 +31,7 @@ use std::sync::{Arc, PoisonError};
 
 use bytestring::ByteString;
 use goodfetch_counted_work::{ParsedHtml, Row};
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use tokio::sync::{mpsc, oneshot};
 
 /// How many reads of a page's tree wait for its owner at most.
@@ -64,7 +64,7 @@ pub struct KeptTree {
 /// A kept tree's owner, not started yet: its Run, the channel it will take
 /// its reads from, and what it keeps.
 struct Unstarted {
-    run: Run,
+    run: RunIdentity,
     mailbox: mpsc::Receiver<Job>,
     kept: KeptFrom,
 }
@@ -116,7 +116,7 @@ impl KeptTree {
     /// owner, a task of the Run's, starts at the first read, and ends with
     /// the last handle, or as the Run stops. It may be called off the
     /// async runtime, on the CPU pool.
-    pub fn keep(run: &Run, kept: KeptFrom) -> Self {
+    pub fn keep(run: &RunIdentity, kept: KeptFrom) -> Self {
         let (reads, mailbox) = mpsc::channel::<Job>(READS_QUEUED);
         let unstarted = Unstarted {
             run: run.clone(),

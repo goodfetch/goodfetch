@@ -5,6 +5,8 @@
 
 use goodfetch_cdp::generated::input::{DispatchKeyEventParams, DispatchKeyEventType};
 
+use super::KeyPress;
+
 /// One key: its `key` value, its physical `code`, its Windows virtual key
 /// code and the text it types, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,7 +52,7 @@ pub(crate) struct UnknownKey(pub(crate) String);
 
 /// The key events that press `combination`, such as `Control+a`: at most
 /// ten, a modifier named twice being held once.
-pub(crate) fn events(combination: &str) -> Result<Vec<DispatchKeyEventParams>, UnknownKey> {
+pub(crate) fn events(combination: &str) -> Result<KeyPress, UnknownKey> {
     let unknown = || UnknownKey(combination.to_owned());
     // `+` alone, or ending a combination, is the plus key.
     let (modifiers, last) = match combination.strip_suffix('+') {
@@ -100,7 +102,7 @@ pub(crate) fn events(combination: &str) -> Result<Vec<DispatchKeyEventParams>, U
         bits &= !bit(&modifier.key);
         sent.push(event(DispatchKeyEventType::KeyUp, modifier, bits, None));
     }
-    Ok(sent)
+    Ok(KeyPress(sent))
 }
 
 /// A modifier by name; `ControlOrMeta` is Meta on macOS, Control elsewhere.

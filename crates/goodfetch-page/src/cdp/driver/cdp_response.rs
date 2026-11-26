@@ -17,8 +17,9 @@
 use std::collections::BTreeMap;
 
 use data_encoding::{BASE64, DecodeError};
+use goodfetch_cdp::Failure;
 use goodfetch_cdp::generated::{fetch, network};
-use goodfetch_cdp::{Failure, NetError};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_protocol::page::PageResponse;
 
 use super::PageDriver;

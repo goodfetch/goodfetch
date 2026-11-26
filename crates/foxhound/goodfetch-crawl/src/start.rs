@@ -152,7 +152,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(run, context.runs());
+                    let run = CrawlRun::of(&run, &context);
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -305,7 +305,7 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            let run = CrawlRun::of(run, context.runs());
+            let run = CrawlRun::of(&run, &context);
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,
@@ -336,7 +336,8 @@ async fn start(
             // A crawl still ending the Run keeps nothing: the reopen is then
             // checked as no start's (ADR 0104's note of #2912).
             let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
-            let resumed = resume_run(&context, run_id, None, settings, kept).await?;
+            let timeout = settings.resolved().get(&TIMEOUT_RUN);
+            let resumed = resume_run(&context, run_id, None, settings, timeout, kept).await?;
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }

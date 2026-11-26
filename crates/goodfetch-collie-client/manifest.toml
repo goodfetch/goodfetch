@@ -1424,6 +1424,51 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "timeout"
+entry = "none"
+reason = "Bounds how long the Run may last, as `timeout.run` for this Run, sent in whole milliseconds, rounded up, and bounds a Run it resumes on a fresh clock (ADR 0102); its setting's value bounds it when neither this nor `Start::no_timeout` is given, and a zero one is refused before anything is sent."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "no_timeout"
+entry = "none"
+reason = "Lets the Run last as long as it takes, whatever `timeout.run` says."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "plan"
+entry = "none"
+reason = "Names the Plan file the Run follows, a start input: starting the Run again with another is `run_conflict` (ADRs 0091 and 0102)."
+words = ["plan"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "recording"
+entry = "none"
+reason = "Sets the Response recording the Run replays or records, a start input: starting the Run again with another is `run_conflict` (ADRs 0102 and 0105)."
+words = ["recording"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "Start"
+member = "accept_plugin_change"
+entry = "none"
+reason = "Accepts a change of the named Plugin since the Run last ran, which a resume honours (ADR 0033); each call adds one."
+words = ["accept", "plugin", "change"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "HandlerlessStart"
 entry = "none"
@@ -2323,6 +2368,51 @@ member = "settings"
 entry = "none"
 reason = "Sets the Run's own settings, as `crate::Start::settings` does."
 words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "timeout"
+entry = "none"
+reason = "Bounds how long the Run may last, as `crate::Start::timeout` does."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "no_timeout"
+entry = "none"
+reason = "Lets the Run last as long as it takes, as `crate::Start::no_timeout` does."
+words = ["no", "timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "plan"
+entry = "none"
+reason = "Names the Plan file the Run follows, as `crate::Start::plan` does."
+words = ["plan"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "recording"
+entry = "none"
+reason = "Sets the Response recording the Run replays or records, as `crate::Start::recording` does."
+words = ["recording"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Start"
+member = "accept_plugin_change"
+entry = "none"
+reason = "Accepts a change of the named Plugin, as `crate::Start::accept_plugin_change` does."
+words = ["accept", "plugin", "change"]
 form = "read"
 
 [[member]]

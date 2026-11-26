@@ -103,6 +103,7 @@ use goodfetch_engine::CallError;
 use goodfetch_engine::client::Client;
 use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
 use goodfetch_engine::governor::RunGovernor;
+use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::request_signing::RequestSigner;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
@@ -133,9 +134,9 @@ use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
-use crate::cdp::{CdpPage, ContinueRequest, Fulfill, Header, NetError, PausedId, RequestHeaders};
+use crate::cdp::driver::{OnWorker, PageDriver, ServiceWorkers};
+use crate::cdp::{CdpPage, ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use crate::clean_up_versions::{ListsRun, Versions};
-use crate::driver::{OnWorker, PageDriver, ServiceWorkers};
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_events::Refusals;
 use crate::page_value::OwnFetch;
@@ -579,12 +580,15 @@ pub(crate) struct HeldPage {
 
 /// A page's side of the interception, as its owner holds it (ADR 0146):
 /// its routes, its Filter lists' state, its handlers' failures and its
-/// pending navigation. Clones share it. Once closed, it answers as for a
-/// page the interception does not hold.
+/// pending navigation, the first and the last two its request part's.
+/// Clones share it. Once closed, it answers as for a page the interception
+/// does not hold.
 #[derive(Clone)]
 pub(crate) struct PageInterception {
     state: Arc<PageState>,
-    page_id: PageId,
+    /// The Page ID of the request the page serves now, which its route
+    /// handlers' requests and its errors name: its request part's one cell.
+    page_id: watch::Receiver<PageId>,
 }
 
 impl PageState {
@@ -632,8 +636,9 @@ impl Interception {
         self.shared.clean_up.versions()
     }
 
-    /// Puts the page `page_id` of the Session whose side is `session`,
-    /// which `driver` drives for `run`, under the interception, its own requests and its
+    /// Puts the page whose request's Page ID `page_id` holds, of the
+    /// Session whose side is `session`, which `driver` drives for `run`,
+    /// under the interception, its own requests and its
     /// frames' answered on `page_tasks`, the Run's identity that starts
     /// tasks on the page's owner: every request of its
     /// target is paused and passes the pipeline from now on, its Clean-up
@@ -657,7 +662,7 @@ impl Interception {
     /// Dropping the future may leave the page's requests paused unanswered.
     pub(crate) async fn start(
         &self,
-        page_id: &PageId,
+        page_id: &watch::Receiver<PageId>,
         session: &Arc<SessionInterception>,
         driver: &PageDriver,
         (run, page_tasks): (&RunPowers, &RunIdentity),
@@ -721,7 +726,7 @@ impl Interception {
         // owner, its workers' on their browser's.
         let run = &run.of_page(page_tasks);
         let children = Self::children_of(
-            page_id,
+            &page.page_id,
             (&state, answers.clone()),
             driver,
             run,
@@ -731,7 +736,7 @@ impl Interception {
         let context = Arc::new(
             PageContext::new(
                 driver.clone(),
-                Sender::Page(page_id.clone()),
+                Sender::Page(page.page_id.clone()),
                 state,
                 answers,
                 policy,
@@ -798,7 +803,7 @@ impl Interception {
     /// paused never runs. A dedicated worker's requests pass its page's
     /// own pipeline already.
     fn children_of(
-        page_id: &PageId,
+        page_id: &watch::Receiver<PageId>,
         (state, answers): (&Arc<PageState>, Answers),
         page: &PageDriver,
         run: &RunPowers,
@@ -878,9 +883,10 @@ impl Interception {
         // browser does, nor the Session's side, which goes with it.
         let shared = Arc::clone(&self.shared);
         let (session, egress, run) = (Arc::downgrade(session), page.egress_handle(), run.clone());
-        // A worker's requests take its Session's pages' value: their gate
-        // admits the navigations the worker carries.
-        let value = page.value().clone();
+        // A worker's requests take its Session's pages' value, that of the
+        // request the page serves now: their gate admits the navigations
+        // the worker carries.
+        let value = page.carried();
         Arc::new(
             move |driver: PageDriver, gone: CancellationToken, browser: RunIdentity| {
                 let (shared, session, egress, run, value) = (
@@ -899,7 +905,7 @@ impl Interception {
                     let log = Arc::new(RequestLog::new(&run.lists.trace));
                     let driver = driver
                         .with_egress(egress)
-                        .with_value(value, run.identity().clock());
+                        .carrying(value, run.identity().clock());
                     let cdp = CdpPage::of(&driver);
                     let events = cdp.paused_events(false);
                     if let Err(error) = cdp.pause_requests_opening().await {
@@ -1100,9 +1106,10 @@ impl Interception {
 }
 
 impl PageInterception {
-    /// The page `page_id`'s side, `state`, listed among its Session's
-    /// pages, whose navigations its service workers' requests may carry.
-    fn joined(page_id: &PageId, state: &Arc<PageState>) -> Self {
+    /// The side, `state`, of the page whose request's Page ID `page_id`
+    /// holds, listed among its Session's pages, whose navigations its
+    /// service workers' requests may carry.
+    fn joined(page_id: &watch::Receiver<PageId>, state: &Arc<PageState>) -> Self {
         state.pending.join(state);
         Self {
             state: Arc::clone(state),
@@ -1245,6 +1252,19 @@ impl PageInterception {
             self.state.navigation.ended();
         }
     }
+
+    /// Its page's request part was replaced (ADR 0146): the earlier
+    /// request's routes' subscriptions end, the failure a handler left for
+    /// its next call goes, and a navigation pending on its page gives back
+    /// the permit a service worker's request took for it. Its Filter lists'
+    /// state and its Session's routes and failures stay with the page.
+    pub(crate) fn replace_request(&self) {
+        if let Some(state) = self.held() {
+            state.routes.replace_request();
+            lock(&state.failure).take();
+            state.navigation.ended();
+        }
+    }
 }
 
 /// The main frame of a page loading `file:` URLs for a navigation call,
@@ -1303,10 +1323,13 @@ fn policy_of(run: &RunIdentity) -> Result<Policy, CallError> {
 /// `closed` for a page or Session the interception does not hold.
 fn closed(scope: Scope<'_>) -> CallError {
     let (message, details) = match scope {
-        Scope::Page(page) => (
-            format!("the page `{}` is closed, or its Run ended", page.page_id.0),
-            serde_json::json!({ "page_id": page.page_id }),
-        ),
+        Scope::Page(page) => {
+            let page_id = page.page_id.borrow().clone();
+            (
+                format!("the page `{}` is closed, or its Run ended", page_id.0),
+                serde_json::json!({ "page_id": page_id }),
+            )
+        }
         Scope::Session(session) => (
             format!("the Session `{}` is closed, or its Run ended", session.id.0),
             serde_json::json!({ "session_id": session.id }),

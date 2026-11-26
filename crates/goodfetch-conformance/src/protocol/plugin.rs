@@ -41,9 +41,14 @@ use crate::host::{RUNTIME, platform};
 use crate::proving_ground::{ProvingGround, ProvingGroundError};
 use crate::writer::{WriteError, write_document};
 
+mod extract;
+
 /// The `sample_store` kind's suite, embedded so it runs wherever the harness
 /// does.
 const SAMPLE_STORE_CASES: &str = include_str!("../../../../conformance/sample-store/cases.toml");
+
+/// The Extractor's suite, embedded the same way.
+const EXTRACT_CASES: &str = include_str!("../../../../conformance/extract/cases.toml");
 
 /// The run ID the harness's `hello` names.
 const RUN_ID: &str = "conformance";
@@ -91,19 +96,24 @@ impl PluginSuite {
         Self::read(SAMPLE_STORE_CASES).expect("invariant: the embedded case list is valid")
     }
 
+    /// `conformance/extract/cases.toml`: the Extractor's.
+    pub fn extract() -> Self {
+        Self::read(EXTRACT_CASES).expect("invariant: the embedded case list is valid")
+    }
+
     /// Reads a Plugin kind's case list.
     ///
     /// # Errors
     ///
     /// When the text is no case list, or a case ID names no exchange the
-    /// harness runs.
+    /// harness runs for its kind.
     pub fn read(text: &str) -> Result<Self, SuiteError> {
         let read: PluginCases = toml::from_str(text).map_err(SuiteError::Malformed)?;
         if let Some(case) = read
             .capabilities
             .iter()
             .flat_map(|capability| &capability.cases)
-            .find(|case| Case::of(&case.id).is_none())
+            .find(|case| Case::of(&read.kind, &case.id).is_none())
         {
             return Err(SuiteError::UnknownCase {
                 case: case.id.clone(),
@@ -132,6 +142,56 @@ impl PluginSuite {
     /// Its declared case list.
     pub fn case_list(&self) -> &CaseList {
         &self.cases
+    }
+
+    /// The checks of each of its cases, in its order, run against an
+    /// implementation of its kind called in process, which `answer` stands
+    /// for: given a method and its params, it answers what a process
+    /// Plugin's response would hold, `{ "result": … }` or
+    /// `{ "error": … }`. Every capability is reached: an implementation
+    /// in process fills the whole kind. So the engine's own
+    /// implementations pass the same cases as a Plugin (ADR 0129).
+    pub fn checks_in_process(
+        &self,
+        answer: impl FnMut(&str, &Value) -> Value,
+    ) -> Vec<(String, Vec<CaseCheck>)> {
+        let mut calls = InProcess(answer);
+        self.cases
+            .capabilities
+            .iter()
+            .flat_map(|capability| &capability.cases)
+            .map(|declared| {
+                let case = Case::of(&self.kind, &declared.id)
+                    .expect("invariant: a read suite names known cases");
+                let mut checks = Vec::new();
+                case.run(&mut calls, &mut checks)
+                    .expect("invariant: a call in process always answers");
+                (declared.id.clone(), checks)
+            })
+            .collect()
+    }
+}
+
+/// What a case calls: an implementation of the suite's kind, which answers
+/// each call with its response, or is gone.
+trait Calls {
+    /// The response to `method` with `params`.
+    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone>;
+}
+
+impl Calls for Connection {
+    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
+        let id = self.request(method, params)?;
+        Ok(self.answer(id)?.message)
+    }
+}
+
+/// An implementation called in process, whose answer is the response.
+struct InProcess<F>(F);
+
+impl<F: FnMut(&str, &Value) -> Value> Calls for InProcess<F> {
+    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
+        Ok((self.0)(method, params))
     }
 }
 
@@ -221,8 +281,8 @@ pub fn run_plugin_suite(
             if gone.is_some() {
                 break;
             }
-            let case =
-                Case::of(&declared_case.id).expect("invariant: a read suite names known cases");
+            let case = Case::of(&suite.kind, &declared_case.id)
+                .expect("invariant: a read suite names known cases");
             let mut checks = Vec::new();
             if let Err(why) = case.run(&mut connection, &mut checks) {
                 checks.push(CaseCheck {
@@ -278,7 +338,7 @@ fn hello(
     let params = serde_json::to_value(PluginHelloParams {
         protocol: PLUGIN_PROTOCOL,
         product: suite.product,
-        run_id: RunId::parse(RUN_ID).expect("invariant: the harness's run ID is a Run ID"),
+        run_id: Some(RunId::parse(RUN_ID).expect("invariant: the harness's run ID is a Run ID")),
         network_level: approved.network_level,
     })
     .expect("invariant: `hello` serializes");
@@ -324,7 +384,7 @@ fn hello(
 /// The method of the `sample_store` kind that keeps a value.
 const SAMPLE_STORE_PUT: &str = "sample_store.put";
 
-/// An exchange a Plugin kind's case runs, named by its case ID.
+/// An exchange a Plugin kind's case runs, named by its kind and case ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Case {
     /// `sample_store.put` under a key never used replaces nothing.
@@ -334,30 +394,42 @@ enum Case {
     /// `sample_store.put` with a field a newer engine adds is answered as
     /// without it.
     NewerField,
+    /// `extract.content` of the article page answers its main content in
+    /// the kind's shape.
+    ExtractArticle,
+    /// `extract.content` with a field a newer engine adds is answered as
+    /// without it.
+    ExtractNewerField,
 }
 
+/// The ID of each kind's case of params from a newer engine.
+const NEWER_PARAMS: &str = "params-from-a-newer-engine-are-read-without-their-unknown-field";
+
 impl Case {
-    /// The exchange `id` names.
-    fn of(id: &str) -> Option<Self> {
-        match id {
-            "a-value-under-a-new-key-replaces-nothing" => Some(Self::NewKey),
-            "a-value-under-a-kept-key-replaces-it" => Some(Self::KeptKey),
-            "params-from-a-newer-engine-are-read-without-their-unknown-field" => {
-                Some(Self::NewerField)
+    /// The exchange `id` names in the suite of `kind`.
+    fn of(kind: &str, id: &str) -> Option<Self> {
+        match (kind, id) {
+            ("sample_store", "a-value-under-a-new-key-replaces-nothing") => Some(Self::NewKey),
+            ("sample_store", "a-value-under-a-kept-key-replaces-it") => Some(Self::KeptKey),
+            ("sample_store", NEWER_PARAMS) => Some(Self::NewerField),
+            ("extract", "a-pages-main-content-is-answered-in-the-kinds-shape") => {
+                Some(Self::ExtractArticle)
             }
+            ("extract", NEWER_PARAMS) => Some(Self::ExtractNewerField),
             _ => None,
         }
     }
 
-    /// Runs the exchange, adding its checks to `checks`.
+    /// Runs the exchange against `calls`, adding its checks to `checks`.
     ///
     /// # Errors
     ///
     /// Why the Connection is gone, after which no case runs.
-    fn run(self, connection: &mut Connection, checks: &mut Vec<CaseCheck>) -> Result<(), Gone> {
+    fn run(self, calls: &mut dyn Calls, checks: &mut Vec<CaseCheck>) -> Result<(), Gone> {
+        let mut put = |params: &Value| calls.call(SAMPLE_STORE_PUT, params);
         match self {
             Self::NewKey => {
-                let answer = put(connection, &json!({ "key": "new", "value": "1" }))?;
+                let answer = put(&json!({ "key": "new", "value": "1" }))?;
                 checks.push(replaced(
                     "the value under a new key replaces nothing",
                     &answer,
@@ -365,13 +437,13 @@ impl Case {
                 ));
             }
             Self::KeptKey => {
-                let first = put(connection, &json!({ "key": "kept", "value": "1" }))?;
+                let first = put(&json!({ "key": "kept", "value": "1" }))?;
                 checks.push(replaced(
                     "the first value under the key replaces nothing",
                     &first,
                     false,
                 ));
-                let second = put(connection, &json!({ "key": "kept", "value": "2" }))?;
+                let second = put(&json!({ "key": "kept", "value": "2" }))?;
                 checks.push(replaced(
                     "the second value under the key replaces the first",
                     &second,
@@ -379,25 +451,21 @@ impl Case {
                 ));
             }
             Self::NewerField => {
-                let answer = put(
-                    connection,
-                    &json!({ "key": "newer", "value": "1", "added_in_a_minor": 1 }),
-                )?;
+                let answer = put(&json!({ "key": "newer", "value": "1", "added_in_a_minor": 1 }))?;
                 checks.push(replaced(
                     "params with a field the Plugin does not know are answered as without it",
                     &answer,
                     false,
                 ));
             }
+            Self::ExtractArticle | Self::ExtractNewerField => {
+                let newer = self == Self::ExtractNewerField;
+                let answer = calls.call(extract::METHOD, &extract::params(newer))?;
+                checks.extend(extract::checks(&answer));
+            }
         }
         Ok(())
     }
-}
-
-/// Sends `sample_store.put` with `params` and reads its answer.
-fn put(connection: &mut Connection, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(SAMPLE_STORE_PUT, params)?;
-    Ok(connection.answer(id)?.message)
 }
 
 /// The check `name`: `answer` is a `sample_store.put` result whose

@@ -177,6 +177,24 @@ fn a_collie_reader_keeps_what_it_does_not_know_of_a_report() {
     assert_eq!(serde_json::to_value(&read).unwrap(), sent);
 }
 
+/// A report's durations are Rust's duration type, and cross the wire as
+/// milliseconds (ADR 0080).
+///
+/// Covers: story:11-128
+#[test]
+fn a_reports_browser_time_is_a_duration() {
+    let mut sent = newer_foxhound_report();
+    sent["usage"]["browser_time"] = serde_json::json!(1_500);
+
+    let read: super::RunReport = serde_json::from_value(sent.clone()).unwrap();
+
+    assert_eq!(
+        read.usage.browser_time,
+        std::time::Duration::from_millis(1_500)
+    );
+    assert_eq!(serde_json::to_value(&read).unwrap(), sent);
+}
+
 /// Covers: story:3-154
 #[test]
 fn a_crawls_report_reads_what_every_report_holds_and_what_a_crawl_adds() {

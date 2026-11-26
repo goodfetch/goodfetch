@@ -78,6 +78,11 @@ impl PausedRequest {
         RequestHeaders::of(&self.event.request.headers)
     }
 
+    /// Whether it sends a body.
+    pub(crate) fn has_body(&self) -> bool {
+        self.event.request.has_post_data == Some(true)
+    }
+
     /// Its body, masked with `masks` as [`post_data`] masks it.
     pub(crate) fn post_data(&self, masks: &Masks) -> Option<String> {
         post_data(&self.event.request, masks)

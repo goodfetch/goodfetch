@@ -9,11 +9,11 @@
 //! sets [`COOKIE_VARIABLE`] to [`COOKIE`] in its environment, as go-plugin
 //! does, so that a Plugin started by hand refuses to run (not a security
 //! boundary), then sends [`HELLO`] as the first message, with the protocol
-//! range it speaks, the Product, the run ID and the network level. The
-//! Plugin answers with the version it speaks, its kinds and each kind's
-//! capabilities, which its kind's conformance suite proves one at a time,
-//! and the Hook stages it implements; [`check_hello`] holds the answer to
-//! the approved manifest (ADR 0066). Every request the engine sends may
+//! range it speaks, the Product, the run ID, none outside a Run, and the
+//! network level. The Plugin answers with the version it speaks, its kinds
+//! and each kind's capabilities, which its kind's conformance suite proves
+//! one at a time, and the Hook stages it implements; [`check_hello`] holds
+//! the answer to the approved manifest (ADR 0066). Every request the engine sends may
 //! carry `_meta` with the Trace context (ADR 0132), which the schema bundle
 //! declares.
 
@@ -29,9 +29,12 @@ use crate::error_code::ErrorCode;
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
 
+pub mod extractor;
+mod fuzz;
 mod manifest;
 mod names;
 
+pub use fuzz::{fuzz_plugin_manifest, fuzz_plugin_messages};
 pub use manifest::{
     Download, FILE_NAME, Grant, LOADER_VARIABLES, Limits, MANIFEST_VERSION, MEDIA_TYPE,
     ManifestBrowser, ManifestError, ManifestModel, NetworkLevel, Permissions, PluginManifest,
@@ -118,9 +121,11 @@ pub struct PluginHelloParams {
     /// The Product whose executable runs the Plugin.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub product: Product,
-    /// The Run the instance serves.
+    /// The Run the instance serves: none for a task outside any Run, such
+    /// as a probe or `plugins test`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
-    pub run_id: RunId,
+    pub run_id: Option<RunId>,
     /// The network level the instance is confined to.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub network_level: NetworkLevel,
@@ -317,6 +322,16 @@ pub const PLUGIN_CRASHED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A process Plugin quarantined for the rest of its run (ADR 0033).
+pub const PLUGIN_QUARANTINED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_quarantined",
+    description: "The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one \"a Plugin quarantined\" Notification is sent. A later run starts it again; fix or replace the Plugin first.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Plugin whose confinement the host cannot provide (ADR 0033).
 pub const CONFINEMENT_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "confinement_unavailable",
@@ -337,6 +352,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_MANIFEST_MISMATCH,
         PLUGIN_PROTOCOL_UNSUPPORTED,
         PLUGIN_CRASHED,
+        PLUGIN_QUARANTINED,
         CONFINEMENT_UNAVAILABLE,
     ],
     plugin_kinds: &[],

@@ -128,6 +128,26 @@ count = 1
 how = "holds no value: `skill install` writes the skill files the executable embeds and their digest marker, no Run's value"
 
 [[writer]]
+path = "crates/goodfetch-confinement/src/bin/goodfetch-confinement-probe.rs"
+count = 1
+how = "holds no value: the probe maps its own user ID to itself in `/proc/self/uid_map`, numbers only"
+
+[[writer]]
+path = "crates/goodfetch-confinement/src/linux/mounts.rs"
+count = 1
+how = "holds no value: an empty file the Plugin's mount namespace binds a granted file over; no bytes are written"
+
+[[writer]]
+path = "crates/goodfetch-confinement/src/linux/namespaces.rs"
+count = 1
+how = "holds no value: the user namespace's `uid_map`, `gid_map` and `setgroups` lines, numbers and `deny` the launcher computes"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/accounts/store.rs"
+count = 4
+how = "holds no resolved value: the Accounts store's tables hold the Account's name, its passkeys' public keys, and the SHA-256 digests of its recovery codes and named tokens, never a code, a token or a Secret a Run resolved"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/age_notice.rs"
 count = 1
 how = "holds no value: the date a notice was shown"
@@ -204,8 +224,8 @@ how = "holds no value: per-domain Politeness state, and each domain key's Delega
 
 [[writer]]
 path = "crates/goodfetch-engine/src/response_cache.rs"
-count = 3
-how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for"
+count = 5
+how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for; its `bodies` and `held` tables hold only each body's SHA-256, size and holder count, and the bytes the bodies hold"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"
@@ -281,6 +301,11 @@ how = "holds no value: each store's `format` table, its format's name and versio
 path = "crates/goodfetch-engine/src/transport.rs"
 count = 1
 how = "masked: the Attached engine's stdout carries only the lines `rpc` masked"
+
+[[writer]]
+path = "crates/goodfetch-notification/src/ledger.rs"
+count = 1
+how = "holds no value: each delivery's event ID, channel name, state, attempt, run epoch, next time and failure name (a code, never the party's text)"
 
 [[writer]]
 path = "crates/goodfetch-page/src/clean_up_versions.rs"

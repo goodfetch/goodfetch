@@ -1153,6 +1153,13 @@ export type MediaKind = "video" | "audio";
  */
 export type MicrodataValue = string | MicrodataItem;
 /**
+ * A duration, in milliseconds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Milliseconds".
+ */
+export type Milliseconds = number;
+/**
  * Why a Model provider could not answer (ADR 0101), open (ADR 0079).
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -1410,6 +1417,37 @@ export type PageField = ValueField | ListField | RowsField;
  * via the `definition` "PageHandler".
  */
 export type PageHandler = "route" | "dialog";
+/**
+ * A header value that holds a Secret placeholder (ADR 0092). The value
+ * the engine builds from the placeholder's is masked wherever the engine
+ * returns, sends or keeps it, its Base64 in `Basic` included.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretHeader".
+ */
+export type SecretHeader =
+  | {
+      form: "value";
+      /**
+       * The Secret placeholder.
+       */
+      placeholder: string;
+      /**
+       * The text before the value; none when absent.
+       */
+      prefix?: string | null;
+    }
+  | {
+      form: "basic";
+      /**
+       * The Secret placeholder whose value is the password.
+       */
+      placeholder: string;
+      /**
+       * The user ID, which holds no colon.
+       */
+      username: string;
+    };
 /**
  * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
  * one, or a regular expression in the `regex` crate's syntax. A predicate
@@ -3209,6 +3247,12 @@ export interface DaemonParams {}
  */
 export interface DaemonState {
   /**
+   * Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+   * store is open. Without, its person is the OS user, on its own
+   * machine only, as with a Daemon that does not say.
+   */
+  accounts?: boolean;
+  /**
    * How many Clients are connected, the caller included.
    */
   clients: number;
@@ -4304,6 +4348,75 @@ export interface SettingLimit {
   };
 }
 /**
+ * What `extract.content` reads a page's main content from: the document
+ * the page holds, after the Clean-up rules, and the URL it came from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentParams".
+ */
+export interface ExtractContentParams {
+  /**
+   * The page's document, serialized as HTML.
+   */
+  html: string;
+  /**
+   * The page's URL, which its relative links resolve against.
+   */
+  url: string;
+}
+/**
+ * A page's main content, as an Extractor read it. Everything in it is
+ * page content (ADR 0014): it reaches a model only marked as such.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractContentResult".
+ */
+export interface ExtractContentResult {
+  /**
+   * The main content as Markdown.
+   */
+  markdown: string;
+  /**
+   * What the Extractor read about the page, such as its author or its
+   * date, each a text under its `snake_case` name.
+   */
+  metadata: {
+    [k: string]: string;
+  };
+  /**
+   * The main content as plain text.
+   */
+  text: string;
+  /**
+   * The main content's title, when the Extractor found one.
+   */
+  title?: string | null;
+}
+/**
+ * What `extract_handler_failed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractHandlerFailedDetails".
+ */
+export interface ExtractHandlerFailedDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
+}
+/**
+ * What `extractor_unavailable` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ExtractorUnavailableDetails".
+ */
+export interface ExtractorUnavailableDetails {
+  /**
+   * The Extractor, as `content.extractor` names it.
+   */
+  extractor: string;
+}
+/**
  * The `match` before a field's transform (ADR 0123): a capture group of a
  * regular expression, in the `regex` crate's syntax (ADR 0081), over the
  * text read; that group's text is what the transform reads.
@@ -4792,6 +4905,24 @@ export interface InternalDetails {
    * Its state.
    */
   state: string;
+}
+/**
+ * A string of a JSON body that holds a Secret placeholder's value
+ * (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "JsonSecret".
+ */
+export interface JsonSecret {
+  /**
+   * The Secret placeholder.
+   */
+  placeholder: string;
+  /**
+   * Where the string goes, as a JSON Pointer (RFC 6901): a member of an
+   * object, added or replaced, or an element an array holds.
+   */
+  pointer: string;
 }
 /**
  * The crawl attempt a Key-value store call is made through: a handler's
@@ -6791,6 +6922,13 @@ export interface PageRequestParams {
     [k: string]: string;
   } | null;
   /**
+   * Strings of its body, which is then JSON, that hold a Secret
+   * placeholder's value, each set at its JSON Pointer by the engine at
+   * its interception, checked as `secret_headers` are at every hop that
+   * sends the body (ADR 0092).
+   */
+  jsonSecrets?: JsonSecret[] | null;
+  /**
    * How many redirects it follows, from 0, which answers the 3xx itself,
    * to 19, the default; past its count it raises `too_many_redirects`,
    * and a count above 19 is refused with `setting_invalid`.
@@ -6808,6 +6946,16 @@ export interface PageRequestParams {
    * Its body, in Base64.
    */
   postData?: string | null;
+  /**
+   * Headers whose value holds a Secret placeholder, set over the
+   * browser's own and named in none of `headers`: the engine adds each
+   * value at its interception, at every hop whose URL is on the
+   * placeholder's bound domains, and fails the request with
+   * `secret_domain_not_allowed` at a hop outside them (ADR 0092).
+   */
+  secretHeaders?: {
+    [k: string]: SecretHeader;
+  } | null;
   /**
    * The URL.
    */
@@ -6980,6 +7128,27 @@ export interface PluginRun {
    * The network level it ran at.
    */
   networkLevel: string;
+}
+/**
+ * What a Run's calls into one implementation of a Plugin kind used: its
+ * `plugin_calls` and `plugin_time` (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUsage".
+ */
+export interface PluginUsage {
+  /**
+   * The calls made into it, failed ones included.
+   */
+  calls: number;
+  /**
+   * The implementation's name, as the setting that chose it names it.
+   */
+  plugin: string;
+  /**
+   * The time those calls took, in milliseconds.
+   */
+  time: number;
 }
 /**
  * One change `config.policy_write` makes.
@@ -8432,9 +8601,9 @@ export interface RunReport {
  */
 export interface RunUsage {
   /**
-   * How long it held a browser, in milliseconds.
+   * How long it held a browser.
    */
-  browserTime: number;
+  browserTime: Milliseconds;
   /**
    * Each Limit that applies to it, with what is left of it.
    */
@@ -8461,6 +8630,11 @@ export interface RunUsage {
    * Its paid solves, by currency (ADR 0035).
    */
   paidSolves?: UsageAmount[];
+  /**
+   * Its calls into Plugin kinds' implementations, of every form, and the
+   * time they took, by implementation (ADR 0033), in name order.
+   */
+  plugins?: PluginUsage[];
   /**
    * The bytes it sent and received through a proxy.
    */

@@ -1158,6 +1158,21 @@ pub const TIMEOUT_HOOK: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.plugin` (ADRs 0033 and 0080; spec #596).
+pub const TIMEOUT_PLUGIN: Setting = Setting {
+    name: "timeout.plugin",
+    description: "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.sink_write` (ADRs 0080 and 0083), refused away from its default until its phase is
 /// built.
 pub const TIMEOUT_SINK_WRITE: Setting = Setting {
@@ -1301,6 +1316,7 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
         TIMEOUT_HOOK,
+        TIMEOUT_PLUGIN,
         TIMEOUT_SINK_WRITE,
         TIMEOUT_AGENT,
         TIMEOUT_AI,

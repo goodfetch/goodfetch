@@ -19,6 +19,7 @@ use tokio::sync::mpsc;
 
 use crate::error::{BoxError, Error};
 use crate::line;
+use crate::logging;
 use crate::opening_process::OpeningProcess;
 use crate::sync::{Mutex, MutexGuard};
 use crate::write_queue::{WeakWriteQueue, WriteQueue};
@@ -88,7 +89,7 @@ impl Streams {
             None => call,
         };
         drop(served);
-        tracing::debug!(target: "goodfetch::client", method = %refused.method, "the engine sent a request no stream serves");
+        tracing::debug!(target: logging::CLIENT, method = %refused.method, "the engine sent a request no stream serves");
         refused.refuse_unserved();
     }
 
@@ -250,7 +251,7 @@ impl Drop for HandlerCall {
             })
             .is_err()
         {
-            tracing::debug!(target: "goodfetch::client", method = %self.method, "a dropped request's Connection had ended");
+            tracing::debug!(target: logging::CLIENT, method = %self.method, "a dropped request's Connection had ended");
         }
     }
 }

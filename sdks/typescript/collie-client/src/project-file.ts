@@ -27,7 +27,7 @@ export interface ProjectFile {
 /** The layer a project file's values and refusals are at. */
 const LAYER = "project_configuration";
 /** The key that sets how long opening a Connection waits for `hello`'s answer. */
-const TIMEOUT_CONNECT = "timeout.connect";
+export const TIMEOUT_CONNECT = "timeout.connect";
 /** A file's top-level key naming the lowest minor that can use it (ADR 0098). */
 const LOWEST_MINOR = "lowest_minor";
 /** The file's one table. */

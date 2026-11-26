@@ -11,6 +11,7 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::accounts::StoredAccounts;
 use crate::audit::AuditEntry;
 use crate::browser_cache::BrowserCacheEntry;
 use crate::catalog::{PROTOCOL_VERSION, ProtocolVersion, SchemaOf, Setting, ValueKind, schema_of};
@@ -18,6 +19,7 @@ use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
 use crate::response_cache::ResponseCacheEntry;
@@ -69,8 +71,8 @@ pub enum Rule {
     /// major that can use them, which an engine's own minor must meet.
     SharedStore,
     /// A handshake whose two sides settle on the lower of their minors, a
-    /// Browser host's with its engine (ADR 0096): only another major is
-    /// refused.
+    /// Browser host's with its engine (ADR 0096), or a Plugin's newest
+    /// version in the engine's range: only another major is refused.
     LowerMinor,
     /// The Clean-up rules' manifest (ADRs 0030 and 0047): a reader reads a
     /// version of its own major up to its own minor, as the default rule
@@ -293,6 +295,20 @@ pub const RUN_INDEX: Format = Format {
     schema: schema_of::<RunIndexRow>,
 };
 
+/// The per-major Accounts store (ADR 0149), beside the Operator policy:
+/// the Account of the person of a Daemon with accounts, its passkeys'
+/// public keys and the hashes of its recovery codes and Named tokens.
+/// Only the Daemon of its major opens it, so it keeps the default version
+/// rule; its schema is the store's tables.
+pub const ACCOUNTS_STORE: Format = Format {
+    name: "accounts-store",
+    version: ProtocolVersion { major: 0, minor: 1 },
+    storage: Storage::Sqlite,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<StoredAccounts>,
+};
+
 /// The per-major Operator policy of Goodfetch home (ADRs 0028 and 0098):
 /// what it sets, locks and caps, nested by key, read by both Products.
 pub const OPERATOR_POLICY: Format = Format {
@@ -441,12 +457,39 @@ pub const RECIPE_MANIFEST: Format = Format {
     schema: schema_of::<RecipeManifest>,
 };
 
+/// The plugin protocol between the engine and a process Plugin (ADRs 0033
+/// and 0066): the engine opens it with `hello` and its range, and the
+/// Plugin answers in the newest version both speak, so only another major
+/// is refused. Its corpus holds what each side sends, `engine.jsonl` and
+/// `plugin.jsonl`.
+pub const PLUGIN_PROTOCOL: Format = Format {
+    name: "plugin-protocol",
+    version: PLUGIN_PROTOCOL_VERSION,
+    storage: Storage::Transcript,
+    rule: Rule::LowerMinor,
+    hello_from: &[],
+    schema: schema_of::<Message>,
+};
+
+/// A Plugin's manifest (ADRs 0030 and 0033), `goodfetch-plugin.json`: its
+/// reader takes the version first, reads its own major up to its own
+/// minor, and refuses any other before the rest.
+pub const PLUGIN_MANIFEST: Format = Format {
+    name: "plugin-manifest",
+    version: MANIFEST_VERSION,
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<PluginManifest>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
     &BROWSER_CACHE,
     &CLEAN_UP_RULES,
     &RUN_INDEX,
+    &ACCOUNTS_STORE,
     &RUN_STATE,
     &INSTALLED_EXECUTABLES,
     &USAGE_LEDGER,
@@ -459,6 +502,8 @@ pub const FORMATS: &[&Format] = &[
     &EXPORT,
     &SESSION_EXPORT,
     &RECIPE_MANIFEST,
+    &PLUGIN_PROTOCOL,
+    &PLUGIN_MANIFEST,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

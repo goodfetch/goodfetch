@@ -12,8 +12,9 @@ fn spider(capacity: usize) -> Config {
     }
 }
 
-/// Foxhound, Spider and the other Rust sides run as their executables, with
-/// nothing but the arguments every side takes; Crawlee's script runs on
+/// Foxhound, Spider, the other Rust sides and Foxhound's Rust program,
+/// whose engine is linked in, run as their executables, with nothing but
+/// the arguments every side takes; Crawlee's script runs on
 /// Node.js and Scrapy's on the Python environment beside it, so the tool's
 /// process is the interpreter running the side, with no launcher between.
 #[test]
@@ -38,6 +39,7 @@ fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
                 Config::Pagesift,
                 Config::OpenSpider,
                 Config::Crawlberg,
+                Config::FoxhoundRustProgram,
             ]
             .map(rust_side),
         ),
@@ -51,7 +53,7 @@ fn each_tool_runs_as_its_executable_or_its_sides_interpreter() {
                 "/p/.venv/bin/python"
             }),
             vec!["/p/crawl.py".into()],
-            [(); 4].map(|()| (Path::new("/r/side").to_owned(), Vec::new())),
+            [(); 5].map(|()| (Path::new("/r/side").to_owned(), Vec::new())),
         )
     );
 }

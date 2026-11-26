@@ -719,7 +719,7 @@ impl RunState {
     ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         let claims = leased
             .iter()
-            .map(|leased| (leased.crawl_request.id.clone(), leased.lease_epoch))
+            .map(|leased| leased.attempt_key().owned())
             .collect();
         Stored::claim(claims, (self.pool.changes(), self.learned.counted()))
     }

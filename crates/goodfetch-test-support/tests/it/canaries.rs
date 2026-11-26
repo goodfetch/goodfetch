@@ -31,6 +31,7 @@ fn send(proving_ground: &ProvingGround, request: &str) -> u16 {
 #[case::totp_seed(SecretKind::TotpSeed)]
 #[case::session_cookie(SecretKind::SessionCookie)]
 #[case::endpoint_token(SecretKind::EndpointToken)]
+#[case::header_value(SecretKind::HeaderValue)]
 fn a_proving_ground_plant_matches_its_kinds_gitleaks_pattern(#[case] kind: SecretKind) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, 379).unwrap();

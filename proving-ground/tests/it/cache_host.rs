@@ -28,6 +28,23 @@ fn a_fresh_page_is_kept_an_hour_and_names_its_answer() {
 }
 
 #[test]
+fn a_large_page_is_kept_an_hour_and_weighs_over_a_mebibyte() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let large = raw_clients::get(&proving_ground, HOST, "/large/one", &[]);
+
+    assert_eq!(
+        (
+            large.status(),
+            large.header("cache-control"),
+            String::from_utf8_lossy(large.body()).contains("Answer 1 of /large/one."),
+            large.body().len() > 1 << 20,
+        ),
+        (Some(200), Some("max-age=3600".to_owned()), true, true)
+    );
+}
+
+#[test]
 fn a_stale_page_answers_either_of_its_validators_with_a_304() {
     let proving_ground = ProvingGround::start(SEED);
 
@@ -116,6 +133,36 @@ fn a_page_varying_on_cookie_names_the_cookie_it_was_sent() {
                 Some("visitor=one; Path=/".to_owned()),
                 Some("no-store".to_owned()),
             ),
+        )
+    );
+}
+
+#[test]
+fn an_api_path_answers_any_method_never_to_be_stored() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let posted = raw_clients::post(&proving_ground, HOST, "/api/one", br#"{"q":"shoes"}"#);
+    let got = raw_clients::get(&proving_ground, HOST, "/api/one", &[]);
+
+    let said = |arrived: &raw_clients::Arrived, text: &str| {
+        String::from_utf8_lossy(arrived.body()).contains(text)
+    };
+    assert_eq!(
+        (
+            posted.status(),
+            posted.header("cache-control"),
+            said(&posted, "Answer 1 of /api/one."),
+            said(&posted, "POST with 13 bytes."),
+            said(&got, "Answer 2 of /api/one."),
+            said(&got, "GET with 0 bytes."),
+        ),
+        (
+            Some(200),
+            Some("no-store".to_owned()),
+            true,
+            true,
+            true,
+            true
         )
     );
 }

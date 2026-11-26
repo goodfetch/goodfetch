@@ -117,6 +117,8 @@ mod refusals;
 mod register;
 mod register_coverage;
 mod release;
+mod release_assets;
+mod release_digests;
 #[cfg(unix)]
 mod release_line;
 mod release_publish;
@@ -140,6 +142,7 @@ mod sweep_target;
 mod targets;
 mod telemetry;
 mod test_health;
+mod test_recipe;
 mod test_tools;
 mod tlc;
 mod watchlist;

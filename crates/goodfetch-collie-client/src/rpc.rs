@@ -26,6 +26,7 @@
 //! fails with `connection_lost`, never sent again (ADR 0079).
 
 mod again;
+mod notification;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::poll_fn;
@@ -34,7 +35,7 @@ use std::num::NonZeroU64;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use goodfetch_protocol::connection::{CANCEL, CancelParams, EngineExitedDetails, EngineInstance};
+use goodfetch_protocol::connection::{EngineExitedDetails, EngineInstance};
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::jsonrpc::{
     ErrorObject, Message, Notification, Request, RequestId, Version,
@@ -64,6 +65,7 @@ use crate::transport::{Exit, Link};
 use crate::write_queue::{self, QueuedLines, WriteQueue};
 
 use self::again::Again;
+use self::notification::{cancelled, credited, encoded};
 
 /// How long a Connection whose engine ended it waits to hear how, before
 /// its calls fail without that evidence, as the other SDKs wait.
@@ -397,17 +399,17 @@ struct Ending {
 async fn write(mut writer: Box<dyn AsyncWrite + Send + Unpin>, mut lines: QueuedLines) {
     while let Some(line) = lines.next().await {
         if let Err(error) = writer.write_all(&line).await {
-            tracing::debug!(target: "goodfetch::client", %error, "the Connection's output closed");
+            tracing::debug!(target: logging::CLIENT, %error, "the Connection's output closed");
             return;
         }
         if let Err(error) = writer.flush().await {
-            tracing::debug!(target: "goodfetch::client", %error, "the Connection's output closed");
+            tracing::debug!(target: logging::CLIENT, %error, "the Connection's output closed");
             return;
         }
         lines.wrote(&line);
     }
     if let Err(error) = writer.shutdown().await {
-        tracing::debug!(target: "goodfetch::client", %error, "the Connection's output was already closed");
+        tracing::debug!(target: logging::CLIENT, %error, "the Connection's output was already closed");
     }
 }
 
@@ -523,6 +525,13 @@ impl Calls {
         true
     }
 
+    /// The id of the next request sent on the link, a call's or a
+    /// reconnect's `hello`: one more than the last.
+    fn next_id(&mut self) -> i64 {
+        self.next_id += 1;
+        self.next_id
+    }
+
     /// Takes `call`: refuses it past the Connection's bounds, then sends
     /// it while the cap has a free place and nothing is queued, or queues
     /// it.
@@ -534,8 +543,7 @@ impl Calls {
             let _gone = call.reply.send(Err(refused.in_call(&call.method)));
             return;
         }
-        self.next_id += 1;
-        let id = self.next_id;
+        let id = self.next_id();
         let request = Request {
             jsonrpc: Version,
             id: RequestId::Number(id),
@@ -693,7 +701,7 @@ impl Calls {
     /// Client's timeout, cancelled when the engine cancels it.
     fn expire(&mut self, id: i64) {
         if let Some(held) = self.unqueue(id) {
-            tracing::debug!(target: "goodfetch::client", id, "a queued call timed out");
+            tracing::debug!(target: logging::CLIENT, id, "a queued call timed out");
             let (_, deadline) = held
                 .deadline
                 .expect("invariant: a queued call expires only by its own deadline");
@@ -707,7 +715,7 @@ impl Calls {
             return;
         }
         if let Some(call) = self.pending.remove(&id) {
-            tracing::debug!(target: "goodfetch::client", id, "a call timed out");
+            tracing::debug!(target: logging::CLIENT, id, "a call timed out");
             // The engine's work for it ends too, as for a dropped call; its
             // late answer then changes nothing.
             if call.cancellable {
@@ -766,7 +774,7 @@ impl Calls {
             return;
         }
         if self.holding {
-            tracing::trace!(target: "goodfetch::client", method = %notification.method, "a notification of a call the dropped link lost");
+            tracing::trace!(target: logging::CLIENT, method = %notification.method, "a notification of a call the dropped link lost");
             return;
         }
         let _closed = self.writes.send(line);
@@ -800,19 +808,19 @@ impl Calls {
                 return;
             }
             Err(error) => {
-                tracing::warn!(target: "goodfetch::client", %error, "the engine sent a line that is no message");
+                tracing::warn!(target: logging::CLIENT, %error, "the engine sent a line that is no message");
                 return;
             }
         };
         let Some(RequestId::Number(id)) = id else {
-            tracing::debug!(target: "goodfetch::client", "a reply to no call of this Connection");
+            tracing::debug!(target: logging::CLIENT, "a reply to no call of this Connection");
             return;
         };
         if let Some(call) = self.pending.remove(&id) {
             self.stop_timer(call.deadline.map(|(key, _)| key));
             let _gone = call.reply.send(outcome);
         } else {
-            tracing::debug!(target: "goodfetch::client", id, "a reply to a call no longer waiting for it");
+            tracing::debug!(target: logging::CLIENT, id, "a reply to a call no longer waiting for it");
         }
         if self.in_flight.remove(&id) {
             self.drain();
@@ -835,7 +843,7 @@ impl Calls {
         let call = named(params.as_ref())
             .and_then(|id| Some((id, self.pending.get(&id)?.notified.as_ref()?)));
         let Some((id, notified)) = call else {
-            tracing::trace!(target: "goodfetch::client", %method, "a notification no one awaits");
+            tracing::trace!(target: logging::CLIENT, %method, "a notification no one awaits");
             return;
         };
         let heard = Heard::Notified {
@@ -847,7 +855,7 @@ impl Calls {
                 return;
             };
             self.stop_timer(call.deadline.map(|(key, _)| key));
-            tracing::debug!(target: "goodfetch::client", id, "a streaming call's engine sent past its credits");
+            tracing::debug!(target: logging::CLIENT, id, "a streaming call's engine sent past its credits");
             call.fail(Error::shape(serde::de::Error::custom(
                 "the engine streamed past the credits the call granted",
             )));
@@ -946,11 +954,11 @@ async fn serve(
             line = input.next_line() => match line {
                 Ok(Some(line)) => calls.answer(&line, streams),
                 Ok(None) => {
-                    tracing::debug!(target: "goodfetch::client", "the engine closed the Connection");
+                    tracing::debug!(target: logging::CLIENT, "the engine closed the Connection");
                     return Served::Dropped("the engine closed the link".to_owned());
                 }
                 Err(error) => {
-                    tracing::debug!(target: "goodfetch::client", %error, "the Connection's input failed");
+                    tracing::debug!(target: logging::CLIENT, %error, "the Connection's input failed");
                     return Served::Dropped(error.to_string());
                 }
             },
@@ -958,42 +966,7 @@ async fn serve(
     }
 }
 
-/// The `$/cancel` of the call `id`.
-fn cancelled(id: i64) -> Notification {
-    Notification {
-        jsonrpc: Version,
-        method: CANCEL.to_owned(),
-        params: serde_json::to_value(CancelParams {
-            id: RequestId::Number(id),
-        })
-        .ok(),
-    }
-}
-
-/// The `$/credit` that grants the call `id` `credits` more items.
-fn credited(id: i64, credits: u32) -> Notification {
-    Notification {
-        jsonrpc: Version,
-        method: CREDIT.to_owned(),
-        params: serde_json::to_value(CreditParams {
-            id: RequestId::Number(id),
-            credits,
-        })
-        .ok(),
-    }
-}
-
 /// The call a notification's params name by its `id`, if any.
 fn named(params: Option<&Value>) -> Option<i64> {
     params?.get("id")?.as_i64()
-}
-
-/// `notification` as one line, or none, with a warning, when it is no
-/// JSON.
-fn encoded(notification: &Notification) -> Option<Vec<u8>> {
-    let encoded = line::encode(notification);
-    if encoded.is_err() {
-        tracing::warn!(target: "goodfetch::client", method = %notification.method, "a notification that is no JSON was not sent");
-    }
-    encoded.ok()
 }

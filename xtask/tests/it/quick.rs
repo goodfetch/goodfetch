@@ -1418,6 +1418,61 @@ fn a_run_whose_steps_all_pass_passes() {
     );
 }
 
+/// The steps between `steps_lane_begin` and `steps_lane_end` run one after
+/// another in a background lane, beside the steps after it (`just lint`'s
+/// steps that build nothing): each keeps its own log and result, a red one
+/// fails the run, and the lane's output prints in one block, never
+/// interleaved with the other steps'.
+#[test]
+fn the_lanes_steps_run_beside_the_others_and_each_keeps_its_result() {
+    let (workspace, run) = keep_going(
+        "steps_begin fake\n\
+         steps_lane_begin\n\
+         step lane-red 'echo the lane said this; exit 3'\n\
+         step --after lane-red lane-skipped 'echo ran > lane-skipped.txt'\n\
+         step lane-green 'for _ in $(seq 200); do [ -e main.txt ] && break; sleep 0.05; done; [ -e main.txt ]; echo the lane is done'\n\
+         steps_lane_end\n\
+         step main 'echo the main step said this; echo ran > main.txt'\n\
+         steps_end\n",
+        &[],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    let steps = workspace
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("target/steps/fake");
+    assert_eq!(
+        std::fs::read_to_string(steps.join("lane-red.log")).unwrap(),
+        "the lane said this\n"
+    );
+    assert!(!workspace.path().join("lane-skipped.txt").exists());
+    assert!(
+        run.stdout.contains(&format!(
+            "failed   lane-red: {}",
+            steps.join("lane-red.log").display()
+        )),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout
+            .contains("skipped  lane-skipped: lane-red did not pass"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("fake: 2 passed, 1 failed, 1 skipped."),
+        "{}",
+        run.stdout
+    );
+    let lane = run.stdout.find("== lane-red: ").unwrap();
+    let lane_end = run.stdout.find("the lane is done\n").unwrap();
+    let main = run.stdout.find("the main step said this").unwrap();
+    assert!(main < lane || main > lane_end, "{}", run.stdout);
+}
+
 /// `just quick`'s step `just lint` is a run of its own: the outer summary
 /// names the inner run's failed step, not the step that started it.
 #[test]

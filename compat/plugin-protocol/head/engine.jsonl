@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":0,"method":"hello","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},"network_level":"none","product":"collie","protocol":{"max":"0.1","min":"0.1"},"run_id":"books-2026-01-05"}}
+{"jsonrpc":"2.0","id":1,"method":"$/ping","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}}}
+{"jsonrpc":"2.0","id":2,"method":"sample_store.put","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},"key":"title","value":"Dune"}}
+{"jsonrpc":"2.0","id":3,"method":"sample_store.delete","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},"key":"title"}}
+{"jsonrpc":"2.0","id":"put-late","method":"sample_store.put","params":{"_meta":{"traceparent":"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},"key":"author","value":"Frank Herbert"}}
+{"jsonrpc":"2.0","method":"$/cancel","params":{"call_id":"put-late","deadline":true}}

@@ -9,7 +9,8 @@
 //! ship, so the crates whose features differ compile twice per suite (ADR
 //! 0094's note).
 //! `just test` runs it before any
-//! runner starts. With `--shipped-target`, it builds for the Rust target
+//! runner starts, in every suite but Quick, whose in-process tests use no
+//! tool (the implementation audit of 2026-11-25, measure 1). With `--shipped-target`, it builds for the Rust target
 //! the Products ship for on this host, the static musl one on Linux (ADR
 //! 0024), so `just targets` and `just rss` measure what users run. A
 //! `*-linux-musl` build runs through [`MUSL_CARGO`], the static musl
@@ -55,17 +56,19 @@ pub(crate) enum Tool {
     ProvingGround,
     TestEnv,
     ScriptedEngine,
+    ScriptedPlugin,
     Conformance,
     StubGateway,
 }
 
 impl Tool {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::Collie,
         Self::Foxhound,
         Self::ProvingGround,
         Self::TestEnv,
         Self::ScriptedEngine,
+        Self::ScriptedPlugin,
         Self::Conformance,
         Self::StubGateway,
     ];
@@ -78,6 +81,7 @@ impl Tool {
             Self::ProvingGround => "goodfetch-proving-ground",
             Self::TestEnv => "goodfetch-test-env",
             Self::ScriptedEngine => "goodfetch-scripted-engine",
+            Self::ScriptedPlugin => "goodfetch-scripted-plugin",
             Self::Conformance => "goodfetch-conformance",
             Self::StubGateway => "goodfetch-stub-gateway",
         }

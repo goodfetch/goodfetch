@@ -19,6 +19,7 @@ use std::process::{ExitCode, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
+use goodfetch_engine::accounts::{self, AccountsStore};
 use goodfetch_engine::browser_cache;
 use goodfetch_engine::children::give_huge_pages_as_started;
 use goodfetch_engine::daemon::files::{DaemonFiles, FileLock};
@@ -191,10 +192,11 @@ pub(in crate::executable) fn launched(
     };
     let idle_timeout: Duration = get_or_default(Some(settings), &IDLE_TIMEOUT);
     let drain_grace: Duration = get_or_default(Some(settings), &DRAIN_GRACE);
-    let install = match install_database(machine, &dependencies, Some(settings)) {
-        Ok(install) => install,
-        Err(failure) => return failure.report(),
-    };
+    let Stores { install, accounts } =
+        match Stores::open(machine, &dependencies, Some(settings), false) {
+            Ok(stores) => stores,
+            Err(failure) => return failure.report(),
+        };
     let (socket, _socket_folder) = match files.socket_place() {
         Ok(place) => place,
         Err(error) => return unavailable("the Daemon's socket has no folder")(error).report(),
@@ -237,6 +239,7 @@ pub(in crate::executable) fn launched(
             install,
             ops: Ops::default(),
             websocket: None,
+            accounts,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,
@@ -250,10 +253,34 @@ pub(in crate::executable) fn launched(
     }
 }
 
+/// The stores a Daemon opens before it serves, which it alone writes.
+pub(super) struct Stores {
+    /// Its install database, if any.
+    pub(super) install: Option<InstallDatabase>,
+    /// Its Accounts store, if it has accounts.
+    pub(super) accounts: Option<AccountsStore>,
+}
+
+impl Stores {
+    /// The stores of a Daemon on the machine's `settings`, `exposed` as
+    /// `daemon run` is.
+    pub(super) fn open(
+        machine: &Machine<'_>,
+        dependencies: &Dependencies,
+        settings: Option<&Resolved>,
+        exposed: bool,
+    ) -> Result<Self, Failure> {
+        Ok(Self {
+            install: install_database(machine, dependencies, settings)?,
+            accounts: accounts_store(machine, settings, exposed)?,
+        })
+    }
+}
+
 /// The install database, which the Daemon alone writes, in the
 /// per-install layout that the machine's `settings` choose (ADR 0002);
 /// none in the per-run layout.
-pub(super) fn install_database(
+fn install_database(
     machine: &Machine<'_>,
     dependencies: &Dependencies,
     settings: Option<&Resolved>,
@@ -273,6 +300,25 @@ pub(super) fn install_database(
             "the per-install layout's run state cannot be opened: {error}"
         ))
     })
+}
+
+/// The Accounts store of a Daemon that has accounts by `settings`, which
+/// it opens once as it starts; none for one whose person is the OS user
+/// (ADR 0149). An `exposed` Daemon, as `daemon run`, has them unless
+/// `accounts.enabled` is off; a machine's Daemon only when it is on.
+fn accounts_store(
+    machine: &Machine<'_>,
+    settings: Option<&Resolved>,
+    exposed: bool,
+) -> Result<Option<AccountsStore>, Failure> {
+    if !accounts::enabled(settings, exposed) {
+        return Ok(None);
+    }
+    AccountsStore::of(machine.home, &machine.identity.product_version)
+        .map(Some)
+        .map_err(|error| {
+            Failure::Unavailable(format!("the Accounts store cannot be opened: {error}"))
+        })
 }
 
 /// The Daemon's listener, endpoint and token: the socket the service

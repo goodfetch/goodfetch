@@ -44,7 +44,7 @@ pub enum Source {
     Routed(Served),
     /// The Run's Response recording holds it.
     Recorded(Served),
-    /// The cache holds it fresh: served with no request.
+    /// The cache holds it fresh, or replays it: served with no request.
     Fresh(Hit),
     /// The cache holds it stale: the request is sent with its conditions,
     /// and a 304 answering it is handed to [`ResponseSource::revalidated`].
@@ -57,9 +57,20 @@ pub enum Source {
 /// share. The default only sends.
 #[derive(Clone, Debug, Default)]
 pub struct ResponseSource {
-    /// The cache, unless `cache.mode` is `off`.
-    cache: Option<ResponseCache>,
+    cache: Keeping,
     recording: Option<Arc<dyn Recording>>,
+}
+
+/// How a Run uses the cache, as its `cache.mode` says.
+#[derive(Clone, Debug, Default)]
+enum Keeping {
+    /// `off`: never read nor written.
+    #[default]
+    Off,
+    /// `revalidate`: under RFC 9111.
+    Revalidate(ResponseCache),
+    /// `replay`: everything stored and served again with no request.
+    Replay(ResponseCache),
 }
 
 impl ResponseSource {
@@ -68,8 +79,9 @@ impl ResponseSource {
     pub fn of(cache: &ResponseCache, mode: CacheMode) -> Self {
         Self {
             cache: match mode {
-                CacheMode::Off => None,
-                CacheMode::Revalidate => Some(cache.clone()),
+                CacheMode::Off => Keeping::Off,
+                CacheMode::Revalidate => Keeping::Revalidate(cache.clone()),
+                CacheMode::Replay => Keeping::Replay(cache.clone()),
             },
             recording: None,
         }
@@ -87,7 +99,7 @@ impl ResponseSource {
 
     /// Whether it only sends: no recording, and the cache off.
     pub fn sends_only(&self) -> bool {
-        self.cache.is_none() && self.recording.is_none()
+        matches!(self.cache, Keeping::Off) && self.recording.is_none()
     }
 
     /// Where the response to `request` in `partition` comes from at `now`:
@@ -109,17 +121,21 @@ impl ResponseSource {
         {
             return Source::Recorded(served);
         }
-        let Some(cache) = &self.cache else {
-            return Source::Network;
-        };
-        match cache.lookup(partition, request, now).await {
-            Lookup::Miss => Source::Network,
-            Lookup::Fresh(hit) => Source::Fresh(hit),
-            Lookup::Stale(stale) => Source::Stale(stale),
+        match &self.cache {
+            Keeping::Off => Source::Network,
+            Keeping::Revalidate(cache) => match cache.lookup(partition, request, now).await {
+                Lookup::Miss => Source::Network,
+                Lookup::Fresh(hit) => Source::Fresh(hit),
+                Lookup::Stale(stale) => Source::Stale(stale),
+            },
+            Keeping::Replay(cache) => match cache.replayed(partition, request, now).await {
+                Some(hit) => Source::Fresh(hit),
+                None => Source::Network,
+            },
         }
     }
 
-    /// [`ResponseCache::revalidated`]; none with the cache off.
+    /// [`ResponseCache::revalidated`]; none unless under `revalidate`.
     pub async fn revalidated(
         &self,
         stale: Stale,
@@ -127,23 +143,30 @@ impl ResponseSource {
         head: &ResponseHead,
         now: SystemTime,
     ) -> Option<Hit> {
-        self.cache
-            .as_ref()?
-            .revalidated(stale, request, head, now)
-            .await
+        match &self.cache {
+            Keeping::Revalidate(cache) => cache.revalidated(stale, request, head, now).await,
+            Keeping::Off | Keeping::Replay(_) => None,
+        }
     }
 
     /// Whether a response with `head` to `request` would be stored, so its
-    /// body is kept as it arrives: never with the cache off, or while the
-    /// engine runs without it.
+    /// body is kept as it arrives: never with the cache off, while the
+    /// engine runs without it, or while its filesystem is low on space.
     pub fn stores(&self, request: &CacheRequest, head: &ResponseHead) -> bool {
-        self.cache
-            .as_ref()
-            .is_some_and(|cache| !cache.running_without())
-            && freshness::storable(request, head).is_some()
+        match &self.cache {
+            Keeping::Off => false,
+            Keeping::Revalidate(cache) => {
+                cache.storing() && freshness::storable(request, head).is_some()
+            }
+            Keeping::Replay(cache) => {
+                cache.storing() && freshness::replayable(request, head).is_some()
+            }
+        }
     }
 
-    /// [`ResponseCache::store`]; nothing with the cache off.
+    /// [`ResponseCache::store`] under `revalidate`,
+    /// [`ResponseCache::store_replayed`] under `replay`; nothing with the
+    /// cache off.
     pub async fn store(
         &self,
         partition: &Partition,
@@ -154,12 +177,17 @@ impl ResponseSource {
         now: SystemTime,
     ) -> bool {
         match &self.cache {
-            Some(cache) => {
+            Keeping::Off => false,
+            Keeping::Revalidate(cache) => {
                 cache
                     .store(partition, request, head, body, run_id, now)
                     .await
             }
-            None => false,
+            Keeping::Replay(cache) => {
+                cache
+                    .store_replayed(partition, request, head, body, run_id, now)
+                    .await
+            }
         }
     }
 }

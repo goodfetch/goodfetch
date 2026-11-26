@@ -778,7 +778,7 @@ fn the_end_of_input_cancels_the_calls_in_flight_which_answer_before_the_connecti
 fn an_oversized_message_ends_in_its_limit_error_and_the_next_one_is_answered() {
     let oversized = format!(
         "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"engine.info\",\"params\":{{\"pad\":\"{}\"}}}}\n",
-        "x".repeat(crate::rpc::framing::MAX_MESSAGE_BYTES)
+        "x".repeat(crate::framing::MAX_MESSAGE_BYTES)
     );
 
     let received = attached(&engine(Product::Collie), |mut client| async move {

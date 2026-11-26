@@ -139,11 +139,10 @@ pub fn beneath_connection(
     let connection = Values::read(SettingsLayer::Run, connection, engine)?;
     let own = Values::read(SettingsLayer::Run, own, engine)?;
     let mut layer: Map<String, Value> = connection
-        .applied
-        .into_iter()
+        .into_applied()
         .map(|(key, value)| (key.to_owned(), value))
         .collect();
-    for (key, value) in own.applied {
+    for (key, value) in own.into_applied() {
         let value = match (layer.get(key), setting(key)) {
             (Some(below), Some(setting)) => over(setting, below, &value),
             _ => value,

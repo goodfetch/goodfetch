@@ -4,7 +4,7 @@
 // for, prints one JSON description, which is validated
 // against the committed schema, and tears the setup down when its stdin
 // closes.
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import type { Readable } from "node:stream";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ValidateFunction } from "ajv/dist/2020.js";
@@ -200,21 +200,6 @@ export function toolPath(tools: Tools, tool: keyof Tools): string {
       `the test tool manifest lists no ${tool}: run the tests with \`just test\`, which builds every executable the workspace has`,
     );
   }
-  return path;
-}
-
-/**
- * Writes at `path` the test tool manifest `manifest` with `engine` as the
- * executable of `product`, so everything the setup starts runs it, as a
- * skew run does (ADR 0066); gives `path`.
- */
-export function manifestWithEngine(
-  manifest: string | undefined,
-  product: Product,
-  engine: string,
-  path: string,
-): string {
-  writeFileSync(path, `${JSON.stringify({ ...readTools(manifest), [product]: engine })}\n`);
   return path;
 }
 

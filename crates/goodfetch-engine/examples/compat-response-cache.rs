@@ -2,7 +2,8 @@
 //! through the engine's own cache, at ADR 0059's test `Clock` start, stores
 //! for the OS user a response that varies on `Accept-Language` and carries
 //! both validators, fetched outside a Run, and for a person fetching through
-//! a French exit with a mobile Identity profile one fetched by a Run; then
+//! a French exit with a mobile Identity profile one fetched by a Run, and
+//! under `replay` a JSON POST's answer for the OS user; then
 //! writes the index, as SQL text, into the folder given as the only
 //! argument, as `response-cache.sql`. `xtask compat write` runs it.
 #![expect(
@@ -29,6 +30,14 @@ fn pairs(headers: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// The OS user's partition, with no exit, language or device.
+fn os_user() -> Partition {
+    Partition {
+        person: "os_user".to_owned(),
+        ..Partition::default()
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let output = PathBuf::from(
         std::env::args_os()
@@ -47,15 +56,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     goodfetch_test_support::runtime().block_on(async {
         let revalidated = cache
             .store(
-                &Partition {
-                    person: "os_user".to_owned(),
-                    ..Partition::default()
-                },
-                &CacheRequest {
-                    method: "GET".to_owned(),
-                    url: "https://cache.test/revalidate".to_owned(),
-                    headers: pairs(&[("accept-language", "en")]),
-                },
+                &os_user(),
+                &CacheRequest::new(
+                    "GET",
+                    &"https://cache.test/revalidate".parse()?,
+                    &pairs(&[("accept-language", "en")]),
+                    Bytes::new(),
+                ),
                 &ResponseHead {
                     status: 200,
                     headers: pairs(&[
@@ -79,11 +86,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     language: "fr-FR".to_owned(),
                     device: "mobile".to_owned(),
                 },
-                &CacheRequest {
-                    method: "GET".to_owned(),
-                    url: "https://cache.test/fresh".to_owned(),
-                    headers: Vec::new(),
-                },
+                &CacheRequest::new(
+                    "GET",
+                    &"https://cache.test/fresh".parse()?,
+                    &[],
+                    Bytes::new(),
+                ),
                 &ResponseHead {
                     status: 200,
                     headers: pairs(&[("cache-control", "max-age=3600")]),
@@ -93,7 +101,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 start,
             )
             .await;
-        if !(revalidated && by_a_run) {
+        let replayed = cache
+            .store_replayed(
+                &os_user(),
+                &CacheRequest::new(
+                    "POST",
+                    &"https://cache.test/api/search".parse()?,
+                    &pairs(&[("content-type", "application/json")]),
+                    Bytes::from_static(br#"{"q":"shoes","page":1}"#),
+                ),
+                &ResponseHead {
+                    status: 200,
+                    headers: pairs(&[
+                        ("content-type", "application/json"),
+                        ("cache-control", "no-store"),
+                    ]),
+                },
+                Bytes::from_static(br#"{"results":[]}"#),
+                Some(&RunId::parse("filled-the-cache")?),
+                start,
+            )
+            .await;
+        if !(revalidated && by_a_run && replayed) {
             return Err("the cache stored not every response".into());
         }
         Ok::<_, Box<dyn std::error::Error>>(())

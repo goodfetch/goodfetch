@@ -4610,6 +4610,12 @@
     "DaemonState": {
       "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
+        "accounts": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts\nstore is open. Without, its person is the OS user, on its own\nmachine only, as with a Daemon that does not say.",
+          "type": "boolean"
+        },
         "clients": {
           "arrived_in": "0.1",
           "description": "How many Clients are connected, the caller included.",
@@ -7691,6 +7697,82 @@
       },
       "type": "object"
     },
+    "ExtractContentParams": {
+      "description": "What `extract.content` reads a page's main content from: the document\nthe page holds, after the Clean-up rules, and the URL it came from.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "html": {
+          "description": "The page's document, serialized as HTML.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The page's URL, which its relative links resolve against.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "html"
+      ],
+      "type": "object"
+    },
+    "ExtractContentResult": {
+      "additionalProperties": false,
+      "description": "A page's main content, as an Extractor read it. Everything in it is\npage content (ADR 0014): it reaches a model only marked as such.",
+      "properties": {
+        "markdown": {
+          "description": "The main content as Markdown.",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "What the Extractor read about the page, such as its author or its\ndate, each a text under its `snake_case` name.",
+          "type": "object"
+        },
+        "text": {
+          "description": "The main content as plain text.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The main content's title, when the Extractor found one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "markdown",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "ExtractHandlerFailedDetails": {
+      "description": "What `extract_handler_failed` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the page it was extracting.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor",
+        "url"
+      ],
+      "type": "object"
+    },
     "ExtractionFollow": {
       "description": "Which pages a code-free crawl fetches beyond its seeds.",
       "oneOf": [
@@ -7710,6 +7792,20 @@
           "type": "string"
         }
       ]
+    },
+    "ExtractorUnavailableDetails": {
+      "description": "What `extractor_unavailable` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor"
+      ],
+      "type": "object"
     },
     "FailedRequests": {
       "description": "What `run.failed_requests` answers.",
@@ -9756,6 +9852,27 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "JsonSecret": {
+      "additionalProperties": false,
+      "description": "A string of a JSON body that holds a Secret placeholder's value\n(ADR 0092).",
+      "properties": {
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The Secret placeholder.",
+          "type": "string"
+        },
+        "pointer": {
+          "arrived_in": "0.1",
+          "description": "Where the string goes, as a JSON Pointer (RFC 6901): a member of an\nobject, added or replaced, or an element an array holds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "placeholder"
+      ],
+      "type": "object"
+    },
     "JudgedBy": {
       "description": "What judged a page: the Session's own Page check, or the built-in\ndetector of a Session that declares none (ADR 0006).",
       "oneOf": [
@@ -11643,6 +11760,12 @@
           "type": "string"
         }
       ]
+    },
+    "Milliseconds": {
+      "description": "A duration, in milliseconds.",
+      "format": "uint64",
+      "minimum": 0,
+      "type": "integer"
     },
     "MissingBrowser": {
       "description": "A browser the engine looked for and did not find.",
@@ -14216,6 +14339,17 @@
             "null"
           ]
         },
+        "json_secrets": {
+          "arrived_in": "0.1",
+          "description": "Strings of its body, which is then JSON, that hold a Secret\nplaceholder's value, each set at its JSON Pointer by the engine at\nits interception, checked as `secret_headers` are at every hop that\nsends the body (ADR 0092).",
+          "items": {
+            "$ref": "#/$defs/JsonSecret"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "max_redirects": {
           "arrived_in": "0.1",
           "description": "How many redirects it follows, from 0, which answers the 3xx itself,\nto 19, the default; past its count it raises `too_many_redirects`,\nand a count above 19 is refused with `setting_invalid`.",
@@ -14244,6 +14378,17 @@
           "description": "Its body, in Base64.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "secret_headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SecretHeader"
+          },
+          "arrived_in": "0.1",
+          "description": "Headers whose value holds a Secret placeholder, set over the\nbrowser's own and named in none of `headers`: the engine adds each\nvalue at its interception, at every hop whose URL is on the\nplaceholder's bound domains, and fails the request with\n`secret_domain_not_allowed` at a hop outside them (ADR 0092).",
+          "type": [
+            "object",
             "null"
           ]
         },
@@ -15287,15 +15432,21 @@
           "description": "The plugin protocol versions the starter speaks."
         },
         "run_id": {
-          "$ref": "#/$defs/RunId",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "arrived_in": "0.1",
-          "description": "The Run the instance serves."
+          "description": "The Run the instance serves: none for a task outside any Run, such\nas a probe or `plugins test`."
         }
       },
       "required": [
         "protocol",
         "product",
-        "run_id",
         "network_level"
       ],
       "type": "object"
@@ -15630,6 +15781,36 @@
       "required": [
         "name",
         "network_level"
+      ],
+      "type": "object"
+    },
+    "PluginUsage": {
+      "description": "What a Run's calls into one implementation of a Plugin kind used: its\n`plugin_calls` and `plugin_time` (ADR 0033).",
+      "properties": {
+        "calls": {
+          "arrived_in": "0.1",
+          "description": "The calls made into it, failed ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The implementation's name, as the setting that chose it names it.",
+          "type": "string"
+        },
+        "time": {
+          "arrived_in": "0.1",
+          "description": "The time those calls took, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "plugin",
+        "calls",
+        "time"
       ],
       "type": "object"
     },
@@ -18050,6 +18231,11 @@
           "description": "The person it was fetched for, on a shared Daemon the partition's\nperson (ADR 0031).",
           "type": "string"
         },
+        "replay_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the request's canonical body, as lower-case hex, for\nan entry `replay` stored; empty for one `revalidate` stored.",
+          "type": "string"
+        },
         "request_headers": {
           "arrived_in": "0.1",
           "description": "The request headers the response's `Vary` names, and the request's\n`host`, as the request sent them: names in lower case.",
@@ -18132,6 +18318,7 @@
         "method",
         "url",
         "vary_key",
+        "replay_key",
         "request_headers",
         "status",
         "response_headers",
@@ -20915,11 +21102,9 @@
       "description": "What a Run used, as the Usage ledger charged it, and the Limits that\napply to it (ADRs 0041 and 0101): what `run.usage` answers and the\nreport carries.",
       "properties": {
         "browser_time": {
+          "$ref": "#/$defs/Milliseconds",
           "arrived_in": "0.1",
-          "description": "How long it held a browser, in milliseconds.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
+          "description": "How long it held a browser."
         },
         "limits": {
           "arrived_in": "0.1",
@@ -20963,6 +21148,14 @@
           "description": "Its paid solves, by currency (ADR 0035).",
           "items": {
             "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Its calls into Plugin kinds' implementations, of every form, and the\ntime they took, by implementation (ADR 0033), in name order.",
+          "items": {
+            "$ref": "#/$defs/PluginUsage"
           },
           "type": "array"
         },
@@ -21892,6 +22085,65 @@
           "const": "no_code",
           "description": "No one-time code came: a provider made none from the reference,\nsuch as a TOTP seed it cannot read, or a code source's code never\narrived (ADR 0092).",
           "type": "string"
+        }
+      ]
+    },
+    "SecretHeader": {
+      "description": "A header value that holds a Secret placeholder (ADR 0092). The value\nthe engine builds from the placeholder's is masked wherever the engine\nreturns, sends or keeps it, its Base64 in `Basic` included.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The placeholder's value after `prefix`, such as `Bearer `.",
+          "properties": {
+            "form": {
+              "const": "value",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder.",
+              "type": "string"
+            },
+            "prefix": {
+              "arrived_in": "0.1",
+              "description": "The text before the value; none when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "form",
+            "placeholder"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "HTTP Basic authentication's credentials (RFC 7617): `Basic` and the\nBase64 of `username`, a colon and the placeholder's value.",
+          "properties": {
+            "form": {
+              "const": "basic",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder whose value is the password.",
+              "type": "string"
+            },
+            "username": {
+              "arrived_in": "0.1",
+              "description": "The user ID, which holds no colon.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "form",
+            "username",
+            "placeholder"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -24141,6 +24393,147 @@
         }
       ]
     },
+    "StoredAccount": {
+      "description": "The Account, as its `account` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name its person gave it, which a passkey shows.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredAccounts": {
+      "description": "What an Accounts store holds, table by table: the schema of the\n`accounts-store` format.",
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoredAccount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its Account, the only one; none until its person makes it."
+        },
+        "named_tokens": {
+          "arrived_in": "0.1",
+          "description": "The Account's Named tokens, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredNamedToken"
+          },
+          "type": "array"
+        },
+        "passkeys": {
+          "arrived_in": "0.1",
+          "description": "The Account's passkeys.",
+          "items": {
+            "$ref": "#/$defs/StoredPasskey"
+          },
+          "type": "array"
+        },
+        "recovery_codes": {
+          "arrived_in": "0.1",
+          "description": "The Account's recovery codes, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredRecoveryCode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "passkeys",
+        "recovery_codes",
+        "named_tokens"
+      ],
+      "type": "object"
+    },
+    "StoredNamedToken": {
+      "description": "One Named token, as its `named_tokens` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique in the Account.",
+          "type": "string"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its value, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredPasskey": {
+      "description": "One passkey, as its `passkeys` row holds it: what checks its\nassertions, never its private key, which stays with its authenticator.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "When it was added, as RFC 3339.",
+          "type": "string"
+        },
+        "credential_id": {
+          "arrived_in": "0.1",
+          "description": "Its credential ID, in unpadded base64url.",
+          "type": "string"
+        },
+        "public_key": {
+          "arrived_in": "0.1",
+          "description": "Its public key, as the COSE key its registration gave, in unpadded\nbase64url.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "credential_id",
+        "public_key",
+        "added"
+      ],
+      "type": "object"
+    },
+    "StoredRecoveryCode": {
+      "description": "One recovery code, as its `recovery_codes` row holds it.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the code, in lowercase hex.",
+          "type": "string"
+        },
+        "used": {
+          "arrived_in": "0.1",
+          "description": "When it was used, as RFC 3339; none while it is unused. A code is\nused once.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sha256"
+      ],
+      "type": "object"
+    },
     "StructuredOutputStrategy": {
       "description": "A way a model gives structured output (ADR 0101).",
       "oneOf": [
@@ -26152,6 +26545,16 @@
     },
     {
       "hello_from": [],
+      "name": "accounts-store",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/StoredAccounts"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "run-state",
       "rule": "default",
       "schema": {
@@ -27117,6 +27520,11 @@
                     "minimum": 0,
                     "type": "integer"
                   },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
                   "run": {
                     "anyOf": [
                       {
@@ -27167,6 +27575,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets and locks: no higher layer changes them.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -27300,10 +27725,11 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
-                      "revalidate"
+                      "revalidate",
+                      "replay"
                     ]
                   }
                 },
@@ -27422,11 +27848,10 @@
                 "additionalProperties": false,
                 "properties": {
                   "extractor": {
-                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
-                    "enum": [
-                      "dom_smoothie",
-                      "trafilatura"
-                    ]
+                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
+                    "minLength": 1,
+                    "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
+                    "type": "string"
                   }
                 },
                 "type": "object"
@@ -31082,6 +31507,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -31251,6 +31681,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets, which higher layers may change.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -31384,10 +31831,11 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
-                      "revalidate"
+                      "revalidate",
+                      "replay"
                     ]
                   }
                 },
@@ -31506,11 +31954,10 @@
                 "additionalProperties": false,
                 "properties": {
                   "extractor": {
-                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
-                    "enum": [
-                      "dom_smoothie",
-                      "trafilatura"
-                    ]
+                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
+                    "minLength": 1,
+                    "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
+                    "type": "string"
                   }
                 },
                 "type": "object"
@@ -35166,6 +35613,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -35351,6 +35803,23 @@
             "arrived_in": "0.1",
             "description": "The settings it sets, nested by key.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -35484,10 +35953,11 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
-                      "revalidate"
+                      "revalidate",
+                      "replay"
                     ]
                   }
                 },
@@ -35606,11 +36076,10 @@
                 "additionalProperties": false,
                 "properties": {
                   "extractor": {
-                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
-                    "enum": [
-                      "dom_smoothie",
-                      "trafilatura"
-                    ]
+                    "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
+                    "minLength": 1,
+                    "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
+                    "type": "string"
                   }
                 },
                 "type": "object"
@@ -39266,6 +39735,11 @@
                   },
                   "navigation": {
                     "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "plugin": {
+                    "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                     "minimum": 0,
                     "type": "integer"
                   },
@@ -39461,6 +39935,26 @@
         "$ref": "#/$defs/RecipeManifest"
       },
       "storage": "toml",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-protocol",
+      "rule": "lower_minor",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-manifest",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PluginManifest"
+      },
+      "storage": "json",
       "version": "0.1"
     }
   ],

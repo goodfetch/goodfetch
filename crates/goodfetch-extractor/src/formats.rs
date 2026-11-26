@@ -420,8 +420,10 @@ fn metadata(
 }
 
 impl Serialization {
-    /// `html`, serialized this way, as `content()` returns it.
-    fn as_content(self, html: &str) -> String {
+    /// `html`, serialized this way, as `content()` returns it: the `raw`
+    /// kind of the `html` format.
+    #[must_use]
+    pub fn as_content(self, html: &str) -> String {
         match self {
             Self::Served => html.to_owned(),
             Self::Dom => light(html),

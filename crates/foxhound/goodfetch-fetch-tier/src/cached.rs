@@ -130,7 +130,12 @@ impl Transport for Cached {
     fn send<'a>(&'a self, hop: &'a Hop, reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
             let caching = &self.caching;
-            let request = CacheRequest::new(hop.method.as_str(), &hop.url, &hop.headers);
+            let request = CacheRequest::new(
+                hop.method.as_str(),
+                &hop.url,
+                &hop.headers,
+                hop.body.clone().unwrap_or_default(),
+            );
             let answered = caching
                 .source
                 .source(None, &caching.partition, &request, caching.clock.wall())

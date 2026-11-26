@@ -88,7 +88,7 @@ pub(super) async fn navigate(
         return Ok(Navigated { response: None });
     };
     let url = Url::parse(&url).map_err(|error| failed(&url, &error))?;
-    let run = page.document.run.clone();
+    let run = Arc::clone(&page.document.run);
     let gate = Navigating {
         hand_over: Arc::clone(&page.hand_over),
         operation,
@@ -196,7 +196,7 @@ async fn opened_on(
     fetched: &Fetched,
     (extractor, readers): (Option<BuiltIn>, &Arc<UntouchedReaders>),
 ) -> Opened {
-    let (reading, read, readers) = (run.clone(), fetched.clone(), Arc::clone(readers));
+    let (reading, read, readers) = (Arc::clone(run), fetched.clone(), Arc::clone(readers));
     let identity = &run.identity;
     identity
         .owner()

@@ -164,7 +164,10 @@ impl Sessions {
     /// alone.
     pub(super) fn watch_session(&self, session: SessionId, open: &Arc<Session>) {
         let (sessions, open) = (self.clone(), Arc::clone(open));
-        let (run, stopping) = (open.run.clone(), open.run.identity.owner().child_token());
+        let (run, stopping) = (
+            Arc::clone(&open.run),
+            open.run.identity.owner().child_token(),
+        );
         let span = run.identity.span().clone();
         let task = async move {
             tokio::select! {
@@ -388,7 +391,7 @@ impl Sessions {
 /// as a task of its Run: the task that took the quit may be one of the
 /// Session's own, which its stop waits for.
 fn stop_after_its_quit(open: Arc<Session>) {
-    let run = open.run.clone();
+    let run = Arc::clone(&open.run);
     run.identity.spawn(async move { open.owner.stop().await });
 }
 

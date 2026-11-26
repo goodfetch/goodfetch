@@ -279,7 +279,7 @@ fn body(
     }
     let own = match &page.own {
         Some((response, body)) if response.request_id == request_id => Some((
-            page.document.run.clone(),
+            Arc::clone(&page.document.run),
             response.url.clone(),
             response.request_id.clone(),
             body.clone(),
@@ -564,7 +564,7 @@ async fn sent(page: &ServedPage, params: &PageRequestParams) -> Result<Fetched, 
             },
         ));
     }
-    let run = page.document.run.clone();
+    let run = Arc::clone(&page.document.run);
     let hand_over = &page.hand_over;
     let gate = Gate::new(Arc::clone(hand_over));
     let Asked {

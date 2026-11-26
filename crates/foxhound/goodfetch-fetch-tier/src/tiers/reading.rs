@@ -125,7 +125,7 @@ impl DocumentReader for BrowserReader {
                 content_type: essence,
                 request_id: document.request_id.to_owned(),
                 body: Bytes::copy_from_slice(body),
-                run: self.hand_over.run().clone(),
+                run: Arc::clone(self.hand_over.run()),
             };
             self.learn(document, |read| read.not_document = Some(not_document));
             return Reading::Stop;

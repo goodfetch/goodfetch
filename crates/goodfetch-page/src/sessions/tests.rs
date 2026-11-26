@@ -30,7 +30,7 @@ use goodfetch_engine::egress::CdpUrlOrigin;
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{self, EndedBy, Run, Start, Started};
+use goodfetch_engine::runs::{self, EndedBy, RunParts, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
@@ -120,7 +120,7 @@ const REQUEST_REPLACED: Operation = Operation {
 };
 
 /// The Run `run_id`, started for the test's own operation.
-async fn started(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
+async fn started(run_id: &RunId, context: &CallContext) -> Result<RunParts, CallError> {
     started_under(run_id, context, None).await
 }
 
@@ -130,7 +130,7 @@ async fn started_under(
     run_id: &RunId,
     context: &CallContext,
     settings: Option<RunSettings>,
-) -> Result<Run, CallError> {
+) -> Result<RunParts, CallError> {
     let started = context
         .runs()
         .start(Start {
@@ -159,8 +159,14 @@ async fn started_under(
 }
 
 /// The page crate's record of `run`, as a Session holds it.
-fn browser_run(run: &Run, context: &CallContext) -> Arc<BrowserRun> {
-    BrowserRun::of(&runs::parts(run), context.engine())
+fn browser_run(run: &RunParts, context: &CallContext) -> Arc<BrowserRun> {
+    BrowserRun::of(run, context.engine())
+}
+
+/// Ends `run` as its driver, the test, does once it let it go: its end
+/// closes what its owner holds, its Sessions with it (ADR 0145).
+async fn let_go(run: &RunParts) {
+    run.end.end(runs::Ending::Finished(Vec::new())).await;
 }
 
 /// A Sessions table of its own for the test's operation.
@@ -205,7 +211,7 @@ async fn ended_past_cap(params: Value, context: CallContext) -> Result<Value, Ca
         .await
         .err()
         .map(|error| error.code());
-    run.cancellation().cancel();
+    let_go(&run).await;
     Ok(json!({ "raised": raised }))
 }
 
@@ -226,7 +232,7 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             .lock()
             .await
             .runs
-            .get(run.id())
+            .get(run.identity.id())
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
@@ -240,13 +246,19 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             }
             tokio::task::yield_now().await;
         }
-        run.cancellation().cancel();
-        while sessions.state.lock().await.runs.contains_key(run.id()) {
+        let_go(&run).await;
+        while sessions
+            .state
+            .lock()
+            .await
+            .runs
+            .contains_key(run.identity.id())
+        {
             tokio::task::yield_now().await;
         }
         open.await
     };
-    let left = sessions.index.sessions_of(run.id()).len();
+    let left = sessions.index.sessions_of(run.identity.id()).len();
     Ok(json!({ "opened": opened.is_ok(), "left": left }))
 }
 
@@ -270,15 +282,15 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
     let position = sessions
         .open_held(&browser, None, None, opener, &context)
         .await?;
-    let session = super::session_id(run.id(), position);
+    let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
-    let commits = run.state().commits();
+    let commits = run.state.commits();
     let before = *commits.borrow();
 
     sessions.session_ended(&open, &session).await.unwrap();
 
     let made = *commits.borrow() - before;
-    run.cancellation().cancel();
+    let_go(&run).await;
     Ok(json!({ "commits": made }))
 }
 
@@ -296,7 +308,7 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let position = sessions
         .open_held(&browser, None, None, Opener::Default, &context)
         .await?;
-    let session = super::session_id(run.id(), position);
+    let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
 
     open.owner
@@ -312,8 +324,8 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     }
     let named = sessions.index.session(&session).is_some();
     let raised = sessions.pages(&session, &context).await.err();
-    let run_live = context.runs().live(run.id().clone()).await.is_ok();
-    run.cancellation().cancel();
+    let run_live = context.runs().live(run.identity.id().clone()).await.is_ok();
+    let_go(&run).await;
     Ok(json!({
         "session": session.0,
         "named": named,
@@ -425,7 +437,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         .await?;
     let open = sessions
         .index
-        .session(&super::session_id(run.id(), position))
+        .session(&super::session_id(run.identity.id(), position))
         .unwrap();
     let panicked = async {
         open.seat.open().await?;
@@ -447,7 +459,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         Ok::<_, CallError>(json!({
             "ended": ended.map(|lost| format!("{lost:?}")),
             "crash_taken": open.seat.crash_count_of(1).initialized(),
-            "run_live": context.runs().live(run.id().clone()).await.is_ok(),
+            "run_live": context.runs().live(run.identity.id().clone()).await.is_ok(),
         }))
     };
     let played = async {
@@ -459,7 +471,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
         async {
             let panicked = panicked.await;
             // The Run's end closes a browser the panic left open.
-            run.cancellation().cancel();
+            let_go(&run).await;
             panicked
         },
         played
@@ -500,7 +512,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let position = sessions
         .open_held(&browser, None, None, Opener::Default, &context)
         .await?;
-    let session = super::session_id(run.id(), position);
+    let session = super::session_id(run.identity.id(), position);
     let commands = watch::channel(0).0;
     let replaced = async {
         let opened = sessions
@@ -545,7 +557,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let (replaced, ()) = tokio::join!(
         async {
             let replaced = replaced.await;
-            run.cancellation().cancel();
+            let_go(&run).await;
             replaced
         },
         played

@@ -58,7 +58,7 @@ use crate::mask::Scope;
 use crate::run::{run_error, state_unavailable};
 use crate::run_identity::RunIdentity;
 use crate::run_state::{RunState, RunStateError, Syncing};
-use crate::runs::{self, Run, RunError, SendWindow};
+use crate::runs::{RunError, RunParts, SendWindow};
 use crate::settings::{RunSettings, get_or_default};
 use crate::staging::{AttemptWrites, Unstaged};
 
@@ -306,7 +306,7 @@ impl Effects {
             .as_ref()
             .map_or_else(String::new, |attempt| attempt.id.crawl_request_id.clone());
         let run_shelf = self.shelf(&run_id).await;
-        let identity = runs::identity(&run);
+        let identity = &run.identity;
         let mut book = run_shelf
             .free_key(identity, &namespace, &key, &owner, context)
             .await?;
@@ -316,7 +316,7 @@ impl Effects {
                 .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
                 .map_err(unstaged)?;
         }
-        let declaring = (identity, runs::state(&run));
+        let declaring = (identity, &run.state);
         let answer = match declared(declaring, &namespace, &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
@@ -371,7 +371,7 @@ impl Effects {
             return Err(not_running(&entry));
         };
         let run = live(&run_id, context).await?;
-        let (identity, state) = (runs::identity(&run), runs::state(&run));
+        let (identity, state) = (&run.identity, &run.state);
         let run_shelf = self.shelf(&run_id).await;
         let mut book = run_shelf.book.lock().await;
         let Some(at) = book.running(number) else {
@@ -387,7 +387,7 @@ impl Effects {
         let judged = match apply(body.state(), event) {
             Ok(Next::To(EffectState::Done)) => {
                 let performed_at = identity.point_in_time();
-                let masks = runs::keys(&run).secrets().mask().masks();
+                let masks = run.keys.secrets().mask().masks();
                 let output = output.map(|output| masks.json(&output, Scope::Kept));
                 state
                     .write(move |connection| {
@@ -896,8 +896,8 @@ fn output_invalid(key: &str, size: u64, limit: u64) -> CallError {
     )
 }
 
-/// The live Run `run_id`.
-async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
+/// The parts of the live Run `run_id`.
+async fn live(run_id: &RunId, context: &CallContext) -> Result<RunParts, CallError> {
     context
         .runs()
         .live(run_id.clone())

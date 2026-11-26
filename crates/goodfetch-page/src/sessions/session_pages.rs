@@ -292,7 +292,7 @@ impl Sessions {
         let taken_in = TakenIn {
             page: page.clone(),
             driver: driver.clone(),
-            run: run.clone(),
+            run: Arc::clone(run),
             tasks: tasks.clone(),
             in_browser: Some(in_browser),
             events: Some(events),
@@ -323,7 +323,7 @@ impl Sessions {
             observer,
             settings,
         } = adopting;
-        let run = open.run.clone();
+        let run = Arc::clone(&open.run);
         let session = &super::session_id(run.identity.id(), open.position);
         let action_timeout = action_timeout(&run);
         let page = self.next_page_id().await;
@@ -514,7 +514,7 @@ impl Sessions {
         let Ok(opener_events) = self.page_owners.events(&opener_id) else {
             return false;
         };
-        let run = open.run.clone();
+        let run = Arc::clone(&open.run);
         let admission = run.governor.share().admit(WorkKind::BrowserPage).await;
         let in_browser = open.seat.popup_in(opener.in_browser.browser(), &driver);
         let driver = driver

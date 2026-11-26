@@ -660,7 +660,7 @@ impl Decoded {
             .collect();
         Opened {
             document: Arc::new(ServedDocument {
-                run: run.clone(),
+                run: Arc::clone(run),
                 url,
                 base_url,
                 html,
@@ -1263,7 +1263,7 @@ impl FetchTiers {
         let mut first = true;
         let ahead = self.read_ahead(run, hand_over).await;
         let reading = Arc::new(OpenedReading {
-            run: run.clone(),
+            run: Arc::clone(run),
             forced: hand_over.encoding,
             extractor: hand_over.extractor,
             readers: Arc::clone(&hand_over.untouched),
@@ -1401,7 +1401,7 @@ impl FetchTiers {
         let opened = if let Some(opened) = opened {
             opened
         } else {
-            let (reading, extractor) = (run.clone(), hand_over.extractor);
+            let (reading, extractor) = (Arc::clone(run), hand_over.extractor);
             let readers = Arc::clone(&hand_over.untouched);
             let mut fetched = fetched;
             let passed = fetched.pass.take();
@@ -1949,7 +1949,7 @@ impl FetchTiers {
         } = &*page;
         let document = Arc::clone(document);
         let status = *status;
-        let run = document.run.clone();
+        let run = Arc::clone(&document.run);
         let url = document.url.clone();
         let headers = own
             .as_ref()
@@ -2002,7 +2002,7 @@ impl FetchTiers {
             return None;
         }
         let response = page.own.as_ref().map(|(response, _)| response.clone())?;
-        let run = page.document.run.clone();
+        let run = Arc::clone(&page.document.run);
         // Its document's hand-off classified it, when it took one.
         if let Classified::Read(classified) = &page.classified {
             let received = run.identity.clock().wall();

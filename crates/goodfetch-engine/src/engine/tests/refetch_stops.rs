@@ -70,7 +70,7 @@ fn stops() -> Contribution {
                 .engine()
                 .run_index()
                 .record_refetch_stop(
-                    crate::runs::identity(&run),
+                    &run.identity,
                     params["domain"].as_str().unwrap().to_owned(),
                     params["cause"].as_str().unwrap().to_owned(),
                 )

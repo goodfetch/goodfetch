@@ -18,6 +18,7 @@
 //! answer nests past `network.max_json_depth` answers the waits it matches
 //! `response_limit_exceeded`, and ends the replay.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_engine::response_limits::{JsonFailure, Limits, parse_json};
@@ -118,7 +119,7 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
     };
     let Some(run) = tiers
         .served_page(page_id)
-        .map(|page| page.document.run.clone())
+        .map(|page| Arc::clone(&page.document.run))
     else {
         return;
     };

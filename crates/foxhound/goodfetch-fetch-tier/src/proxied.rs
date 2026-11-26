@@ -64,7 +64,7 @@ impl SessionProxies {
         direct: Arc<dyn Transport>,
     ) -> Self {
         Self {
-            run: run.clone(),
+            run: Arc::clone(run),
             settings: settings.clone(),
             config,
             presents,
@@ -121,7 +121,7 @@ impl SessionProxies {
         direct: Arc<dyn Transport>,
     ) -> Proxied {
         Proxied {
-            run: self.run.clone(),
+            run: Arc::clone(&self.run),
             settings: self.settings.clone(),
             sticky,
             ordinal: self.opened.fetch_add(1, Ordering::Relaxed) + 1,

@@ -1727,7 +1727,8 @@ impl Pages {
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %params.page_id.0, operation = PAGE_FORMATS.name, run_id = tracing::field::Empty))]
     async fn formats(&self, params: FormatsParams) -> Result<PageFormats, CallError> {
         if let Some(served) = self.product.document(&params.page_id) {
-            tracing::Span::current().record("run_id", served.run.identity.id().as_str());
+            let identity = &served.run.identity;
+            tracing::Span::current().record("run_id", identity.id().as_str());
             let request = params.formats;
             // Formats read ahead in the document's hand-off answer a call
             // asking for them (issue 2189).
@@ -1744,13 +1745,9 @@ impl Pages {
                 url: served.url.clone(),
                 base_url: served.base_url.clone(),
             };
-            let extractor = extractor::served(
-                served.run.identity.settings().map(RunSettings::resolved),
-                served.extractor,
-            );
-            let measure = clean_up::ShareMeasure::of(
-                served.run.identity.settings().map(RunSettings::resolved),
-            );
+            let resolved = identity.settings().map(RunSettings::resolved);
+            let extractor = extractor::served(resolved, served.extractor);
+            let measure = clean_up::ShareMeasure::of(resolved);
             // A request that reads nothing takes no cosmetic rule, so it
             // loads no Filter list (#2573).
             let cosmetic = if clean_up::reads_nothing(&request) {
@@ -1760,7 +1757,7 @@ impl Pages {
                     .served_cosmetic(&interception_run(&served.run))
                     .await
             };
-            let work = served.run.identity.metrics().counted_work().clone();
+            let work = identity.metrics().counted_work().clone();
             let read = move |kept: Option<&ParsedHtml>| {
                 clean_up::read(
                     (&document, kept),
@@ -1784,14 +1781,8 @@ impl Pages {
                     .await
                     .ok_or_else(|| sessions::page_closed(&params.page_id))?,
                 None => {
-                    served
-                        .run
-                        .identity
-                        .owner()
-                        .analysis(served.run.identity.metrics().counted_work(), move || {
-                            read(None)
-                        })
-                        .await
+                    let counted = identity.metrics().counted_work();
+                    identity.owner().analysis(counted, move || read(None)).await
                 }
             };
             if let Some(read) = read {

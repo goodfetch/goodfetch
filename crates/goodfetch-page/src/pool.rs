@@ -373,7 +373,7 @@ impl Pool {
     /// watch is the Run's, since it waits for the browser's owner to stop.
     fn watch_panics(&self, at: LostAt, browser: Behind) {
         let pool = self.clone();
-        let run = self.shared.run.clone();
+        let run = Arc::clone(&self.shared.run);
         let span = run.identity.span().clone();
         let stopping = run.identity.owner().child_token();
         let closed = browser.tasks().child_token();
@@ -530,7 +530,7 @@ impl Pool {
     /// never enters the pool: it is neither recycled, nor counted, nor
     /// closed (ADR 0056). Its tasks are `tasks`', as [`Pool::seat`]'s.
     pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl, tasks: TaskStarter) -> Seat {
-        let browser = Arc::new(BorrowedBrowser::new(self.shared.run.clone(), cdp_url));
+        let browser = Arc::new(BorrowedBrowser::new(Arc::clone(&self.shared.run), cdp_url));
         lock(&self.shared.browsers)
             .borrowed
             .push(Arc::clone(&browser));
@@ -596,7 +596,7 @@ impl Pool {
                 number,
                 Pooled {
                     browser: Arc::new(LocalBrowser::new(
-                        (self.shared.run.clone(), self.shared.launcher.clone()),
+                        (Arc::clone(&self.shared.run), self.shared.launcher.clone()),
                         self.shared.home.clone(),
                         self.shared.pins.clone(),
                         number,

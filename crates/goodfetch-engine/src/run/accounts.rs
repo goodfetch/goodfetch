@@ -16,7 +16,6 @@ use crate::ledger::{ChargeError, Refusal, RunCharging};
 use crate::plugin_kinds::{Accounts, PluginCall};
 use crate::run_identity::RunIdentity;
 use crate::run_trace::RunTrace;
-use crate::runs::{self, Run};
 
 /// What a Run's Plugin calls are accounted to: its identity, its charging
 /// and its Run trace, each the Run's own (ADR 0145).
@@ -55,31 +54,6 @@ impl Accounts for RunAccounts<'_> {
             }
             charged
         })
-    }
-}
-
-impl Accounts for Run {
-    fn call_starts<'call>(
-        &'call self,
-        call: &'call PluginCall<'call>,
-    ) -> BoxFuture<'call, Result<(), CallError>> {
-        Box::pin(async move { accounts_of(self).call_starts(call).await })
-    }
-
-    fn call_ended<'call>(
-        &'call self,
-        call: &'call PluginCall<'call>,
-    ) -> BoxFuture<'call, Result<(), CallError>> {
-        Box::pin(async move { accounts_of(self).call_ended(call).await })
-    }
-}
-
-/// What `run`'s Plugin calls are accounted to.
-fn accounts_of(run: &Run) -> RunAccounts<'_> {
-    RunAccounts {
-        identity: runs::identity(run),
-        charging: runs::charging(run),
-        trace: runs::run_trace(run),
     }
 }
 

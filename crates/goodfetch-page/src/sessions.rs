@@ -617,7 +617,7 @@ impl Sessions {
             let open = Arc::new(Session {
                 owner,
                 pages: HeldPages::default(),
-                run: run.clone(),
+                run: Arc::clone(&run),
                 position,
                 seat,
                 settings: settings.clone(),
@@ -769,7 +769,7 @@ impl Sessions {
         let held = Arc::new(Session {
             owner,
             pages: HeldPages::default(),
-            run: run.clone(),
+            run: Arc::clone(run),
             position,
             seat,
             settings: Values::default(),
@@ -810,7 +810,7 @@ impl Sessions {
         let settings = page_settings(settings, &open.run, context)?;
         let settings = extractor_installed(settings, &open.run, context).await?;
         open.life.call().await?;
-        let run = open.run.clone();
+        let run = Arc::clone(&open.run);
         if let Some(proxy) = &open.proxy {
             proxy.warn_if_outlived(&run.warnings, session).await;
         }
@@ -947,7 +947,7 @@ impl Sessions {
     ) -> Result<(Arc<BrowserRun>, Values), CallError> {
         self.index
             .session(session)
-            .map(|open| (open.run.clone(), open.settings.clone()))
+            .map(|open| (Arc::clone(&open.run), open.settings.clone()))
             .ok_or_else(|| self.closed_session(session))
     }
 
@@ -1208,7 +1208,7 @@ impl Sessions {
         let Ok(run) = context.runs().live(run_id).await else {
             return Err(session_closed(session));
         };
-        let run = BrowserRun::of(&runs::parts(&run), context.engine());
+        let run = BrowserRun::of(&run, context.engine());
         self.reach(&run, context).await?;
         self.index
             .session(session)
@@ -1286,7 +1286,7 @@ impl Sessions {
         context: &CallContext,
     ) -> (Pool, tokio::sync::mpsc::Receiver<crate::pool::BrowserLoss>) {
         Pool::new(
-            run.clone(),
+            Arc::clone(run),
             self.launcher.clone(),
             context.engine().home().clone(),
             Pins {
@@ -1801,7 +1801,7 @@ async fn reopened_session(
     Ok(Session {
         owner,
         pages: HeldPages::default(),
-        run: run.clone(),
+        run: Arc::clone(run),
         position,
         seat,
         settings,
@@ -2272,7 +2272,7 @@ fn local_addresses_of(run: &Arc<BrowserRun>) -> Option<String> {
 /// takes no new work (ADR 0102), and `run_not_found` for any other.
 async fn live(run_id: &RunId, context: &CallContext) -> Result<Arc<BrowserRun>, CallError> {
     let error = match context.runs().live(run_id.clone()).await {
-        Ok(run) => return Ok(BrowserRun::of(&runs::parts(&run), context.engine())),
+        Ok(run) => return Ok(BrowserRun::of(&run, context.engine())),
         Err(error) => error,
     };
     let details = RunDetails {

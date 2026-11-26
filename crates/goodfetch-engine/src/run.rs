@@ -76,9 +76,8 @@ use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
 use crate::runs::{
-    self, Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError,
-    Resume, Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted,
-    UnsupportedFolder,
+    Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume,
+    Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted, UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
@@ -1129,7 +1128,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .map_err(start_error)?;
     let started = match started {
         Started::New(run) => RunStarted {
-            run_id: runs::identity(&run).id().clone(),
+            run_id: run.identity.id().clone(),
             started_as: StartedAs::New,
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
@@ -1198,7 +1197,8 @@ async fn stop(params: RunStopParams, context: CallContext) -> Result<RunReport, 
 /// The `timeout.close` the live Run `run_id` resolved, or its default.
 async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
     let resolved = match context.runs().live(run_id.clone()).await {
-        Ok(run) => runs::identity(&run)
+        Ok(run) => run
+            .identity
             .settings()
             .map(|settings| settings.resolved().clone()),
         Err(_) => None,
@@ -1345,7 +1345,7 @@ pub async fn resume_run(
         Resumed::New {
             run, kind, needs, ..
         } => {
-            let identity = runs::identity(&run);
+            let identity = &run.identity;
             let started = RunStarted {
                 run_id: identity.id().clone(),
                 started_as: StartedAs::Resumed,

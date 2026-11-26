@@ -44,7 +44,7 @@ use goodfetch_engine::run::{
     InProgram, StartLimits, checkpoint_interval, client_start, resume_run, run_error, run_id,
     run_layer, settings_error, start_error,
 };
-use goodfetch_engine::runs::{self, Driving, EndedBy, Initialize, RunError, Start, Started};
+use goodfetch_engine::runs::{Driving, EndedBy, Initialize, RunError, Start, Started};
 use goodfetch_engine::settings::{Opening, RunSettings};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler};
 use goodfetch_fetch_tier::FetchTiers;
@@ -152,7 +152,7 @@ pub fn contribution(tiers: FetchTiers) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(&runs::parts(&run), &context);
+                    let run = CrawlRun::of(&run, &context);
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -305,7 +305,7 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            let run = CrawlRun::of(&runs::parts(&run), &context);
+            let run = CrawlRun::of(&run, &context);
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,

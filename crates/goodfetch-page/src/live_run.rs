@@ -20,7 +20,7 @@ use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::run_state::RunStateOptions;
-use goodfetch_engine::runs::{self, EndedBy, Start, Started};
+use goodfetch_engine::runs::{EndedBy, Ending, Start, Started};
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
@@ -224,12 +224,14 @@ async fn hold_run(
         panic!("the Run began before");
     };
     let _ = handed.send((
-        BrowserRun::of(&runs::parts(&run), context.engine()),
+        BrowserRun::of(&run, context.engine()),
         context.events().clone(),
         context.client().clone(),
     ));
     let _ = released.await;
-    run.cancellation().cancel();
+    // The test let its Run go: it ends as its driver, the engine's
+    // registry alone being able to stop it (ADR 0145).
+    run.end.end(Ending::Finished(Vec::new())).await;
     Ok(json!({}))
 }
 

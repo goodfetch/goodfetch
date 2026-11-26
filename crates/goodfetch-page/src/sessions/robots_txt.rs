@@ -80,7 +80,7 @@ impl Reader {
             page_id: page_id.clone(),
             session: session.clone(),
             value: value.clone(),
-            run: run.clone(),
+            run: Arc::clone(run),
             tasks: tasks.clone(),
         })
     }

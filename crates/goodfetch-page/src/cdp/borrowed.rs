@@ -119,16 +119,18 @@ pub(crate) async fn connect(
     )
     .await
     .map_err(|error| unreachable(&address, &error.to_string()))?;
-    let log = crate::trace::command_log(run).await.map_err(|error| {
-        CallError::new(
-            &BROWSER_LAUNCH_FAILED,
-            format!("the Run trace's CDP log cannot start: {error}"),
-            &BrowserLaunchFailedDetails {
-                executable: address.clone(),
-                exit: None,
-            },
-        )
-    })?;
+    let log = super::command_log::command_log(run)
+        .await
+        .map_err(|error| {
+            CallError::new(
+                &BROWSER_LAUNCH_FAILED,
+                format!("the Run trace's CDP log cannot start: {error}"),
+                &BrowserLaunchFailedDetails {
+                    executable: address.clone(),
+                    exit: None,
+                },
+            )
+        })?;
     let (engine, bridge_end) = tokio::io::duplex(BUFFER);
     let (reader, writer) = tokio::io::split(engine);
     let (connection, driver) =

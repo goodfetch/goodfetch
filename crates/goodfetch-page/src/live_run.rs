@@ -37,8 +37,8 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::sync::{Mutex, mpsc, oneshot};
 
-use crate::driver::PageDriver;
-use crate::driver::replay::{self, Played};
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::replay::{self, Played};
 
 /// Starts a Run, hands it out and holds it until the test lets it go.
 const HOLD_RUN: Operation = Operation {

@@ -10,7 +10,7 @@ use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_protocol::egress::EgressRule;
 use url::Url;
 
-use crate::driver::cdp_response;
+use crate::cdp::driver::cdp_response;
 
 /// The refusal of the redirect answered to `url` with `status` and the
 /// `Location` header `location`, when it names a scheme no request may

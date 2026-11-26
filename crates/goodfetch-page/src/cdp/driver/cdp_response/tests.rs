@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
-use goodfetch_cdp::NetError;
 use goodfetch_cdp::generated::fetch::HeaderEntry;
+use goodfetch_engine::net_error::NetError;
 use rstest::rstest;
 
 use super::{cut_after_sent_on, cut_by, cut_though_finished, declared_length, paused_headers};

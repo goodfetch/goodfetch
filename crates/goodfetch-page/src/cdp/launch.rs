@@ -56,8 +56,6 @@ use tokio::process::{Child, Command};
 use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::trace;
-
 /// The folder of the Run's Browser data folders, in its folder: one per
 /// browser, by its number in the Run's browser pool.
 const DATA_FOLDERS: &str = "browser-data";
@@ -274,14 +272,15 @@ fn notice_of(notice: Option<PlatformNotice>) {
     }
 }
 
-/// The CDP command log of `run`'s browsers, as [`trace::command_log`]
-/// gives it, for the browser at `executable`.
+/// The CDP command log of `run`'s browsers, as
+/// [`command_log::command_log`](super::command_log::command_log) gives it,
+/// for the browser at `executable`.
 ///
 /// # Errors
 ///
 /// `browser_launch_failed` when the Run trace's writer cannot start.
 async fn command_log(run: &Run, executable: &Path) -> Result<Option<CommandLog>, CallError> {
-    trace::command_log(run).await.map_err(|error| {
+    super::command_log::command_log(run).await.map_err(|error| {
         launch_failed(
             executable,
             None,

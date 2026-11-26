@@ -17,8 +17,8 @@ use goodfetch_engine::run_identity::RunIdentity;
 use tokio::sync::{mpsc, oneshot};
 
 use super::documents::{Documents, FrameId, Key, Part, Write};
+use crate::cdp::driver::PageDriver;
 use crate::cdp::{CdpPage, NotTaken, TargetSession};
-use crate::driver::PageDriver;
 
 /// How many changes wait for the page's sender, at most, before the next
 /// waits for room.

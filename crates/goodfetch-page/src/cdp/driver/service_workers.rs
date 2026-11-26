@@ -133,7 +133,7 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            value: crate::page_value::PageValue::empty(),
+            value: super::RequestValue::new(crate::page_value::PageValue::empty()),
             waits: None,
             reader: None,
         }

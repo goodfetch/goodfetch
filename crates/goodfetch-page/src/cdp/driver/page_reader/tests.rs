@@ -14,7 +14,10 @@
 //! events or requests on any session still attached, opens a dialog,
 //! detaches a frame, or detaches the page; the browser floods the page's
 //! session past what its reader may hold, so the reader falls behind; the
-//! page closes; and its Session's owner ends, in any order, against a
+//! page's request part is replaced, as a release does (ADR 0146), and it
+//! serves its next request under a Page ID of its own, a call on the
+//! earlier one raising `closed`; the page closes; and its Session's owner
+//! ends, in any order, against a
 //! browser played in process and a live Run, whose Client replies to the
 //! dialog handlers' requests. After each step, synced by a command whose
 //! answer the browser sends after its events
@@ -29,15 +32,17 @@
 //!   part has ended `FellBehind`, holding at most a share of the flood, and
 //!   one that subscribes later ends so at once;
 //! - each listener heard, in order, the URL of each request the page sent
-//!   after it started, until the page closed, or its reader fell behind
-//!   while it was open, which ended it; one started once the page closed
-//!   raises `closed`;
+//!   after it started, until the page closed, its request part was
+//!   replaced, or its reader fell behind while it was open, which ended
+//!   it; one started once the page closed raises `closed`; and each request
+//!   names the Page ID of the request the page serves then;
 //! - each wait is answered by the first request the page sent after it
-//!   armed, or raises `closed` once the page closed first, or at once when
-//!   it closed before; a page whose target detached leaves its waits
+//!   armed, or raises `closed` once the page closed or its request part
+//!   was replaced first, or at once when it closed before; a page whose target detached leaves its waits
 //!   waiting until it closes, so no call is left unanswered; a wait still
 //!   waiting when the reader fell behind while the page was open, or armed
-//!   since, raises `page_events_lost`, at once or once the page closes;
+//!   since, raises `page_events_lost`, at once, or once the page closes
+//!   or its request part is replaced;
 //! - the Gestures got the turn in the order they asked for it, one at a
 //!   time, whatever else the page did; the pointer is at one holder at a
 //!   time, lent while no Gesture has the turn or as the one that has it
@@ -48,12 +53,15 @@
 //!   browser got that answer, or else the dialog's default; a handler that
 //!   failed, before its answer or after, left, its subscription ending with
 //!   `page_handler_failed`, and left that failure for the page's next call
-//!   to take, once; each other handler's subscription ended once the page
-//!   closed, and one armed after raised `closed`;
+//!   to take, once, unless the page's request part was replaced first;
+//!   each other handler's subscription ended once the page closed or its
+//!   request part was replaced, and one armed after the close raised
+//!   `closed`; each ask names the Page ID of the request the page serves;
 //! - each init script is registered once the browser took its addition, and
 //!   the page's navigations wait, while the page is open, exactly while an
-//!   addition or a removal is on its way; a script dropped is removed, at
-//!   once once registered, or else once its addition was taken;
+//!   addition or a removal is on its way; a script dropped, or one whose
+//!   call's request part was replaced, is removed, at once once
+//!   registered, or else once its addition was taken;
 //! - each Page API call's ask for its reads is answered at once, whatever
 //!   Gestures hold the turn or wait for it, and raises `closed` once the
 //!   Session's owner ended;
@@ -94,9 +102,9 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 use crate::cdp::CdpPage;
+use crate::cdp::driver::PageDriver;
+use crate::cdp::driver::replay::{self, Played, SESSION};
 use crate::dialogs::{Answer, Dialogs};
-use crate::driver::PageDriver;
-use crate::driver::replay::{self, Played, SESSION};
 use crate::gesture_order::{GestureOrder, GestureTurn, LentPointer, PointerAsks};
 use crate::init_scripts::Registered;
 use crate::interception::tests::{hold_page, session_side};
@@ -177,6 +185,9 @@ enum Transition {
     FallBehind,
     /// The page closes, as its Session takes it out.
     Close,
+    /// The page's request part is replaced, as a release does (ADR 0146):
+    /// it serves its next request under a Page ID of its own.
+    Release,
     /// A step of the page's Gesture order.
     Order(OrderStep),
 }
@@ -715,6 +726,42 @@ impl Reference {
             }
         }
     }
+
+    /// The page's request part is replaced: what listened, waited or was
+    /// armed for its earlier request ends, a wait raising `closed`, or
+    /// `page_events_lost` once the reader fell behind, the failure a dialog handler left goes,
+    /// its init scripts' calls end, each registered script removed and each
+    /// other removed once its addition was taken, and what belongs to its
+    /// browser's page, its parts' subscriptions and its frames, stays.
+    fn release(&mut self) {
+        for (n, registered) in std::mem::take(&mut self.scripts) {
+            if registered {
+                self.commands.push(Scripted::Remove(n));
+                self.pending += 1;
+            }
+        }
+        for heard in &mut self.listeners {
+            if heard.listened == Listened::Going {
+                heard.listened = Listened::Ended;
+            }
+        }
+        let ended = if self.events_lost() {
+            Waited::Lost
+        } else {
+            Waited::Ended
+        };
+        for waited in &mut self.waits {
+            if *waited == Waited::Waiting {
+                *waited = ended.clone();
+            }
+        }
+        for (_, handled) in &mut self.handlers {
+            if *handled == Handled::Armed {
+                *handled = Handled::Ended;
+            }
+        }
+        self.failure = false;
+    }
 }
 
 fn reply() -> impl Strategy<Value = Reply> {
@@ -812,6 +859,7 @@ impl ReferenceStateMachine for Reference {
         ];
         if !state.closed {
             groups.push((1, Just(Transition::Close).boxed()));
+            groups.push((1, Just(Transition::Release).boxed()));
         }
         if state.attached(On::Page) && state.reading() {
             groups.push((1, Just(Transition::FallBehind).boxed()));
@@ -839,7 +887,7 @@ impl ReferenceStateMachine for Reference {
             Transition::DetachFrame(frame) => state.attached(On::Frame(*frame)),
             Transition::DetachPage => !state.page_detached && state.commands.is_empty(),
             Transition::FallBehind => state.attached(On::Page) && state.reading(),
-            Transition::Close => !state.closed,
+            Transition::Close | Transition::Release => !state.closed,
         }
     }
 
@@ -939,6 +987,7 @@ impl ReferenceStateMachine for Reference {
             }
             Transition::FallBehind => state.fall_behind(),
             Transition::Close => state.close(),
+            Transition::Release => state.release(),
             Transition::Order(step) => state.order.take(step, state.closed),
         }
         state
@@ -1245,6 +1294,11 @@ struct Subject {
     played: Played,
     driver: PageDriver,
     owners: PageOwners,
+    /// The Page ID of the request the page serves now.
+    page_id: PageId,
+    /// How many times its request part was replaced, which numbers the
+    /// next request's Page ID.
+    releases: usize,
     /// The test's own listener of the page's requests, which syncs a step
     /// with the page's events.
     sync: Listening,
@@ -1373,6 +1427,7 @@ impl Subject {
             handlers,
             dialogs,
             answers,
+            page_id,
             ..
         } = self;
         let asked_of = |asked: &Value| {
@@ -1392,6 +1447,7 @@ impl Subject {
                     asked = live.asked.recv() => {
                         let asked = asked.expect("invariant: the Client hears the engine until the test ends");
                         assert_eq!(asked["params"]["dialog"]["message"], "Leave the page?");
+                        assert_eq!(asked["params"]["page_id"], page_id.0, "{asked}");
                         let handler = asked_of(&asked);
                         match handlers[handler].reply {
                             reply @ (Reply::Through | Reply::Fail) => {
@@ -1477,9 +1533,85 @@ impl Subject {
         self.commands.push((Scripted::Remove(n), removal));
     }
 
+    /// Replaces the page's request part, as a release does: the page serves
+    /// its next request under a Page ID of its own, and a call on the
+    /// earlier one raises `closed`. The test's own listener, which listened
+    /// for the earlier request, listens again for the next.
+    fn release(&mut self) {
+        self.releases += 1;
+        let next = PageId(format!("{}-request-{}", page_id().0, self.releases));
+        let owner = self
+            .owners
+            .get(&self.page_id)
+            .expect("invariant: a page is released while it is open");
+        {
+            // The replacement removes the earlier request's scripts on a
+            // task of the Run's.
+            let _entered = self.runtime.enter();
+            self.owners
+                .renamed(&self.page_id, next.clone(), owner.for_request(&next));
+        }
+        let earlier = std::mem::replace(&mut self.page_id, next);
+        self.scripts_released();
+        let Err(refused) = self.owners.events(&earlier) else {
+            panic!("a call on the earlier request's Page ID found the page");
+        };
+        assert_eq!(refused.code(), CLOSED.name, "{refused:?}");
+        self.sync = self
+            .owners
+            .events(&self.page_id)
+            .expect("invariant: the released page is open")
+            .listen(PageEventName::Request);
+    }
+
+    /// The earlier request's init scripts' calls end, as their request
+    /// does: the removal of each registered script is on its way, in any
+    /// order, and each other is removed once its addition is taken.
+    fn scripts_released(&mut self) {
+        let calls = std::mem::take(&mut self.scripts);
+        let registered: Vec<usize> = calls
+            .iter()
+            .filter_map(|script| {
+                let ended = script.registered.as_ref()?.request_ended();
+                assert!(
+                    ended.now_or_never().is_some(),
+                    "the call of the script {} waits past its request",
+                    script.n
+                );
+                Some(script.n)
+            })
+            .collect();
+        {
+            let _entered = self.runtime.enter();
+            drop(calls);
+        }
+        let mut removals: Vec<(usize, Value)> = registered
+            .iter()
+            .map(|_| {
+                let removal = self.command();
+                assert_eq!(removal["method"], REMOVE_SCRIPT, "{removal}");
+                let n = registered
+                    .iter()
+                    .copied()
+                    .find(|n| removal["params"]["identifier"] == identifier(*n))
+                    .unwrap_or_else(|| panic!("a removal of no registered script: {removal}"));
+                (n, removal)
+            })
+            .collect();
+        removals.sort_by_key(|(n, _)| *n);
+        let before = removals.len();
+        removals.dedup_by_key(|(n, _)| *n);
+        assert_eq!(removals.len(), before, "a script was removed twice");
+        self.commands.extend(
+            removals
+                .into_iter()
+                .map(|(n, removal)| (Scripted::Remove(n), removal)),
+        );
+    }
+
     /// Listens to the page's requests, unless the page closed.
     fn listen(&mut self) {
-        let listening = match self.owners.events(&page_id()) {
+        let listening = match self.owners.events(&self.page_id) {
             Ok(events) => Some(events.listen(PageEventName::Request)),
             Err(error) => {
                 assert_eq!(error.code(), CLOSED.name, "{error:?}");
@@ -1502,7 +1634,7 @@ impl Subject {
 
     /// Waits for the page's next request, unless the page closed.
     fn wait(&mut self) {
-        let wait = match self.owners.events(&page_id()) {
+        let wait = match self.owners.events(&self.page_id) {
             Ok(events) => {
                 let deadline = events
                     .wait_deadline(Some(None))
@@ -1523,7 +1655,7 @@ impl Subject {
         self.armed += 1;
         let armed = self
             .owners
-            .dialogs(&page_id())
+            .dialogs(&self.page_id)
             .and_then(|dialogs| dialogs.arm(&self.live.client, &RequestId::Number(call)));
         let (ended, handled) = match armed {
             Ok(armed) => (Some(Box::pin(armed.ended()) as HandlerEnd), Handled::Armed),
@@ -1542,7 +1674,7 @@ impl Subject {
 
     /// Takes a handler's failure, unless the page closed.
     fn take_failure(&mut self) {
-        let took = match self.owners.dialogs(&page_id()) {
+        let took = match self.owners.dialogs(&self.page_id) {
             Ok(dialogs) => match dialogs.take_failure() {
                 Some(error) => {
                     assert_eq!(error.code(), PAGE_HANDLER_FAILED.name, "{error:?}");
@@ -1566,7 +1698,7 @@ impl Subject {
         let scripts = self.owner.init_scripts().clone();
         let adding = {
             let _entered = self.runtime.enter();
-            scripts.register(source(n), scripts.begin())
+            scripts.register(source(n), scripts.begin(), &self.page_id)
         };
         self.scripts.push(ScriptCall {
             n,
@@ -1736,19 +1868,24 @@ impl Subject {
     }
 
     /// Waits until the page's events took in `count` more requests, which
-    /// the test's own listener hears.
+    /// the test's own listener hears, each naming the Page ID of the
+    /// request the page serves now.
     fn heard(&mut self, count: usize) {
         let Self {
             runtime,
             sync,
             background,
+            page_id,
             ..
         } = self;
         runtime.block_on(async {
             for _ in 0..count {
                 tokio::select! {
                     biased;
-                    heard = sync.heard() => assert!(heard.is_some(), "the test's listener ended"),
+                    heard = sync.heard() => {
+                        let heard = heard.expect("the test's listener ended");
+                        assert_eq!(heard["page_id"], page_id.0, "{heard}");
+                    }
                     () = background.as_mut() => panic!("the connection ended"),
                 }
             }
@@ -1812,6 +1949,8 @@ impl StateMachineTest for Subject {
             played,
             driver,
             owners,
+            page_id: page_id(),
+            releases: 0,
             sync,
             background: Box::pin(async move {
                 let _ = tokio::join!(cdp.run(), reading, engine);
@@ -1899,9 +2038,10 @@ impl StateMachineTest for Subject {
             }
             Transition::FallBehind => subject.flood(),
             Transition::Close => {
-                subject.owners.close(&[page_id()]);
+                subject.owners.close(&[subject.page_id.clone()]);
                 subject.closed = true;
             }
+            Transition::Release => subject.release(),
             Transition::Order(step) => subject.order_step(&step),
         }
         subject.settle();
@@ -1973,7 +2113,7 @@ impl StateMachineTest for Subject {
             "the init scripts' commands on their way"
         );
         assert_eq!(
-            subject.owners.settling(&page_id()).is_some(),
+            subject.owners.settling(&subject.page_id).is_some(),
             reference.pending > 0 && !reference.closed,
             "whether the page's navigations wait for its init scripts"
         );

@@ -2,14 +2,15 @@ use std::cell::Cell;
 use std::time::Duration;
 
 use goodfetch_cdp::generated::page;
-use goodfetch_cdp::{NetError, RawEvent, SessionId};
+use goodfetch_cdp::{RawEvent, SessionId};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_protocol::page::WaitUntil;
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 
 use super::{Arrived, Ended, Expected, Followed, Navigation};
-use crate::driver::page_reader::PageReader;
-use crate::driver::replay::{self, SESSION};
+use crate::cdp::driver::page_reader::PageReader;
+use crate::cdp::driver::replay::{self, SESSION};
 
 /// The page's main frame.
 const FRAME: &str = "main";

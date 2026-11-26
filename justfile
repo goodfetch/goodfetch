@@ -1164,8 +1164,11 @@ test-affected suite *change:
 # what it renders the tests' fixture from. They are `tests/` tests, which the Quick
 # suite never runs, so `just quick` and the quick gate run them on their own
 # and a change like that cannot merge with them red (issue 2892); the
-# Pre-merge suite runs them with every test. The change as `just
-# test-affected` takes it, `--local` when none is given.
+# Pre-merge suite runs them with every test. They build with the
+# workspace's features (`--workspace --test it`), as the Pre-merge suite
+# and lint's quarantine listing build them: `-p xtask` alone gives some
+# dependencies other features, which rebuilt them for this step alone.
+# The change as `just test-affected` takes it, `--local` when none is given.
 codegen-tests *change:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1182,7 +1185,7 @@ codegen-tests *change:
     skips=$(ci/nextest-skips.sh "$exclusions")
     skip_nextest=()
     while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
-    INSTA_UPDATE=no cargo nextest run -p xtask --test it --cargo-profile {{ test_profile }} \
+    INSTA_UPDATE=no cargo nextest run --workspace --test it --cargo-profile {{ test_profile }} \
       -E 'binary_id(xtask::it) & test(/^codegen::/)' ${skip_nextest[@]+"${skip_nextest[@]}"}
 
 # Each suite lists the parts it could not run on this host, with the reason,

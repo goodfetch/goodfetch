@@ -10,11 +10,13 @@
 //!
 //! Each hop is judged as it leaves: the driver has added the headers its
 //! Session presents, a `Cookie` among them, which keeps a credentialed
-//! request out of the public partition; with no keeper, such a request is
-//! neither answered from the cache nor stored. The partition is the Run's
-//! person;
-//! the proxy's exit country, the language and the device class stay empty
-//! until the Run's Proxy and Identity profile give them.
+//! request out of the public partition. A pool Session that sends its HTTP
+//! itself keeps such a response in its own partition, which no other
+//! Session reads and which leaves when it retires; the Run's own transport
+//! has no keeper, so such a request is neither answered from the cache nor
+//! stored there. The partition is the Run's person; the proxy's exit
+//! country, the language and the device class stay empty until the Run's
+//! Proxy and Identity profile give them.
 
 use std::sync::Arc;
 
@@ -22,10 +24,11 @@ use bytes::{Bytes, BytesMut};
 use goodfetch_engine::CALLER;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::response_cache::{
-    CacheRequest, KeptOut, Partition, ResponseHead, ResponseSource, Source,
+    CacheRequest, Keeper, KeptOut, Partition, ResponseHead, ResponseSource, Source,
 };
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::RunId;
 use url::Url;
 
@@ -73,6 +76,35 @@ impl Caching {
                 clock,
             })
         })
+    }
+
+    /// What the transport of the Run's pool Session `session` answers
+    /// from: these sources, the responses it fetches with a cookie or a
+    /// credential, or that set one, kept in its own partition (ADR 0046).
+    pub(crate) fn of_session(&self, session: &SessionId) -> Arc<Self> {
+        Arc::new(Self {
+            partition: Partition {
+                keeper: Some(Keeper::Session {
+                    run_id: self.run_id.clone(),
+                    session_id: session.clone(),
+                }),
+                ..self.partition.clone()
+            },
+            ..self.clone()
+        })
+    }
+
+    /// Deletes what the Run's pool Session `session`, retired, kept in
+    /// its own partition; a cache that cannot be written keeps it, which a
+    /// warning says, until the Run is discarded.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`ResponseSource::forget_session`]'s.
+    pub(crate) async fn forget(&self, session: &SessionId) {
+        if let Err(error) = self.source.forget_session(&self.run_id, session).await {
+            tracing::warn!(run_id = %self.run_id, session_id = %session.0, %error, "a retired Session's Response cache entries were not deleted");
+        }
     }
 
     /// `transport` answering from these sources first.

@@ -3,7 +3,8 @@
 //! test's folder and the test Clock on Tokio's paused clock: a fresh
 //! response is served with no request, a stale one is revalidated and a
 //! 304 serves its stored body, a `Vary: Cookie` response is keyed on the
-//! cookie, and a cut body is never stored.
+//! cookie, a pool Session's logged-in page is its own until it retires,
+//! and a cut body is never stored.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Tokio's paused clock (ADR 0059)"
@@ -24,6 +25,7 @@ use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::response_cache::{Partition, ResponseCache, ResponseSource};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_FIRST_BYTE, TIMEOUT_NAVIGATION};
@@ -134,6 +136,8 @@ fn minute(body: &'static [u8]) -> Answer {
 /// transport over `site`.
 struct Fetching {
     clock: Clock,
+    caching: Arc<Caching>,
+    site: Arc<dyn Transport>,
     transport: Arc<dyn Transport>,
     _env: TestEnv,
 }
@@ -160,20 +164,38 @@ impl Fetching {
             clock,
         )
         .expect("the cache is on");
+        let site = Arc::clone(site) as Arc<dyn Transport>;
         Self {
             clock,
-            transport: caching.over(Arc::clone(site) as Arc<dyn Transport>),
+            transport: caching.over(Arc::clone(&site)),
+            caching,
+            site,
             _env: env,
         }
     }
 
+    /// The cached transport of the Run's pool Session `session`.
+    fn of_session(&self, session: &SessionId) -> Arc<dyn Transport> {
+        self.caching
+            .of_session(session)
+            .over(Arc::clone(&self.site))
+    }
+
     async fn fetch(&self, hop: &Hop) -> Result<Fetched, &'static str> {
+        self.fetch_on(&self.transport, hop).await
+    }
+
+    async fn fetch_on(
+        &self,
+        transport: &Arc<dyn Transport>,
+        hop: &Hop,
+    ) -> Result<Fetched, &'static str> {
         let bounds = FetchBounds {
             first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
             navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
             limits: Limits::default(),
         };
-        fetch(self.transport.as_ref(), hop, &bounds, &self.clock)
+        fetch(transport.as_ref(), hop, &bounds, &self.clock)
             .await
             .map_err(|failure| failure.error().code())
     }
@@ -277,6 +299,59 @@ async fn a_response_varying_on_cookie_is_keyed_on_it() {
     assert_eq!(site.received().len(), 2);
     assert_eq!(&ada.body[..], b"<p>ada</p>");
     assert_eq!(&anyone.body[..], b"<p>anyone</p>");
+}
+
+/// A page a pool Session fetched with its cookie is served to it again
+/// with no request, never to another Session of the Run nor to the Run's
+/// own transport, and no longer to it once it retired.
+/// Covers: story:6-39
+#[tokio::test(start_paused = true)]
+async fn a_sessions_logged_in_page_is_its_own_until_it_retires() {
+    let site = Site::answering(vec![
+        minute(b"<p>ada</p>"),
+        minute(b"<p>bob</p>"),
+        minute(b"<p>run</p>"),
+        minute(b"<p>ada again</p>"),
+    ]);
+    let fetching = Fetching::over(&site);
+    let (first, second) = (SessionId("s1".to_owned()), SessionId("s2".to_owned()));
+    let (ada, bob) = (fetching.of_session(&first), fetching.of_session(&second));
+    let logged_in = |who: &str| Hop {
+        headers: vec![("cookie".to_owned(), format!("session={who}"))],
+        ..page()
+    };
+
+    let mut bodies = Vec::new();
+    for (transport, who) in [(&ada, "ada"), (&ada, "ada"), (&bob, "bob")] {
+        bodies.push(
+            fetching
+                .fetch_on(transport, &logged_in(who))
+                .await
+                .unwrap()
+                .body,
+        );
+    }
+    bodies.push(fetching.fetch(&logged_in("ada")).await.unwrap().body);
+    fetching.caching.forget(&first).await;
+    bodies.push(
+        fetching
+            .fetch_on(&ada, &logged_in("ada"))
+            .await
+            .unwrap()
+            .body,
+    );
+
+    assert_eq!(site.received().len(), 4);
+    assert_eq!(
+        bodies.iter().map(|body| &body[..]).collect::<Vec<_>>(),
+        [
+            &b"<p>ada</p>"[..],
+            b"<p>ada</p>",
+            b"<p>bob</p>",
+            b"<p>run</p>",
+            b"<p>ada again</p>"
+        ]
+    );
 }
 
 /// A body cut before its end is never stored: the next fetch of the page

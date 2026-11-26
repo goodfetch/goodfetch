@@ -12,11 +12,13 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use bytes::Bytes;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_protocol::run::RunId;
 
 use super::{
-    CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseHead, Stale, freshness, partition,
+    CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseCacheError, ResponseHead, Stale,
+    freshness, partition,
 };
 
 /// A response served whole without the network: a fulfilling route's or
@@ -241,6 +243,29 @@ impl ResponseSource {
                 cache
                     .store_replayed(partition, request, head, body, run_id, now)
                     .await
+            }
+        }
+    }
+
+    /// [`ResponseCache::forget_session`] in either mode; nothing with the
+    /// cache off, which kept nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`ResponseCache::forget_session`]'s.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`ResponseCache::forget_session`]'s.
+    pub async fn forget_session(
+        &self,
+        run_id: &RunId,
+        session_id: &SessionId,
+    ) -> Result<(), ResponseCacheError> {
+        match &self.cache {
+            Keeping::Off => Ok(()),
+            Keeping::Revalidate(cache) | Keeping::Replay(cache) => {
+                cache.forget_session(run_id, session_id).await
             }
         }
     }

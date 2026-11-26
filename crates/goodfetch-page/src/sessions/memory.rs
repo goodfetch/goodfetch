@@ -6,6 +6,7 @@
 //! emits `close`, and its later calls raise `page_memory_exceeded`, which
 //! is retryable, as a crashed page's raise `page_crashed`.
 
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{catalog_value, value_as};
 use goodfetch_protocol::governor::{BROWSER_PAGE_MEMORY_CAP, GovernorLevel};
 use goodfetch_protocol::page::PageId;
@@ -24,7 +25,7 @@ impl Sessions {
         let sessions = self.clone();
         let mut samples = run.governor.share().samples();
         let stopping = run.identity.owner().child_token();
-        let limit = page_memory_cap(run);
+        let limit = page_memory_cap(&run.identity);
         let run_id = run.identity.id().clone();
         run.identity.spawn(async move {
             loop {
@@ -88,10 +89,10 @@ impl Sessions {
     }
 }
 
-/// `governor.browser.page_memory_cap` as `run`'s settings set it, with its
-/// layer.
-fn page_memory_cap(run: &BrowserRun) -> SettingLimit {
-    run.identity
+/// `governor.browser.page_memory_cap` as the settings of the Run
+/// `identity` names set it, with its layer.
+fn page_memory_cap(identity: &RunIdentity) -> SettingLimit {
+    identity
         .settings()
         .and_then(|settings| settings.resolved().effective(&BROWSER_PAGE_MEMORY_CAP))
         .map_or_else(

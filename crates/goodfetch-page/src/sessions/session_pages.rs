@@ -288,7 +288,7 @@ impl Sessions {
             },
             stream.clone(),
             refusals.clone(),
-            wait_deadline(run),
+            wait_deadline(&run.identity),
             observer,
         );
         let cdp = CdpPage::of(driver);
@@ -332,7 +332,7 @@ impl Sessions {
         } = adopting;
         let run = Arc::clone(&open.run);
         let session = &super::session_id(run.identity.id(), open.position);
-        let action_timeout = action_timeout(&run);
+        let action_timeout = action_timeout(&run.identity);
         let page = self.next_page_id().await;
         let browser = in_browser.browser();
         // The owner's tasks, which start before it does, its parts' among

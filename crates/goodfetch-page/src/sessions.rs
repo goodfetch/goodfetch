@@ -573,7 +573,7 @@ impl Sessions {
         let settings = own_settings(&params.settings, &run, context)?;
         let settings = extractor_installed(settings, &run, context).await?;
         let named = named_source(&run, params.source, context);
-        let identity = access_mode_opens(&settings, &run, named.as_ref(), context)?;
+        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
@@ -597,7 +597,7 @@ impl Sessions {
         // Session put in after it would hold the Run forever (#1763).
         let (session, life, open) = {
             let mut state = self.state.lock().await;
-            let runs = reached(&mut state, &run)?;
+            let runs = reached(&mut state, &run.identity)?;
             let seat = match &borrowed {
                 Some(cdp_url) => runs
                     .pool
@@ -671,10 +671,11 @@ impl Sessions {
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
         let named = named_source(&run, None, context);
-        let identity = access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
+        let identity =
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
-        let default = Arc::clone(&reached(&mut *self.state.lock().await, &run)?.default);
+        let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
             .get_or_try_init(|| {
                 self.open_held(
@@ -686,7 +687,7 @@ impl Sessions {
                 )
             })
             .await?;
-        if reached(&mut *self.state.lock().await, &run)?
+        if reached(&mut *self.state.lock().await, &run.identity)?
             .closed
             .contains(&position)
         {
@@ -788,7 +789,7 @@ impl Sessions {
             run_index: context.engine().run_index().clone(),
         });
         let mut state = self.state.lock().await;
-        reached(&mut state, run)?;
+        reached(&mut state, &run.identity)?;
         self.index.opened(session.clone(), Arc::clone(&held));
         self.watch_session(session, &held);
         Ok(position)
@@ -906,11 +907,12 @@ impl Sessions {
     ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
-        let identity = access_mode_opens(&Values::default(), &run, named.as_ref(), context)?;
+        let identity =
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
-            reached(&mut *self.state.lock().await, &run)?
+            reached(&mut *self.state.lock().await, &run.identity)?
                 .pooled
                 .entry(pooled.id.clone())
                 .or_default(),
@@ -1274,7 +1276,7 @@ impl Sessions {
         }
         state.runs.insert(run.identity.id().clone(), runs);
         drop(state);
-        self.follow_losses(run, losses);
+        self.follow_losses(&run.identity, losses);
         self.leave_with(run);
         self.end_pages_past_their_cap(run);
         Ok(())
@@ -1868,19 +1870,19 @@ struct NamedSource {
     acting_for_model: bool,
 }
 
-/// The Access mode a Session of `run` opens in, as its `own` settings,
-/// over the Run's, ask for from the source `named` (ADR 0021): the
-/// [`access_mode`](crate::access_mode) module's refusal when it does not
-/// open. A `stealth` Session does not open until the tickets that build its
-/// Identity profile land.
+/// The Access mode a Session of the Run `identity` names opens in, as its
+/// `own` settings, over the Run's, ask for from the source `named` (ADR
+/// 0021): the [`access_mode`](crate::access_mode) module's refusal when it
+/// does not open. A `stealth` Session does not open until the tickets that
+/// build its Identity profile land.
 fn access_mode_opens(
     own: &Values,
-    run: &Arc<BrowserRun>,
+    identity: &RunIdentity,
     named: Option<&NamedSource>,
     context: &CallContext,
 ) -> Result<SessionIdentityPlan, CallError> {
     let source = named.map(|named| &named.source);
-    let settings = SessionSettings::new(own, run.identity.settings().map(RunSettings::resolved));
+    let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
     access_mode::resolve(&settings, source, BrowserFamily::of(source))
         .and_then(SessionIdentityPlan::built)
         .map_err(|refusal| refusal.call_error(context))
@@ -2113,7 +2115,7 @@ async fn reopened_signing(
     if borrowed {
         return Ok(None);
     }
-    let identity = access_mode_opens(settings, run, None, context)?;
+    let identity = access_mode_opens(settings, &run.identity, None, context)?;
     open_signing(run, identity.signing.as_ref(), context).await
 }
 
@@ -2304,7 +2306,7 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Arc<BrowserRun>, 
 /// failed open leaves its position unused. Answers it with the Run's
 /// browser pool; `run_not_found` once the Run stopped.
 fn taken(state: &mut State, run: &Arc<BrowserRun>) -> Result<(u32, Pool), CallError> {
-    let runs = reached(state, run)?;
+    let runs = reached(state, &run.identity)?;
     runs.last += 1;
     Ok((runs.last, runs.pool.clone()))
 }
@@ -2317,21 +2319,18 @@ fn rotation_ordinal(position: u32) -> u64 {
     u64::from(position.saturating_sub(1))
 }
 
-/// The Sessions the table holds of `run`, which [`Sessions::reach`]
-/// reached; `run_not_found` once it stopped since.
+/// The Sessions the table holds of the Run `identity` names, which
+/// [`Sessions::reach`] reached; `run_not_found` once it stopped since.
 fn reached<'state>(
     state: &'state mut State,
-    run: &Arc<BrowserRun>,
+    identity: &RunIdentity,
 ) -> Result<&'state mut RunSessions, CallError> {
-    state.runs.get_mut(run.identity.id()).ok_or_else(|| {
+    state.runs.get_mut(identity.id()).ok_or_else(|| {
         CallError::new(
             &RUN_NOT_FOUND,
-            format!(
-                "The Run `{}` stopped while the call ran.",
-                run.identity.id()
-            ),
+            format!("The Run `{}` stopped while the call ran.", identity.id()),
             &RunDetails {
-                run_id: run.identity.id().clone(),
+                run_id: identity.id().clone(),
                 path: None,
             },
         )
@@ -2371,18 +2370,20 @@ async fn finished(run_id: &RunId, context: &CallContext) -> bool {
         .is_ok_and(|lifecycle| lifecycle == Lifecycle::Finished)
 }
 
-/// The Run's `timeout.wait`, an app-state wait's deadline.
-fn wait_deadline(run: &Arc<BrowserRun>) -> Deadline {
+/// The `timeout.wait` of the Run `identity` names, an app-state wait's
+/// deadline.
+fn wait_deadline(identity: &RunIdentity) -> Deadline {
     Deadline::of_resolved(
-        run.identity.settings().map(RunSettings::resolved),
+        identity.settings().map(RunSettings::resolved),
         &TIMEOUT_WAIT,
     )
 }
 
-/// The Run's `timeout.action`, with where it was set.
-fn action_timeout(run: &Arc<BrowserRun>) -> (SettingLimit, Duration) {
+/// The `timeout.action` of the Run `identity` names, with where it was
+/// set.
+fn action_timeout(identity: &RunIdentity) -> (SettingLimit, Duration) {
     let action = Deadline::of_resolved(
-        run.identity.settings().map(RunSettings::resolved),
+        identity.settings().map(RunSettings::resolved),
         &TIMEOUT_ACTION,
     );
     (action.limit().clone(), action.duration())

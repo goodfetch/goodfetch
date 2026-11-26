@@ -48,8 +48,6 @@ pub enum Brand {
 }
 
 impl Os {
-    pub const ALL: [Self; 4] = [Self::Windows, Self::Macos, Self::Linux, Self::Android];
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Windows => "windows",
@@ -61,8 +59,6 @@ impl Os {
 }
 
 impl Device {
-    pub const ALL: [Self; 2] = [Self::Desktop, Self::Mobile];
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Desktop => "desktop",
@@ -72,8 +68,6 @@ impl Device {
 }
 
 impl Brand {
-    pub const ALL: [Self; 4] = [Self::Chrome, Self::Edge, Self::AndroidChrome, Self::Firefox];
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Chrome => "chrome",

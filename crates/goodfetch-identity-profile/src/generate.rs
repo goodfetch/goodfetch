@@ -123,7 +123,7 @@ fn pick<'a, T>(rng: &mut ChaCha20Rng, values: &'a [(T, f64)]) -> &'a T {
     }
     &values
         .last()
-        .expect("invariant: a population candidate keeps a value of each property")
+        .expect("invariant: drawing is among some values: a narrowing never empties the population, and a candidate keeps a value of each property")
         .0
 }
 

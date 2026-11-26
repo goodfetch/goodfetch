@@ -38,6 +38,7 @@ impl fmt::Display for NarrowingKey {
 
 /// Why a narrowing draws from nothing.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum NarrowingError {
     #[error(
         "`{value}` is no {key} of the {family} population, which holds {}",

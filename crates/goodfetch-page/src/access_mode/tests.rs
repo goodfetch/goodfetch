@@ -301,8 +301,14 @@ fn an_identity_outside_the_population_is_refused(
     let resolved = run(&user, &json!({}));
     let settings = SessionSettings::new(&own, Some(&resolved));
 
-    let refusal = resolve(&settings, None, family).expect_err("the Session is refused");
+    let error = resolve(&settings, None, family)
+        .expect("the Session resolves")
+        .narrowing(family)
+        .expect("its identity is narrowed")
+        .drawn()
+        .expect_err("the population draws nothing from it");
 
+    let refusal = Refusal::outside_population(&settings, &error);
     assert!(
         matches!(&refusal, Refusal::IdentityOutsidePopulation { key: refused, layer: at, reason }
             if *refused == key && *at == layer && !reason.is_empty()),

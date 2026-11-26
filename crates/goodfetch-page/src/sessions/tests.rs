@@ -12,9 +12,11 @@
 //! Session's end the run file waits for (#2168). Another panics in a task
 //! of a Session's owner, which closes that Session alone (#3263), and one
 //! in a task of a browser's owner, which is that browser's crash (#3265).
-//! The last replaces a page's request part (#2277): the page answers its
-//! new Page ID alone, its earlier one raises `closed`, and the browser
-//! reads no command for it.
+//! One more starts a Run and opens a Session of it through `run.new_session`
+//! from its own source, whose domain lies below its registrable domain,
+//! which the open refuses with `setting_invalid` (#1310). The last replaces
+//! a page's request part (#2277): the page answers its new Page ID alone,
+//! its earlier one raises `closed`, and the browser reads no command for it.
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -54,6 +56,7 @@ use tokio::sync::watch;
 
 use super::life::{Ending, PageLife};
 use super::{Opener, Sessions, held_browser, set_outside_code};
+use crate::access_mode::{AccessMode, SessionIdentityPlan};
 use crate::browser_run::BrowserRun;
 use crate::cdp::borrowed::CdpUrl;
 use crate::cdp::launch::Launcher;
@@ -62,6 +65,14 @@ use crate::interception::{HeldBrowser, Interception};
 use crate::page_value::{
     Admission, DocumentJudgment, DocumentResponse, HeldPlace, LeaseCheck, LeaseEnded, Navigation,
     NavigationGate, PageValue, Permit, ProgramPages, Sending,
+};
+
+/// A `standard` Session's plan, which no setting chose.
+const STANDARD: SessionIdentityPlan = SessionIdentityPlan {
+    mode: AccessMode::Standard,
+    layer: SettingsLayer::Default,
+    profile: None,
+    signing: None,
 };
 
 /// Opens a Run's default Session and stops the Run while the open waits
@@ -236,8 +247,13 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
             .is_some_and(|runs| runs.last > 0)
     };
     let opened = {
-        let mut open =
-            std::pin::pin!(sessions.open_held(&browser, None, None, Opener::Default, &context));
+        let mut open = std::pin::pin!(sessions.open_held(
+            &browser,
+            None,
+            &STANDARD,
+            Opener::Default,
+            &context
+        ));
         loop {
             let polled = std::future::poll_fn(|waker| Poll::Ready(open.as_mut().poll(waker))).await;
             assert!(polled.is_pending(), "the open ended before the Run stopped");
@@ -280,7 +296,7 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         },
     };
     let position = sessions
-        .open_held(&browser, None, None, opener, &context)
+        .open_held(&browser, None, &STANDARD, opener, &context)
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -306,7 +322,7 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, None, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -433,7 +449,7 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, None, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let open = sessions
         .index
@@ -510,7 +526,7 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, None, Opener::Default, &context)
+        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let commands = watch::channel(0).0;
@@ -653,6 +669,13 @@ fn dependencies(env: &TestEnv) -> Dependencies {
 /// Runs the engine while a Client says `hello`, then calls `method` with
 /// `params`, and answers the call's reply.
 fn call(env: &TestEnv, method: &str, params: Value) -> Value {
+    let [answer] = calls(env, [(method, params)]);
+    answer
+}
+
+/// Runs the engine while a Client says `hello`, then makes each call of
+/// `sent` in turn, and answers their replies in the same order.
+fn calls<const N: usize>(env: &TestEnv, sent: [(&str, Value); N]) -> [Value; N] {
     let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
@@ -686,17 +709,20 @@ fn call(env: &TestEnv, method: &str, params: Value) -> Value {
             )
             .await;
             assert_eq!(hello["result"]["product"], "collie");
-            let answer = reply(1, method, params).await;
+            let mut answers = Vec::with_capacity(N);
+            for (id, (method, params)) in (1_i64..).zip(sent) {
+                answers.push(reply(id, method, params).await);
+            }
             drop(reply);
             writer.shutdown().await.unwrap();
-            answer
+            answers
         };
-        let (served, answer) = tokio::join!(
+        let (served, answers) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies(env)),
             client
         );
         served.unwrap();
-        answer
+        <[Value; N]>::try_from(answers).unwrap()
     })
 }
 
@@ -734,6 +760,48 @@ fn a_page_ended_past_its_memory_cap_answers_page_memory_exceeded_once_its_close_
     );
 
     assert_eq!(reply["result"], json!({ "raised": "page_memory_exceeded" }));
+}
+
+/// A Session's own source meets the rule `session.source` meets in every
+/// layer (ADR 0056): a domain below its registrable domain is refused
+/// where the Session opens, before anything is reached, with
+/// `setting_invalid` naming the registrable domain to give instead.
+/// Covers: story:5-62
+#[test]
+fn a_sessions_own_source_with_a_domain_below_its_registrable_domain_is_setting_invalid() {
+    let env = TestEnv::new();
+
+    let [started, opened] = calls(
+        &env,
+        [
+            ("run.start", json!({ "run_id": "not-registrable" })),
+            (
+                "run.new_session",
+                json!({
+                    "run_id": "not-registrable",
+                    "source": {
+                        "kind": "cdp_url",
+                        "url": "http://127.0.0.1:9222",
+                        "domains": ["www.example.com"],
+                    },
+                }),
+            ),
+        ],
+    );
+
+    assert_eq!(started["error"], Value::Null, "{started}");
+    assert_eq!(
+        opened["error"]["data"],
+        json!({
+            "code": "setting_invalid",
+            "retryable": false,
+            "key": "session.source",
+            "layer": "run",
+            "reason": "`www.example.com` in `domains` is no registrable domain, whose is `example.com`",
+            "fix": "Give `example.com` in `domains`",
+        }),
+        "{opened}"
+    );
 }
 
 /// Interception alone holds a Session no egress relay is under, Borrowed

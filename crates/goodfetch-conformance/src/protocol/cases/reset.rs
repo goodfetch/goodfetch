@@ -98,7 +98,11 @@ fn holders(home: &Path, canaries: &[(&str, &str)]) -> std::io::Result<Vec<String
 }
 
 /// Discards the Run `run_id`, checking the answer names it.
-fn discard(connection: &mut Connection, run_id: &str, checks: &mut Checks) -> Result<(), Gone> {
+pub(super) fn discard(
+    connection: &mut Connection,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
     let id = connection.request(RUN_DISCARD.name, &json!({ "run_id": run_id }))?;
     let answer = connection.answer(id)?.message;
     checks.check(

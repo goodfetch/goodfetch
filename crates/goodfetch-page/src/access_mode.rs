@@ -80,7 +80,8 @@ pub(crate) enum FingerprintMethod {
 impl FingerprintMethod {
     const ALL: [Self; 4] = [Self::None, Self::JsInjection, Self::Basic, Self::Engine];
 
-    const fn as_str(self) -> &'static str {
+    /// Its name, as `stealth.fingerprint_method` writes it.
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::None => "none",
             Self::JsInjection => "js_injection",
@@ -88,6 +89,16 @@ impl FingerprintMethod {
             Self::Engine => "engine",
         }
     }
+}
+
+/// Where a `stealth` Session's Fingerprint method comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MethodSource {
+    /// This layer set it.
+    Set(SettingsLayer),
+    /// Left unset, it fell back from `engine`, `stealth`'s default, to
+    /// `basic`, as no Goodfetch Chromium exists yet (ADR 0035).
+    FellBack,
 }
 
 /// The Chromium build a `stealth` Session runs (ADR 0035).
@@ -251,16 +262,60 @@ pub(crate) struct SessionIdentityPlan {
 }
 
 impl SessionIdentityPlan {
-    /// The plan, when this engine builds its Access mode's effects:
-    /// `standard` and `identified` open, `stealth` not until the tickets
-    /// that build it land (ADR 0083).
-    pub(crate) fn built(self) -> Result<Self, Refusal> {
-        match self.mode {
-            AccessMode::Standard | AccessMode::Identified => Ok(self),
-            mode @ AccessMode::Stealth => Err(Refusal::Unbuilt {
-                mode,
-                layer: self.layer,
+    /// The plan, when this engine builds every effect it asks for from the
+    /// Session's `settings` (ADR 0083): `standard` and `identified` open,
+    /// and so does `stealth`, but for the `engine` Fingerprint method, a
+    /// generated identity and what it is drawn from, human-like input, a
+    /// chosen Chromium build and the headful launch it defaults to, which
+    /// open only once their tickets land.
+    pub(crate) fn built(self, settings: &SessionSettings<'_>) -> Result<Self, Refusal> {
+        let Some(profile) = &self.profile else {
+            return Ok(self);
+        };
+        let scope = |setting: &Setting| settings.scoped(setting).1;
+        if profile.fingerprint_method == FingerprintMethod::Engine {
+            return Err(Refusal::EngineUnavailable {
+                layer: scope(&STEALTH_FINGERPRINT_METHOD).layer(),
+            });
+        }
+        let unbuilt = [
+            (
+                &STEALTH_GENERATED_IDENTITY,
+                Unbuilt::On,
+                profile.generated_identity,
+            ),
+            (&STEALTH_IDENTITY_OS, Unbuilt::Set, !profile.os.is_empty()),
+            (
+                &STEALTH_IDENTITY_DEVICE,
+                Unbuilt::Set,
+                !profile.device.is_empty(),
+            ),
+            (
+                &STEALTH_IDENTITY_BRAND,
+                Unbuilt::Set,
+                !profile.brand.is_empty(),
+            ),
+            (&STEALTH_HUMAN_INPUT, Unbuilt::On, profile.human_input),
+            (
+                &STEALTH_CHROMIUM_BUILD,
+                Unbuilt::Set,
+                scope(&STEALTH_CHROMIUM_BUILD) != Scope::Default,
+            ),
+            (
+                &BROWSER_HEADLESS,
+                Unbuilt::Headful,
+                scope(&BROWSER_HEADLESS) == Scope::Default,
+            ),
+        ]
+        .into_iter()
+        .find(|&(_, _, asked)| asked);
+        match unbuilt {
+            Some((setting, item, _)) => Err(Refusal::UnbuiltItem {
+                key: setting.name,
+                layer: scope(setting).layer(),
+                item,
             }),
+            None => Ok(self),
         }
     }
 }
@@ -279,6 +334,7 @@ pub(crate) struct SigningPlan {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StealthProfile {
     pub(crate) fingerprint_method: FingerprintMethod,
+    pub(crate) method_source: MethodSource,
     pub(crate) generated_identity: bool,
     pub(crate) os: Vec<String>,
     pub(crate) device: Vec<String>,
@@ -330,12 +386,29 @@ pub(crate) enum Refusal {
     /// `browser.headless_shell`, set in `layer`, on a `stealth` Session,
     /// which launches its own build.
     ShellUnderStealth { layer: SettingsLayer },
-    /// `mode`, chosen in `layer`, whose effects this engine does not build
-    /// yet.
-    Unbuilt {
-        mode: AccessMode,
+    /// The `engine` Fingerprint method, set in `layer`, which needs a
+    /// Goodfetch Chromium that does not exist yet.
+    EngineUnavailable { layer: SettingsLayer },
+    /// The stealth item `key`, asked for in `layer` as `item` says, whose
+    /// effect this engine does not build yet.
+    UnbuiltItem {
+        key: &'static str,
         layer: SettingsLayer,
+        item: Unbuilt,
     },
+}
+
+/// How a `stealth` Session asks for an item this engine does not build
+/// yet, which says how it opens without it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unbuilt {
+    /// A switch on: turned off, the Session opens.
+    On,
+    /// A choice or a list set: left out, the Session opens.
+    Set,
+    /// `browser.headless` left out, which `stealth` runs headful: set, the
+    /// Session opens.
+    Headful,
 }
 
 impl Refusal {
@@ -422,34 +495,99 @@ impl Refusal {
                     ),
                 );
             }
-            Self::Unbuilt { mode, layer } => {
-                return standard_only(
-                    layer,
-                    mode.as_str(),
-                    format!(
-                        "the Session would open `{}`, chosen in {}, and this engine does not build that Access mode's effects yet: leave `{access_mode}` at `standard` and `{fingerprint_method}` at `none`",
-                        mode.as_str(),
-                        layer.as_str()
-                    ),
-                );
-            }
+            Self::EngineUnavailable { layer } => return engine_unavailable(layer),
+            Self::UnbuiltItem { key, layer, item } => return unbuilt_item(key, layer, item),
         };
         settings_error(&error, context)
     }
+}
+
+/// `capability_unavailable` for the `engine` Fingerprint method, set in
+/// `layer`, which needs a Goodfetch Chromium that does not exist yet.
+fn engine_unavailable(layer: SettingsLayer) -> CallError {
+    let fingerprint_method = STEALTH_FINGERPRINT_METHOD.name;
+    unavailable(
+        (fingerprint_method, layer, "engine"),
+        format!("`{fingerprint_method}: basic`"),
+        format!(
+            "`{fingerprint_method}` is `engine`, set in {}, which needs a Goodfetch Chromium, and none exists yet: set it to `basic`, `js_injection` or `none`",
+            layer.as_str()
+        ),
+    )
+}
+
+/// `capability_unavailable` for the stealth item `key`, asked for in
+/// `layer` as `item` says, whose effect this engine does not build yet.
+fn unbuilt_item(key: &str, layer: SettingsLayer, item: Unbuilt) -> CallError {
+    match item {
+        Unbuilt::On => unavailable(
+            (key, layer, key),
+            format!("`{key}: false`"),
+            format!(
+                "`{key}` is on, {}, and this engine does not build it yet: set it to `false`",
+                match layer {
+                    SettingsLayer::Default => "by `stealth`'s default".to_owned(),
+                    layer => format!("set in {}", layer.as_str()),
+                }
+            ),
+        ),
+        Unbuilt::Set => unavailable(
+            (key, layer, key),
+            format!("leave `{key}` out"),
+            format!(
+                "`{key}` is set in {}, and this engine does not build it yet: leave it out",
+                layer.as_str()
+            ),
+        ),
+        Unbuilt::Headful => unavailable(
+            (key, layer, "headful_stealth"),
+            format!("`{key}: true`"),
+            format!(
+                "a `stealth` Session runs headful when `{key}` is left out, and this engine does not launch a headful browser for it yet: set `{key}`"
+            ),
+        ),
+    }
+}
+
+/// `capability_unavailable` for a `page.on` of `console` or `page_error`
+/// on a page of a `stealth` Session, chosen in `layer`: it turns on the
+/// browser's `Runtime` domain, which a detector sees, and no setting
+/// allows it yet (#599's Q2).
+pub(crate) fn runtime_under_stealth(layer: SettingsLayer) -> CallError {
+    standard_only(
+        layer,
+        "runtime_under_stealth",
+        "listening to `console` or `page_error` turns on the browser's `Runtime` domain, which a detector sees, so a `stealth` Session's pages refuse it and no setting allows it yet: listen on a `standard` Session".to_owned(),
+    )
 }
 
 /// `capability_unavailable` for an Access mode, chosen in `layer`, that
 /// this engine cannot run where it runs as `kind`, whose fix is `standard`.
 fn standard_only(layer: SettingsLayer, kind: &str, message: String) -> CallError {
     let access_mode = BROWSER_ACCESS_MODE.name;
+    unavailable(
+        (access_mode, layer, kind),
+        format!("`{access_mode}: standard`"),
+        message,
+    )
+}
+
+/// `capability_unavailable` for `key`, set in `layer`, which asks for
+/// `kind`, an effect this engine does not run, and whose `fix` does
+/// without it.
+fn unavailable(
+    (key, layer, kind): (&str, SettingsLayer, &str),
+    fix: String,
+    message: String,
+) -> CallError {
     CallError::new(
         &CAPABILITY_UNAVAILABLE,
         message,
         &CapabilityUnavailableDetails {
-            key: access_mode.to_owned(),
+            key: key.to_owned(),
             layer,
             kind: kind.to_owned(),
-            fix: format!("`{access_mode}: standard`"),
+            fix,
         },
     )
 }
@@ -579,12 +717,18 @@ fn signing_plan(
 }
 
 /// A `stealth` Session's Identity profile: the items set keep their values,
-/// the rest take `stealth`'s defaults.
+/// the rest take `stealth`'s defaults, but for the Fingerprint method,
+/// which falls back from `engine` to `basic` while no Goodfetch Chromium
+/// exists (ADR 0035).
 fn stealth_profile(settings: &SessionSettings<'_>) -> StealthProfile {
     let on = || Value::Bool(true);
+    let method_source = match settings.scoped(&STEALTH_FINGERPRINT_METHOD).1 {
+        Scope::Default => MethodSource::FellBack,
+        scope => MethodSource::Set(scope.layer()),
+    };
     let method = settings.under_stealth(
         &STEALTH_FINGERPRINT_METHOD,
-        Value::String(FingerprintMethod::Engine.as_str().to_owned()),
+        Value::String(FingerprintMethod::Basic.as_str().to_owned()),
     );
     let build = settings.under_stealth(
         &STEALTH_CHROMIUM_BUILD,
@@ -607,6 +751,7 @@ fn stealth_profile(settings: &SessionSettings<'_>) -> StealthProfile {
             &FingerprintMethod::ALL,
             FingerprintMethod::as_str,
         ),
+        method_source,
         generated_identity: value_as(
             &STEALTH_GENERATED_IDENTITY,
             &settings.under_stealth(&STEALTH_GENERATED_IDENTITY, on()),

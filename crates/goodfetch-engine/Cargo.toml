@@ -53,6 +53,9 @@ indexmap.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["tokio"] }
+# The HTTP messages a Response recording's WARC records hold (ADR 0105),
+# read with httparse, which hyper already brings.
+httparse.workspace = true
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118).
 httpdate.workspace = true
 # The Response cache (ADR 0046): RFC 9111's freshness and revalidation, on

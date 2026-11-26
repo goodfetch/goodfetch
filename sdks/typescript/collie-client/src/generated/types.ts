@@ -300,6 +300,13 @@ export type ChromeChannel = "stable" | "beta" | "dev" | "canary";
 export type SandboxEnvironment =
   "wsl1" | "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
 /**
+ * What `cache.verify` found wrong with a body file.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheBodyProblem".
+ */
+export type CacheBodyProblem = "missing" | "changed";
+/**
  * Who stopped a call that `call_cancelled` ended (ADR 0113): the
  * vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
  * (ADR 0079).
@@ -2350,6 +2357,188 @@ export interface BrowserSandboxUnavailableDetails {
    */
   environment: SandboxEnvironment;
 }
+/**
+ * What `cache.clear` takes: which of the caller's entries leave, each
+ * given filter narrowing it; every one of them when none is given.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheClearParams".
+ */
+export interface CacheClearParams {
+  /**
+   * Only the entries fetched through this proxy exit country; the
+   * empty text for those that left directly.
+   */
+  country?: string | null;
+  /**
+   * Only the entries fetched with this device class; the empty text
+   * for those fetched without one.
+   */
+  device?: string | null;
+  /**
+   * Only the entries of this host and its subdomains.
+   */
+  domain?: string | null;
+  /**
+   * Only the entries fetched with this Identity profile language; the
+   * empty text for those fetched without one.
+   */
+  language?: string | null;
+  /**
+   * Only the entries of this partition: `public`, or a Saved
+   * identity's name.
+   */
+  partition?: string | null;
+  /**
+   * Only the entries this Run fetched.
+   */
+  runId?: RunId | null;
+}
+/**
+ * What `cache.clear` answers: what left.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheCleared".
+ */
+export interface CacheCleared {
+  /**
+   * The body files deleted with them: those no entry left holds.
+   */
+  bodies: number;
+  /**
+   * The bytes those body files weighed.
+   */
+  bytes: number;
+  /**
+   * The entries deleted.
+   */
+  entries: number;
+}
+/**
+ * An entry whose body file `cache.verify` found damaged.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheDamage".
+ */
+export interface CacheDamage {
+  /**
+   * The SHA-256 of the body stored, as lower-case hex: its file's name.
+   */
+  bodySha256: string;
+  /**
+   * The request's method.
+   */
+  method: string;
+  /**
+   * The entry's partition: `public`, or a Saved identity's name.
+   */
+  partition: string;
+  /**
+   * What is wrong with its body file.
+   */
+  problem: CacheBodyProblem;
+  /**
+   * The Run that fetched it; none outside a Run.
+   */
+  runId?: RunId | null;
+  /**
+   * The request's URL, without its fragment.
+   */
+  url: string;
+}
+/**
+ * One partition's entries, as `cache.stats` counts them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CachePartitionStats".
+ */
+export interface CachePartitionStats {
+  /**
+   * The proxy's exit country its entries were fetched through; empty
+   * when they left directly or the Proxy declares none.
+   */
+  country: string;
+  /**
+   * The Identity profile's device class; empty without one.
+   */
+  device: string;
+  /**
+   * Its entries.
+   */
+  entries: number;
+  /**
+   * The Identity profile's language; empty without one.
+   */
+  language: string;
+  /**
+   * `public`, or the Saved identity whose partition it is.
+   */
+  partition: string;
+}
+/**
+ * What `cache.stats` answers: what the caller's Response cache holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheStats".
+ */
+export interface CacheStats {
+  /**
+   * The bodies they hold, each once however many entries share it.
+   */
+  bodies: number;
+  /**
+   * The bytes those bodies weigh, each once.
+   */
+  bodyBytes: number;
+  /**
+   * The caller's entries.
+   */
+  entries: number;
+  /**
+   * The bytes the whole cache holds on disk, every person's bodies and
+   * its index, which `cache.max_size` bounds.
+   */
+  heldBytes: number;
+  /**
+   * The caller's entries by partition, the most entries first.
+   */
+  partitions: CachePartitionStats[];
+}
+/**
+ * What `cache.stats` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheStatsParams".
+ */
+export interface CacheStatsParams {}
+/**
+ * What `cache.verify` answers: what it read, and what it found damaged.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheVerified".
+ */
+export interface CacheVerified {
+  /**
+   * The body files it read and hashed, each once.
+   */
+  bodies: number;
+  /**
+   * The entries whose body file is missing or no longer the body
+   * stored; none when the cache is whole.
+   */
+  damaged: CacheDamage[];
+  /**
+   * The caller's entries it checked.
+   */
+  entries: number;
+}
+/**
+ * What `cache.verify` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheVerifyParams".
+ */
+export interface CacheVerifyParams {}
 /**
  * What `call_cancelled` details (ADR 0113).
  *
@@ -7599,6 +7788,22 @@ export interface RecordRead {
   record: DatasetRecord;
 }
 /**
+ * What `recording_invalid`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordingInvalidDetails".
+ */
+export interface RecordingInvalidDetails {
+  /**
+   * What is wrong with it.
+   */
+  reason: string;
+  /**
+   * The Response recording's path, as the start named it.
+   */
+  recording: string;
+}
+/**
  * What a Run did with the Response recording its start named (ADR 0105).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7770,6 +7975,27 @@ export interface ResponseLimitExceededDetails {
    * The setting whose limit it passed.
    */
   setting: LimitSetting;
+}
+/**
+ * What `response_not_recorded`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseNotRecordedDetails".
+ */
+export interface ResponseNotRecordedDetails {
+  /**
+   * The request's method.
+   */
+  method: string;
+  /**
+   * The recorded URLs of the request's host and path, in the order
+   * recorded, at most five.
+   */
+  nearest: string[];
+  /**
+   * The Response recording's path, as the start named it.
+   */
+  recording: string;
 }
 /**
  * What `response_truncated` details.

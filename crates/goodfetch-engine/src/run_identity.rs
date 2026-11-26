@@ -7,7 +7,8 @@
 //! its stop signal, which the Runs' registry alone sets, through the one
 //! [`StopAsker`] it builds with the identity when the Run opens. What needs
 //! nothing but the identity is read from it: a point in time from its
-//! clock.
+//! clock. The identity a Page's parts are given starts their tasks on the
+//! Page's owner rather than the Run's (ADR 0146).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -22,9 +23,11 @@ use crate::metrics::Metrics;
 use crate::settings::RunSettings;
 use crate::tasks::{TaskOwner, TaskStarter};
 
-/// A live Run's identity. Cloning it is one reference count.
+/// A live Run's identity, and the owner its tasks start on: the Run's, or
+/// one below it that [`RunIdentity::starting_on`] names, such as a Page's.
+/// Cloning it is one reference count, or two for an owner below the Run.
 #[derive(Clone)]
-pub struct RunIdentity(Arc<Identity>);
+pub struct RunIdentity(Arc<Identity>, Option<Arc<TaskStarter>>);
 
 /// What a Run's identity says of it.
 struct Identity {
@@ -78,16 +81,19 @@ impl RunIdentity {
             owner,
         } = parts;
         let (asker, stop) = watch::channel(None);
-        let identity = Self(Arc::new(Identity {
-            id,
-            folder,
-            clock,
-            settings,
-            stop,
-            metrics,
-            span,
-            owner,
-        }));
+        let identity = Self(
+            Arc::new(Identity {
+                id,
+                folder,
+                clock,
+                settings,
+                stop,
+                metrics,
+                span,
+                owner,
+            }),
+            None,
+        );
         (identity, StopAsker(Arc::new(asker)))
     }
 
@@ -123,20 +129,30 @@ impl RunIdentity {
         &self.0.span
     }
 
-    /// Its owner's starting side, whose tasks and blocking work stop with
-    /// the Run: cancelling, waiting for and stopping the owner stay the
-    /// Runs' registry's (ADR 0145's note of 2026-11-10).
+    /// The starting side of the owner its tasks start on, whose tasks and
+    /// blocking work stop with the Run: the Run's own, whose cancelling,
+    /// waiting for and stopping stay the Runs' registry's (ADR 0145's note
+    /// of 2026-11-10), or the one below it [`RunIdentity::starting_on`]
+    /// named, which its holder stops.
     pub fn owner(&self) -> &TaskStarter {
-        &self.0.owner
+        self.1.as_deref().unwrap_or(&self.0.owner)
     }
 
-    /// Starts `future` as one of the Run's tasks, on its owner's starting
-    /// side, in its span.
+    /// The same Run's identity, whose tasks start on `tasks`, an owner below
+    /// the Run's, such as a Page's: what the parts of that owner's value
+    /// are given, so that the owner's stop waits for theirs too (ADR 0146).
+    #[must_use]
+    pub fn starting_on(&self, tasks: &TaskStarter) -> Self {
+        Self(Arc::clone(&self.0), Some(Arc::new(tasks.clone())))
+    }
+
+    /// Starts `future` as one of the tasks of the owner it starts them on,
+    /// in the Run's span.
     pub fn spawn<F>(&self, future: F)
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.0.owner.spawn(future.instrument(self.0.span.clone()));
+        self.owner().spawn(future.instrument(self.0.span.clone()));
     }
 
     /// Whether the Run was asked to stop at its next safe point.

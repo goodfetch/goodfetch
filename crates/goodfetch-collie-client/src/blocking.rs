@@ -14,6 +14,10 @@ use std::time::Duration;
 use goodfetch_protocol::page::events::PageRequest;
 use goodfetch_protocol::page::read::{PageRead, PageReadParams};
 use goodfetch_protocol::run::{CatalogTarget, Recording, RunId, RunProgress, RunReport, Tags};
+use goodfetch_protocol::schedule::{
+    ScheduleCreateParams, ScheduleDefinition, ScheduleGetParams, ScheduleId, ScheduleInfo,
+    ScheduleListParams,
+};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -24,7 +28,7 @@ use crate::error::Error;
 use crate::field_values::FieldValues;
 use crate::run_view::RunView;
 pub use key_value_store::KeyValueStore;
-pub use twins::{Locator, Page, Run, Session, WebSocket};
+pub use twins::{Locator, Page, Run, Schedule, Session, WebSocket};
 
 mod key_value_store;
 /// The blocking twins of the handles, which `xtask codegen` writes.
@@ -141,6 +145,13 @@ impl ClientConnection {
         self.0.open_run(run_id)
     }
 
+    /// The Connection's Schedules, as
+    /// [`crate::ClientConnection::schedules`]'s, reached without I/O.
+    #[must_use]
+    pub fn schedules(&self) -> Schedules {
+        Schedules(self.0.schedules(), self.0.clone())
+    }
+
     /// Shows each setting's effective value, the layer that set it and the
     /// layer that locked it, from the built-in defaults, the Operator
     /// policy, user configuration, the project configuration given and the
@@ -218,6 +229,59 @@ impl From<crate::Page> for Page {
     }
 }
 
+/// The blocking face of `schedule`, whose calls block.
+impl From<crate::Schedule> for Schedule {
+    fn from(inner: crate::Schedule) -> Self {
+        Self { inner }
+    }
+}
+
+/// A Connection's Schedules, whose calls block: the twin of
+/// [`crate::Schedules`]. Cloning it is cheap.
+#[derive(Clone, Debug)]
+pub struct Schedules(crate::Schedules, crate::ClientConnection);
+
+impl Schedules {
+    /// Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.
+    ///
+    /// Answers the [`Schedule`] under that ID, which holds it, as
+    /// [`crate::Schedules::create`] does, which `send()` sends.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn create(
+        &self,
+        definition: ScheduleDefinition,
+    ) -> Call<CreatedSchedule, ScheduleCreateParams> {
+        let call = self
+            .0
+            .create(definition)
+            .map(|created| created.map_schedule(Schedule::from));
+        Call::new(call, &self.1)
+    }
+
+    /// Lists every Schedule of the Schedule store, by ID.
+    ///
+    /// As [`crate::Schedules::list`] does, which `send()` sends.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn list(&self) -> Call<Vec<ScheduleInfo>, ScheduleListParams> {
+        Call::new(self.0.list(), &self.1)
+    }
+
+    /// Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.
+    ///
+    /// Answers the [`Schedule`] of that ID, as [`crate::Schedules::get`]
+    /// does, which `send()` sends.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn get(&self, id: &ScheduleId) -> Call<Schedule, ScheduleGetParams> {
+        Call::new(self.0.get(id).map(Schedule::from), &self.1)
+    }
+}
+
+/// What [`Schedules::create`] answers, its Schedule's calls blocking.
+pub type CreatedSchedule = crate::schedules::CreatedSchedule<Schedule>;
+
 /// The blocking twin of [`crate::Connection`]: a helper a library serving
 /// both Products writes takes `&impl blocking::Connection`, so it accepts
 /// either Product's blocking connection.
@@ -292,6 +356,10 @@ pub trait Connection {
     ///
     /// As [`crate::Connection::open_run`].
     fn open_run(&self, run_id: &RunId) -> Result<RunView, Error>;
+
+    /// The Connection's Schedules, as [`crate::Connection::schedules`]'s,
+    /// reached without I/O.
+    fn schedules(&self) -> Schedules;
 
     /// The raw call of `operation`, as [`crate::Connection::call`]'s,
     /// which `send()` sends.

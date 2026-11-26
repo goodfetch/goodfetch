@@ -4,6 +4,7 @@
     reason = "tests run on the test Clock and read the report once written (ADR 0059)"
 )]
 
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_test_support::TestEnv;
@@ -57,6 +58,56 @@ fn a_panic_leaves_a_crash_report_in_its_folder_on_the_machine() {
             true,
             "message: the invariant broke",
         )
+    );
+}
+
+/// A panic's text stays in its crash report: the one log line the panic
+/// writes, all a log file or a configured collector receives of it, names
+/// the report's path and holds none of the panic's text (spec #564).
+/// Covers: story:4-84
+#[test]
+fn a_panics_text_is_in_its_crash_report_and_in_no_log_line() {
+    let env = TestEnv::new();
+    let folder = env.home().join("crashes");
+    let log = env.home().join("panic.log");
+    std::fs::create_dir_all(env.home()).unwrap();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(Arc::new(std::fs::File::create(&log).unwrap()))
+        .finish();
+
+    tracing::subscriber::with_default(subscriber, || {
+        goodfetch_test_support::runtime().block_on(async {
+            record_panics(
+                folder.clone(),
+                "goodfetch-collie 0.1.0".to_owned(),
+                Clock::paused(SystemTime::UNIX_EPOCH),
+                Masks::new(),
+            );
+            std::panic::catch_unwind(|| panic!("the page at https://shop.example.test/cart broke"))
+        })
+    })
+    .unwrap_err();
+    let _ = std::panic::take_hook();
+
+    let report = std::fs::read_dir(&folder)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&report).unwrap();
+    let logged = std::fs::read_to_string(&log).unwrap();
+    let lines: Vec<&str> = logged.lines().collect();
+    assert_eq!(
+        (
+            text.contains("message: the page at https://shop.example.test/cart broke"),
+            lines.len(),
+            lines.iter().any(|line| line.contains("shop.example.test")),
+            lines
+                .first()
+                .is_some_and(|line| line.contains(&report.display().to_string())),
+        ),
+        (true, 1, false, true)
     );
 }
 

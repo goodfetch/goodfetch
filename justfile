@@ -160,18 +160,13 @@ lint:
     set -euo pipefail
     source ci/keep-going.sh
     steps_begin lint
-    step lint-documents '{{ just_executable() }} lint-documents'
-    step ignored-sources 'ci/ignored-sources.sh'
-    step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
-    step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
-    step lint-drift '{{ just_executable() }} lint-drift'
-    step xtask 'cargo build --quiet --bin xtask'
-    step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
-    # The first-party crates the workspace excludes, the forks under vendor/ aside.
-    step --after cargo-lock --after kennel-lock clippy-excluded 'ci/clippy-excluded.sh'
+    # The steps that build nothing run one after another in a background
+    # lane while Cargo builds for the steps after it (ci/keep-going.sh).
+    steps_lane_begin
     step lint-types '{{ just_executable() }} lint-types'
     step oxlint 'pnpm exec oxlint'
     step ruff 'uv run ruff check .'
+    step copies 'ci/copies.sh'
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
@@ -197,6 +192,23 @@ lint:
     # crawlberg's side, the same, its `browser` feature included.
     step cargo-deny-crawlberg 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-crawlberg/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
     step cargo-deny-chromiumoxide 'ci/tool.sh cargo-deny cargo deny --manifest-path xtask/compare-chromiumoxide/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    # The Kennel's workspace (ADR 0141), read without a build: its lock's
+    # licenses against the root allowlist, and its bans and sources with its
+    # own deny.toml.
+    step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
+    step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
+    step tool-versions 'ci/tool-versions.sh'
+    steps_lane_end
+    step lint-documents '{{ just_executable() }} lint-documents'
+    step ignored-sources 'ci/ignored-sources.sh'
+    step cargo-lock 'cargo metadata --locked --format-version 1 > /dev/null'
+    step kennel-lock 'cd kennel && cargo metadata --locked --offline --format-version 1 > /dev/null'
+    step lint-drift '{{ just_executable() }} lint-drift'
+    step xtask 'cargo build --quiet --bin xtask'
+    step --after cargo-lock clippy 'cargo clippy --workspace --all-targets --all-features -- -D warnings'
+    # The first-party crates the workspace excludes, the forks under vendor/ aside.
+    step --after cargo-lock --after kennel-lock clippy-excluded 'ci/clippy-excluded.sh'
     # Crawlee's, Scrapy's and the Collie scenario's arms' sides, no
     # workspace member either: their locks' licenses against the same
     # allowlist, read from what their frozen installs leave beside them, with
@@ -206,14 +218,9 @@ lint:
     step compare-collie-arms-install 'pnpm install --frozen-lockfile --reporter=silent --dir xtask/compare-collie-arms'
     step --after compare-collie-arms-install compare-collie-arms-typecheck 'pnpm --dir xtask/compare-collie-arms run --silent typecheck'
     step --after xtask --after compare-crawlee-install --after compare-scrapy-install --after compare-collie-arms-install xtask-notices 'cargo run --quiet --bin xtask -- notices --side xtask/compare-crawlee --side xtask/compare-scrapy --side xtask/compare-collie-arms'
-    # The Kennel's workspace (ADR 0141), read without a build: its lock's
-    # licenses against the root allowlist, its bans and sources with its own
-    # deny.toml, and its manifest's lints, `rust-version` and shared
-    # dependency versions against the root's.
-    step cargo-deny-kennel-licenses 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config deny.toml check -A license-not-encountered licenses'
-    step cargo-deny-kennel 'ci/tool.sh cargo-deny cargo deny --manifest-path kennel/Cargo.toml --config kennel/deny.toml check bans sources'
+    # The Kennel's manifest's lints, `rust-version` and shared dependency
+    # versions against the root's (ADR 0141).
     step --after xtask xtask-kennel-manifest 'cargo run --quiet --bin xtask -- kennel-manifest'
-    step cargo-shear 'ci/tool.sh cargo-shear cargo shear'
     step --after xtask xtask-workflow-policy 'cargo run --quiet --bin xtask -- workflow-policy'
     step --after xtask xtask-egress 'cargo run --quiet --bin xtask -- egress check'
     step --after xtask xtask-os-services 'cargo run --quiet --bin xtask -- os-services workflows'
@@ -238,7 +245,6 @@ lint:
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
-    step tool-versions 'ci/tool-versions.sh'
     steps_end
 
 # Regenerates every file generated from goodfetch-protocol's types: the JSON
@@ -412,6 +418,53 @@ journeys *arguments:
         if [[ -f "target/$report" ]]; then mv "target/$report" "$junit/$runner.xml"; fi
       done
     fi
+    exit "$status"
+
+# Runs the older-engine checks of `product`, `collie` or `foxhound`, through
+# `just test pre-merge` (ADRs 0066, 0094 and 0098): the tree's tests that
+# drive that Product's older executable on what the current Foxhound wrote.
+# `--engine <path>` is the older executable, a released minor's, which they
+# read from GOODFETCH_TEST_OLDER_ENGINE; without it the commit's own
+# executable of the Product stands for it. `--junit <folder>` moves nextest's
+# JUnit file there as `nextest.xml`, pass or fail.
+[positional-arguments]
+older-engine product *arguments:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$1" in
+      collie | foxhound) product=$1 ;;
+      *) echo "error: the Product is collie or foxhound, not $1" >&2; exit 2 ;;
+    esac
+    shift
+    engine="" junit=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --junit) junit="${2:?--junit takes a folder}"; shift 2 ;;
+        --junit=*) junit="${1#--junit=}"; shift ;;
+        --engine) engine="${2:?--engine takes a path}"; shift 2 ;;
+        --engine=*) engine="${1#--engine=}"; shift ;;
+        *) echo "error: unknown argument $1" >&2; exit 2 ;;
+      esac
+    done
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    printf 'nextest\t-E\nnextest\ttest(/^older_engine::/) & test(/older_%s/)\n' "$product" \
+      > "$scratch/selection"
+    export GOODFETCH_TEST_SELECTION="$scratch/selection"
+    if [[ -n "$engine" ]]; then
+      GOODFETCH_TEST_OLDER_ENGINE=$(cd "$(dirname "$engine")" && pwd)/$(basename "$engine")
+      [[ -x "$GOODFETCH_TEST_OLDER_ENGINE" ]] || { echo "error: $engine is not an executable" >&2; exit 2; }
+      export GOODFETCH_TEST_OLDER_ENGINE
+      echo "Older $product: $GOODFETCH_TEST_OLDER_ENGINE"
+    fi
+    report=target/nextest/ci/junit.xml
+    if [[ -n "$junit" ]]; then
+      mkdir -p "$junit"
+      rm -f "$report"
+    fi
+    status=0
+    {{ just_executable() }} test pre-merge goodfetch-foxhound || status=$?
+    if [[ -n "$junit" && -f "$report" ]]; then mv "$report" "$junit/nextest.xml"; fi
     exit "$status"
 
 # What the changed packages declare and miss (ADR 0072): the Features each
@@ -625,16 +678,28 @@ test suite *packages:
     vitest+=(${vitest_files[@]+"${vitest_files[@]}"})
     # Every runner's tests read the suite from GOODFETCH_TEST_SUITE, and find
     # the commit's executables through the test tool manifest (ADRs 0062 and
-    # 0094): those the workspace has, built here with the tests' profile.
+    # 0094): those the workspace has, built here with the tests' profile. The
+    # Quick suite builds none and leaves GOODFETCH_TEST_TOOLS unset, a stale
+    # path from the shell included: its tests run in process (nextest's
+    # `quick` profile, Vitest's unit project, pytest outside
+    # tests/integration) and none runs a tool, while the build of the seven
+    # tools rebuilt every crate above the touched one and linked about 1.3 GB
+    # of executables on each run, most of a `just test quick`'s time (the
+    # implementation audit of 2026-11-25, measure 1). A quick test that asks
+    # for one fails at once, naming `just test` (`tools()`).
     # Each Rust Journey variant writes its result document, `<id>@<surface>.json`,
     # into target/result-documents/ (ADR 0063).
     export GOODFETCH_TEST_SUITE="{{ suite }}"
-    {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
-    export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
-    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
-    if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
-      echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
+    if [[ "{{ suite }}" == quick ]]; then
+      unset GOODFETCH_TEST_TOOLS
+    else
+      {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
+      export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
+      if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
+        echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"
+      fi
     fi
+    export GOODFETCH_TEST_RESULT_DOCUMENTS="$PWD/target/result-documents"
     select_nextest=() select_vitest=() select_playwright=() select_pytest=()
     vitest_runs=$vitest_given playwright_runs=$playwright_given
     $typescript || vitest_runs=false playwright_runs=false
@@ -724,7 +789,7 @@ test suite *packages:
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' --ignore-glob='*/tests/journeys/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
@@ -1099,8 +1164,11 @@ test-affected suite *change:
 # what it renders the tests' fixture from. They are `tests/` tests, which the Quick
 # suite never runs, so `just quick` and the quick gate run them on their own
 # and a change like that cannot merge with them red (issue 2892); the
-# Pre-merge suite runs them with every test. The change as `just
-# test-affected` takes it, `--local` when none is given.
+# Pre-merge suite runs them with every test. They build with the
+# workspace's features (`--workspace --test it`), as the Pre-merge suite
+# and lint's quarantine listing build them: `-p xtask` alone gives some
+# dependencies other features, which rebuilt them for this step alone.
+# The change as `just test-affected` takes it, `--local` when none is given.
 codegen-tests *change:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1117,7 +1185,7 @@ codegen-tests *change:
     skips=$(ci/nextest-skips.sh "$exclusions")
     skip_nextest=()
     while IFS= read -r argument; do [[ -z "$argument" ]] || skip_nextest+=("$argument"); done <<< "$skips"
-    INSTA_UPDATE=no cargo nextest run -p xtask --test it --cargo-profile {{ test_profile }} \
+    INSTA_UPDATE=no cargo nextest run --workspace --test it --cargo-profile {{ test_profile }} \
       -E 'binary_id(xtask::it) & test(/^codegen::/)' ${skip_nextest[@]+"${skip_nextest[@]}"}
 
 # Each suite lists the parts it could not run on this host, with the reason,
@@ -1180,7 +1248,7 @@ batch-check base="origin/main":
 # the other steps, each in its own container, with their lines marked:
 # `perf`, `linux` (the tests only Linux decides) and `visual` (the visual
 # projects in the pinned Playwright image, ADR 0073); TLC,
-# Miri and loom run beside them too, on the host, in folders of their own. The suite waits for
+# Miri, loom and the Simulation run beside them too, on the host, in folders of their own. The suite waits for
 # them and fails when one fails (ci/pre-merge.sh). `windows` (the workspace
 # built for Windows and tested under Wine, in its own image) runs last,
 # alone, once every other step has ended, since its tests' start deadlines
@@ -1402,7 +1470,10 @@ rss-propose *scenarios:
 # arm is read against and `collie.playwright_command_ratio` against its
 # register row's Today;
 # `--scenario collie` runs it alone. It gates nothing and is no Live check;
-# run it when the 1-minute load is under 4.
+# each timed trial waits for the quiet check (its cores idle, no CPU or
+# memory pressure, nothing left of the previous trial), and
+# `--quiet-until <time>` stops the run at that time on a machine still
+# failing it (issue 3352).
 # The handled scenario (issue 2317) crawls the article site with a program's
 # handler on each page, which reads its twenty fields, pushes them as one
 # Record and enqueues its links: Foxhound's is a TypeScript program on its
@@ -1662,13 +1733,14 @@ tlc-validate *arguments:
 
 # A job that passes the models is so shown able to fail, run fencing's
 # model to reach the zombie copy its destinations fence (`zombie.cfg`), and
-# the trace validation to refuse a trace altered by hand.
-# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit must fail its validation.
+# each trace validation to refuse a trace altered by hand.
+# The TLC job's self-test: the sample's broken variant and run fencing's zombie variant must fail their invariants, and a slices trace with a Slice past the Limit and a lease trace with a late commit counted must fail their validation.
 tlc-self-test:
     {{ just_executable() }} tlc-fetch
     cargo run --quiet --bin xtask -- tlc run sample --config broken --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc validate slices --trace test-support/models/slices/slice-past-the-limit.ndjson --expect unmatched
+    cargo run --quiet --bin xtask -- tlc validate run-fencing --trace test-support/models/run-fencing/commit-after-expiry.ndjson --expect unmatched
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned
@@ -1832,24 +1904,23 @@ notices *arguments:
 # xtask/compare-chromiumoxide), against
 # the advisory snapshot ci/advisories.toml pins (ADR 0064), offline:
 # cargo-deny's and cargo-audit's over RustSec's pinned commit, OSV-Scanner's
-# over OSV's pinned npm and PyPI databases (ci/audit.sh). Its first run
-# downloads the snapshot into target/advisories/; a fail is always the
-# commit's.
+# over OSV's pinned npm and PyPI databases (ci/audit.sh), every lockfile at
+# once after one fetch of the snapshot. Its first run downloads the snapshot
+# into target/advisories/; a fail is always the commit's.
 audit:
-    ci/tool.sh cargo-audit ci/audit.sh rust
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-spider/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlee-rs/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-pagesift/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-openspider/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-fastcrw/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-crawlberg/Cargo.toml
-    ci/tool.sh cargo-audit ci/audit.sh rust xtask/compare-chromiumoxide/Cargo.toml
-    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-crawlee/pnpm-lock.yaml
-    ci/tool.sh osv-scanner ci/audit.sh npm xtask/compare-collie-arms/pnpm-lock.yaml
-    ci/tool.sh osv-scanner ci/audit.sh python xtask/compare-scrapy/uv.lock
-    ci/tool.sh cargo-audit ci/audit.sh rust kennel/Cargo.toml
-    ci/tool.sh osv-scanner ci/audit.sh npm
-    ci/tool.sh osv-scanner ci/audit.sh python
+    ci/audit.sh each rust \
+      rust=xtask/compare-spider/Cargo.toml \
+      rust=xtask/compare-crawlee-rs/Cargo.toml \
+      rust=xtask/compare-pagesift/Cargo.toml \
+      rust=xtask/compare-openspider/Cargo.toml \
+      rust=xtask/compare-fastcrw/Cargo.toml \
+      rust=xtask/compare-crawlberg/Cargo.toml \
+      rust=xtask/compare-chromiumoxide/Cargo.toml \
+      npm=xtask/compare-crawlee/pnpm-lock.yaml \
+      npm=xtask/compare-collie-arms/pnpm-lock.yaml \
+      python=xtask/compare-scrapy/uv.lock \
+      rust=kennel/Cargo.toml \
+      npm python
 
 # The live advisory audit, a Live check (ADR 0064) that runs daily on
 # `main`'s head (from the server's cron while the hosted workflows are off):
@@ -1964,6 +2035,65 @@ loom:
         cargo test --locked --package "${module%%$'\t'*}" --lib -- "${module#*$'\t'}"
     done
 
+# The gate's Simulation step (ADR 0060, issue 359): every scenario of every
+# crate's `tests/it/simulation/`, built with `--cfg tokio_unstable` in
+# `target/simulation/`, which no other step reads, run at the Pre-merge
+# suite's case count from each of 16 fixed seeds (GOODFETCH_TEST_SEED 1 to
+# 16). Each scenario's generator runs its committed Fault plans
+# (`fixtures/fault_plans/<scenario>/`) before its generated ones, and its
+# determinism check reruns 4 seeds drawn from the test's. A red seed names
+# itself and the command that runs it again. The scenarios run no test tool,
+# so the step builds none beside the host's suites. A scenario of a module a
+# TLA+ model describes writes each seed's model trace into
+# `target/simulation/model-traces/<model>/` (GOODFETCH_MODEL_TRACES), and
+# TLC then validates each one against the model's trace spec (issue 360);
+# without Java that part is listed as skipped.
+simulation:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    traces="${CARGO_TARGET_DIR:-$PWD/target}/simulation/model-traces"
+    rm -rf "$traces"
+    mkdir -p "$traces"
+    metadata=$(cargo metadata --no-deps --format-version 1)
+    packages=()
+    while IFS= read -r folder; do
+      packages+=(-p "$(jq -r --arg manifest "$PWD/${folder%/tests/it/simulation}/Cargo.toml" \
+        '.packages[] | select(.manifest_path == $manifest) | .name' <<<"$metadata")")
+    done < <(find crates -type d -path '*/tests/it/simulation' -not -path '*/target/*' | LC_ALL=C sort)
+    if [[ ${#packages[@]} -eq 0 ]]; then
+      echo "No crate has a Simulation scenario."
+      exit 0
+    fi
+    # Each seed runs once; a `for` loop with no `break` retries nothing
+    # (xtask no-retry).
+    red=()
+    for seed in $(seq 1 16); do
+      echo "The Simulation from seed $seed of 16:"
+      GOODFETCH_TEST_SEED="$seed" GOODFETCH_TEST_SUITE=pre-merge GOODFETCH_MODEL_TRACES="$traces" \
+        RUSTFLAGS="${RUSTFLAGS:-} --cfg tokio_unstable" CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}/simulation" \
+        cargo nextest run --locked "${packages[@]}" --test it --cargo-profile {{ test_profile }} \
+        -E 'test(/^simulation::/)' || red+=("$seed")
+    done
+    # Each trace is validated once, whatever the others' verdicts.
+    unmatched=()
+    if compgen -G "$traces/*/*.ndjson" >/dev/null; then
+      ci/tool.sh java {{ just_executable() }} tlc-fetch
+      for trace in "$traces"/*/*.ndjson; do
+        model=$(basename "$(dirname "$trace")")
+        ci/tool.sh java cargo run --quiet --bin xtask -- tlc validate "$model" --trace "$trace" \
+          || unmatched+=("$trace")
+      done
+    fi
+    if [[ ${#red[@]} -gt 0 ]]; then
+      echo "error: the Simulation fails from the seeds ${red[*]}; run one again with: GOODFETCH_TEST_SEED=<seed> GOODFETCH_TEST_SUITE=pre-merge just simulate <scenario>" >&2
+    fi
+    if [[ ${#unmatched[@]} -gt 0 ]]; then
+      echo "error: no behaviour of its model matches the model traces ${unmatched[*]}; validate one again with: just tlc-validate <model> --trace <file>" >&2
+    fi
+    if [[ ${#red[@]} -gt 0 || ${#unmatched[@]} -gt 0 ]]; then
+      exit 1
+    fi
+
 # The Simulation's scenario `scenario` (ADR 0060): the tests of each
 # crate's `tests/it/simulation/<scenario>.rs`, built with `--cfg
 # tokio_unstable` in a folder of their own, `target/simulation/`, in the
@@ -2075,6 +2205,12 @@ preflight:
 # when a `Quality-change: <file or row>: <reason>` trailer of the change names it.
 floor-guard base="origin/main" head="HEAD":
     cargo run --quiet --bin xtask -- floor-guard --base "{{ base }}" --head "{{ head }}"
+
+# Removes from ci/copies.json the copies of Rust code the tree no longer
+# holds, after a change that removed one (ci/copies.sh, a step of `just
+# lint`). It never adds a copy: a deliberate one is marked in the code.
+copies-shrink:
+    ci/copies.sh --shrink
 
 # Runs the static checks against fixtures that each must fail (ADR 0062's bans
 # and the snapshot rules), proving the configurations refuse what they should.
@@ -2228,8 +2364,9 @@ _gate-steps form:
 # green lint on the same tree, the plan reads each quarantined test's issue
 # again, as lint's quarantine check does, with the same token. The plan is
 # of the form `form` of `just pre-merge`, by the layer `layer`; the hosted
-# runs' records `just merge` or a hosted job downloaded
-# (GOODFETCH_GATE_HOSTED_RECORDS, ci/hosted-records.sh) count for the
+# runs' records a hosted job or the Release suite downloaded
+# (GOODFETCH_GATE_HOSTED_RECORDS, ci/hosted-records.sh; `just merge` reads
+# none, ADR 0135's note of 2026-11-25) count for the
 # hosted-owned steps when they name the repository GOODFETCH_GATE_REPOSITORY
 # names; a hosted job's fingerprint names its runner image
 # (GOODFETCH_GATE_RUNNER_IMAGE).
@@ -2355,8 +2492,7 @@ _gate-compare full runs since="":
 # both layers, on each unit a run in the gate's records (ci/gate-records.sh)
 # ran, not reused, on a tree where an earlier run had recorded it green.
 # `hosted`, a folder of hosted runs' records that `ci/hosted-records.sh`
-# downloaded (`just merge` keeps them in its gate worktree's
-# `target/hosted-records`), adds their runs, so a unit the gate ran after a
+# downloaded, adds their runs, so a unit the gate ran after a
 # hosted job had run it green is found too (spec #3373).
 duplicate-runs hosted="":
     cargo run --quiet --locked --bin xtask -- gate duplicates --records "$(ci/gate-records.sh)" \

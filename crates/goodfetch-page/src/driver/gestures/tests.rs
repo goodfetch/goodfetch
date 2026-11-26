@@ -10,6 +10,7 @@ use serde_json::json;
 
 use super::GestureWatch;
 use crate::driver::navigation::Navigation;
+use crate::driver::page_reader::PageReader;
 use crate::driver::replay::{self, FRAME, Played, SESSION};
 
 /// Where the form the click submitted goes.
@@ -50,13 +51,16 @@ async fn request_then_answer(mut browser: Played) {
 async fn requested_once_answered() -> Option<String> {
     let ((connection, driver), browser) = replay::connected();
     let session = SessionId(SESSION.to_owned());
+    let reader = PageReader::new(&connection, &session);
     let mut watch = GestureWatch {
-        events: connection.subscribe(Some(&session)),
+        reader: reader.clone(),
+        events: reader.events_on(&session),
         navigation: Navigation::of(FRAME.to_owned()),
         ended: false,
     };
-    let (_, requested, ()) = tokio::join!(
+    let (_, (), requested, ()) = tokio::join!(
         driver.run(),
+        reader.reading(None),
         async {
             let answered = watch
                 .during(connection.send_raw(

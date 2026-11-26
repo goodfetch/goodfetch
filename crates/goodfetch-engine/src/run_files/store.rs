@@ -118,6 +118,24 @@ fn exports_of(folder: &Path, run_epoch: u64) -> PathBuf {
     folder.join(EXPORTS).join(run_epoch.to_string())
 }
 
+/// Deletes every Export of the Run folder `folder`, of every run epoch,
+/// as when one of the Run's Datasets is erased (ADR 0031): no record says
+/// which Dataset an Export holds.
+///
+/// # Errors
+///
+/// When the OS refuses a file or folder; none there is no error.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "its caller runs it under its owner's blocking policy"
+)]
+pub(crate) fn forget_exports(folder: &Path) -> io::Result<()> {
+    match std::fs::remove_dir_all(folder.join(EXPORTS)) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
 /// Whether `sha256` is a SHA-256 in lowercase hexadecimal.
 fn is_digest(sha256: &str) -> bool {
     sha256.len() == 64

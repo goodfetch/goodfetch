@@ -452,17 +452,18 @@ pub(crate) fn user_configuration(settings: &str) -> String {
 }
 
 /// The Proving ground's host names that belong to no task and that a case
-/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
-/// scope family's site and off-site host the route cases load, the
+/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118) and the
+/// Response cache's (ADR 0046), and the scope family's site and off-site host the route cases load, the
 /// Clean-up pages' two hosts and the payment script's (ADR 0047), the
 /// consent pages' two hosts (ADR 0048), the `body-limits` family's host
 /// whose robots.txt is past the size limit, the `access-policy` family's
 /// host whose robots.txt answers late, and the `bombs` family's own
 /// host, whose zstd frame asks for a window past 8 MB (ADR 0067); and the
 /// delivery cases' plain host, which an engine would otherwise look up.
-const NAMED_HOSTS: [&str; 12] = [
+const NAMED_HOSTS: [&str; 13] = [
     delivery::PLAIN_HOST,
     "fetch-edge.test",
+    fetch_tiers::cached::HOST,
     "scope.test",
     "elsewhere.test",
     clean_up::HOST,

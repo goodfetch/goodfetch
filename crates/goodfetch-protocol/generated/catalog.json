@@ -1015,13 +1015,13 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
+      "description": "Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "page_events_lost",
       "product": "collie",
-      "retryable": false
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -1312,6 +1312,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.",
+      "details": {
+        "$ref": "#/$defs/RecipeInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recipe_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
       "details": {
         "$ref": "#/$defs/RecordInvalidDetails"
@@ -1321,6 +1334,16 @@
       "json_rpc_class": -32001,
       "name": "record_invalid",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "replay_not_allowed",
+      "product": "collie",
       "retryable": false
     },
     {
@@ -1524,7 +1547,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "description": "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
       "details": {
         "$ref": "#/$defs/RunDetails"
       },
@@ -1617,6 +1640,45 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleExistsDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleNotFoundDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
+      "details": {
+        "$ref": "#/$defs/ScheduleTriggerInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_trigger_invalid",
       "product": "collie",
       "retryable": false
     },
@@ -2601,6 +2663,9 @@
             "batches",
             "block_classifications",
             "builds",
+            "cache_body_writes",
+            "cache_file_opens",
+            "cache_lookups",
             "calls",
             "check_commands",
             "click_commands",
@@ -2623,6 +2688,8 @@
             "encodes",
             "end_round_trips",
             "entries",
+            "event_decodes",
+            "event_visits",
             "evidence_reads",
             "fetch_messages_no_rule",
             "file_opens",
@@ -2644,9 +2711,12 @@
             "opening_commands",
             "opens",
             "origin_transactions",
+            "owner_round_trips",
             "page_learning",
+            "page_tasks",
             "page_waits",
             "parses",
+            "pending_orphans",
             "plugin_answer_parses",
             "plugin_serializations",
             "politeness_read_round_trips",
@@ -3394,6 +3464,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.erase",
+      "params": {
+        "$ref": "#/$defs/DatasetEraseParams"
+      },
+      "product": "foxhound",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/DatasetErased"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.",
@@ -3445,6 +3534,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DatasetQueryResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.search",
+      "params": {
+        "$ref": "#/$defs/DatasetSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetSearchPage"
       },
       "stability": "experimental"
     },
@@ -4397,6 +4505,25 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
+      "description": "Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "record.search",
+      "params": {
+        "$ref": "#/$defs/RecordSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RecordSearchResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
       "description": "Reads the body of the response a page's request got, once the request finished, as a page body's handle: kept already for a response `page.wait_for_request_finished` answered, and otherwise read from the browser, on the session of the frame that loaded it. A body the browser no longer holds, or a redirect's, which has none, raises `body_unavailable`, whose fix names `page.wait_for_request_finished`; one that broke off raises `response_truncated`, never returned as whole. Past its `timeout`, `timeout.wait` when the call gives none, a request that has not ended fails it with `deadline_exceeded`; a page that ends under it raises what ended it, as a call on the page does.",
       "events": [],
       "kind": "round_trip",
@@ -5061,6 +5188,101 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.create",
+      "params": {
+        "$ref": "#/$defs/ScheduleCreateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleCreated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.delete",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.get",
+      "params": {
+        "$ref": "#/$defs/ScheduleGetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.info",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Schedule of the Schedule store, by ID.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.list",
+      "params": {
+        "$ref": "#/$defs/ScheduleListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
@@ -5656,6 +5878,78 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 2592000000,
+      "deprecated": null,
+      "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_age_ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10000000000,
+      "deprecated": null,
+      "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "off",
+      "deprecated": null,
+      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+      "fixed_for_run": false,
+      "name": "cache.mode",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "off",
+          "revalidate"
+        ]
       },
       "weakening": null,
       "weakens": false
@@ -6820,6 +7114,29 @@
         ]
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+      "fixed_for_run": false,
+      "name": "dataset.search.index",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
     },
     {
       "arrived_in": "0.1",
@@ -10665,7 +10982,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.aws_sm.region",
       "product": "collie",
@@ -10686,7 +11003,7 @@
       "clearable": false,
       "default": "https://login.microsoftonline.com",
       "deprecated": null,
-      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant, with the service principal's secret or the workload identity's federated token. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.authority",
       "product": "collie",
@@ -10707,7 +11024,7 @@
       "clearable": false,
       "default": "https://{vault}.vault.azure.net",
       "deprecated": null,
-      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault, from the first identity its environment gives, in the Azure Identity libraries' order: the service principal of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, or the workload identity of `AZURE_FEDERATED_TOKEN_FILE`, whose token Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues, or else the host's managed identity, through `IDENTITY_ENDPOINT` or the instance metadata service; `AZURE_TOKEN_CREDENTIALS` keeps only the sources it names. With no identity, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.endpoint",
       "product": "collie",
@@ -10749,7 +11066,7 @@
       "clearable": false,
       "default": "https://secretmanager.googleapis.com",
       "deprecated": null,
-      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, or else one it takes from a service account's key file that `GOOGLE_APPLICATION_CREDENTIALS` names or from the metadata server's service account, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.gcp_sm.endpoint",
       "product": "collie",
@@ -10993,7 +11310,7 @@
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
+      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.field_encryption",
       "product": "collie",
@@ -11105,7 +11422,7 @@
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
+      "description": "Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.secure_delete",
       "product": "collie",

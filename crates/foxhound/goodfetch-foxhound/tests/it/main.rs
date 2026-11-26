@@ -159,6 +159,7 @@ mod decoding;
 mod discovered_api;
 mod effect_window;
 mod enqueue_links;
+mod erase;
 mod escalation;
 mod export_formats;
 mod exports;
@@ -186,6 +187,7 @@ mod needs_you;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod no_console;
+mod older_engine;
 mod operator_policy;
 mod outcomes;
 mod pacing;
@@ -205,6 +207,7 @@ mod robots_txt;
 mod sample_comparison;
 mod scope;
 mod sdk;
+mod search;
 mod seeds;
 mod served_calls;
 mod service_manager;

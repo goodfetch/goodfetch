@@ -7,7 +7,10 @@
 #               executables with the thin-LTO `ci` profile, both Products'
 #               among them, from one invocation (ADR 0094), with the manifest
 #               the resident-memory check runs and the size report reads;
-#   size        writes the target's size report of both Products, keyed by
+#   tools       before the deny, for a job that runs no Rust test (the
+#               nightly tier's free-threaded CPython, ADR 0069): the test
+#               tool manifest and the quarantine's exclusions alone;
+#   size       writes the target's size report of both Products, keyed by
 #               the tree the cell tested (`xtask size`, ADR 0061), and on a
 #               musl cell fails on an executable of theirs that is no
 #               static-PIE with packed relocations (`xtask static-pie`, ADR
@@ -42,7 +45,7 @@
 # run passed on this tree, separated by spaces (#3384).
 set -euo pipefail
 
-part=${1:?usage: ci/release/cell.sh build|size|rust|lazyfs|typescript|python|rss}
+part=${1:?usage: ci/release/cell.sh build|tools|size|rust|lazyfs|typescript|python|rss}
 cell=${CELL:?the job sets CELL}
 target=${TARGET:?the job sets TARGET}
 shard=${SHARD:-1/1}
@@ -106,6 +109,11 @@ case "$part" in
     cargo run --quiet --locked --bin xtask -- quarantine exclude >"$exclusions"
     cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile ci \
       --target "$target" --out "$rss_tools"
+    ;;
+  tools)
+    cargo run --quiet --locked --bin xtask -- test-tools build --cargo-profile ci-test \
+      --target "$target" --out "$GOODFETCH_TEST_TOOLS"
+    cargo run --quiet --locked --bin xtask -- quarantine exclude >"$exclusions"
     ;;
   size)
     tree=$(git rev-parse 'HEAD^{tree}')
@@ -197,7 +205,11 @@ case "$part" in
       echo "CPython $python"
       # pytest exits 5 when it collects no test, as before any Python test exists.
       code=0
-      uv run --frozen --python "$python" pytest -n auto "${pytest_order[@]}" \
+      # A free-threaded line leaves out LangChain, as ci/host/fetch.sh
+      # installed it (issue 3738).
+      groups=()
+      case "$python" in *t) groups=(--no-group langchain) ;; esac
+      uv run --frozen --python "$python" ${groups[@]+"${groups[@]}"} pytest -n auto "${pytest_order[@]}" \
         --junitxml="target/junit/pytest-$python.xml" ${skip_pytest[@]+"${skip_pytest[@]}"} || code=$?
       [[ $code -eq 0 || $code -eq 5 ]] || status=$code
     done
@@ -211,7 +223,7 @@ case "$part" in
     cargo run --quiet --locked --bin xtask -- rss check --peaks "$rss_peaks" ${summary[@]+"${summary[@]}"}
     ;;
   *)
-    echo "error: the part is build, size, rust, lazyfs, typescript, python or rss, not $part" >&2
+    echo "error: the part is build, tools, size, rust, lazyfs, typescript, python or rss, not $part" >&2
     exit 2
     ;;
 esac

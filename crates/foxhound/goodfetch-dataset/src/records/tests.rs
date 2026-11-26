@@ -3,6 +3,7 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_protocol::foxhound::provenance::RecordProvenance;
 use goodfetch_protocol::point_in_time;
 use std::cell::RefCell;
 use std::path::Path;
@@ -65,6 +66,23 @@ fn run_file(file: &Path) -> Connection {
     writer
 }
 
+/// The Provenance of the test attempt `9`'s Records.
+fn provenance() -> RecordProvenance {
+    RecordProvenance {
+        request_id: "9".to_owned(),
+        tier: None,
+        encoding: None,
+        origin: None,
+        clean_up_rules: None,
+        wall: None,
+        payment: None,
+        certificate_exception: None,
+        robots_txt: None,
+        value_transforms: Vec::new(),
+        unread_fields: Vec::new(),
+    }
+}
+
 /// A read through a number answers a page and whether that number has
 /// committed from one state of the run file: a Record committed between
 /// its statements is in neither or in both, so the read never says the
@@ -121,7 +139,6 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
     use goodfetch_engine::mask::Masks;
     use goodfetch_protocol::foxhound::crawl::PushedRecord;
     use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
-    use goodfetch_protocol::foxhound::provenance::RecordProvenance;
     use serde_json::json;
 
     let env = TestEnv::new();
@@ -145,19 +162,7 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
         point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
         Masks::new(),
     );
-    let provenance = RecordProvenance {
-        request_id: "9".to_owned(),
-        tier: None,
-        encoding: None,
-        origin: None,
-        clean_up_rules: None,
-        wall: None,
-        payment: None,
-        certificate_exception: None,
-        robots_txt: None,
-        value_transforms: Vec::new(),
-        unread_fields: Vec::new(),
-    };
+    let provenance = provenance();
     let committing = super::Committing {
         request_id: "9",
         url: "https://shop.test/",
@@ -165,6 +170,7 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
         provenance: &provenance,
         masks: &masks,
         work: &work,
+        index: true,
     };
     let read = || {
         [
@@ -204,5 +210,110 @@ fn a_commit_counts_each_records_work_and_a_commit_of_none_counts_nothing() {
                 2
             ]
         )
+    );
+}
+
+/// A commit with indexing on writes each Record's values into
+/// `record_search`, where any of its words finds it, whatever the script,
+/// case, normalization or the invisible marks around it; with indexing
+/// off, it writes no index row.
+///
+/// Covers: story:12-208, setting:dataset.search.index
+#[test]
+fn a_commit_indexes_each_records_words_only_while_indexing_is_on() {
+    use goodfetch_counted_work::CountedWork;
+    use goodfetch_engine::mask::Masks;
+    use goodfetch_protocol::foxhound::crawl::PushedRecord;
+    use goodfetch_protocol::foxhound::dataset::{DatasetDeclaration, RecordData};
+    use goodfetch_test_support::unicode_record;
+    use serde_json::{Map, Value};
+
+    let env = TestEnv::new();
+    let connection = run_file(&env.home().join("run"));
+    let datasets = crate::Datasets::declare(&[DatasetDeclaration {
+        name: "pages".to_owned(),
+        schema: None,
+        key: Vec::new(),
+    }])
+    .unwrap();
+    datasets.record(&connection).unwrap();
+    let work = CountedWork::default();
+    let unicode = Value::Object(
+        unicode_record()
+            .fields
+            .into_iter()
+            .map(|field| (field.name, Value::String(field.text)))
+            .collect::<Map<_, _>>(),
+    );
+    let (at, masks) = (
+        point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+        Masks::new(),
+    );
+    let provenance = provenance();
+    for (value, index) in [
+        (unicode, true),
+        (serde_json::json!({ "title": "Dune", "pages": 412 }), false),
+    ] {
+        let checked = datasets
+            .check(
+                vec![PushedRecord {
+                    dataset: "pages".to_owned(),
+                    data: RecordData::of(&value).unwrap(),
+                }],
+                &work,
+            )
+            .unwrap();
+        let committing = super::Committing {
+            request_id: "9",
+            url: "https://shop.test/",
+            at: &at,
+            provenance: &provenance,
+            masks: &masks,
+            work: &work,
+            index,
+        };
+        super::commit(&connection, committing, &checked).unwrap();
+    }
+    let found = |words: &str| -> Vec<(String, i64)> {
+        connection
+            .prepare("SELECT dataset, number FROM record_search WHERE record_search MATCH ?1")
+            .unwrap()
+            .query_map([words], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    let words = [
+        "שלום",
+        "world",
+        "مرحبا",
+        "עברית",
+        "end",
+        "café",
+        "cafe\u{301}",
+        "CAFE",
+        "leads",
+        "\"byte order\"",
+        "three",
+        "Dune",
+        "412",
+    ];
+
+    assert_eq!(
+        words.map(|words| (words, found(words))),
+        words.map(|words| {
+            let unicode = !matches!(words, "Dune" | "412");
+            (
+                words,
+                if unicode {
+                    // After the run file's Records 1 and 2.
+                    vec![("pages".to_owned(), 3)]
+                } else {
+                    Vec::new()
+                },
+            )
+        }),
+        "each word of the indexed Record finds it, and none of the Record \
+         committed with indexing off is indexed"
     );
 }

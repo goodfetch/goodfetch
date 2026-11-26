@@ -17,6 +17,7 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
+use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
 };
@@ -26,8 +27,8 @@ use goodfetch_protocol::run::{
 };
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
-    ExplainedSetting, Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingPreset,
-    SettingsExplanation, SettingsFile, SettingsLayer, WeakenedSetting,
+    ExplainedSetting, Exposure, RunOrigin, SettingLimit, SettingPreset, SettingsExplanation,
+    SettingsFile, SettingsLayer, WeakenedSetting,
 };
 use serde_json::Value;
 

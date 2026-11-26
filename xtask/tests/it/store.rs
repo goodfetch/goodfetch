@@ -6,6 +6,7 @@ use std::io::Write as _;
 
 use serde_json::{Value, json};
 
+use crate::github::GitHub;
 use crate::workspace::Workspace;
 
 /// The store's folder inside the fixture workspace.
@@ -219,6 +220,77 @@ pub(crate) fn read_store_file(workspace: &Workspace, relative: &str) -> StoreFil
     }
     file.paths.sort();
     file
+}
+
+/// Ingests the folder `artifacts/<artifact>` of the workspace, the one
+/// artifact of a scheduled run of `main` whose job `job` ran on Linux, into
+/// the store, and gives each test run the store kept: its test, tier and
+/// outcome.
+pub(crate) fn ingest_artifact(
+    workspace: &Workspace,
+    artifact: &str,
+    job: &str,
+) -> Vec<(String, String, String)> {
+    workspace.write(
+        &format!("artifacts/{artifact}/context.json"),
+        format!(r#"{{ "commit": "c1", "tree": "t1", "job": "{job}", "order_seed": null, "entropy_seed": null }}"#)
+            .as_bytes(),
+    );
+    let github = GitHub::serving(&[
+        (
+            "/repos/goodfetch/goodfetch/actions/runs/42/attempts/1",
+            r#"{
+              "id": 42, "run_attempt": 1, "path": ".github/workflows/daily.yml",
+              "event": "schedule", "head_branch": "main", "head_sha": "c1",
+              "head_commit": { "id": "c1", "tree_id": "t1" },
+              "run_started_at": "2026-11-23T03:00:00Z", "conclusion": "failure"
+            }"#,
+        ),
+        (
+            "/repos/goodfetch/goodfetch/actions/runs/42/attempts/1/jobs?per_page=100&page=1",
+            &format!(
+                r#"{{ "total_count": 1, "jobs": [
+                  {{ "name": "{job}", "labels": ["ubuntu-24.04"], "conclusion": "failure",
+                    "started_at": "2026-11-23T03:00:05Z", "completed_at": "2026-11-23T03:20:05Z" }}
+                ] }}"#
+            ),
+        ),
+        (
+            "/repos/goodfetch/goodfetch/actions/runs/42/artifacts?per_page=100&page=1",
+            &format!(
+                r#"{{ "total_count": 1, "artifacts": [
+                  {{ "name": "{artifact}", "created_at": "2026-11-23T03:20:00Z", "expired": false }}
+                ] }}"#
+            ),
+        ),
+    ]);
+
+    let ingested = workspace.xtask(&[
+        "results",
+        "ingest",
+        "--repository",
+        "goodfetch/goodfetch",
+        "--run-id",
+        "42",
+        "--attempt",
+        "1",
+        "--artifacts",
+        "artifacts",
+        "--store",
+        STORE,
+        "--api-url",
+        github.url(),
+    ]);
+
+    assert_eq!(ingested.code, 0, "{}", ingested.stderr);
+    read_store_file(workspace, &format!("{STORE}/runs/2026/11/42-1.tar.gz"))
+        .test_runs
+        .iter()
+        .map(|run| {
+            let field = |name: &str| run[name].as_str().unwrap().to_owned();
+            (field("test"), field("tier"), field("outcome"))
+        })
+        .collect()
 }
 
 fn lines(values: &[Value]) -> Vec<u8> {

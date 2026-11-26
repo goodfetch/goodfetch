@@ -85,20 +85,6 @@ fn a_run_whose_settings_an_operator_policy_locked_is_refused_before_it_begins() 
     "wall.domains",
     "user_configuration"
 )]
-/// Covers: setting:security.secure_delete
-#[case::secure_delete_switched_off(
-    "",
-    json!({ "security": { "secure_delete": false } }),
-    "security.secure_delete",
-    "run"
-)]
-/// Covers: setting:security.field_encryption
-#[case::field_encryption_switched_off(
-    "",
-    json!({ "security": { "field_encryption": false } }),
-    "security.field_encryption",
-    "run"
-)]
 /// Covers: setting:sample.echo_repeats
 #[case::the_sample_settings_repeats(
     "",
@@ -144,12 +130,12 @@ fn a_run_setting_what_the_engine_does_not_build_yet_is_refused_before_it_begins(
 /// A setting whose feature is not built, left at its default or set to it,
 /// refuses nothing: the Run starts, and its report lists nothing weakened.
 ///
-/// Covers: story:3-88, setting:wall.domains, setting:security.secure_delete, setting:security.field_encryption
+/// Covers: story:3-88, setting:wall.domains, setting:sample.echo_repeats
 #[rstest]
 #[case::left_alone(json!({}))]
 #[case::set_to_their_defaults(json!({
     "wall": { "domains": [] },
-    "security": { "secure_delete": true, "field_encryption": true },
+    "sample": { "echo_repeats": 1 },
 }))]
 fn a_run_leaving_an_unbuilt_setting_at_its_default_starts(#[case] settings: Value) {
     let env = TestEnv::new();

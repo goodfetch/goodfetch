@@ -52,6 +52,7 @@ mod response;
 mod rpc;
 mod run;
 mod run_view;
+mod schedules;
 mod schema;
 pub mod settings;
 mod sync;
@@ -70,7 +71,7 @@ pub use error::{BoxError, Error};
 pub use event_stream::EventStream;
 pub use field_values::FieldValues;
 pub use generated::events;
-pub use generated::handles::{Locator, Page, Run, Session, WebSocket, WebSocketEvent};
+pub use generated::handles::{Locator, Page, Run, Schedule, Session, WebSocket, WebSocketEvent};
 pub use goodfetch_protocol::error_code::{ErrorCode, ErrorDetails};
 pub use handler::{HandlerCall, HandlerRequests};
 pub use handlerless::HandlerlessStart;
@@ -81,6 +82,7 @@ pub use raw_call::RawCall;
 pub use response::{Exchange, Response};
 pub use run::Start;
 pub use run_view::RunView;
+pub use schedules::{CreatedSchedule, Schedules};
 pub use schema::{Schema, SchemaError, to_json};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).

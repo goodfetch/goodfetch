@@ -227,6 +227,113 @@ fn a_plan_to_replay_that_passes_passes_and_one_unreadable_fails() {
     );
 }
 
+/// The committed plan with its crash replaced by a heal, on which the
+/// scenario passes.
+fn healed_plan() -> FaultPlan {
+    let mut healed = committed_plan();
+    healed.steps[1].action = FaultPlanAction::Heal {
+        peer: "b".to_owned(),
+    };
+    healed
+}
+
+#[test]
+fn committed_plans_run_first_in_file_order_and_one_failing_again_names_its_replay_command() {
+    let env = TestEnv::new();
+    let committed = env.folder().join("group_formation");
+    std::fs::create_dir(&committed).unwrap();
+    healed_plan()
+        .write(&committed.join("a_healed.json"))
+        .unwrap();
+    committed_plan()
+        .write(&committed.join("b_crash_while_partitioned.json"))
+        .unwrap();
+    std::fs::write(
+        committed.join("b_crash_while_partitioned.source.toml"),
+        "seed = 7\n",
+    )
+    .unwrap();
+    let runs = RefCell::new(Vec::new());
+
+    let failure = FaultPlanGenerator::new(&env, "group_formation", 3)
+        .with_committed_plans(&committed)
+        .check::<TwoHosts, _>(10..30, |plan| {
+            runs.borrow_mut().push(plan.clone());
+            crashes_while_partitioned(plan)
+        })
+        .expect_err("the second committed plan crashes a while partitioned");
+
+    assert_eq!(runs.into_inner(), vec![healed_plan(), committed_plan()]);
+    let file = committed.join("b_crash_while_partitioned.json");
+    assert_eq!(
+        failure.to_string(),
+        format!(
+            "the scenario group_formation fails again on its committed Fault plan {}: a crashed at 20 while partitioned from b\nreplay it with: just simulate group_formation --plan '{}'",
+            file.display(),
+            file.display()
+        )
+    );
+    assert!(
+        !env.folder().join(FAULT_PLAN_FILE).exists(),
+        "a committed plan is already written"
+    );
+}
+
+#[test]
+fn passing_committed_plans_are_followed_by_generated_ones_and_a_missing_folder_holds_none() {
+    let env = TestEnv::new();
+    let committed = env.folder().join("group_formation");
+    std::fs::create_dir(&committed).unwrap();
+    healed_plan().write(&committed.join("healed.json")).unwrap();
+    let runs = RefCell::new(Vec::new());
+    let record = |plan: &FaultPlan| {
+        runs.borrow_mut().push(plan.clone());
+        Ok::<(), String>(())
+    };
+
+    let passed = FaultPlanGenerator::new(&env, "group_formation", 3)
+        .with_committed_plans(&committed)
+        .check::<TwoHosts, _>(10..30, record);
+    let with_none = FaultPlanGenerator::new(&env, "group_formation", 3)
+        .with_committed_plans(&env.folder().join("no_plans_yet"))
+        .check::<TwoHosts, _>(10..30, |_| Ok::<(), String>(()));
+
+    assert!(passed.is_ok(), "{passed:?}");
+    let runs = runs.into_inner();
+    assert_eq!(runs.first(), Some(&healed_plan()));
+    assert!(runs.len() > 1, "the generated plans run after it: {runs:?}");
+    assert!(with_none.is_ok(), "{with_none:?}");
+}
+
+#[test]
+fn an_unreadable_committed_plan_fails_before_any_run() {
+    let env = TestEnv::new();
+    let committed = env.folder().join("group_formation");
+    std::fs::create_dir(&committed).unwrap();
+    std::fs::write(committed.join("truncated.json"), "{ \"seed\": 7").unwrap();
+    let runs = RefCell::new(0_u32);
+
+    let failure = FaultPlanGenerator::new(&env, "group_formation", 3)
+        .with_committed_plans(&committed)
+        .check::<TwoHosts, _>(10..30, |_| {
+            *runs.borrow_mut() += 1;
+            Ok::<(), String>(())
+        })
+        .expect_err("a committed plan that is no plan fails");
+
+    assert!(
+        matches!(
+            failure,
+            FaultPlanFailure::Unreadable {
+                error: FaultPlanError::Invalid { .. },
+                ..
+            }
+        ),
+        "{failure}"
+    );
+    assert_eq!(runs.into_inner(), 0);
+}
+
 #[test]
 fn a_scenario_no_plan_fails_writes_no_plan() {
     let env = TestEnv::new();

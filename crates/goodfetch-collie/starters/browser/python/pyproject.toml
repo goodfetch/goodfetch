@@ -1,0 +1,14 @@
+[project]
+name = "{{name}}"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["goodfetch-collie=={{version}}"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

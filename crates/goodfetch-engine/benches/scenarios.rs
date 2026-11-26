@@ -9,17 +9,22 @@
 //! of URLs under a domain policy of a thousand entries (spec #564's egress
 //! decision), and masking a 1 MiB stream of event and log lines against
 //! fifty resolved values, and joining one value a thousand times (spec
-//! #564's `Mask`). Inputs are literals; no network, no sleep, no work whose
+//! #564's `Mask`), and looking up a hundred fresh responses in a Response
+//! cache that holds them (issue 793). Inputs are literals; no network, no sleep, no work whose
 //! amount depends on timing.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::Path;
 
+use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::egress::{Gate, Judgment, Policy, Request, RequestKind, judge};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::mask::{Mask, Masks, Reach, Redaction, Scope};
+use goodfetch_engine::response_cache::{
+    CacheRequest, Lookup, Partition, ResponseCache, ResponseHead,
+};
 use goodfetch_engine::rpc::framing::{Frame, Framer, MAX_MESSAGE_BYTES, decode};
 use goodfetch_engine::run_state::{RunState, RunStateOptions, RunStateTables};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
@@ -384,6 +389,88 @@ pub(crate) fn mask_stream(masks: &Masks, stream: &[u8]) -> usize {
         start = end;
     }
     written.len()
+}
+
+/// The Response cache lookup benchmark's input: a cache in a temporary
+/// folder holding `entries` fresh responses of about 1 kB, one a URL,
+/// opened for its lookups by one lookup made here, the requests that find
+/// them, and the runtime the lookups run on, so neither the writes nor the
+/// index's open shows in its figures.
+pub(crate) fn response_cache_input(entries: usize) -> ResponseCacheInput {
+    let folder = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let runtime = goodfetch_test_support::runtime();
+    let cache = ResponseCache::of(
+        folder.path().join("response-cache"),
+        None,
+        std::sync::Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let requests: Vec<CacheRequest> = (0..entries)
+        .map(|entry| CacheRequest {
+            method: "GET".to_owned(),
+            url: format!("https://cache.test/catalog/item-{entry}"),
+            headers: vec![("accept".to_owned(), "text/html".to_owned())],
+        })
+        .collect();
+    let head = ResponseHead {
+        status: 200,
+        headers: vec![
+            ("content-type".to_owned(), "text/html".to_owned()),
+            ("cache-control".to_owned(), "max-age=3600".to_owned()),
+            ("etag".to_owned(), "\"v1\"".to_owned()),
+        ],
+    };
+    runtime.block_on(async {
+        for (entry, request) in requests.iter().enumerate() {
+            let body = format!("<p>item {entry}</p>{}", "x".repeat(1000));
+            let stored = cache
+                .store(
+                    &Partition::default(),
+                    request,
+                    &head,
+                    body.into(),
+                    None,
+                    CACHE_START,
+                )
+                .await;
+            assert!(stored, "invariant: a temporary folder takes the cache");
+        }
+        cache
+            .lookup(&Partition::default(), &requests[0], CACHE_START)
+            .await;
+    });
+    (folder, runtime, cache, requests)
+}
+
+/// What [`response_cache_input`] makes.
+pub(crate) type ResponseCacheInput = (
+    TempDir,
+    tokio::runtime::Runtime,
+    ResponseCache,
+    Vec<CacheRequest>,
+);
+
+/// The moment the lookup benchmark's responses are stored at, and looked
+/// up a minute later.
+const CACHE_START: std::time::SystemTime = std::time::SystemTime::UNIX_EPOCH;
+
+/// Looks up each of `requests` in `cache` on `runtime`, a minute after
+/// they were stored, and returns how many were fresh hits.
+pub(crate) fn response_cache_lookups(
+    runtime: &tokio::runtime::Runtime,
+    cache: &ResponseCache,
+    requests: &[CacheRequest],
+) -> usize {
+    let now = CACHE_START + std::time::Duration::from_secs(60);
+    runtime.block_on(async {
+        let mut hits = 0;
+        for request in requests {
+            if let Lookup::Fresh(_) = cache.lookup(&Partition::default(), request, now).await {
+                hits += 1;
+            }
+        }
+        hits
+    })
 }
 
 /// Joins one resolved value of one Run `joins` times, as each Session's

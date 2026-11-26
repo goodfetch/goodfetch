@@ -3,8 +3,10 @@
 //! executables, the Daemon of this executable's major, the version that
 //! Daemon runs and the browser build a Run launches by default, and
 //! prints one finding for each, with a fix for each that is not in order.
-//! It starts nothing, downloads nothing and exits `0` whatever it finds;
-//! its `--json` output is `goodfetch-protocol`'s `DoctorReport`.
+//! It then writes the bug-report file for the user to attach to an issue
+//! (spec #564), which it sends nowhere. It starts nothing, downloads
+//! nothing and exits `0` whatever it finds; its `--json` output is
+//! `goodfetch-protocol`'s `DoctorReport`.
 #![expect(
     clippy::disallowed_methods,
     reason = "the CLI checks the machine's files before and outside any async worker (ADR 0060)"
@@ -21,7 +23,9 @@ use goodfetch_engine::settings::{Resolved, get_or_default};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::daemon::DaemonState;
-use goodfetch_protocol::doctor::{DoctorFinding, DoctorReport, FindingId, FindingStatus};
+use goodfetch_protocol::doctor::{
+    BugReportFile, DoctorFinding, DoctorReport, FindingId, FindingStatus,
+};
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::jsonrpc::ErrorObject;
 use goodfetch_protocol::page::BROWSER_HEADLESS_SHELL;
@@ -30,10 +34,18 @@ use serde_json::Value;
 use super::daemon::{Failure, Machine};
 use super::output;
 
-/// `doctor`: checks the installation `machine` runs in and prints what it
-/// found, under `json` as one `DoctorReport`.
-pub(super) fn doctor(machine: &Machine<'_>, json: bool) -> ExitCode {
-    let report = report(machine);
+mod bug_report;
+
+/// `doctor`: checks the installation `machine` runs in, writes the
+/// bug-report file, each URL in it whole under `include_urls`, and prints
+/// what it found, under `json` as one `DoctorReport`.
+pub(super) fn doctor(machine: &Machine<'_>, json: bool, include_urls: bool) -> ExitCode {
+    let urls = if include_urls {
+        bug_report::Urls::Whole
+    } else {
+        bug_report::Urls::Reduced
+    };
+    let report = report(machine, urls);
     if json {
         output::json(&report);
     } else {
@@ -48,23 +60,33 @@ pub(super) fn doctor(machine: &Machine<'_>, json: bool) -> ExitCode {
                 output::line(&format!("  fix: {fix}"));
             }
         }
+        output::line(&match &report.bug_report {
+            BugReportFile::Written { path } => format!(
+                "bug report: written to {path}, for you to attach to an issue; doctor sent nothing"
+            ),
+            BugReportFile::NotWritten { message } => format!("bug report: not written: {message}"),
+        });
     }
     ExitCode::SUCCESS
 }
 
-/// The findings about the installation `machine` runs in.
-fn report(machine: &Machine<'_>) -> DoctorReport {
+/// The findings about the installation `machine` runs in, and the
+/// bug-report file, each URL in it as `urls` says.
+fn report(machine: &Machine<'_>, urls: bug_report::Urls) -> DoctorReport {
     let executable = machine.identity.product.executable_name();
     let settings = machine.settings().map_err(Failure::into_error);
     let (daemon, version_skew) = daemon(machine, executable);
+    let findings = vec![
+        home(machine.home.root(), settings.as_ref().err()),
+        executables(machine),
+        daemon,
+        version_skew,
+        browsers(machine, settings.ok(), executable),
+    ];
+    let bug_report = bug_report::write(machine, &findings, urls);
     DoctorReport {
-        findings: vec![
-            home(machine.home.root(), settings.as_ref().err()),
-            executables(machine),
-            daemon,
-            version_skew,
-            browsers(machine, settings.ok(), executable),
-        ],
+        findings,
+        bug_report,
     }
 }
 

@@ -9,6 +9,7 @@
 
 use goodfetch_engine::audit::AuditEvents;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::secrets::DriverSlot;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::audit::{AUDIT_OTLP, ExportedAuditEntry};
 use goodfetch_protocol::catalog::Product;
@@ -48,6 +49,7 @@ impl Drop for Export {
 pub(super) fn export(
     settings: Option<&Resolved>,
     clock: Clock,
+    keys: &DriverSlot,
     product: Product,
 ) -> Option<Export> {
     let settings = settings?;
@@ -57,7 +59,7 @@ pub(super) fn export(
     let endpoint = settings.get::<Option<&str>>(&OTLP_LOGS_ENDPOINT)?;
     let exporter = opentelemetry_otlp::LogExporter::builder()
         .with_http()
-        .with_http_client(ToCollector::new(settings, clock))
+        .with_http_client(ToCollector::new(settings, clock, keys))
         .with_endpoint(endpoint)
         .with_timeout(EXPORT_TIMEOUT)
         .build()

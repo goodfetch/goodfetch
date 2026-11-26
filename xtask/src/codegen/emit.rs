@@ -77,12 +77,14 @@ use goodfetch_protocol::plugin::{
     PluginCancelParams, PluginHelloParams, PluginHelloResult, PluginManifest, PluginPingParams,
     PluginPingResult,
 };
+use goodfetch_protocol::recipe::RecipeDigestOutput;
 use goodfetch_protocol::releases::ReleasesFile;
 use goodfetch_protocol::result_document::ResultDocument;
 use goodfetch_protocol::run::RunsReindexOutput;
 use goodfetch_protocol::setting_scopes;
 use goodfetch_protocol::settings::SettingsExplanation;
 use goodfetch_protocol::skills::SkillsInstalled;
+use goodfetch_protocol::starters::InitResult;
 use goodfetch_protocol::versions::FilesUpgraded;
 
 /// The bundle's `files` key of every Journey file, `journeys/J-NNN.toml`.
@@ -214,6 +216,8 @@ fn outputs(generator: &mut SchemaGenerator) -> Value {
         "daemon.stop": generator.subschema_for::<DaemonStatus>(),
         "daemon.uninstall": generator.subschema_for::<DaemonUninstallOutput>(),
         "doctor": generator.subschema_for::<DoctorReport>(),
+        "init": generator.subschema_for::<InitResult>(),
+        "recipe.digest": generator.subschema_for::<RecipeDigestOutput>(),
         "runs.reindex": generator.subschema_for::<RunsReindexOutput>(),
         "skill.install": generator.subschema_for::<SkillsInstalled>(),
         "upgrade-files": generator.subschema_for::<FilesUpgraded>(),

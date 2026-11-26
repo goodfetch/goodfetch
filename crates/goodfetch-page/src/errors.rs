@@ -14,22 +14,29 @@
 //! locator action or a page function, which have no generic code.
 
 use futures_util::FutureExt as _;
-use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, NetError, Refusal};
+/// The browser's network errors, by which the egress relay and the
+/// Session's proxy tell a site's failure from the proxy's: `cdp`, which
+/// imports the driver that opens them, cannot be what they import it from.
+pub(crate) use goodfetch_cdp::NetError;
+use goodfetch_cdp::{BROWSER_REDIRECT_CHAIN, CertificateError, Failure, Refusal};
 use goodfetch_engine::CallError;
+use goodfetch_engine::crash_report;
 use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::run::limit_reached;
 use goodfetch_engine::runs::Run;
 use goodfetch_protocol::connection::{
-    CALL_CANCELLED, CallCancelledDetails, CancelledBy, ClosedValue, INTERNAL, InternalDetails,
-    WaitedFor,
+    CALL_CANCELLED, CLOSED, CallCancelledDetails, CancelledBy, ClosedValue, EnginePanickedDetails,
+    INTERNAL, InternalDetails, PanicEnded, WaitedFor,
 };
 use goodfetch_protocol::governor::{PAGE_MEMORY_EXCEEDED, PageMemoryExceededDetails};
 use goodfetch_protocol::jsonrpc::{ErrorData, ProtocolFailure};
+use goodfetch_protocol::page::events::PAGE_EVENTS_LOST;
 use goodfetch_protocol::page::{
     BROWSER_LAUNCH_FAILED, BrowserExit, BrowserLaunchFailedDetails, NAVIGATION_FAILED,
     NAVIGATION_INTERRUPTED, NavigationFailedDetails, NavigationInterruptedDetails, PAGE_CRASHED,
     PageCrashedDetails, PageId, RESPONSE_TRUNCATED, RedirectLimit, ResponseTruncatedDetails,
-    SITE_PREFERENCES_REFUSED, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
+    SITE_PREFERENCES_REFUSED, SessionId, SitePreferencesRefusedDetails, TOO_MANY_REDIRECTS,
     TooManyRedirectsDetails,
 };
 
@@ -71,6 +78,15 @@ pub(crate) enum Call {
         /// The operation, such as `locator.click` or `page.evaluate`.
         operation: &'static str,
     },
+}
+
+/// Why a function did not answer in a world the engine keeps.
+pub(crate) enum Unanswered {
+    /// The document it ran in went away, by a navigation: the world is made
+    /// again in the next document.
+    WorldGone,
+    /// The call fails with this Error code.
+    Failed(CallError),
 }
 
 /// The Error code `failure` raises from `call`; `exit` says how the browser
@@ -203,6 +219,93 @@ pub(crate) fn page_memory_exceeded(
             memory,
             limit,
         },
+    )
+}
+
+/// `closed` for the page `page_id`.
+pub(crate) fn page_closed(page_id: &PageId) -> CallError {
+    CallError::new(
+        &CLOSED,
+        format!("the page `{}` is closed, or its Run ended", page_id.0),
+        &serde_json::json!({ "page_id": page_id }),
+    )
+}
+
+/// `page_events_lost` for the page `page_id`, which the engine closed once
+/// its reader fell 4,096 events behind (ADR 0146): every call on it raises
+/// this, which names it alone.
+pub(crate) fn events_lost(page_id: &PageId) -> CallError {
+    CallError::new(
+        &PAGE_EVENTS_LOST,
+        format!(
+            "the engine fell too far behind the events of the page `{}` and closed it: open another page and act again",
+            page_id.0
+        ),
+        &serde_json::json!({ "page_id": page_id }),
+    )
+}
+
+/// `engine_panicked` for the page `page_id`, which a panic of one of its
+/// owner's tasks closed, alone: its Session and its Run go on (ADR 0148).
+/// It names the crash report the panic left, `crash_report`, when one was
+/// written, and is counted on `metrics`, its Run's.
+pub(crate) fn page_panicked(
+    metrics: &Metrics,
+    page_id: &PageId,
+    crash_report: Option<&str>,
+) -> CallError {
+    crash_report::engine_panicked_told(
+        metrics,
+        &EnginePanickedDetails {
+            ended: PanicEnded::Page,
+            id: Some(page_id.0.clone()),
+            crash_report: crash_report.map(str::to_owned),
+        },
+        &format!(
+            "The engine hit a bug in Goodfetch while it served the page `{}`, which closed the page; its Session and its Run go on",
+            page_id.0
+        ),
+    )
+}
+
+/// `engine_panicked` for a panic of one of the Session `session`'s
+/// owner's tasks, which closed the Session with its pages, alone: its Run
+/// goes on (ADRs 0146, 0148). It names the crash report the panic left,
+/// `crash_report`, when one was written, and is counted on `metrics`, its
+/// Run's.
+pub(crate) fn session_panicked(
+    metrics: &Metrics,
+    session: &SessionId,
+    crash_report: Option<&str>,
+) -> CallError {
+    crash_report::engine_panicked_told(
+        metrics,
+        &EnginePanickedDetails {
+            ended: PanicEnded::Session,
+            id: Some(session.0.clone()),
+            crash_report: crash_report.map(str::to_owned),
+        },
+        &format!(
+            "The engine hit a bug in Goodfetch while it served the Session `{}`, which closed the Session and its pages; its Run goes on",
+            session.0
+        ),
+    )
+}
+
+/// `engine_panicked` for a panic of one of a browser's owner's tasks, which
+/// the engine treats as that browser's crash: its pages raise
+/// `page_crashed`, and its Run goes on (ADR 0148). It names the crash
+/// report the panic left, `crash_report`, when one was written, and is
+/// counted on `metrics`, its Run's.
+pub(crate) fn browser_panicked(metrics: &Metrics, crash_report: Option<&str>) -> CallError {
+    crash_report::engine_panicked_told(
+        metrics,
+        &EnginePanickedDetails {
+            ended: PanicEnded::Browser,
+            id: None,
+            crash_report: crash_report.map(str::to_owned),
+        },
+        "The engine hit a bug in Goodfetch while it served a browser of the Run, which it treats as crashed; its Run goes on",
     )
 }
 

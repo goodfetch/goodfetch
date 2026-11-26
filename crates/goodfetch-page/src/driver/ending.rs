@@ -4,11 +4,12 @@
 //! browser's connection ending, told apart by the process's exit status for
 //! a browser the engine launched and read as a quit for a Borrowed one
 //! (decision 11). A browser's own connection is followed the same way, so
-//! its pool learns of its loss whether or not it holds a page.
+//! its pool learns of its loss whether or not it holds a page. A browser
+//! whose owner's task panicked ends as a crash (ADR 0148).
 
 use std::time::Duration;
 
-use goodfetch_cdp::generated::target;
+use goodfetch_cdp::SubscriptionEnd;
 use goodfetch_protocol::page::BrowserExit;
 
 use super::{Browser, PageDriver, navigation};
@@ -44,6 +45,9 @@ pub(crate) enum Lost {
     BrowserCrashed(Option<BrowserExit>),
     /// The engine closed its browser.
     EngineClosed,
+    /// Its page's reader fell 4,096 events behind, so what the target does
+    /// next is no longer read: the engine closes the page (ADR 0146).
+    FellBehind,
 }
 
 /// The event of a target whose debugging session was detached, on the
@@ -52,40 +56,34 @@ const DETACHED: &str = "Inspector.detached";
 
 impl PageDriver {
     /// Waits until the page's target ends other than by the engine closing
-    /// its browser, and says how.
+    /// its browser, or its reader falls behind, and says how.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future loses nothing: it only reads.
     pub(crate) async fn lost(&self) -> Lost {
-        let connection = &self.browser.connection;
-        let mut page = connection.subscribe(Some(&self.session));
-        let mut root = connection.subscribe(None);
-        loop {
-            tokio::select! {
-                event = page.next() => match event {
-                    Some(event) if event.method == navigation::CRASHED => return Lost::RendererCrashed,
-                    Some(event) if event.method == DETACHED => break,
-                    Some(_) => {}
-                    None => break,
-                },
-                event = root.next() => match event {
-                    Some(event) => {
-                        if event
-                            .read::<target::DetachedFromTargetEvent>()
-                            .is_some_and(|detached| detached.session_id == self.session.0)
-                        {
-                            break;
-                        }
-                    }
-                    None => break,
-                },
+        // Its page's reader ends it when the browser detached the page's
+        // target, which the browser tells on its own session.
+        let mut page = self.events();
+        while let Some(event) = page.next().await {
+            if event.method == navigation::CRASHED {
+                return Lost::RendererCrashed;
             }
+            if event.method == DETACHED {
+                break;
+            }
+        }
+        // A reader that fell behind ends its parts' subscriptions saying
+        // so, this one's among them, while its target may still be there.
+        if page.ended() == Some(SubscriptionEnd::FellBehind) {
+            return Lost::FellBehind;
         }
         // A quitting browser closes its windows before it exits: a target
         // destroyed with the connection ending soon after is the quit's.
-        let ending = async { while root.next().await.is_some() {} };
-        if tokio::time::timeout(QUIT_WINDOW, ending).await.is_err() {
+        if tokio::time::timeout(QUIT_WINDOW, self.browser.connection.closed())
+            .await
+            .is_err()
+        {
             return Lost::Destroyed;
         }
         self.browser.loss().await
@@ -101,21 +99,20 @@ impl Browser {
     ///
     /// Dropping the future loses nothing: it only reads.
     pub(crate) async fn ended(&self) -> Lost {
-        loop {
-            let mut root = self.connection.subscribe(None);
-            while root.next().await.is_some() {}
-            // A subscription that fell behind ends with its connection open.
-            if self.connection.is_closed() {
-                return self.loss().await;
-            }
-        }
+        self.connection.closed().await;
+        self.loss().await
     }
 
-    /// How the browser ended once its connection did: closed by the engine;
-    /// a Borrowed browser quit, since no exit of its separates a quit from a
+    /// How the browser ended once its connection did: crashed, with no exit,
+    /// when a task of its owner panicked, which the engine treats as its
+    /// crash whoever closed it (ADR 0148); else closed by the engine; a
+    /// Borrowed browser quit, since no exit of its separates a quit from a
     /// crash (decision 11); a launched one quit when its process exited
     /// with status 0, and crashed otherwise or with no exit seen in time.
     async fn loss(&self) -> Lost {
+        if self.state.panicked.is_cancelled() {
+            return Lost::BrowserCrashed(None);
+        }
         if !self.launched {
             if self.closing.is_cancelled() {
                 return Lost::EngineClosed;

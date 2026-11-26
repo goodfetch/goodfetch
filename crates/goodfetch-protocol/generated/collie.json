@@ -3345,6 +3345,35 @@
       },
       "type": "object"
     },
+    "EveryTrigger": {
+      "additionalProperties": false,
+      "description": "A fixed interval: an occurrence every `every` milliseconds from the\nanchor.",
+      "properties": {
+        "anchor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The instant the intervals count from; the Schedule's creation when\nabsent."
+        },
+        "every": {
+          "arrived_in": "0.1",
+          "description": "The interval, in milliseconds, at least 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "every"
+      ],
+      "type": "object"
+    },
     "ExecutableBlockedBySmartAppControlDetails": {
       "description": "What `executable_blocked_by_smart_app_control` details.",
       "properties": {
@@ -8901,6 +8930,32 @@
       ],
       "type": "object"
     },
+    "RecipeInvalidDetails": {
+      "description": "What `recipe_invalid` details.",
+      "properties": {
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field, dotted from the manifest's root such as `entry.program`,\nor the package's path of a file it refuses.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to write instead.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
+    },
     "RecipeStartParams": {
       "additionalProperties": false,
       "description": "What `recipe.start` takes.",
@@ -8977,6 +9032,49 @@
           "format": "uint64",
           "minimum": 0,
           "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipe"
+      ],
+      "type": "object"
+    },
+    "RecipeTarget": {
+      "additionalProperties": false,
+      "description": "A Recipe a Schedule starts.",
+      "properties": {
+        "inputs": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its inputs, by name.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recipe": {
+          "arrived_in": "0.1",
+          "description": "The Recipe: published, by its digest, or local, by its path.",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's settings, by key.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "The run's `timeout.run`, in milliseconds, at least 1: absent for\nthe setting's value, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
@@ -11374,6 +11472,41 @@
       ],
       "type": "object"
     },
+    "RunTarget": {
+      "additionalProperties": false,
+      "description": "A code-free catalog run a Schedule starts.",
+      "properties": {
+        "run": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's own start parameters, as its kind defines them, without\nits Run ID, labels and Limits.",
+          "type": "object"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's settings, by key.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "The run's `timeout.run`, in milliseconds, at least 1: absent for\nthe setting's value, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "type": "object"
+    },
     "RunTargetUnbuiltDetails": {
       "description": "What `run_target_unbuilt`'s details hold.",
       "properties": {
@@ -11673,6 +11806,385 @@
           "type": "string"
         }
       ]
+    },
+    "ScheduleCreateParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.create` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "definition": {
+          "$ref": "#/$defs/ScheduleDefinition",
+          "arrived_in": "0.1",
+          "description": "The Schedule."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "definition"
+      ],
+      "type": "object"
+    },
+    "ScheduleCreated": {
+      "description": "What `schedule.create` answers.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID, as given or made."
+        },
+        "warnings": {
+          "arrived_in": "0.1",
+          "description": "What its program should know.",
+          "items": {
+            "$ref": "#/$defs/ScheduleWarning"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedule_id",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "ScheduleDefinition": {
+      "additionalProperties": false,
+      "description": "What a Schedule is, as a program writes it.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScheduleId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its ID; one is made when absent: `s` and a lowercase ULID."
+        },
+        "target": {
+          "$ref": "#/$defs/ScheduleTarget",
+          "arrived_in": "0.1",
+          "description": "What it starts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its triggers read, such as `Europe/Paris`; the\nDaemon host's when absent, never \"local\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "When."
+        }
+      },
+      "required": [
+        "target",
+        "trigger"
+      ],
+      "type": "object"
+    },
+    "ScheduleDeleted": {
+      "description": "What `schedule.delete` answers.",
+      "properties": {
+        "deleted": {
+          "arrived_in": "0.1",
+          "description": "Whether it deleted the Schedule: false when the store held none of\nthat ID, as after a resent delete.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "ScheduleExistsDetails": {
+      "description": "What `schedule_exists` details.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule ID."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleGetParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.get` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ScheduleId": {
+      "description": "A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ScheduleInfo": {
+      "description": "A Schedule as its store holds it.",
+      "properties": {
+        "created_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was created."
+        },
+        "creator": {
+          "arrived_in": "0.1",
+          "description": "The person who created it, for whom its occurrences fire.",
+          "type": "string"
+        },
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "Its ID."
+        },
+        "state": {
+          "$ref": "#/$defs/ScheduleState",
+          "arrived_in": "0.1",
+          "description": "Whether it fires."
+        },
+        "target": {
+          "$ref": "#/$defs/ScheduleTarget",
+          "arrived_in": "0.1",
+          "description": "What it starts, as given."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its triggers read.",
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "When."
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its definition's version: 1 at creation, one more at each edit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schedule_id",
+        "target",
+        "trigger",
+        "time_zone",
+        "version",
+        "state",
+        "creator",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "ScheduleList": {
+      "description": "What `schedule.list` answers.",
+      "properties": {
+        "schedules": {
+          "arrived_in": "0.1",
+          "description": "Every Schedule of the store, by ID.",
+          "items": {
+            "$ref": "#/$defs/ScheduleInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedules"
+      ],
+      "type": "object"
+    },
+    "ScheduleListParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ScheduleNotFoundDetails": {
+      "description": "What `schedule_not_found` details.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule ID."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.info` and `schedule.delete` take: the Schedule.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleState": {
+      "description": "Whether a Schedule fires.",
+      "oneOf": [
+        {
+          "const": "on",
+          "description": "It fires at its occurrences.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
+    "ScheduleTarget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecipeTarget",
+          "description": "A Recipe."
+        },
+        {
+          "$ref": "#/$defs/RunTarget",
+          "description": "A code-free catalog run."
+        }
+      ],
+      "description": "What a Schedule starts: a Recipe with its inputs, or a code-free\ncatalog run by its own start parameters, each with the run's settings\nand timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,\nlabels and Limits."
+    },
+    "ScheduleTrigger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EveryTrigger",
+          "description": "At a fixed interval."
+        }
+      ],
+      "description": "When a Schedule's occurrences fall (ADR 0036)."
+    },
+    "ScheduleTriggerInvalidDetails": {
+      "description": "What `schedule_trigger_invalid` details.",
+      "properties": {
+        "expression": {
+          "arrived_in": "0.1",
+          "description": "The trigger's expression, as given.",
+          "type": "string"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "The character of the expression where it stops reading, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "$ref": "#/$defs/TriggerInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why."
+        }
+      },
+      "required": [
+        "expression",
+        "position",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ScheduleWarning": {
+      "description": "Something about a created Schedule its program should know, which did\nnot stop its creation.",
+      "properties": {
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What it is about, such as `env_unresolved`.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it says, in the engine's English.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "type": "object"
     },
     "SchemaValidatorFailedDetails": {
       "description": "What `schema_validator_failed` details: the schema, where in the value,\nand the exception, as `hook_failed`'s details name a Hook's.",
@@ -13552,6 +14064,42 @@
         "limit"
       ],
       "type": "object"
+    },
+    "TriggerInvalidReason": {
+      "description": "Why a trigger does not parse.",
+      "oneOf": [
+        {
+          "const": "unknown_field",
+          "description": "A field it does not know.",
+          "type": "string"
+        },
+        {
+          "const": "out_of_range",
+          "description": "A value out of its field's range, such as an interval of 0.",
+          "type": "string"
+        },
+        {
+          "const": "bad_step",
+          "description": "A step that does not divide its range.",
+          "type": "string"
+        },
+        {
+          "const": "bad_macro",
+          "description": "A macro it does not know.",
+          "type": "string"
+        },
+        {
+          "const": "field_count",
+          "description": "Too few or too many fields.",
+          "type": "string"
+        },
+        {
+          "const": "other",
+          "description": "Another reason, which the message gives.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "UncertainEffect": {
       "description": "An Effect a Run left uncertain (ADR 0106), until a person reconciles it.",
@@ -15438,13 +15986,13 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
+      "description": "Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "page_events_lost",
       "product": "collie",
-      "retryable": false
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -15673,6 +16221,29 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.",
+      "details": {
+        "$ref": "#/$defs/RecipeInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recipe_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "replay_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine ran out of memory or storage for the Run: it checkpointed and stopped it, or refused to start it where its run file would go. The details name the `resource`. Resume it once memory or space frees up, on an engine with a larger allowance, or with lower ceilings.",
       "details": {
         "$ref": "#/$defs/ResourcesExhaustedDetails"
@@ -15826,7 +16397,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "description": "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
       "details": {
         "$ref": "#/$defs/RunDetails"
       },
@@ -15909,6 +16480,45 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleExistsDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleNotFoundDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
+      "details": {
+        "$ref": "#/$defs/ScheduleTriggerInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_trigger_invalid",
       "product": "collie",
       "retryable": false
     },
@@ -16810,6 +17420,9 @@
             "batches",
             "block_classifications",
             "builds",
+            "cache_body_writes",
+            "cache_file_opens",
+            "cache_lookups",
             "calls",
             "check_commands",
             "click_commands",
@@ -16832,6 +17445,8 @@
             "encodes",
             "end_round_trips",
             "entries",
+            "event_decodes",
+            "event_visits",
             "evidence_reads",
             "fetch_messages_no_rule",
             "file_opens",
@@ -16853,9 +17468,12 @@
             "opening_commands",
             "opens",
             "origin_transactions",
+            "owner_round_trips",
             "page_learning",
+            "page_tasks",
             "page_waits",
             "parses",
+            "pending_orphans",
             "plugin_answer_parses",
             "plugin_serializations",
             "politeness_read_round_trips",
@@ -18829,6 +19447,101 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.create",
+      "params": {
+        "$ref": "#/$defs/ScheduleCreateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleCreated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.delete",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.get",
+      "params": {
+        "$ref": "#/$defs/ScheduleGetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.info",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Schedule of the Schedule store, by ID.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.list",
+      "params": {
+        "$ref": "#/$defs/ScheduleListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
@@ -19405,6 +20118,78 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 2592000000,
+      "deprecated": null,
+      "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_age_ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10000000000,
+      "deprecated": null,
+      "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "off",
+      "deprecated": null,
+      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+      "fixed_for_run": false,
+      "name": "cache.mode",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "off",
+          "revalidate"
+        ]
       },
       "weakening": null,
       "weakens": false
@@ -22671,7 +23456,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.aws_sm.region",
       "product": "collie",
@@ -22692,7 +23477,7 @@
       "clearable": false,
       "default": "https://login.microsoftonline.com",
       "deprecated": null,
-      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant, with the service principal's secret or the workload identity's federated token. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.authority",
       "product": "collie",
@@ -22713,7 +23498,7 @@
       "clearable": false,
       "default": "https://{vault}.vault.azure.net",
       "deprecated": null,
-      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault, from the first identity its environment gives, in the Azure Identity libraries' order: the service principal of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, or the workload identity of `AZURE_FEDERATED_TOKEN_FILE`, whose token Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues, or else the host's managed identity, through `IDENTITY_ENDPOINT` or the instance metadata service; `AZURE_TOKEN_CREDENTIALS` keeps only the sources it names. With no identity, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.endpoint",
       "product": "collie",
@@ -22755,7 +23540,7 @@
       "clearable": false,
       "default": "https://secretmanager.googleapis.com",
       "deprecated": null,
-      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, or else one it takes from a service account's key file that `GOOGLE_APPLICATION_CREDENTIALS` names or from the metadata server's service account, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.gcp_sm.endpoint",
       "product": "collie",
@@ -22999,7 +23784,7 @@
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
+      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.field_encryption",
       "product": "collie",
@@ -23111,7 +23896,7 @@
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
+      "description": "Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.secure_delete",
       "product": "collie",

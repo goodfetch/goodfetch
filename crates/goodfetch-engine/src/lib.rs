@@ -73,6 +73,7 @@ pub mod recipe;
 pub mod request_signing;
 pub mod response_cache;
 pub mod response_limits;
+pub mod response_recording;
 pub mod retry_after;
 pub mod robots_txt;
 pub mod rpc;
@@ -108,6 +109,7 @@ pub mod transport;
 pub mod upgrade;
 mod usage;
 pub mod user_store;
+pub mod warc;
 pub mod webhook_signing;
 mod wire;
 

@@ -1,0 +1,35 @@
+WARC/1.1
+WARC-Type: response
+WARC-Target-URI: https://example.test/feed
+Content-Type: application/http; msgtype=response
+WARC-Date: 2026-11-20T10:00:02Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000011>
+WARC-Payload-Digest: sha1:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+Content-Length: 94
+
+HTTP/1.1 200 OK
+Transfer-Encoding: chunked
+Vary: Accept-Language, Cookie
+
+5
+hello
+6
+ world
+0
+
+
+WARC/1.1
+WARC-Type: revisit
+WARC-Target-URI: https://example.test/feed
+Content-Type: application/http; msgtype=response
+WARC-Date: 2026-11-21T10:00:02Z
+WARC-Record-ID: <urn:uuid:00000000-0000-4000-8000-000000000012>
+WARC-Refers-To: <urn:uuid:00000000-0000-4000-8000-000000000011>
+WARC-Profile: http://netpreserve.org/warc/1.1/revisit/server-not-modified
+WARC-Truncated: length
+Content-Length: 35
+
+HTTP/1.1 304 Not Modified
+Age: 30
+
+

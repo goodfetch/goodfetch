@@ -45,13 +45,15 @@
 # batch-check`; TESTING.md, Checks by role, the owner's decision of
 # 2026-11-23). Its commits are judged all the same, and it runs the static
 # steps that take seconds and that a red batch-check, a rerun of the whole
-# batch, would otherwise be the first to name: the floor guard over what each
-# pushed head adds to `origin/main` (`just floor-guard`), and the module check
-# (`xtask modules`), which reads the checkout, so it runs when the checkout's
-# head is among those pushed. A red one refuses the push. Clippy over the
-# touched crates stays in the batch: warm, over one crate, it took 24
-# seconds for xtask and 35 for goodfetch-engine (2026-11-23), against under
-# a second for the floor guard and about 11 for the module check.
+# batch, would otherwise be the first to name: over what each pushed head
+# adds to `origin/main`, the floor guard (`just floor-guard`) and the scan
+# for secrets (`just commit-leaks`, as `just quick` runs it; gate 3983 reached
+# its gate red on it, 2026-11-26); and the module check (`xtask modules`),
+# which reads the checkout, so it runs when the checkout's head is among
+# those pushed. A red one refuses the push. Clippy over the touched crates
+# stays in the batch: warm, over one crate, it took 24 seconds for xtask and
+# 35 for goodfetch-engine (2026-11-23), against under a second for the floor
+# guard, a few for the scan and about 11 for the module check.
 #
 # When that head's change against `origin/main` also reaches a file the
 # drift checks read (`drift_paths` below: the SDKs and the Products' crates
@@ -174,6 +176,7 @@ drift=0
 copies=0
 for oid in $specs; do
   just floor-guard origin/main "$oid" </dev/null || static=1
+  just commit-leaks "" "$oid" </dev/null || static=1
   reaches_drift=0
   reaches_copies=0
   git diff --quiet origin/main..."$oid" -- "${drift_paths[@]}" || reaches_drift=1
@@ -255,7 +258,7 @@ if ((commits)); then
   echo "error: pre-push refuses this push: a commit it adds is not signed off, its subject is no Conventional Commit, or, on a tree a green \`just quick\` holds, the floor guard or the scan for secrets is red (above, CONTRIBUTING.md, TESTING.md's Quality register). Rewrite it and push again; \`just quick\` did not run." >&2
 fi
 if ((static)); then
-  echo "error: pre-push refuses this push: the floor guard, the module check, the copy check, a drift step or xtask's tests failed on what it pushes to a \`spec/\` branch (above). Fix it and push again." >&2
+  echo "error: pre-push refuses this push: the floor guard, the scan for secrets, the module check, the copy check, a drift step or xtask's tests failed on what it pushes to a \`spec/\` branch (above). Fix it and push again." >&2
 fi
 if ((commits || static)); then
   exit 1

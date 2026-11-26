@@ -139,22 +139,7 @@ pub(super) fn emit() -> Emitted {
         "record": { "params": generator.subschema_for::<RecordRead>() },
         "meta": generator.subschema_for::<RequestMeta>(),
     });
-    let plugin = json!({
-        "hello": {
-            "params": generator.subschema_for::<PluginHelloParams>(),
-            "result": generator.subschema_for::<PluginHelloResult>(),
-        },
-        "cancel": { "params": generator.subschema_for::<PluginCancelParams>() },
-        "ping": {
-            "params": generator.subschema_for::<PluginPingParams>(),
-            "result": generator.subschema_for::<PluginPingResult>(),
-        },
-        "net_fetch": {
-            "params": generator.subschema_for::<NetFetchParams>(),
-            "result": generator.subschema_for::<NetFetchResult>(),
-        },
-        "manifest": generator.subschema_for::<PluginManifest>(),
-    });
+    let plugin = plugin_protocol(&mut generator);
     let outputs = outputs(&mut generator);
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
@@ -202,6 +187,27 @@ pub(super) fn emit() -> Emitted {
         }),
         catalog: sections.into_catalog(&exit_codes, &protocol_failures),
     }
+}
+
+/// The Plugin protocol's calls (ADR 0033): each call's params and result,
+/// and the Plugin's manifest.
+fn plugin_protocol(generator: &mut SchemaGenerator) -> Value {
+    json!({
+        "hello": {
+            "params": generator.subschema_for::<PluginHelloParams>(),
+            "result": generator.subschema_for::<PluginHelloResult>(),
+        },
+        "cancel": { "params": generator.subschema_for::<PluginCancelParams>() },
+        "ping": {
+            "params": generator.subschema_for::<PluginPingParams>(),
+            "result": generator.subschema_for::<PluginPingResult>(),
+        },
+        "net_fetch": {
+            "params": generator.subschema_for::<NetFetchParams>(),
+            "result": generator.subschema_for::<NetFetchResult>(),
+        },
+        "manifest": generator.subschema_for::<PluginManifest>(),
+    })
 }
 
 /// The schema of each command's `--json` output, by the command's name.

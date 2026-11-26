@@ -921,6 +921,14 @@ class PluginCrashedError(UnavailableError):
         super().__init__(message, code="plugin_crashed", group="unavailable", retryable=True, **fields)
 
 
+class PluginFetchFailedError(UnavailableError):
+    """The engine sent a Plugin's `net.fetch` and got no response: its host had no address, no connection to it could be opened, or the connection broke before the whole response arrived. Nothing about the destination's egress check failed; ask again later, or check that the host is up and reachable from the engine's machine."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_fetch_failed", group="unavailable", retryable=True, **fields)
+
+
 class PluginManifestMismatchError(UnavailableError):
     """The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved."""
 
@@ -1612,6 +1620,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "person_required": PersonRequiredError,
     "plugin_call_back_refused": PluginCallBackRefusedError,
     "plugin_crashed": PluginCrashedError,
+    "plugin_fetch_failed": PluginFetchFailedError,
     "plugin_manifest_mismatch": PluginManifestMismatchError,
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
     "plugin_quarantined": PluginQuarantinedError,

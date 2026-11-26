@@ -1,6 +1,7 @@
 //! A Plugin's calls back into the engine (ADR 0033): `net.fetch`, an HTTP
 //! request the engine sends for the Plugin under its own checks, and the
-//! Error code of a call back the engine refuses.
+//! Error codes of a call back the engine refuses and of a `net.fetch` that
+//! got no response.
 //!
 //! A Plugin calls back only while it serves a call the engine made to it,
 //! naming that call's `call_id`; the call back acts within that call's
@@ -155,13 +156,23 @@ pub const PLUGIN_CALL_BACK_REFUSED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
-/// The Error code of a call back.
+/// A `net.fetch` the engine sent that got no response.
+pub const PLUGIN_FETCH_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_fetch_failed",
+    description: "The engine sent a Plugin's `net.fetch` and got no response: its host had no address, no connection to it could be opened, or the connection broke before the whole response arrived. Nothing about the destination's egress check failed; ask again later, or check that the host is up and reachable from the engine's machine.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// The Error codes of a call back.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[PLUGIN_CALL_BACK_REFUSED],
+    error_codes: &[PLUGIN_CALL_BACK_REFUSED, PLUGIN_FETCH_FAILED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

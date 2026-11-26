@@ -10,7 +10,7 @@
 //! one over another, so a key's authority, caps and bounds read side by
 //! side.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -201,6 +201,9 @@ pub struct Effective {
     /// For a setting whose layers set each entry on its own, as `plugins`
     /// does, the layer that set each entry of its value.
     pub entries: BTreeMap<String, SettingsLayer>,
+    /// Of those entries, the ones a Client acting for a model gave (ADR
+    /// 0092).
+    pub entries_for_model: BTreeSet<String>,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
     /// When a level's preset gave it, at `layer`, that level (ADR 0142).
@@ -256,6 +259,13 @@ impl Resolved {
     /// layer set.
     pub fn entry_layer(&self, setting: &Setting, entry: &str) -> Option<SettingsLayer> {
         self.effective(setting)?.entries.get(entry).copied()
+    }
+
+    /// Whether a Client acting for a model gave the entry `entry` of
+    /// `setting`, as [`Self::entry_layer`] reads it (ADR 0092).
+    pub fn entry_for_model(&self, setting: &Setting, entry: &str) -> bool {
+        self.effective(setting)
+            .is_some_and(|effective| effective.entries_for_model.contains(entry))
     }
 
     /// Each `timeout.*` Duration setting the Product honours that resolves a
@@ -1015,6 +1025,7 @@ impl State {
                 value: default.clone(),
                 layer: SettingsLayer::Default,
                 entries: BTreeMap::new(),
+                entries_for_model: BTreeSet::new(),
                 origin: None,
                 preset,
                 for_model: false,
@@ -1183,14 +1194,22 @@ fn take(
             format!("give `{name}` a value within the Recipe's bounds"),
         ));
     }
-    let entries = &mut state.effective.entries;
-    if !(by_entry(key.setting) && state.effective.value.is_object()) {
-        entries.clear();
+    let effective = &mut state.effective;
+    if !(by_entry(key.setting) && effective.value.is_object()) {
+        effective.entries.clear();
+        effective.entries_for_model.clear();
     }
     if by_entry(key.setting)
         && let Value::Object(nearer) = value
     {
-        entries.extend(nearer.keys().map(|entry| (entry.clone(), layer)));
+        for entry in nearer.keys() {
+            effective.entries.insert(entry.clone(), layer);
+            if given.for_model {
+                effective.entries_for_model.insert(entry.clone());
+            } else {
+                effective.entries_for_model.remove(entry);
+            }
+        }
     }
     state.effective.value = over(key.setting, &state.effective.value, value);
     state.effective.layer = layer;

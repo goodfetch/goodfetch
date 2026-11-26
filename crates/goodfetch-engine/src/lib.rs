@@ -65,6 +65,7 @@ pub mod notification_endpoint;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;
+pub mod plugin_gate;
 pub mod plugin_host;
 pub mod plugin_kinds;
 pub mod plugin_store;

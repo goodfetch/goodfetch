@@ -91,9 +91,12 @@ impl ConfiguredKindClass {
 /// Client acting for a model sends (ADR 0056, read where `cdp_url` is
 /// judged). Every caller of the engine's own HTTP client but a pinned
 /// download from its pinned URL and a run's own requests connects to one
-/// of these kinds. A Plugin's endpoint from a Recipe or a run is
-/// Operator-configured only when its host is allowed or the Plugin is
-/// first-party (ADR 0033), which `plugin_gate` decides.
+/// of these kinds. A Plugin's endpoint is Operator-configured only when
+/// one of these layers sets it in the Plugin's settings, not in a project
+/// configuration a Client acting for a model or sent to an Exposed Daemon
+/// gives; one from a Recipe or a run is an address a page can reach, since
+/// every Plugin is treated as third-party (ADR 0033), which `plugin_gate`
+/// decides.
 pub const CONFIGURED_KINDS: [ConfiguredKindClass; 10] = [
     ConfiguredKindClass {
         kind: ConfiguredKind::ModelProvider,

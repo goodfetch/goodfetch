@@ -38,7 +38,7 @@ impl Destination {
 
 /// Each module that calls the HTTP client, with the kind of destination it
 /// connects to. A module that starts calling it joins here, with its kind.
-const CALLERS: [(&str, Destination); 5] = [
+const CALLERS: [(&str, Destination); 6] = [
     ("pinned_download", Destination::PinnedDownload),
     (
         "notification_endpoint",
@@ -52,6 +52,12 @@ const CALLERS: [(&str, Destination); 5] = [
     (
         "secret_endpoint",
         Destination::Configured(ConfiguredKind::SecretProvider),
+    ),
+    // A Plugin's `net.fetch` (ADR 0033): a Plugin endpoint, or a destination
+    // judged as a page's under the run's own egress policy.
+    (
+        "plugin_gate",
+        Destination::Configured(ConfiguredKind::PluginEndpoint),
     ),
 ];
 

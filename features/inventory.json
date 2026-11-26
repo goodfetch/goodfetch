@@ -2197,6 +2197,17 @@
       ]
     },
     {
+      "id": "error:plugin_fetch_failed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_manifest_mismatch",
       "kind": "error",
       "area": 7,

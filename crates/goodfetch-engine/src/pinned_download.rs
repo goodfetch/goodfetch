@@ -28,7 +28,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::clock::Clock;
 use crate::dns::HostMapping;
-use crate::egress::{ConfiguredKind, EndpointPolicy, Refused};
+use crate::egress::{ConfiguredKind, EndpointPolicy, Gate, Refused};
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure, Server};
 use crate::settings::Resolved;
@@ -289,7 +289,7 @@ impl Fetching {
     pub(crate) fn endpoint(&self, kind: ConfiguredKind) -> ConfiguredEndpoint<'_> {
         ConfiguredEndpoint {
             kind,
-            policy: self.endpoints,
+            gate: Gate::Endpoint(self.endpoints),
             resolve: &self.resolve,
             trust: &self.trust,
             presenting: None,

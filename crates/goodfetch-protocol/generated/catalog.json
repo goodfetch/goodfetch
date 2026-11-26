@@ -1217,6 +1217,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The engine sent a Plugin's `net.fetch` and got no response: its host had no address, no connection to it could be opened, or the connection broke before the whole response arrived. Nothing about the destination's egress check failed; ask again later, or check that the host is up and reachable from the engine's machine.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_fetch_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved.",
       "exit_code": null,
       "group": "unavailable",

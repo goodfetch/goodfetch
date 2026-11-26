@@ -131,11 +131,6 @@ impl PeerLink {
         }
     }
 
-    /// The peer protocol version settled at `hello`; none before it.
-    pub fn settled(&self) -> Option<ProtocolVersion> {
-        self.settled
-    }
-
     /// Answers `line`, one message of the connecting Group member, checking
     /// the lead epoch it carries against `epochs`.
     pub fn receive(&mut self, epochs: &mut LeadEpochs, line: Vec<u8>) -> Answer {

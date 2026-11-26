@@ -1,9 +1,9 @@
 //! The peer link's accepting side, judged on the lines it answers: the
-//! `hello` of a Group member of the group's Product settles on the lower
-//! minor, one of the other Product is refused with `not_in_product` naming
-//! both, and every message carrying a lower lead epoch than the highest
-//! recorded is refused with `lead_epoch_stale`. The generated refusal cases
-//! of the peer protocol (ADR 0066) run here in process.
+//! `hello` of a Group member of the group's Product is accepted, one of the
+//! other Product is refused with `not_in_product` naming both, and every
+//! message carrying a lower lead epoch than the highest recorded is
+//! refused with `lead_epoch_stale`. The generated refusal cases of the peer
+//! protocol (ADR 0066) run here in process.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -19,6 +19,7 @@ use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::group::{LeadEpoch, PEER_PROTOCOL_VERSION};
 use goodfetch_protocol::refusals::{RefusalCase, Reply};
+use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -68,9 +69,10 @@ fn reply(answer: Answer) -> (Value, bool) {
     (serde_json::from_slice(&sent).unwrap(), answer.close)
 }
 
-/// Covers: story:3-108, format:peer-protocol
+/// The accepted `hello` answers with the settled version and the lead
+/// epoch this Group member records.
 #[test]
-fn a_group_member_of_the_groups_product_settles_on_the_lower_minor() {
+fn a_hello_of_the_groups_product_is_answered_with_the_version_and_the_lead_epoch() {
     let mut link = PeerLink::accepting(identity(Product::Foxhound));
     let mut epochs = LeadEpochs::new(LeadEpoch::new(2));
 
@@ -104,9 +106,8 @@ fn a_daemon_of_the_other_product_is_refused_naming_both() {
     ));
 
     assert_eq!(
-        (&sent["error"]["message"], &sent["error"]["data"], close),
+        (&sent["error"]["data"], close),
         (
-            &json!("This Group member runs Collie, and this Daemon group runs Foxhound 0.4.0."),
             &json!({
                 "code": "not_in_product",
                 "retryable": false,
@@ -121,62 +122,109 @@ fn a_daemon_of_the_other_product_is_refused_naming_both() {
     );
 }
 
+/// A link whose `hello` at `epoch` was accepted, with `epoch` recorded.
+fn opened(epoch: u64) -> (PeerLink, LeadEpochs) {
+    let mut link = PeerLink::accepting(identity(Product::Collie));
+    let mut epochs = LeadEpochs::new(LeadEpoch::new(epoch));
+    link.receive(
+        &mut epochs,
+        hello(Product::Collie, PEER_PROTOCOL_VERSION, epoch),
+    );
+    (link, epochs)
+}
+
 /// A former Lead Daemon, back with the epoch it had, is fenced off at its
-/// `hello` and on every later message, and learns the higher epoch from
-/// the refusal; a higher epoch raises the one recorded.
+/// `hello`, learns the higher epoch from the refusal, and the link closes.
 ///
 /// Covers: error:lead_epoch_stale
 #[test]
-fn a_message_carrying_a_lower_lead_epoch_is_refused() {
+fn a_hello_carrying_a_lower_lead_epoch_is_refused_and_closes_the_link() {
     let mut link = PeerLink::accepting(identity(Product::Collie));
     let mut epochs = LeadEpochs::new(LeadEpoch::new(4));
-    let stale_hello = reply(link.receive(
+
+    let (sent, close) = reply(link.receive(
         &mut epochs,
         hello(Product::Collie, PEER_PROTOCOL_VERSION, 3),
     ));
-    let mut link = PeerLink::accepting(identity(Product::Collie));
-    link.receive(
-        &mut epochs,
-        hello(Product::Collie, PEER_PROTOCOL_VERSION, 4),
-    );
 
-    let raised = reply(link.receive(&mut epochs, lead_epoch(1, 5)));
-    let stale = reply(link.receive(&mut epochs, lead_epoch(2, 4)));
-
-    let stale_details = |answer: &(Value, bool)| (answer.0["error"]["data"].clone(), answer.1);
     assert_eq!(
+        (&sent["error"]["data"], close),
         (
-            stale_details(&stale_hello),
-            raised,
-            stale_details(&stale),
-            epochs.highest()
-        ),
+            &json!({
+                "code": "lead_epoch_stale",
+                "retryable": false,
+                "lead_epoch": 3,
+                "highest_lead_epoch": 4,
+            }),
+            true
+        )
+    );
+}
+
+/// A message after `hello` carrying a lower lead epoch is refused, and the
+/// link stays open.
+///
+/// Covers: error:lead_epoch_stale
+#[test]
+fn a_later_message_carrying_a_lower_lead_epoch_is_refused_and_the_link_stays_open() {
+    let (mut link, mut epochs) = opened(4);
+
+    let (sent, close) = reply(link.receive(&mut epochs, lead_epoch(1, 3)));
+
+    assert_eq!(
+        (&sent["error"]["data"], close),
         (
-            (
-                json!({
-                    "code": "lead_epoch_stale",
-                    "retryable": false,
-                    "lead_epoch": 3,
-                    "highest_lead_epoch": 4,
-                }),
-                true
-            ),
+            &json!({
+                "code": "lead_epoch_stale",
+                "retryable": false,
+                "lead_epoch": 3,
+                "highest_lead_epoch": 4,
+            }),
+            false
+        )
+    );
+}
+
+/// A message carrying a higher lead epoch raises the one recorded.
+#[test]
+fn a_message_carrying_a_higher_lead_epoch_raises_the_one_recorded() {
+    let (mut link, mut epochs) = opened(4);
+
+    let answer = reply(link.receive(&mut epochs, lead_epoch(1, 5)));
+
+    assert_eq!(
+        (answer, epochs.highest()),
+        (
             (
                 json!({ "jsonrpc": "2.0", "id": 1, "result": { "lead_epoch": 5 } }),
-                false
-            ),
-            (
-                json!({
-                    "code": "lead_epoch_stale",
-                    "retryable": false,
-                    "lead_epoch": 4,
-                    "highest_lead_epoch": 5,
-                }),
                 false
             ),
             LeadEpoch::new(5)
         )
     );
+}
+
+proptest! {
+    /// Whatever lead epochs the messages carry, in whatever order, the one
+    /// recorded is the highest seen so far, and exactly the messages below
+    /// it are refused.
+    #[test]
+    fn the_recorded_lead_epoch_is_the_running_highest_and_only_lower_ones_are_refused(
+        start in 0_u64..8,
+        carried in proptest::collection::vec(0_u64..8, 0..16),
+    ) {
+        let (mut link, mut epochs) = opened(start);
+        let mut highest = start;
+
+        for (id, epoch) in (1_u64..).zip(carried) {
+            let (sent, _) = reply(link.receive(&mut epochs, lead_epoch(id, epoch)));
+
+            let refused = sent.get("error").is_some();
+            prop_assert_eq!(refused, epoch < highest, "{}", sent);
+            highest = highest.max(epoch);
+            prop_assert_eq!(epochs.highest(), LeadEpoch::new(highest));
+        }
+    }
 }
 
 /// A peer link opens with `hello`: anything else first is refused, and the

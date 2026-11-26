@@ -88,6 +88,10 @@ _Avoid_: cluster, fleet
 The Group member of a Daemon group that holds the group's shared control state.
 _Avoid_: master, primary, leader
 
+**Lead epoch**:
+The number a Group member takes when it becomes the Lead Daemon, higher than any before it, which every message between Group members carries; a message that carries a lower one than the highest a Group member has recorded is refused, so a former Lead Daemon that comes back changes nothing.
+_Avoid_: term, generation, fencing token (for the group's)
+
 **Group member**:
 Any Daemon of a Daemon group, the Lead Daemon included. Not the *member* role of a person on a shared Daemon.
 _Avoid_: member (alone), node, worker, replica

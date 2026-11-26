@@ -148,17 +148,24 @@ impl Identity {
     }
 
     /// The message and details of `not_in_product` for a Group member that
-    /// runs `member`, another Product than this Daemon group's: Group
-    /// members run one Product, never one that contains the other, since
-    /// runs move between them (ADR 0095). The `fix` starts that Daemon with
-    /// the group's Product.
-    pub fn not_in_group_product(&self, member: Product) -> (String, NotInProductDetails) {
-        let (group, version, other) = (self.product.name(), &self.product_version, member.name());
+    /// runs `group_member_product`, another Product than this Daemon
+    /// group's: Group members run one Product, never one that contains the
+    /// other, since runs move between them (ADR 0095). The `fix` starts that
+    /// Daemon with the group's Product.
+    pub fn not_in_group_product(
+        &self,
+        group_member_product: Product,
+    ) -> (String, NotInProductDetails) {
+        let (group, version, other) = (
+            self.product.name(),
+            &self.product_version,
+            group_member_product.name(),
+        );
         let install = self.channel.install_command(self.product);
         let details = NotInProductDetails {
             product: self.product,
             product_version: self.product_version.clone(),
-            needs: member,
+            needs: group_member_product,
             requested: None,
             fix: format!(
                 "Start that Daemon with {group}, the group's Product (`{install}`): Group members run one Product."

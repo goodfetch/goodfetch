@@ -71,7 +71,7 @@ fn main() {
             id: Some(RequestId::Number(1)),
             error: ErrorObject {
                 code: ErrorGroup::Refused.json_rpc_class(),
-                message: "the message carries lead epoch 3, lower than 4".to_owned(),
+                message: "This message carries lead epoch 3, lower than 4, the highest this Group member has recorded.".to_owned(),
                 data: ErrorData {
                     code: LEAD_EPOCH_STALE.name.to_owned(),
                     retryable: LEAD_EPOCH_STALE.retryable,

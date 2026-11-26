@@ -1,7 +1,8 @@
 //! Declared inputs: what no package manager lists, declared in a
 //! `third-party.toml` file beside what uses it (the
-//! Goodfetch Chromium's third-party inputs, the Clean-up rules' inputs
-//! and the block-detection rules' sources), or in a further file given on the command line, such as the list
+//! Goodfetch Chromium's third-party inputs, the Clean-up rules' inputs,
+//! the block-detection rules' sources and the Identity profiles'
+//! population data), or in a further file given on the command line, such as the list
 //! a Chromium build writes.
 #![expect(
     clippy::disallowed_methods,
@@ -34,6 +35,7 @@ enum Set {
     Chromium,
     CleanUpRules,
     BlockDetectionRules,
+    IdentityPopulation,
 }
 
 impl From<Set> for Ecosystem {
@@ -42,6 +44,7 @@ impl From<Set> for Ecosystem {
             Set::Chromium => Self::Chromium,
             Set::CleanUpRules => Self::CleanUpRules,
             Set::BlockDetectionRules => Self::BlockDetectionRules,
+            Set::IdentityPopulation => Self::IdentityPopulation,
         }
     }
 }

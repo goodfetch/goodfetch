@@ -3425,6 +3425,46 @@
       ],
       "type": "object"
     },
+    "CrawlDeclaration": {
+      "additionalProperties": false,
+      "description": "A crawl declared as data: the engine handles each of its requests\nitself, by the request's Label's `follow` and `extract`. A start naming\nit declares no Label and no Dataset of its own, else it fails with\n`invalid_params`, and never with `extraction` too, else it fails with\n`setting_invalid`; `extraction` is its one-Label shorthand.",
+      "properties": {
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "Its Datasets, as `crawl.start`'s `datasets`, which its Labels'\n`extract` fills.",
+          "items": {
+            "$ref": "#/$defs/DatasetDeclaration"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "arrived_in": "0.1",
+          "description": "Its Labels, in order, each with what its pages follow and extract.",
+          "items": {
+            "$ref": "#/$defs/DeclaredLabel"
+          },
+          "type": "array"
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "description": "The requests the crawl starts from, after the start's own `seeds`,\nof which the start still names at least one, each request seed\nnaming a Label it declares; none by default.",
+          "items": {
+            "$ref": "#/$defs/Seed"
+          },
+          "type": "array"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its Run's settings, nested by key, only those a Recipe may set,\nbeneath the start's own `settings`, which win key by key, each\nkey's value whole.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "labels"
+      ],
+      "type": "object"
+    },
     "CrawlExtraction": {
       "additionalProperties": false,
       "description": "What a crawl with no handler reads from each page it fetches (spec\n#582's code-free crawls; ADR 0103): the engine declares the Label\n[`CODE_FREE_LABEL`] and the Dataset [`CODE_FREE_DATASET`], keyed by\n`url`, whose JSON Schema is generated from `formats`, and commits one\nRecord per page fetched: the page's formats, as `page.formats` answers\nthem (its `url` the document's, after redirects), its response's\n`status` and `fetched_at`, when the engine read it, and its named\n`fields`, each read by a locator and given by a Value transform (ADR\n0123).",
@@ -4687,6 +4727,18 @@
           },
           "type": "array"
         },
+        "declaration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CrawlDeclaration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The crawl as data (ADR 0103): its Labels, what each of their pages\nfollows and extracts, its Datasets, settings and more seeds, which\nthe engine handles itself as it does `extraction`, its one-Label\nshorthand. Such a start declares no Label and no Dataset of its own,\nelse it fails with `invalid_params`, and names no `extraction`, else\nit fails with `setting_invalid`."
+        },
         "detached": {
           "arrived_in": "0.1",
           "description": "Whether the Run outlives the Connection that started it (ADR 0102),\nas a Recipe's run does: only a code-free crawl with no Hook, started\non a Daemon, detaches, and any other such start fails with\n`detach_unsupported`.",
@@ -5796,6 +5848,30 @@
       ],
       "type": "object"
     },
+    "DeclaredExtract": {
+      "additionalProperties": false,
+      "description": "One Record a page of a declared Label pushes into `dataset`: its named\n`fields`, read as `extraction`'s are and written in the order declared;\na field name repeats across one Label's extracts only as one field,\nread once for them all.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset it pushes into, one the declaration declares.",
+          "type": "string"
+        },
+        "fields": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PageField"
+          },
+          "arrived_in": "0.1",
+          "description": "Its named fields, by name, each a value field, a list or rows.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "dataset",
+        "fields"
+      ],
+      "type": "object"
+    },
     "DeclaredKind": {
       "additionalProperties": false,
       "description": "A Plugin kind a Plugin implements, and the capabilities of it that the\nPlugin claims: its kind's suite proves each, and a capability not\ndeclared stays unproved.",
@@ -5817,6 +5893,47 @@
       "required": [
         "kind",
         "capabilities"
+      ],
+      "type": "object"
+    },
+    "DeclaredLabel": {
+      "additionalProperties": false,
+      "description": "One Label of a [`CrawlDeclaration`]: as `crawl.start`'s `labels` declare\none, with what each of its pages follows and extracts.",
+      "properties": {
+        "extract": {
+          "arrived_in": "0.1",
+          "description": "The Records each of its pages pushes, one per entry; none by\ndefault.",
+          "items": {
+            "$ref": "#/$defs/DeclaredExtract"
+          },
+          "type": "array"
+        },
+        "follow": {
+          "arrived_in": "0.1",
+          "description": "The links each of its pages enqueues, rule by rule, each as\n`enqueueLinks` admits them; none by default.",
+          "items": {
+            "$ref": "#/$defs/FollowRule"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique among the declaration's Labels.",
+          "type": "string"
+        },
+        "payload_schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema its requests' Payloads are checked against; none\ntakes any Payload."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its settings, nested by key, as a Label declared at the start takes\nthem.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name"
       ],
       "type": "object"
     },
@@ -8516,6 +8633,53 @@
           "type": "string"
         }
       ]
+    },
+    "FollowRule": {
+      "additionalProperties": false,
+      "description": "The links a page of a declared Label enqueues, as `enqueueLinks` takes\nthem: each `links` matches, under `label`, narrowed by `include` and\n`exclude`, at most `limit` of them.",
+      "properties": {
+        "exclude": {
+          "arrived_in": "0.1",
+          "description": "URL patterns a link must match none of.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "arrived_in": "0.1",
+          "description": "URL patterns of which a link must match one when there are any.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "The Label of the requests it enqueues, one the declaration declares.",
+          "type": "string"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "At most this many links of a page are added; none for no limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "links": {
+          "arrived_in": "0.1",
+          "description": "The CSS selector of the elements whose `href` it follows.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "links",
+        "label"
+      ],
+      "type": "object"
     },
     "ForcedBy": {
       "description": "Which scope's `fetch.tier` forced a tier.",

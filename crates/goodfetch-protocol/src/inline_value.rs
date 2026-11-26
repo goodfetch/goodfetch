@@ -6,9 +6,29 @@
 //! Plugin kind and the Hook stage, the same constructors, accessor and
 //! serde form.
 
+use schemars::{Schema, json_schema};
+use serde_json::{Value, json};
+
 /// The longest value an open value type holds, in bytes, which codegen
 /// checks on every value of the catalog (ADR 0099).
 pub(crate) const MAX_LEN: usize = 63;
+
+/// An open enumeration's schema (ADR 0079): a `oneOf` of its known values,
+/// each a string constant with its description, marked `"open": true`, so
+/// each SDK keeps a value it does not know.
+pub(crate) fn open_schema(description: &str, values: &[(String, &str)]) -> Schema {
+    let values: Vec<Value> = values
+        .iter()
+        .map(|(value, description)| {
+            json!({ "type": "string", "const": value, "description": description })
+        })
+        .collect();
+    json_schema!({
+        "description": description,
+        "open": true,
+        "oneOf": values,
+    })
+}
 
 /// A string of at most [`MAX_LEN`] bytes, held inline.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

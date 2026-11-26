@@ -16,6 +16,12 @@ dependencies = [
 # Nothing is published before the first release (AGENTS.md, Release status).
 classifiers = ["Private :: Do Not Upload"]
 
+# `verify_webhook` checks a `v2a` signature, Ed25519, with `cryptography`,
+# which a receiver trusting a `whpk_` key installs with this extra; a `v1`
+# one, HMAC-SHA256, needs nothing beyond the standard library (issue 1391).
+[project.optional-dependencies]
+ed25519 = ["cryptography>=50.0.2"]
+
 # mutmut's full run, weekly once the nightly tier is on (ADR 0072; TESTING.md,
 # Feature coverage), started here by `just mutants-sdks python`: the
 # hand-written runtime, never what `xtask codegen` writes (ADR 0099). pytest

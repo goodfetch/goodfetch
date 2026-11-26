@@ -276,3 +276,42 @@ fn only_what_this_engine_builds_opens(
 
     assert_eq!(plan.built(&settings).map(|_| ()), expected);
 }
+
+/// A `stealth` Session whose identity values its browser family's
+/// population draws no browser from does not open: it is refused at the
+/// setting that names a value outside the population, or that empties it,
+/// in the layer that set it.
+///
+/// Covers: story:8-38, setting:stealth.identity.os, setting:stealth.identity.device, setting:stealth.identity.brand
+#[rstest]
+#[case::an_os_outside_the_population(json!({ "os": ["ios"] }), json!({}), BrowserFamily::Chromium, "stealth.identity.os", RUN)]
+#[case::a_configured_brand_firefox_has_not(json!({}), json!({ "stealth": { "identity": { "brand": ["edge"] } } }), BrowserFamily::Firefox, "stealth.identity.brand", USER)]
+#[case::a_device_no_browser_of_the_os_has(json!({ "os": ["macos"], "device": ["mobile"] }), json!({}), BrowserFamily::Chromium, "stealth.identity.device", RUN)]
+fn an_identity_outside_the_population_is_refused(
+    #[case] identity: Value,
+    #[case] user: Value,
+    #[case] family: BrowserFamily,
+    #[case] key: &str,
+    #[case] layer: SettingsLayer,
+) {
+    let own = values(
+        SettingsLayer::Run,
+        &json!({ "browser": { "access_mode": "stealth" }, "stealth": { "identity": identity } }),
+    );
+    let resolved = run(&user, &json!({}));
+    let settings = SessionSettings::new(&own, Some(&resolved));
+
+    let error = resolve(&settings, None, family)
+        .expect("the Session resolves")
+        .narrowing(family)
+        .expect("its identity is narrowed")
+        .drawn()
+        .expect_err("the population draws nothing from it");
+
+    let refusal = Refusal::outside_population(&settings, &error);
+    assert!(
+        matches!(&refusal, Refusal::IdentityOutsidePopulation { key: refused, layer: at, reason }
+            if *refused == key && *at == layer && !reason.is_empty()),
+        "{refusal:?}"
+    );
+}

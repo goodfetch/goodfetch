@@ -119,6 +119,12 @@ fn allowed_dependencies_and_inputs_pass() {
     r#"license = "SSPL-1.0""#,
     "block-detection-rules wafw00f@69fbe39"
 )]
+#[case::identity_population_input(
+    "identity-population/third-party.toml",
+    r#"license = "Apache-2.0""#,
+    r#"license = "SSPL-1.0""#,
+    "identity-population fingerprint-suite's fingerprint network@7a6b52b"
+)]
 fn license_outside_the_allowlist_fails_with_the_dependency_and_its_ecosystem(
     #[case] file: &str,
     #[case] from: &str,

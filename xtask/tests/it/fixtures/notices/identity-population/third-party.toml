@@ -1,0 +1,9 @@
+set = "identity-population"
+
+# The population Identity profiles are drawn from (ADR 0035).
+[[input]]
+name = "fingerprint-suite's fingerprint network"
+version = "7a6b52b"
+license = "Apache-2.0"
+source = "https://github.com/apify/fingerprint-suite/blob/7a6b52b/packages/fingerprint-generator/src/data_files/fingerprint-network-definition.zip"
+use = "unmodified"

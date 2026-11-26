@@ -35,10 +35,10 @@ use serde_json::Value;
 
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
-use crate::run::{run_error, through_owner};
+use crate::run::{run_error, through_owner, unwritten};
 use crate::run_files::{self, FileKind};
 use crate::run_identity::RunIdentity;
-use crate::run_state::{RunState, RunStateError, RunStateTables};
+use crate::run_state::{RunState, RunStateTables};
 use crate::runs::{RunError, RunParts, RunReader};
 use crate::staging::{AttemptWrites, StagedKey, StagedWrite, Unstaged};
 
@@ -502,18 +502,6 @@ pub async fn forget_files(run: &RunIdentity, state: &RunState, files: Vec<String
     for file in files {
         forget(run, state, Some(file)).await;
     }
-}
-
-/// The failure of a write to `run`'s state.
-fn unwritten(run: &RunIdentity, error: &RunStateError, context: &CallContext) -> CallError {
-    run_error(
-        RunError::Unavailable {
-            run_id: run.id().clone(),
-            folder: run.folder().to_owned(),
-            error: error.to_string(),
-        },
-        context,
-    )
 }
 
 /// The failure of keeping bytes in `run`'s folder.

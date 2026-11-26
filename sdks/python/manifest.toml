@@ -2543,6 +2543,15 @@ words = ["closed", "error"]
 form = "runtime"
 
 [[member]]
+package = "goodfetch_collie_client.duration"
+receiver = "(module)"
+member = "Duration"
+entry = "none"
+reason = "A duration, a `timedelta` built from milliseconds and sent as whole milliseconds (ADR 0080), which the generated models' `Milliseconds` fields are."
+words = ["duration"]
+form = "type"
+
+[[member]]
 package = "goodfetch_collie_client.goodfetch_error"
 receiver = "(module)"
 member = "BaseGoodfetchError"

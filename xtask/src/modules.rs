@@ -25,13 +25,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens as _;
 use serde::Deserialize;
 
 use crate::check::Finding;
 use crate::metadata;
+use crate::rust_source::{self, Folders, cfg_test_exactly, item_attributes};
 
 const MODULES_FILE: &str = "modules.toml";
 
@@ -56,8 +57,8 @@ struct ModulesFile {
 struct Source {
     path: PathBuf,
     syntax: syn::File,
-    /// Folder holding the files of the modules this file declares.
-    children: PathBuf,
+    /// Where the modules this file declares find their files.
+    folders: Folders,
 }
 
 pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
@@ -188,9 +189,12 @@ fn nested_source(
     else {
         return Ok(None);
     };
-    // The top-level module's file read again, its folder of children kept.
-    let mut source = parse(&top.path, Path::new(""))?;
-    source.children.clone_from(&top.children);
+    // The top-level module's file read again, where its modules' files are kept.
+    let mut source = Source {
+        syntax: rust_source::parse(&top.path)?,
+        path: top.path.clone(),
+        folders: top.folders.clone(),
+    };
     for (index, name) in rest.iter().enumerate() {
         let child = non_test_items(&source.syntax.items).find_map(|item| match item {
             syn::Item::Mod(child) if child.ident == name => Some(child),
@@ -199,11 +203,7 @@ fn nested_source(
         let Some(child) = child else {
             return Ok(None);
         };
-        let declaring = source
-            .path
-            .parent()
-            .context("a module file sits in a folder")?;
-        let files = module_files(child, &source.children, declaring, index + 2)?;
+        let files = module_files(child, &source, index + 2)?;
         let Some((next, _)) = files.into_iter().next() else {
             return Ok(None);
         };
@@ -282,16 +282,16 @@ fn top_level(
     let mut top_level = Level::default();
     let mut roots = Vec::new();
     for crate_root in crate_roots(package, crate_folder) {
-        let source = parse(
-            &crate_root,
-            crate_root.parent().context("a root sits in a folder")?,
-        )?;
-        let roots_children = source.children.clone();
+        let source = Source {
+            syntax: rust_source::parse(&crate_root)?,
+            folders: Folders::root(&crate_root),
+            path: crate_root,
+        };
         oversized(root, &source, findings);
         for item in non_test_items(&source.syntax.items) {
             match item {
                 syn::Item::Mod(module) => {
-                    let files = module_files(module, &roots_children, &roots_children, 1)?;
+                    let files = module_files(module, &source, 1)?;
                     top_level
                         .modules
                         .entry(module.ident.to_string())
@@ -393,15 +393,7 @@ fn check_submodules(
             syn::Item::Mod(child) => {
                 level.modules.insert(
                     child.ident.to_string(),
-                    module_files(
-                        child,
-                        &source.children,
-                        source
-                            .path
-                            .parent()
-                            .context("a module file sits in a folder")?,
-                        path.len() + 1,
-                    )?,
+                    module_files(child, source, path.len() + 1)?,
                 );
             }
             syn::Item::Use(re_export) => level.record_use(re_export, Scope::Within(path)),
@@ -558,133 +550,44 @@ fn crate_roots(package: &metadata::Package, crate_folder: &Path) -> Vec<PathBuf>
         .collect()
 }
 
-fn parse(path: &Path, folder: &Path) -> Result<Source> {
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let syntax = syn::parse_file(&text).with_context(|| format!("parsing {}", path.display()))?;
-    let stem = path.file_stem().and_then(OsStr::to_str).unwrap_or_default();
-    let children = if matches!(stem, "lib" | "main" | "mod") {
-        folder.to_path_buf()
-    } else {
-        folder.join(stem)
-    };
-    Ok(Source {
-        path: path.to_path_buf(),
-        syntax,
-        children,
-    })
-}
-
-/// The files of a module declared in a file, with their depth below the crate
-/// root; an inline module's items stay in its declaring file. `folder` holds
-/// the declared modules' files, and `declaring` is the declaring file's own
-/// folder, which a `#[path]` is relative to, as `rustc` reads it.
+/// The files of a module declared in `declaring`, with their depth below the
+/// crate root; an inline module's items stay in its declaring file.
 fn module_files(
     module: &syn::ItemMod,
-    folder: &Path,
-    declaring: &Path,
+    declaring: &Source,
     depth: usize,
 ) -> Result<Vec<(Source, usize)>> {
     if module.content.is_some() {
         // Inline: its items are scanned with its declaring file's items.
         return Ok(Vec::new());
     }
-    let name = module.ident.to_string();
-    let path = if let Some(path) = path_attribute(&module.attrs) {
-        let path = declaring.join(path);
-        if !path.is_file() {
-            bail!(
-                "module `{name}`'s #[path] names no file: {}",
-                path.display()
-            );
-        }
-        path
-    } else {
-        [
-            folder.join(format!("{name}.rs")),
-            folder.join(&name).join("mod.rs"),
-        ]
-        .into_iter()
-        .find(|path| path.is_file())
-        .with_context(|| format!("module `{name}` has no file in {}", folder.display()))?
-    };
-    if path
+    let found = rust_source::module_file(module, &declaring.path, &declaring.folders)?;
+    if found
+        .path
         .components()
         .any(|component| component.as_os_str() == "generated")
     {
         return Ok(Vec::new());
     }
-    let declaring = path.parent().context("a module file sits in a folder")?;
-    let mut source = parse(&path, declaring)?;
-    // `rustc` reads a `#[path]` file as it reads a `mod.rs`: the modules it
-    // declares sit beside it, not in a folder named after it.
-    if path_attribute(&module.attrs).is_some() {
-        source.children = declaring.to_path_buf();
-    }
+    let source = Source {
+        syntax: rust_source::parse(&found.path)?,
+        path: found.path,
+        folders: found.folders,
+    };
     let mut files = Vec::new();
     for item in non_test_items(&source.syntax.items) {
         if let syn::Item::Mod(child) = item {
-            files.extend(module_files(child, &source.children, declaring, depth + 1)?);
+            files.extend(module_files(child, &source, depth + 1)?);
         }
     }
     files.insert(0, (source, depth));
     Ok(files)
 }
 
-/// The file a `#[path = "…"]` attribute names, if the module has one.
-fn path_attribute(attributes: &[syn::Attribute]) -> Option<String> {
-    attributes.iter().find_map(|attribute| {
-        let syn::Meta::NameValue(pair) = &attribute.meta else {
-            return None;
-        };
-        if !pair.path.is_ident("path") {
-            return None;
-        }
-        match &pair.value {
-            syn::Expr::Lit(syn::ExprLit {
-                lit: syn::Lit::Str(path),
-                ..
-            }) => Some(path.value()),
-            _ => None,
-        }
-    })
-}
-
-pub(crate) fn is_test_only(attributes: &[syn::Attribute]) -> bool {
-    attributes.iter().any(|attribute| {
-        attribute.path().is_ident("cfg")
-            && attribute
-                .meta
-                .require_list()
-                .is_ok_and(|list| list.tokens.to_string() == "test")
-    })
-}
-
-pub(crate) fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
-    match item {
-        syn::Item::Const(item) => &item.attrs,
-        syn::Item::Enum(item) => &item.attrs,
-        syn::Item::ExternCrate(item) => &item.attrs,
-        syn::Item::Fn(item) => &item.attrs,
-        syn::Item::ForeignMod(item) => &item.attrs,
-        syn::Item::Impl(item) => &item.attrs,
-        syn::Item::Macro(item) => &item.attrs,
-        syn::Item::Mod(item) => &item.attrs,
-        syn::Item::Static(item) => &item.attrs,
-        syn::Item::Struct(item) => &item.attrs,
-        syn::Item::Trait(item) => &item.attrs,
-        syn::Item::TraitAlias(item) => &item.attrs,
-        syn::Item::Type(item) => &item.attrs,
-        syn::Item::Union(item) => &item.attrs,
-        syn::Item::Use(item) => &item.attrs,
-        _ => &[],
-    }
-}
-
 fn non_test_items(items: &[syn::Item]) -> impl Iterator<Item = &syn::Item> {
     items
         .iter()
-        .filter(|item| !is_test_only(item_attributes(item)))
+        .filter(|item| !cfg_test_exactly(item_attributes(item)))
 }
 
 /// Whose siblings an import reaches: the crate's top-level modules, or the
@@ -817,7 +720,7 @@ fn oversized(root: &Path, source: &Source, findings: &mut Vec<Finding>) {
         .syntax
         .items
         .iter()
-        .filter(|item| is_test_only(item_attributes(item)))
+        .filter(|item| cfg_test_exactly(item_attributes(item)))
         .map(item_lines)
         .sum();
     let counted = total.saturating_sub(test_lines);

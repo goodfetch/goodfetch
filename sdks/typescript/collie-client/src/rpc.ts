@@ -29,6 +29,7 @@ import {
   GoodfetchError,
   SettingInvalidError,
 } from "./generated/index.ts";
+import { TIMEOUT_CONNECT } from "./project-file.ts";
 import { reconnectDelay } from "./reconnect.ts";
 
 /** The notification that cancels a call in flight (ADR 0038), `goodfetch-protocol`'s `connection::CANCEL`. */
@@ -1014,7 +1015,7 @@ export class Channel {
         ? undefined
         : setTimeout(
             () =>
-              attempt.abort(new Error("timeout.connect passed while reaching the engine again")),
+              attempt.abort(new Error(`${TIMEOUT_CONNECT} passed while reaching the engine again`)),
             Math.min(left, LONGEST_TIMER),
           );
     try {

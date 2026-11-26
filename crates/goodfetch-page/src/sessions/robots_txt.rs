@@ -145,6 +145,7 @@ impl Reader {
             option: "robots.txt",
             limits,
             read: browser_fetch::BodyRead::Streamed,
+            placeholders: None,
         };
         let fetched = browser_fetch::send(engine_page.driver(), steps, &request).await;
         engine_page.close().await;

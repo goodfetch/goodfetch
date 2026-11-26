@@ -146,7 +146,7 @@ use crate::run_state::{
 use crate::serving::{Crawls, Opened, Server};
 use crate::tier_choice::{self, AttemptPlan, Sampling, TierChoices, Unit};
 use crate::tier_race::Raced;
-use crate::work_items::{self, Again, Changed, Failure, Leased, Unsuccessful};
+use crate::work_items::{self, Again, AttemptKey, Changed, Failure, Leased, Unsuccessful};
 use goodfetch_protocol::foxhound::progress::{HELD_DOMAINS, InFlightPhase, InFlightRequest};
 
 mod attempt;
@@ -2113,7 +2113,7 @@ async fn queue_outcome(
             refused(SkipReason::RobotsTxt)
         }
         Answer::SitemapRead(document) => {
-            let ending = file.sitemap_read((work_item, lease_epoch), document);
+            let ending = file.sitemap_read(AttemptKey::new(work_item, lease_epoch), document);
             return queued(on, (leased, lease), (scored, ending), false).await;
         }
         Answer::Handled(handled) => {
@@ -2321,9 +2321,12 @@ async fn outcome_lost(
     let masks = run.keys.secrets().mask().masks().clone();
     let kept = kept_failure(&masks, lost.code, &lost.message, lost.details);
     let unsuccessful = retried_or_failed(policy, leased.tries, kept, &why, retryable);
-    let attempt = (leased.crawl_request.id.clone(), leased.lease_epoch);
     let ended = stored
-        .end_lost(attempt, unsuccessful, run.identity.point_in_time())
+        .end_lost(
+            leased.attempt_key().owned(),
+            unsuccessful,
+            run.identity.point_in_time(),
+        )
         .await;
     let Ran {
         answer: (ended, changed),

@@ -224,8 +224,8 @@ how = "holds no value: per-domain Politeness state, and each domain key's Delega
 
 [[writer]]
 path = "crates/goodfetch-engine/src/response_cache.rs"
-count = 3
-how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for"
+count = 5
+how = "holds no resolved value: the cache's index table, its bodies folder and each body file hold only public responses fetched with no cookie or credential, never a response a Secret was sent for; its `bodies` and `held` tables hold only each body's SHA-256, size and holder count, and the bytes the bodies hold"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/robots_txt.rs"
@@ -301,6 +301,11 @@ how = "holds no value: each store's `format` table, its format's name and versio
 path = "crates/goodfetch-engine/src/transport.rs"
 count = 1
 how = "masked: the Attached engine's stdout carries only the lines `rpc` masked"
+
+[[writer]]
+path = "crates/goodfetch-notification/src/ledger.rs"
+count = 1
+how = "holds no value: each delivery's event ID, channel name, state, attempt, run epoch, next time and failure name (a code, never the party's text)"
 
 [[writer]]
 path = "crates/goodfetch-page/src/clean_up_versions.rs"

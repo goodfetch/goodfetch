@@ -49,6 +49,7 @@ fn file_formats() -> serde_json::Value {
         stored_format("browser-cache", "json", "default", "BrowserCacheEntry"),
         stored_format("clean-up-rules", "json", "newest_readable", "CleanUpRulesManifest"),
         stored_format("run-index", "sqlite", "shared_store", "RunIndexRow"),
+        stored_format("accounts-store", "sqlite", "default", "StoredAccounts"),
         stored_format("run-state", "sqlite", "default", "RunStateRow"),
         stored_format("installed-executables", "json", "frozen_major", "InstalledExecutables"),
         stored_format("usage-ledger", "sqlite", "frozen_major", "Limit"),

@@ -122,6 +122,7 @@ use crate::page_value::{
     BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
     OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
 };
+use crate::placeholders::Placeholders;
 use crate::proxy;
 use crate::recovery;
 use crate::sessions::{self, EngineWork, OpenPage, PageEvent, Sessions, interception_run};
@@ -1077,6 +1078,7 @@ impl BrowserPages for Opener {
                 option: "fetch.redirect.max",
                 limits,
                 read: browser_fetch::BodyRead::Whole,
+                placeholders: None,
             };
             // A cancelled fetch closes the engine's page as it drops.
             let engine_page = self
@@ -1434,6 +1436,7 @@ impl Pages {
         let steps = page.owner.interception().engine_requests()?;
         let events = self.events(&params.page_id)?;
         let limits = Limits::of_run(page.run.identity.settings());
+        let placeholders = self.placeholders(&page, &params)?;
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),
@@ -1443,6 +1446,7 @@ impl Pages {
             option: MAX_REDIRECTS_PARAMETER,
             limits,
             read: browser_fetch::BodyRead::Whole,
+            placeholders: placeholders.as_ref(),
         };
         page.sending(PAGE_REQUEST.name).await?;
         // A cancelled call closes the engine's page as it drops.
@@ -1490,6 +1494,31 @@ impl Pages {
             };
         events.keep_requested(fetched.response.request_id.clone(), kept);
         Ok(fetched.response)
+    }
+
+    /// The Secret placeholders `params` carries, bound through `page`'s
+    /// Session's settings beneath its Run's (ADR 0092); none, and no
+    /// settings read, when it carries none.
+    fn placeholders(
+        &self,
+        page: &OpenPage,
+        params: &PageRequestParams,
+    ) -> Result<Option<Placeholders>, CallError> {
+        if params.secret_headers.is_none() && params.json_secrets.is_none() {
+            return Ok(None);
+        }
+        let (_, own) = self.sessions.own_settings(&page.session)?;
+        let settings = page.run.identity.settings().map(|settings| {
+            settings
+                .resolved()
+                .beneath(&own)
+                .expect("invariant: the Session's own settings opened beneath its Run's")
+        });
+        Placeholders::bind(
+            (&page.run.identity, &page.run.keys),
+            settings.as_ref(),
+            params,
+        )
     }
 
     /// Runs `expression`, a page function's call as `page_functions` built

@@ -4,17 +4,20 @@
 //! defining module is private, and each params struct's fields with their
 //! wire names and types.
 //!
-//! The crate's module tree is walked from `src/lib.rs`, tests left out. A
+//! The crate's module tree is walked from `src/lib.rs` as `rustc` reads it,
+//! `#[path]` included, tests left out. A
 //! type is found by its schema name, which is its `schemars` or `serde`
 //! rename or its ident; a name two items share, or a field type the index
 //! cannot spell from outside the crate, fails `xtask codegen` with the type
 //! named.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use syn::punctuated::Punctuated;
+
+use crate::rust_source::{Folders, module_file, parse, test_builds_only};
 
 /// The crate whose types the handles take and answer.
 const CRATE: &str = "goodfetch_protocol";
@@ -93,18 +96,19 @@ impl Index {
         let mut index = Self {
             modules: Vec::new(),
         };
-        let children = lib.parent().map(Path::to_path_buf).unwrap_or_default();
         let file = parse(&lib)?;
-        index.module(&[], true, &file.items, &children, &lib)?;
+        index.module(&[], true, &file.items, &Folders::root(&lib), &lib)?;
         Ok(Some(index))
     }
 
+    /// Reads the module at `path` with `items`, declared in `file`, whose
+    /// child modules find their files in `folders`.
     fn module(
         &mut self,
         path: &[String],
         public: bool,
         items: &[syn::Item],
-        children: &Path,
+        folders: &Folders,
         file: &Path,
     ) -> Result<()> {
         let child_modules: Vec<String> = items
@@ -135,7 +139,7 @@ impl Index {
                         module.uses.insert(name, target);
                     }
                 }
-                syn::Item::Mod(child) if !is_test(child) => nested.push(child),
+                syn::Item::Mod(child) if !test_builds_only(&child.attrs) => nested.push(child),
                 other => {
                     if let Some((name, defined)) = defined(other)? {
                         module.items.insert(name, defined);
@@ -154,34 +158,19 @@ impl Index {
                     &child_path,
                     child_public,
                     items,
-                    &children.join(&name),
+                    &folders.inline(&name),
                     file,
                 )?;
                 continue;
             }
-            let candidates = [
-                children.join(format!("{name}.rs")),
-                children.join(&name).join("mod.rs"),
-            ];
-            let Some(found) = candidates.iter().find(|candidate| candidate.is_file()) else {
-                bail!(
-                    "{}: module `{name}` has no file at {}",
-                    file.display(),
-                    candidates[0].display()
-                );
-            };
-            let grandchildren: PathBuf = if found.ends_with("mod.rs") {
-                found.parent().map(Path::to_path_buf).unwrap_or_default()
-            } else {
-                children.join(&name)
-            };
-            let parsed = parse(found)?;
+            let found = module_file(child, file, folders)?;
+            let parsed = parse(&found.path)?;
             self.module(
                 &child_path,
                 child_public,
                 &parsed.items,
-                &grandchildren,
-                found,
+                &found.folders,
+                &found.path,
             )?;
         }
         Ok(())
@@ -384,20 +373,6 @@ fn spelled(path: &[String], ident: &str) -> String {
     spelled.push_str("::");
     spelled.push_str(ident);
     spelled
-}
-
-fn parse(path: &Path) -> Result<syn::File> {
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    syn::parse_file(&text).with_context(|| format!("parsing {}", path.display()))
-}
-
-/// Whether a module holds tests: `mod tests` or one behind `#[cfg(test)]`.
-fn is_test(module: &syn::ItemMod) -> bool {
-    module.ident == "tests" || module.attrs.iter().any(|attribute| {
-        attribute.path().is_ident("cfg")
-            && matches!(&attribute.meta, syn::Meta::List(list) if list.tokens.to_string() == "test")
-    })
 }
 
 /// Each name a `use` tree imports, with the path it imports, a glob left

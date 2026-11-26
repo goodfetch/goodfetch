@@ -29,11 +29,25 @@
 //! Run goes on. A cache failure never fails a fetch: it is logged, and the
 //! lookup misses or the store is skipped.
 //!
+//! Its bounds ([`bounds`], ADR 0046) are the Run's: past
+//! `cache.max_size`, each store evicts the least recently used entries, a
+//! hit counting as a use, and past `cache.max_age_ceiling` an entry is
+//! served in no mode and the next store deletes it. The index counts the
+//! bytes its bodies hold, each once, as it changes. While the filesystem
+//! holding the cache is at `low` or `critical` it stores nothing new (ADR
+//! 0122), and still serves and revalidates what it holds.
+//!
 //! Counted work (ADR 0140): a lookup that queries the index counts once on
 //! `C5.cache_lookups`, a body file opened to serve a hit once on
 //! `C5.cache_file_opens`, and a body file written, or the bodies' folder
-//! made, on `C5.cache_body_writes`; a miss opens no body file.
+//! made, on `C5.cache_body_writes`; a miss opens no body file. A hit's use
+//! is written with the others in one transaction later, never one each.
+//!
+//! Size: one concern, every statement of the one index and the body files
+//! they name, so that a store's transaction, which inserts, evicts and
+//! frees body files, reads beside the lookups it answers.
 
+mod bounds;
 mod canonical;
 pub mod freshness;
 pub mod source;
@@ -48,12 +62,17 @@ use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::{Compatibility, RESPONSE_CACHE};
 use goodfetch_protocol::point_in_time;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::storage::StorageLevel;
 use rusqlite::Connection;
 use sha2::{Digest as _, Sha256};
+use tokio::sync::watch;
 
+pub use self::bounds::Bounds;
+use self::bounds::{Weighed, evictions, index_time};
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
 pub use self::source::{Recording, Replaying, ResponseSource, Served, Source};
+use crate::governor::{Held, StorageSample};
 use crate::sqlite_store::{
     self, Access, Durability, File, Folder, FormatRefusal, FullFsync, KeptStore, OpenError,
     Opening, Schema, StoreFile, Synchronous, Wait, WalOnClose,
@@ -85,8 +104,12 @@ const DURABILITY: Durability = Durability {
     wal_on_close: WalOnClose::Kept,
 };
 
-/// The tables of this version.
-const SCHEMA: &[&str] = &["CREATE TABLE IF NOT EXISTS entries (
+/// The tables of this version: the entries; each body once, with how many
+/// entries hold it; and the bytes the bodies hold, which triggers keep as
+/// the entries change. The writer deletes a body no entry holds, then its
+/// file.
+const SCHEMA: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS entries (
         partition TEXT NOT NULL,
         person TEXT NOT NULL,
         country TEXT NOT NULL,
@@ -105,7 +128,54 @@ const SCHEMA: &[&str] = &["CREATE TABLE IF NOT EXISTS entries (
         run_id TEXT,
         used_at TEXT NOT NULL,
         PRIMARY KEY (partition, person, country, language, device, method, url, vary_key, replay_key)
-    ) STRICT"];
+    ) STRICT",
+    "CREATE INDEX IF NOT EXISTS entries_by_use ON entries (used_at)",
+    "CREATE INDEX IF NOT EXISTS entries_by_fetch ON entries (fetched_at)",
+    "CREATE TABLE IF NOT EXISTS bodies (
+        sha256 TEXT PRIMARY KEY,
+        size INTEGER NOT NULL,
+        holders INTEGER NOT NULL
+    ) STRICT",
+    "CREATE INDEX IF NOT EXISTS bodies_unheld ON bodies (sha256) WHERE holders = 0",
+    "CREATE TABLE IF NOT EXISTS held (
+        one INTEGER PRIMARY KEY CHECK (one = 1),
+        bytes INTEGER NOT NULL
+    ) STRICT",
+    "INSERT OR IGNORE INTO held (one, bytes) VALUES (1, 0)",
+    "CREATE TRIGGER IF NOT EXISTS entry_holds_its_body AFTER INSERT ON entries BEGIN
+        INSERT OR IGNORE INTO bodies (sha256, size, holders) VALUES (new.body_sha256, new.body_size, 0);
+        UPDATE bodies SET holders = holders + 1 WHERE sha256 = new.body_sha256;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS entry_changes_its_body AFTER UPDATE OF body_sha256 ON entries
+        WHEN old.body_sha256 <> new.body_sha256 BEGIN
+        UPDATE bodies SET holders = holders - 1 WHERE sha256 = old.body_sha256;
+        INSERT OR IGNORE INTO bodies (sha256, size, holders) VALUES (new.body_sha256, new.body_size, 0);
+        UPDATE bodies SET holders = holders + 1 WHERE sha256 = new.body_sha256;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS entry_lets_its_body_go AFTER DELETE ON entries BEGIN
+        UPDATE bodies SET holders = holders - 1 WHERE sha256 = old.body_sha256;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS body_held AFTER INSERT ON bodies BEGIN
+        UPDATE held SET bytes = bytes + new.size;
+    END",
+    "CREATE TRIGGER IF NOT EXISTS body_let_go AFTER DELETE ON bodies BEGIN
+        UPDATE held SET bytes = bytes - old.size;
+    END",
+];
+
+/// The bytes the cache holds: its bodies', each once, and its index's
+/// pages in use.
+const HELD: &str = "SELECT bytes + (page_count - freelist_count) * page_size FROM held, pragma_page_count(), pragma_freelist_count(), pragma_page_size()";
+
+/// The least recently used entries, as eviction weighs them, the oldest
+/// first.
+const OLDEST: &str = "SELECT entries.rowid, body_sha256, size, holders FROM entries JOIN bodies ON sha256 = body_sha256 ORDER BY used_at, entries.rowid LIMIT ?1";
+
+/// How many entries eviction reads at a time.
+const PAGE: i64 = 64;
+
+/// Records a hit's use.
+const USED: &str = "UPDATE entries SET used_at = ?1 WHERE partition = ?2 AND person = ?3 AND country = ?4 AND language = ?5 AND device = ?6 AND method = ?7 AND url = ?8 AND vary_key = ?9 AND replay_key = ?10 AND used_at < ?1";
 
 /// A URL's entries in one partition under one replay key, empty for
 /// `revalidate`'s, the newest first.
@@ -216,12 +286,27 @@ pub enum ResponseCacheError {
 }
 
 /// The Response cache of one user and one major, as one engine opens it:
-/// its writer and the connection its lookups keep, which its clones share.
+/// its writer and the connection its lookups keep, which its clones share,
+/// under the bounds of the Run that uses it.
 #[derive(Clone, Debug)]
 pub struct ResponseCache {
     store: Arc<KeptStore<CacheFile>>,
     /// Set once the index was found of a version this engine cannot read.
     without: Arc<OnceLock<()>>,
+    /// Where a flush of the hits' uses runs.
+    owner: Arc<TaskOwner>,
+    bounds: Bounds,
+    /// The governor's samples of the filesystem holding the cache; none
+    /// when nothing samples it, which then stores at every level.
+    storage: Option<Arc<Watched>>,
+}
+
+/// The cache's folder, which the governor samples while it is held, and
+/// its samples.
+#[derive(Debug)]
+struct Watched {
+    held: Held,
+    samples: watch::Receiver<Arc<StorageSample>>,
 }
 
 /// The cache's folder, its index and the VFS the index opens through.
@@ -235,13 +320,35 @@ struct CacheFile {
     bodies_made: OnceLock<()>,
     /// Numbers this engine's partial body files.
     partials: Mutex<u64>,
+    /// The hits' uses not written yet.
+    uses: Mutex<Uses>,
+}
+
+/// The hits' uses not written yet, and whether a flush of them is on its
+/// way.
+#[derive(Debug, Default)]
+struct Uses {
+    pending: Vec<Use>,
+    flushing: bool,
+}
+
+/// A hit's use of an entry, which makes it the most recently used.
+#[derive(Debug)]
+struct Use {
+    partition: Partition,
+    method: String,
+    url: String,
+    vary_key: String,
+    replay_key: String,
+    at: SystemTime,
 }
 
 impl ResponseCache {
     /// The cache in `folder`, its index opened through the SQLite VFS named
     /// `vfs` (none in production, ADR 0060), its writer an actor of `owner`
     /// and its lookups on `owner`'s blocking threads, its work counted on
-    /// `work`. Nothing is opened before its first call.
+    /// `work`, under the catalog's bounds. Nothing is opened before its
+    /// first call.
     pub fn of(
         folder: PathBuf,
         vfs: Option<String>,
@@ -255,10 +362,38 @@ impl ResponseCache {
             work,
             bodies_made: OnceLock::new(),
             partials: Mutex::new(0),
+            uses: Mutex::new(Uses::default()),
         };
         Self {
-            store: Arc::new(KeptStore::of(file, "response-cache-writer", owner)),
+            store: Arc::new(KeptStore::of(
+                file,
+                "response-cache-writer",
+                Arc::clone(&owner),
+            )),
             without: Arc::default(),
+            owner,
+            bounds: Bounds::default(),
+            storage: None,
+        }
+    }
+
+    /// This cache under `bounds`, a Run's.
+    #[must_use]
+    pub fn bounded(&self, bounds: Bounds) -> Self {
+        Self {
+            bounds,
+            ..self.clone()
+        }
+    }
+
+    /// This cache, storing nothing new while the filesystem holding its
+    /// folder, which `held` has the governor sample, is at `low` or
+    /// `critical` in the last of `samples` (ADR 0122).
+    #[must_use]
+    pub fn watching(self, held: Held, samples: watch::Receiver<Arc<StorageSample>>) -> Self {
+        Self {
+            storage: Some(Arc::new(Watched { held, samples })),
+            ..self
         }
     }
 
@@ -266,6 +401,20 @@ impl ResponseCache {
     /// format version it cannot read.
     pub fn running_without(&self) -> bool {
         self.without.get().is_some()
+    }
+
+    /// Whether it stores what it is handed: not while the engine runs
+    /// without it, nor while the governor's last sample found its
+    /// filesystem at `low` or `critical`.
+    pub fn storing(&self) -> bool {
+        !self.running_without()
+            && self.storage.as_ref().is_none_or(|watched| {
+                watched
+                    .samples
+                    .borrow()
+                    .of(watched.held.folder())
+                    .is_none_or(|filesystem| filesystem.level < StorageLevel::Low)
+            })
     }
 
     /// What the cache holds for `request` in `partition` at `now`: a
@@ -280,14 +429,18 @@ impl ResponseCache {
         if self.running_without() || !freshness::public(request) {
             return Lookup::Miss;
         }
-        let (partition, request) = (partition.clone(), request.clone());
+        let (partition, request, bounds) = (partition.clone(), request.clone(), self.bounds);
         let looked = self
             .store
-            .read(Some(Lookup::Miss), move |file, connection| {
-                file.lookup(connection, &partition, &request, now)
+            .read(Some((Lookup::Miss, false)), move |file, connection| {
+                file.lookup(connection, &partition, &request, now, bounds)
             })
             .await;
-        self.settled(looked).unwrap_or(Lookup::Miss)
+        let (lookup, flush) = self.settled(looked).unwrap_or((Lookup::Miss, false));
+        if flush {
+            self.flush_uses();
+        }
+        lookup
     }
 
     /// The hit `head` makes of `stale` when it is a 304 answering the
@@ -331,9 +484,6 @@ impl ResponseCache {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
-        if self.running_without() {
-            return false;
-        }
         let Some(variant) = freshness::storable(request, head) else {
             return false;
         };
@@ -343,23 +493,33 @@ impl ResponseCache {
     }
 
     /// The response `replay` stored for `request` in `partition`, served
-    /// as it was stored with no request, whatever its age: the entry of
-    /// its method, its URL, its canonical body and the variant its stored
-    /// `Vary` names; none when the cache holds no such entry.
-    pub async fn replayed(&self, partition: &Partition, request: &CacheRequest) -> Option<Hit> {
+    /// as it was stored with no request, whatever its freshness, at `now`:
+    /// the entry of its method, its URL, its canonical body and the variant
+    /// its stored `Vary` names; none when the cache holds no such entry, or
+    /// it has outlived the ceiling.
+    pub async fn replayed(
+        &self,
+        partition: &Partition,
+        request: &CacheRequest,
+        now: SystemTime,
+    ) -> Option<Hit> {
         if self.running_without() || freshness::credentialed(request) {
             return None;
         }
         // Hashed once, before the request is handed to the reader.
         request.replay_key();
-        let (partition, request) = (partition.clone(), request.clone());
+        let (partition, request, bounds) = (partition.clone(), request.clone(), self.bounds);
         let looked = self
             .store
-            .read(Some(None), move |file, connection| {
-                file.replayed(connection, &partition, &request)
+            .read(Some((None, false)), move |file, connection| {
+                file.replayed(connection, &partition, &request, now, bounds)
             })
             .await;
-        self.settled(looked).flatten()
+        let (hit, flush) = self.settled(looked).unwrap_or((None, false));
+        if flush {
+            self.flush_uses();
+        }
+        hit
     }
 
     /// Stores `head` and `body` under `replay`, the response to `request`
@@ -376,9 +536,6 @@ impl ResponseCache {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
-        if self.running_without() {
-            return false;
-        }
         let Some(variant) = freshness::replayable(request, head) else {
             return false;
         };
@@ -388,12 +545,20 @@ impl ResponseCache {
     }
 
     /// Stores `entry` with `body`, in place of what the cache held under
-    /// its key; whether it was stored.
+    /// its key, and evicts what its bounds then leave no room for; whether
+    /// it was stored. Nothing is while the cache is not [`storing`], nor a
+    /// body larger than the cap.
+    ///
+    /// [`storing`]: Self::storing
     async fn put(&self, entry: Entry, body: Bytes) -> bool {
         let entry = Entry {
             body_size: u64::try_from(body.len()).unwrap_or(u64::MAX),
             ..entry
         };
+        if !self.storing() || entry.body_size > self.bounds.max_size {
+            return false;
+        }
+        let bounds = self.bounds;
         let stored = self
             .store
             .write(None, move |file, connection| {
@@ -402,10 +567,26 @@ impl ResponseCache {
                     body_sha256: data_encoding::HEXLOWER.encode(&Sha256::digest(&body)),
                     ..entry
                 };
-                file.store(connection, &entry, &body)
+                file.store(connection, &entry, &body, bounds)
             })
             .await;
         self.settled(stored).is_some()
+    }
+
+    /// Writes the hits' uses recorded so far, in one transaction on the
+    /// writer, after the lookup that recorded the first of them answered.
+    fn flush_uses(&self) {
+        let cache = self.clone();
+        self.owner.spawn(async move {
+            let flushed = cache
+                .store
+                .write(None, |file, connection| {
+                    sqlite_store::immediate(connection, |connection| file.flush(connection))
+                        .map_err(|error| file.failed(&error))
+                })
+                .await;
+            cache.settled(flushed);
+        });
     }
 
     /// `answer`'s value; none for an error, which is logged, and after
@@ -428,68 +609,132 @@ impl ResponseCache {
 }
 
 impl CacheFile {
+    /// What the cache holds for `request` at `now`, an entry past the
+    /// ceiling left out, and whether a fresh hit's use, recorded, needs a
+    /// flush started.
     fn lookup(
         &self,
         connection: &Connection,
         partition: &Partition,
         request: &CacheRequest,
         now: SystemTime,
-    ) -> Result<Lookup, ResponseCacheError> {
+        bounds: Bounds,
+    ) -> Result<(Lookup, bool), ResponseCacheError> {
         self.work.count(Row::CacheLookups);
         let rows = self.find(connection, partition, request, REVALIDATED)?;
         for entry in rows {
+            if bounds.outlived(entry.stored.fetched_at, now) {
+                continue;
+            }
             match freshness::freshness(&entry.stored, request, now) {
                 Freshness::Other => {}
                 Freshness::Fresh { age } => {
                     let Some(body) = self.body(&entry)? else {
-                        return Ok(Lookup::Miss);
+                        return Ok((Lookup::Miss, false));
                     };
-                    return Ok(Lookup::Fresh(Hit {
-                        head: ResponseHead {
-                            status: entry.stored.head.status,
-                            headers: freshness::served_headers(&entry.stored.head.headers, age),
-                        },
-                        body,
-                        run_id: entry.run_id,
-                    }));
+                    let flush = self.used(&entry, now);
+                    return Ok((
+                        Lookup::Fresh(Hit {
+                            head: ResponseHead {
+                                status: entry.stored.head.status,
+                                headers: freshness::served_headers(&entry.stored.head.headers, age),
+                            },
+                            body,
+                            run_id: entry.run_id,
+                        }),
+                        flush,
+                    ));
                 }
                 Freshness::Stale { conditions } => {
-                    return Ok(Lookup::Stale(Stale {
-                        conditions,
-                        entry: Box::new(entry),
-                    }));
+                    return Ok((
+                        Lookup::Stale(Stale {
+                            conditions,
+                            entry: Box::new(entry),
+                        }),
+                        false,
+                    ));
                 }
             }
         }
-        Ok(Lookup::Miss)
+        Ok((Lookup::Miss, false))
     }
 
     /// The entry `replay` stored for `request`: its stored head, served as
-    /// it is, and its body, whatever their age; none when no entry's
-    /// variant is the one `request` asks for, or its body is gone.
+    /// it is, and its body, whatever their freshness, and whether its use,
+    /// recorded, needs a flush started; none when no entry's variant is the
+    /// one `request` asks for, it has outlived the ceiling at `now`, or its
+    /// body is gone.
     fn replayed(
         &self,
         connection: &Connection,
         partition: &Partition,
         request: &CacheRequest,
-    ) -> Result<Option<Hit>, ResponseCacheError> {
+        now: SystemTime,
+        bounds: Bounds,
+    ) -> Result<(Option<Hit>, bool), ResponseCacheError> {
         self.work.count(Row::CacheLookups);
         let rows = self.find(connection, partition, request, request.replay_key())?;
         for entry in rows {
             let asked = freshness::variant(request, &entry.stored.head);
-            if asked.is_none_or(|asked| asked.vary_key != entry.vary_key) {
+            if asked.is_none_or(|asked| asked.vary_key != entry.vary_key)
+                || bounds.outlived(entry.stored.fetched_at, now)
+            {
                 continue;
             }
             let Some(body) = self.body(&entry)? else {
-                return Ok(None);
+                return Ok((None, false));
             };
-            return Ok(Some(Hit {
-                head: entry.stored.head,
-                body,
-                run_id: entry.run_id,
-            }));
+            let flush = self.used(&entry, now);
+            return Ok((
+                Some(Hit {
+                    head: entry.stored.head,
+                    body,
+                    run_id: entry.run_id,
+                }),
+                flush,
+            ));
         }
-        Ok(None)
+        Ok((None, false))
+    }
+
+    /// Records `entry`'s use at `now`; whether no flush is on its way yet,
+    /// the caller then starting one.
+    fn used(&self, entry: &Entry, now: SystemTime) -> bool {
+        let mut uses = self.uses.lock().unwrap_or_else(PoisonError::into_inner);
+        uses.pending.push(Use {
+            partition: entry.partition.clone(),
+            method: entry.stored.method.clone(),
+            url: entry.stored.url.clone(),
+            vary_key: entry.vary_key.clone(),
+            replay_key: entry.replay_key.clone(),
+            at: now,
+        });
+        !std::mem::replace(&mut uses.flushing, true)
+    }
+
+    /// Writes the uses recorded so far, each making its entry the most
+    /// recently used unless a later use did.
+    fn flush(&self, connection: &Connection) -> rusqlite::Result<()> {
+        // Cleared with the taking: a use recorded from now on starts
+        // another flush.
+        let uses =
+            std::mem::take(&mut *self.uses.lock().unwrap_or_else(PoisonError::into_inner)).pending;
+        let mut statement = connection.prepare_cached(USED)?;
+        for used in uses {
+            statement.execute(rusqlite::params![
+                index_time(used.at),
+                PUBLIC,
+                used.partition.person,
+                used.partition.country,
+                used.partition.language,
+                used.partition.device,
+                used.method,
+                used.url,
+                used.vary_key,
+                used.replay_key,
+            ])?;
+        }
+        Ok(())
     }
 
     /// `request`'s entries in `partition` under `replay_key`, the newest
@@ -577,7 +822,7 @@ impl CacheFile {
         headers: &[(String, String)],
         now: SystemTime,
     ) -> Result<Option<Hit>, ResponseCacheError> {
-        let at = rfc3339(now);
+        let at = index_time(now);
         let updated = connection
             .prepare_cached(
                 "UPDATE entries SET response_headers = ?1, fetched_at = ?2, used_at = ?2 WHERE partition = ?3 AND person = ?4 AND country = ?5 AND language = ?6 AND device = ?7 AND method = ?8 AND url = ?9 AND vary_key = ?10 AND body_sha256 = ?11 AND replay_key = ?12",
@@ -615,43 +860,45 @@ impl CacheFile {
         }))
     }
 
+    /// Stores `entry` with `body` under `bounds`, in one transaction with
+    /// the uses recorded so far, the deletion of the entries past the
+    /// ceiling and the eviction of the least recently used past the cap;
+    /// then deletes the files of the bodies no entry holds any more.
     fn store(
         &self,
         connection: &Connection,
         entry: &Entry,
         body: &[u8],
+        bounds: Bounds,
     ) -> Result<(), ResponseCacheError> {
         self.write_body(&entry.body_sha256, body)?;
-        let at = rfc3339(entry.stored.fetched_at);
-        connection
-            .prepare_cached(
-                "INSERT INTO entries (partition, person, country, language, device, method, url, vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, used_at, replay_key)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?12, ?16)
-                 ON CONFLICT (partition, person, country, language, device, method, url, vary_key, replay_key) DO UPDATE SET
-                 request_headers = excluded.request_headers, status = excluded.status, response_headers = excluded.response_headers, fetched_at = excluded.fetched_at, body_sha256 = excluded.body_sha256, body_size = excluded.body_size, run_id = excluded.run_id, used_at = excluded.used_at",
-            )
-            .and_then(|mut statement| {
-                statement.execute(rusqlite::params![
-                    PUBLIC,
-                    entry.partition.person,
-                    entry.partition.country,
-                    entry.partition.language,
-                    entry.partition.device,
-                    entry.stored.method,
-                    entry.stored.url,
-                    entry.vary_key,
-                    json(&entry.stored.request_headers),
-                    entry.stored.head.status,
-                    json(&entry.stored.head.headers),
-                    at,
-                    entry.body_sha256,
-                    i64::try_from(entry.body_size).unwrap_or(i64::MAX),
-                    entry.run_id.as_ref().map(RunId::as_str),
-                    entry.replay_key,
-                ])
-            })
-            .map(drop)
-            .map_err(|error| self.failed(&error))
+        let let_go = sqlite_store::immediate(connection, |connection| {
+            self.flush(connection)?;
+            if let Some(oldest) = entry.stored.fetched_at.checked_sub(bounds.max_age_ceiling) {
+                connection
+                    .prepare_cached("DELETE FROM entries WHERE fetched_at < ?1")?
+                    .execute([index_time(oldest)])?;
+            }
+            insert(connection, entry)?;
+            evict(connection, bounds.max_size)?;
+            let_go(connection)
+        })
+        .map_err(|error| self.failed(&error))?;
+        let bodies = self.folder.join(BODIES);
+        for sha256 in let_go.iter().filter(|sha256| is_sha256(sha256)) {
+            let path = bodies.join(sha256);
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "the writer's job is blocking work, on its own thread"
+            )]
+            let removed = std::fs::remove_file(&path);
+            if let Err(error) = removed
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(error = %body_failed(&path, &error), "a body file the Response cache let go stays");
+            }
+        }
+        Ok(())
     }
 
     /// The body of `entry`, read whole from its file; none when its file is
@@ -776,11 +1023,11 @@ impl StoreFile for CacheFile {
         let connection = self.connect(Access::ReadOnly)?;
         let tables: i64 = connection
             .prepare_cached(
-                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'entries')",
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('format', 'entries', 'bodies', 'held')",
             )
             .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
             .map_err(|error| self.failed(&error))?;
-        if tables < 2 {
+        if tables < 4 {
             drop(connection);
             return self.open();
         }
@@ -829,6 +1076,85 @@ fn entry(
     }
 }
 
+/// Inserts `entry`, in place of what the index held under its key.
+fn insert(connection: &Connection, entry: &Entry) -> rusqlite::Result<()> {
+    connection
+        .prepare_cached(
+            "INSERT INTO entries (partition, person, country, language, device, method, url, vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, used_at, replay_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?12, ?16)
+             ON CONFLICT (partition, person, country, language, device, method, url, vary_key, replay_key) DO UPDATE SET
+             request_headers = excluded.request_headers, status = excluded.status, response_headers = excluded.response_headers, fetched_at = excluded.fetched_at, body_sha256 = excluded.body_sha256, body_size = excluded.body_size, run_id = excluded.run_id, used_at = excluded.used_at",
+        )?
+        .execute(rusqlite::params![
+            PUBLIC,
+            entry.partition.person,
+            entry.partition.country,
+            entry.partition.language,
+            entry.partition.device,
+            entry.stored.method,
+            entry.stored.url,
+            entry.vary_key,
+            json(&entry.stored.request_headers),
+            entry.stored.head.status,
+            json(&entry.stored.head.headers),
+            index_time(entry.stored.fetched_at),
+            entry.body_sha256,
+            i64::try_from(entry.body_size).unwrap_or(i64::MAX),
+            entry.run_id.as_ref().map(RunId::as_str),
+            entry.replay_key,
+        ])
+        .map(drop)
+}
+
+/// Deletes the least recently used entries, a page at a time, until the
+/// bytes held are within `cap`, or no entry is left.
+fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<()> {
+    loop {
+        let held: i64 = connection
+            .prepare_cached(HELD)?
+            .query_row([], |row| row.get(0))?;
+        let held = u64::try_from(held).unwrap_or(0);
+        if held <= cap {
+            return Ok(());
+        }
+        let (rowids, oldest): (Vec<i64>, Vec<Weighed>) = connection
+            .prepare_cached(OLDEST)?
+            .query_map([PAGE], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    Weighed {
+                        body: row.get(1)?,
+                        size: u64::try_from(row.get::<_, i64>(2)?).unwrap_or(0),
+                        holders: u64::try_from(row.get::<_, i64>(3)?).unwrap_or(0),
+                    },
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .unzip();
+        let taken = evictions(held, cap, &oldest);
+        let mut delete = connection.prepare_cached("DELETE FROM entries WHERE rowid = ?1")?;
+        for rowid in &rowids[..taken] {
+            delete.execute([rowid])?;
+        }
+        if taken < oldest.len() || oldest.is_empty() {
+            return Ok(());
+        }
+    }
+}
+
+/// Deletes the bodies no entry holds any more, and answers them.
+fn let_go(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+    let unheld = connection
+        .prepare_cached("SELECT sha256 FROM bodies WHERE holders = 0")?
+        .query_map([], |row| row.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    connection
+        .prepare_cached("DELETE FROM bodies WHERE holders = 0")?
+        .execute([])?;
+    Ok(unheld)
+}
+
 /// Whether `text` is a SHA-256 as lower-case hex, so a damaged row never
 /// names a file outside the bodies' folder.
 fn is_sha256(text: &str) -> bool {
@@ -840,10 +1166,6 @@ fn is_sha256(text: &str) -> bool {
 
 fn json(headers: &[(String, String)]) -> String {
     serde_json::to_string(headers).expect("invariant: pairs of strings serialize")
-}
-
-fn rfc3339(at: SystemTime) -> String {
-    crate::clock::rfc3339(at)
 }
 
 fn body_failed(path: &Path, error: &std::io::Error) -> ResponseCacheError {

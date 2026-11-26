@@ -55,7 +55,7 @@ use crate::client::Client;
 use crate::composition::{CallContext, Handler};
 use crate::lease::LeaseCheck;
 use crate::mask::Scope;
-use crate::run::{run_error, state_unavailable};
+use crate::run::{run_error, state_unavailable, unwritten};
 use crate::run_identity::RunIdentity;
 use crate::run_state::{RunState, RunStateError, Syncing};
 use crate::runs::{RunError, RunParts, SendWindow};
@@ -855,22 +855,16 @@ async fn closed_before(
     number: i64,
     context: &CallContext,
 ) -> Result<EffectClosed, CallError> {
-    let found = state
-        .write_deferred(move |connection| row(connection, number))
+    state
+        .write_deferred(move |connection| {
+            row(connection, number)?
+                .map(|found| found.closed())
+                .transpose()
+        })
         .await
-        .map_err(|error| unwritten(run, &error, context))?;
-    match found {
-        Some(row) if row.state == "done" => Ok(EffectClosed::Done {
-            performed_at: row
-                .performed_at
-                .expect("invariant: the journal's CHECK keeps a done entry's time"),
-        }),
-        Some(row) if row.state == "uncertain" => Ok(EffectClosed::Uncertain {
-            effect: row.uncertain(),
-            cause: None,
-        }),
-        Some(_) | None => Err(not_running(entry)),
-    }
+        .map_err(|error| unwritten(run, &error, context))?
+        .flatten()
+        .ok_or_else(|| not_running(entry))
 }
 
 /// `invalid_params` for an `effect.close` of `entry`, which has no body
@@ -937,18 +931,6 @@ async fn attempt_writes_of(
 
 fn unstaged(unstaged: Unstaged) -> CallError {
     CallError::new(unstaged.code, unstaged.message, &unstaged.details)
-}
-
-/// The failure of a write to `run`'s state.
-fn unwritten(run: &RunIdentity, error: &RunStateError, context: &CallContext) -> CallError {
-    run_error(
-        RunError::Unavailable {
-            run_id: run.id().clone(),
-            folder: run.folder().to_owned(),
-            error: error.to_string(),
-        },
-        context,
-    )
 }
 
 /// `effect_uncertain` for `effect`.

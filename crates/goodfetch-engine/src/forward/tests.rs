@@ -77,7 +77,8 @@ fn forwarded(configuration: Option<&str>, delay: Duration) -> Result<Value, NoAn
         };
         let hello = forwarder.hello("the-owners-token".to_owned(), Product::Collie);
         let params = json!({});
-        let calling = forwarder.exchange(connection, &hello, RUN_ABORT.name, &params);
+        let deadline = Some(forwarder.answer_deadline().await);
+        let calling = forwarder.exchange(connection, &hello, (RUN_ABORT.name, &params), deadline);
         tokio::select! {
             () = owning => panic!("the stand-in ended"),
             answer = calling => answer.map(|answer| answer.unwrap()),

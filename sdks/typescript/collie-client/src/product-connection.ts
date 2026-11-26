@@ -38,7 +38,7 @@ import {
 } from "./generated/index.ts";
 import type { Settings } from "./generated/settings.ts";
 import { timeoutOf } from "./handle.ts";
-import { readProject, type ProjectFile } from "./project-file.ts";
+import { readProject, TIMEOUT_CONNECT, type ProjectFile } from "./project-file.ts";
 import { wouldBeThePick } from "./installed-executables.ts";
 import { limitList, type Limits } from "./limits.ts";
 import type { Logger } from "./logger.ts";
@@ -335,7 +335,7 @@ async function pickOf(
     return pick;
   }
   throw phaseExceeded(
-    `timeout.connect (${connect.value} ms) passed before the Daemon an idle one handed over to served`,
+    `${TIMEOUT_CONNECT} (${connect.value} ms) passed before the Daemon an idle one handed over to served`,
     `Raise connect()'s timeout, or find why the Daemon did not start in its log in ${handedOver.home}.`,
     connect.limit,
     startedAt,
@@ -497,7 +497,7 @@ function opening<S>(product: ProductPackage<S>, options: ConnectOverOptions<S>):
     signal,
     limits: limitList(options.limits),
     settings,
-    timeout: timeoutOf(options.timeout, "timeout.connect"),
+    timeout: timeoutOf(options.timeout, TIMEOUT_CONNECT),
     logger,
   };
 }

@@ -80,6 +80,7 @@ use super::engine_choice::{Interrupt, Interrupts, Link, Opening, hello, unreacha
 use super::exit_codes;
 use super::output::{self, Human};
 
+mod for_attached;
 mod foreground;
 mod launched;
 #[cfg(target_os = "linux")]
@@ -88,6 +89,7 @@ mod remote;
 #[cfg(test)]
 mod tests;
 
+pub(super) use for_attached::DaemonOfTheMajor;
 use launched::launch;
 pub(super) use launched::launched;
 

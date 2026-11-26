@@ -54,6 +54,11 @@
             "description": "The person it was fetched for, on a shared Daemon the partition's\nperson (ADR 0031).",
             "type": "string"
           },
+          "replay_key": {
+            "arrived_in": "0.1",
+            "description": "The SHA-256 of the request's canonical body, as lower-case hex, for\nan entry `replay` stored; empty for one `revalidate` stored.",
+            "type": "string"
+          },
           "request_headers": {
             "arrived_in": "0.1",
             "description": "The request headers the response's `Vary` names, and the request's\n`host`, as the request sent them: names in lower case.",
@@ -136,6 +141,7 @@
           "method",
           "url",
           "vary_key",
+          "replay_key",
           "request_headers",
           "status",
           "response_headers",

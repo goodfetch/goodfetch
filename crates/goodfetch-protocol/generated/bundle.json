@@ -4630,6 +4630,12 @@
     "DaemonState": {
       "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
+        "accounts": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts\nstore is open. Without, its person is the OS user, on its own\nmachine only, as with a Daemon that does not say.",
+          "type": "boolean"
+        },
         "clients": {
           "arrived_in": "0.1",
           "description": "How many Clients are connected, the caller included.",
@@ -9866,6 +9872,27 @@
       "const": "2.0",
       "description": "JSON-RPC's version, always \"2.0\"."
     },
+    "JsonSecret": {
+      "additionalProperties": false,
+      "description": "A string of a JSON body that holds a Secret placeholder's value\n(ADR 0092).",
+      "properties": {
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The Secret placeholder.",
+          "type": "string"
+        },
+        "pointer": {
+          "arrived_in": "0.1",
+          "description": "Where the string goes, as a JSON Pointer (RFC 6901): a member of an\nobject, added or replaced, or an element an array holds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "placeholder"
+      ],
+      "type": "object"
+    },
     "JudgedBy": {
       "description": "What judged a page: the Session's own Page check, or the built-in\ndetector of a Session that declares none (ADR 0006).",
       "oneOf": [
@@ -14326,6 +14353,17 @@
             "null"
           ]
         },
+        "json_secrets": {
+          "arrived_in": "0.1",
+          "description": "Strings of its body, which is then JSON, that hold a Secret\nplaceholder's value, each set at its JSON Pointer by the engine at\nits interception, checked as `secret_headers` are at every hop that\nsends the body (ADR 0092).",
+          "items": {
+            "$ref": "#/$defs/JsonSecret"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "max_redirects": {
           "arrived_in": "0.1",
           "description": "How many redirects it follows, from 0, which answers the 3xx itself,\nto 19, the default; past its count it raises `too_many_redirects`,\nand a count above 19 is refused with `setting_invalid`.",
@@ -14354,6 +14392,17 @@
           "description": "Its body, in Base64.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "secret_headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SecretHeader"
+          },
+          "arrived_in": "0.1",
+          "description": "Headers whose value holds a Secret placeholder, set over the\nbrowser's own and named in none of `headers`: the engine adds each\nvalue at its interception, at every hop whose URL is on the\nplaceholder's bound domains, and fails the request with\n`secret_domain_not_allowed` at a hop outside them (ADR 0092).",
+          "type": [
+            "object",
             "null"
           ]
         },
@@ -18222,6 +18271,11 @@
           "description": "The person it was fetched for, on a shared Daemon the partition's\nperson (ADR 0031).",
           "type": "string"
         },
+        "replay_key": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the request's canonical body, as lower-case hex, for\nan entry `replay` stored; empty for one `revalidate` stored.",
+          "type": "string"
+        },
         "request_headers": {
           "arrived_in": "0.1",
           "description": "The request headers the response's `Vary` names, and the request's\n`host`, as the request sent them: names in lower case.",
@@ -18304,6 +18358,7 @@
         "method",
         "url",
         "vary_key",
+        "replay_key",
         "request_headers",
         "status",
         "response_headers",
@@ -22080,6 +22135,65 @@
         }
       ]
     },
+    "SecretHeader": {
+      "description": "A header value that holds a Secret placeholder (ADR 0092). The value\nthe engine builds from the placeholder's is masked wherever the engine\nreturns, sends or keeps it, its Base64 in `Basic` included.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The placeholder's value after `prefix`, such as `Bearer `.",
+          "properties": {
+            "form": {
+              "const": "value",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder.",
+              "type": "string"
+            },
+            "prefix": {
+              "arrived_in": "0.1",
+              "description": "The text before the value; none when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "form",
+            "placeholder"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "HTTP Basic authentication's credentials (RFC 7617): `Basic` and the\nBase64 of `username`, a colon and the placeholder's value.",
+          "properties": {
+            "form": {
+              "const": "basic",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder whose value is the password.",
+              "type": "string"
+            },
+            "username": {
+              "arrived_in": "0.1",
+              "description": "The user ID, which holds no colon.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "form",
+            "username",
+            "placeholder"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SecretInputRefusedDetails": {
       "description": "What `secret_input_refused` details.",
       "properties": {
@@ -24334,6 +24448,147 @@
         }
       ]
     },
+    "StoredAccount": {
+      "description": "The Account, as its `account` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name its person gave it, which a passkey shows.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredAccounts": {
+      "description": "What an Accounts store holds, table by table: the schema of the\n`accounts-store` format.",
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StoredAccount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its Account, the only one; none until its person makes it."
+        },
+        "named_tokens": {
+          "arrived_in": "0.1",
+          "description": "The Account's Named tokens, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredNamedToken"
+          },
+          "type": "array"
+        },
+        "passkeys": {
+          "arrived_in": "0.1",
+          "description": "The Account's passkeys.",
+          "items": {
+            "$ref": "#/$defs/StoredPasskey"
+          },
+          "type": "array"
+        },
+        "recovery_codes": {
+          "arrived_in": "0.1",
+          "description": "The Account's recovery codes, each by its hash.",
+          "items": {
+            "$ref": "#/$defs/StoredRecoveryCode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "passkeys",
+        "recovery_codes",
+        "named_tokens"
+      ],
+      "type": "object"
+    },
+    "StoredNamedToken": {
+      "description": "One Named token, as its `named_tokens` row holds it.",
+      "properties": {
+        "created": {
+          "arrived_in": "0.1",
+          "description": "When it was made, as RFC 3339.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name, unique in the Account.",
+          "type": "string"
+        },
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of its value, in lowercase hex.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "sha256",
+        "created"
+      ],
+      "type": "object"
+    },
+    "StoredPasskey": {
+      "description": "One passkey, as its `passkeys` row holds it: what checks its\nassertions, never its private key, which stays with its authenticator.",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "When it was added, as RFC 3339.",
+          "type": "string"
+        },
+        "credential_id": {
+          "arrived_in": "0.1",
+          "description": "Its credential ID, in unpadded base64url.",
+          "type": "string"
+        },
+        "public_key": {
+          "arrived_in": "0.1",
+          "description": "Its public key, as the COSE key its registration gave, in unpadded\nbase64url.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "credential_id",
+        "public_key",
+        "added"
+      ],
+      "type": "object"
+    },
+    "StoredRecoveryCode": {
+      "description": "One recovery code, as its `recovery_codes` row holds it.",
+      "properties": {
+        "sha256": {
+          "arrived_in": "0.1",
+          "description": "The SHA-256 of the code, in lowercase hex.",
+          "type": "string"
+        },
+        "used": {
+          "arrived_in": "0.1",
+          "description": "When it was used, as RFC 3339; none while it is unused. A code is\nused once.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sha256"
+      ],
+      "type": "object"
+    },
     "StructuredOutputStrategy": {
       "description": "A way a model gives structured output (ADR 0101).",
       "oneOf": [
@@ -26345,6 +26600,16 @@
     },
     {
       "hello_from": [],
+      "name": "accounts-store",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/StoredAccounts"
+      },
+      "storage": "sqlite",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
       "name": "run-state",
       "rule": "default",
       "schema": {
@@ -27365,6 +27630,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets and locks: no higher layer changes them.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -27498,10 +27780,11 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
-                      "revalidate"
+                      "revalidate",
+                      "replay"
                     ]
                   }
                 },
@@ -31467,6 +31750,23 @@
             "arrived_in": "0.1",
             "description": "The values it sets, which higher layers may change.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -31600,10 +31900,11 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
-                      "revalidate"
+                      "revalidate",
+                      "replay"
                     ]
                   }
                 },
@@ -35585,6 +35886,23 @@
             "arrived_in": "0.1",
             "description": "The settings it sets, nested by key.",
             "properties": {
+              "accounts": {
+                "additionalProperties": false,
+                "properties": {
+                  "enabled": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+                  }
+                },
+                "type": "object"
+              },
               "admission": {
                 "additionalProperties": false,
                 "properties": {
@@ -35718,10 +36036,11 @@
                     "type": "integer"
                   },
                   "mode": {
-                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+                    "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
                     "enum": [
                       "off",
-                      "revalidate"
+                      "revalidate",
+                      "replay"
                     ]
                   }
                 },
@@ -39713,6 +40032,26 @@
         "$ref": "#/$defs/RecipeManifest"
       },
       "storage": "toml",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-protocol",
+      "rule": "lower_minor",
+      "schema": {
+        "$ref": "#/$defs/Message"
+      },
+      "storage": "transcript",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "plugin-manifest",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PluginManifest"
+      },
+      "storage": "json",
       "version": "0.1"
     }
   ],

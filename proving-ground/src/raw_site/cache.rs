@@ -6,6 +6,9 @@
 //! A case gives each of its pages a name of its own.
 //!
 //! - `/fresh/<name>` may be kept for an hour (`Cache-Control: max-age=3600`).
+//! - `/large/<name>` is a `/fresh/` page weighing over a mebibyte, its
+//!   weight in an HTML comment, so a case fills the cache to its size cap
+//!   in a few pages whose text stays short.
 //! - `/stale/<name>` is stale at once (`max-age=0`), with the validators
 //!   `ETag: "<name>-v1"` and a `Last-Modified` in the past: a request
 //!   naming either, in `If-None-Match` or `If-Modified-Since`, is answered
@@ -14,6 +17,9 @@
 //!   (`Vary: Cookie`): it names the cookie it was sent.
 //! - `/cookie/<name>` sets the cookie `visitor=<name>` and redirects
 //!   (`302`) to `/vary/<name>`, never stored (`no-store`).
+//! - `/api/<name>` answers any method, never to be stored (`no-store`),
+//!   which only `replay` keeps: it names the method and how many bytes of
+//!   body it was sent.
 //!
 //! The host has no robots.txt.
 
@@ -25,12 +31,19 @@ pub(super) const HOST: &str = "cache.test";
 /// When every stale page was last modified: a date before any run.
 const LAST_MODIFIED: &str = "Thu, 01 Jan 2026 00:00:00 GMT";
 
+/// The bytes of the comment that weighs a large page: one mebibyte.
+const LARGE_WEIGHT: usize = 1 << 20;
+
 /// The answer to `request`, its path asked for `earlier` times before.
 pub(super) fn answer(request: &Request, earlier: u64) -> Answer {
     let path = request.path();
     let answer = earlier + 1;
     if path.starts_with("/fresh/") {
         return Answer::Page(page(path, answer, "").with("cache-control", "max-age=3600"));
+    }
+    if path.starts_with("/large/") {
+        let weight = format!("<!-- {} -->", "x".repeat(LARGE_WEIGHT));
+        return Answer::Page(page(path, answer, &weight).with("cache-control", "max-age=3600"));
     }
     if let Some(name) = path.strip_prefix("/stale/") {
         let etag = format!("\"{name}-v1\"");
@@ -54,6 +67,14 @@ pub(super) fn answer(request: &Request, earlier: u64) -> Answer {
                 .with("cache-control", "max-age=3600")
                 .with("vary", "Cookie"),
         );
+    }
+    if path.starts_with("/api/") {
+        let said = format!(
+            "<p>{} with {} bytes.</p>",
+            request.method,
+            request.body.len()
+        );
+        return Answer::Page(page(path, answer, &said).with("cache-control", "no-store"));
     }
     if let Some(name) = path.strip_prefix("/cookie/") {
         return Answer::Page(

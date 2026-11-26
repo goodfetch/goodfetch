@@ -87,6 +87,7 @@ mod results;
 mod rss;
 mod runners;
 mod runtimes;
+mod rust_source;
 mod scan;
 mod scorecard;
 mod screenshots;

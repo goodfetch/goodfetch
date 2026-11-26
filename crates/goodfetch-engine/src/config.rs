@@ -371,11 +371,7 @@ fn diff<'a>(
 
 /// The value `values` gives `key`, applied or the other Product's.
 fn value_of(values: &Values, key: &str) -> Option<Value> {
-    values
-        .applied
-        .get(key)
-        .or_else(|| values.others.get(key))
-        .cloned()
+    values.value(key).cloned()
 }
 
 /// The value `policy`'s `table` gives `key`.
@@ -397,14 +393,7 @@ fn entries(policy: &Policy) -> Vec<PolicyEntry> {
         .into_iter()
         .flat_map(|table| {
             let values = table_of(policy, table);
-            let mut keys: Vec<&'static str> = values
-                .applied
-                .keys()
-                .chain(values.others.keys())
-                .copied()
-                .collect();
-            keys.sort_unstable();
-            keys.into_iter().filter_map(move |key| {
+            values.every_key().into_iter().filter_map(move |key| {
                 value_of(values, key).map(|value| PolicyEntry {
                     table,
                     key: key.to_owned(),

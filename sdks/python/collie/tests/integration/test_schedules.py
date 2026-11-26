@@ -6,8 +6,10 @@ sync `Collie`. `schedules.create` answers a Schedule under the ID given, or
 one it made when none was, `schedules.list` lists both, `schedules.get`
 answers the handle of a held ID and raises `ScheduleNotFoundError` for an
 unknown one, and a handle's `info()` reads what the store holds and its
-`delete()` answers whether it deleted it. TypeScript's `schedules.test.ts`
-is its twin.
+`delete()` answers whether it deleted it. The store is the major's
+Daemon's, to which the Attached engine forwards each call, so the setup
+starts that Daemon and stops it. TypeScript's `schedules.test.ts` is its
+twin.
 """
 
 import re
@@ -22,6 +24,7 @@ from goodfetch_test_support import ClientCaseRecord, Way, three_ways
 
 @pytest.mark.covers("story:10-2")
 @pytest.mark.client_case(id="schedules-crud", mode="attached")
+@pytest.mark.parametrize("with_daemon", [True], ids=["with-daemon"])
 @three_ways
 async def test_creates_lists_reads_and_deletes_a_schedule(
     way: Way, env: Mapping[str, str], client_case: ClientCaseRecord

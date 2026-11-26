@@ -4,15 +4,20 @@
 //! a stored response and the moment the caller's Clock gives. Nothing here
 //! reads a clock, a file or the index.
 
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime};
 
+use bytes::Bytes;
 use http::header::{HeaderMap, HeaderName, HeaderValue};
 use http_cache_semantics::{AfterResponse, BeforeRequest, CacheOptions, CachePolicy};
 use sha2::{Digest as _, Sha256};
 
+use super::canonical;
+
 /// A request as the cache keys and judges it: its method, its URL without
-/// its fragment and its headers, names in lower case.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// its fragment, its headers, names in lower case, and its body, whose
+/// canonical hash `replay` keys it by, taken once and only when asked.
+#[derive(Clone, Debug)]
 pub struct CacheRequest {
     /// Its method.
     pub method: String,
@@ -20,12 +25,24 @@ pub struct CacheRequest {
     pub url: String,
     /// Its headers, names in lower case, in the order sent.
     pub headers: Vec<(String, String)>,
+    body: Bytes,
+    replay_key: OnceLock<String>,
 }
+
+impl PartialEq for CacheRequest {
+    fn eq(&self, other: &Self) -> bool {
+        (&self.method, &self.url, &self.headers, &self.body)
+            == (&other.method, &other.url, &other.headers, &other.body)
+    }
+}
+
+impl Eq for CacheRequest {}
 
 impl CacheRequest {
     /// The request `method` sends to `url`, its fragment dropped, with
-    /// `headers`, whose names are put in lower case.
-    pub fn new(method: &str, url: &url::Url, headers: &[(String, String)]) -> Self {
+    /// `headers`, whose names are put in lower case, and `body`, empty for
+    /// none.
+    pub fn new(method: &str, url: &url::Url, headers: &[(String, String)], body: Bytes) -> Self {
         let mut url = url.clone();
         url.set_fragment(None);
         Self {
@@ -35,7 +52,22 @@ impl CacheRequest {
                 .iter()
                 .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
                 .collect(),
+            body,
+            replay_key: OnceLock::new(),
         }
+    }
+
+    /// Its body; empty for none.
+    pub fn body(&self) -> &Bytes {
+        &self.body
+    }
+
+    /// The SHA-256 of its canonical body, as lower-case hex, which `replay`
+    /// keys it by: hashed on the first call only.
+    pub(crate) fn replay_key(&self) -> &str {
+        self.replay_key.get_or_init(|| {
+            canonical::body_sha256(first(&self.headers, "content-type"), &self.body)
+        })
     }
 }
 
@@ -115,11 +147,22 @@ fn options() -> CacheOptions {
 /// with no cookie or credential. Any other is sent as it is, or answered
 /// from the Session partition (#795).
 pub(crate) fn public(request: &CacheRequest) -> bool {
-    matches!(request.method.as_str(), "GET" | "HEAD")
-        && !request
-            .headers
-            .iter()
-            .any(|(name, _)| CREDENTIALS.contains(&name.as_str()))
+    matches!(request.method.as_str(), "GET" | "HEAD") && !credentialed(request)
+}
+
+/// Whether `request` carries a cookie or a credential.
+pub(crate) fn credentialed(request: &CacheRequest) -> bool {
+    request
+        .headers
+        .iter()
+        .any(|(name, _)| CREDENTIALS.contains(&name.as_str()))
+}
+
+/// Whether `head` keeps its response out of the public partition: it sets
+/// a cookie or is `private`.
+fn personal(head: &ResponseHead) -> bool {
+    head.headers.iter().any(|(name, _)| name == "set-cookie")
+        || directives(&head.headers, "cache-control").any(|directive| directive == "private")
 }
 
 /// The variant `head`, the response to `request`, is stored as in the
@@ -128,14 +171,7 @@ pub(crate) fn public(request: &CacheRequest) -> bool {
 /// that sets a cookie or is `private`, `no-store`, `Vary: *`, a status RFC
 /// 9111 does not let a cache store or a header the `http` crate refuses.
 pub(crate) fn storable(request: &CacheRequest, head: &ResponseHead) -> Option<Variant> {
-    if !public(request)
-        || head.headers.iter().any(|(name, _)| name == "set-cookie")
-        || directives(&head.headers, "cache-control").any(|directive| directive == "private")
-    {
-        return None;
-    }
-    let vary: Vec<String> = directives(&head.headers, "vary").collect();
-    if vary.iter().any(|name| name == "*") {
+    if !public(request) || personal(head) {
         return None;
     }
     let policy = CachePolicy::new_options(
@@ -147,7 +183,28 @@ pub(crate) fn storable(request: &CacheRequest, head: &ResponseHead) -> Option<Va
     if !policy.is_storable() {
         return None;
     }
-    let mut names = vary;
+    variant(request, head)
+}
+
+/// The variant `head`, the response to `request`, is stored as under
+/// `replay` in the public partition, whatever its method, status or
+/// freshness; none for a request with a cookie or a credential, a response
+/// that sets a cookie or is `private`, or `Vary: *`.
+pub(crate) fn replayable(request: &CacheRequest, head: &ResponseHead) -> Option<Variant> {
+    if credentialed(request) || personal(head) {
+        return None;
+    }
+    variant(request, head)
+}
+
+/// The variant of its URL `request` asks for of a response with `head`:
+/// the SHA-256 of the request headers its `Vary` names; none for
+/// `Vary: *`, which no request's headers name.
+pub(crate) fn variant(request: &CacheRequest, head: &ResponseHead) -> Option<Variant> {
+    let mut names: Vec<String> = directives(&head.headers, "vary").collect();
+    if names.iter().any(|name| name == "*") {
+        return None;
+    }
     names.sort();
     names.dedup();
     let mut hash = Sha256::new();

@@ -3776,6 +3776,12 @@
     "DaemonState": {
       "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
+        "accounts": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts\nstore is open. Without, its person is the OS user, on its own\nmachine only, as with a Daemon that does not say.",
+          "type": "boolean"
+        },
         "clients": {
           "arrived_in": "0.1",
           "description": "How many Clients are connected, the caller included.",
@@ -7575,6 +7581,27 @@
         }
       ]
     },
+    "JsonSecret": {
+      "additionalProperties": false,
+      "description": "A string of a JSON body that holds a Secret placeholder's value\n(ADR 0092).",
+      "properties": {
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The Secret placeholder.",
+          "type": "string"
+        },
+        "pointer": {
+          "arrived_in": "0.1",
+          "description": "Where the string goes, as a JSON Pointer (RFC 6901): a member of an\nobject, added or replaced, or an element an array holds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "placeholder"
+      ],
+      "type": "object"
+    },
     "JudgedBy": {
       "description": "What judged a page: the Session's own Page check, or the built-in\ndetector of a Session that declares none (ADR 0006).",
       "oneOf": [
@@ -11219,6 +11246,17 @@
             "null"
           ]
         },
+        "json_secrets": {
+          "arrived_in": "0.1",
+          "description": "Strings of its body, which is then JSON, that hold a Secret\nplaceholder's value, each set at its JSON Pointer by the engine at\nits interception, checked as `secret_headers` are at every hop that\nsends the body (ADR 0092).",
+          "items": {
+            "$ref": "#/$defs/JsonSecret"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "max_redirects": {
           "arrived_in": "0.1",
           "description": "How many redirects it follows, from 0, which answers the 3xx itself,\nto 19, the default; past its count it raises `too_many_redirects`,\nand a count above 19 is refused with `setting_invalid`.",
@@ -11247,6 +11285,17 @@
           "description": "Its body, in Base64.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "secret_headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SecretHeader"
+          },
+          "arrived_in": "0.1",
+          "description": "Headers whose value holds a Secret placeholder, set over the\nbrowser's own and named in none of `headers`: the engine adds each\nvalue at its interception, at every hop whose URL is on the\nplaceholder's bound domains, and fails the request with\n`secret_domain_not_allowed` at a hop outside them (ADR 0092).",
+          "type": [
+            "object",
             "null"
           ]
         },
@@ -17545,6 +17594,65 @@
           "const": "no_code",
           "description": "No one-time code came: a provider made none from the reference,\nsuch as a TOTP seed it cannot read, or a code source's code never\narrived (ADR 0092).",
           "type": "string"
+        }
+      ]
+    },
+    "SecretHeader": {
+      "description": "A header value that holds a Secret placeholder (ADR 0092). The value\nthe engine builds from the placeholder's is masked wherever the engine\nreturns, sends or keeps it, its Base64 in `Basic` included.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The placeholder's value after `prefix`, such as `Bearer `.",
+          "properties": {
+            "form": {
+              "const": "value",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder.",
+              "type": "string"
+            },
+            "prefix": {
+              "arrived_in": "0.1",
+              "description": "The text before the value; none when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "form",
+            "placeholder"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "HTTP Basic authentication's credentials (RFC 7617): `Basic` and the\nBase64 of `username`, a colon and the placeholder's value.",
+          "properties": {
+            "form": {
+              "const": "basic",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder whose value is the password.",
+              "type": "string"
+            },
+            "username": {
+              "arrived_in": "0.1",
+              "description": "The user ID, which holds no colon.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "form",
+            "username",
+            "placeholder"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -25555,7 +25663,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.",
+      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.",
       "events": [],
       "kind": "round_trip",
       "name": "page.request",
@@ -26801,6 +26909,27 @@
   "settings": [
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "accounts.enabled",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
       "default": null,
@@ -27173,7 +27302,7 @@
       "clearable": false,
       "default": "off",
       "deprecated": null,
-      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304. The key is the method, the URL without its fragment and the request headers the response's `Vary` names; a `Vary: *` response is never stored. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
       "fixed_for_run": false,
       "name": "cache.mode",
       "product": "collie",
@@ -27188,7 +27317,8 @@
       "value": {
         "enum": [
           "off",
-          "revalidate"
+          "revalidate",
+          "replay"
         ]
       },
       "weakening": null,

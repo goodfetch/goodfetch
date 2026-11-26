@@ -3406,6 +3406,17 @@
       ]
     },
     {
+      "id": "format:accounts-store",
+      "kind": "format",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:audit-log",
       "kind": "format",
       "area": 4,
@@ -3475,6 +3486,28 @@
       "id": "format:operator-policy",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:plugin-manifest",
+      "kind": "format",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:plugin-protocol",
+      "kind": "format",
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8720,6 +8753,17 @@
       "id": "row:silent-false-success",
       "kind": "row",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:accounts.enabled",
+      "kind": "setting",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [

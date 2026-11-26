@@ -9,7 +9,10 @@
 //! `revalidate` a fresh response is served with no request, a stale one is
 //! revalidated with `If-None-Match` and `If-Modified-Since` and a `304`
 //! serves its stored body, and a response varying on `Cookie` is served
-//! only to a request with the cookie it was stored for.
+//! only to a request with the cookie it was stored for, while a `POST`
+//! reaches the site each time; under `replay` a `POST` the site says never
+//! to store is kept, and served again to the same JSON or form body sent
+//! in another order.
 
 use serde_json::{Value, json};
 
@@ -27,7 +30,7 @@ pub(crate) const HOST: &str = "cache.test";
 const LAST_MODIFIED: &str = "Thu, 01 Jan 2026 00:00:00 GMT";
 
 /// The settings of a crawl under `cache.mode`, its default when `None`.
-fn settings(mode: Option<&str>) -> Value {
+pub(super) fn settings(mode: Option<&str>) -> Value {
     let mut settings = json!({ "fetch": { "tier": "http" } });
     if let Some(mode) = mode {
         settings["cache"] = json!({ "mode": mode });
@@ -39,7 +42,7 @@ fn settings(mode: Option<&str>) -> Value {
 /// Proving ground's names, its handler reading the page's Markdown and
 /// answering no Record; the Run finished. The Markdown, empty when no
 /// handler was asked.
-fn crawl(
+pub(super) fn crawl(
     connection: &mut Connection,
     site: &Site,
     run_id: &str,
@@ -47,13 +50,44 @@ fn crawl(
     settings: &Value,
     checks: &mut Checks,
 ) -> Result<String, Gone> {
-    let url = site.named_url(HOST, path);
+    let seed = json!({ "url": site.named_url(HOST, path), "label": "page" });
+    crawl_seed(connection, site, run_id, &seed, settings, checks)
+}
+
+/// Crawls a `POST` of `body` to `path` on the cache host, sent with no
+/// `Content-Type`, as [`crawl`] crawls a `GET`.
+pub(super) fn post(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    (path, body): (&str, &str),
+    settings: &Value,
+    checks: &mut Checks,
+) -> Result<String, Gone> {
+    let seed = json!({
+        "url": site.named_url(HOST, path),
+        "label": "page",
+        "method": "POST",
+        "body": data_encoding::BASE64.encode(body.as_bytes()),
+    });
+    crawl_seed(connection, site, run_id, &seed, settings, checks)
+}
+
+/// Crawls `seed` as [`crawl`] crawls a path.
+fn crawl_seed(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    seed: &Value,
+    settings: &Value,
+    checks: &mut Checks,
+) -> Result<String, Gone> {
     let settings = site.mapped(settings, connection.acts_for_model());
     let id = connection.request(
         CRAWL_START,
         &json!({
             "run_id": run_id,
-            "seeds": [{ "url": url, "label": "page" }],
+            "seeds": [seed],
             "labels": { "page": {} },
             "settings": settings,
         }),
@@ -96,7 +130,7 @@ fn crawl(
 }
 
 /// The requests the cache host received for `path`, in arrival order.
-fn requests_for(site: &Site, path: &str) -> Vec<ObservedRequest> {
+pub(super) fn requests_for(site: &Site, path: &str) -> Vec<ObservedRequest> {
     site.received_requests()
         .every()
         .filter(|request| request.host == HOST && request.target == path)
@@ -105,7 +139,7 @@ fn requests_for(site: &Site, path: &str) -> Vec<ObservedRequest> {
 }
 
 /// Whether `markdown` is the site's answer `answer` to `path`.
-fn is_answer(markdown: &str, answer: u64, path: &str) -> bool {
+pub(super) fn is_answer(markdown: &str, answer: u64, path: &str) -> bool {
     markdown.contains(&format!("Answer {answer} of {path}."))
 }
 
@@ -287,6 +321,148 @@ pub(super) fn vary_cookie(
     checks.check(
         "the crawl with no cookie is handed the stored first answer",
         is_answer(&without, 1, path) && without.contains("Cookie: none."),
+    );
+    Ok(())
+}
+
+/// Under `cache.mode: replay`, each crawl `POST`s `bodies` in turn to
+/// `path`, a page the site says never to store; the Markdown each crawl is
+/// handed, and the requests the site saw.
+fn replayed(
+    connection: &mut Connection,
+    site: &Site,
+    run: &str,
+    path: &str,
+    bodies: &[&str],
+    checks: &mut Checks,
+) -> Result<(Vec<String>, usize), Gone> {
+    let replay = settings(Some("replay"));
+    let mut handed = Vec::new();
+    for (crawl, body) in bodies.iter().enumerate() {
+        let run_id = format!("conformance-cache-{run}-{}", crawl + 1);
+        handed.push(post(
+            connection,
+            site,
+            &run_id,
+            (path, body),
+            &replay,
+            checks,
+        )?);
+    }
+    Ok((handed, requests_for(site, path).len()))
+}
+
+/// Under `cache.mode: replay`, a `POST` of a JSON body to a page the site
+/// says never to store is kept: a later crawl sending the same object with
+/// its keys in another order is handed the stored first answer with no
+/// request, and one sending another value reaches the site.
+pub(super) fn replay_json(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let path = "/api/search";
+    let (handed, requests) = replayed(
+        connection,
+        site,
+        "replay-json",
+        path,
+        &[
+            r#"{"q":"shoes","page":1}"#,
+            r#"{"page":1,"q":"shoes"}"#,
+            r#"{"page":2,"q":"shoes"}"#,
+        ],
+        checks,
+    )?;
+    checks.check(
+        "the first crawl is handed the site's answer to its `POST`",
+        handed.first().is_some_and(|first| {
+            is_answer(first, 1, path) && first.contains("POST with 22 bytes.")
+        }),
+    );
+    checks.check(
+        "the crawl sending the same object in another order is handed the stored first answer",
+        handed
+            .get(1)
+            .is_some_and(|second| is_answer(second, 1, path)),
+    );
+    checks.check(
+        "the crawl sending another value is handed the site's second answer",
+        handed.get(2).is_some_and(|third| is_answer(third, 2, path)),
+    );
+    checks.check("the site saw two requests", requests == 2);
+    Ok(())
+}
+
+/// Under `cache.mode: replay`, a form `POST`ed with its fields in another
+/// order is handed the stored first answer, a repeated name's values in
+/// their order; with those values swapped it is another body, and reaches
+/// the site.
+pub(super) fn replay_form(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let path = "/api/filter";
+    let (handed, requests) = replayed(
+        connection,
+        site,
+        "replay-form",
+        path,
+        &[
+            "tag=a&q=red+shoes&tag=b",
+            "q=red+shoes&tag=a&tag=b",
+            "tag=b&q=red+shoes&tag=a",
+        ],
+        checks,
+    )?;
+    checks.check(
+        "the crawl sending the fields in another order is handed the stored first answer",
+        handed
+            .get(1)
+            .is_some_and(|second| is_answer(second, 1, path)),
+    );
+    checks.check(
+        "the crawl sending a name's values in another order is handed the site's second answer",
+        handed.get(2).is_some_and(|third| is_answer(third, 2, path)),
+    );
+    checks.check("the site saw two requests", requests == 2);
+    Ok(())
+}
+
+/// Under `cache.mode: revalidate`, which stores only `GET` and `HEAD`, two
+/// crawls `POST`ing one body both reach the site.
+pub(super) fn revalidate_post(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let path = "/api/revalidated";
+    let revalidate = settings(Some("revalidate"));
+    let body = r#"{"q":"shoes"}"#;
+    post(
+        connection,
+        site,
+        "conformance-cache-revalidate-post-1",
+        (path, body),
+        &revalidate,
+        checks,
+    )?;
+    let second = post(
+        connection,
+        site,
+        "conformance-cache-revalidate-post-2",
+        (path, body),
+        &revalidate,
+        checks,
+    )?;
+    checks.check(
+        "the second crawl is handed the site's second answer",
+        is_answer(&second, 2, path),
+    );
+    checks.check(
+        "the site saw both requests",
+        requests_for(site, path).len() == 2,
     );
     Ok(())
 }

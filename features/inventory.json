@@ -132,6 +132,39 @@
       ]
     },
     {
+      "id": "command:cache.clear",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:cache.stats",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:cache.verify",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:catalog-run.start",
       "kind": "command",
       "area": 11,
@@ -3629,6 +3662,39 @@
       "id": "operation:audit.verify",
       "kind": "operation",
       "area": 4,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cache.clear",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cache.stats",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:cache.verify",
+      "kind": "operation",
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

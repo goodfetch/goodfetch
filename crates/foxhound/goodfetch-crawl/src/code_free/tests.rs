@@ -1,18 +1,29 @@
 //! The code-free crawl's declarations as functions of its extraction: the
 //! Dataset `pages` declared from the formats request, a Record of a page
-//! checked against it, and the sitemap seeds `follow: sitemap` adds.
+//! checked against it, and the sitemap seeds `follow: sitemap` adds; and
+//! the code-free crawl, extraction or declaration, a run file keeps; and
+//! a declaration merged into its start.
 
 use goodfetch_protocol::point_in_time;
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_dataset::Datasets;
-use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, PushedRecord, Seed};
+use goodfetch_engine::CallError;
+use goodfetch_engine::settings::SettingsError;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::crawl::{CrawlExtraction, CrawlStartParams, PushedRecord, Seed};
 use goodfetch_protocol::foxhound::dataset::RecordData;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::PageFormats;
+use rusqlite::Connection;
 use serde_json::{Map, Value, json};
 
-use super::{Pages, dataset, declare_into, record_of, sitemap_seeds};
+use super::{
+    CodeFreeCrawl, Pages, TABLES, dataset, declare_into, declared, read, record, record_again,
+    record_of, sitemap_seeds,
+};
 
 fn extraction(value: Value) -> CrawlExtraction {
     serde_json::from_value(value).unwrap()
@@ -336,4 +347,137 @@ fn a_pages_record_holds_its_formats_then_its_fields_in_the_order_declared() {
             r#""status":null,"fetched_at":"2026-10-26T10:00:00Z","price":1099.98,"name":"Delta kite"}"#,
         )
     );
+}
+
+/// A run file keeps a crawl's declaration as it keeps an extraction, and a
+/// start under the Run's ID that brings an extraction in its place, or
+/// neither, leaves only what it brought: the resumed Run reads what its
+/// last start declared.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_run_file_keeps_the_code_free_crawl_its_last_start_brought() {
+    let connection = Connection::open_in_memory().unwrap();
+    for statement in TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let declared = CodeFreeCrawl::Declaration(
+        serde_json::from_value(json!({
+            "labels": [{ "name": "listing", "follow": [{ "links": "a", "label": "listing" }] }],
+        }))
+        .unwrap(),
+    );
+    let extracted =
+        CodeFreeCrawl::Extraction(extraction(json!({ "formats": { "markdown": true } })));
+
+    record(&connection, Some(&declared)).unwrap();
+    let first = read(&connection).unwrap();
+    record_again(&connection, Some(&extracted)).unwrap();
+    let second = read(&connection).unwrap();
+    record_again(&connection, None).unwrap();
+
+    assert_eq!(
+        (first, second, read(&connection).unwrap()),
+        (Some(declared), Some(extracted), None)
+    );
+}
+
+/// The start `start`, its `declaration` merged into it by a Foxhound
+/// engine, or the code of its refusal: for a refused setting, the code
+/// the settings gave.
+fn merged(start: Value) -> Result<CrawlStartParams, &'static str> {
+    let mut params: CrawlStartParams = serde_json::from_value(start).unwrap();
+    let setting = Cell::new(None);
+    let refused = |error: &SettingsError| {
+        setting.set(Some(error.code()));
+        CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+    };
+    let work = goodfetch_counted_work::CountedWork::default();
+    match declared::merge(&mut params, Product::Foxhound, &work, &refused) {
+        Ok(()) => Ok(params),
+        Err(error) => Err(setting.get().unwrap_or(error.code())),
+    }
+}
+
+/// A declaration's settings lie beneath the start's: a key both set takes
+/// the start's value whole, and a key only the declaration sets takes the
+/// declaration's; its seeds follow the start's.
+///
+/// Covers: story:11-1069
+#[test]
+fn a_declaration_lies_beneath_its_start() {
+    let params = merged(json!({
+        "seeds": [{ "url": "http://site.test/", "label": "listing" }],
+        "datasets": [],
+        "settings": { "fetch": { "tier": "browser" } },
+        "declaration": {
+            "seeds": [{ "url": "http://site.test/more", "label": "listing" }],
+            "labels": [{ "name": "listing" }],
+            "settings": {
+                "fetch": { "tier": "http" },
+                "crawl": { "max_depth": 3 },
+            },
+        },
+    }))
+    .unwrap();
+
+    assert_eq!(
+        (
+            Value::Object(params.settings),
+            params
+                .seeds
+                .iter()
+                .map(|seed| serde_json::to_value(seed).unwrap()["url"].clone())
+                .collect::<Vec<_>>(),
+        ),
+        (
+            json!({ "fetch.tier": "browser", "crawl.max_depth": 3 }),
+            vec![json!("http://site.test/"), json!("http://site.test/more")],
+        )
+    );
+}
+
+/// A declaration is refused for a setting a Recipe never sets, and for
+/// one field name read two ways across one Label's extracts; the same
+/// field read alike in two extracts is one field.
+///
+/// Covers: story:11-1069
+#[rstest::rstest]
+#[case::a_setting_a_recipe_never_sets(
+    json!({ "proxy": { "country": "US" } }),
+    json!([]),
+    Err("setting_locked")
+)]
+#[case::one_field_read_two_ways(
+    json!({}),
+    json!([
+        { "dataset": "a", "fields": { "name": { "locator": { "kind": "css", "selector": "h1" } } } },
+        { "dataset": "b", "fields": { "name": { "locator": { "kind": "css", "selector": "h2" } } } },
+    ]),
+    Err("invalid_params")
+)]
+#[case::one_field_read_alike(
+    json!({}),
+    json!([
+        { "dataset": "a", "fields": { "name": { "locator": { "kind": "css", "selector": "h1" } } } },
+        { "dataset": "b", "fields": { "name": { "locator": { "kind": "css", "selector": "h1" } } } },
+    ]),
+    Ok(())
+)]
+fn a_declaration_is_refused_for_what_it_may_not_declare(
+    #[case] settings: Value,
+    #[case] extract: Value,
+    #[case] expected: Result<(), &str>,
+) {
+    let outcome = merged(json!({
+        "seeds": [{ "url": "http://site.test/", "label": "listing" }],
+        "datasets": [],
+        "declaration": {
+            "labels": [{ "name": "listing", "extract": extract }],
+            "datasets": [{ "name": "a" }, { "name": "b" }],
+            "settings": settings,
+        },
+    }));
+
+    assert_eq!(outcome.map(|_| ()), expected);
 }

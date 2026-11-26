@@ -17,6 +17,10 @@ export type CollieWireType =
   | "BodyHandle"
   | "BodyUnavailableDetails"
   | "BrowserNotInstalledDetails"
+  | "CacheClearParams"
+  | "CacheDamage"
+  | "CacheStats"
+  | "CacheVerified"
   | "CatalogRunStartParams"
   | "CatalogTarget"
   | "CdpUrlNotBrowserDetails"
@@ -239,6 +243,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "BodyHandle": { fields: { "run_id": "runId" } },
     "BodyUnavailableDetails": { fields: { "request_id": "requestId" } },
     "BrowserNotInstalledDetails": { fields: { "missing": ["missing", { type: "MissingBrowser" }] } },
+    "CacheClearParams": { fields: { "run_id": "runId" } },
+    "CacheDamage": { fields: { "body_sha256": "bodySha256", "run_id": "runId" } },
+    "CacheStats": { fields: { "body_bytes": "bodyBytes", "held_bytes": "heldBytes" } },
+    "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
     "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
@@ -448,6 +456,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "WebSocketFrame": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
   },
   params: {
+    "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
@@ -529,6 +538,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   results: {
     "audit.export": { type: "AuditExported" },
     "audit.verify": { type: "AuditVerified" },
+    "cache.stats": { type: "CacheStats" },
+    "cache.verify": { type: "CacheVerified" },
     "catalog_run.start": { type: "RunStarted" },
     "certs.list": { type: "CertsListed" },
     "config.explain": { type: "SettingsExplanation" },

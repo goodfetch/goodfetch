@@ -1,4 +1,4 @@
-//! The `site_tools` family: a page that registers WebMCP tools and removes
+//! The `site-tools` family: a page that registers WebMCP tools and removes
 //! one of them once it has loaded, and the order its read-only tool answers.
 //!
 //! A plain HTTP client reads what the page holds. The tools it offers once
@@ -14,8 +14,8 @@ use crate::reading::task;
 
 const SEED: u64 = 1540;
 
-const LIST_TASK: &str = "site_tools/1";
-const ORDER_TASK: &str = "site_tools/2";
+const LIST_TASK: &str = "site-tools/1";
+const ORDER_TASK: &str = "site-tools/2";
 
 const PAGE: &str = "/tools";
 const SCHEMA: &str = "/schemas/message.json";

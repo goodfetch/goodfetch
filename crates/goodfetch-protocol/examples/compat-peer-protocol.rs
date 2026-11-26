@@ -12,7 +12,10 @@
     reason = "a synchronous corpus writer that writes files (ADR 0066)"
 )]
 
-use std::path::{Path, PathBuf};
+#[path = "support/transcript.rs"]
+mod transcript;
+
+use std::path::PathBuf;
 
 use goodfetch_protocol::catalog::{ErrorGroup, Product};
 use goodfetch_protocol::connection::ProductVersion;
@@ -21,15 +24,11 @@ use goodfetch_protocol::group::{
     PEER_PROTOCOL_VERSION, PeerHelloParams, PeerHelloResult,
 };
 use goodfetch_protocol::jsonrpc::{
-    ErrorData, ErrorObject, ErrorResponse, META, Message, Request, RequestId, RequestMeta,
-    Response, Version,
+    ErrorData, ErrorObject, ErrorResponse, Message, RequestId, Version,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
-
-/// The Trace context of the connecting side's span, which every call
-/// carries.
-const TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+use transcript::{call, result, to_value, write};
 
 fn main() {
     let output = PathBuf::from(
@@ -58,14 +57,13 @@ fn main() {
         ),
     ];
     let accepting = [
-        Message::Response(Response {
-            jsonrpc: Version,
-            id: RequestId::Number(0),
-            result: to_value(&PeerHelloResult {
+        result(
+            RequestId::Number(0),
+            &PeerHelloResult {
                 protocol_version: PEER_PROTOCOL_VERSION,
                 lead_epoch: current,
-            }),
-        }),
+            },
+        ),
         Message::Error(ErrorResponse {
             jsonrpc: Version,
             id: Some(RequestId::Number(1)),
@@ -87,45 +85,10 @@ fn main() {
     write(&output.join("accepting.jsonl"), &accepting);
 }
 
-/// `value` as JSON.
-fn to_value(value: &impl Serialize) -> Value {
-    serde_json::to_value(value).expect("invariant: the protocol's types serialize")
-}
-
 /// `value` as a JSON object.
 fn object(value: &impl Serialize) -> Map<String, Value> {
     match to_value(value) {
         Value::Object(map) => map,
         _ => unreachable!("invariant: details serialize to an object"),
     }
-}
-
-/// The connecting side's call of `method` with `params`, which carries its
-/// Trace context in its `_meta` (ADR 0132).
-fn call(id: RequestId, method: &str, params: &impl Serialize) -> Message {
-    let mut params = to_value(params);
-    let meta = to_value(&RequestMeta {
-        traceparent: Some(TRACEPARENT.to_owned()),
-        ..RequestMeta::default()
-    });
-    params
-        .as_object_mut()
-        .expect("invariant: every call's params are an object")
-        .insert(META.to_owned(), meta);
-    Message::Request(Request {
-        jsonrpc: Version,
-        id,
-        method: method.to_owned(),
-        params: Some(params),
-    })
-}
-
-/// Writes `messages` to `path`, one per line.
-fn write(path: &Path, messages: &[Message]) {
-    let mut text = String::new();
-    for message in messages {
-        text.push_str(&serde_json::to_string(message).expect("invariant: a message serializes"));
-        text.push('\n');
-    }
-    std::fs::write(path, text).expect("invariant: the output folder is writable");
 }

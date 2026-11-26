@@ -172,7 +172,7 @@ pub enum WatchFailure {
     /// The page shown is gone: the Session's next tab is shown instead.
     PageGone,
     /// The browser answered that it does not capture.
-    CaptureRefused(PartyText),
+    CaptureRefused(Diagnosis),
     /// The browser answered nothing in time.
     CaptureTimedOut,
     /// The capture's events fell behind it, a passing state: the same
@@ -182,32 +182,29 @@ pub enum WatchFailure {
     BrowserGone,
     /// The viewer is gone.
     ViewerGone,
-    /// A failure this engine does not know, as its source wrote it.
-    Unrecognized(PartyText),
+    /// A failure this engine does not know, as its source tells it.
+    Unrecognized(Diagnosis),
 }
 
-/// A browser's, an encoder's or a transport's own text in a
-/// [`WatchFailure`], never matched on and redacted wherever it is
-/// formatted (ADR 0127): the browser may echo what it was given.
-#[derive(Clone, PartialEq, Eq)]
-pub struct PartyText(String);
+/// A source's own account of a [`WatchFailure`], never matched on: the
+/// method it sent and the kind of failure, with any text of the browser's,
+/// an encoder's or a transport's already redacted by the source that tells
+/// it (ADR 0127), as the CDP crate's failures are. It is shown as it is, so
+/// a failure the Live view does not know yet is noticed and added to its
+/// table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Diagnosis(String);
 
-impl PartyText {
-    /// The text `text`, as its party wrote it.
+impl Diagnosis {
+    /// The account `text`, whose party text its source already redacted.
     pub fn new(text: impl Into<String>) -> Self {
         Self(text.into())
     }
 }
 
-impl fmt::Debug for PartyText {
+impl fmt::Display for Diagnosis {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "PartyText(<{} bytes, redacted>)", self.0.len())
-    }
-}
-
-impl fmt::Display for PartyText {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "<{} bytes, redacted>", self.0.len())
+        formatter.write_str(&self.0)
     }
 }
 

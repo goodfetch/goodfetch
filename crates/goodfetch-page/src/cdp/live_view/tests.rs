@@ -10,7 +10,7 @@ use goodfetch_cdp::{
     Connection, Driver, Failure, Framer, SessionId as TargetSession, Subscription, SubscriptionEnd,
 };
 use goodfetch_engine::live_view::{
-    FrameSize, PartyText, SourceFrame, WatchFailure, WatchedSession, WatchedSessions, Watching,
+    Diagnosis, FrameSize, SourceFrame, WatchFailure, WatchedSession, WatchedSessions, Watching,
 };
 use goodfetch_protocol::live_view::LiveViewTier;
 use goodfetch_protocol::page::{PageId, SessionId};
@@ -271,7 +271,7 @@ fn a_next_dropped_while_it_acknowledges_gives_the_frame_to_the_next() {
 #[case::its_session_is_gone("Session with given id not found", WatchFailure::PageGone)]
 #[case::the_browser_does_not_capture(
     "Screencast is not supported",
-    WatchFailure::CaptureRefused(PartyText::new(
+    WatchFailure::CaptureRefused(Diagnosis::new(
         "the browser refused `Page.startScreencast` (-32000): <27 bytes, redacted>"
     ))
 )]
@@ -305,13 +305,13 @@ fn a_refused_start_is_the_failure_it_reads_as(
 #[case::the_browser_is_gone(Failure::Disconnected, WatchFailure::BrowserGone)]
 #[case::the_lease_ended(
     Failure::Withheld { method: "Page.startScreencast" },
-    WatchFailure::CaptureRefused(PartyText::new(
+    WatchFailure::CaptureRefused(Diagnosis::new(
         "`Page.startScreencast` was withheld: the lease of the page's work item ended"
     ))
 )]
 #[case::an_answer_too_long(
     Failure::TooLarge { method: "Page.screencastFrameAck" },
-    WatchFailure::Unrecognized(PartyText::new(
+    WatchFailure::Unrecognized(Diagnosis::new(
         "the browser's answer to `Page.screencastFrameAck` is longer than one message the connection reads"
     ))
 )]

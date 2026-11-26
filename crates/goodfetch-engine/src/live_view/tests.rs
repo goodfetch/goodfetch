@@ -27,7 +27,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 
 use super::driver::{self, Frame};
 use super::{
-    Admission, Channel, FrameSize, FrameSource, LiveView, NotWatched, PartyText, SourceFrame,
+    Admission, Channel, Diagnosis, FrameSize, FrameSource, LiveView, NotWatched, SourceFrame,
     Tiers, VideoOutput, Viewing, WatchFailure, WatchedSession, WatchedSessions, Watching,
 };
 use crate::clock::Clock;
@@ -374,10 +374,10 @@ fn the_capture_stops_once_the_last_viewer_left() {
 /// translation point maps into.
 #[rstest]
 #[case::page_gone(WatchFailure::PageGone, &["a stop", "a start p1 800x600"], None)]
-#[case::capture_refused(WatchFailure::CaptureRefused(PartyText::new("no")), &["a stop", "b start p2 800x600"], None)]
+#[case::capture_refused(WatchFailure::CaptureRefused(Diagnosis::new("no")), &["a stop", "b start p2 800x600"], None)]
 #[case::capture_timed_out(WatchFailure::CaptureTimedOut, &["a stop", "b start p2 800x600"], None)]
 #[case::fell_behind(WatchFailure::FellBehind, &["a stop", "a start p2 800x600"], None)]
-#[case::unrecognized(WatchFailure::Unrecognized(PartyText::new("odd")), &["a stop", "b start p2 800x600"], None)]
+#[case::unrecognized(WatchFailure::Unrecognized(Diagnosis::new("odd")), &["a stop", "b start p2 800x600"], None)]
 #[case::browser_gone(WatchFailure::BrowserGone, &["a stop"], Some(LiveViewEnd::CaptureLost))]
 #[case::viewer_gone(WatchFailure::ViewerGone, &["a stop"], Some(LiveViewEnd::CaptureLost))]
 fn a_failed_capture_shows_another_tab_takes_another_tier_or_ends(
@@ -404,22 +404,6 @@ fn a_failed_capture_shows_another_tab_takes_another_tier_or_ends(
     });
 }
 
-/// A party's text in a failure never reaches a log line or a message
-/// (ADR 0127).
-#[rstest]
-#[case::capture_refused(
-    WatchFailure::CaptureRefused(PartyText::new("cookie=secret")),
-    "the browser refused to capture: <13 bytes, redacted>"
-)]
-#[case::unrecognized(
-    WatchFailure::Unrecognized(PartyText::new("cookie=secret")),
-    "the capture failed: <13 bytes, redacted>"
-)]
-fn a_failure_formats_its_partys_text_redacted(#[case] failure: WatchFailure, #[case] shown: &str) {
-    assert_eq!(failure.to_string(), shown);
-    assert!(!format!("{failure:?}").contains("secret"), "{failure:?}");
-}
-
 #[test]
 fn a_page_gone_shows_the_next_tab_and_no_frame_of_it() {
     goodfetch_test_support::runtime().block_on(async {
@@ -443,7 +427,7 @@ fn the_last_tier_failing_loses_the_capture() {
     goodfetch_test_support::runtime().block_on(async {
         let watched = Watched::new(&[
             Start::Answers,
-            Start::Fails(WatchFailure::CaptureRefused(PartyText::new("no"))),
+            Start::Fails(WatchFailure::CaptureRefused(Diagnosis::new("no"))),
         ]);
         let mut viewing = watched.viewer(screen(800, 600, 1.0));
         let mut output = Collected::default();

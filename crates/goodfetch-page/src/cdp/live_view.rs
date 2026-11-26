@@ -23,7 +23,7 @@ use goodfetch_cdp::generated::page::{
 use goodfetch_cdp::{Failure, Refusal, Subscription, SubscriptionEnd};
 use goodfetch_counted_work::Row;
 use goodfetch_engine::live_view::{
-    FrameSize, FrameSource, PartyText, SourceFrame, WatchFailure, WatchedSession, WatchedSessions,
+    Diagnosis, FrameSize, FrameSource, SourceFrame, WatchFailure, WatchedSession, WatchedSessions,
     Watching,
 };
 use goodfetch_protocol::live_view::LiveViewTier;
@@ -291,10 +291,10 @@ fn watch_failure(failure: &Failure) -> WatchFailure {
             ..
         } => WatchFailure::PageGone,
         Failure::Refused { .. } | Failure::Withheld { .. } => {
-            WatchFailure::CaptureRefused(PartyText::new(failure.to_string()))
+            WatchFailure::CaptureRefused(Diagnosis::new(failure.to_string()))
         }
         Failure::TimedOut { .. } => WatchFailure::CaptureTimedOut,
         Failure::Disconnected => WatchFailure::BrowserGone,
-        _ => WatchFailure::Unrecognized(PartyText::new(failure.to_string())),
+        _ => WatchFailure::Unrecognized(Diagnosis::new(failure.to_string())),
     }
 }

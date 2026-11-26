@@ -16,7 +16,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::net::{SocketAddr, TcpStream};
+use std::io::ErrorKind;
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 
 use data_encoding::BASE64;
@@ -422,32 +423,48 @@ fn with_the_live_view_off_no_channel_opens_and_nothing_is_captured() {
 /// A machine's Daemon, from `daemon start`, opens a listener at
 /// `daemon.address` for Live view channels alone while `live_view.enabled`
 /// is on: `daemon.status` names it and a viewer's handshake there opens.
-/// Off, it names none, as it opens none (the owner's decision of
-/// 2026-11-01, ADR 0049).
+/// Off, it opens none, so a connection to that address is refused, and
+/// names none (the owner's decision of 2026-11-01, ADR 0049).
 ///
 /// Covers: story:12-144, setting:live_view.enabled
 #[rstest]
-#[case::on("", Some(true))]
-#[case::off("live_view.enabled = false\n", None)]
+#[case::on(true)]
+#[case::off(false)]
 fn a_started_daemon_listens_for_live_view_channels_only_while_the_setting_is_on(
-    #[case] settings: &str,
-    #[case] opens: Option<bool>,
+    #[case] enabled: bool,
 ) {
+    let address = free_loopback_address();
     let env = TestEnv::new();
     env.user_configuration(&format!(
-        "daemon.idle_timeout = 60000\ndaemon.address = \"{ANY_PORT}\"\n{settings}"
+        "daemon.idle_timeout = 60000\ndaemon.address = \"{address}\"\nlive_view.enabled = {enabled}\n"
     ));
     let _stops = StopsTheDaemon::of(&env, COLLIE);
     json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
     let found = RuntimeFile::read(&runtime_file(&env)).unwrap();
 
     let status = crate::daemon_client(&found).call(1, "daemon.status", &json!({}));
-    let listener = status["result"]["live_view"]
+    let named = status["result"]["live_view"]
         .as_str()
         .map(|at| at.parse::<SocketAddr>().unwrap());
-    let opened = listener.map(|at| handshake(at).is_ok());
+    let listens = TcpStream::connect(address)
+        .map(drop)
+        .map_err(|error| error.kind());
+    let opened = named.map(|at| handshake(at).is_ok());
 
-    assert_eq!(opened, opens, "{status}");
+    let expected = if enabled {
+        (Some(address), Ok(()), Some(true))
+    } else {
+        (None, Err(ErrorKind::ConnectionRefused), None)
+    };
+    assert_eq!((named, listens, opened), expected, "{status}");
+}
+
+/// A loopback address no socket holds: one the system picked for a
+/// listener this drops at once.
+fn free_loopback_address() -> SocketAddr {
+    TcpListener::bind("127.0.0.1:0")
+        .and_then(|listener| listener.local_addr())
+        .unwrap()
 }
 
 /// The Live view channel, read as the endpoint table's column: it passes

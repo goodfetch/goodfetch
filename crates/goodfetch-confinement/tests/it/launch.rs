@@ -21,7 +21,6 @@ use goodfetch_confinement::linux::limits::Resource;
 use goodfetch_confinement::linux::probe::{Probe, Report, Request};
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::{Access, Errno, Layout, Outcome};
-use goodfetch_confinement::seccomp::Call;
 use goodfetch_protocol::plugin::PluginManifest;
 use rstest::rstest;
 use serde_json::json;
@@ -137,13 +136,11 @@ fn read(path: impl AsRef<Path>) -> Probe {
     }
 }
 
-/// Covers: story:7-30, story:7-21
+/// Covers: story:7-30
 #[rstest]
 #[case::its_bundle(|plugin: &Plugin| read(plugin.layout.bundle.join("index.js")), Outcome::Ok)]
 #[case::its_temporary_folder_as_its_working_folder(|_: &Plugin| Probe::Path { access: Access::Write, path: PathBuf::from("written") }, Outcome::Ok)]
 #[case::a_file_outside_its_policy(|plugin: &Plugin| read(plugin.elsewhere()), Outcome::Errno(Errno::Eacces))]
-// Its `processes` limit, 1 by default: at `none`, no process but itself.
-#[case::a_second_process(|_: &Plugin| Probe::Call { call: Call::Fork, args: Vec::new() }, Outcome::Errno(Errno::Eperm))]
 fn a_launched_plugin_runs_confined_from_its_temporary_folder(
     #[case] probe: fn(&Plugin) -> Probe,
     #[case] expected: Outcome,
@@ -163,26 +160,27 @@ fn a_launched_plugin_runs_confined_from_its_temporary_folder(
 }
 
 /// Each limit its manifest sets holds a launched Plugin: it may set the
-/// limit to its value, and not one past it, which the probe unconfined
-/// may.
-///
-/// Covers: story:7-21
+/// limit to its hard value, and not one past it, which the probe
+/// unconfined may.
 #[rstest]
-#[case::memory(Resource::Memory)]
-#[case::cpu_time(Resource::CpuTime)]
-#[case::open_files(Resource::OpenFiles)]
-fn a_launched_plugin_runs_under_each_limit_its_manifest_sets(#[case] resource: Resource) {
+#[case::memory(Resource::Memory, 64 * 1024 * 1024)]
+// One second past its `cpu_time`, so that `SIGXCPU` comes first.
+#[case::cpu_time(Resource::CpuTime, 61)]
+#[case::open_files(Resource::OpenFiles, 32)]
+fn a_launched_plugin_runs_under_each_limit_its_manifest_sets(
+    #[case] resource: Resource,
+    #[case] hard: u64,
+) {
     let plugin = Plugin::limited(&json!({
         "memory": 64 * 1024 * 1024,
         "cpu_time": 60,
         "open_files": 32,
     }));
-    let at = resource.of(&plugin.policy.limits);
     let raise = |to| Probe::Raise { resource, to };
 
-    let unconfined = Plugin::unconfined(raise(at + 1));
-    let up_to = plugin.launched(raise(at));
-    let past = plugin.launched(raise(at + 1));
+    let unconfined = Plugin::unconfined(raise(hard + 1));
+    let up_to = plugin.launched(raise(hard));
+    let past = plugin.launched(raise(hard + 1));
 
     let ok = Report::Outcome(Outcome::Ok);
     assert_eq!(

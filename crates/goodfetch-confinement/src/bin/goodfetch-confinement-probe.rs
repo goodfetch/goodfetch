@@ -42,6 +42,7 @@ mod linux {
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
+    use goodfetch_confinement::linux::limits::Resource;
     use goodfetch_confinement::linux::number;
     use goodfetch_confinement::linux::probe::{Fault, Probe, Report, Request};
     use goodfetch_confinement::linux::{confine_self, confine_self_with};
@@ -80,7 +81,7 @@ mod linux {
             (Probe::Mechanism, Some(mechanism)) => Report::Mechanism(mechanism),
             (Probe::KernelAbi, None) => kernel_abi(),
             (Probe::UserNamespace, None) => user_namespace(),
-            (Probe::Raise { resource, to }, _) => raised(resource.number(), to),
+            (Probe::Raise { resource, to }, _) => raised(resource, to),
             (Probe::Mechanism, None) | (Probe::KernelAbi | Probe::UserNamespace, Some(_)) => {
                 Report::Fault(Fault::Request)
             }
@@ -260,8 +261,15 @@ mod linux {
         }
     }
 
-    /// The report of setting rlimit `number`'s soft and hard limit to `to`.
-    fn raised(number: i64, to: u64) -> Report {
+    /// The report of setting `resource`'s soft and hard rlimit to `to`.
+    /// Its own mapping to the rlimit, apart from the launcher's, so that a
+    /// wrong one in either shows.
+    fn raised(resource: Resource, to: u64) -> Report {
+        let number = i64::from(match resource {
+            Resource::Memory => libc::RLIMIT_DATA,
+            Resource::CpuTime => libc::RLIMIT_CPU,
+            Resource::OpenFiles => libc::RLIMIT_NOFILE,
+        });
         let limit = [to, to];
         // SAFETY: the kernel reads the limit pair from `limit`, which
         // outlives the call, and writes nothing, as the old pair's pointer

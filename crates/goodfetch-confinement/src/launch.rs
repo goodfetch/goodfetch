@@ -152,8 +152,6 @@ fn start(launch: &Launch) -> LaunchError {
         }
         Err(error) => return LaunchError::Folder(error),
     }
-    // Set once confined, so that a namespace mechanism's former self, which
-    // waits outside, holds none of them.
     if let Err(error) = crate::linux::limits::limit_self(&launch.policy.limits) {
         return LaunchError::Limits(error);
     }

@@ -26,14 +26,17 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::marker::PhantomData;
+use std::time::Duration;
 
 use goodfetch_protocol::catalog::{SettingJson, SettingScope};
 use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
 use goodfetch_protocol::settings::{
-    SETTING_NOT_APPLICABLE, SettingNotApplicableDetails, SettingsLayer,
+    RunOrigin, SETTING_NOT_APPLICABLE, SettingInvalidDetails, SettingLimit,
+    SettingNotApplicableDetails, SettingsLayer, TIMEOUT_RUN,
 };
 use serde_json::{Map, Value};
 
+use crate::call::wire_millis;
 use crate::error::Error;
 use crate::markers;
 
@@ -307,6 +310,54 @@ impl sealed::IntoValue<Option<String>> for &str {
 
 #[diagnostic::do_not_recommend]
 impl IntoSettingValue<Option<String>> for &str {}
+
+/// How long a Run may last, as its start gives it, in place of its
+/// `timeout.run` setting: [`crate::Start`]'s or a handler-less start's.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum RunTimeout {
+    /// As its `timeout.run` setting says: nothing sent.
+    Setting,
+    /// At most this long.
+    After(Duration),
+    /// As long as it takes: `null` sent.
+    Unbounded,
+}
+
+/// A Run's own `timeout` as its params carry it: absent for the setting's
+/// value, null for none, else whole milliseconds, a zero one refused as
+/// the engine refuses it.
+#[expect(
+    clippy::option_option,
+    reason = "the params' field is absent, null or a number on the wire (ADR 0080)"
+)]
+pub(crate) fn wire_timeout(timeout: RunTimeout) -> Result<Option<Option<u64>>, Error> {
+    match timeout {
+        RunTimeout::Setting => Ok(None),
+        RunTimeout::Unbounded => Ok(Some(None)),
+        RunTimeout::After(after) if after.is_zero() => {
+            let key = TIMEOUT_RUN.name;
+            let reason = "a timeout of 0 ms would end the Run at once";
+            let fix = "give at least 1 ms, or `.no_timeout()` for no timeout";
+            let details = SettingInvalidDetails {
+                key: key.to_owned(),
+                layer: Some(SettingsLayer::Run),
+                reason: reason.to_owned(),
+                limit: Some(SettingLimit {
+                    key: key.to_owned(),
+                    value: Value::from(0),
+                    layer: SettingsLayer::Run,
+                    origin: Some(RunOrigin::Argument),
+                }),
+                fix: Some(fix.to_owned()),
+            };
+            Err(Error::setting_invalid(
+                format!("The start's `timeout`, its `{key}`: {reason}; {fix}."),
+                &details,
+            ))
+        }
+        RunTimeout::After(after) => Ok(Some(Some(wire_millis(after)))),
+    }
+}
 
 #[cfg(test)]
 mod tests;

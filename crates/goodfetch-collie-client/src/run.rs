@@ -28,11 +28,10 @@ use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::event_stream::EventStream;
 use crate::generated::handles::{Page, Run, Session};
-use crate::handlerless::{RunTimeout, wire_timeout};
 use crate::host::{HeldRun, Host, Kept};
 use crate::limits::Limits;
 use crate::logging::{self, engine_log_level};
-use crate::settings::Settings;
+use crate::settings::{RunTimeout, Settings, wire_timeout};
 
 /// The start of a Run (`run.start`), which awaiting sends. Nothing is sent
 /// until it is awaited.

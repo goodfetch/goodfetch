@@ -47,8 +47,14 @@ impl RateLimit {
         let turn = {
             let mut due = self.due.lock().await;
             let now = self.clock.now();
-            let next = due.get(destination).map_or(now, |due| (*due).max(now));
-            due.insert(destination.to_owned(), next + INTERVAL);
+            let next = if let Some(due) = due.get_mut(destination) {
+                let next = (*due).max(now);
+                *due = next + INTERVAL;
+                next
+            } else {
+                due.insert(destination.to_owned(), now + INTERVAL);
+                now
+            };
             next.checked_sub(INTERVAL * (BURST - 1))
                 .map_or(now, |turn| turn.max(now))
         };

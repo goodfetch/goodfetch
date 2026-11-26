@@ -19,7 +19,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::runtime;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::runs::Run;
@@ -135,10 +134,23 @@ struct Invalid {
 
 /// What the page threw.
 #[derive(Deserialize)]
-struct Thrown {
-    name: Option<String>,
-    message: String,
-    stack: Option<String>,
+pub(crate) struct Thrown {
+    /// The error's name, such as `TypeError`.
+    pub(crate) name: Option<String>,
+    /// Its message.
+    pub(crate) message: String,
+    /// Its stack, as the page describes it.
+    pub(crate) stack: Option<String>,
+}
+
+/// What a page function's evaluation answered, as the CDP module reads it:
+/// the walker's answer, or what the evaluation itself threw, such as the
+/// source's `SyntaxError`, before the walker ran.
+pub(crate) enum Returned {
+    /// The walker's answer, `null` when the evaluation gave no value.
+    Walked(Value),
+    /// What the evaluation threw.
+    NotRun(Thrown),
 }
 
 /// Runs `evaluate`, which evaluates an expression [`expression`] built for
@@ -162,7 +174,7 @@ pub(crate) async fn until_truthy<F>(
     form: Form,
 ) -> Result<Evaluated, CallError>
 where
-    F: Future<Output = Result<runtime::EvaluateReturns, CallError>>,
+    F: Future<Output = Result<Returned, CallError>>,
 {
     loop {
         let returns = evaluate().await?;
@@ -191,23 +203,23 @@ fn truthy(value: Option<&Value>) -> bool {
 /// built it for the operation `operation`, its errors spelled in
 /// `form`.
 pub(crate) fn answered(
-    returns: runtime::EvaluateReturns,
+    returns: Returned,
     spelled: (Form, &'static str),
 ) -> Result<Evaluated, CallError> {
-    if let Some(details) = returns.exception_details {
-        return Err(failed(not_run(&details), spelled));
-    }
-    let walked: Walked = serde_json::from_value(returns.result.value.unwrap_or(Value::Null))
-        .map_err(|error| {
-            failed(
-                Thrown {
-                    name: None,
-                    message: format!("the page's answer was not the walker's: {error}"),
-                    stack: None,
-                },
-                spelled,
-            )
-        })?;
+    let answer = match returns {
+        Returned::Walked(answer) => answer,
+        Returned::NotRun(thrown) => return Err(failed(thrown, spelled)),
+    };
+    let walked: Walked = serde_json::from_value(answer).map_err(|error| {
+        failed(
+            Thrown {
+                name: None,
+                message: format!("the page's answer was not the walker's: {error}"),
+                stack: None,
+            },
+            spelled,
+        )
+    })?;
     if let Some(Unparsed { selector, message }) = walked.unparsed {
         return Err(CallError::protocol(
             ProtocolFailure::InvalidParams,
@@ -229,23 +241,6 @@ pub(crate) fn answered(
     Ok(Evaluated {
         value: walked.value,
     })
-}
-
-/// What an exception the evaluation itself raised, such as the source's
-/// `SyntaxError`, says.
-fn not_run(details: &runtime::ExceptionDetails) -> Thrown {
-    let exception = details.exception.as_ref();
-    let description = exception.and_then(|exception| exception.description.clone());
-    let name = exception.and_then(|exception| exception.class_name.clone());
-    let message = description.as_deref().map_or_else(
-        || details.text.clone(),
-        |description| error_message(name.as_deref(), description),
-    );
-    Thrown {
-        name,
-        message,
-        stack: description,
-    }
 }
 
 /// An error's message from its V8 description, `<name>: <message>` then

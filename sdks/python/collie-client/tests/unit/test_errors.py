@@ -107,6 +107,48 @@ _CATALOG = WORKSPACE / "crates/goodfetch-protocol/generated/collie.json"
 _CODES: list[dict[str, object]] = json.loads(_CATALOG.read_text(encoding="utf-8"))[
     "error_codes"
 ]
+_FOXHOUND_CATALOG = WORKSPACE / "crates/goodfetch-protocol/generated/foxhound.json"
+_COLLIE_NAMES = {code["name"] for code in _CODES}
+_FOXHOUND_ONLY_CODES: list[dict[str, object]] = [
+    code
+    for code in json.loads(_FOXHOUND_CATALOG.read_text(encoding="utf-8"))["error_codes"]
+    if code["name"] not in _COLLIE_NAMES
+]
+
+
+@pytest.mark.covers("story:11-1143")
+def test_a_foxhound_only_code_raises_its_group_class_keeping_code_and_flag() -> None:
+    """A program written for Collie that meets a Foxhound engine.
+
+    Each code only Foxhound carries raises its group's class, with the code
+    and retryable flag the engine sent (ADRs 0079 and 0095).
+    """
+    raised: list[tuple[bool, str, str, bool]] = []
+    for code in _FOXHOUND_ONLY_CODES:
+        group = cast("ErrorGroup", code["group"])
+        error = error_of_reply(
+            {
+                "code": code["json_rpc_class"],
+                "message": f"failed with {code['name']}",
+                "data": {"code": code["name"], "retryable": code["retryable"]},
+            },
+            ERROR_CLASSES,
+        )
+        raised.append(
+            (
+                isinstance(error, ERROR_GROUP_CLASSES[group]),
+                error.code,
+                error.group,
+                error.retryable,
+            )
+        )
+
+    assert _FOXHOUND_ONLY_CODES
+    assert raised == [
+        (True, code["name"], code["group"], code["retryable"])
+        for code in _FOXHOUND_ONLY_CODES
+    ]
+
 
 _REFUSAL: dict[str, object] = {
     "code": -32001,

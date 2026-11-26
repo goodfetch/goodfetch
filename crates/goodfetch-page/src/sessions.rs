@@ -55,8 +55,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::Command as _;
-use goodfetch_cdp::generated::target;
 use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
@@ -108,17 +106,18 @@ use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
 use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
-use crate::borrowed::{CdpUrl, resolve_of};
+use crate::cdp::CREATE_TARGET;
+use crate::cdp::borrowed::{CdpUrl, resolve_of};
+use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
+use crate::cdp::launch::Launcher;
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
-use crate::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::egress_relay::{self, EgressRelay};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::hiding::SessionHiding;
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers, SessionInterception};
-use crate::launch::Launcher;
 use crate::page_events;
 use crate::page_functions::Injections;
 use crate::page_owner::{PageOwner, PageOwners};
@@ -333,9 +332,9 @@ pub(crate) struct OpenPage {
 
 impl OpenPage {
     /// Its lease, when a handler's page: the attempt whose commands it
-    /// sends (ADR 0106's window).
-    pub(crate) fn lease(&self) -> Option<&dyn LeaseCheck> {
-        self.driver.value().lease().map(AsRef::as_ref)
+    /// sends for the request it serves now (ADR 0106's window).
+    pub(crate) fn lease(&self) -> Option<Arc<dyn LeaseCheck>> {
+        self.driver.value().lease().cloned()
     }
 
     /// Marks sent each body of the page's attempt, or of its Run outside
@@ -347,7 +346,7 @@ impl OpenPage {
     /// `run_state_unavailable` when the mark could not be written:
     /// `command` must not go out.
     pub(crate) async fn sending(&self, command: &str) -> Result<(), CallError> {
-        self.run.sending(self.lease(), command).await
+        self.run.sending(self.lease().as_deref(), command).await
     }
 }
 
@@ -461,7 +460,7 @@ fn lease_holds(value: &PageValue) -> Result<(), CallError> {
     match value.lease() {
         Some(lease) => lease
             .check()
-            .map_err(|ended| lease.withheld(ended, target::CreateTargetParams::METHOD)),
+            .map_err(|ended| lease.withheld(ended, CREATE_TARGET)),
         None => Ok(()),
     }
 }
@@ -1068,22 +1067,18 @@ impl Sessions {
         let mut closing = Vec::new();
         // Calls in flight on its pages end first (S7, P8); a crashed page
         // releases what is left (P33).
-        for (page_id, page) in open.pages.all() {
+        for (_, page) in open.pages.all() {
             match page.life.end(ending)? {
-                PageEffect::Close => closing.push((page_id, page)),
-                effect => {
-                    self.page_ended(&page_id, &open.run, &page.life, effect)
-                        .await;
-                }
+                PageEffect::Close => closing.push(page),
+                effect => self.page_ended(&open.run, &page.life, effect).await,
             }
         }
         open.seat.close().await;
-        for (page_id, page) in &closing {
+        for page in &closing {
             // The context's disposal destroyed each target: the close the
             // engine sent is confirmed (P29).
             let effect = page.life.end(&Ending::Destroyed)?;
-            self.page_ended(page_id, &open.run, &page.life, effect)
-                .await;
+            self.page_ended(&open.run, &page.life, effect).await;
         }
         if crashed {
             open.owner.stop().await;

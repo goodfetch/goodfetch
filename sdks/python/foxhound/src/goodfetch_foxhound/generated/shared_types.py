@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-from goodfetch_collie_client.generated.shared_types import AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
+from goodfetch_collie_client.generated.shared_types import AuditKind as CollieAuditKind, BlockCause as CollieBlockCause, CompletenessReasonCode as CollieCompletenessReasonCode, LimitScope as CollieLimitScope, NotificationEvent as CollieNotificationEvent, RunWarningCode as CollieRunWarningCode, UsageKind as CollieUsageKind
 
 AuditKind: TypeAlias = CollieAuditKind | Literal["feature_switched_off", "learning_switched_off", "politeness_weakened"]
 """A `audit_kind`, a type both Products share (ADR 0095).
@@ -60,6 +60,20 @@ Collie's values and Foxhound's own below; a value this package does not know is
 kept as received (ADR 0079).
 
 - `partitioned_crawl`: Every Partition of a Partitioned crawl (ADR 0054).
+"""
+
+NotificationEvent: TypeAlias = CollieNotificationEvent | Literal["dataset_schema_changed", "records_changed", "sink_behind", "sink_failed", "sink_paused", "sink_recovered"]
+"""A `notification_event`, a type both Products share (ADR 0095).
+
+Collie's values and Foxhound's own below; a value this package does not know is
+kept as received (ADR 0079).
+
+- `dataset_schema_changed`: A Dataset's schema changed.
+- `records_changed`: A Run's Records changed against its Baseline.
+- `sink_behind`: A Sink fell behind its Run.
+- `sink_failed`: A Sink failed.
+- `sink_paused`: A Sink was paused.
+- `sink_recovered`: A Sink recovered.
 """
 
 RunWarningCode: TypeAlias = CollieRunWarningCode | Literal["block_classification_off", "browser_version_unread", "learning_off", "local_address_rotated_within_block", "provenance_off", "records_off", "trap_links_off"]

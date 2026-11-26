@@ -9,11 +9,12 @@ use data_encoding::DecodeError;
 use goodfetch_cdp::Subscription;
 use goodfetch_cdp::generated::{emulation, fetch, io, network, page};
 use goodfetch_engine::CallError;
+use goodfetch_engine::net_error::NetError;
 
+use super::CdpPage;
+use super::driver::cdp_response;
 use super::paused::{AuthChallenge, LoadingFailed, NotTaken, PausedRequest};
 use super::requests::PausedId;
-use super::{CdpPage, NetError};
-use crate::driver::cdp_response;
 
 /// What the browser-fetch tier follows of its page's events.
 #[derive(Debug)]

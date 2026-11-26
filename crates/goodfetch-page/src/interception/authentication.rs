@@ -8,8 +8,8 @@
 
 use goodfetch_engine::CallError;
 
+use crate::cdp::driver::PageDriver;
 use crate::cdp::{AuthAnswer, AuthChallenge};
-use crate::driver::PageDriver;
 
 /// The answer to one challenge.
 pub(crate) struct Challenged {

@@ -30,8 +30,35 @@ pub enum Failure {
     /// The destination refused the message itself: permanent.
     Rejected,
     /// A failure the channel's translation point does not know, logged at
-    /// `warn` without its text: transient.
+    /// `warn` with its text: transient.
     Unrecognized(PartyText),
+}
+
+/// A channel's party's own text about a failure, as its `send` returns it
+/// to its translation point (ADR 0127): read only there, through
+/// [`ChannelText::unrecognized`], and redacted wherever it is formatted.
+#[derive(Clone, PartialEq, Eq)]
+pub struct ChannelText(String);
+
+impl ChannelText {
+    /// The party's text `text`.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self(text.into())
+    }
+
+    /// [`Failure::Unrecognized`] for this text, logged at `warn` with the
+    /// text and `what` the translation point did not know, so a new answer
+    /// is noticed and added to its table.
+    pub(crate) fn unrecognized(self, what: &str) -> Failure {
+        tracing::warn!(text = %self.0, "{what}");
+        Failure::Unrecognized(PartyText::new(self.0))
+    }
+}
+
+impl std::fmt::Debug for ChannelText {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "ChannelText(<{} bytes, redacted>)", self.0.len())
+    }
 }
 
 impl Failure {

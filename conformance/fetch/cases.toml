@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "9"
+version = "10"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -125,3 +125,22 @@ covers = ["story:6-43", "setting:storage.low_free"]
 [[capability.case]]
 id = "at-the-critical-storage-level-no-run-starts-and-nothing-held-is-lost"
 covers = ["story:6-43", "setting:storage.critical_free"]
+
+# The cache's upkeep (ADRs 0001 and 0046): what a discard, a verify and a
+# clear delete or report, each page's next crawl telling whether the cache
+# still holds it. The domain case clears `cache.test`, so it comes last.
+[[capability.case]]
+id = "discarding-a-run-deletes-its-cache-entries-and-no-other-runs"
+covers = ["story:6-45", "operation:run.discard"]
+
+[[capability.case]]
+id = "cache-verify-reports-an-entry-whose-body-was-tampered-with"
+covers = ["story:6-44", "operation:cache.verify"]
+
+[[capability.case]]
+id = "cache-clear-of-a-partition-leaves-the-other-entries-served"
+covers = ["story:6-44", "operation:cache.clear", "operation:cache.stats"]
+
+[[capability.case]]
+id = "cache-clear-of-a-domain-leaves-the-other-domains-entries-served"
+covers = ["story:6-44", "operation:cache.clear"]

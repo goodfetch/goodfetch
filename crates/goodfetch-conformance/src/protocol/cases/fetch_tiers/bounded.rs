@@ -9,7 +9,7 @@
 //! still served; and at `critical` no Run starts, so nothing is stored or
 //! evicted, and what the cache held is served once the level clears.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use goodfetch_protocol::home::RESPONSE_CACHE;
@@ -84,14 +84,14 @@ fn configured(
     outcome
 }
 
-/// The bytes of the body files the Response cache in `major` keeps, each
-/// named by its body's SHA-256.
+/// The body files the Response cache in `major` keeps, each named by its
+/// body's SHA-256.
 #[expect(
     clippy::disallowed_methods,
     reason = "the harness is synchronous and runs no async worker"
 )]
-fn body_bytes(major: &Path) -> std::io::Result<u64> {
-    let mut bytes = 0;
+pub(super) fn body_files(major: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
     let mut folders = vec![major.join(RESPONSE_CACHE)];
     while let Some(folder) = folders.pop() {
         for entry in std::fs::read_dir(folder)? {
@@ -104,9 +104,22 @@ fn body_bytes(major: &Path) -> std::io::Result<u64> {
                     name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit())
                 })
             {
-                bytes += entry.metadata()?.len();
+                files.push(entry.path());
             }
         }
+    }
+    Ok(files)
+}
+
+/// The bytes of the body files the Response cache in `major` keeps.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness is synchronous and runs no async worker"
+)]
+fn body_bytes(major: &Path) -> std::io::Result<u64> {
+    let mut bytes = 0;
+    for file in body_files(major)? {
+        bytes += std::fs::metadata(file)?.len();
     }
     Ok(bytes)
 }

@@ -1,12 +1,11 @@
 //! ADR 0069's exit-code table, in process (Quick suite): each Error code
 //! with a row of its own exits with it, every other one with its group's,
-//! the table maps every Error code the catalog declares, and no exit code
-//! has two rows.
+//! the table maps every Error code the catalog declares, and its rows are
+//! ADR 0069's, one for each exit code.
 //!
 //! Covers: story:11-205, story:11-206
 
 use goodfetch_protocol::point_in_time;
-use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::ErrorGroup;
 use goodfetch_protocol::cli::{REFUSED_AT_HELLO, exit_code_table};
@@ -41,21 +40,6 @@ fn person_required_is_a_refusal_that_is_not_retryable() {
         .map(|definition| (definition.group, definition.retryable));
 
     assert_eq!(declared, Some((ErrorGroup::Refused, false)));
-}
-
-#[test]
-fn the_table_holds_one_row_per_exit_code() {
-    let mut rows: BTreeMap<u8, Vec<&str>> = BTreeMap::new();
-    for row in exit_code_table() {
-        rows.entry(row.code).or_default().push(row.name);
-    }
-
-    let shared: Vec<(u8, Vec<&str>)> = rows
-        .into_iter()
-        .filter(|(_, names)| names.len() > 1)
-        .collect();
-
-    assert_eq!(shared, []);
 }
 
 #[test]

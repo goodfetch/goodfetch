@@ -40,6 +40,17 @@ export const notClearable: RunSettings = { timeout: { navigation: null } };
 // @ts-expect-error configuration alone sets the proxy providers
 export const configurationOnly: RunSettings = { proxy: { providers: {} } };
 
+// A setting only Foxhound carries is no Collie key (ADR 0095): Collie's
+// `politeness` has no `domain`, and Collie has no `crawl`.
+// @ts-expect-error `politeness.domain.concurrency` is Foxhound's
+export const foxhoundKey: RunSettings = { politeness: { domain: { concurrency: 2 } } };
+// @ts-expect-error `crawl.max_requests` is Foxhound's
+export const crawlKey: Settings = { crawl: { maxRequests: 10 } };
+export async function startedWithAFoxhoundKey(collie: Collie): Promise<void> {
+  // @ts-expect-error a Collie Run's start takes no Foxhound key
+  await collie.start({ settings: { politeness: { domain: { concurrency: 2 } } } });
+}
+
 // Opening a Session or a page takes its own scope's settings.
 export async function opened(): Promise<void> {
   const session = await run.newSession({ settings: { browser: { accessMode: "standard" } } });

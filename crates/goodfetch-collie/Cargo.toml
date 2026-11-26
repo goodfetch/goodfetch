@@ -21,7 +21,7 @@ executable = ["dep:clap", "dep:jiff", "dep:mimalloc", "dep:regex", "dep:schemars
 opentelemetry = []
 # The testing kit (ADR 0105), `goodfetch_collie::testing`: a test engine in a
 # temporary Goodfetch home, which builds test values alone and never a
-# capability (ADR 0087).
+# capability (ADR 0087), and `Error::fake` (`testing::FakeError`).
 test-util = ["dep:tempfile"]
 
 [dependencies]

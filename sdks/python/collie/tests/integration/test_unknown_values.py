@@ -40,7 +40,7 @@ from goodfetch_test_support import Product as ToolProduct
 RUN_ID = "01ke6p4ym0j8x3v5wq2rtbn7hc"
 """The Run the script starts."""
 
-COVERS = pytest.mark.covers("story:11-33", "story:11-188")
+COVERS = pytest.mark.covers("story:11-33", "story:11-188", "story:11-1143")
 """What both modes' tests cover."""
 
 

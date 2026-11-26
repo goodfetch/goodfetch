@@ -1,6 +1,7 @@
 //! The testing kit's shared part (ADRs 0069, 0095 and 0105), which each
 //! Product's kit re-exports: [`TestEngineOptions`], what a test engine
-//! starts with, and [`TestEngine`], what every Product's test engine is.
+//! starts with, [`TestEngine`], what every Product's test engine is, and
+//! [`FakeError`], which builds the error the engine would answer with.
 //! A Product's kit starts the engine, linked in the test's process, in a
 //! temporary Goodfetch home with a cleared environment, `egress.offline`
 //! and `browser_cache.read_only` on, short durations and no project file
@@ -14,9 +15,12 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serde_json::Value;
+use goodfetch_protocol::catalog::ErrorGroup;
+use goodfetch_protocol::error_code::ErrorCode;
+use goodfetch_protocol::jsonrpc::{ErrorData, ErrorObject};
+use serde_json::{Map, Value};
 
-use crate::error::Error;
+use crate::error::{Error, catalogued};
 use crate::settings::{Settings, browser_cache, egress, network, timeout};
 
 /// How long the test engine's calls wait where the catalog's defaults wait
@@ -114,6 +118,42 @@ pub trait TestEngine<C> {
     fn close(self) -> impl Future<Output = Result<(), Error>> + Send
     where
         Self: Sized;
+}
+
+/// An error a program's own tests build (ADR 0105): each Product's kit
+/// re-exports it behind its crate's `test-util` feature, which builds test
+/// values alone, never a capability (ADR 0087).
+pub trait FakeError {
+    /// The error the engine would answer a call with, of `code` and
+    /// `message`: its group and retryable flag are those the catalog gives
+    /// the code, either Product's, and a code neither Product knows, as a
+    /// newer engine's, is `internal` and not retryable.
+    ///
+    /// ```
+    /// use goodfetch_collie_client::testing::FakeError;
+    /// use goodfetch_collie_client::{Error, ErrorCode};
+    /// use goodfetch_protocol::catalog::ErrorGroup;
+    ///
+    /// let error = Error::fake(ErrorCode::NAVIGATION_FAILED, "the page never loaded");
+    /// assert_eq!((error.group(), error.retryable()), (ErrorGroup::Page, true));
+    /// ```
+    #[must_use]
+    fn fake(code: ErrorCode, message: impl Into<String>) -> Self;
+}
+
+impl FakeError for Error {
+    fn fake(code: ErrorCode, message: impl Into<String>) -> Self {
+        let (group, retryable) = catalogued(code).unwrap_or((ErrorGroup::Internal, false));
+        Self::answered(ErrorObject {
+            code: group.json_rpc_class(),
+            message: message.into(),
+            data: ErrorData {
+                code: code.as_str().to_owned(),
+                retryable,
+                details: Map::new(),
+            },
+        })
+    }
 }
 
 /// `settings` over the kit's isolations: `egress.offline` on, the hosts

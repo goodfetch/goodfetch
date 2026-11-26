@@ -14,6 +14,16 @@
 // client package. Importing it reads, patches and logs nothing (ADR 0078).
 export * from "@goodfetch/collie-client";
 export * from "./generated/errors.ts";
+// Foxhound's values of the types both Products share, which replace the
+// client package's names of the same types (ADR 0095).
+export type {
+  AuditKind,
+  BlockCause,
+  CompletenessReasonCode,
+  LimitScope,
+  RunWarningCode,
+  UsageKind,
+} from "./generated/shared-types.ts";
 export {
   Foxhound,
   type FoxhoundConnectOptions,

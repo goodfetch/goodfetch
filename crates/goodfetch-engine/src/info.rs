@@ -21,8 +21,8 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::effect::Effects;
 use crate::engine_context::CALLER;
 use crate::{
-    audit_operations, certs_operations, config, daemon, effect, key_value_store, needs_you,
-    needs_you_operations, robots_txt, rpc, run, run_files, run_files_operations,
+    audit_operations, cache_operations, certs_operations, config, daemon, effect, key_value_store,
+    needs_you, needs_you_operations, robots_txt, rpc, run, run_files, run_files_operations,
     signing_key_operations, usage,
 };
 
@@ -44,6 +44,7 @@ pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
         .chain(effect::handlers(effects))
         .chain(run_files_operations::handlers())
         .chain(audit_operations::handlers())
+        .chain(cache_operations::handlers())
         .chain(certs_operations::handlers())
         .chain(needs_you_operations::handlers())
         .chain(signing_key_operations::handlers())

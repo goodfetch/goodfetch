@@ -58,6 +58,7 @@ pub(crate) enum Case {
     SizeCapEvictsTheLeastRecentlyUsed,
     AgeCeilingServesNothingOlder,
     LowStorageStoresNothingNew,
+    CriticalStorageStartsNoRun,
 }
 
 impl Case {
@@ -133,6 +134,9 @@ impl Case {
             "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served" => {
                 Some(Self::LowStorageStoresNothingNew)
             }
+            "at-the-critical-storage-level-no-run-starts-and-nothing-held-is-lost" => {
+                Some(Self::CriticalStorageStartsNoRun)
+            }
             _ => None,
         }
     }
@@ -176,6 +180,9 @@ impl Case {
             }
             Self::LowStorageStoresNothingNew => {
                 bounded::low_storage(connection, home, site, checks)
+            }
+            Self::CriticalStorageStartsNoRun => {
+                bounded::critical_storage(connection, home, site, checks)
             }
         }
     }

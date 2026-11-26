@@ -1286,6 +1286,9 @@ async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded
         .discard(run_id.clone())
         .await
         .map_err(|error| run_error(error, &context))?;
+    context.engine().response_cache().forget_run(&run_id).await.map_err(|error| {
+        internal(format!("the Run `{run_id}` was discarded, but the Response cache keeps what it fetched: {error}; `cache clear --run-id {run_id}` deletes it"))
+    })?;
     Ok(RunDiscarded { run_id })
 }
 

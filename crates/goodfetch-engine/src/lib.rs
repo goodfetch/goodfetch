@@ -16,6 +16,7 @@ pub mod audit;
 mod audit_operations;
 mod body;
 pub mod browser_cache;
+mod cache_operations;
 mod call_error;
 mod certs_operations;
 pub mod checkpoint;

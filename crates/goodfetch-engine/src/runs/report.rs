@@ -11,7 +11,7 @@
 
 use std::borrow::Cow;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
@@ -274,7 +274,7 @@ pub(super) fn usage(
         match (usage_kind.as_str(), currency) {
             (MODEL_CALLS, None) => usage.model.counts.calls = amount,
             (MODEL_TOKENS, None) => usage.model.counts.tokens = amount,
-            (BROWSER_TIME, None) => usage.browser_time = amount,
+            (BROWSER_TIME, None) => usage.browser_time = Duration::from_millis(amount),
             (PROXY_BYTES, None) => usage.proxy_bytes = amount,
             (PROXY_BYTES, Some(currency)) => usage.proxy_price.push(UsageAmount {
                 currency: Some(currency),

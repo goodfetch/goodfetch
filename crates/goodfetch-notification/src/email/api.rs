@@ -21,6 +21,10 @@ use crate::failure::{ChannelText, Failure};
 /// request without one.
 const AGENT: &str = "goodfetch-notification";
 
+/// The longest error code or name an [`ApiFailure`] keeps: every provider's
+/// is a few dozen characters at most.
+const KIND_LIMIT: usize = 64;
+
 /// Why an HTTP API provider cannot be made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
@@ -48,7 +52,8 @@ pub enum ApiFailure {
     Status {
         /// Its status.
         status: StatusCode,
-        /// The error code or name the provider gave, as its table reads it.
+        /// The error code or name the provider gave, as its table reads it,
+        /// when it is one: bounded letters, digits, `_`, `-` and `.`.
         kind: Option<String>,
         /// The wait the answer asked for.
         retry_after: Option<Duration>,
@@ -89,6 +94,20 @@ pub(super) fn by_status(status: StatusCode) -> Option<Known> {
         status if status.is_server_error() => Some(Known::Is(Failure::ServerError)),
         _ => None,
     }
+}
+
+/// The URL of `path` at `base` when given, else at the provider's own API
+/// `default`. A `base` is where a stand-in answers in a provider's place,
+/// as the tests' stand-ins do; the channel's settings give none, so a Run
+/// reaches the provider itself.
+///
+/// # Errors
+///
+/// [`ApiUnusable::Url`] when `path` cannot join the base.
+pub(super) fn url(base: Option<Url>, default: &str, path: &str) -> Result<Url, ApiUnusable> {
+    base.map_or_else(|| Url::parse(default), Ok)
+        .and_then(|base| base.join(path))
+        .map_err(|_| ApiUnusable::Url)
 }
 
 /// `value` as a header value that is never logged.
@@ -209,10 +228,22 @@ pub(super) async fn send(
     let start = body.get(..PARTY_TEXT_LIMIT).unwrap_or(body);
     Err(ApiFailure::Status {
         status,
-        kind: (table.kind)(answer.headers(), body),
+        kind: (table.kind)(answer.headers(), body).filter(|kind| is_code(kind)),
         retry_after: (table.wait)(answer.headers(), clock.wall()),
         text: ChannelText::new(String::from_utf8_lossy(start)),
     })
+}
+
+/// Whether `kind`, read from a provider's answer, reads as an error code or
+/// name: at most [`KIND_LIMIT`] ASCII letters, digits, `_`, `-` and `.`.
+/// Anything else is no code a table knows, and would put unbounded party
+/// text in a log field (STYLE.md, Logging and secrets).
+fn is_code(kind: &str) -> bool {
+    !kind.is_empty()
+        && kind.len() <= KIND_LIMIT
+        && kind
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
 }
 
 /// A provider's translation point (ADR 0127): the driver's failure for each

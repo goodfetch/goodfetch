@@ -54,7 +54,8 @@ pub struct Resend {
 
 impl Resend {
     /// Resend at `base` when given, else at `https://api.resend.com`, sent
-    /// `api_key`, reached through `endpoint`.
+    /// `api_key`, reached through `endpoint`. A `base` is where a stand-in
+    /// answers in Resend's place; a Run gives none.
     ///
     /// # Errors
     ///
@@ -65,10 +66,7 @@ impl Resend {
         base: Option<Url>,
         endpoint: NotificationEndpoint,
     ) -> Result<Self, ApiUnusable> {
-        let base = base
-            .map_or_else(|| Url::parse(BASE), Ok)
-            .map_err(|_| ApiUnusable::Url)?;
-        let url = base.join(SEND_PATH).map_err(|_| ApiUnusable::Url)?;
+        let url = api::url(base, BASE, SEND_PATH)?;
         let credential = api::sensitive(&format!("Bearer {}", api_key.expose_secret()))?;
         Ok(Self {
             api: Api::new(
@@ -144,33 +142,39 @@ fn known(status: StatusCode, name: Option<&str>) -> Option<Known> {
 }
 
 /// The failure an error name Resend gives with `status` is, if the table
-/// knows it.
+/// knows it: the names of Resend's error reference.
 fn by_name(status: StatusCode, name: &str) -> Option<Known> {
     match name {
         "rate_limit_exceeded"
         | "daily_quota_exceeded"
         | "monthly_quota_exceeded"
         | "concurrent_idempotent_requests" => Some(Known::RateLimited),
-        "missing_api_key" | "invalid_api_key" | "restricted_api_key" | "suspended_api_key" => {
-            Some(Known::Is(Failure::Unauthorized))
-        }
-        "validation_error" if status == StatusCode::UNAUTHORIZED => {
+        "missing_api_key" | "invalid_api_key" | "restricted_api_key" | "suspended_api_key"
+        | "invalid_permission" => Some(Known::Is(Failure::Unauthorized)),
+        // Resend answers an unverified domain or a key it refuses with a
+        // `validation_error` of 401 or 403.
+        "validation_error"
+            if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
+        {
             Some(Known::Is(Failure::Unauthorized))
         }
         "validation_error"
         | "missing_required_field"
+        | "missing_required_parameter"
         | "invalid_parameter"
-        | "invalid_from_address"
         | "invalid_attachment"
         | "invalid_idempotency_key"
         | "invalid_idempotent_request"
         | "not_found"
         | "method_not_allowed"
-        | "security_error" => Some(Known::Is(Failure::Rejected)),
-        "application_error"
-        | "internal_server_error"
-        | "service_unavailable"
-        | "dns_lookup_failed" => Some(Known::Is(Failure::ServerError)),
+        | "return_path_unavailable"
+        | "forge_unavailable"
+        | "forge_not_enabled" => Some(Known::Is(Failure::Rejected)),
+        // A `resource_locked` is another operation holding the resource for
+        // now, which passes.
+        "application_error" | "service_unavailable" | "dns_lookup_failed" | "resource_locked" => {
+            Some(Known::Is(Failure::ServerError))
+        }
         _ => None,
     }
 }

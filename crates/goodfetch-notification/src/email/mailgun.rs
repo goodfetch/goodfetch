@@ -39,7 +39,8 @@ pub struct Mailgun {
 impl Mailgun {
     /// Mailgun at `base` when given, else at `region`'s API,
     /// `https://api.mailgun.net` or `https://api.eu.mailgun.net`, sending
-    /// from `domain` with `api_key`, reached through `endpoint`.
+    /// from `domain` with `api_key`, reached through `endpoint`. A `base`
+    /// is where a stand-in answers in Mailgun's place; a Run gives none.
     ///
     /// # Errors
     ///
@@ -58,15 +59,11 @@ impl Mailgun {
         if domain.is_empty() || !domain.chars().all(usable) {
             return Err(ApiUnusable::Domain);
         }
-        let base = match base {
-            Some(base) => base,
-            None => Url::parse(match region {
-                MailgunRegion::Us => "https://api.mailgun.net",
-                MailgunRegion::Eu => "https://api.eu.mailgun.net",
-            })
-            .map_err(|_| ApiUnusable::Url)?,
+        let default = match region {
+            MailgunRegion::Us => "https://api.mailgun.net",
+            MailgunRegion::Eu => "https://api.eu.mailgun.net",
         };
-        let mut url = base.join("/v3/").map_err(|_| ApiUnusable::Url)?;
+        let mut url = api::url(base, default, "/v3/")?;
         url.path_segments_mut()
             .map_err(|()| ApiUnusable::Url)?
             .pop_if_empty()

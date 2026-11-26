@@ -44,7 +44,8 @@ pub struct Sendgrid {
 
 impl Sendgrid {
     /// SendGrid at `base` when given, else at `https://api.sendgrid.com`,
-    /// sent `api_key`, reached through `endpoint`.
+    /// sent `api_key`, reached through `endpoint`. A `base` is where a
+    /// stand-in answers in SendGrid's place; a Run gives none.
     ///
     /// # Errors
     ///
@@ -55,10 +56,7 @@ impl Sendgrid {
         base: Option<Url>,
         endpoint: NotificationEndpoint,
     ) -> Result<Self, ApiUnusable> {
-        let base = base
-            .map_or_else(|| Url::parse(BASE), Ok)
-            .map_err(|_| ApiUnusable::Url)?;
-        let url = base.join(SEND_PATH).map_err(|_| ApiUnusable::Url)?;
+        let url = api::url(base, BASE, SEND_PATH)?;
         let credential = api::sensitive(&format!("Bearer {}", api_key.expose_secret()))?;
         Ok(Self {
             api: Api::new(

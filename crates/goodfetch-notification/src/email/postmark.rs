@@ -46,7 +46,8 @@ pub struct Postmark {
 impl Postmark {
     /// Postmark at `base` when given, else at
     /// `https://api.postmarkapp.com`, sent the server token `api_key`,
-    /// reached through `endpoint`.
+    /// reached through `endpoint`. A `base` is where a stand-in answers in
+    /// Postmark's place; a Run gives none.
     ///
     /// # Errors
     ///
@@ -57,10 +58,7 @@ impl Postmark {
         base: Option<Url>,
         endpoint: NotificationEndpoint,
     ) -> Result<Self, ApiUnusable> {
-        let base = base
-            .map_or_else(|| Url::parse(BASE), Ok)
-            .map_err(|_| ApiUnusable::Url)?;
-        let url = base.join(SEND_PATH).map_err(|_| ApiUnusable::Url)?;
+        let url = api::url(base, BASE, SEND_PATH)?;
         let credential = api::sensitive(api_key.expose_secret())?;
         Ok(Self {
             api: Api::new(

@@ -261,9 +261,9 @@ fn an_email_through_mailgun_is_one_form_post() {
 }
 
 /// Every attempt of one Notification on one channel carries the same
-/// idempotency key, so a stand-in that, as Resend does, sends one message
-/// per key sends a retried Notification once; the same Notification on
-/// another channel carries another key, and is sent too.
+/// idempotency key, within Resend's 256 characters, so Resend sends a
+/// retried Notification once; the same Notification on another channel
+/// carries another key, and is sent too.
 /// Covers: setting:notifications.channels
 #[test]
 fn resend_attempts_of_one_notification_share_an_idempotency_key() {
@@ -301,17 +301,14 @@ fn resend_attempts_of_one_notification_share_an_idempotency_key() {
     let [first, retried, elsewhere] = keys.as_slice() else {
         panic!("three requests, got {keys:?}")
     };
-    let messages = keys.iter().collect::<std::collections::BTreeSet<_>>().len();
-    let digits = first.strip_prefix("evt_01JDQ8X2Y5.").unwrap_or_default();
     assert_eq!(
         (
+            first.is_empty(),
             first == retried,
             first == elsewhere,
-            messages,
-            digits.len(),
-            digits.chars().all(|digit| digit.is_ascii_hexdigit()),
+            first.len() <= 256,
         ),
-        (true, false, 2, 32, true)
+        (false, true, false, true)
     );
 }
 
@@ -368,17 +365,33 @@ fn answered(
 #[rstest]
 #[case::rate_limited(429, &[("retry-after", "60")], r#"{"statusCode":429,"name":"rate_limit_exceeded"}"#, ("rate_limited", true, Some(Duration::from_mins(1))))]
 #[case::daily_quota(429, &[], r#"{"name":"daily_quota_exceeded"}"#, ("rate_limited", true, None))]
+#[case::monthly_quota(429, &[], r#"{"name":"monthly_quota_exceeded"}"#, ("rate_limited", true, None))]
 #[case::concurrent_key(409, &[], r#"{"name":"concurrent_idempotent_requests"}"#, ("rate_limited", true, None))]
 #[case::missing_key(401, &[], r#"{"name":"missing_api_key"}"#, ("unauthorized", false, None))]
 #[case::invalid_key(403, &[], r#"{"name":"invalid_api_key"}"#, ("unauthorized", false, None))]
 #[case::restricted_key(401, &[], r#"{"name":"restricted_api_key"}"#, ("unauthorized", false, None))]
+#[case::suspended_key(403, &[], r#"{"name":"suspended_api_key"}"#, ("unauthorized", false, None))]
+#[case::invalid_permission(403, &[], r#"{"name":"invalid_permission"}"#, ("unauthorized", false, None))]
 #[case::unauthorized_validation(401, &[], r#"{"name":"validation_error"}"#, ("unauthorized", false, None))]
-#[case::validation(422, &[], r#"{"name":"validation_error"}"#, ("rejected", false, None))]
-#[case::invalid_from(422, &[], r#"{"name":"invalid_from_address"}"#, ("rejected", false, None))]
+#[case::forbidden_validation(403, &[], r#"{"name":"validation_error"}"#, ("unauthorized", false, None))]
+#[case::validation(400, &[], r#"{"name":"validation_error"}"#, ("rejected", false, None))]
+#[case::missing_field(422, &[], r#"{"name":"missing_required_field"}"#, ("rejected", false, None))]
+#[case::missing_parameter(422, &[], r#"{"name":"missing_required_parameter"}"#, ("rejected", false, None))]
+#[case::invalid_parameter(422, &[], r#"{"name":"invalid_parameter"}"#, ("rejected", false, None))]
+#[case::invalid_attachment(422, &[], r#"{"name":"invalid_attachment"}"#, ("rejected", false, None))]
+#[case::invalid_key_format(400, &[], r#"{"name":"invalid_idempotency_key"}"#, ("rejected", false, None))]
 #[case::key_reused(409, &[], r#"{"name":"invalid_idempotent_request"}"#, ("rejected", false, None))]
 #[case::not_found(404, &[], r#"{"name":"not_found"}"#, ("rejected", false, None))]
+#[case::method_not_allowed(405, &[], r#"{"name":"method_not_allowed"}"#, ("rejected", false, None))]
+#[case::return_path_unavailable(422, &[], r#"{"name":"return_path_unavailable"}"#, ("rejected", false, None))]
+#[case::forge_unavailable(422, &[], r#"{"name":"forge_unavailable"}"#, ("rejected", false, None))]
+#[case::forge_not_enabled(409, &[], r#"{"name":"forge_not_enabled"}"#, ("rejected", false, None))]
 #[case::application_error(500, &[], r#"{"name":"application_error"}"#, ("server_error", true, None))]
+#[case::service_unavailable(503, &[], r#"{"name":"service_unavailable"}"#, ("server_error", true, None))]
+#[case::dns_lookup_failed(503, &[], r#"{"name":"dns_lookup_failed"}"#, ("server_error", true, None))]
+#[case::resource_locked(409, &[], r#"{"name":"resource_locked"}"#, ("server_error", true, None))]
 #[case::unavailable(503, &[], "", ("server_error", true, None))]
+#[case::request_timeout(408, &[], "", ("timeout", true, None))]
 #[case::unknown_name(422, &[], r#"{"name":"something_new"}"#, ("unrecognized", true, None))]
 #[case::unknown_status(418, &[], "", ("unrecognized", true, None))]
 fn each_resend_answer_maps_to_its_failure(
@@ -401,9 +414,14 @@ fn each_resend_answer_maps_to_its_failure(
 #[case::inactive_recipient(422, &[], r#"{"ErrorCode":406}"#, ("gone", false, None))]
 #[case::invalid_email(422, &[], r#"{"ErrorCode":300}"#, ("rejected", false, None))]
 #[case::invalid_json(422, &[], r#"{"ErrorCode":402}"#, ("rejected", false, None))]
+#[case::code_403(422, &[], r#"{"ErrorCode":403}"#, ("rejected", false, None))]
+#[case::code_422(422, &[], r#"{"ErrorCode":422}"#, ("rejected", false, None))]
 #[case::unknown_stream(422, &[], r#"{"ErrorCode":1235}"#, ("rejected", false, None))]
+#[case::stream_mismatch(422, &[], r#"{"ErrorCode":1236}"#, ("rejected", false, None))]
 #[case::address_refused(422, &[], r#"{"ErrorCode":1480}"#, ("rejected", false, None))]
 #[case::too_large(413, &[], "", ("rejected", false, None))]
+#[case::unsupported_media_type(415, &[], "", ("rejected", false, None))]
+#[case::request_timeout(408, &[], "", ("timeout", true, None))]
 #[case::rate_limited(429, &[("retry-after", "60")], "", ("rate_limited", true, Some(Duration::from_mins(1))))]
 #[case::unexpected(500, &[], r#"{"ErrorCode":101}"#, ("server_error", true, None))]
 #[case::maintenance(503, &[], r#"{"ErrorCode":100}"#, ("server_error", true, None))]
@@ -428,7 +446,10 @@ fn each_postmark_answer_maps_to_its_failure(
 #[case::unauthorized(401, &[], "", ("unauthorized", false, None))]
 #[case::sender_unverified(403, &[], "", ("unauthorized", false, None))]
 #[case::not_found(404, &[], "", ("rejected", false, None))]
+#[case::method_not_allowed(405, &[], "", ("rejected", false, None))]
+#[case::not_acceptable(406, &[], "", ("rejected", false, None))]
 #[case::too_large(413, &[], "", ("rejected", false, None))]
+#[case::request_timeout(408, &[], "", ("timeout", true, None))]
 #[case::reset_past(429, &[("x-ratelimit-reset", "1")], "", ("rate_limited", true, Some(Duration::ZERO)))]
 #[case::retry_after(429, &[("retry-after", "60")], "", ("rate_limited", true, Some(Duration::from_mins(1))))]
 #[case::server_error(500, &[], "", ("server_error", true, None))]
@@ -483,6 +504,7 @@ fn a_sendgrid_rate_limit_waits_until_its_reset() {
 #[case::forbidden(403, &[], "", ("unauthorized", false, None))]
 #[case::unknown_domain(404, &[], r#"{"message":"Domain not found"}"#, ("rejected", false, None))]
 #[case::too_large(413, &[], "", ("rejected", false, None))]
+#[case::request_timeout(408, &[], "", ("timeout", true, None))]
 #[case::rate_limited_420(420, &[], "", ("rate_limited", true, None))]
 #[case::rate_limited_429(429, &[("retry-after", "60")], "", ("rate_limited", true, Some(Duration::from_mins(1))))]
 #[case::server_error(500, &[], "", ("server_error", true, None))]

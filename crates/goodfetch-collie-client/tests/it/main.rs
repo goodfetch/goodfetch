@@ -38,5 +38,6 @@ mod session_events;
 mod sessions;
 mod settings;
 mod start;
+mod start_options;
 mod unknown_values;
 mod web_socket;

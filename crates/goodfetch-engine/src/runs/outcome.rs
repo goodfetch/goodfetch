@@ -7,7 +7,6 @@
 
 use goodfetch_protocol::connection::{ENGINE_PANICKED, PanicEnded};
 
-use super::Run;
 use crate::run_identity::RunIdentity;
 
 /// The `tracing` target of the outcome records.
@@ -30,12 +29,4 @@ pub fn record_panicked(run: &RunIdentity, ended: PanicEnded) {
         ended = ended.as_str(),
         "the run recorded an error code"
     );
-}
-
-impl Run {
-    /// Records, under [`OUTCOME_TARGET`], that its driver recorded
-    /// `error_code` in its run state, which no reply carries.
-    pub fn record_outcome(&self, error_code: &str) {
-        record_outcome(&self.identity, error_code);
-    }
 }

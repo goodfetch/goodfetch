@@ -17,11 +17,12 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use goodfetch_engine::CALLER;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::response_cache::{
     CacheRequest, Partition, ResponseHead, ResponseSource, Source,
 };
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::run::RunId;
 use url::Url;
@@ -41,11 +42,11 @@ pub(crate) struct Caching {
 impl Caching {
     /// What `run`'s transports answer from, `source` its own; none when it
     /// only sends.
-    pub(crate) fn of(source: ResponseSource, run: &Run) -> Option<Arc<Self>> {
+    pub(crate) fn of(source: ResponseSource, run: &RunIdentity) -> Option<Arc<Self>> {
         Self::new(
             source,
             Partition {
-                person: run.person().to_owned(),
+                person: CALLER.to_owned(),
                 ..Partition::default()
             },
             run.id().clone(),

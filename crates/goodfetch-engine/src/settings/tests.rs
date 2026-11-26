@@ -1001,6 +1001,35 @@ fn browser_cache_max_unused_age_is_set_only_by_the_machines_own_layers(
     assert_eq!(outcome.err().map(|error| error.code()), refused);
 }
 
+/// A Notification channel names a destination and the secrets that reach
+/// it, so only the machine's own layers set one (ADR 0028): a project file,
+/// a Recipe and a Run are refused.
+///
+/// Covers: story:11-262, setting:notifications.channels
+#[rstest]
+#[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]
+#[case::user_configuration(SettingsLayer::UserConfiguration, None)]
+#[case::project_configuration(SettingsLayer::ProjectConfiguration, Some("setting_not_applicable"))]
+#[case::the_recipe(SettingsLayer::Recipe, Some("setting_not_applicable"))]
+#[case::the_run(SettingsLayer::Run, Some("setting_not_applicable"))]
+fn notifications_channels_is_set_only_by_the_machines_own_layers(
+    #[case] layer: SettingsLayer,
+    #[case] refused: Option<&str>,
+) {
+    let channel = json!({
+        "ops": {
+            "type": "webhook",
+            "url": "env:HOOK_URL",
+            "webhook": { "secret": "env:HOOK_SECRET" },
+        },
+    });
+    let layers = only(layer, "notifications.channels", &channel);
+
+    let outcome = resolve(&layers, Product::Collie, Product::Collie);
+
+    assert_eq!(outcome.err().map(|error| error.code()), refused);
+}
+
 /// Covers: setting:stealth.allowed_builds
 #[rstest]
 #[case::the_operator_policy(SettingsLayer::OperatorPolicy, None)]
@@ -1390,6 +1419,79 @@ fn a_foxhound_key_given_explicitly_to_a_collie_engine_is_not_in_product(
             key: "crawl.retry.max".to_owned(),
             needs: Product::Foxhound,
         })
+    );
+}
+
+/// A channel's Foxhound event given to a Collie engine outside its
+/// configuration answers `not_in_product`, naming the event (ADR 0095).
+///
+/// Covers: story:11-265, setting:notifications.channels, error:not_in_product
+#[test]
+fn a_channels_foxhound_event_given_to_a_collie_engine_is_not_in_product() {
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "notifications": { "channels": {
+            "ops": { "events": ["run_failed", "sink_failed"] },
+        } } })),
+        Product::Collie,
+    );
+
+    assert_eq!(
+        read,
+        Err(SettingsError::NotInProduct {
+            key: "sink_failed".to_owned(),
+            needs: Product::Foxhound,
+        })
+    );
+}
+
+/// A Collie engine's configuration file keeps a channel's Foxhound events
+/// aside, listed as Foxhound's in `config explain`, and applies the rest,
+/// an event neither Product knows kept as a newer engine's (ADRs 0079 and
+/// 0095).
+///
+/// Covers: story:11-265, setting:notifications.channels
+#[test]
+fn a_collie_configuration_file_lists_a_channels_foxhound_events_as_foxhounds() {
+    let layer = SettingsLayer::UserConfiguration;
+    let read = Values::read(
+        layer,
+        &nested(json!({ "notifications": { "channels": {
+            "ops": { "type": "slack", "events": ["run_failed", "sink_failed", "run_paused"] },
+        } } })),
+        Product::Collie,
+    )
+    .unwrap();
+    let layers = Layers {
+        user_configuration: read,
+        ..Layers::default()
+    };
+
+    let explained = resolve(&layers, Product::Collie, Product::Collie)
+        .unwrap()
+        .explain(&["notifications".to_owned()], Vec::new());
+
+    assert_eq!(
+        serde_json::to_value(&explained.settings).unwrap(),
+        json!([
+            {
+                "key": "notifications.channels",
+                "products": ["collie", "foxhound"],
+                "applied": true,
+                "value": { "ops": { "type": "slack", "events": ["run_failed", "run_paused"] } },
+                "layer": "user_configuration",
+                "user_settable": true,
+                "weakens": false,
+            },
+            {
+                "key": "notifications.channels",
+                "products": ["foxhound"],
+                "applied": false,
+                "value": { "ops": { "events": ["sink_failed"] } },
+                "layer": "user_configuration",
+                "weakens": false,
+            },
+        ]),
     );
 }
 

@@ -8,15 +8,16 @@ use std::fmt;
 
 use data_encoding::BASE64;
 use goodfetch_cdp::generated::{fetch, network, page};
-use goodfetch_cdp::{Failure, NetError, Subscription};
+use goodfetch_cdp::{Failure, Subscription};
 use goodfetch_clean_up_rules::matching::ResourceKind;
 use goodfetch_engine::CallError;
 use goodfetch_engine::mask::{Masks, Scope};
+use goodfetch_engine::net_error::NetError;
 use goodfetch_protocol::page::route::AbortReason;
 
 use super::CdpPage;
+use super::driver::cdp_response;
 use super::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders, kind_of};
-use crate::driver::cdp_response;
 
 /// The browser's ID of a request's hop, as the page's events and its
 /// responses name it.

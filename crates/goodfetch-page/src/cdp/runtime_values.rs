@@ -1,11 +1,39 @@
 //! A page's console calls and uncaught exceptions as Playwright's
-//! `ConsoleMessage` and `WebError`, from the browser's runtime values.
+//! `ConsoleMessage` and `WebError`, and what a page function's evaluation
+//! answered, from the browser's runtime values.
 
 use goodfetch_cdp::generated::runtime;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{ConsoleLocation, ConsoleMessage, WebError};
+use serde_json::Value;
 
-use crate::page_functions::error_message;
+use crate::page_functions::{Returned, Thrown, error_message};
+
+/// What `Runtime.evaluate` answered for a page function: the walker's
+/// answer, or what the evaluation itself threw.
+pub(super) fn returned(returns: runtime::EvaluateReturns) -> Returned {
+    match returns.exception_details {
+        Some(details) => Returned::NotRun(not_run(&details)),
+        None => Returned::Walked(returns.result.value.unwrap_or(Value::Null)),
+    }
+}
+
+/// What an exception the evaluation itself raised, such as the source's
+/// `SyntaxError`, says.
+fn not_run(details: &runtime::ExceptionDetails) -> Thrown {
+    let exception = details.exception.as_ref();
+    let description = exception.and_then(|exception| exception.description.clone());
+    let name = exception.and_then(|exception| exception.class_name.clone());
+    let message = description.as_deref().map_or_else(
+        || details.text.clone(),
+        |description| error_message(name.as_deref(), description),
+    );
+    Thrown {
+        name,
+        message,
+        stack: description,
+    }
+}
 
 /// A console call as Playwright's `ConsoleMessage`.
 pub(super) fn console_message(

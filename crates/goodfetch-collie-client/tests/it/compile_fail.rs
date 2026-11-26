@@ -8,5 +8,6 @@ mod connection_type;
 mod duration;
 mod error;
 mod forms;
+mod foxhound_settings;
 mod inputs;
 mod settings_types;

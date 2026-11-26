@@ -20925,6 +20925,14 @@
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
+        "accept_plugin_change": {
+          "arrived_in": "0.1",
+          "description": "The third-party Plugins, by name, whose changed digest a start that\nresumes the Run accepts (ADR 0033), where it would otherwise refuse\nthe resume.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "limits": {
           "arrived_in": "0.1",
           "description": "The Run's own Limits (ADRs 0041 and 0080): at most one per Usage\nkind and currency. A start that names the Run again lowers them and\nnever raises them (ADR 0102).",
@@ -20932,6 +20940,14 @@
             "$ref": "#/$defs/RunLimit"
           },
           "type": "array"
+        },
+        "plan": {
+          "arrived_in": "0.1",
+          "description": "The Run's Plan file (ADR 0091), on the program's machine, relative\nto its working directory: an input of the Run, which a start that\nnames the Run again gives unchanged, else it fails with\n`run_conflict`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "project": {
           "anyOf": [
@@ -20944,6 +20960,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recording"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Response recording the Run replays or records (ADR 0105): an\ninput of the Run, as `plan` is."
         },
         "run_id": {
           "arrived_in": "0.1",
@@ -20964,6 +20992,17 @@
           "$ref": "#/$defs/Tags",
           "arrived_in": "0.1",
           "description": "The Run's opaque tags."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the Run may last, in milliseconds, at least 1, as\n`timeout.run` for this Run (ADR 0080): absent for the setting's\nvalue, `null` for none. Past it, the Run checkpoints and stops at\nits next safe point, resumable; a start that resumes it counts its\nown on a fresh clock (ADR 0102).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -24309,6 +24348,16 @@
         {
           "const": "seeds",
           "description": "A crawl's seeds.",
+          "type": "string"
+        },
+        {
+          "const": "plan",
+          "description": "The Plan file's path (ADR 0091).",
+          "type": "string"
+        },
+        {
+          "const": "recording",
+          "description": "The Response recording (ADR 0105).",
           "type": "string"
         }
       ]
@@ -29209,6 +29258,360 @@
                 },
                 "type": "object"
               },
+              "notifications": {
+                "additionalProperties": false,
+                "properties": {
+                  "channels": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "description": "One Notification channel, the entry of its name in\n`notifications.channels` (spec #608).",
+                      "properties": {
+                        "email": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "An `email` channel's keys.",
+                          "properties": {
+                            "api_key": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the provider's API key.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "from": {
+                              "arrived_in": "0.1",
+                              "description": "The address it sends from.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "mailgun": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The Mailgun domain and region, for the `mailgun` provider.",
+                              "properties": {
+                                "domain": {
+                                  "arrived_in": "0.1",
+                                  "description": "The sending domain.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "region": {
+                                  "arrived_in": "0.1",
+                                  "description": "The region, `us` or `eu`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "provider": {
+                              "anyOf": [
+                                {
+                                  "description": "The provider an `email` channel sends through.",
+                                  "oneOf": [
+                                    {
+                                      "const": "smtp",
+                                      "description": "An SMTP server.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "ses",
+                                      "description": "Amazon SES.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "resend",
+                                      "description": "Resend.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "postmark",
+                                      "description": "Postmark.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "sendgrid",
+                                      "description": "SendGrid.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "mailgun",
+                                      "description": "Mailgun.",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "arrived_in": "0.1",
+                              "description": "The provider it sends through."
+                            },
+                            "ses": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The SES region, for the `ses` provider.",
+                              "properties": {
+                                "region": {
+                                  "arrived_in": "0.1",
+                                  "description": "The AWS region, such as `eu-west-1`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "smtp": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The SMTP server, for the `smtp` provider.",
+                              "properties": {
+                                "host": {
+                                  "arrived_in": "0.1",
+                                  "description": "Its host.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "password": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Secret reference of its password.",
+                                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "port": {
+                                  "arrived_in": "0.1",
+                                  "description": "Its port.",
+                                  "format": "uint16",
+                                  "maximum": 65535,
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
+                                "security": {
+                                  "anyOf": [
+                                    {
+                                      "description": "How an SMTP connection is secured.",
+                                      "oneOf": [
+                                        {
+                                          "const": "tls",
+                                          "description": "TLS from the first byte.",
+                                          "type": "string"
+                                        },
+                                        {
+                                          "const": "starttls",
+                                          "description": "A plain connection upgraded with `STARTTLS`.",
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "arrived_in": "0.1",
+                                  "description": "How the connection is secured."
+                                },
+                                "username": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Secret reference of the user name it logs in with.",
+                                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "to": {
+                              "arrived_in": "0.1",
+                              "description": "The addresses it sends to.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "events": {
+                          "arrived_in": "0.1",
+                          "description": "The events it receives: the attention set when left out.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "runs": {
+                          "arrived_in": "0.1",
+                          "description": "The Runs it hears of: `all`, the default, or `tagged:<tag>`.",
+                          "pattern": "^(all|tagged:.+)$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sns": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "An `sns` channel's keys.",
+                          "properties": {
+                            "region": {
+                              "arrived_in": "0.1",
+                              "description": "The topic's AWS region.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "topic_arn": {
+                              "arrived_in": "0.1",
+                              "description": "The topic's ARN.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "telegram": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "A `telegram` channel's keys.",
+                          "properties": {
+                            "bot_token": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the bot's token.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "chat_id": {
+                              "arrived_in": "0.1",
+                              "description": "The chat it posts to.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "type": {
+                          "arrived_in": "0.1",
+                          "description": "One of [`BUILT_IN_TYPES`] or a Notification channel Plugin's short\nname; left out for a program's own SDK handler of the entry's name.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "arrived_in": "0.1",
+                          "description": "The Secret reference of its destination's URL: a Slack, Teams or\nDiscord webhook's, or a `webhook` channel's receiver.",
+                          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "webhook": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "A `webhook` channel's keys.",
+                          "properties": {
+                            "payload": {
+                              "anyOf": [
+                                {
+                                  "description": "What a `webhook` channel's delivery carries in its `data`.",
+                                  "oneOf": [
+                                    {
+                                      "const": "full",
+                                      "description": "The whole message: its IDs, event, Product, title, text and link.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "thin",
+                                      "description": "Its IDs and link only, which Integrations use (spec #608).",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "arrived_in": "0.1",
+                              "description": "What a delivery's `data` carries: `full` when left out."
+                            },
+                            "secret": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the Standard Webhooks signing secret, a\n`whsec_` key for `v1` or a `whsk_` key for `v2a`.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "The Notification channels the engine sends a Run's and a Schedule's Notifications to, each by its name, as `notifications.channels.<name>.*`: `type`, `slack`, `teams` (Workflows webhooks only), `discord`, `telegram`, `email`, `sns` or `webhook`, or a Notification channel Plugin's short name, left out for a program's own SDK handler of that name; `url`, the Secret reference of a Slack, Teams, Discord or webhook destination; `events`, the events it receives, the attention set when left out; `runs`, `all` (the default) or `tagged:<tag>`; and `email`, `telegram`, `sns` and `webhook`, which only their types take. A URL and every credential, `webhook.secret` included, is a Secret reference: a value given in its place is refused with `setting_invalid`. Each destination is an Operator-configured endpoint, so `egress.no_private_endpoints` refuses a private one. None by default. Set only in user configuration or an Operator policy: a project file, a Recipe, a program's code, a Run and a flag are refused with `setting_not_applicable`.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
               "ops": {
                 "additionalProperties": false,
                 "properties": {
@@ -33310,6 +33713,360 @@
                       "type": "array"
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "notifications": {
+                "additionalProperties": false,
+                "properties": {
+                  "channels": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "description": "One Notification channel, the entry of its name in\n`notifications.channels` (spec #608).",
+                      "properties": {
+                        "email": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "An `email` channel's keys.",
+                          "properties": {
+                            "api_key": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the provider's API key.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "from": {
+                              "arrived_in": "0.1",
+                              "description": "The address it sends from.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "mailgun": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The Mailgun domain and region, for the `mailgun` provider.",
+                              "properties": {
+                                "domain": {
+                                  "arrived_in": "0.1",
+                                  "description": "The sending domain.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "region": {
+                                  "arrived_in": "0.1",
+                                  "description": "The region, `us` or `eu`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "provider": {
+                              "anyOf": [
+                                {
+                                  "description": "The provider an `email` channel sends through.",
+                                  "oneOf": [
+                                    {
+                                      "const": "smtp",
+                                      "description": "An SMTP server.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "ses",
+                                      "description": "Amazon SES.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "resend",
+                                      "description": "Resend.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "postmark",
+                                      "description": "Postmark.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "sendgrid",
+                                      "description": "SendGrid.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "mailgun",
+                                      "description": "Mailgun.",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "arrived_in": "0.1",
+                              "description": "The provider it sends through."
+                            },
+                            "ses": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The SES region, for the `ses` provider.",
+                              "properties": {
+                                "region": {
+                                  "arrived_in": "0.1",
+                                  "description": "The AWS region, such as `eu-west-1`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "smtp": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The SMTP server, for the `smtp` provider.",
+                              "properties": {
+                                "host": {
+                                  "arrived_in": "0.1",
+                                  "description": "Its host.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "password": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Secret reference of its password.",
+                                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "port": {
+                                  "arrived_in": "0.1",
+                                  "description": "Its port.",
+                                  "format": "uint16",
+                                  "maximum": 65535,
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
+                                "security": {
+                                  "anyOf": [
+                                    {
+                                      "description": "How an SMTP connection is secured.",
+                                      "oneOf": [
+                                        {
+                                          "const": "tls",
+                                          "description": "TLS from the first byte.",
+                                          "type": "string"
+                                        },
+                                        {
+                                          "const": "starttls",
+                                          "description": "A plain connection upgraded with `STARTTLS`.",
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "arrived_in": "0.1",
+                                  "description": "How the connection is secured."
+                                },
+                                "username": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Secret reference of the user name it logs in with.",
+                                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "to": {
+                              "arrived_in": "0.1",
+                              "description": "The addresses it sends to.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "events": {
+                          "arrived_in": "0.1",
+                          "description": "The events it receives: the attention set when left out.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "runs": {
+                          "arrived_in": "0.1",
+                          "description": "The Runs it hears of: `all`, the default, or `tagged:<tag>`.",
+                          "pattern": "^(all|tagged:.+)$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sns": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "An `sns` channel's keys.",
+                          "properties": {
+                            "region": {
+                              "arrived_in": "0.1",
+                              "description": "The topic's AWS region.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "topic_arn": {
+                              "arrived_in": "0.1",
+                              "description": "The topic's ARN.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "telegram": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "A `telegram` channel's keys.",
+                          "properties": {
+                            "bot_token": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the bot's token.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "chat_id": {
+                              "arrived_in": "0.1",
+                              "description": "The chat it posts to.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "type": {
+                          "arrived_in": "0.1",
+                          "description": "One of [`BUILT_IN_TYPES`] or a Notification channel Plugin's short\nname; left out for a program's own SDK handler of the entry's name.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "arrived_in": "0.1",
+                          "description": "The Secret reference of its destination's URL: a Slack, Teams or\nDiscord webhook's, or a `webhook` channel's receiver.",
+                          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "webhook": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "A `webhook` channel's keys.",
+                          "properties": {
+                            "payload": {
+                              "anyOf": [
+                                {
+                                  "description": "What a `webhook` channel's delivery carries in its `data`.",
+                                  "oneOf": [
+                                    {
+                                      "const": "full",
+                                      "description": "The whole message: its IDs, event, Product, title, text and link.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "thin",
+                                      "description": "Its IDs and link only, which Integrations use (spec #608).",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "arrived_in": "0.1",
+                              "description": "What a delivery's `data` carries: `full` when left out."
+                            },
+                            "secret": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the Standard Webhooks signing secret, a\n`whsec_` key for `v1` or a `whsk_` key for `v2a`.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "The Notification channels the engine sends a Run's and a Schedule's Notifications to, each by its name, as `notifications.channels.<name>.*`: `type`, `slack`, `teams` (Workflows webhooks only), `discord`, `telegram`, `email`, `sns` or `webhook`, or a Notification channel Plugin's short name, left out for a program's own SDK handler of that name; `url`, the Secret reference of a Slack, Teams, Discord or webhook destination; `events`, the events it receives, the attention set when left out; `runs`, `all` (the default) or `tagged:<tag>`; and `email`, `telegram`, `sns` and `webhook`, which only their types take. A URL and every credential, `webhook.secret` included, is a Secret reference: a value given in its place is refused with `setting_invalid`. Each destination is an Operator-configured endpoint, so `egress.no_private_endpoints` refuses a private one. None by default. Set only in user configuration or an Operator policy: a project file, a Recipe, a program's code, a Run and a flag are refused with `setting_not_applicable`.",
                     "type": "object"
                   }
                 },
@@ -37432,6 +38189,360 @@
                       "type": "array"
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "notifications": {
+                "additionalProperties": false,
+                "properties": {
+                  "channels": {
+                    "additionalProperties": {
+                      "additionalProperties": false,
+                      "description": "One Notification channel, the entry of its name in\n`notifications.channels` (spec #608).",
+                      "properties": {
+                        "email": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "An `email` channel's keys.",
+                          "properties": {
+                            "api_key": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the provider's API key.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "from": {
+                              "arrived_in": "0.1",
+                              "description": "The address it sends from.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "mailgun": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The Mailgun domain and region, for the `mailgun` provider.",
+                              "properties": {
+                                "domain": {
+                                  "arrived_in": "0.1",
+                                  "description": "The sending domain.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "region": {
+                                  "arrived_in": "0.1",
+                                  "description": "The region, `us` or `eu`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "provider": {
+                              "anyOf": [
+                                {
+                                  "description": "The provider an `email` channel sends through.",
+                                  "oneOf": [
+                                    {
+                                      "const": "smtp",
+                                      "description": "An SMTP server.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "ses",
+                                      "description": "Amazon SES.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "resend",
+                                      "description": "Resend.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "postmark",
+                                      "description": "Postmark.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "sendgrid",
+                                      "description": "SendGrid.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "mailgun",
+                                      "description": "Mailgun.",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "arrived_in": "0.1",
+                              "description": "The provider it sends through."
+                            },
+                            "ses": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The SES region, for the `ses` provider.",
+                              "properties": {
+                                "region": {
+                                  "arrived_in": "0.1",
+                                  "description": "The AWS region, such as `eu-west-1`.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "smtp": {
+                              "additionalProperties": false,
+                              "arrived_in": "0.1",
+                              "description": "The SMTP server, for the `smtp` provider.",
+                              "properties": {
+                                "host": {
+                                  "arrived_in": "0.1",
+                                  "description": "Its host.",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "password": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Secret reference of its password.",
+                                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "port": {
+                                  "arrived_in": "0.1",
+                                  "description": "Its port.",
+                                  "format": "uint16",
+                                  "maximum": 65535,
+                                  "minimum": 0,
+                                  "type": [
+                                    "integer",
+                                    "null"
+                                  ]
+                                },
+                                "security": {
+                                  "anyOf": [
+                                    {
+                                      "description": "How an SMTP connection is secured.",
+                                      "oneOf": [
+                                        {
+                                          "const": "tls",
+                                          "description": "TLS from the first byte.",
+                                          "type": "string"
+                                        },
+                                        {
+                                          "const": "starttls",
+                                          "description": "A plain connection upgraded with `STARTTLS`.",
+                                          "type": "string"
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ],
+                                  "arrived_in": "0.1",
+                                  "description": "How the connection is secured."
+                                },
+                                "username": {
+                                  "arrived_in": "0.1",
+                                  "description": "The Secret reference of the user name it logs in with.",
+                                  "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "type": [
+                                "object",
+                                "null"
+                              ]
+                            },
+                            "to": {
+                              "arrived_in": "0.1",
+                              "description": "The addresses it sends to.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": [
+                                "array",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "events": {
+                          "arrived_in": "0.1",
+                          "description": "The events it receives: the attention set when left out.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": [
+                            "array",
+                            "null"
+                          ]
+                        },
+                        "runs": {
+                          "arrived_in": "0.1",
+                          "description": "The Runs it hears of: `all`, the default, or `tagged:<tag>`.",
+                          "pattern": "^(all|tagged:.+)$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "sns": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "An `sns` channel's keys.",
+                          "properties": {
+                            "region": {
+                              "arrived_in": "0.1",
+                              "description": "The topic's AWS region.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "topic_arn": {
+                              "arrived_in": "0.1",
+                              "description": "The topic's ARN.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "telegram": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "A `telegram` channel's keys.",
+                          "properties": {
+                            "bot_token": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the bot's token.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "chat_id": {
+                              "arrived_in": "0.1",
+                              "description": "The chat it posts to.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
+                        "type": {
+                          "arrived_in": "0.1",
+                          "description": "One of [`BUILT_IN_TYPES`] or a Notification channel Plugin's short\nname; left out for a program's own SDK handler of the entry's name.",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "url": {
+                          "arrived_in": "0.1",
+                          "description": "The Secret reference of its destination's URL: a Slack, Teams or\nDiscord webhook's, or a `webhook` channel's receiver.",
+                          "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "webhook": {
+                          "additionalProperties": false,
+                          "arrived_in": "0.1",
+                          "description": "A `webhook` channel's keys.",
+                          "properties": {
+                            "payload": {
+                              "anyOf": [
+                                {
+                                  "description": "What a `webhook` channel's delivery carries in its `data`.",
+                                  "oneOf": [
+                                    {
+                                      "const": "full",
+                                      "description": "The whole message: its IDs, event, Product, title, text and link.",
+                                      "type": "string"
+                                    },
+                                    {
+                                      "const": "thin",
+                                      "description": "Its IDs and link only, which Integrations use (spec #608).",
+                                      "type": "string"
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ],
+                              "arrived_in": "0.1",
+                              "description": "What a delivery's `data` carries: `full` when left out."
+                            },
+                            "secret": {
+                              "arrived_in": "0.1",
+                              "description": "The Secret reference of the Standard Webhooks signing secret, a\n`whsec_` key for `v1` or a `whsk_` key for `v2a`.",
+                              "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "description": "The Notification channels the engine sends a Run's and a Schedule's Notifications to, each by its name, as `notifications.channels.<name>.*`: `type`, `slack`, `teams` (Workflows webhooks only), `discord`, `telegram`, `email`, `sns` or `webhook`, or a Notification channel Plugin's short name, left out for a program's own SDK handler of that name; `url`, the Secret reference of a Slack, Teams, Discord or webhook destination; `events`, the events it receives, the attention set when left out; `runs`, `all` (the default) or `tagged:<tag>`; and `email`, `telegram`, `sns` and `webhook`, which only their types take. A URL and every credential, `webhook.secret` included, is a Secret reference: a value given in its place is refused with `setting_invalid`. Each destination is an Operator-configured endpoint, so `egress.no_private_endpoints` refuses a private one. None by default. Set only in user configuration or an Operator policy: a project file, a Recipe, a program's code, a Run and a flag are refused with `setting_not_applicable`.",
                     "type": "object"
                   }
                 },

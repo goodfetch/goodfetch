@@ -1,13 +1,13 @@
 //! The page crate's boundary with the browser's protocol (ADR 0146): a
 //! concrete type, [`CdpPage`], whose narrow primitives a Page's logic
 //! calls, in ADR 0129's shape, with no trait until a second implementation
-//! is built. Spec #2256 moves the page crate's calls behind it ticket by
-//! ticket, until this is the one module that names the CDP crate; the
-//! interception's, a Page's events', dialogs' and init scripts', the
-//! Consent prompt runner's, live hiding's and the browser-fetch tier's
-//! calls are behind it already. A
-//! primitive sends through the page's driver, whose lease check, counted
-//! rows, Run trace and deadlines it keeps.
+//! is built. It is the one module of the page crate that names the CDP
+//! crate, as the module check holds (`[crates]` in the crate's
+//! `modules.toml`): the browser's launch and the borrowed browser's
+//! connection, the driver, the CDP command log, what a CDP failure raises
+//! and the keys a keyboard sends are its own. A primitive sends through
+//! the page's driver, whose lease check, counted rows, Run trace and
+//! deadlines it keeps.
 //!
 //! Each primitive is shaped so that it fits `WebDriver BiDi` and Playwright's
 //! driver wherever either has a counterpart, and one that neither has is
@@ -59,29 +59,59 @@
 //! | [`CdpPage::document_encoding`]: the encoding a world's document was decoded with | `Runtime.evaluate` in the world | `script.evaluate` in a `sandbox` realm | `Frame.evaluateExpression` in the `utility` world |
 //! | [`CdpPage::child_events`], [`CdpPage::attach_children_opening`] and [`CdpPage::attach_children`]: the page's out-of-process frames and dedicated workers, and each frame's own, attached before they run and told when they go | `Target.setAutoAttach` with `waitForDebuggerOnStart` and a filter, `Target.attachedToTarget` and `detachedFromTarget` | `browsingContext.contextCreated` and `contextDestroyed`, `script.realmCreated` and `realmDestroyed`; a child held before it runs is Chromium only | a frame's `attached` and `detached`, and `worker`; a child held before it runs is Chromium only |
 //! | [`CdpPage::let_run`]: a child held before it runs let run | `Runtime.runIfWaitingForDebugger` | none: Chromium only | none: Chromium only |
+//! | [`CdpPage::memory_held`]: what the page holds in memory, its JavaScript heap, its embedder's and its buffers | `Runtime.getHeapUsage` | none: Chromium only | none: Chromium only |
 
+pub(crate) mod borrowed;
 mod children;
+mod command_log;
 mod consent;
 mod dialogs;
+pub(crate) mod driver;
+mod failures;
 mod followed;
 mod functions;
 mod hiding;
 mod hop;
 mod init_scripts;
+pub(crate) mod keys;
+pub(crate) mod launch;
+mod memory;
 mod navigation;
 mod paused;
 mod reads;
 mod requests;
 mod runtime_values;
 
-use goodfetch_cdp::generated::input::DispatchKeyEventParams;
+use goodfetch_cdp::Command as _;
 use goodfetch_engine::CallError;
 
-pub(crate) use goodfetch_cdp::{NetError, SessionId as TargetSession};
+pub(crate) use goodfetch_cdp::SessionId as TargetSession;
+
+/// The browser's ID of a frame.
+pub(crate) type FrameId = String;
+
+/// The browser's ID of a world in a document.
+pub(crate) type ExecutionContextId = i64;
+
+/// The browser's ID of a page's target, which is its main frame's ID too:
+/// a popup names its opener by it. Held and compared, never read.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct TargetId(goodfetch_cdp::generated::target::TargetID);
+
+/// The key events that press one key or combination, from the first key
+/// down to the last key up, as [`keys::events`] spells them: sent whole by
+/// [`CdpPage::press_keys`], never read.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeyPress(Vec<goodfetch_cdp::generated::input::DispatchKeyEventParams>);
+
+/// The command that opens a page's target, which an ended lease withholds
+/// before it leaves (ADR 0087).
+pub(crate) const CREATE_TARGET: &str = goodfetch_cdp::generated::target::CreateTargetParams::METHOD;
 
 pub(crate) use self::children::{AttachedChild, ChildEvent, ChildEvents, ChildKind};
 pub(crate) use self::consent::{ConsentEvent, ConsentEvents};
 pub(crate) use self::dialogs::{DialogEvent, DialogEvents, OpenedDialog};
+use self::driver::{PageDriver, pointer_click};
 pub(crate) use self::followed::{
     FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
 };
@@ -93,9 +123,8 @@ pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
     NotTaken, PausedRequest,
 };
-pub(crate) use self::reads::{Evaluated, SerializedDocument};
+pub(crate) use self::reads::SerializedDocument;
 pub(crate) use self::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
-use crate::driver::{PageDriver, pointer_click};
 use crate::errors::Call;
 
 /// One page of a browser as the page's logic sees the protocol: the
@@ -128,19 +157,15 @@ impl CdpPage {
         self.page.burst(&pointer_click(x, y), call).await
     }
 
-    /// Sends `events`, one key press's from the first key down to the last
-    /// key up, to the focused element, input the page receives as trusted:
-    /// one burst, as [`pointer_click`](Self::pointer_click)'s.
+    /// Sends `press`, from its first key down to its last key up, to the
+    /// focused element, input the page receives as trusted: one burst, as
+    /// [`pointer_click`](Self::pointer_click)'s.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future sends all of the burst or none of it, so it
     /// leaves no key down.
-    pub(crate) async fn press_keys(
-        &self,
-        events: &[DispatchKeyEventParams],
-        call: &Call,
-    ) -> Result<(), CallError> {
-        self.page.burst(events, call).await
+    pub(crate) async fn press_keys(&self, press: &KeyPress, call: &Call) -> Result<(), CallError> {
+        self.page.burst(&press.0, call).await
     }
 }

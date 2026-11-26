@@ -76,11 +76,11 @@ use goodfetch_engine::{
     CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Handler,
     Identity,
 };
-use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, HeldPlace, Observer, OwnFetch, PageValue, PooledSession,
 };
+use goodfetch_page::{Launcher, Party};
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
     schema_of,
@@ -602,7 +602,7 @@ impl Requests {
 struct ReadsMarkers;
 
 impl BlockClassifier for ReadsMarkers {
-    fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
+    fn classify(&self, _response: &PageResponse, _party: Party, _markup: &str) -> Option<Block> {
         None
     }
 

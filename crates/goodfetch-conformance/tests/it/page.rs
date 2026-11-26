@@ -191,13 +191,13 @@ fn prove_in(env: &TestEnv, (_, capabilities): Part, name: &str) {
     );
 }
 
-/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages, setting:session.source, operation:run.start
+/// Covers: story:5-61, story:5-60, story:5-62, operation:run.new_session, operation:session.new_page, operation:session.close, error:closed, error:setting_not_applicable, error:capability_unavailable, error:run_ended, story:5-79, setting:session.page_check, error:logged_out, error:page_check_failed, operation:run.new_page, operation:page.goto, error:setting_invalid, story:5-88, story:5-89, error:proxy_unavailable, error:proxy_auth_failed, setting:proxy.server, setting:proxy.password, error:setting_locked, story:5-91, story:8-63, story:8-58, story:8-59, error:blocked, operation:locator.click, operation:page.wait_for_url, operation:page.evaluate, operation:page.request, operation:session.pages, setting:session.source, operation:run.start, story:8-64
 #[test]
 fn the_page_suite_proves_sessions_against_collies_attached_engine() {
     prove(SESSIONS);
 }
 
-/// Covers: story:5-90, setting:politeness.proxy.concurrency, setting:politeness.proxy.rate, setting:politeness.sharing, setting:proxy.server, setting:proxy.username, error:proxy_unavailable, operation:run.new_page, operation:page.goto
+/// Covers: story:5-90, setting:politeness.proxy.concurrency, setting:politeness.proxy.rate, setting:politeness.sharing, setting:proxy.server, setting:proxy.username, error:proxy_unavailable, operation:run.new_page, operation:page.goto, story:8-64, error:blocked
 #[test]
 fn the_page_suite_proves_proxy_limits_against_collies_attached_engine() {
     prove(PROXY_LIMITS);

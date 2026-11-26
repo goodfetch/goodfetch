@@ -11,7 +11,8 @@
 //! Two navigations the engine admits together meet there with the proxy's
 //! hold on: it keeps the first until the other's answer came, however late
 //! the browser sends either.
-//! A proxy's own 429 is a proxy error, never a Block cause, and lowers the
+//! A proxy's own 429 is a proxy error, never a Block cause, while the
+//! site's 429 through it is the site's rate limit, and the proxy's lowers the
 //! proxy's ceiling for the user's other runs, which then take turns instead
 //! of failing; `politeness.proxy.concurrency` and `politeness.proxy.rate`
 //! hold a program's own navigation; `politeness.sharing: run` keeps the
@@ -23,11 +24,12 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
+use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::page::proxy::PROXY_UNAVAILABLE;
 use goodfetch_protocol::page::{BLOCKED, PAGE_GOTO, PageOpened};
 use serde_json::{Value, json};
 
-use super::blocks::politeness_names_nothing;
+use super::blocks::{politeness_names_nothing, raised};
 use super::proxies::server;
 use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone};
@@ -481,7 +483,9 @@ fn runs_own(
 }
 
 /// A site's 429 through the `limited` proxy is the site's, never the
-/// proxy's error, and lowers no ceiling: two navigations at once through
+/// proxy's error: it raises `blocked` with `rate_limit`, where the proxy's
+/// own 429 raised `proxy_unavailable` (ticket #871). It lowers no
+/// ceiling: two navigations at once through
 /// the proxy afterwards still meet the proxy's own 429. Nor does it write
 /// a domain limit: the Politeness file names no `scope.test` key.
 fn sites_refusal(
@@ -501,10 +505,17 @@ fn sites_refusal(
         checks,
     )?;
     if let [one, two] = pages.as_slice() {
-        let sites = together(connection, &[(one, quiet(site, "site-1", Some(429)))])?;
+        let refusing = quiet(site, "site-1", Some(429));
+        let sites = together(connection, &[(one, refusing.clone())])?;
         checks.check(
             "a site's 429 through the proxy is never the proxy's own error",
             tally(&sites, PROXY_UNAVAILABLE.name).1 == 0,
+        );
+        checks.check(
+            "a site's 429 through the proxy is the site's: it raises `blocked` with `rate_limit`, its URL and status",
+            sites
+                .iter()
+                .all(|answer| raised(answer, &BlockCause::RateLimit, &refusing, 429)),
         );
         let after = meeting(
             connection,

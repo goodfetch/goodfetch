@@ -23,8 +23,8 @@ use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
 use goodfetch_engine::transport::{self, ConnectionReader, ConnectionWriter, Network};
 use goodfetch_engine::{Channel, Composition, Dependencies, Engine, Identity};
-use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
+use goodfetch_page::{Launcher, Party};
 use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{HELLO, ProductVersion, Surface};
@@ -42,7 +42,7 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, Lines};
 pub(crate) struct NoBlocks;
 
 impl BlockClassifier for NoBlocks {
-    fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
+    fn classify(&self, _response: &PageResponse, _party: Party, _markup: &str) -> Option<Block> {
         None
     }
 }

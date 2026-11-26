@@ -1175,7 +1175,12 @@ impl BrowserPages for Opener {
     }
 
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
-        self.pages.blocks.classify(response, markup)
+        // A tier's transport ends a hop its proxy answered with the proxy's
+        // own error before a document is served, so a served one is the
+        // site's.
+        self.pages
+            .blocks
+            .classify(response, proxy::Party::Site, markup)
     }
 }
 

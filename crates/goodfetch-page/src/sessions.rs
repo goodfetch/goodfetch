@@ -103,7 +103,9 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
-use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
+use crate::access_mode::{
+    self, BrowserFamily, Refusal, SessionIdentityPlan, SessionSettings, SigningPlan,
+};
 use crate::browser_run::BrowserRun;
 use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
@@ -587,7 +589,7 @@ impl Sessions {
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
-        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
+        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context).await?;
         let fingerprint = FingerprintPlan::of(&identity);
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
@@ -691,7 +693,7 @@ impl Sessions {
         let run = live(run_id, context).await?;
         let named = named_source(&run, None, context);
         let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
@@ -929,7 +931,7 @@ impl Sessions {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
         let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
@@ -1887,18 +1889,29 @@ struct NamedSource {
 /// The Access mode a Session of the Run `identity` names opens in, as its
 /// `own` settings, over the Run's, ask for from the source `named` (ADR
 /// 0021): the [`access_mode`](crate::access_mode) module's refusal when it
-/// does not open, or asks for an effect this engine does not build yet
-/// (ADR 0083).
-fn access_mode_opens(
+/// does not open, names a `stealth` identity its browser family's
+/// population does not hold, or asks for an effect this engine does not
+/// build yet (ADR 0083). The population is read on one of the Run's
+/// blocking threads.
+async fn access_mode_opens(
     own: &Values,
     identity: &RunIdentity,
     named: Option<&NamedSource>,
     context: &CallContext,
 ) -> Result<SessionIdentityPlan, CallError> {
     let source = named.map(|named| &named.source);
+    let family = BrowserFamily::of(source);
     let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
-    access_mode::resolve(&settings, source, BrowserFamily::of(source))
-        .and_then(|plan| plan.built(&settings))
+    let plan = access_mode::resolve(&settings, source, family)
+        .map_err(|refusal| refusal.call_error(context))?;
+    if let Some(narrowing) = plan.narrowing(family) {
+        identity
+            .owner()
+            .blocking(move || narrowing.drawn())
+            .await
+            .map_err(|error| Refusal::outside_population(&settings, &error).call_error(context))?;
+    }
+    plan.built(&settings)
         .map_err(|refusal| refusal.call_error(context))
 }
 
@@ -2130,7 +2143,7 @@ async fn reopened_identity(
     if borrowed {
         return Ok((None, None));
     }
-    let identity = access_mode_opens(settings, &run.identity, None, context)?;
+    let identity = access_mode_opens(settings, &run.identity, None, context).await?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
     Ok((signing, FingerprintPlan::of(&identity)))
 }

@@ -1,0 +1,9 @@
+---
+source: crates/goodfetch-notification/tests/it/sns.rs
+expression: "lines.join(\"\\n\")"
+---
+Action = Publish
+Version = 2010-03-31
+TopicArn = arn:aws:sns:eu-west-1:123456789012:run-events
+Message = {"type":"notification.run_failed","timestamp":"2025-11-24T16:00:00Z","format":"0.1","data":{"event_id":"evt_01JDQ8X2Y5","event":"run_failed","run_id":"nightly-prices","schedule_id":"prices","product":"collie","title":"Run failed","text":"The Run nightly-prices failed: navigation_failed.","link":"http://127.0.0.1:7777/runs/nightly-prices"}}
+Subject = Run failed

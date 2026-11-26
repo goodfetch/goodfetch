@@ -14,6 +14,7 @@ pub mod age_notice;
 mod attached;
 pub mod audit;
 mod audit_operations;
+pub mod aws_signing;
 mod body;
 pub mod browser_cache;
 mod cache_operations;

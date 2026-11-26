@@ -17,6 +17,7 @@ mod access_key;
 
 use std::time::SystemTime;
 
+use goodfetch_engine::aws_signing::{Credentials, Scope, Unsignable, signed_post};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::secret_endpoint::SecretProviderEndpoint;
 use goodfetch_engine::secrets::{
@@ -27,12 +28,9 @@ use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::{
     SECRET_PROVIDERS_AWS_SM_ENDPOINT, SECRET_PROVIDERS_AWS_SM_REGION,
 };
-use hmac::{Hmac, Mac as _};
 use hyper::Request;
 use hyper::body::Bytes;
-use hyper::header::HeaderValue;
-use secrecy::{ExposeSecret as _, SecretString};
-use sha2::{Digest as _, Sha256};
+use secrecy::SecretString;
 use url::Url;
 
 use self::access_key::Source;
@@ -50,24 +48,6 @@ const TARGET: &str = "secretsmanager.GetSecretValue";
 
 /// The protocol's content type.
 const CONTENT_TYPE: &str = "application/x-amz-json-1.1";
-
-/// An access key: its ID, its secret and, for temporary credentials, the
-/// session token.
-#[derive(Clone)]
-pub(crate) struct Credentials {
-    pub(crate) access_key_id: String,
-    pub(crate) secret_access_key: SecretString,
-    pub(crate) session_token: Option<SecretString>,
-}
-
-impl std::fmt::Debug for Credentials {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("Credentials")
-            .field("access_key_id", &self.access_key_id)
-            .finish_non_exhaustive()
-    }
-}
 
 /// AWS Secrets Manager's provider over its HTTP API.
 #[derive(Clone, Debug)]
@@ -189,137 +169,24 @@ fn signed_request(
     credentials: &Credentials,
     now: SystemTime,
 ) -> Result<Request<Bytes>, ProviderFailure> {
-    let amz_date = jiff::Timestamp::try_from(now)
-        .unwrap_or(jiff::Timestamp::UNIX_EPOCH)
-        .strftime("%Y%m%dT%H%M%SZ")
-        .to_string();
-    let host = match server.port() {
-        Some(port) => format!("{}:{port}", server.host_str().unwrap_or_default()),
-        None => server.host_str().unwrap_or_default().to_owned(),
-    };
-    let mut headers = vec![
-        ("content-type", CONTENT_TYPE.to_owned()),
-        ("host", host),
-        ("x-amz-date", amz_date.clone()),
-        ("x-amz-target", TARGET.to_owned()),
-    ];
-    if let Some(token) = &credentials.session_token {
-        headers.push(("x-amz-security-token", token.expose_secret().to_owned()));
-    }
-    headers.sort_by(|left, right| left.0.cmp(right.0));
-    let authorization = authorization(
-        &Signing {
-            method: "POST",
-            path: server.path(),
-            query: "",
-            headers: &headers,
-            body: body.as_bytes(),
+    signed_post(
+        server,
+        &[("content-type", CONTENT_TYPE), ("x-amz-target", TARGET)],
+        Bytes::from(body),
+        Scope {
             region,
             service: SIGNING_NAME,
-            amz_date: &amz_date,
         },
         credentials,
-    );
-    let mut builder = Request::post(server.as_str());
-    for (name, value) in &headers {
-        if *name == "host" {
-            continue;
-        }
-        let mut value = HeaderValue::from_str(value).map_err(|_| ProviderFailure::Refused {
-            fix: "The access key's session token holds characters no HTTP header may carry; give the session token AWS issued.".to_owned(),
-        })?;
-        if *name == "x-amz-security-token" {
-            value.set_sensitive(true);
-        }
-        builder = builder.header(*name, value);
-    }
-    let mut authorization =
-        HeaderValue::from_str(&authorization).map_err(|_| ProviderFailure::Refused {
-            fix: "The access key ID holds characters no HTTP header may carry; give the access key ID AWS issued.".to_owned(),
-        })?;
-    authorization.set_sensitive(true);
-    Ok(builder
-        .header("authorization", authorization)
-        .body(Bytes::from(body))
-        .expect("invariant: a parsed URL and checked headers make a request"))
-}
-
-/// What one request's Signature Version 4 covers.
-pub(crate) struct Signing<'a> {
-    pub(crate) method: &'a str,
-    /// The URL's path, already encoded.
-    pub(crate) path: &'a str,
-    /// The canonical query string.
-    pub(crate) query: &'a str,
-    /// The signed headers, in lower case, sorted by name, with trimmed
-    /// values.
-    pub(crate) headers: &'a [(&'a str, String)],
-    pub(crate) body: &'a [u8],
-    pub(crate) region: &'a str,
-    pub(crate) service: &'a str,
-    /// The request's time, as `YYYYMMDDTHHMMSSZ`.
-    pub(crate) amz_date: &'a str,
-}
-
-/// The `Authorization` header value of `signing`'s request, signed by
-/// `credentials` (AWS Signature Version 4).
-pub(crate) fn authorization(signing: &Signing<'_>, credentials: &Credentials) -> String {
-    let hex = |bytes: &[u8]| data_encoding::HEXLOWER.encode(bytes);
-    let canonical_headers =
-        signing
-            .headers
-            .iter()
-            .fold(String::new(), |mut lines, (name, value)| {
-                lines.push_str(name);
-                lines.push(':');
-                lines.push_str(value.trim());
-                lines.push('\n');
-                lines
-            });
-    let signed_headers = signing
-        .headers
-        .iter()
-        .map(|(name, _)| *name)
-        .collect::<Vec<_>>()
-        .join(";");
-    let canonical_request = format!(
-        "{}\n{}\n{}\n{canonical_headers}\n{signed_headers}\n{}",
-        signing.method,
-        if signing.path.is_empty() {
-            "/"
-        } else {
-            signing.path
-        },
-        signing.query,
-        hex(&Sha256::digest(signing.body))
-    );
-    let date = signing.amz_date.get(..8).unwrap_or_default();
-    let scope = format!("{date}/{}/{}/aws4_request", signing.region, signing.service);
-    let string_to_sign = format!(
-        "AWS4-HMAC-SHA256\n{}\n{scope}\n{}",
-        signing.amz_date,
-        hex(&Sha256::digest(canonical_request.as_bytes()))
-    );
-    let key = format!("AWS4{}", credentials.secret_access_key.expose_secret());
-    let signing_key = [date, signing.region, signing.service, "aws4_request"]
-        .iter()
-        .fold(
-            secrecy::zeroize::Zeroizing::new(key.into_bytes()),
-            |key, part| secrecy::zeroize::Zeroizing::new(hmac(&key, part.as_bytes())),
-        );
-    let signature = hex(&hmac(&signing_key, string_to_sign.as_bytes()));
-    format!(
-        "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
-        credentials.access_key_id
+        now,
     )
-}
-
-/// HMAC-SHA256 of `data` under `key`.
-fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(key).expect("invariant: HMAC takes a key of any length");
-    mac.update(data);
-    mac.finalize().into_bytes().to_vec()
+    .map_err(|unsignable| ProviderFailure::Refused {
+        fix: match unsignable {
+            Unsignable::AccessKeyId => "The access key ID holds characters no HTTP header may carry; give the access key ID AWS issued.",
+            _ => "The access key's session token holds characters no HTTP header may carry; give the session token AWS issued.",
+        }
+        .to_owned(),
+    })
 }
 
 /// The value a successful `GetSecretValue` answered, `body`: the secret's

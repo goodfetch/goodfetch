@@ -63,7 +63,8 @@ pub use goodfetch_collie_client::{
     Answer, BoxError, Call, Connection, CreatedSchedule, Error, ErrorCode, ErrorDetails,
     EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits, Locator, Money,
     MoneyError, Page, Query, RawCall, Response, Run, RunView, Schedule, Schedules, Schema,
-    SchemaError, Session, Start, StoredBytes, UsageKind, events, schemars,
+    SchemaError, Session, Start, StoredBytes, UsageKind, VerifyWebhookOptions, events, schemars,
+    verify_webhook, verify_webhook_with,
 };
 pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
@@ -74,6 +75,10 @@ pub use goodfetch_protocol::foxhound::frontier::{
     Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, MatchedLink, NotAddedReason,
 };
 pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
+pub use goodfetch_protocol::notifications::{
+    FullNotification, NotificationData, NotificationEvent, NotificationPayload, ThinNotification,
+    WebhookInvalidDetails, WebhookInvalidReason,
+};
 pub use goodfetch_protocol::page::events::PageRequest;
 pub use goodfetch_protocol::page::read::{
     FieldLocator, FieldMatch, FieldTransform, ListField, PageField, PageRead, RowsField,

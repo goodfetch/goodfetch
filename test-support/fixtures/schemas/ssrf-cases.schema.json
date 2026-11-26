@@ -346,7 +346,7 @@
           "description": "The engine's own request to an Operator-configured endpoint of\n`kind` at the URL, such as an OTLP collector.",
           "properties": {
             "kind": {
-              "description": "The endpoint's kind, as `goodfetch-protocol`'s table names it\nin snake case: `otlp`, `model_provider`, `notification_webhook`.",
+              "description": "The endpoint's kind, as `goodfetch-protocol`'s table names it\nin snake case: `otlp`, `model_provider`, `notification_channel`.",
               "type": "string"
             },
             "via": {

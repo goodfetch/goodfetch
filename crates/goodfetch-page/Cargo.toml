@@ -35,6 +35,7 @@ goodfetch-clean-up-rules.workspace = true
 goodfetch-counted-work.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-extractor.workspace = true
+goodfetch-identity-profile.workspace = true
 goodfetch-protocol.workspace = true
 # The egress relay's request heads (the `egress_relay` module).
 httparse.workspace = true

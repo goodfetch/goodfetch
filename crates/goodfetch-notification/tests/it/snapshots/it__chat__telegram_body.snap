@@ -1,0 +1,12 @@
+---
+source: crates/goodfetch-notification/tests/it/chat.rs
+expression: "serde_json::to_string_pretty(&body).unwrap()"
+---
+{
+  "chat_id": "-1001234567890",
+  "link_preview_options": {
+    "is_disabled": true
+  },
+  "parse_mode": "HTML",
+  "text": "<b>Run failed</b>\n\nThe Run nightly-prices failed: navigation_failed.\n\n<i>Collie · run_failed · Run nightly-prices · Schedule prices</i>\n\n<a href=\"http://127.0.0.1:7777/runs/nightly-prices\">Open</a>"
+}

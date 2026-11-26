@@ -15793,6 +15793,45 @@
       ],
       "type": "object"
     },
+    "WebhookInvalidDetails": {
+      "description": "What `webhook_invalid` details.",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/WebhookInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why the call was refused."
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "WebhookInvalidReason": {
+      "description": "Why a call is no verified delivery.",
+      "oneOf": [
+        {
+          "const": "signature",
+          "description": "No signature of `webhook-signature` matches a secret given.",
+          "type": "string"
+        },
+        {
+          "const": "timestamp",
+          "description": "`webhook-timestamp` is no whole number of seconds, or more than 5\nminutes from now: a delayed or replayed call.",
+          "type": "string"
+        },
+        {
+          "const": "malformed",
+          "description": "The body is no Notification payload of a major the SDK reads.",
+          "type": "string"
+        },
+        {
+          "const": "missing_header",
+          "description": "`webhook-id`, `webhook-timestamp` or `webhook-signature` is\nmissing.",
+          "type": "string"
+        }
+      ]
+    },
     "World": {
       "description": "Where a page function runs (ADR 0085).",
       "oneOf": [
@@ -17463,6 +17502,19 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "value_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call is no verified delivery of a `webhook` channel: a Standard Webhooks header is missing, its timestamp is more than 5 minutes from now, no signature matches a secret given, or its body is no Notification payload of a major this SDK reads. Answer the call with an error and keep nothing of it; when every delivery fails, check that the secret given is the channel's `webhook.secret`.",
+      "details": {
+        "$ref": "#/$defs/WebhookInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "webhook_invalid",
       "product": "collie",
       "retryable": false
     }
@@ -21630,7 +21682,7 @@
       "clearable": false,
       "default": false,
       "deprecated": null,
-      "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
+      "description": "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
       "fixed_for_run": false,
       "name": "egress.no_private_endpoints",
       "product": "collie",
@@ -22883,12 +22935,28 @@
                       ]
                     },
                     "region": {
+                      "anyOf": [
+                        {
+                          "description": "The Mailgun region a sending domain lives in.",
+                          "oneOf": [
+                            {
+                              "const": "us",
+                              "description": "The United States, at `api.mailgun.net`.",
+                              "type": "string"
+                            },
+                            {
+                              "const": "eu",
+                              "description": "The European Union, at `api.eu.mailgun.net`.",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
                       "arrived_in": "0.1",
-                      "description": "The region, `us` or `eu`.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
+                      "description": "The region its domain lives in: `us` when left out."
                     }
                   },
                   "type": [

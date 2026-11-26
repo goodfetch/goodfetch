@@ -1,0 +1,36 @@
+---
+source: crates/goodfetch-notification/tests/it/chat.rs
+expression: "serde_json::to_string_pretty(&body).unwrap()"
+---
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Run failed",
+        "type": "plain_text"
+      },
+      "type": "header"
+    },
+    {
+      "text": {
+        "text": "The Run nightly-prices failed: navigation_failed.",
+        "type": "plain_text"
+      },
+      "type": "section"
+    },
+    {
+      "elements": [
+        {
+          "text": "Collie · run_failed · Run nightly-prices · Schedule prices",
+          "type": "plain_text"
+        },
+        {
+          "text": "<http://127.0.0.1:7777/runs/nightly-prices|Open>",
+          "type": "mrkdwn"
+        }
+      ],
+      "type": "context"
+    }
+  ],
+  "text": "Run failed"
+}

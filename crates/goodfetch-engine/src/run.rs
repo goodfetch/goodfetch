@@ -30,6 +30,7 @@ use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::run::Recording;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
@@ -40,7 +41,7 @@ use goodfetch_protocol::run::{
     RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
     RunDetails, RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunLimit,
     RunParams, RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted,
-    RunStopParams, RunUsage, StartedAs, StopReason,
+    RunStopParams, RunUsage, StartInput, StartedAs, StopReason,
 };
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
@@ -1108,6 +1109,17 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
+    // A `timeout` of 0 is refused before any Run starts; one given is the
+    // Run's `timeout.run`, over what its settings say (ADR 0080).
+    let given_timeout = params
+        .timeout
+        .map(|given| {
+            given
+                .map(|millis| Deadline::argument(&TIMEOUT_RUN, millis).map(|own| own.duration()))
+                .transpose()
+        })
+        .transpose()?;
+    let inputs = start_inputs(params.plan, params.recording);
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
         .engine()
@@ -1124,6 +1136,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()
         .start(Start {
@@ -1131,7 +1144,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             tags: params.tags,
             kind: RunKind::Collie,
             needs: Product::Collie,
-            inputs: BTreeMap::new(),
+            inputs,
             ended_by: EndedBy::Finish,
             initialize: None,
             policy_version: settings.resolved().policy_version().map(str::to_owned),
@@ -1139,7 +1152,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             binding: None,
             clean_up_digest: None,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().get(&TIMEOUT_RUN),
+            timeout,
             settings: Some(settings.clone()),
             detached: false,
         })
@@ -1152,11 +1165,31 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
         },
-        Started::Interrupted(run_id) => resume_run(&context, run_id, None, settings, true).await?,
+        // The resumed Run counts its timeout on a fresh clock (ADR 0102).
+        Started::Interrupted(run_id) => {
+            resume_run(&context, run_id, None, settings, timeout, true).await?
+        }
         Started::Ended(ended) => ended,
     };
     limits.give(&started, &context).await?;
     Ok(started)
+}
+
+/// A Collie Run's inputs, which a start naming it again gives unchanged
+/// (ADR 0102): its Plan file's path and its Response recording, each when
+/// given.
+fn start_inputs(plan: Option<String>, recording: Option<Recording>) -> BTreeMap<StartInput, Value> {
+    let mut inputs = BTreeMap::new();
+    if let Some(plan) = plan {
+        inputs.insert(StartInput::Plan, Value::String(plan));
+    }
+    if let Some(recording) = recording {
+        inputs.insert(
+            StartInput::Recording,
+            serde_json::to_value(recording).expect("invariant: a recording encodes as JSON"),
+        );
+    }
+    inputs
 }
 
 async fn finish(params: RunFinishParams, context: CallContext) -> Result<RunReport, CallError> {
@@ -1325,15 +1358,25 @@ async fn resume(params: RunResumeParams, context: CallContext) -> Result<RunStar
         path: PathBuf::from(path),
         rollback,
     });
-    resume_run(&context, params.run_id, checkpoint, settings, false).await
+    let timeout = settings.resolved().get(&TIMEOUT_RUN);
+    resume_run(
+        &context,
+        params.run_id,
+        checkpoint,
+        settings,
+        timeout,
+        false,
+    )
+    .await
 }
 
 /// Resumes the Run `run_id` from its run file, or the Checkpoint at
-/// `checkpoint`, under `settings`, and starts its kind's driver, as
-/// `run.resume` does and a start under the ID of an interrupted Run does
-/// (ADR 0102), `redeclared` for a start's, which declared again what its
-/// program holds: a Run this engine runs already raises `run_in_use`, a
-/// finished one is answered as it ended, and one its kind's
+/// `checkpoint`, under `settings`, bounded by `timeout` on a fresh clock,
+/// and starts its kind's driver, as `run.resume` does and a start under
+/// the ID of an interrupted Run does (ADR 0102), `redeclared` for a
+/// start's, which declared again what its program holds: a Run this
+/// engine runs already raises `run_in_use`, a finished one is answered as
+/// it ended, and one its kind's
 /// [`Driving::reopen_check`](crate::runs::Driving::reopen_check) refuses
 /// when no start `redeclared` stays as it is.
 ///
@@ -1345,6 +1388,7 @@ pub async fn resume_run(
     run_id: RunId,
     checkpoint: Option<FromCheckpoint>,
     settings: RunSettings,
+    timeout: Option<std::time::Duration>,
     redeclared: bool,
 ) -> Result<RunStarted, CallError> {
     let resumed = context
@@ -1353,7 +1397,7 @@ pub async fn resume_run(
             run_id,
             checkpoint,
             checkpoint_interval: checkpoint_interval(settings.resolved()),
-            timeout: settings.resolved().get(&TIMEOUT_RUN),
+            timeout,
             settings: Some(settings.clone()),
             retry_failed: false,
             redeclared,

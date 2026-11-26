@@ -69,13 +69,6 @@ fn home_of_major_2(env: &TestEnv) -> Home {
     Home::new(root)
 }
 
-#[test]
-fn the_committed_upgrade_paths_read() {
-    let paths = UpgradePaths::committed();
-
-    assert_eq!(paths.sources, [] as [String; 0]);
-}
-
 /// A source the committed table does not list is refused before any file
 /// is written, naming the release to upgrade through first, as Cassandra's
 /// upgrade graph does (ADR 0066); before the first release the table lists

@@ -819,6 +819,16 @@ prefix = "replay_not_allowed"
 
 [[area]]
 number = 6
+kind = "error"
+prefix = "response_not_recorded"
+
+[[area]]
+number = 6
+kind = "error"
+prefix = "recording_invalid"
+
+[[area]]
+number = 6
 kind = "format"
 prefix = "response-cache"
 

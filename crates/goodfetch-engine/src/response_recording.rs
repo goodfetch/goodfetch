@@ -20,11 +20,13 @@
 //! to.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use bytes::Bytes;
 
 use crate::mask::{Masks, Scope};
+use crate::response_cache::freshness::{CREDENTIALS, first};
 use crate::response_cache::{CacheRequest, ResponseHead, Served, body_sha256};
 use crate::sync::Mutex;
 use crate::warc::{self, HttpRequest, HttpResponse, Record, RecordType};
@@ -35,10 +37,6 @@ mod tests;
 /// The most recorded URLs a [`Miss`] names.
 const NEAREST: usize = 5;
 
-/// The request headers a `Vary` names that matching leaves out: a replayed
-/// Run sends its own credentials, not the recorded ones.
-const CREDENTIALS: [&str; 3] = ["cookie", "authorization", "proxy-authorization"];
-
 /// The `WARC-Profile` of a revisit whose server answered `304 Not
 /// Modified`, in WARC 1.1's and 1.0's spelling.
 const SERVER_NOT_MODIFIED: &str = "/revisit/server-not-modified";
@@ -46,6 +44,7 @@ const SERVER_NOT_MODIFIED: &str = "/revisit/server-not-modified";
 /// Why a file is not a Response recording the engine replays:
 /// `recording_invalid`.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum RecordingInvalid {
     /// The file is not WARC records the engine reads.
     #[error(transparent)]
@@ -64,11 +63,11 @@ pub enum RecordingInvalid {
 /// What a Response recording answers a request with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
-    /// The recorded response.
-    Answered(Served),
+    /// The recorded response, shared with the index rather than copied.
+    Answered(Arc<Served>),
     /// The recorded response, which broke off: it replays as
     /// `response_truncated`.
-    Cut(Served),
+    Cut(Arc<Served>),
     /// No recorded response: the request fails as `response_not_recorded`.
     Missed(Miss),
 }
@@ -117,7 +116,7 @@ struct Entry {
     /// with the recorded request's value; empty when no request was
     /// recorded.
     vary: Vec<(String, Option<String>)>,
-    served: Served,
+    served: Arc<Served>,
     recorded_at: Option<SystemTime>,
     cut: bool,
     /// Its place in [`Used::answered`].
@@ -126,7 +125,7 @@ struct Entry {
 
 impl Entry {
     fn matches(&self, request: &CacheRequest, body_keys: &[String]) -> bool {
-        self.method.eq_ignore_ascii_case(&request.method)
+        self.method == request.method
             && body_keys.contains(&self.body_key)
             && self
                 .vary
@@ -159,9 +158,15 @@ struct Used {
 impl Replay {
     /// The responses of the WARC file `contents`, a Secret's value in a
     /// live body compared as its `%name%` too, as `masks` masks what the
-    /// engine keeps.
-    pub fn open(contents: &Bytes, masks: Masks) -> Result<Self, RecordingInvalid> {
-        let records = warc::read(contents)?;
+    /// engine keeps; a gzipped file is decoded within
+    /// `max_decompression_ratio`, the Run's
+    /// `network.max_decompression_ratio`.
+    pub fn open(
+        contents: &Bytes,
+        masks: Masks,
+        max_decompression_ratio: u64,
+    ) -> Result<Self, RecordingInvalid> {
+        let records = warc::read(contents, max_decompression_ratio)?;
         let index = Index::of(&records);
         let mut replay = Self {
             masks,
@@ -186,10 +191,11 @@ impl Replay {
             };
             let response = parse_response(record)?;
             let (served, cut) = if kind == RecordType::Revisit {
-                match index.original(record) {
-                    Some(original) => revisited(record, &response, &parse_response(original)?),
-                    None => continue,
-                }
+                let Some(original) = index.original(record) else {
+                    continue;
+                };
+                let (served, cut) = revisited(record, &response, &parse_response(original)?);
+                (served, cut || truncated(original))
             } else {
                 let cut = response.cut;
                 (served(response), cut)
@@ -237,9 +243,9 @@ impl Replay {
                 |request| body_sha256(first(&request.headers, "content-type"), &request.body),
             ),
             vary,
-            served,
+            served: Arc::new(served),
             recorded_at: record.date().map(SystemTime::from),
-            cut: cut || record.header("WARC-Truncated").is_some(),
+            cut: cut || truncated(record),
             index,
         };
         let urls = self.places.entry(place(&url)).or_default();
@@ -279,9 +285,9 @@ impl Replay {
             *answered = true;
         }
         if entry.cut {
-            Answer::Cut(entry.served.clone())
+            Answer::Cut(Arc::clone(&entry.served))
         } else {
-            Answer::Answered(entry.served.clone())
+            Answer::Answered(Arc::clone(&entry.served))
         }
     }
 
@@ -464,6 +470,12 @@ fn revisited(revisit: &Record, response: &HttpResponse, original: &HttpResponse)
     (served, original.cut)
 }
 
+/// Whether `record` says its payload broke off, for any `WARC-Truncated`
+/// reason.
+fn truncated(record: &Record) -> bool {
+    record.header("WARC-Truncated").is_some()
+}
+
 /// The `software` field of a `warcinfo` record's block.
 fn software(warcinfo: &Record) -> Option<String> {
     String::from_utf8_lossy(warcinfo.block())
@@ -498,14 +510,6 @@ fn joined(headers: &[(String, String)], name: &str) -> Option<String> {
         .map(|(_, value)| value.trim())
         .collect();
     (!values.is_empty()).then(|| values.join(", "))
-}
-
-/// The value of `headers`' first `name`.
-fn first<'h>(headers: &'h [(String, String)], name: &str) -> Option<&'h str> {
-    headers
-        .iter()
-        .find(|(header, _)| header == name)
-        .map(|(_, value)| value.as_str())
 }
 
 /// A URL's host and path, which a [`Miss`]'s nearest URLs share.

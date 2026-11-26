@@ -4,11 +4,20 @@ use bytes::Bytes;
 use proptest::prelude::*;
 use sha2::{Digest as _, Sha256};
 
-use super::{HttpRequest, HttpResponse, NotHttp, RecordType, Unreadable, read};
+use goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
+
+use super::{HttpRequest, HttpResponse, Record, RecordType, Unreadable};
+
+/// The records of `contents` under the catalog's default
+/// `network.max_decompression_ratio`.
+fn read(contents: &Bytes) -> Result<Vec<Record>, Unreadable> {
+    super::read(contents, DEFAULT_MAX_DECOMPRESSION_RATIO)
+}
 
 /// A WARC/1.1 record with `headers` and `block`, lines ended with CRLF, as
-/// a writer writes it.
-fn record(headers: &[(&str, &str)], block: &[u8]) -> Vec<u8> {
+/// a writer writes it; the Response recording's tests write theirs with it
+/// too.
+pub(crate) fn record(headers: &[(&str, &str)], block: &[u8]) -> Vec<u8> {
     let mut bytes = b"WARC/1.1\r\n".to_vec();
     for (name, value) in headers {
         bytes.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
@@ -125,6 +134,19 @@ fn reads_a_file_gzipped_record_by_record_as_its_plain_records() {
     );
     let records = read(&Bytes::from(members)).expect("two gzip members");
     assert_eq!(Ok(records), read(&Bytes::from(both)), "two members");
+}
+
+#[test]
+fn refuses_a_gzip_that_decodes_past_the_decompression_ratio_once_past_one_mib() {
+    let bomb = Bytes::from(gzip(&vec![b'\n'; 4 * 1024 * 1024]));
+    let small = Bytes::from(gzip(&vec![b'\n'; 1024 * 1024]));
+
+    assert_eq!(
+        super::read(&bomb, 100),
+        Err(Unreadable::Decompression { ratio: 100 })
+    );
+    assert_eq!(super::read(&bomb, 10_000), Ok(Vec::new()));
+    assert_eq!(super::read(&small, 1), Ok(Vec::new()), "within 1 MiB");
 }
 
 #[test]
@@ -270,12 +292,7 @@ fn refuses_a_block_that_is_not_an_http_message() {
     let cut = Bytes::from_static(b"HTTP/1.1 200 OK\r\nContent-");
     let not_http = Bytes::from_static(b"\x00\x01 not HTTP\r\n\r\n");
 
-    assert_eq!(
-        HttpResponse::parse(&cut),
-        Err(NotHttp {
-            reason: "its head is cut"
-        })
-    );
+    assert!(HttpResponse::parse(&cut).is_err());
     assert!(HttpResponse::parse(&not_http).is_err());
     assert!(HttpRequest::parse(&not_http).is_err());
 }

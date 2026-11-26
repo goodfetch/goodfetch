@@ -1,24 +1,16 @@
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use bytes::Bytes;
 use secrecy::SecretString;
 
+use goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
+
 use super::{Answer, Miss, RecordingInvalid, Replay};
 use crate::mask::{Masks, Reach, Redaction};
 use crate::response_cache::{CacheRequest, ResponseHead, Served};
 use crate::warc;
-
-/// A WARC/1.1 record with `headers` and `block`.
-fn record(headers: &[(&str, &str)], block: &[u8]) -> Vec<u8> {
-    let mut bytes = b"WARC/1.1\r\n".to_vec();
-    for (name, value) in headers {
-        bytes.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
-    }
-    bytes.extend_from_slice(format!("Content-Length: {}\r\n\r\n", block.len()).as_bytes());
-    bytes.extend_from_slice(block);
-    bytes.extend_from_slice(b"\r\n\r\n");
-    bytes
-}
+use crate::warc::tests::record;
 
 /// A request record and the response record it was answered with, `id`
 /// naming both, fetched from `url` at `date`.
@@ -78,7 +70,13 @@ fn get(url: &str) -> String {
 }
 
 fn replay(file: Vec<u8>) -> Replay {
-    Replay::open(&Bytes::from(file), Masks::new()).expect("a Response recording")
+    open(&Bytes::from(file), Masks::new()).expect("a Response recording")
+}
+
+/// The Response recording `file`, under the catalog's default
+/// `network.max_decompression_ratio`.
+fn open(file: &Bytes, masks: Masks) -> Result<Replay, RecordingInvalid> {
+    Replay::open(file, masks, DEFAULT_MAX_DECOMPRESSION_RATIO)
 }
 
 fn request(method: &str, url: &str, headers: &[(&str, &str)], body: &str) -> CacheRequest {
@@ -114,7 +112,7 @@ fn answers_a_request_of_the_recorded_method_and_url_whatever_its_fragment() {
 
     assert_eq!(
         answer,
-        Answer::Answered(Served {
+        Answer::Answered(Arc::new(Served {
             head: ResponseHead {
                 status: 200,
                 headers: vec![
@@ -123,9 +121,13 @@ fn answers_a_request_of_the_recorded_method_and_url_whatever_its_fragment() {
                 ],
             },
             body: Bytes::from_static(b"hello"),
-        })
+        }))
     );
     assert!(body(replay.answer(&request("HEAD", A, &[], ""))).is_err());
+    assert!(
+        body(replay.answer(&request("get", A, &[], ""))).is_err(),
+        "a method is case-sensitive (RFC 9110 §9.1)"
+    );
     assert!(body(replay.answer(&request("GET", "https://example.test/a?x=2", &[], ""))).is_err());
 }
 
@@ -206,7 +208,7 @@ fn compares_a_live_body_holding_a_secrets_value_with_its_placeholder() {
         &SecretString::from("correct horse"),
         Reach::Value,
     );
-    let replay = Replay::open(
+    let replay = open(
         &Bytes::from(exchange(1, url, DATE, &post, &ok("welcome"))),
         masks,
     )
@@ -302,7 +304,7 @@ fn answers_a_server_not_modified_revisit_with_the_originals_payload_and_updated_
 
     assert_eq!(
         revisited,
-        Answer::Answered(Served {
+        Answer::Answered(Arc::new(Served {
             head: ResponseHead {
                 status: 200,
                 headers: vec![
@@ -312,7 +314,7 @@ fn answers_a_server_not_modified_revisit_with_the_originals_payload_and_updated_
                 ],
             },
             body: Bytes::from_static(b"hello"),
-        })
+        }))
     );
 }
 
@@ -340,13 +342,38 @@ fn answers_an_identical_payload_revisit_with_its_own_head_and_the_originals_body
 
     assert_eq!(
         answer,
-        Answer::Answered(Served {
+        Answer::Answered(Arc::new(Served {
             head: ResponseHead {
                 status: 200,
                 headers: vec![("x-copy".to_owned(), "yes".to_owned())],
             },
             body: Bytes::from_static(b"hello"),
-        })
+        }))
+    );
+}
+
+#[test]
+fn answers_a_revisit_of_an_original_recorded_truncated_as_cut() {
+    let mut file = response(
+        "<urn:uuid:1>",
+        A,
+        &[("WARC-Truncated", "disconnect")],
+        &ok("hello"),
+    );
+    let b = "https://example.test/b";
+    file.extend(response(
+        "<urn:uuid:2>",
+        b,
+        &[("WARC-Type", "revisit"), ("WARC-Refers-To", "<urn:uuid:1>")],
+        "HTTP/1.1 200 OK\r\n\r\n",
+    ));
+    let replay = replay(file);
+
+    let answer = replay.answer(&request("GET", b, &[], ""));
+
+    assert!(
+        matches!(&answer, Answer::Cut(served) if served.body.as_ref() == b"hello"),
+        "{answer:?}"
     );
 }
 
@@ -391,8 +418,8 @@ fn answers_a_response_recorded_truncated_or_broken_off_as_cut() {
 
 #[test]
 fn refuses_a_file_that_is_not_a_response_recording() {
-    let not_warc = Replay::open(&Bytes::from_static(b"<html></html>"), Masks::new());
-    let not_http = Replay::open(
+    let not_warc = open(&Bytes::from_static(b"<html></html>"), Masks::new());
+    let not_http = open(
         &Bytes::from(response(
             "<urn:uuid:9>",
             A,

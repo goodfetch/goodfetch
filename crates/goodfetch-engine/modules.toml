@@ -103,7 +103,7 @@ transition = []
 transport = []
 upgrade = ["home", "ledger"]
 user_store = ["sqlite_store", "tasks"]
-warc = []
+warc = ["response_limits"]
 webhook_signing = ["hostile_input"]
 wire = []
 

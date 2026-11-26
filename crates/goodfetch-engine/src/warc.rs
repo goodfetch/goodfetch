@@ -12,7 +12,9 @@
 //! continuing the one before it, an empty line, a block of exactly
 //! `Content-Length` bytes and two line ends; a line ends with CRLF, and a
 //! bare LF is read as one too. A file gzipped record by record, as a
-//! `.warc.gz` is, is read through all its members, whatever its name. A
+//! `.warc.gz` is, is read through all its members, whatever its name, and
+//! within `network.max_decompression_ratio` once it passes 1 MiB
+//! ([`Unreadable::Decompression`]). A
 //! `WARC-Block-Digest` in `sha256:`, in base32 or hex, is checked against
 //! its block; another algorithm, such as the `sha1:` older tools write, is
 //! not checked.
@@ -28,8 +30,10 @@ use bytes::Bytes;
 use flate2::read::MultiGzDecoder;
 use sha2::{Digest as _, Sha256};
 
+use crate::response_limits::RATIO_APPLIES_PAST;
+
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// The two bytes a gzip member starts with (RFC 1952).
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
@@ -134,6 +138,7 @@ fn without_brackets(value: &str) -> &str {
 
 /// Why a file's bytes are not WARC records the engine reads.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum Unreadable {
     /// The file does not start with a WARC version line.
     #[error("the file is not WARC: it does not start with a WARC version line")]
@@ -160,14 +165,25 @@ pub enum Unreadable {
     /// The file is gzipped and its gzip does not decode.
     #[error("the file's gzip does not decode: {0}")]
     Gzip(String),
+    /// The file is gzipped and decodes past 1 MiB to more bytes per gzipped
+    /// byte than `network.max_decompression_ratio` lets through.
+    #[error(
+        "the file's gzip decodes past 1 MiB to more than {ratio} bytes per byte, `network.max_decompression_ratio`"
+    )]
+    Decompression {
+        /// The ratio it passed.
+        ratio: u64,
+    },
 }
 
 /// The records of a WARC file's `contents`, in the order written, gzipped
-/// or not. No bytes are copied unless the file is gzipped: each block is a
-/// slice of `contents`, or of the gunzipped bytes.
-pub fn read(contents: &Bytes) -> Result<Vec<Record>, Unreadable> {
+/// or not, a gzipped file decoded within `max_decompression_ratio` once
+/// past 1 MiB, as the network's bodies are (ADR 0067). No bytes are copied
+/// unless the file is gzipped: each block is a slice of `contents`, or of
+/// the gunzipped bytes.
+pub fn read(contents: &Bytes, max_decompression_ratio: u64) -> Result<Vec<Record>, Unreadable> {
     let contents = if contents.starts_with(&GZIP_MAGIC) {
-        gunzip(contents)?
+        gunzip(contents, max_decompression_ratio)?
     } else {
         contents.clone()
     };
@@ -187,12 +203,23 @@ pub fn read(contents: &Bytes) -> Result<Vec<Record>, Unreadable> {
     }
 }
 
-/// Every member of a gzipped file, one after the other.
-fn gunzip(contents: &[u8]) -> Result<Bytes, Unreadable> {
+/// Every member of a gzipped file, one after the other, decoding no more
+/// than one byte past what `max_decompression_ratio` lets through.
+fn gunzip(contents: &[u8], max_decompression_ratio: u64) -> Result<Bytes, Unreadable> {
+    let gzipped = u64::try_from(contents.len()).unwrap_or(u64::MAX);
+    let most = gzipped
+        .saturating_mul(max_decompression_ratio)
+        .max(RATIO_APPLIES_PAST);
     let mut gunzipped = Vec::new();
     MultiGzDecoder::new(contents)
+        .take(most.saturating_add(1))
         .read_to_end(&mut gunzipped)
         .map_err(|error| Unreadable::Gzip(error.to_string()))?;
+    if u64::try_from(gunzipped.len()).unwrap_or(u64::MAX) > most {
+        return Err(Unreadable::Decompression {
+            ratio: max_decompression_ratio,
+        });
+    }
     Ok(Bytes::from(gunzipped))
 }
 
@@ -326,6 +353,7 @@ fn check_digest(record: &Record, start: usize) -> Result<(), Unreadable> {
 /// Why a record's block is not the HTTP message it should hold.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("its block is not an HTTP message: {reason}")]
+#[non_exhaustive]
 pub struct NotHttp {
     /// What is wrong with it.
     pub reason: &'static str,
@@ -515,11 +543,17 @@ fn dechunk(body: &[u8]) -> Result<(Bytes, bool), NotHttp> {
 /// The body of the fuzz target `warc` (ADR 0067): `data` read as a WARC
 /// file, each HTTP block parsed as its record's type says. Reading and
 /// parsing never panic, reading is deterministic, and each record's block
-/// is as long as its `Content-Length` says.
+/// is as long as its `Content-Length` says. A gzip is decoded within the
+/// catalog's default ratio, as a Run's is.
 pub fn fuzz_warc(data: &[u8]) {
+    let ratio = goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
     let contents = Bytes::copy_from_slice(data);
-    let records = read(&contents);
-    assert_eq!(records, read(&contents), "reading is not deterministic");
+    let records = read(&contents, ratio);
+    assert_eq!(
+        records,
+        read(&contents, ratio),
+        "reading is not deterministic"
+    );
     for record in records.iter().flatten() {
         let length = record
             .header("Content-Length")

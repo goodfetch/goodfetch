@@ -25,7 +25,10 @@ mod tests;
 use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError, Values, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError};
-use goodfetch_identity_profile::{Constraints, EngineFamily, NarrowingError, NarrowingKey};
+use goodfetch_identity_profile::{
+    Constraints, EngineFamily, ExitFacts, IdentityProfile, IdentitySeed, NarrowingError,
+    NarrowingKey, generate,
+};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::access_mode::{
     BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
@@ -265,10 +268,12 @@ pub(crate) struct SessionIdentityPlan {
 impl SessionIdentityPlan {
     /// The plan, when this engine builds every effect it asks for from the
     /// Session's `settings` (ADR 0083): `standard` and `identified` open,
-    /// and so does `stealth`, but for the `engine` Fingerprint method, a
-    /// generated identity and what it is drawn from, human-like input, a
-    /// chosen Chromium build and the headful launch it defaults to, which
-    /// open only once their tickets land.
+    /// and so does `stealth`, but for the `engine` Fingerprint method,
+    /// human-like input, a chosen Chromium build and the headful launch it
+    /// defaults to, which open only once their tickets land. A generated
+    /// identity that falls back to `basic` keeps the machine's operating
+    /// system (#599's Q5), so a `stealth.identity.os` that leaves it out is
+    /// refused.
     pub(crate) fn built(self, settings: &SessionSettings<'_>) -> Result<Self, Refusal> {
         let Some(profile) = &self.profile else {
             return Ok(self);
@@ -279,23 +284,20 @@ impl SessionIdentityPlan {
                 layer: scope(&STEALTH_FINGERPRINT_METHOD).layer(),
             });
         }
+        if profile.generated_identity
+            && profile.method_source == MethodSource::FellBack
+            && !profile.os.is_empty()
+            && !profile.os.iter().any(|os| os == HOST_OS)
+        {
+            return Err(Refusal::IdentityOutsidePopulation {
+                key: STEALTH_IDENTITY_OS.name,
+                layer: scope(&STEALTH_IDENTITY_OS).layer(),
+                reason: format!(
+                    "a Session that falls back to the Fingerprint method `basic` keeps the machine's operating system, `{HOST_OS}`"
+                ),
+            });
+        }
         let unbuilt = [
-            (
-                &STEALTH_GENERATED_IDENTITY,
-                Unbuilt::On,
-                profile.generated_identity,
-            ),
-            (&STEALTH_IDENTITY_OS, Unbuilt::Set, !profile.os.is_empty()),
-            (
-                &STEALTH_IDENTITY_DEVICE,
-                Unbuilt::Set,
-                !profile.device.is_empty(),
-            ),
-            (
-                &STEALTH_IDENTITY_BRAND,
-                Unbuilt::Set,
-                !profile.brand.is_empty(),
-            ),
             (&STEALTH_HUMAN_INPUT, Unbuilt::On, profile.human_input),
             (
                 &STEALTH_CHROMIUM_BUILD,
@@ -331,9 +333,22 @@ pub(crate) struct SigningPlan {
     pub(crate) agent: String,
 }
 
-/// The Identity profile a `stealth` Session runs with (ADR 0035).
+/// The operating system this engine runs on, as `stealth.identity.os`
+/// names it: the one a Session that falls back to `basic` keeps (#599's
+/// Q5).
+pub(crate) const HOST_OS: &str = if cfg!(target_os = "windows") {
+    "windows"
+} else if cfg!(target_os = "macos") {
+    "macos"
+} else {
+    "linux"
+};
+
+/// The Identity profile a `stealth` Session runs with (ADR 0035), on a
+/// browser of `family`.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct StealthProfile {
+    pub(crate) family: EngineFamily,
     pub(crate) fingerprint_method: FingerprintMethod,
     pub(crate) method_source: MethodSource,
     pub(crate) generated_identity: bool,
@@ -717,7 +732,7 @@ pub(crate) fn resolve(
         AccessMode::Stealth => Ok(SessionIdentityPlan {
             mode,
             layer,
-            profile: Some(stealth_profile(settings)),
+            profile: Some(stealth_profile(settings, family)),
             signing: None,
         }),
     }
@@ -734,20 +749,23 @@ pub(crate) struct Narrowing {
 }
 
 impl SessionIdentityPlan {
-    /// The narrowing this plan's `stealth.identity.*` values ask of the
-    /// population of `family`, Chromium or Firefox; none when they name
-    /// nothing, which every family draws from.
-    pub(crate) fn narrowing(&self, family: BrowserFamily) -> Option<Narrowing> {
-        let profile = self.profile.as_ref()?;
-        if profile.os.is_empty() && profile.device.is_empty() && profile.brand.is_empty() {
-            return None;
-        }
+    /// The narrowing of its browser family's population that its Identity
+    /// profile is drawn from, as its `stealth.identity.*` values ask: none
+    /// when it generates none. One that falls back to `basic` keeps the
+    /// machine's operating system (#599's Q5), which
+    /// [`built`](Self::built) refuses a `stealth.identity.os` to leave out.
+    pub(crate) fn narrowing(&self) -> Option<Narrowing> {
+        let profile = self
+            .profile
+            .as_ref()
+            .filter(|profile| profile.generated_identity)?;
+        let os = match profile.method_source {
+            MethodSource::FellBack => vec![HOST_OS.to_owned()],
+            MethodSource::Set(_) => profile.os.clone(),
+        };
         Some(Narrowing {
-            family: match family {
-                BrowserFamily::Firefox => EngineFamily::Firefox,
-                BrowserFamily::Chromium | BrowserFamily::WebKit => EngineFamily::Chromium,
-            },
-            os: profile.os.clone(),
+            family: profile.family,
+            os,
             device: profile.device.clone(),
             brand: profile.brand.clone(),
         })
@@ -755,11 +773,17 @@ impl SessionIdentityPlan {
 }
 
 impl Narrowing {
-    /// Whether the population draws a browser from this narrowing. It
-    /// blocks: the first narrowing of a process reads the whole embedded
-    /// population, so it runs on a blocking thread.
-    pub(crate) fn drawn(self) -> Result<(), NarrowingError> {
-        Constraints::narrowed(self.family, &self.os, &self.device, &self.brand).map(drop)
+    /// The Identity profile drawn from this narrowing with `seed`, before
+    /// any proxy exit gives it its facts (#997). It blocks: the first
+    /// narrowing of a process reads the whole embedded population, so it
+    /// runs on a blocking thread.
+    ///
+    /// # Errors
+    ///
+    /// The setting the population draws no browser from.
+    pub(crate) fn identity(self, seed: IdentitySeed) -> Result<IdentityProfile, NarrowingError> {
+        let constraints = Constraints::narrowed(self.family, &self.os, &self.device, &self.brand)?;
+        Ok(generate(seed, &constraints, ExitFacts::default()))
     }
 }
 
@@ -809,8 +833,9 @@ fn signing_plan(
 /// A `stealth` Session's Identity profile: the items set keep their values,
 /// the rest take `stealth`'s defaults, but for the Fingerprint method,
 /// which falls back from `engine` to `basic` while no Goodfetch Chromium
-/// exists (ADR 0035).
-fn stealth_profile(settings: &SessionSettings<'_>) -> StealthProfile {
+/// exists (ADR 0035), on a browser of `family`: Firefox's, or Chromium's
+/// for every other, since `stealth` refuses `WebKit` first.
+fn stealth_profile(settings: &SessionSettings<'_>, family: BrowserFamily) -> StealthProfile {
     let on = || Value::Bool(true);
     let method_source = match settings.scoped(&STEALTH_FINGERPRINT_METHOD).1 {
         Scope::Default => MethodSource::FellBack,
@@ -835,6 +860,10 @@ fn stealth_profile(settings: &SessionSettings<'_>) -> StealthProfile {
             .collect()
     };
     StealthProfile {
+        family: match family {
+            BrowserFamily::Firefox => EngineFamily::Firefox,
+            BrowserFamily::Chromium | BrowserFamily::WebKit => EngineFamily::Chromium,
+        },
         fingerprint_method: choice(
             &STEALTH_FINGERPRINT_METHOD,
             &method,

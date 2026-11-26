@@ -75,6 +75,7 @@ use goodfetch_engine::settings::{
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_extractor::BuiltIn;
+use goodfetch_identity_profile::IdentitySeed;
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
@@ -589,8 +590,9 @@ impl Sessions {
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
-        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context).await?;
-        let fingerprint = FingerprintPlan::of(&identity);
+        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
+        let seed = IdentitySeed(run.entropy.fork().await.next_u64());
+        let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
@@ -671,7 +673,8 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
-        self.record(&run, position, false, &settings, borrowed.as_ref(), context)
+        let row = (position, false, seed);
+        self.record(&run, row, &settings, borrowed.as_ref(), context)
             .await?;
         mark_egress(&open, &session).await;
         if let Some(fingerprint) = &open.fingerprint {
@@ -693,7 +696,7 @@ impl Sessions {
         let run = live(run_id, context).await?;
         let named = named_source(&run, None, context);
         let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
@@ -736,7 +739,8 @@ impl Sessions {
     ) -> Result<u32, CallError> {
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
-        let fingerprint = FingerprintPlan::of(identity);
+        let seed = IdentitySeed(run.entropy.fork().await.next_u64());
+        let fingerprint = fingerprint_of(run, &Values::default(), identity, seed, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, run)?;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
@@ -767,8 +771,14 @@ impl Sessions {
             ),
         };
         if let Opener::Default = opener {
-            self.record(run, position, true, &Values::default(), borrowed, context)
-                .await?;
+            self.record(
+                run,
+                (position, true, seed),
+                &Values::default(),
+                borrowed,
+                context,
+            )
+            .await?;
         }
         let attributes = match (opener, borrowed.is_some()) {
             (Opener::Default, false) => FRESH,
@@ -931,7 +941,7 @@ impl Sessions {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
         let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
@@ -1266,7 +1276,7 @@ impl Sessions {
             pooled: BTreeMap::new(),
         };
         let mut reopened = Vec::new();
-        for (position, is_default, closed, settings, source) in recorded {
+        for (position, is_default, closed, settings, seed, source) in recorded {
             runs.last = runs.last.max(position);
             if is_default {
                 runs.default = Arc::new(OnceCell::new_with(Some(position)));
@@ -1276,8 +1286,9 @@ impl Sessions {
                 continue;
             }
             let settings = recorded_settings(&settings, run, context)?;
-            reopened
-                .push(reopened_session((run, &pool), position, settings, source, context).await?);
+            reopened.push(
+                reopened_session((run, &pool), (position, seed), settings, source, context).await?,
+            );
         }
         let mut state = self.state.lock().await;
         if state.runs.contains_key(run.identity.id()) {
@@ -1364,15 +1375,14 @@ impl Sessions {
         });
     }
 
-    /// Records the Session at `position` of `run`, with its own `settings`,
-    /// the identity seed it draws from the Run's `Entropy` and the
-    /// `cdp_url` of the Borrowed browser it is on, `borrowed`, if it is, in
-    /// its run state.
+    /// Records the Session at `position` of `run`, the default Session when
+    /// `is_default`, with the `seed` its Identity profile is drawn from,
+    /// its own `settings` and the `cdp_url` of the Borrowed browser it is
+    /// on, `borrowed`, if it is, in its run state.
     async fn record(
         &self,
         run: &Arc<BrowserRun>,
-        position: u32,
-        is_default: bool,
+        (position, is_default, seed): (u32, bool, IdentitySeed),
         settings: &Values,
         borrowed: Option<&CdpUrl>,
         context: &CallContext,
@@ -1401,7 +1411,7 @@ impl Sessions {
                 .collect(),
         )
         .to_string();
-        let seed = i64::from_le_bytes(run.entropy.fork().await.next_u64().to_le_bytes());
+        let seed = i64::from_le_bytes(seed.0.to_le_bytes());
         run.state
             .write(move |connection| {
                 connection
@@ -1718,9 +1728,9 @@ fn recorded_source(
 }
 
 /// A Session as the run state records it: its position, whether it is the
-/// default Session, whether it closed, its own settings and, for one on a
-/// Borrowed browser, its sealed source.
-type RecordedSession = (u32, bool, bool, String, Option<Sealed>);
+/// default Session, whether it closed, its own settings, its identity seed
+/// and, for one on a Borrowed browser, its sealed source.
+type RecordedSession = (u32, bool, bool, String, IdentitySeed, Option<Sealed>);
 
 /// The Sessions the run state of `run` records, in position order.
 ///
@@ -1734,7 +1744,7 @@ async fn recorded_sessions(
     run.state
         .read(|connection| {
             let mut statement = connection.prepare(
-                "SELECT position, is_default, closed, settings, source FROM page_sessions ORDER BY position",
+                "SELECT position, is_default, closed, settings, identity_seed, source FROM page_sessions ORDER BY position",
             )?;
             let rows = statement.query_map([], |row| {
                 Ok((
@@ -1742,7 +1752,8 @@ async fn recorded_sessions(
                     row.get::<_, bool>(1)?,
                     row.get::<_, bool>(2)?,
                     row.get::<_, String>(3)?,
-                    row.get::<_, Option<Sealed>>(4)?,
+                    IdentitySeed(u64::from_le_bytes(row.get::<_, i64>(4)?.to_le_bytes())),
+                    row.get::<_, Option<Sealed>>(5)?,
                 ))
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -1766,13 +1777,14 @@ fn recorded_settings(
 }
 
 /// The open Session at `position` that the run state of `run` records,
-/// reopened on `pool` with its own `settings`, on the Borrowed browser its
-/// sealed `source` names if it has one, under an owner of its own, a child
-/// of the Run's. A proxy or signing key it cannot reopen is kept as its
-/// `reopen_failed`, which each page it is asked for raises.
+/// reopened on `pool` with its own `settings` and the Identity profile its
+/// `seed` draws, on the Borrowed browser its sealed `source` names if it
+/// has one, under an owner of its own, a child of the Run's. A proxy or
+/// signing key it cannot reopen is kept as its `reopen_failed`, which each
+/// page it is asked for raises.
 async fn reopened_session(
     (run, pool): (&Arc<BrowserRun>, &Pool),
-    position: u32,
+    (position, seed): (u32, IdentitySeed),
     settings: Values,
     source: Option<Sealed>,
     context: &CallContext,
@@ -1792,7 +1804,7 @@ async fn reopened_session(
     )
     .await;
     let ((signing, fingerprint), reopen_failed) =
-        match reopened_identity(run, &settings, borrowed.is_some(), context).await {
+        match reopened_identity(run, &settings, borrowed.is_some(), seed, context).await {
             Ok(identity) => (identity, reopen_failed),
             Err(error) => ((None, None), reopen_failed.or(Some(error))),
         };
@@ -1889,30 +1901,57 @@ struct NamedSource {
 /// The Access mode a Session of the Run `identity` names opens in, as its
 /// `own` settings, over the Run's, ask for from the source `named` (ADR
 /// 0021): the [`access_mode`](crate::access_mode) module's refusal when it
-/// does not open, names a `stealth` identity its browser family's
-/// population does not hold, or asks for an effect this engine does not
-/// build yet (ADR 0083). The population is read on one of the Run's
-/// blocking threads.
-async fn access_mode_opens(
+/// does not open or asks for an effect this engine does not build yet
+/// (ADR 0083). Its `stealth` identity is drawn, and checked against its
+/// browser family's population, by [`fingerprint_of`].
+fn access_mode_opens(
     own: &Values,
     identity: &RunIdentity,
     named: Option<&NamedSource>,
     context: &CallContext,
 ) -> Result<SessionIdentityPlan, CallError> {
     let source = named.map(|named| &named.source);
-    let family = BrowserFamily::of(source);
     let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
-    let plan = access_mode::resolve(&settings, source, family)
-        .map_err(|refusal| refusal.call_error(context))?;
-    if let Some(narrowing) = plan.narrowing(family) {
-        identity
-            .owner()
-            .blocking(move || narrowing.drawn())
-            .await
-            .map_err(|error| Refusal::outside_population(&settings, &error).call_error(context))?;
-    }
-    plan.built(&settings)
+    access_mode::resolve(&settings, source, BrowserFamily::of(source))
+        .and_then(|plan| plan.built(&settings))
         .map_err(|refusal| refusal.call_error(context))
+}
+
+/// The Fingerprint method a Session of `run`, opening as `plan` says with
+/// its `own` settings, masks its pages with, if it does: with the Identity
+/// profile `seed` draws from its narrowing of its browser family's
+/// population (#913), none when it generates none. The population is read
+/// on one of the Run's blocking threads.
+///
+/// # Errors
+///
+/// `identity_outside_population` naming the `stealth.identity.*` key, in
+/// the layer that set it, whose values the population draws no browser
+/// from.
+async fn fingerprint_of(
+    run: &Arc<BrowserRun>,
+    own: &Values,
+    plan: &SessionIdentityPlan,
+    seed: IdentitySeed,
+    context: &CallContext,
+) -> Result<Option<FingerprintPlan>, CallError> {
+    let profile = match plan.narrowing() {
+        Some(narrowing) => Some(
+            run.identity
+                .owner()
+                .blocking(move || narrowing.identity(seed))
+                .await
+                .map_err(|error| {
+                    let settings = SessionSettings::new(
+                        own,
+                        run.identity.settings().map(RunSettings::resolved),
+                    );
+                    Refusal::outside_population(&settings, &error).call_error(context)
+                })?,
+        ),
+        None => None,
+    };
+    Ok(FingerprintPlan::of(plan, profile))
 }
 
 /// The signer of a Session of `run` that opens `identified` with the
@@ -2127,25 +2166,28 @@ async fn reopened_egress(
 /// The signer and the Fingerprint method of a Session of `run` reopened
 /// from run state with its own `settings`, as a Session opens with them:
 /// its key resolved again, once for the reopened Session, as
-/// [`open_signing`] makes it. One on a Borrowed browser, when `borrowed`,
-/// neither signs nor masks (ADR 0021).
+/// [`open_signing`] makes it, and its Identity profile drawn again from
+/// its recorded `seed`, the one it opened with. One on a Borrowed browser,
+/// when `borrowed`, neither signs nor masks (ADR 0021).
 ///
 /// # Errors
 ///
-/// As [`access_mode_opens`] and [`open_signing`] say: the Session then
-/// raises it from each page it is asked for.
+/// As [`access_mode_opens`], [`open_signing`] and [`fingerprint_of`] say:
+/// the Session then raises it from each page it is asked for.
 async fn reopened_identity(
     run: &Arc<BrowserRun>,
     settings: &Values,
     borrowed: bool,
+    seed: IdentitySeed,
     context: &CallContext,
 ) -> Result<(Option<Arc<RequestSigner>>, Option<FingerprintPlan>), CallError> {
     if borrowed {
         return Ok((None, None));
     }
-    let identity = access_mode_opens(settings, &run.identity, None, context).await?;
+    let identity = access_mode_opens(settings, &run.identity, None, context)?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
-    Ok((signing, FingerprintPlan::of(&identity)))
+    let fingerprint = fingerprint_of(run, settings, &identity, seed, context).await?;
+    Ok((signing, fingerprint))
 }
 
 /// Where a Session whose pages mask their fingerprint as `fingerprint`

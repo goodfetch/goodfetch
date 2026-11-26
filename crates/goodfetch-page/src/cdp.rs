@@ -142,9 +142,7 @@ pub(crate) use self::followed::{
 pub(crate) use self::hiding::{HidingEvent, HidingEvents};
 pub(crate) use self::hop::{HopEvent, HopEvents};
 pub(crate) use self::init_scripts::InitScriptId;
-pub(crate) use self::masking::Emulated;
-#[cfg(test)]
-pub(crate) use self::masking::Geolocation;
+pub(crate) use self::masking::{Emulated, Geolocation, ScreenSize, UserAgentOverride};
 pub(crate) use self::navigation::Going;
 pub(crate) use self::paused::{
     AuthAnswer, AuthChallenge, InterceptionEvent, InterceptionEvents, LoadingFailed, NetworkId,
@@ -168,6 +166,12 @@ impl CdpPage {
     /// `page`'s are.
     pub(crate) fn of(page: &PageDriver) -> Self {
         Self { page: page.clone() }
+    }
+
+    /// What the page's browser reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`.
+    pub(crate) fn browser_product(&self) -> Option<&str> {
+        self.page.browser_product()
     }
 
     /// Clicks at (`x`, `y`) in the page's viewport with the pointer's left

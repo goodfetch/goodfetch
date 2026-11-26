@@ -187,6 +187,9 @@ pub(crate) struct Browser {
     executable: String,
     /// The identity a headless browser's pages show; `None` with a window.
     identity: Option<Identity>,
+    /// What it reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`, once it answered.
+    product: Option<Arc<str>>,
     /// Its process's ID.
     process: Option<u32>,
     /// Cancelled once the engine closes it, so its exit is not a loss.
@@ -262,6 +265,7 @@ impl Browser {
             exit: watch::channel(None).1,
             executable: "played".to_owned(),
             identity: None,
+            product: None,
             process: None,
             closing: CancellationToken::new(),
             launched: false,
@@ -624,11 +628,12 @@ impl Connect for BorrowedBrowser {
                 let tasks = self.run.identity.starting_on(&self.owner);
                 let connection = borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
-                let browser = Browser {
+                let mut browser = Browser {
                     connection,
                     exit: self.exit.clone(),
                     executable: address,
                     identity: None,
+                    product: None,
                     process: None,
                     closing: self.owner.child_token(),
                     launched: false,
@@ -640,9 +645,10 @@ impl Connect for BorrowedBrowser {
                     work: self.run.identity.metrics().counted_work().clone(),
                 };
                 // The first answer says a browser speaks CDP there.
-                browser
+                let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
+                browser.product = Some(Arc::from(version.product));
                 service_workers::start(&browser, &tasks).await?;
                 Ok(browser)
             })
@@ -801,6 +807,7 @@ impl Connect for LocalBrowser {
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
                     identity: None,
+                    product: None,
                     process: launched.process,
                     closing: attempt,
                     launched: true,
@@ -824,6 +831,7 @@ impl Connect for LocalBrowser {
                     &version.product,
                 )
                 .await;
+                browser.product = Some(Arc::from(version.product));
                 service_workers::start(&browser, &tasks).await?;
                 coming_up.up();
                 Ok(browser)
@@ -1215,6 +1223,12 @@ impl PageDriver {
     /// Whether `target` is the page's target.
     pub(crate) fn is_target(&self, target: &TargetId) -> bool {
         self.frame == target.0
+    }
+
+    /// What its browser reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`.
+    pub(crate) fn browser_product(&self) -> Option<&str> {
+        self.browser.product.as_deref()
     }
 
     /// Its Session's proxy, if it has one.

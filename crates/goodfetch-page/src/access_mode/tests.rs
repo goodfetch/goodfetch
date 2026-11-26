@@ -7,6 +7,7 @@
 )]
 
 use goodfetch_engine::settings::{Layers, Resolved, Values, resolve as resolve_settings};
+use goodfetch_identity_profile::{EngineFamily, IdentitySeed};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -15,7 +16,7 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use super::{
-    AccessMode, BrowserFamily, ChromiumBuild, FingerprintMethod, MethodSource, Refusal,
+    AccessMode, BrowserFamily, ChromiumBuild, FingerprintMethod, HOST_OS, MethodSource, Refusal,
     RuntimeDomain, SessionIdentityPlan, SessionSettings, SigningPlan, StealthProfile, Unbuilt,
     resolve,
 };
@@ -68,6 +69,7 @@ fn identified(layer: SettingsLayer, key_layer: SettingsLayer) -> SessionIdentity
 /// changes them; its Fingerprint method, left unset, falls back to `basic`.
 fn stealth(layer: SettingsLayer, set: impl FnOnce(&mut StealthProfile)) -> SessionIdentityPlan {
     let mut profile = StealthProfile {
+        family: EngineFamily::Chromium,
         fingerprint_method: FingerprintMethod::Basic,
         method_source: MethodSource::FellBack,
         generated_identity: true,
@@ -95,6 +97,15 @@ fn chosen(method: FingerprintMethod) -> impl FnOnce(&mut StealthProfile) {
     move |profile| {
         profile.fingerprint_method = method;
         profile.method_source = MethodSource::Set(RUN);
+    }
+}
+
+/// A profile `set` changes, whose identity is drawn from Firefox's
+/// population.
+fn on_firefox(set: impl FnOnce(&mut StealthProfile)) -> impl FnOnce(&mut StealthProfile) {
+    move |profile| {
+        set(profile);
+        profile.family = EngineFamily::Firefox;
     }
 }
 
@@ -167,7 +178,7 @@ const NOTHING: Value = Value::Null;
 #[case::identified_at_an_installed_browser_import(json!({}), json!({ "browser": { "access_mode": "identified" } }), json!({}), json!({ "kind": "installed_browser", "browser": "edge", "domains": ["example.com"] }), BrowserFamily::Chromium, Err(Refusal::IdentifiedAt { layer: RUN, source: "installed_browser" }))]
 #[case::identified_on_a_profile_directory(json!({ "browser": { "access_mode": "identified" } }), json!({}), json!({}), json!({ "kind": "profile_directory", "path": "/profile", "browser": "chrome", "domains": ["example.com"] }), BrowserFamily::Chromium, Err(Refusal::IdentifiedAt { layer: RUN, source: "profile_directory" }))]
 #[case::stealth_at_an_import(json!({ "browser": { "access_mode": "stealth" } }), json!({}), json!({}), json!({ "kind": "state_file", "path": "state.json" }), BrowserFamily::Chromium, Ok(stealth(RUN, defaults)))]
-#[case::stealth_on_a_firefox_profile_directory(json!({ "stealth": { "fingerprint_method": "engine" } }), json!({}), json!({}), json!({ "kind": "profile_directory", "path": "/profile", "browser": "firefox", "domains": ["example.com"] }), BrowserFamily::Firefox, Ok(stealth(RUN, chosen(FingerprintMethod::Engine))))]
+#[case::stealth_on_a_firefox_profile_directory(json!({ "stealth": { "fingerprint_method": "engine" } }), json!({}), json!({}), json!({ "kind": "profile_directory", "path": "/profile", "browser": "firefox", "domains": ["example.com"] }), BrowserFamily::Firefox, Ok(stealth(RUN, on_firefox(chosen(FingerprintMethod::Engine)))))]
 #[case::stealth_on_webkit(json!({ "browser": { "access_mode": "stealth" } }), json!({}), json!({}), json!({ "kind": "installed_browser", "browser": "safari", "domains": ["example.com"] }), BrowserFamily::WebKit, Err(Refusal::StealthOnWebKit { layer: RUN }))]
 #[case::an_inherited_fingerprint_method_on_webkit(json!({}), json!({}), json!({ "stealth": { "fingerprint_method": "basic" } }), json!({ "kind": "profile_directory", "path": "/profile", "browser": "safari", "domains": ["example.com"] }), BrowserFamily::WebKit, Err(Refusal::StealthOnWebKit { layer: USER }))]
 #[case::standard_on_webkit(json!({}), json!({}), json!({}), json!({ "kind": "installed_browser", "browser": "safari", "domains": ["example.com"] }), BrowserFamily::WebKit, Ok(standard(SettingsLayer::Default)))]
@@ -251,8 +262,8 @@ fn a_session_runs_on_its_sources_browser_family(
 /// one, but for the effects this engine does not build yet, each refused
 /// with `capability_unavailable` (ADR 0083) in the layer that set it, or
 /// the default's when `stealth` turns it on: the `engine` Fingerprint
-/// method, a generated identity and what it is drawn from, human-like
-/// input, a chosen Chromium build and a headful browser.
+/// method, human-like input, a chosen Chromium build and a headful
+/// browser. A generated identity and what it is drawn from open.
 ///
 /// Covers: setting:stealth.fingerprint_method, setting:stealth.generated_identity, setting:stealth.human_input, setting:stealth.identity.os, setting:stealth.chromium_build
 #[rstest]
@@ -262,9 +273,9 @@ fn a_session_runs_on_its_sources_browser_family(
 #[case::stealth_with_a_method_set(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "js_injection","generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": false } }), json!({}), Ok(()))]
 #[case::the_engine_method(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "engine", "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::EngineUnavailable { layer: RUN }))]
 #[case::the_engine_method_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "fingerprint_method": "engine" } }), Err(Refusal::EngineUnavailable { layer: USER }))]
-#[case::a_generated_identity_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "human_input": false } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::UnbuiltItem { key: "stealth.generated_identity", layer: SettingsLayer::Default, item: Unbuilt::On }))]
+#[case::a_generated_identity_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "human_input": false } }), json!({ "browser": { "headless": true } }), json!({}), Ok(()))]
 #[case::human_input_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "human_input": true } }), Err(Refusal::UnbuiltItem { key: "stealth.human_input", layer: USER, item: Unbuilt::On }))]
-#[case::an_identity_os(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false, "identity": { "os": ["windows"] } } }), json!({ "browser": { "headless": true } }), json!({}), Err(Refusal::UnbuiltItem { key: "stealth.identity.os", layer: RUN, item: Unbuilt::Set }))]
+#[case::what_an_identity_is_drawn_from(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "basic", "human_input": false, "identity": { "os": ["windows"], "device": ["desktop"], "brand": ["edge"] } } }), json!({ "browser": { "headless": true } }), json!({}), Ok(()))]
 #[case::a_chromium_build_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "chromium_build": "clearcote" } }), Err(Refusal::UnbuiltItem { key: "stealth.chromium_build", layer: USER, item: Unbuilt::Set }))]
 #[case::a_headful_browser_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({}), json!({}), Err(Refusal::UnbuiltItem { key: "browser.headless", layer: SettingsLayer::Default, item: Unbuilt::Headful }))]
 fn only_what_this_engine_builds_opens(
@@ -300,16 +311,16 @@ fn an_identity_outside_the_population_is_refused(
 ) {
     let own = values(
         SettingsLayer::Run,
-        &json!({ "browser": { "access_mode": "stealth" }, "stealth": { "identity": identity } }),
+        &json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "basic", "identity": identity } }),
     );
     let resolved = run(&user, &json!({}));
     let settings = SessionSettings::new(&own, Some(&resolved));
 
     let error = resolve(&settings, None, family)
         .expect("the Session resolves")
-        .narrowing(family)
+        .narrowing()
         .expect("its identity is narrowed")
-        .drawn()
+        .identity(IdentitySeed(0))
         .expect_err("the population draws nothing from it");
 
     let refusal = Refusal::outside_population(&settings, &error);
@@ -318,4 +329,51 @@ fn an_identity_outside_the_population_is_refused(
             if *refused == key && *at == layer && !reason.is_empty()),
         "{refusal:?}"
     );
+}
+
+/// A `stealth` Session draws its Identity profile from what its
+/// `stealth.identity.*` values narrow the population to, and draws none
+/// with `stealth.generated_identity` off; one that falls back to `basic`
+/// keeps the machine's operating system (#599's Q5), and is refused a
+/// `stealth.identity.os` that leaves it out.
+///
+/// Covers: story:8-36, setting:stealth.generated_identity, setting:stealth.identity.os
+#[rstest]
+#[case::the_os_set(json!({ "fingerprint_method": "basic", "identity": { "os": ["windows"] } }), Ok(Some("windows")))]
+#[case::the_fallback(json!({}), Ok(Some(HOST_OS)))]
+#[case::the_fallback_among_the_os_set(json!({ "identity": { "os": ["android", HOST_OS] } }), Ok(Some(HOST_OS)))]
+#[case::no_generated_identity(json!({ "generated_identity": false, "identity": { "os": ["windows"] } }), Ok(None))]
+#[case::the_fallback_outside_the_os_set(json!({ "identity": { "os": ["android"] } }), Err("stealth.identity.os"))]
+fn a_stealth_session_draws_its_identity_from_its_narrowing(
+    #[case] mut stealth: Value,
+    #[case] expected: Result<Option<&str>, &str>,
+) {
+    // What this engine does not build yet is left off.
+    stealth["human_input"] = json!(false);
+    let own = values(
+        SettingsLayer::Run,
+        &json!({ "browser": { "access_mode": "stealth", "headless": true }, "stealth": stealth }),
+    );
+    let settings = SessionSettings::new(&own, None);
+
+    let drawn = resolve(&settings, None, BrowserFamily::Chromium)
+        .expect("the Session resolves")
+        .built(&settings)
+        .map(|plan| {
+            plan.narrowing().map(|narrowing| {
+                narrowing
+                    .identity(IdentitySeed(3))
+                    .expect("the population draws a browser")
+                    .os
+                    .as_str()
+            })
+        });
+
+    match (drawn, expected) {
+        (Ok(os), Ok(expected)) => assert_eq!(os, expected),
+        (Err(Refusal::IdentityOutsidePopulation { key, layer, .. }), Err(expected)) => {
+            assert_eq!((key, layer), (expected, RUN));
+        }
+        (drawn, expected) => panic!("{drawn:?} where {expected:?} was expected"),
+    }
 }

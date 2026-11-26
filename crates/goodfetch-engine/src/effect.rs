@@ -55,9 +55,10 @@ use crate::client::Client;
 use crate::composition::{CallContext, Handler};
 use crate::lease::LeaseCheck;
 use crate::mask::Scope;
-use crate::run::{run_error, state_unavailable};
-use crate::run_state::{RunStateError, Syncing};
-use crate::runs::{Run, RunError, SendWindow};
+use crate::run::{run_error, state_unavailable, unwritten};
+use crate::run_identity::RunIdentity;
+use crate::run_state::{RunState, RunStateError, Syncing};
+use crate::runs::{self, Run, RunError, SendWindow};
 use crate::settings::{RunSettings, get_or_default};
 use crate::staging::{AttemptWrites, Unstaged};
 
@@ -294,7 +295,7 @@ impl Effects {
             client: context.client().clone(),
             attempt: match attempt {
                 Some(id) => Some(Attempt {
-                    writes: attempt_writes_of(&run)?,
+                    writes: attempt_writes_of(&run_id, context).await?,
                     id,
                 }),
                 None => None,
@@ -305,8 +306,9 @@ impl Effects {
             .as_ref()
             .map_or_else(String::new, |attempt| attempt.id.crawl_request_id.clone());
         let run_shelf = self.shelf(&run_id).await;
+        let identity = runs::identity(&run);
         let mut book = run_shelf
-            .free_key(&run, &namespace, &key, &owner, context)
+            .free_key(identity, &namespace, &key, &owner, context)
             .await?;
         if let Some(attempt) = &owner.attempt {
             attempt
@@ -314,7 +316,8 @@ impl Effects {
                 .begin_effect(&attempt.id.crawl_request_id, attempt.id.lease_epoch)
                 .map_err(unstaged)?;
         }
-        let answer = match declared(&run, &namespace, &key, repeatable, context).await {
+        let declaring = (identity, runs::state(&run));
+        let answer = match declared(declaring, &namespace, &key, repeatable, context).await {
             Ok(Declared::Perform { entry, secret }) => {
                 let idempotency_key = idempotency_key(&secret, &namespace, &key);
                 book.bodies.push(Body {
@@ -368,37 +371,38 @@ impl Effects {
             return Err(not_running(&entry));
         };
         let run = live(&run_id, context).await?;
+        let (identity, state) = (runs::identity(&run), runs::state(&run));
         let run_shelf = self.shelf(&run_id).await;
         let mut book = run_shelf.book.lock().await;
         let Some(at) = book.running(number) else {
             drop(book);
-            return closed_before(&run, &entry, number, context).await;
+            return closed_before((identity, state), &entry, number, context).await;
         };
         let limit: u64 = get_or_default(
-            run.settings().map(RunSettings::resolved),
+            identity.settings().map(RunSettings::resolved),
             &EFFECT_OUTPUT_MAX_SIZE,
         );
         let (event, output, oversized) = ended(outcome, limit);
         let body = book.bodies.swap_remove(at);
         let judged = match apply(body.state(), event) {
             Ok(Next::To(EffectState::Done)) => {
-                let performed_at = run.point_in_time();
-                let output =
-                    output.map(|output| run.secrets().mask().masks().json(&output, Scope::Kept));
-                run.state()
+                let performed_at = identity.point_in_time();
+                let masks = runs::keys(&run).secrets().mask().masks();
+                let output = output.map(|output| masks.json(&output, Scope::Kept));
+                state
                     .write(move |connection| {
                         done(connection, number, output.as_deref(), performed_at)
                     })
                     .await
                     .map(|()| EffectClosed::Done { performed_at })
-                    .map_err(|error| unwritten(&run, &error, context))
+                    .map_err(|error| unwritten(identity, &error, context))
             }
             Ok(Next::Dropped) => {
                 let sent = body.sent.is_some();
-                run.state()
+                state
                     .write_deferred(move |connection| drop_entry(connection, number))
                     .await
-                    .map_err(|error| unwritten(&run, &error, context))
+                    .map_err(|error| unwritten(identity, &error, context))
                     .and_then(|()| match oversized {
                         Some(size) if !sent => Err(output_invalid(&body.key, size, limit)),
                         Some(_) | None => Ok(EffectClosed::Dropped { sent }),
@@ -406,14 +410,14 @@ impl Effects {
             }
             Ok(Next::To(EffectState::Uncertain)) => {
                 let (effect, reason) = body.uncertain(&entry, event);
-                run.state()
+                state
                     .write(move |connection| turn_uncertain(connection, number, reason))
                     .await
                     .map(|()| EffectClosed::Uncertain {
                         effect,
                         cause: oversized.map(|_| EFFECT_OUTPUT_INVALID.name.to_owned()),
                     })
-                    .map_err(|error| unwritten(&run, &error, context))
+                    .map_err(|error| unwritten(identity, &error, context))
             }
             Ok(next @ (Next::To(_) | Next::Unchanged)) => Err(CallError::protocol(
                 ProtocolFailure::InternalError,
@@ -438,7 +442,7 @@ impl Effects {
     /// Marks sent, synced, every body of `run` declared through the attempt
     /// `lease` names, or outside any attempt when it names none or is
     /// `None`, that nothing was sent for yet, before `command`, which may
-    /// change a page or a site, goes out (ADR 0106's window). Writes
+    /// change a page or a site, goes out (ADR 0106's window), through `state`, its run file's writer. Writes
     /// nothing, and reads no attempt, when no body of `run` runs.
     ///
     /// # Errors
@@ -446,7 +450,7 @@ impl Effects {
     /// The mark could not be written: the command must not go out.
     async fn marked_sent(
         &self,
-        run: &Run,
+        (run, state): (&RunIdentity, &RunState),
         lease: Option<&dyn LeaseCheck>,
         command: &str,
     ) -> Result<(), RunStateError> {
@@ -471,7 +475,7 @@ impl Effects {
         let since = run.point_in_time();
         let entries: Vec<i64> = marked.iter().map(|&at| book.bodies[at].entry).collect();
         let first_command = command.to_owned();
-        run.state()
+        state
             .write_with(Syncing::Sent, move |connection| {
                 mark_sent(connection, &entries, &first_command, since)
             })
@@ -486,9 +490,9 @@ impl Effects {
     /// body of `run` whose owner still holds to be judged, at most its
     /// `timeout.close` and never past `by`, so not at all when `by` is now,
     /// or until `run` stops at once; then judges each body still running
-    /// as cut short: one that sent something is left uncertain, any other
-    /// dropped.
-    async fn settle_run(&self, run: &Run, by: Option<Instant>) {
+    /// as cut short, through `state`, its run file's writer: one that sent
+    /// something is left uncertain, any other dropped.
+    async fn settle_run(&self, (run, state): (&RunIdentity, &RunState), by: Option<Instant>) {
         let Some(run_shelf) = self.shelf_of(run.id()).await else {
             return;
         };
@@ -516,7 +520,7 @@ impl Effects {
             tokio::select! {
                 () = judged => {}
                 () = clock.sleep(HOLD_CHECK) => {}
-                () = run.cancellation().cancelled() => break,
+                () = run.owner().cancelled() => break,
                 () = &mut deadline => break,
             }
         }
@@ -529,8 +533,7 @@ impl Effects {
             return;
         }
         let written = entries.clone();
-        if let Err(error) = run
-            .state()
+        if let Err(error) = state
             .write(move |connection| interrupted(connection, &written))
             .await
         {
@@ -544,7 +547,8 @@ impl Effects {
     }
 
     /// A person's `answer` about the uncertain Effect `entry` of `run`,
-    /// recorded in the Audit log as `context`'s person's.
+    /// written through `state`, its run file's writer, and recorded in the
+    /// Audit log as `context`'s person's.
     ///
     /// # Errors
     ///
@@ -552,7 +556,7 @@ impl Effects {
     /// record the answer, which is then made.
     pub async fn reconcile(
         &self,
-        run: &Run,
+        (run, state): (&RunIdentity, &RunState),
         entry: &str,
         answer: Reconciliation,
         context: &CallContext,
@@ -569,7 +573,7 @@ impl Effects {
         let at = run.point_in_time();
         let answered = {
             let by = by.clone();
-            run.state()
+            state
                 .write(move |connection| answer_about(connection, number, answer, &by, at))
                 .await
                 .map_err(|error| unwritten(run, &error, context))?
@@ -610,12 +614,13 @@ impl Effects {
 impl SendWindow for Effects {
     fn sending<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a RunIdentity,
+        state: &'a RunState,
         lease: Option<&'a dyn LeaseCheck>,
         command: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send + 'a>> {
         Box::pin(async move {
-            self.marked_sent(run, lease, command).await.map_err(|error| {
+            self.marked_sent((run, state), lease, command).await.map_err(|error| {
                 tracing::warn!(%error, run_id = %run.id(), command, "a declared Effect's sent mark was not written: the command is not sent");
                 state_unavailable(run.id().clone(), run.folder(), &error.to_string())
             })
@@ -624,10 +629,11 @@ impl SendWindow for Effects {
 
     fn settle<'a>(
         &'a self,
-        run: &'a Run,
+        run: &'a RunIdentity,
+        state: &'a RunState,
         by: Option<Instant>,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
-        Box::pin(self.settle_run(run, by))
+        Box::pin(self.settle_run((run, state), by))
     }
 }
 
@@ -664,7 +670,7 @@ impl Shelf {
     /// call's cancellation.
     async fn free_key(
         &self,
-        run: &Run,
+        run: &RunIdentity,
         namespace: &str,
         key: &str,
         owner: &Owner,
@@ -763,9 +769,10 @@ fn checked_key(key: &str) -> Result<(), CallError> {
 }
 
 /// The journal's answer to a declaration of `key` in `namespace` of
-/// `run`, its entry written when the body is to run.
+/// `run`, its entry written through `state`, its run file's writer, when
+/// the body is to run.
 async fn declared(
-    run: &Run,
+    (run, state): (&RunIdentity, &RunState),
     namespace: &str,
     key: &str,
     repeatable: bool,
@@ -779,7 +786,7 @@ async fn declared(
         )
     })?;
     let (namespace, key) = (namespace.to_owned(), key.to_owned());
-    run.state()
+    state
         .write_deferred(move |connection| {
             declare(connection, &namespace, &key, repeatable, &candidate)
         })
@@ -841,30 +848,23 @@ fn ended(outcome: EffectOutcome, limit: u64) -> (EffectEvent, Option<Value>, Opt
 
 /// The answer to `effect.close` of `entry`, whose body no longer runs: the
 /// journal's judgment when it is done or uncertain, as for a close
-/// answered again.
+/// answered again, read through `state`, the Run's run file's writer.
 async fn closed_before(
-    run: &Run,
+    (run, state): (&RunIdentity, &RunState),
     entry: &str,
     number: i64,
     context: &CallContext,
 ) -> Result<EffectClosed, CallError> {
-    let found = run
-        .state()
-        .write_deferred(move |connection| row(connection, number))
+    state
+        .write_deferred(move |connection| {
+            row(connection, number)?
+                .map(|found| found.closed())
+                .transpose()
+        })
         .await
-        .map_err(|error| unwritten(run, &error, context))?;
-    match found {
-        Some(row) if row.state == "done" => Ok(EffectClosed::Done {
-            performed_at: row
-                .performed_at
-                .expect("invariant: the journal's CHECK keeps a done entry's time"),
-        }),
-        Some(row) if row.state == "uncertain" => Ok(EffectClosed::Uncertain {
-            effect: row.uncertain(),
-            cause: None,
-        }),
-        Some(_) | None => Err(not_running(entry)),
-    }
+        .map_err(|error| unwritten(run, &error, context))?
+        .flatten()
+        .ok_or_else(|| not_running(entry))
 }
 
 /// `invalid_params` for an `effect.close` of `entry`, which has no body
@@ -909,34 +909,28 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Run, CallError> {
         })
 }
 
-/// Where `run`'s crawl attempts stage; `invalid_params` on a Run with no
+/// Where the crawl attempts of the live Run `run_id` stage, asked of its
+/// crawl (ADR 0145): `run_not_found` once no live Run has the ID, as when
+/// its end was decided since, and `invalid_params` on a live Run with no
 /// crawl, which has no attempt.
-fn attempt_writes_of(run: &Run) -> Result<Arc<dyn AttemptWrites>, CallError> {
-    run.attempt_writes().ok_or_else(|| {
-        CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!(
-                "The Run `{}` is no crawl, so an Effect it declares takes no `attempt`: declare it without one.",
-                run.id()
-            ),
-        )
-    })
+async fn attempt_writes_of(
+    run_id: &RunId,
+    context: &CallContext,
+) -> Result<Arc<dyn AttemptWrites>, CallError> {
+    if let Some(writes) = context.attempt_staging(run_id).await {
+        return Ok(writes);
+    }
+    live(run_id, context).await?;
+    Err(CallError::protocol(
+        ProtocolFailure::InvalidParams,
+        format!(
+            "The Run `{run_id}` is no crawl, so an Effect it declares takes no `attempt`: declare it without one."
+        ),
+    ))
 }
 
 fn unstaged(unstaged: Unstaged) -> CallError {
     CallError::new(unstaged.code, unstaged.message, &unstaged.details)
-}
-
-/// The failure of a write to `run`'s state.
-fn unwritten(run: &Run, error: &RunStateError, context: &CallContext) -> CallError {
-    run_error(
-        RunError::Unavailable {
-            run_id: run.id().clone(),
-            folder: run.folder().to_owned(),
-            error: error.to_string(),
-        },
-        context,
-    )
 }
 
 /// `effect_uncertain` for `effect`.

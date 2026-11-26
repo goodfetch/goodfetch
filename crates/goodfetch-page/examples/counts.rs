@@ -2,7 +2,8 @@
 //! its default features on, a Live view viewer watching it (C6), once per
 //! feature on its paths that can be switched off, once with no viewer
 //! (C6's `no_viewer`; the other cells have none either), once with a Page
-//! check, once on a browser pool's pages (C7: a pool its scripted launcher
+//! check, once with a Route and a `page.on` listener on its page, once on a
+//! browser pool's pages (C7: a pool its scripted launcher
 //! starts, its pages opened and closed through `BrowserPages`) and once on
 //! the pool's pages of an `identified` Session, which signs each request it
 //! sends (C5, #1551), and prints what each counted as one JSON line, which `xtask counts`
@@ -76,7 +77,11 @@ const LIVE_VIEW_FRAME: &[Row] = &[
 /// must have been told to continue with a signature.
 const IDENTIFIED: &str = "identified";
 
-fn cells() -> [Cell; 8] {
+/// The cell whose Borrowed page has a Route and a `page.on` listener armed
+/// as it opens.
+const ROUTED: &str = "route_and_listener";
+
+fn cells() -> [Cell; 9] {
     [
         // The cell with a viewer: a person watches its Session through a
         // Live view channel (C6).
@@ -142,6 +147,16 @@ fn cells() -> [Cell; 8] {
             viewer: session::Viewer::Off,
             settings: session::page_check(),
             removes: &[Row::NavigationProvenanceEntries],
+            counts_none_of: &[],
+        },
+        // A Route and a `page.on` listener on the page: two more parts of
+        // the Page read its events, through its one reader (#2265).
+        Cell {
+            name: ROUTED,
+            browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
+            settings: json!({}),
+            removes: &[],
             counts_none_of: &[],
         },
         // The same documents on pages of a browser pool (C7), as Foxhound's
@@ -224,12 +239,17 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
         Value::Object(settings) => settings,
         other => panic!("a cell's settings are an object, not {other}"),
     };
+    let armed = if cell.name == ROUTED {
+        session::Armed::RouteAndListener
+    } else {
+        session::Armed::Nothing
+    };
     Counted {
         name: cell.name,
         browsers: cell.browsers,
         viewer: cell.viewer,
         session: session::counted(
-            (cell.browsers, cell.viewer),
+            (cell.browsers, armed, cell.viewer),
             home.path(),
             metrics,
             settings,
@@ -244,6 +264,7 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
 fn units(session: &session::Counted) -> Map<String, Value> {
     let mut units = Map::from_iter([
         ("commands".to_owned(), json!(session.commands)),
+        ("events".to_owned(), json!(session.events)),
         ("reads".to_owned(), json!(session.reads)),
         ("documents".to_owned(), json!(session.documents)),
         ("serializations".to_owned(), json!(session.serializations)),
@@ -256,6 +277,10 @@ fn units(session: &session::Counted) -> Map<String, Value> {
         ("checks".to_owned(), json!(session.checks)),
         ("navigations".to_owned(), json!(session.navigations)),
         ("frames".to_owned(), json!(session.frames)),
+        (
+            "attempts".to_owned(),
+            json!(session.attempts.values().sum::<u64>()),
+        ),
     ]);
     units.extend(
         session

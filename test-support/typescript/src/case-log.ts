@@ -107,11 +107,6 @@ export function hostRuntime(): string {
   return `node-${process.versions.node.split(".")[0]}`;
 }
 
-/** The runtime a Playwright test runs on: its browser and the browser's major version, such as `chromium-141`. */
-export function browserRuntime(browserName: string, version: string): string {
-  return `${browserName}-${version.split(".")[0] ?? ""}`;
-}
-
 /** What a test recorded of the case it runs, which the reporter reads from the test's meta. */
 export interface CaseRecording {
   readonly checks: CaseCheck[];

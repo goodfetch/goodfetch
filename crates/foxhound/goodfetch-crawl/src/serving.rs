@@ -8,8 +8,9 @@
 //! reach the live crawl's Run state through it too, over the mailbox of
 //! the delivery loop that owns it (ADR 0142), while its intake is open: a
 //! crawl about to end closes it ([`Intake`]). Each
-//! live crawl's attempts stage their outputs in its staging, which its Run
-//! also takes the Key-value store writes made through an attempt in, and
+//! live crawl's attempts stage their outputs in its staging, which the
+//! engine also stages the Key-value store writes made through an attempt
+//! in, asking these live crawls by Run ID ([`AttemptStaging`]), and
 //! check each Record they push or commit against its Datasets, read and
 //! built once as it opened (ADR 0138).
 
@@ -19,13 +20,16 @@ use std::sync::Arc;
 use goodfetch_dataset::Datasets;
 use goodfetch_engine::CallContext;
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::{RunSettings, get_or_default};
+use goodfetch_engine::staging::{AttemptStaging, AttemptWrites, StagingOf};
 use goodfetch_protocol::foxhound::crawl::CRAWL_MAX_STAGED_ENQUEUES;
+use goodfetch_protocol::foxhound::search::DATASET_SEARCH_INDEX;
 use goodfetch_protocol::foxhound::settings::DATASET_RECORDS;
 use goodfetch_protocol::run::RunId;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
+use crate::crawl_run::CrawlRun;
 use crate::intake::Intake;
 use crate::invariants::Invariants;
 use crate::run_state::{self, Asked, Asking};
@@ -44,7 +48,7 @@ pub(crate) struct Server {
 /// A live crawl: its Run, the way in for Connections that join it, and
 /// how other tasks ask its Run state.
 struct Live {
-    run: Run,
+    run: Arc<CrawlRun>,
     egress: Arc<Policy>,
     invariants: Invariants,
     joining: mpsc::Sender<Server>,
@@ -57,8 +61,8 @@ struct Live {
 /// its Run, the domain policy its Frontier judges each URL by, and how it
 /// asks the crawl's Run state.
 pub(crate) struct LiveCrawl {
-    /// The crawl's Run.
-    pub(crate) run: Run,
+    /// The crawl's record of its Run.
+    pub(crate) run: Arc<CrawlRun>,
     /// The Run's domain policy.
     pub(crate) egress: Arc<Policy>,
     /// What each of its admissions reads, built once.
@@ -106,8 +110,18 @@ pub(crate) struct Crawls(Arc<Mutex<BTreeMap<RunId, Live>>>);
 
 /// Whether the crawl `run` keeps Records, its `dataset.records` (ADR 0138):
 /// off, it checks and commits none.
-pub(crate) fn keeps_records(run: &Run) -> bool {
+pub(crate) fn keeps_records(run: &RunIdentity) -> bool {
     get_or_default(run.settings().map(RunSettings::resolved), &DATASET_RECORDS)
+}
+
+/// Whether the crawl `run` indexes the Records it keeps for full-text
+/// search, its `dataset.search.index` (ADR 0138): off, it writes no index
+/// row.
+fn indexes_records(run: &RunIdentity) -> bool {
+    get_or_default(
+        run.settings().map(RunSettings::resolved),
+        &DATASET_SEARCH_INDEX,
+    )
 }
 
 impl Crawls {
@@ -118,25 +132,25 @@ impl Crawls {
     /// each arrives.
     pub(crate) async fn open(
         &self,
-        run: &Run,
+        run: &Arc<CrawlRun>,
         egress: Policy,
         invariants: Invariants,
         datasets: Datasets,
     ) -> Opened {
-        let datasets = datasets.keeping_records(keeps_records(run));
+        let identity = &run.identity;
+        let datasets = datasets.keeping_records(keeps_records(identity), indexes_records(identity));
         let (joining, joined) = mpsc::channel(JOINING);
-        let (asking, asked) = run_state::mailbox(run.metrics().counted_work().clone());
+        let (asking, asked) = run_state::mailbox(identity.metrics().counted_work().clone());
         let staging = Staging::bounded(get_or_default(
-            run.settings().map(RunSettings::resolved),
+            identity.settings().map(RunSettings::resolved),
             &CRAWL_MAX_STAGED_ENQUEUES,
         ));
-        run.stage_attempt_writes_through(Arc::new(staging.clone()));
         let egress = Arc::new(egress);
         let intake = Intake::default();
         self.0.lock().await.insert(
-            run.id().clone(),
+            identity.id().clone(),
             Live {
-                run: run.clone(),
+                run: Arc::clone(run),
                 egress: Arc::clone(&egress),
                 invariants: invariants.clone(),
                 joining,
@@ -160,7 +174,7 @@ impl Crawls {
     /// What adds to the live crawl `run_id`, if this engine runs it.
     pub(crate) async fn live(&self, run_id: &RunId) -> Option<LiveCrawl> {
         self.0.lock().await.get(run_id).map(|live| LiveCrawl {
-            run: live.run.clone(),
+            run: Arc::clone(&live.run),
             egress: Arc::clone(&live.egress),
             invariants: live.invariants.clone(),
             asking: live.asking.clone(),
@@ -191,5 +205,22 @@ impl Crawls {
         let joining = self.0.lock().await.get(run_id)?.joining.clone();
         joining.send(Server { context, left }).await.ok()?;
         Some(stays)
+    }
+}
+
+impl AttemptStaging for Crawls {
+    /// The staging of the live crawl `run_id`, while its Run's end is not
+    /// decided: a crawl is closed only after its delivery ended its Run,
+    /// or never when its delivery is cancelled, and a write staged once
+    /// `Runs::live` no longer finds the Run answers `run_not_found`.
+    fn staging_of<'a>(&'a self, run_id: &'a RunId) -> StagingOf<'a> {
+        Box::pin(async move {
+            let crawls = self.0.lock().await;
+            let live = crawls
+                .get(run_id)
+                .filter(|live| !live.run.end.is_decided())?;
+            let writes: Arc<dyn AttemptWrites> = Arc::new(live.staging.clone());
+            Some(writes)
+        })
     }
 }

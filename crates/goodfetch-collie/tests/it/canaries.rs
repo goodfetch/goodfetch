@@ -35,7 +35,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::home::DaemonFile;
+use goodfetch_protocol::home::{BUG_REPORT, DaemonFile};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::MESSAGE_DEADLINE;
 use goodfetch_test_support::{
@@ -87,7 +87,10 @@ fn planting(kind: SecretKind) -> Planting {
         SecretKind::TotpSeed => Planting::Pending { ticket: 658 },
         SecretKind::OneTimeCode => Planting::Pending { ticket: 734 },
         SecretKind::HttpAuthenticationPassword => Planting::Pending { ticket: 657 },
-        SecretKind::HeaderValue => Planting::Pending { ticket: 656 },
+        SecretKind::HeaderValue => Planting::By {
+            file: "request_secrets.rs",
+            test: "a_placeholder_in_a_header_or_a_json_string_reaches_its_bound_domain_alone",
+        },
         SecretKind::CallerAnswer => Planting::Pending { ticket: 652 },
         SecretKind::ModelApiKey => Planting::Pending { ticket: 934 },
         SecretKind::WebhookSigningSecret => Planting::Pending { ticket: 666 },
@@ -96,17 +99,19 @@ fn planting(kind: SecretKind) -> Planting {
 }
 
 /// The source of each file the registry names.
-const SOURCES: [(&str, &str); 2] = [
+const SOURCES: [(&str, &str); 3] = [
     ("canaries.rs", include_str!("canaries.rs")),
     ("proxy.rs", include_str!("proxy.rs")),
+    ("request_secrets.rs", include_str!("request_secrets.rs")),
 ];
 
-/// What `doctor` and `doctor --json` print, stdout then stderr, in `env`
-/// with `variables` set as the Run's engine had them: an output each
-/// Secret canary planted in a Run is searched in (#1206).
+/// What `doctor` and `doctor --json --include-urls` print, stdout then
+/// stderr, each followed by the bug-report file it wrote, in `env` with
+/// `variables` set as the Run's engine had them: an output each Secret
+/// canary planted in a Run is searched in (#1206, spec #564).
 pub(crate) fn doctor_output(env: &TestEnv, variables: &[(&str, &str)]) -> Vec<u8> {
     let mut bytes = Vec::new();
-    for arguments in [&["doctor"][..], &["doctor", "--json"]] {
+    for arguments in [&["doctor"][..], &["doctor", "--json", "--include-urls"]] {
         let output = variables
             .iter()
             .fold(
@@ -117,6 +122,7 @@ pub(crate) fn doctor_output(env: &TestEnv, variables: &[(&str, &str)]) -> Vec<u8
             .unwrap();
         bytes.extend_from_slice(output.stdout.as_bytes());
         bytes.extend_from_slice(output.stderr.as_bytes());
+        bytes.extend(std::fs::read(env.home().join(BUG_REPORT)).unwrap());
     }
     bytes
 }

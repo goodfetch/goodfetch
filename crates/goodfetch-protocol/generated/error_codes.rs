@@ -73,7 +73,7 @@ impl ErrorCode {
 
     /// `cdp_url_not_allowed`, in the `refused` group, not retryable.
     ///
-    /// A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.
+    /// A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or from any Client of an Exposed Daemon, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.
     pub const CDP_URL_NOT_ALLOWED: Self = ErrorCode::from_static("cdp_url_not_allowed");
 
     /// `cdp_url_not_browser`, in the `program` group, not retryable.
@@ -221,6 +221,16 @@ impl ErrorCode {
     /// Windows refused to start the file: Smart App Control, or another App Control policy, blocks executables without a signature or reputation it trusts. Goodfetch never re-signs a file it did not build. For a browser, use the Goodfetch Chromium or an installed Chrome by channel; otherwise turn Smart App Control off, or ask the device's administrator to allow the file.
     pub const EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL: Self = ErrorCode::from_static("executable_blocked_by_smart_app_control");
 
+    /// `extract_handler_failed`, in the `program` group, not retryable.
+    ///
+    /// The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one.
+    pub const EXTRACT_HANDLER_FAILED: Self = ErrorCode::from_static("extract_handler_failed");
+
+    /// `extractor_unavailable`, in the `unavailable` group, retryable.
+    ///
+    /// No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again.
+    pub const EXTRACTOR_UNAVAILABLE: Self = ErrorCode::from_static("extractor_unavailable");
+
     /// `file_write_failed`, in the `unavailable` group, not retryable.
     ///
     /// The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.
@@ -336,9 +346,9 @@ impl ErrorCode {
     /// The page's renderer crashed, or its browser process was lost while the call ran; `browser_exit` says how the browser ended when it is what was lost. The page is gone: open another.
     pub const PAGE_CRASHED: Self = ErrorCode::from_static("page_crashed");
 
-    /// `page_events_lost`, in the `unavailable` group, not retryable.
+    /// `page_events_lost`, in the `unavailable` group, retryable.
     ///
-    /// Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.
+    /// Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.
     pub const PAGE_EVENTS_LOST: Self = ErrorCode::from_static("page_events_lost");
 
     /// `page_function_failed`, in the `program` group, not retryable.
@@ -391,6 +401,21 @@ impl ErrorCode {
     /// The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.
     pub const PLUGIN_CRASHED: Self = ErrorCode::from_static("plugin_crashed");
 
+    /// `plugin_manifest_mismatch`, in the `unavailable` group, not retryable.
+    ///
+    /// The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved.
+    pub const PLUGIN_MANIFEST_MISMATCH: Self = ErrorCode::from_static("plugin_manifest_mismatch");
+
+    /// `plugin_protocol_unsupported`, in the `unavailable` group, not retryable.
+    ///
+    /// The Plugin and the engine share no plugin protocol version, which the reply to `hello` says before any other message. Upgrade the older side: the Plugin, or the engine.
+    pub const PLUGIN_PROTOCOL_UNSUPPORTED: Self = ErrorCode::from_static("plugin_protocol_unsupported");
+
+    /// `plugin_quarantined`, in the `unavailable` group, not retryable.
+    ///
+    /// The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one "a Plugin quarantined" Notification is sent. A later run starts it again; fix or replace the Plugin first.
+    pub const PLUGIN_QUARANTINED: Self = ErrorCode::from_static("plugin_quarantined");
+
     /// `policy_conflict`, in the `refused` group, not retryable.
     ///
     /// The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.
@@ -420,6 +445,16 @@ impl ErrorCode {
     ///
     /// The Session's proxy could not be reached, its TLS failed, or it refused the tunnel or the request with an error of its own: the details name the proxy, never its credentials, and the browser's network error when it named one. It is the proxy's failure, never the site's and never `navigation_failed`: retry later, or through another proxy.
     pub const PROXY_UNAVAILABLE: Self = ErrorCode::from_static("proxy_unavailable");
+
+    /// `recipe_invalid`, in the `program` group, not retryable.
+    ///
+    /// A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.
+    pub const RECIPE_INVALID: Self = ErrorCode::from_static("recipe_invalid");
+
+    /// `replay_not_allowed`, in the `program` group, not retryable.
+    ///
+    /// A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.
+    pub const REPLAY_NOT_ALLOWED: Self = ErrorCode::from_static("replay_not_allowed");
 
     /// `resources_exhausted`, in the `unavailable` group, not retryable.
     ///
@@ -483,7 +518,7 @@ impl ErrorCode {
 
     /// `run_live`, in the `program` group, not retryable.
     ///
-    /// The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.
+    /// The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.
     pub const RUN_LIVE: Self = ErrorCode::from_static("run_live");
 
     /// `run_not_found`, in the `program` group, not retryable.
@@ -516,6 +551,21 @@ impl ErrorCode {
     /// The sample operation refused the text.
     pub const SAMPLE_REFUSED: Self = ErrorCode::from_static("sample_refused");
 
+    /// `schedule_exists`, in the `program` group, not retryable.
+    ///
+    /// A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.
+    pub const SCHEDULE_EXISTS: Self = ErrorCode::from_static("schedule_exists");
+
+    /// `schedule_not_found`, in the `program` group, not retryable.
+    ///
+    /// No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.
+    pub const SCHEDULE_NOT_FOUND: Self = ErrorCode::from_static("schedule_not_found");
+
+    /// `schedule_trigger_invalid`, in the `program` group, not retryable.
+    ///
+    /// The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.
+    pub const SCHEDULE_TRIGGER_INVALID: Self = ErrorCode::from_static("schedule_trigger_invalid");
+
     /// `schema_validator_failed`, in the `program` group, not retryable.
     ///
     /// A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.
@@ -545,6 +595,11 @@ impl ErrorCode {
     ///
     /// The Run is bound to the machine its Session source is on, and this is another machine: its login would reach sites from a new IP under the same cookies. Resume it on its own machine, or serve its Session source through a Browser host.
     pub const SESSION_BOUND_TO_MACHINE: Self = ErrorCode::from_static("session_bound_to_machine");
+
+    /// `session_export_open_failed`, in the `program` group, not retryable.
+    ///
+    /// A session export bundle, encrypted with age to a public key or a passphrase, did not open under the Secret reference given as its `key`: the value opens none of its recipients, is no age identity where the bundle was sealed to a public key, or the file is no bundle, asks more scrypt work than an import does, or holds more than the engine reads. `failure` says which, and the details name the reference, never its value. Give the reference of the identity or passphrase the bundle was exported to, or export it again.
+    pub const SESSION_EXPORT_OPEN_FAILED: Self = ErrorCode::from_static("session_export_open_failed");
 
     /// `setting_invalid`, in the `program` group, not retryable.
     ///
@@ -602,5 +657,5 @@ impl ErrorCode {
     pub const VALUE_INVALID: Self = ErrorCode::from_static("value_invalid");
 
     /// Every Error code of Collie's catalog, in the catalog's order.
-    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LIVE_VIEW_VIEWER_LIMIT, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::MODEL_UNAVAILABLE, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SCHEMA_VALIDATOR_FAILED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
+    pub const COLLIE: &[Self] = &[Self::ADDRESS_FAMILY_UNAVAILABLE, Self::ARTIFACT_DOWNLOAD_FAILED, Self::ARTIFACT_UNAVAILABLE_OFFLINE, Self::BLOCKED, Self::BODY_NOT_FOUND, Self::BODY_UNAVAILABLE, Self::BROWSER_HOST_OUTDATED, Self::BROWSER_HOST_UNREACHABLE, Self::BROWSER_LAUNCH_FAILED, Self::BROWSER_NEEDS_GUI_SESSION, Self::BROWSER_NOT_INSTALLED, Self::BROWSER_SANDBOX_UNAVAILABLE, Self::CALL_CANCELLED, Self::CAPABILITY_UNAVAILABLE, Self::CDP_URL_NOT_ALLOWED, Self::CDP_URL_NOT_BROWSER, Self::CDP_URL_UNAUTHORIZED, Self::CDP_URL_UNREACHABLE, Self::CERTIFICATE_CHANGED, Self::CERTIFICATE_INVALID, Self::CHALLENGE_UNSOLVED, Self::CHECKPOINT_BEHIND, Self::CLOSED, Self::CONFINEMENT_UNAVAILABLE, Self::CONNECTION_FORKED, Self::CONNECTION_LOST, Self::CONNECTION_OVERLOADED, Self::DAEMON_DRAINING, Self::DAEMON_UNREACHABLE, Self::DEADLINE_EXCEEDED, Self::DETACH_UNSUPPORTED, Self::DIALOG_ALREADY_HANDLED, Self::EDGE_HANDLERS_UNSUPPORTED, Self::EFFECT_KEY_INVALID, Self::EFFECT_KEY_REUSED, Self::EFFECT_OUTPUT_INVALID, Self::EFFECT_UNCERTAIN, Self::EGRESS_REFUSED, Self::ENGINE_EXITED, Self::ENGINE_NOT_FOUND, Self::ENGINE_OUTPUT_INVALID, Self::ENGINE_PANICKED, Self::EVENT_LOOP_MISMATCH, Self::EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL, Self::EXTRACT_HANDLER_FAILED, Self::EXTRACTOR_UNAVAILABLE, Self::FILE_WRITE_FAILED, Self::FORMAT_VERSION_UNSUPPORTED, Self::HEADER_VALUE_INVALID, Self::HOOK_FAILED, Self::INTERNAL, Self::LIMIT_NOT_UNDERSTOOD, Self::LIMIT_RAISE_REFUSED, Self::LIMIT_REACHED, Self::LISTENER_EVENTS_LOST, Self::LISTENER_FAILED, Self::LOCAL_ADDRESS_UNAVAILABLE, Self::LOGGED_OUT, Self::MODEL_UNAVAILABLE, Self::NAME_LOOKUP_FAILED, Self::NAME_NOT_RESOLVED, Self::NAVIGATION_FAILED, Self::NAVIGATION_INTERRUPTED, Self::NOT_A_DAEMON, Self::NOT_IN_PRODUCT, Self::NOT_VERIFIED, Self::PAGE_CHECK_FAILED, Self::PAGE_CRASHED, Self::PAGE_EVENTS_LOST, Self::PAGE_FUNCTION_FAILED, Self::PAGE_HANDLER_FAILED, Self::PAGE_MEMORY_EXCEEDED, Self::PAGE_NAVIGATED_DURING_CALL, Self::PAGE_VALUE_INVALID, Self::PATH_NOT_WRITABLE, Self::PATH_UNSAFE, Self::PATTERN_UNSUPPORTED, Self::PERSON_REQUIRED, Self::PLUGIN_CRASHED, Self::PLUGIN_MANIFEST_MISMATCH, Self::PLUGIN_PROTOCOL_UNSUPPORTED, Self::PLUGIN_QUARANTINED, Self::POLICY_CONFLICT, Self::PROTOCOL_VERSION_UNSUPPORTED, Self::PROXY_AUTH_FAILED, Self::PROXY_PROVIDER_UNAVAILABLE, Self::PROXY_RELAY_UNAVAILABLE, Self::PROXY_UNAVAILABLE, Self::RECIPE_INVALID, Self::REPLAY_NOT_ALLOWED, Self::RESOURCES_EXHAUSTED, Self::RESPONSE_LIMIT_EXCEEDED, Self::RESPONSE_NOT_JSON, Self::RESPONSE_TRUNCATED, Self::ROUTE_ALREADY_HANDLED, Self::RUN_BUSY, Self::RUN_CONFLICT, Self::RUN_ENDED, Self::RUN_ID_INVALID, Self::RUN_IN_USE, Self::RUN_INTERRUPTED, Self::RUN_KEY_MISMATCH, Self::RUN_LIVE, Self::RUN_NOT_FOUND, Self::RUN_NOT_OWNED, Self::RUN_STATE_FILESYSTEM_UNSUPPORTED, Self::RUN_STATE_UNAVAILABLE, Self::RUN_TARGET_UNBUILT, Self::SAMPLE_REFUSED, Self::SCHEDULE_EXISTS, Self::SCHEDULE_NOT_FOUND, Self::SCHEDULE_TRIGGER_INVALID, Self::SCHEMA_VALIDATOR_FAILED, Self::SECRET_DOMAIN_NOT_ALLOWED, Self::SECRET_INPUT_REFUSED, Self::SECRET_UNAVAILABLE, Self::SECRET_UNBOUND, Self::SESSION_BOUND_TO_MACHINE, Self::SESSION_EXPORT_OPEN_FAILED, Self::SETTING_INVALID, Self::SETTING_LOCKED, Self::SETTING_NOT_APPLICABLE, Self::SETTING_UNKNOWN, Self::SITE_PREFERENCES_REFUSED, Self::SKILL_INSTALL_REFUSED, Self::TARGET_NOT_UNIQUE, Self::TOO_MANY_CALLS, Self::TOO_MANY_REDIRECTS, Self::UPGRADE_SOURCE_UNSUPPORTED, Self::VALUE_INVALID];
 }

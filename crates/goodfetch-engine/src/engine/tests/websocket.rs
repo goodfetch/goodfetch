@@ -41,7 +41,7 @@ fn address() -> SocketAddr {
 pub(super) fn exposed() -> DaemonOptions {
     DaemonOptions {
         endpoint: DaemonEndpoint::Tcp(address()),
-        websocket: Some(Authorities::loopback(address())),
+        websocket: Some(Authorities::loopback(address()).into()),
         ..daemon_options(true, &no_handover())
     }
 }
@@ -362,7 +362,7 @@ fn a_message_longer_than_the_limit_is_answered_message_too_large_and_the_websock
             websocket.send(&[token_hello()]).await;
             let _ = websocket.next().await;
             let (mut sink, mut stream) = websocket.0.split();
-            let oversized = "x".repeat(crate::rpc::framing::MAX_MESSAGE_BYTES + 1);
+            let oversized = "x".repeat(crate::framing::MAX_MESSAGE_BYTES + 1);
             let read = async {
                 let mut messages = Vec::new();
                 while let Some(Ok(message)) = stream.next().await {

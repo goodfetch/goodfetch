@@ -25,6 +25,70 @@
 previous = "c20e03c8ce403cea6572374b31e081f49d990fb6"
 
 [[announced]]
+entry = "collie settings security.audit_chain"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.field_encryption"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.raw_cdp_egress_proxy"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.redaction"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.resolved_ip_check"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "collie settings security.secure_delete"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.audit_chain"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.field_encryption"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.raw_cdp_egress_proxy"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.redaction"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.resolved_ip_check"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "foxhound settings security.secure_delete"
+reason = "A Recipe and a Client acting for a model no longer switch a security control off (the owner's answer of 2026-11-10, issue 2445): their `false` is `setting_locked`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated CollieOperationTypes"
+reason = "The Schedule operations join Collie's catalog, `schedule.create`, `schedule.list`, `schedule.get`, `schedule.info` and `schedule.delete` (issue 854): a type that implements every operation's params and result needs their members."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client Connection"
+reason = "A Connection reaches its Schedules, `connection.schedules` (issue 854): a type that implements `Connection` needs the member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie Connection"
+reason = "A Connection reaches its Schedules, `connection.schedules` (issue 854): a type that implements `Connection` needs the member."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Connection"
+reason = "A Connection reaches its Schedules, `connection.schedules` (issue 854): a type that implements `Connection` needs the member."
+
+[[announced]]
 entry = "python goodfetch_collie_client.generated.handles AsyncPage"
 reason = "A page carries the Session that opened it, so `page.session` answers without a call (issue 3585): the SDK opens a page with its Session's ID, and a program never constructs one."
 
@@ -35,6 +99,10 @@ reason = "A page carries the Session that opened it, so `page.session` answers w
 [[announced]]
 entry = "typescript @goodfetch/collie-client/runtime pageOf"
 reason = "A page carries the Session that opened it, so `page.session()` answers without a call (issue 3585): `pageOf` takes the page's Session ID."
+
+[[announced]]
+entry = "rust goodfetch-collie-client method_parameter_count_changed"
+reason = "A page carries the Session that opened it, so `Page::session` answers without a call (issue 3585): `Run::page_of` takes the page's Session ID."
 
 [[announced]]
 entry = "typescript @goodfetch/collie CollieError"
@@ -171,3 +239,127 @@ reason = "The reason an enqueue gives for a URL it did not add is an open enumer
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated NotAddedReason"
 reason = "The reason an enqueue gives for a URL it did not add is an open enumeration (ADR 0079): a reason a newer engine adds reads as received instead of failing the answer (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound StartCrawlOptions"
+reason = "`seeds` takes a sitemap seed beside a request seed, its type widening from `RequestSeed` to `Seed` (issue 1471): code that reads a seed back from the options needs the sitemap seed's case."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated CrawlRequestEnqueueParams"
+reason = "`crawl_request.enqueue` names the attempt's page, `pageId`, in place of `document`, which no SDK filled: the engine reads the page's base URL itself (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated EnqueueDocument"
+reason = "`crawl_request.enqueue` no longer carries a document, so its type leaves: the engine reads the base URL of the attempt's page itself (issue 1471)."
+
+[[announced]]
+entry = "python goodfetch_foxhound.generated.models CrawlRequestEnqueueParams"
+reason = "`crawl_request.enqueue` names the attempt's page, `page_id`, in place of `document`, which no SDK filled: the engine reads the page's base URL itself (issue 1471)."
+
+[[announced]]
+entry = "python goodfetch_foxhound.generated.models EnqueueDocument"
+reason = "`crawl_request.enqueue` no longer carries a document, so its type leaves: the engine reads the base URL of the attempt's page itself (issue 1471)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Crawl"
+reason = "`crawl.dataset` takes a schema, whose input and output type the Dataset's Records, and refuses a second Dataset of one name or a key on a field the schema does not require as it is declared (issue 1486)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound CrawlContext"
+reason = "A handler's context carries its attempt's Run, `run` (issue 1486): the SDK builds a context, so a program that writes its own in place of one, such as a test's, adds it."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/runtime RunHost"
+reason = "A Run's host no longer carries the Key-value store's calls, `keyValueStore` (issue 1486): the store makes them through the host's `calls`, for its Run or for an attempt."
+
+[[announced]]
+entry = "python goodfetch_collie_client.key_value_store AsyncKeyValueStore"
+reason = "The SDK builds a store from its Run's host, and from an attempt's for a handler (issue 1486), in place of the Run's `keys` call."
+
+[[announced]]
+entry = "python goodfetch_collie_client.key_value_store KeyValueStore"
+reason = "The SDK builds a store from its Run's host, and from an attempt's for a handler (issue 1486), in place of the Run's `keys` call."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound Dataset"
+reason = "A Dataset carries its schema's output type beside its Records' input type, `Dataset<I, O = I>` (issue 1486)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundConnectOptions"
+reason = "Foxhound's connect options register the program's Fetch backends and Sinks by name (issue 3310): the options also extend `FoxhoundHandlers`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound FoxhoundConnectOverOptions"
+reason = "Foxhound's connect options register the program's Fetch backends and Sinks by name (issue 3310): the options also extend `FoxhoundHandlers`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/testing FoxhoundConnectOverOptions"
+reason = "Foxhound's connect options register the program's Fetch backends and Sinks by name (issue 3310): the options also extend `FoxhoundHandlers`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated FoxhoundOperationTypes"
+reason = "Foxhound's operation map gains full-text search in a run, `dataset.search`, and search across runs, `record.search` (ADR 0031, issue 1217): a type written to the map needs both entries."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated DEPLOYMENT_VARIABLES"
+reason = "A deployment variable joins the list, `GOODFETCH_EKS_FARGATE_PROFILE`, which names EKS on Fargate to Chromium's sandbox probe (issue 1619): the tuple type gains an element."
+
+[[announced]]
+entry = "collie error_codes page_events_lost"
+reason = "`page_events_lost` turns retryable (spec #2256, #3260): the engine now closes a page whose events it fell 4,096 behind, so the remedy is another page, as for `page_crashed` and `page_memory_exceeded`, and a listener that left 1,024 events untaken may listen again."
+
+[[announced]]
+entry = "foxhound error_codes page_events_lost"
+reason = "`page_events_lost` turns retryable (spec #2256, #3260): the engine now closes a page whose events it fell 4,096 behind, so the remedy is another page, as for `page_crashed` and `page_memory_exceeded`, and a listener that left 1,024 events untaken may listen again."
+
+[[announced]]
+entry = "collie settings content.extractor"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "foxhound settings content.extractor"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound LabelSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound PageSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound SessionSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated LabelSettings"
+reason = "`content.extractor` names any installed Extractor Plugin, the built-in `dom_smoothie` and `trafilatura` among them (ADR 0033, issue 823): the setting's value is a Plugin's name, no longer one of two."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated UsageKind"
+reason = "Two Usage kinds join the open list, `plugin_calls` and `plugin_time`, which the calls into Plugins charge (ADR 0033, issue 823): the type's closed members gain them; a program that reads any kind still reads them."

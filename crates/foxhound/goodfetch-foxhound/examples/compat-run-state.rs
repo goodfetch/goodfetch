@@ -70,7 +70,6 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use goodfetch_engine::clock::Clock;
@@ -80,13 +79,12 @@ use goodfetch_engine::robots_txt::Answer;
 use goodfetch_engine::run_files::FileKind;
 use goodfetch_engine::run_key::{self, StoredKey, Wrapped};
 use goodfetch_engine::run_state::{Durability, RunState, RunStateOptions};
-use goodfetch_engine::runs::{EndedBy, Start, Started};
+use goodfetch_engine::runs::{self, EndedBy, Start, Started};
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Contribution, Dependencies, Engine, Handler, Identity,
 };
-use goodfetch_fetch_tier::FetchTiers;
 use goodfetch_frontier::PageSeen;
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
@@ -113,7 +111,7 @@ const SITE_LATENCY: Duration = Duration::from_secs(1);
 fn scenario() -> Vec<Value> {
     // Every host a request of the crawls names, so that no name is looked
     // up: a lookup takes real time, which the paused clock does not keep.
-    let (fetch, network) = site::settings(&[
+    let (fetch, network) = goodfetch_memory_site::settings([
         "shop.test",
         "api.test",
         "guarded.test",
@@ -328,7 +326,7 @@ async fn keyed(params: Value, context: CallContext) -> Result<Value, CallError> 
         ),
         key_reference: "secretfile:run-state-key".to_owned(),
     };
-    run.state()
+    runs::state(&run)
         .write(move |connection| run_key::store(connection, &stored))
         .await
         .expect("the wrapped data key is kept");
@@ -354,7 +352,7 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
     let run = context.runs().live(run_id).await.expect("the Run is live");
     let secret: Vec<u8> = (0..32).map(|byte: u8| byte.wrapping_mul(53)).collect();
     let sent = params["sent"].as_str().map(str::to_owned);
-    run.state()
+    runs::state(&run)
         .write(move |connection| {
             connection.execute("INSERT INTO effect_secret (id, secret) VALUES (1, ?1)", [secret])?;
             if let Some(key) = sent {
@@ -400,7 +398,7 @@ const LEARNED: Operation = Operation {
 async fn learned(params: Value, context: CallContext) -> Result<Value, CallError> {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default()).expect("a Run ID");
     let run = context.runs().live(run_id).await.expect("the Run is live");
-    run.state()
+    runs::state(&run)
         .write(|connection| {
             let mut statement = connection.prepare(
                 "SELECT id, url FROM work_items WHERE url LIKE 'https://list.test/items%' ORDER BY position",
@@ -742,11 +740,14 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             sessions: vec!["laptop".to_owned()],
             folder: Some("runs/paused".to_owned()),
         };
-        run.warn(warning).await.expect("the warning is kept");
-        run.nothing_done(NothingDone::NothingPending)
+        let warnings = runs::warnings(&run);
+        warnings.warn(warning).await.expect("the warning is kept");
+        warnings
+            .nothing_done(NothingDone::NothingPending)
             .await
             .expect("`nothingDone` is kept");
-        run.charge_part("proxy_bytes", "datacenter", 4_096, None)
+        runs::charging(&run)
+            .charge_part("proxy_bytes", "datacenter", 4_096, None)
             .await
             .expect("the proxy bytes are counted");
         // Its program's own navigation read two origins' robots.txt
@@ -769,17 +770,19 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             ),
         ] {
             let location = url::Url::parse(location).expect("a robots.txt URL");
-            run.own_robots_txt(&location, async { Ok(answer) })
+            runs::own_robots_txt(&run)
+                .copy_or_fetch(&location, async { Ok(answer) })
                 .await
                 .expect("the copy is read");
         }
-        run.keep_file(
-            FileKind::Download,
-            "books.csv".to_owned(),
-            std::io::Cursor::new(b"title,price\nDune,9.99\n".to_vec()),
-        )
-        .await
-        .expect("the Download's file is kept");
+        runs::files(&run)
+            .keep_file(
+                FileKind::Download,
+                "books.csv".to_owned(),
+                std::io::Cursor::new(b"title,price\nDune,9.99\n".to_vec()),
+            )
+            .await
+            .expect("the Download's file is kept");
         // The Borrowed browser's Session holds its source sealed
         // under the Run's data key: one of the layout's shape
         // (version, nonce, the 90 bytes of its `cdp_url` record and
@@ -789,7 +792,7 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
         let sealed_source: Vec<u8> = std::iter::once(1_u8)
             .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
             .collect();
-        run.state()
+        runs::state(&run)
             .write(move |connection| {
                 connection
                     .execute(
@@ -970,6 +973,14 @@ fn dump_run_files(runs: &Path, folder: &Path) -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+/// The engine's fetch tiers, serving the Memory site of [`site::page`]
+/// [`SITE_LATENCY`] after each request.
+fn tiers() -> goodfetch_fetch_tier::FetchTiers {
+    goodfetch_memory_site::MemorySite::new(site::page)
+        .with_latency(SITE_LATENCY)
+        .tiers()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let folder = PathBuf::from(
         std::env::args_os()
@@ -982,8 +993,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_version: version.clone(),
         channel: Channel::CratesIo,
     };
-    let tiers = FetchTiers::serving(Arc::new(site::Site::new(SITE_LATENCY, &[])));
-    let composition = goodfetch_foxhound::composition_with(tiers).with(bound());
+    let composition = goodfetch_foxhound::composition_with(tiers()).with(bound());
     let engine = Engine::new(identity, &composition)?;
     let home = tempfile::tempdir()?;
     // The folder of the engine's own pinned version, not of the workspace's.

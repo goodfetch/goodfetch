@@ -7,6 +7,7 @@ import type { JSONValue } from "./json.ts";
 import type { RawCallOptions, RawParams } from "./raw-call.ts";
 import type { Run } from "./run.ts";
 import type { RunView } from "./run-view.ts";
+import type { Schedules } from "./schedules.ts";
 
 /** A Client's open link to one engine, through which a program reaches its Runs. */
 export interface Connection extends AsyncDisposable {
@@ -89,6 +90,11 @@ export interface Connection extends AsyncDisposable {
    * once the Connection is closed.
    */
   explainSettings(keys?: readonly string[]): Promise<SettingsExplanation>;
+  /**
+   * The Schedules of the engine's major: create, list and get each one
+   * (spec 589). Reached without a round trip.
+   */
+  readonly schedules: Schedules;
   /**
    * Closes the Connection; idempotent. Closes every Run it opened first,
    * stopping one still running, cancels the calls in flight, and stops an

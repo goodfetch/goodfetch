@@ -21,11 +21,8 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use super::scan::{Declaration, Level, Source};
-
-/// Each runner's listing file in the folder.
-const VITEST: &str = "vitest.json";
-const PLAYWRIGHT: &str = "playwright.json";
-const PYTEST: &str = "pytest.json";
+use crate::journeys::listing_file;
+use crate::runners::Runner;
 
 /// The type of a Playwright annotation that declares a Feature.
 const COVERS: &str = "covers";
@@ -33,10 +30,13 @@ const COVERS: &str = "covers";
 /// Every declaration of the listings in `folder`, of the workspace at `root`.
 pub(crate) fn read(root: &Path, folder: &Path) -> Result<Vec<Declaration>> {
     let root = Root::new(root);
+    let [vitest_file, playwright_file, pytest_file] =
+        [Runner::Vitest, Runner::Playwright, Runner::Pytest].map(listing_file);
     let mut declarations = Vec::new();
-    declarations.extend(vitest(&root, &listing(folder, VITEST)?).context(VITEST)?);
-    declarations.extend(playwright(&root, &listing(folder, PLAYWRIGHT)?).context(PLAYWRIGHT)?);
-    declarations.extend(pytest(&root, &listing(folder, PYTEST)?).context(PYTEST)?);
+    declarations.extend(vitest(&root, &listing(folder, vitest_file)?).context(vitest_file)?);
+    declarations
+        .extend(playwright(&root, &listing(folder, playwright_file)?).context(playwright_file)?);
+    declarations.extend(pytest(&root, &listing(folder, pytest_file)?).context(pytest_file)?);
     Ok(declarations)
 }
 

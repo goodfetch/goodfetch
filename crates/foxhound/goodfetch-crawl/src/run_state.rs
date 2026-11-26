@@ -48,9 +48,9 @@ use futures_util::stream::FuturesUnordered;
 
 use goodfetch_engine::admission::Waiting;
 use goodfetch_engine::governor::RunShare;
+use goodfetch_engine::ledger::{ChargeError, RunCharging, UnjournaledCharges};
 use goodfetch_engine::local_addresses::{SessionAddresses, Unavailable};
 use goodfetch_engine::run_state::{BatchRows, BatchWriter, RunStateError};
-use goodfetch_engine::runs::{ChargeError, Run, UnjournaledCharges};
 use goodfetch_fetch_tier::{Choosing, HeldPlace, HttpFrom, PooledSession, SetTier, TierChoice};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ServingSession;
@@ -593,13 +593,13 @@ impl RunState {
     /// The run file's, or an earlier claim's that failed.
     pub(crate) async fn lease(
         &mut self,
-        run: &Run,
+        charging: &RunCharging,
         charges: UnjournaledCharges,
         asked: Vec<(String, String)>,
         drawing: &Drawing<'_>,
     ) -> Result<Vec<Drawn>, StateError> {
         let leased = self.leasable(asked).await?;
-        let claim = run.queue_charged(charges, self.claim(&leased)).await?;
+        let claim = charging.queue_charged(charges, self.claim(&leased)).await?;
         if self.stored.claims_first() {
             // Each claim is in the file before its fetch, as each attempt's
             // own batch promises: one page wait (`F2.page_waits.full`).
@@ -719,7 +719,7 @@ impl RunState {
     ) -> impl FnOnce(&Connection) -> rusqlite::Result<Vec<String>> + Send + 'static {
         let claims = leased
             .iter()
-            .map(|leased| (leased.crawl_request.id.clone(), leased.lease_epoch))
+            .map(|leased| leased.attempt_key().owned())
             .collect();
         Stored::claim(claims, (self.pool.changes(), self.learned.counted()))
     }

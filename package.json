@@ -13,6 +13,7 @@
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "allure": "catalog:",
+    "jscpd": "catalog:",
     "json-schema-to-typescript": "16.0.0",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",

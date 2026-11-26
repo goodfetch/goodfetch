@@ -4,10 +4,14 @@
 //! Plugin declares one at a time.
 //!
 //! The harness stands for the engine: it starts the Plugin with the
-//! protocol's cookie, sends `hello` announcing the suite's Product, and
-//! reads the kinds and capabilities the Plugin declares. A Plugin that
-//! declares no implementation of the suite's kind is refused before any
-//! case. Every case of each capability the Plugin declares then runs in
+//! protocol's cookie, sends `hello` with the plugin protocol range it
+//! speaks, the suite's Product, a run ID and the approved manifest's network
+//! level, and reads the kinds and capabilities the Plugin declares. The
+//! answer must be the Plugin's first message, and is held to the approved
+//! manifest as the engine holds it (ADR 0066): a refusal, a `hello` that
+//! differs from the manifest, and a Plugin that declares no implementation
+//! of the suite's kind are refused before any case. Every case of each
+//! capability the Plugin declares then runs in
 //! the suite's order over the one Connection, and each case's checks and
 //! the messages it exchanged become a case log entry; a capability it does
 //! not declare is never reached, nor is any case once the Plugin closed the
@@ -16,11 +20,13 @@
 use goodfetch_protocol::case_log::CaseLogEntry;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::plugin::{
-    DeclaredKind, HELLO, PLUGIN_PROTOCOL_VERSION, PluginHelloParams, PluginHelloResult,
+    DeclaredKind, HELLO, HelloRefusal, PLUGIN_PROTOCOL, PluginHelloParams, PluginHelloResult,
+    PluginManifest, check_hello,
 };
 use goodfetch_protocol::result_document::{
     CaseCheck, ConformanceDocument, ConformanceHeader, Evidence, Target, TargetIdentity,
 };
+use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::sample::SampleStorePutResult;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -35,15 +41,25 @@ use crate::host::{RUNTIME, platform};
 use crate::proving_ground::{ProvingGround, ProvingGroundError};
 use crate::writer::{WriteError, write_document};
 
+mod extract;
+
 /// The `sample_store` kind's suite, embedded so it runs wherever the harness
 /// does.
 const SAMPLE_STORE_CASES: &str = include_str!("../../../../conformance/sample-store/cases.toml");
 
+/// The Extractor's suite, embedded the same way.
+const EXTRACT_CASES: &str = include_str!("../../../../conformance/extract/cases.toml");
+
+/// The run ID the harness's `hello` names.
+const RUN_ID: &str = "conformance";
+
 /// A process Plugin: an executable taken by path, started with these
 /// arguments and exactly this environment, to which the harness adds the
-/// plugin protocol's cookie.
+/// plugin protocol's cookie, and held to its approved manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PluginTarget {
+    /// The manifest approved for it, which its `hello` must match.
+    pub manifest: PluginManifest,
     /// The executable.
     pub executable: PathBuf,
     /// Its arguments.
@@ -80,19 +96,24 @@ impl PluginSuite {
         Self::read(SAMPLE_STORE_CASES).expect("invariant: the embedded case list is valid")
     }
 
+    /// `conformance/extract/cases.toml`: the Extractor's.
+    pub fn extract() -> Self {
+        Self::read(EXTRACT_CASES).expect("invariant: the embedded case list is valid")
+    }
+
     /// Reads a Plugin kind's case list.
     ///
     /// # Errors
     ///
     /// When the text is no case list, or a case ID names no exchange the
-    /// harness runs.
+    /// harness runs for its kind.
     pub fn read(text: &str) -> Result<Self, SuiteError> {
         let read: PluginCases = toml::from_str(text).map_err(SuiteError::Malformed)?;
         if let Some(case) = read
             .capabilities
             .iter()
             .flat_map(|capability| &capability.cases)
-            .find(|case| Case::of(&case.id).is_none())
+            .find(|case| Case::of(&read.kind, &case.id).is_none())
         {
             return Err(SuiteError::UnknownCase {
                 case: case.id.clone(),
@@ -122,6 +143,56 @@ impl PluginSuite {
     pub fn case_list(&self) -> &CaseList {
         &self.cases
     }
+
+    /// The checks of each of its cases, in its order, run against an
+    /// implementation of its kind called in process, which `answer` stands
+    /// for: given a method and its params, it answers what a process
+    /// Plugin's response would hold, `{ "result": … }` or
+    /// `{ "error": … }`. Every capability is reached: an implementation
+    /// in process fills the whole kind. So the engine's own
+    /// implementations pass the same cases as a Plugin (ADR 0129).
+    pub fn checks_in_process(
+        &self,
+        answer: impl FnMut(&str, &Value) -> Value,
+    ) -> Vec<(String, Vec<CaseCheck>)> {
+        let mut calls = InProcess(answer);
+        self.cases
+            .capabilities
+            .iter()
+            .flat_map(|capability| &capability.cases)
+            .map(|declared| {
+                let case = Case::of(&self.kind, &declared.id)
+                    .expect("invariant: a read suite names known cases");
+                let mut checks = Vec::new();
+                case.run(&mut calls, &mut checks)
+                    .expect("invariant: a call in process always answers");
+                (declared.id.clone(), checks)
+            })
+            .collect()
+    }
+}
+
+/// What a case calls: an implementation of the suite's kind, which answers
+/// each call with its response, or is gone.
+trait Calls {
+    /// The response to `method` with `params`.
+    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone>;
+}
+
+impl Calls for Connection {
+    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
+        let id = self.request(method, params)?;
+        Ok(self.answer(id)?.message)
+    }
+}
+
+/// An implementation called in process, whose answer is the response.
+struct InProcess<F>(F);
+
+impl<F: FnMut(&str, &Value) -> Value> Calls for InProcess<F> {
+    fn call(&mut self, method: &str, params: &Value) -> Result<Value, Gone> {
+        Ok((self.0)(method, params))
+    }
 }
 
 /// Why a Plugin kind's suite could not run.
@@ -137,6 +208,12 @@ pub enum PluginSuiteError {
         /// Why.
         reason: String,
     },
+    /// The Plugin sent another message before its answer to `hello`.
+    #[error("the Plugin sent {first} before its answer to `hello`")]
+    HelloNotFirst {
+        /// The first message it sent.
+        first: Value,
+    },
     /// The Plugin refused the `hello`.
     #[error("the Plugin refused `hello`: {error}")]
     HelloRefused {
@@ -149,6 +226,11 @@ pub enum PluginSuiteError {
         /// The answer.
         answer: Value,
     },
+    /// The Plugin's `hello` result is refused as the engine refuses it:
+    /// a version the harness does not speak, or a claim its approved
+    /// manifest does not make.
+    #[error(transparent)]
+    HelloNotAccepted(#[from] HelloRefusal),
     /// The Plugin declares no implementation of the suite's kind.
     #[error("the suite proves the Plugin kind `{kind}`, and the Plugin declares only {declared:?}")]
     KindUndeclared {
@@ -170,9 +252,10 @@ pub enum PluginSuiteError {
 ///
 /// # Errors
 ///
-/// When the Plugin cannot be started, does not answer `hello` with a
-/// `hello` result, or declares no implementation of the suite's kind, and
-/// when the Proving ground cannot serve its task list.
+/// When the Plugin cannot be started, does not answer `hello` first with a
+/// `hello` result its approved manifest accepts, or declares no
+/// implementation of the suite's kind, and when the Proving ground cannot
+/// serve its task list.
 pub fn run_plugin_suite(
     suite: &PluginSuite,
     target: &PluginTarget,
@@ -180,7 +263,7 @@ pub fn run_plugin_suite(
 ) -> Result<ConformanceDocument, PluginSuiteError> {
     let task_list = proving_ground.task_list()?;
     let mut connection = Connection::to_plugin(Started::plugin(target)?);
-    let (hello, declared) = match hello(&mut connection, suite) {
+    let (hello, declared) = match hello(&mut connection, suite, &target.manifest) {
         Ok(answered) => answered,
         Err(refused) => {
             connection.close();
@@ -198,8 +281,8 @@ pub fn run_plugin_suite(
             if gone.is_some() {
                 break;
             }
-            let case =
-                Case::of(&declared_case.id).expect("invariant: a read suite names known cases");
+            let case = Case::of(&suite.kind, &declared_case.id)
+                .expect("invariant: a read suite names known cases");
             let mut checks = Vec::new();
             if let Err(why) = case.run(&mut connection, &mut checks) {
                 checks.push(CaseCheck {
@@ -243,22 +326,31 @@ pub fn run_plugin_suite(
     Ok(write_document(header, &suite.cases, &log)?)
 }
 
-/// Opens the plugin protocol with `hello`, announcing the suite's Product,
-/// and finds the Plugin's declaration of the suite's kind.
+/// Opens the plugin protocol with `hello`, announcing the suite's Product
+/// and the approved manifest's network level, holds the answer, which must
+/// come first, to `approved`, and finds the Plugin's declaration of the
+/// suite's kind.
 fn hello(
     connection: &mut Connection,
     suite: &PluginSuite,
+    approved: &PluginManifest,
 ) -> Result<(PluginHelloResult, DeclaredKind), PluginSuiteError> {
     let params = serde_json::to_value(PluginHelloParams {
-        protocol_version: PLUGIN_PROTOCOL_VERSION,
+        protocol: PLUGIN_PROTOCOL,
         product: suite.product,
+        run_id: Some(RunId::parse(RUN_ID).expect("invariant: the harness's run ID is a Run ID")),
+        network_level: approved.network_level,
     })
     .expect("invariant: `hello` serializes");
     let unanswered = |why: Gone| PluginSuiteError::HelloUnanswered {
         reason: why.to_string(),
     };
     let id = connection.request(HELLO, &params).map_err(unanswered)?;
-    let answer = connection.first_answer(id).map_err(unanswered)?.message;
+    let answered = connection.first_answer(id).map_err(unanswered)?;
+    if let Some(first) = answered.others.into_iter().next() {
+        return Err(PluginSuiteError::HelloNotFirst { first });
+    }
+    let answer = answered.message;
     if let Some(error) = answer.get("error") {
         return Err(PluginSuiteError::HelloRefused {
             error: error.clone(),
@@ -270,15 +362,20 @@ fn hello(
         .ok_or_else(|| PluginSuiteError::HelloUnreadable {
             answer: answer.clone(),
         })?;
+    check_hello(PLUGIN_PROTOCOL, approved, &hello)?;
     let Some(declared) = hello
         .kinds
         .iter()
-        .find(|declared| declared.kind == suite.kind)
+        .find(|declared| declared.kind.as_str() == suite.kind)
         .cloned()
     else {
         return Err(PluginSuiteError::KindUndeclared {
             kind: suite.kind.clone(),
-            declared: hello.kinds.iter().map(|kind| kind.kind.clone()).collect(),
+            declared: hello
+                .kinds
+                .iter()
+                .map(|kind| kind.kind.as_str().to_owned())
+                .collect(),
         });
     };
     Ok((hello, declared))
@@ -287,7 +384,7 @@ fn hello(
 /// The method of the `sample_store` kind that keeps a value.
 const SAMPLE_STORE_PUT: &str = "sample_store.put";
 
-/// An exchange a Plugin kind's case runs, named by its case ID.
+/// An exchange a Plugin kind's case runs, named by its kind and case ID.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Case {
     /// `sample_store.put` under a key never used replaces nothing.
@@ -297,30 +394,42 @@ enum Case {
     /// `sample_store.put` with a field a newer engine adds is answered as
     /// without it.
     NewerField,
+    /// `extract.content` of the article page answers its main content in
+    /// the kind's shape.
+    ExtractArticle,
+    /// `extract.content` with a field a newer engine adds is answered as
+    /// without it.
+    ExtractNewerField,
 }
 
+/// The ID of each kind's case of params from a newer engine.
+const NEWER_PARAMS: &str = "params-from-a-newer-engine-are-read-without-their-unknown-field";
+
 impl Case {
-    /// The exchange `id` names.
-    fn of(id: &str) -> Option<Self> {
-        match id {
-            "a-value-under-a-new-key-replaces-nothing" => Some(Self::NewKey),
-            "a-value-under-a-kept-key-replaces-it" => Some(Self::KeptKey),
-            "params-from-a-newer-engine-are-read-without-their-unknown-field" => {
-                Some(Self::NewerField)
+    /// The exchange `id` names in the suite of `kind`.
+    fn of(kind: &str, id: &str) -> Option<Self> {
+        match (kind, id) {
+            ("sample_store", "a-value-under-a-new-key-replaces-nothing") => Some(Self::NewKey),
+            ("sample_store", "a-value-under-a-kept-key-replaces-it") => Some(Self::KeptKey),
+            ("sample_store", NEWER_PARAMS) => Some(Self::NewerField),
+            ("extract", "a-pages-main-content-is-answered-in-the-kinds-shape") => {
+                Some(Self::ExtractArticle)
             }
+            ("extract", NEWER_PARAMS) => Some(Self::ExtractNewerField),
             _ => None,
         }
     }
 
-    /// Runs the exchange, adding its checks to `checks`.
+    /// Runs the exchange against `calls`, adding its checks to `checks`.
     ///
     /// # Errors
     ///
     /// Why the Connection is gone, after which no case runs.
-    fn run(self, connection: &mut Connection, checks: &mut Vec<CaseCheck>) -> Result<(), Gone> {
+    fn run(self, calls: &mut dyn Calls, checks: &mut Vec<CaseCheck>) -> Result<(), Gone> {
+        let mut put = |params: &Value| calls.call(SAMPLE_STORE_PUT, params);
         match self {
             Self::NewKey => {
-                let answer = put(connection, &json!({ "key": "new", "value": "1" }))?;
+                let answer = put(&json!({ "key": "new", "value": "1" }))?;
                 checks.push(replaced(
                     "the value under a new key replaces nothing",
                     &answer,
@@ -328,13 +437,13 @@ impl Case {
                 ));
             }
             Self::KeptKey => {
-                let first = put(connection, &json!({ "key": "kept", "value": "1" }))?;
+                let first = put(&json!({ "key": "kept", "value": "1" }))?;
                 checks.push(replaced(
                     "the first value under the key replaces nothing",
                     &first,
                     false,
                 ));
-                let second = put(connection, &json!({ "key": "kept", "value": "2" }))?;
+                let second = put(&json!({ "key": "kept", "value": "2" }))?;
                 checks.push(replaced(
                     "the second value under the key replaces the first",
                     &second,
@@ -342,25 +451,21 @@ impl Case {
                 ));
             }
             Self::NewerField => {
-                let answer = put(
-                    connection,
-                    &json!({ "key": "newer", "value": "1", "added_in_a_minor": 1 }),
-                )?;
+                let answer = put(&json!({ "key": "newer", "value": "1", "added_in_a_minor": 1 }))?;
                 checks.push(replaced(
                     "params with a field the Plugin does not know are answered as without it",
                     &answer,
                     false,
                 ));
             }
+            Self::ExtractArticle | Self::ExtractNewerField => {
+                let newer = self == Self::ExtractNewerField;
+                let answer = calls.call(extract::METHOD, &extract::params(newer))?;
+                checks.extend(extract::checks(&answer));
+            }
         }
         Ok(())
     }
-}
-
-/// Sends `sample_store.put` with `params` and reads its answer.
-fn put(connection: &mut Connection, params: &Value) -> Result<Value, Gone> {
-    let id = connection.request(SAMPLE_STORE_PUT, params)?;
-    Ok(connection.answer(id)?.message)
 }
 
 /// The check `name`: `answer` is a `sample_store.put` result whose

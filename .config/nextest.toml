@@ -25,13 +25,15 @@ leak-timeout = { period = "200ms", result = "fail" }
 [profile.default.junit]
 path = "junit.xml"
 
-# The Quick suite: in-process tests only, marked slow after 1 s, killed at 10 s.
+# The Quick suite: in-process tests only, marked slow after 1 s, killed at 60 s
+# (10 s until 2026-11-25: under a load of 30 to 49 on 16 cores it killed healthy
+# tests, which measured speed against the rule's intent; the owner raised it).
 [profile.quick]
 default-filter = "kind(lib) | kind(bin) | kind(proc-macro)"
 retries = 0
 flaky-result = "fail"
 fail-fast = false
-slow-timeout = { period = "1s", terminate-after = 10 }
+slow-timeout = { period = "1s", terminate-after = 60 }
 leak-timeout = { period = "200ms", result = "fail" }
 
 [profile.quick.junit]
@@ -173,9 +175,11 @@ threads-required = "num-test-threads"
 # keeping every core busy. On the server at a load of 15 with six jobs, the
 # graph took 148 s up to BoringSSL's build script and 172 s more to the
 # end. It runs alone, as the soak does, under a cap of its own: a 2-vCPU
-# hosted runner takes several times that.
+# hosted runner takes several times that. The Rust starter's project
+# (story 11-275), also in the Release suite alone, builds the same graph
+# once, and runs alone under the same cap.
 [[profile.default.overrides]]
-filter = "binary_id(goodfetch-collie::it) & test(/^source_build::/)"
+filter = "binary_id(goodfetch-collie::it) & (test(/^source_build::/) | test(/^init::projects::the_rust_starter/))"
 threads-required = "num-test-threads"
 slow-timeout = { period = "60s", terminate-after = 60 }
 

@@ -11,8 +11,9 @@ use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::home::{
-    AUDIT_LOG, AUDIT_LOG_HEAD, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES, LOGS, POLITENESS_FILE,
-    RUN_INDEX, RUNS, SECRET_FILES, USAGE_LEDGER, per_major,
+    ACCOUNTS_STORE, AUDIT_LOG, AUDIT_LOG_HEAD, ENGINE_KEY_LOCK, KNOWN_CERTIFICATES, LOGS,
+    PLUGIN_INSTANCES, PLUGINS, POLITENESS_FILE, RESPONSE_CACHE, RUN_INDEX, RUNS, SECRET_FILES,
+    USAGE_LEDGER, per_major,
 };
 
 /// One user's Goodfetch data folder, and the copy of the Browser cache
@@ -69,6 +70,18 @@ impl Home {
         self.per_major(version).join(RUN_INDEX)
     }
 
+    /// The per-major Response cache's folder, which an upgrade never copies
+    /// (ADR 0046).
+    pub fn response_cache(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(RESPONSE_CACHE)
+    }
+
+    /// The per-major Accounts store's file, beside the Operator policy,
+    /// which only the Daemon of its major opens (ADR 0149).
+    pub fn accounts_store(&self, version: &ProductVersion) -> PathBuf {
+        self.per_major(version).join(ACCOUNTS_STORE)
+    }
+
     /// The per-user Usage ledger's file, outside the per-major folders, which
     /// every engine of every major and of both Products opens (ADR 0041).
     pub fn usage_ledger(&self) -> PathBuf {
@@ -120,6 +133,18 @@ impl Home {
     /// of any major and either Product, make one between them.
     pub fn engine_key_lock(&self) -> PathBuf {
         self.root.join(ENGINE_KEY_LOCK)
+    }
+
+    /// The Plugin store, outside the per-major folders, which every major
+    /// and both Products share (ADR 0033).
+    pub fn plugins(&self) -> PathBuf {
+        self.root.join(PLUGINS)
+    }
+
+    /// The folder of the running Plugin instances' own folders, outside
+    /// the per-major folders.
+    pub fn plugin_instances(&self) -> PathBuf {
+        self.root.join(PLUGIN_INSTANCES)
     }
 }
 

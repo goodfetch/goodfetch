@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::Policy;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::staging::AttemptWrites as _;
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_fetch_tier::{FetchTiers, LinksUnread, ServedLinks};
@@ -60,6 +60,7 @@ use crate::run_state::admission::{Link, LinksBatch, LinksRequest, Suspected};
 use crate::run_state::{Asking, StateError};
 use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::{Marked, Staging};
+use crate::work_items::AttemptKey;
 
 /// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
 /// on the live crawls of `crawls`, whose pages `tiers` serve.
@@ -76,20 +77,23 @@ pub(crate) fn handlers(crawls: &Crawls, tiers: &FetchTiers) -> [Handler; 2] {
     ]
 }
 
-/// The attempt a call names.
+/// The attempt a call names, in its Run.
 struct Attempt<'a> {
     run_id: &'a RunId,
-    crawl_request_id: &'a str,
-    lease_epoch: u64,
+    key: AttemptKey<&'a str>,
 }
 
 impl Attempt<'_> {
     fn ended(&self) -> CallError {
+        let AttemptKey {
+            work_item,
+            lease_epoch,
+        } = self.key;
         CallError::new(
             &ATTEMPT_ENDED,
             format!(
-                "Attempt {} of crawl request `{}` of the crawl `{}` already ended, so no link was read or enqueued.",
-                self.lease_epoch, self.crawl_request_id, self.run_id
+                "Attempt {lease_epoch} of crawl request `{work_item}` of the crawl `{}` already ended, so no link was read or enqueued.",
+                self.run_id
             ),
             &(),
         )
@@ -156,8 +160,7 @@ async fn links(
 ) -> Result<CrawlRequestLinks, CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     let Some(LiveCrawl { run, staging, .. }) = crawls.live(&params.run_id).await else {
         return Err(attempt.ended());
@@ -167,7 +170,12 @@ async fn links(
     if !staging.holds(&params.crawl_request_id, params.lease_epoch) {
         return Err(attempt.ended());
     }
-    let (served, base) = served(&tiers, &params.locator, run.metrics().counted_work()).await?;
+    let (served, base) = served(
+        &tiers,
+        &params.locator,
+        run.identity.metrics().counted_work(),
+    )
+    .await?;
     Ok(CrawlRequestLinks {
         links: served
             .elements
@@ -194,8 +202,7 @@ pub(crate) async fn enqueue_links(
 ) -> Result<EnqueuedLinks, CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     let (asking, _, batch) = prepared(&params, &crawls, &tiers).await?;
     match asking.links(batch).await {
@@ -224,8 +231,7 @@ pub(crate) async fn defer_links(
 ) -> Result<(), CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     let (_, staging, batch) = prepared(params, crawls, tiers).await?;
     match batch.defer(&staging) {
@@ -247,8 +253,7 @@ async fn prepared(
 ) -> Result<(Asking, Staging, LinksBatch), CallError> {
     let attempt = Attempt {
         run_id: &params.run_id,
-        crawl_request_id: &params.crawl_request_id,
-        lease_epoch: params.lease_epoch,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
     };
     if params.payload.is_some() && params.payloads.is_some() {
         return Err(CallError::protocol(
@@ -270,7 +275,7 @@ async fn prepared(
     // A Label the crawl does not declare adds no link, even from a page
     // with none (ADR 0093).
     invariants.payloads().declares(&params.label)?;
-    let work = run.metrics().counted_work().clone();
+    let work = run.identity.metrics().counted_work().clone();
     // Each glob compiles once for the engine, from its cache (#1896).
     let include = Patterns::cached(&work, Row::BatchCompilations, &params.include)
         .map_err(CallError::from)?;
@@ -450,7 +455,7 @@ impl Judged {
 /// or that a menu, a tab or a disclosure a person opens hides
 /// (`revealable`, followed on every tier) (ADR 0035), once that attempt
 /// committed: a discarded attempt marks nothing.
-pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) {
+pub(crate) async fn mark_suspected(trace: &RunTrace, from: &str, suspected: &[Marked]) {
     for Marked { id, url, mark } in suspected {
         let entry = serde_json::json!({
             "action": trap_links::SUSPECTED_ACTION,
@@ -459,7 +464,7 @@ pub(crate) async fn mark_suspected(run: &Run, from: &str, suspected: &[Marked]) 
             "from": from,
             "revealable": *mark == Mark::Revealable,
         });
-        if let Err(error) = run.provenance(entry).await {
+        if let Err(error) = trace.provenance(entry).await {
             tracing::warn!(%error, "a suspected trap link's Provenance entry cannot be written");
         }
     }

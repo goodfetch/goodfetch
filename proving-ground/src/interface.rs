@@ -334,3 +334,10 @@ pub const ENDPOINT_TOKEN_CANARY: CanaryShape = CanaryShape {
     tag: "token",
     hex_digits: 32,
 };
+
+/// The canary of a value a request carries in a header or a JSON body
+/// string, through a Secret placeholder.
+pub const HEADER_VALUE_CANARY: CanaryShape = CanaryShape {
+    tag: "header-value",
+    hex_digits: 16,
+};

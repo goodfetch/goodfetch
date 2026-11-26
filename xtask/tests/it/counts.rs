@@ -344,6 +344,26 @@ fn a_register_without_the_row_reaches_no_verdict() {
     assert_eq!(outcome.code, 2, "{}", outcome.stdout);
 }
 
+/// An `--executable` value with no family is refused, naming it, where it
+/// would otherwise run as though no executable were given.
+#[test]
+fn an_executable_without_its_family_is_refused_naming_it() {
+    let (workspace, _) = workspace("8", &benchmark(&[("default", 104)], false));
+    let path = workspace.path().join("benchmark.sh");
+    let path = path.display().to_string();
+
+    let outcome = workspace.xtask(&["counts", "--row", "F1.parses", "--executable", &path]);
+
+    assert_eq!(outcome.code, 2, "{}", outcome.stdout);
+    assert!(
+        outcome
+            .stderr
+            .contains(&format!("`{path}` is no FAMILY=PATH")),
+        "{}",
+        outcome.stderr
+    );
+}
+
 /// A register with B3's rows, its counted rows at their first figures.
 const B3_REGISTER: &str = "# Testing\n\n## Quality register\n\n### Measured, not yet enforced\n\n\
      | Row | Metric, per unit | Contract | Today | Benchmark | Direction | Checked by | Runs at |\n\
@@ -949,38 +969,44 @@ fn proving_leaves_a_row_not_run_yet_out() {
     );
 }
 
-/// B2's rows, as the register holds them: C1's per command, C2's per read or
-/// per document read, C2's two rows whose reads are not built yet, C7's
-/// walks and opening commands per page opened, C4's per navigation, and C5's
+/// B2's rows, as the register holds them: C1's per command or per event, C2's
+/// per read or per document read, C2's two rows whose reads are not built yet,
+/// C7's walks, opening commands and tasks per page opened, C4's per navigation, and C5's
 /// per request, pause or refusal, and C6's per Live view frame.
 const B2_ROWS: &str = "\
 | `C1.encodes` | encodes per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.sends` | sends per CDP command | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C1.file_opens` | opens per CDP command | 0 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C1.log_sends_off` | sends per CDP command | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C1.event_visits` | readers visited per event | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C1.pending_orphans` | orphaned commands per command | 0 | 0 | B2 | must not grow | `just counts` | implementer done |
+| `C1.event_decodes` | decodes per event | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.commands` | CDP commands per page read | 1 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.world_creations` | worlds per page read, past a document's first | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.document_worlds` | worlds per document and frame read | ≤ 1 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.serialization_commands` | CDP commands per serialization | 2 | 2 | B2 | must not grow | `just counts` | implementer done |
 | `C2.read_commands` | CDP commands per `page.read` | 1 | 2 | B2 | must not grow | `just counts` | implementer done |
+| `C2.owner_round_trips` | asks to the Page's owner per read | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C2.closed_root_commands` | CDP commands per read in a closed root's document | ≤ 3 | not run yet (#726) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C2.live_view_commands` | CDP commands per Live view read | no cap (ratchet) | not run yet (#1683) | B2 | must not grow | `just counts --path C2` | implementer done |
 | `C7.pool_walks` | walks per page opened | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C7.opening_commands` | CDP commands awaited per page opened | no cap (ratchet) | 12 | B2 | must not grow | `just counts` | implementer done |
 | `C7.contexts_created` | browser contexts created per Session opened | ≤ 1 | 1 | B2 | must not grow | `just counts` | implementer done |
+| `C7.page_tasks` | tasks a page's opening starts per page opened | no cap (ratchet) | 11 | B2 | must not grow | `just counts` | implementer done |
 | `C4.detection_reads` | detection reads per navigation | ≤ 1 | 4 | B2 | must not grow | `just counts` | implementer done |
 | `C4.compilations` | glob and regex compilations per navigation | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C4.script_compilations` | script compilations per navigation | 0 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C4.provenance_entries` | Provenance entries per navigation | 1 | 1.334 | B2 | must not grow | `just counts` | implementer done |
 | `C5.fetch_messages_no_rule` | `Fetch` messages per request with no rule | 0 | 3.25 | B2 | must not grow | `xtask counts` | implementer done |
-| `C5.spawns` | tasks spawned per refused request | 0 | 1 | B2 | must not grow | `xtask counts` | implementer done |
+| `C5.spawns` | tasks spawned per paused request or response whose verdict needs no wait | 0 | 0 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.file_opens` | files opened per refused request | 0 | 2 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.matches` | Filter-list matches per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.answers` | CDP answers per paused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.compilations` | compilations per paused request | 0 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
 | `C5.entries` | entries per refused request | 1 | after #1583 | B2 | must not grow | `xtask counts` | implementer done |
-| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
-| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#793) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_lookups` | Response cache lookups per request | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_file_opens` | body files opened per cache hit | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
+| `C5.cache_body_writes` | body files written per stored response | 1 | not run yet (#796) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.body_reads` | body reads per recorded response | 1 | not run yet (#1291) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C5.charset_refetches` | second GETs per document on the charset path | ≤ 1 | not run yet (#1783) | B2 | must not grow | `xtask counts --path C5` | implementer done |
 | `C6.file_opens` | files opened per Live view frame | 0 | 0 | B2 | must not grow | `just counts --path C6` | implementer done |
@@ -992,24 +1018,29 @@ const B2_ROWS: &str = "\
 /// A stand-in of B2 over 20 commands, 4 reads, 2 documents, 2 serializations,
 /// 4 fields' reads, 1 page opened in 1 Session,
 /// 4 requests paused 6 times, 2 of them refused, one check and attempt of each
-/// action kind, 3 navigations and 2 Live view frames, each row at its limit,
-/// which counts `extra` more of `planted` when told to plant it.
+/// action kind, 3 navigations, 10 events and 2 Live view frames, each row at
+/// its limit, which counts `extra` more of `planted` when told to plant it.
 fn b2_benchmark(planted: &str, extra: u64) -> String {
     let counts = [
         ("C1.encodes", 20),
         ("C1.sends", 20),
         ("C1.file_opens", 30),
         ("C1.log_sends_off", 20),
+        ("C1.event_visits", 10),
+        ("C1.pending_orphans", 0),
+        ("C1.event_decodes", 10),
         ("C2.commands", 8),
         ("C2.world_creations", 4),
         ("C2.document_worlds", 4),
         ("C2.serialization_commands", 4),
         ("C2.read_commands", 8),
+        ("C2.owner_round_trips", 4),
         ("C7.pool_walks", 0),
         ("C7.opening_commands", 12),
         ("C7.contexts_created", 0),
+        ("C7.page_tasks", 11),
         ("C5.fetch_messages_no_rule", 13),
-        ("C5.spawns", 2),
+        ("C5.spawns", 0),
         ("C5.file_opens", 4),
         ("C5.matches", 4),
         ("C5.answers", 6),
@@ -1020,6 +1051,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
         ("C3.commands.click", 6),
         ("C3.commands.fill", 2),
         ("C3.commands.press", 4),
+        ("C3.owner_round_trips", 3),
         ("C4.detection_reads", 12),
         ("C4.compilations", 0),
         ("C4.script_compilations", 0),
@@ -1036,7 +1068,7 @@ fn b2_benchmark(planted: &str, extra: u64) -> String {
     format!(
         "#!/bin/sh\nplant=$2\n\
          planted() {{ if [ \"$1\" = \"$plant\" ] && [ \"$1\" = {planted} ]; then echo {extra}; else echo 0; fi; }}\n\
-         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"navigations\":3,\"frames\":2}},\"counts\":{{{counts}}}}}'\n"
+         echo '{{\"cell\":\"default\",\"units\":{{\"commands\":20,\"reads\":4,\"documents\":2,\"serializations\":2,\"field_reads\":4,\"pages_opened\":1,\"sessions_opened\":1,\"requests\":4,\"pauses\":6,\"refusals\":2,\"checks\":1,\"click_attempts\":1,\"fill_attempts\":1,\"press_attempts\":1,\"attempts\":3,\"navigations\":3,\"events\":10,\"frames\":2}},\"counts\":{{{counts}}}}}'\n"
     )
 }
 
@@ -1188,7 +1220,7 @@ fn a_plant_goes_to_the_family_of_its_row_alone() {
     assert!(
         outcome
             .stdout
-            .contains("C5.cache_lookups: not run yet, limit 1, until #793 builds its path"),
+            .contains("C5.cache_lookups: not run yet, limit 1, until #796 builds its path"),
         "{}",
         outcome.stdout
     );
@@ -1407,6 +1439,7 @@ const C3_ROWS: &str = "\
 | `C3.script_sends` | sends of `check.js`'s source per check | 0 | 1 | B2 | must not grow | `just counts` | implementer done |
 | `C3.check_commands` | CDP commands per check | 1 | after #1583 | B2 | must not grow | `just counts` | implementer done |
 | `C3.commands` | CDP commands per attempt, per action kind | no cap yet (ADR 0140, open question 2) | click 6, fill 2, press 4; human-like input and typing not run yet (#1018, #1022) | B2 | must not grow | `just counts` | implementer done |
+| `C3.owner_round_trips` | asks to the Page's owner per action attempt | 1 | 1 | B2 | must not grow | `just counts` | implementer done |
 ";
 
 /// A B2 benchmark over 3 checks and one attempt of each kind, its click's

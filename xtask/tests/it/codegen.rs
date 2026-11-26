@@ -59,6 +59,7 @@ fn generated_files(workspace: &Workspace) -> Vec<(String, String)> {
             workspace.read_text(JOURNEY_SCHEMA),
         ),
         (SCRIPT_SCHEMA.to_owned(), workspace.read_text(SCRIPT_SCHEMA)),
+        (SKEW_JOBS.to_owned(), workspace.read_text(SKEW_JOBS)),
     ];
     let mut pending: Vec<String> = GENERATED_FOLDERS
         .iter()
@@ -97,11 +98,56 @@ const GENERATED_FOLDERS: [&str; 10] = [
     "sdks/python/foxhound/src/goodfetch_foxhound/generated",
 ];
 
+thread_local! {
+    /// How many times `counted_workspace` ran on this test's thread, which
+    /// is where `made_once_per_run` calls it.
+    static MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn counted_workspace() -> Workspace {
+    MADE.set(MADE.get() + 1);
+    Workspace::from_fixture("codegen")
+}
+
+/// A workspace made once per run is made by its first caller only, and each
+/// caller reads its own copy, so no test sees another's changes.
+#[test]
+fn a_workspace_made_once_per_run_is_made_once_and_copied_for_each_caller() {
+    let name = format!("counted-{}", std::process::id());
+    let first = Workspace::made_once_per_run(&name, counted_workspace);
+    first.write("written-by-the-first.txt", b"first\n");
+
+    let second = Workspace::made_once_per_run(&name, counted_workspace);
+
+    assert_eq!(
+        (MADE.get(), second.read("written-by-the-first.txt")),
+        (1, None)
+    );
+}
+
+/// The Feature inventory, which `xtask codegen` writes from the catalog,
+/// the matrices and the stories.
+const INVENTORY: &str = "features/inventory.json";
+
+/// A copy of the `codegen` fixture after `xtask codegen`, which runs once
+/// per nextest run. The files the fixture commits that codegen writes even
+/// when they are absent are removed first, so a test that reads one reads
+/// what codegen wrote.
+fn generated() -> Workspace {
+    Workspace::made_once_per_run("generated", || {
+        let workspace = Workspace::from_fixture("codegen");
+        for path in [SCRIPT_SCHEMA, CANARY_RULE, DESCRIPTION_SCHEMA, INVENTORY] {
+            workspace.remove(path);
+        }
+        codegen(&workspace);
+        workspace
+    })
+}
+
 /// Covers: story:1-57
 #[test]
 fn regenerating_twice_gives_identical_output() {
-    let workspace = Workspace::from_fixture("codegen");
-    codegen(&workspace);
+    let workspace = generated();
     let first = generated_files(&workspace);
 
     codegen(&workspace);
@@ -124,6 +170,7 @@ const SAMPLE: &str = "crates/goodfetch-protocol/src/sample.rs";
 const FOXHOUND: &str = "crates/goodfetch-protocol/src/foxhound.rs";
 const JOURNEY: &str = "crates/goodfetch-protocol/src/journey.rs";
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
+const SKEW_JOBS: &str = "ci/release/skew-jobs.json";
 const RESULT_DOCUMENT: &str = "crates/goodfetch-protocol/src/result_document.rs";
 
 /// The fixture's `goodfetch-protocol` holds the protocol crate's `catalog`
@@ -240,19 +287,32 @@ fn check_fails_after_a_type_change_that_was_not_regenerated(
 }
 
 /// The Feature inventory follows the stories and rows files it reads, as it
-/// follows the types (ADR 0072).
+/// follows the types (ADR 0072), and the skew jobs their checks (ADR 0066).
 /// Covers: story:1-57
 #[rstest]
+#[case::skew_check_given_another_estimate(
+    "compat/skew-checks.toml",
+    "minutes = 8",
+    "minutes = 9",
+    SKEW_JOBS
+)]
 #[case::story_added(
     "features/stories/1.toml",
     "not_journey = \"actor\"\nstatus = \"active\"\n",
-    "not_journey = \"actor\"\nstatus = \"active\"\n\n[[story]]\nid = 3\ntitle = \"A new story.\"\nmilestone = \"M1 Core\"\njourney = true\nstatus = \"active\"\n"
+    "not_journey = \"actor\"\nstatus = \"active\"\n\n[[story]]\nid = 3\ntitle = \"A new story.\"\nmilestone = \"M1 Core\"\njourney = true\nstatus = \"active\"\n",
+    "features/inventory.json"
 )]
-#[case::row_given_another_milestone("features/rows.toml", "M1 Core", "M2 Next")]
-fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
+#[case::row_given_another_milestone(
+    "features/rows.toml",
+    "M1 Core",
+    "M2 Next",
+    "features/inventory.json"
+)]
+fn check_fails_after_a_source_file_change_that_was_not_regenerated(
     #[case] source: &str,
     #[case] from: &str,
     #[case] to: &str,
+    #[case] generated: &str,
 ) {
     let workspace = Workspace::from_fixture("codegen");
     workspace.edit(source, from, to);
@@ -261,7 +321,7 @@ fn check_fails_after_a_feature_source_change_that_was_not_regenerated(
 
     assert_eq!(
         outcome.findings(),
-        vec![finding("drift", "features/inventory.json")],
+        vec![finding("drift", generated)],
         "{}",
         outcome.stderr
     );
@@ -329,6 +389,7 @@ fn check_fails_after_a_generator_version_bump_that_was_not_regenerated(
 #[case::stories_schema("features/stories.schema.json", "drift")]
 #[case::journey_schema(JOURNEY_SCHEMA, "drift")]
 #[case::canary_rule(CANARY_RULE, "drift")]
+#[case::skew_jobs(SKEW_JOBS, "drift")]
 fn check_detects_a_hand_edit_under_generated(#[case] path: &str, #[case] kind: &str) {
     let workspace = Workspace::from_fixture("codegen");
     let edited = format!("{}\n", workspace.read_text(path));
@@ -399,10 +460,7 @@ fn check_fails_when_the_committed_script_schema_drifts_from_the_type() {
 /// Covers: story:1-57
 #[test]
 fn codegen_writes_the_script_schema_among_the_engine_scripts() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.remove(SCRIPT_SCHEMA);
-
-    codegen(&workspace);
+    let workspace = generated();
 
     let schema: Value = serde_json::from_str(&workspace.read_text(SCRIPT_SCHEMA)).unwrap();
     assert_eq!(schema["title"], "Script");
@@ -576,10 +634,7 @@ fn codegen_fails_naming_a_fact_its_source_no_longer_holds() {
 /// Covers: story:1-57
 #[test]
 fn codegen_writes_the_canary_rule_test_env_prints() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.remove(CANARY_RULE);
-
-    codegen(&workspace);
+    let workspace = generated();
 
     assert_eq!(
         workspace.read_text(CANARY_RULE),
@@ -590,10 +645,7 @@ fn codegen_writes_the_canary_rule_test_env_prints() {
 /// Covers: story:1-57
 #[test]
 fn codegen_writes_the_description_schema_test_env_prints() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.remove(DESCRIPTION_SCHEMA);
-
-    codegen(&workspace);
+    let workspace = generated();
 
     let schema: Value = serde_json::from_str(&workspace.read_text(DESCRIPTION_SCHEMA)).unwrap();
     assert_eq!(schema["title"], "Description");
@@ -620,9 +672,7 @@ fn check_detects_a_file_added_under_generated() {
 /// Covers: story:1-57
 #[test]
 fn catalog_marks_each_entry_with_the_product_whose_module_defines_it() {
-    let workspace = Workspace::from_fixture("codegen");
-
-    codegen(&workspace);
+    let workspace = generated();
 
     let catalog: Value = serde_json::from_str(&workspace.read_text(CATALOG)).unwrap();
     assert_eq!(
@@ -638,13 +688,9 @@ fn catalog_marks_each_entry_with_the_product_whose_module_defines_it() {
 /// the catalog is a Feature, with its area and milestone (ADR 0072).
 #[test]
 fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.remove("features/inventory.json");
+    let workspace = generated();
 
-    codegen(&workspace);
-
-    let inventory: Value =
-        serde_json::from_str(&workspace.read_text("features/inventory.json")).unwrap();
+    let inventory: Value = serde_json::from_str(&workspace.read_text(INVENTORY)).unwrap();
     let features: Vec<(String, Value, Value)> = inventory["features"]
         .as_array()
         .unwrap()
@@ -687,13 +733,9 @@ fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
 /// every other is both Products' (ADRs 0087 and 0094).
 #[test]
 fn inventory_records_the_products_that_carry_each_feature() {
-    let workspace = Workspace::from_fixture("codegen");
-    workspace.remove("features/inventory.json");
+    let workspace = generated();
 
-    codegen(&workspace);
-
-    let inventory: Value =
-        serde_json::from_str(&workspace.read_text("features/inventory.json")).unwrap();
+    let inventory: Value = serde_json::from_str(&workspace.read_text(INVENTORY)).unwrap();
     let products = |id: &str| -> Value {
         inventory["features"]
             .as_array()
@@ -748,9 +790,7 @@ fn the_connections_messages_are_types_of_the_collie_client_package_only(
     #[case] path: &str,
     #[case] holds: bool,
 ) {
-    let workspace = Workspace::from_fixture("codegen");
-
-    codegen(&workspace);
+    let workspace = generated();
 
     let types = workspace.read_text(path);
     assert_eq!(
@@ -793,18 +833,20 @@ fn each_sdk_layer_spells_its_products_values_of_a_shared_type_and_keeps_an_unkno
     #[case] path: &str,
     #[case] declaration: &str,
 ) {
-    let workspace = Workspace::from_fixture("codegen");
-    add_shared_type_values(
-        &workspace,
-        &[
-            ("challenge", "collie", "block_cause"),
-            ("captcha", "collie", "block_cause"),
-            ("decoy", "foxhound", "block_cause"),
-            ("sample_crawled_pages", "foxhound", "usage_kind"),
-        ],
-    );
-
-    codegen(&workspace);
+    let workspace = Workspace::made_once_per_run("shared-type-values", || {
+        let workspace = Workspace::from_fixture("codegen");
+        add_shared_type_values(
+            &workspace,
+            &[
+                ("challenge", "collie", "block_cause"),
+                ("captcha", "collie", "block_cause"),
+                ("decoy", "foxhound", "block_cause"),
+                ("sample_crawled_pages", "foxhound", "usage_kind"),
+            ],
+        );
+        codegen(&workspace);
+        workspace
+    });
 
     let shared_types = workspace
         .read(path)
@@ -827,9 +869,7 @@ fn each_sdk_layer_spells_its_products_values_of_a_shared_type_and_keeps_an_unkno
 #[case::python_collie_client("sdks/python/collie-client/src/goodfetch_collie_client/generated")]
 #[case::python_foxhound("sdks/python/foxhound/src/goodfetch_foxhound/generated")]
 fn each_sdk_layer_is_generated_as_its_snapshot(#[case] folder: &str) {
-    let workspace = Workspace::from_fixture("codegen");
-
-    codegen(&workspace);
+    let workspace = generated();
 
     let extension = if folder.contains("typescript") {
         "ts"
@@ -958,8 +998,7 @@ fn the_typescript_layer_holds_no_alias(
     #[case] projection: &str,
     #[case] product: &str,
 ) {
-    let workspace = Workspace::from_fixture("codegen");
-    codegen(&workspace);
+    let workspace = generated();
     let projection: Value = serde_json::from_str(&workspace.read_text(projection)).unwrap();
     let operations = workspace.read_text(&format!("{folder}/operations.ts"));
 
@@ -1011,8 +1050,7 @@ fn the_python_layer_holds_no_alias(
     #[case] projection: &str,
     #[case] product: &str,
 ) {
-    let workspace = Workspace::from_fixture("codegen");
-    codegen(&workspace);
+    let workspace = generated();
     let projection: Value = serde_json::from_str(&workspace.read_text(projection)).unwrap();
     let operations = workspace.read_text(&format!("{folder}/operations.py"));
     let classes: Vec<&str> = operations
@@ -1066,8 +1104,7 @@ fn the_python_layer_holds_no_alias(
 /// Covers: story:11-176
 #[test]
 fn the_generated_rust_holds_no_alias() {
-    let workspace = Workspace::from_fixture("codegen");
-    codegen(&workspace);
+    let workspace = generated();
 
     let renamed: Vec<(String, String)> = generated_files(&workspace)
         .into_iter()
@@ -1094,6 +1131,16 @@ fn the_generated_rust_holds_no_alias() {
 
 const EMIT: &str = "crates/goodfetch-protocol/src/emit.rs";
 const COLLIE_CLIENT: &str = "sdks/typescript/collie-client";
+
+/// A copy of `workspace_with_the_forms_catalog` after `xtask codegen`, which
+/// runs once per nextest run.
+fn generated_with_the_forms_catalog() -> Workspace {
+    Workspace::made_once_per_run("forms-catalog", || {
+        let workspace = workspace_with_the_forms_catalog();
+        codegen(&workspace);
+        workspace
+    })
+}
 
 /// The `codegen` workspace with the forms catalog (`codegen-forms/forms.rs`)
 /// among its entry modules: one entry of each kind an SDK gives a form.
@@ -1279,8 +1326,7 @@ fn codegen_refuses_a_member_whose_form_its_kind_does_not_give(
 /// Covers: story:11-178, story:11-182
 #[test]
 fn each_declared_kind_generates_its_typescript_form_which_type_checks() {
-    let workspace = workspace_with_the_forms_catalog();
-    codegen(&workspace);
+    let workspace = generated_with_the_forms_catalog();
     let repository = repository();
     for module in [
         "caller.ts",
@@ -1387,8 +1433,7 @@ fn python_type_check(workspace: &Workspace, checker: &str, args: &[&str]) {
 /// Covers: story:11-178, story:11-182
 #[test]
 fn each_declared_kind_generates_its_python_form_which_type_checks() {
-    let workspace = workspace_with_the_forms_catalog();
-    codegen(&workspace);
+    let workspace = generated_with_the_forms_catalog();
     let repository = repository();
     let package = format!("{PYTHON_CLIENT}/src/goodfetch_collie_client");
     for module in [
@@ -1440,8 +1485,7 @@ fn each_declared_kind_generates_its_python_form_which_type_checks() {
 /// Covers: story:11-178
 #[test]
 fn every_async_python_handle_has_a_sync_twin_with_the_same_members() {
-    let workspace = workspace_with_the_forms_catalog();
-    codegen(&workspace);
+    let workspace = generated_with_the_forms_catalog();
 
     let handles = workspace.read_text(&format!(
         "{PYTHON_CLIENT}/src/goodfetch_collie_client/generated/handles.py"
@@ -1489,19 +1533,22 @@ const RUST_CLIENT: &str = "crates/goodfetch-collie-client";
 
 /// The `codegen` workspace with the forms catalog and a stand-in for
 /// Collie's Rust client crate, with the real crate's call builders and
-/// handle host, after `xtask codegen` wrote its handles.
+/// handle host, after `xtask codegen` wrote its handles, which runs once per
+/// nextest run.
 fn workspace_with_the_rust_forms() -> Workspace {
-    let workspace = workspace_with_the_forms_catalog();
-    workspace.add_fixture_file(
-        "codegen-forms/rust-client/Cargo.toml",
-        &format!("{RUST_CLIENT}/Cargo.toml"),
-    );
-    workspace.add_fixture_file(
-        "codegen-forms/rust-client/lib.rs",
-        &format!("{RUST_CLIENT}/src/lib.rs"),
-    );
-    codegen(&workspace);
-    workspace
+    Workspace::made_once_per_run("rust-forms", || {
+        let workspace = workspace_with_the_forms_catalog();
+        workspace.add_fixture_file(
+            "codegen-forms/rust-client/Cargo.toml",
+            &format!("{RUST_CLIENT}/Cargo.toml"),
+        );
+        workspace.add_fixture_file(
+            "codegen-forms/rust-client/lib.rs",
+            &format!("{RUST_CLIENT}/src/lib.rs"),
+        );
+        codegen(&workspace);
+        workspace
+    })
 }
 
 /// Each declared kind has one Rust form (ADR 0099), on an async handle and
@@ -1713,6 +1760,17 @@ fn typescript_property_of_a_named_type_keeps_its_own_description() {
 const POLITENESS_MANIFEST: &str = "crates/foxhound/goodfetch-politeness/Cargo.toml";
 const POLITENESS_LIB: &str = "crates/foxhound/goodfetch-politeness/src/lib.rs";
 
+/// A copy of the `codegen` fixture with `goodfetch-politeness` under
+/// `crates/foxhound/`, after `xtask codegen`, which runs once per nextest run.
+fn generated_with_the_politeness_crate() -> Workspace {
+    Workspace::made_once_per_run("politeness-crate", || {
+        let workspace = Workspace::from_fixture("codegen");
+        add_politeness_crate(&workspace);
+        codegen(&workspace);
+        workspace
+    })
+}
+
 fn add_politeness_crate(workspace: &Workspace) {
     workspace.write(
         POLITENESS_MANIFEST,
@@ -1747,10 +1805,7 @@ fn wrapped_crates(deny: &str) -> Vec<(String, Vec<String>)> {
 /// Covers: story:1-57
 #[test]
 fn wrappers_list_follows_the_folders_under_crates_foxhound() {
-    let workspace = Workspace::from_fixture("codegen");
-    add_politeness_crate(&workspace);
-
-    codegen(&workspace);
+    let workspace = generated_with_the_politeness_crate();
 
     let wrappers: Vec<String> = [
         "goodfetch-frontier",
@@ -1804,10 +1859,7 @@ fn banned_crates(deny: &str) -> Vec<String> {
 /// Covers: story:1-57
 #[test]
 fn collies_bans_follow_the_folders_under_crates_foxhound() {
-    let workspace = Workspace::from_fixture("codegen");
-    add_politeness_crate(&workspace);
-
-    codegen(&workspace);
+    let workspace = generated_with_the_politeness_crate();
 
     assert_eq!(
         banned_crates(&workspace.read_text(COLLIE_DENY)),

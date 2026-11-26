@@ -75,15 +75,19 @@ use crate::call_error::{CallError, named};
 use crate::composition::{CallContext, Handler};
 use crate::deadline::Deadline;
 use crate::product::{Identity, Requested};
+use crate::run_identity::RunIdentity;
+use crate::run_state::RunStateError;
 use crate::runs::{
-    Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume,
-    Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted, UnsupportedFolder,
+    self, Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError,
+    Resume, Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted,
+    UnsupportedFolder,
 };
 use crate::secrets::SecretError;
 use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
+mod accounts;
 mod detached;
 mod starts;
 
@@ -855,7 +859,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             wrapped_by,
         } => key_mismatch(run_id, &reference, wrapped_by),
         RunError::ResourcesExhausted(exhausted) => storage_exhausted(&exhausted),
-        RunError::Live(run_id) => live(run_id),
+        RunError::Live(run_id) => live(run_id, context.operation().name),
         RunError::Interrupted(run_id) => interrupted(run_id),
         RunError::Discarding { run_id, folder } => discarding(run_id, &folder),
         RunError::Forwarded(failure) => forwarded(*failure),
@@ -874,6 +878,23 @@ pub fn state_unavailable(run_id: RunId, folder: &std::path::Path, error: &str) -
             run_id,
             path: Some(folder.display().to_string()),
         },
+    )
+}
+
+/// The Error code `context`'s call answers with once writing `run`'s
+/// state failed with `error`: the Run is unavailable.
+pub(crate) fn unwritten(
+    run: &RunIdentity,
+    error: &RunStateError,
+    context: &CallContext,
+) -> CallError {
+    run_error(
+        RunError::Unavailable {
+            run_id: run.id().clone(),
+            folder: run.folder().to_owned(),
+            error: error.to_string(),
+        },
+        context,
     )
 }
 
@@ -1052,12 +1073,13 @@ fn running_here(run_id: RunId, folder: &std::path::Path) -> CallError {
     )
 }
 
-/// `run_live`: this engine still runs `run_id`, so it is not discarded.
-fn live(run_id: RunId) -> CallError {
+/// `run_live`: this engine still runs `run_id`, so the call `operation`,
+/// a discard or an erase, does not write it.
+fn live(run_id: RunId, operation: &str) -> CallError {
     CallError::new(
         &RUN_LIVE,
         format!(
-            "This engine still runs the Run `{run_id}`; stop it with `run.stop` or `run.abort`, or let it finish, then discard it."
+            "This engine still runs the Run `{run_id}`; stop it with `run.stop` or `run.abort`, or let it finish, then call `{operation}` again."
         ),
         &RunDetails { run_id, path: None },
     )
@@ -1126,7 +1148,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .map_err(start_error)?;
     let started = match started {
         Started::New(run) => RunStarted {
-            run_id: run.id().clone(),
+            run_id: runs::identity(&run).id().clone(),
             started_as: StartedAs::New,
             lifecycle: goodfetch_protocol::run::Lifecycle::Running,
             needs: Product::Collie,
@@ -1195,7 +1217,9 @@ async fn stop(params: RunStopParams, context: CallContext) -> Result<RunReport, 
 /// The `timeout.close` the live Run `run_id` resolved, or its default.
 async fn close_deadline(context: &CallContext, run_id: &RunId) -> Deadline {
     let resolved = match context.runs().live(run_id.clone()).await {
-        Ok(run) => run.settings().map(|settings| settings.resolved().clone()),
+        Ok(run) => runs::identity(&run)
+            .settings()
+            .map(|settings| settings.resolved().clone()),
         Err(_) => None,
     };
     Deadline::of_resolved(resolved.as_ref(), &TIMEOUT_CLOSE)
@@ -1340,14 +1364,15 @@ pub async fn resume_run(
         Resumed::New {
             run, kind, needs, ..
         } => {
+            let identity = runs::identity(&run);
             let started = RunStarted {
-                run_id: run.id().clone(),
+                run_id: identity.id().clone(),
                 started_as: StartedAs::Resumed,
                 lifecycle: Lifecycle::Running,
                 needs,
             };
             if let Some(driver) = context.driver(kind) {
-                run.spawn(driver(*run.clone(), context.clone(), settings));
+                identity.spawn(driver(*run.clone(), context.clone(), settings));
             }
             Ok(started)
         }

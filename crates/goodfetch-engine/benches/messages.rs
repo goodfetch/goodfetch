@@ -856,7 +856,8 @@ async fn serve(
                 },
                 install: None,
                 ops: Ops::default(),
-                websocket: Some(Authorities::loopback(address)),
+                websocket: Some(Authorities::loopback(address).into()),
+                accounts: None,
                 live_view: None,
             };
             let end = engine.run_daemon(listener, dependencies, options).await;

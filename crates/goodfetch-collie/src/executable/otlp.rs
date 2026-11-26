@@ -10,6 +10,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::otlp::Collector;
+use goodfetch_engine::secrets::DriverSlot;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 
@@ -28,13 +29,17 @@ impl ToCollector {
     /// every export ends within [`EXPORT_TIMEOUT`], and which hands the
     /// exporter every status the collector answers. Its `tls.trusted_cas`
     /// files are read inline: the export's own thread waits on each export.
-    pub(super) fn new(settings: &Resolved, clock: Clock) -> Self {
+    /// It presents the client certificate `tls.client_certificates` lists
+    /// for the collector's host once the engine filled `keys` with its
+    /// driver, which reads the certificate's key (issue 1648).
+    pub(super) fn new(settings: &Resolved, clock: Clock, keys: &DriverSlot) -> Self {
         Self {
             collector: Collector::of(
                 settings,
                 clock,
                 TaskOwner::root(BlockingPolicy::Inline).blocking_threads(),
-            ),
+            )
+            .with_client_certificates(settings, keys.clone()),
             clock,
         }
     }

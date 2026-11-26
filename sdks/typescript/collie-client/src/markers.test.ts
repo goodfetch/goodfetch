@@ -3,8 +3,19 @@
 // channel. Python's `tests/integration/test_run_time_markers.py` and Rust's
 // `markers/tests.rs` are its twins.
 import { setImmediate } from "node:timers/promises";
-import { expect, test } from "vitest";
-import { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
+import { expect, test, vi } from "vitest";
+import type * as Markers from "./markers.ts";
+import type { EntryMarkers } from "./markers.ts";
+
+/**
+ * A fresh copy of the module, whose record of what it warned of starts
+ * empty, as in a new process: each run of a test, a repeat of the stress
+ * run's included, sees its first warning again.
+ */
+async function freshMarkers(): Promise<typeof Markers> {
+  vi.resetModules();
+  return import("./markers.ts");
+}
 
 /** The `[name, message]` of each warning the SDK emits while `act` runs. */
 async function emitted(act: () => void): Promise<[string, string][]> {
@@ -24,21 +35,27 @@ async function emitted(act: () => void): Promise<[string, string][]> {
     .map((warning) => [warning.name, warning.message]);
 }
 
-test("a deprecated entry warns once per process through process.emitWarning", async () => {
-  const warnings = await emitted(() => {
-    warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
-    warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
-  });
+test(
+  "a deprecated entry warns once per process through process.emitWarning",
+  { tags: ["story:1-31"] },
+  async () => {
+    const { warnDeprecated } = await freshMarkers();
+    const warnings = await emitted(() => {
+      warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
+      warnDeprecated("fixture.old", "Since 0.1: use `fixture.new`.");
+    });
 
-  expect(warnings).toEqual([
-    ["DeprecationWarning", "`fixture.old` is deprecated. Since 0.1: use `fixture.new`."],
-  ]);
-});
+    expect(warnings).toEqual([
+      ["DeprecationWarning", "`fixture.old` is deprecated. Since 0.1: use `fixture.new`."],
+    ]);
+  },
+);
 
 test(
   "an Experimental entry warns once per process through process.emitWarning",
-  { tags: ["story:11-184"] },
+  { tags: ["story:11-184", "story:1-32"] },
   async () => {
+    const { warnExperimental } = await freshMarkers();
     const warnings = await emitted(() => {
       warnExperimental("fixture.trial");
       warnExperimental("fixture.trial");
@@ -54,6 +71,7 @@ test(
 );
 
 test("each marker of one entry warns once", async () => {
+  const { warnDeprecated, warnExperimental } = await freshMarkers();
   const warnings = await emitted(() => {
     warnExperimental("fixture.both");
     warnDeprecated("fixture.both", "Since 0.1: gone.");
@@ -65,6 +83,7 @@ test("each marker of one entry warns once", async () => {
 });
 
 test("a hand-written member warns of each marker its entry's generated markers give, once", async () => {
+  const { warnEntry } = await freshMarkers();
   const entries: Readonly<Record<"fixture.served" | "fixture.stable", EntryMarkers>> = {
     "fixture.served": {
       experimental: true,

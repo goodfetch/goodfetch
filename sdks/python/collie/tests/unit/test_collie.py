@@ -71,6 +71,7 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
                 "engine",
                 "explain_settings",
                 "open_run",
+                "schedules",
                 "start",
                 "start_catalog_run",
                 "start_recipe",
@@ -88,6 +89,7 @@ async def collie_on(way: Way, script: str) -> tuple[AsyncCollie, PlayedScript]:
                 "engine",
                 "explain_settings",
                 "open_run",
+                "schedules",
                 "start",
                 "start_catalog_run",
                 "start_recipe",
@@ -704,6 +706,10 @@ async def test_fails_connect_on_a_deployment_value_the_engine_cannot_parse(
         pytest.param(
             {"GOODFETCH_OPS_ADDRESS": "[fe80::1%2]:9464"},
             id="an IPv6 ops address with its scope",
+        ),
+        pytest.param(
+            {"GOODFETCH_EKS_FARGATE_PROFILE": ""},
+            id="an empty Fargate profile, a pod off Fargate",
         ),
     ],
 )

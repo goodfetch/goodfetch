@@ -5,13 +5,15 @@
 //! The handshake is refused with `403` when its `Host` is not one of the
 //! names the Daemon is reached at, or its `Origin` is missing or not one of
 //! them over `http` (ADRs 0017 and 0067), so a page of another origin, or
-//! one that rebinds a name to the Daemon's address, never opens it. A
+//! one that rebinds a name to the Daemon's address, never opens it; behind
+//! TLS terminated upstream, a trusted proxy's `X-Forwarded-Proto: https`
+//! and `X-Forwarded-Host` add the name it served. A
 //! handshake that offers the subprotocol `goodfetch.v<major>` of the
 //! protocol version is answered with it (spec #606's Transports). Each
 //! text or binary message then carries one JSON-RPC message, and each
 //! message the engine sends is one text message; the `hello` with its token
 //! still comes first. A message longer than
-//! [`MAX_MESSAGE_BYTES`](super::framing::MAX_MESSAGE_BYTES) ends in its
+//! [`MAX_MESSAGE_BYTES`](crate::framing::MAX_MESSAGE_BYTES) ends in its
 //! typed limit error, and the Connection then closes, since a WebSocket
 //! cannot skip it. A handshake at
 //! [`CHANNEL_PATH`](goodfetch_protocol::live_view::CHANNEL_PATH) opens a
@@ -19,6 +21,7 @@
 //! `Origin` rules, where `live_view.enabled` is on; a path a listener does
 //! not serve is answered `404`.
 
+use std::borrow::Cow;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -34,8 +37,8 @@ use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error, Message};
 
-use super::framing::{Frame, MAX_MESSAGE_BYTES};
 use crate::endpoint::{self, Authorities, Hosts, Origins, Refusal};
+use crate::framing::{Frame, MAX_MESSAGE_BYTES};
 use crate::transport::{ConnectionReader, ConnectionWriter};
 
 /// Why no WebSocket opened.
@@ -70,7 +73,21 @@ impl Prefixed {
     pub(super) fn opens_a_request(&self) -> bool {
         self.read.first().is_some_and(u8::is_ascii_uppercase)
     }
+
+    /// Whether the bytes already read open a TLS handshake record.
+    pub(super) fn opens_a_tls_handshake(&self) -> bool {
+        self.read.first() == Some(&TLS_HANDSHAKE_RECORD)
+    }
+
+    /// Whether the Connection closed before sending a byte.
+    pub(super) fn is_closed(&self) -> bool {
+        self.read.is_empty()
+    }
 }
+
+/// The content type of a TLS handshake record, which a `ClientHello` opens
+/// with (RFC 8446, section 5.1).
+const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 
 impl AsyncRead for Prefixed {
     fn poll_read(
@@ -160,10 +177,20 @@ pub(super) enum Opened {
 /// A Live view channel's WebSocket.
 pub(super) type LiveViewSocket = WebSocketStream<Carried>;
 
+/// Whether a handshake's `X-Forwarded-Host` and `X-Forwarded-Proto` are
+/// read: only from a proxy an Exposed Daemon behind TLS terminated upstream
+/// trusts (`daemon.trusted_proxies`, ADR 0049).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Forwarded {
+    Read,
+    Ignored,
+}
+
 /// The handshake on `stream`, its `Host` and `Origin` held to
-/// `authorities`, for one of the `paths` it serves: what it opened, or why
-/// it did not open. A handshake for a path it does not serve is answered
-/// `404`, a closed door rather than a refusal.
+/// `authorities`, and to the name a trusted proxy forwarded when
+/// `forwarded` reads it, for one of the `paths` it serves: what it
+/// opened, or why it did not open. A handshake for a path it does not
+/// serve is answered `404`, a closed door rather than a refusal.
 ///
 /// # Cancel safety
 ///
@@ -171,6 +198,7 @@ pub(super) type LiveViewSocket = WebSocketStream<Carried>;
 pub(super) async fn accept(
     stream: Rejoined,
     authorities: &Authorities,
+    forwarded: Forwarded,
     paths: &[Path],
 ) -> Result<Opened, NotOpened> {
     let mut asked = None;
@@ -187,7 +215,7 @@ pub(super) async fn accept(
             *answer.status_mut() = StatusCode::NOT_FOUND;
             return Err(answer);
         }
-        match refusal(request, authorities) {
+        match refusal(request, authorities, forwarded) {
             None if path == Path::Protocol => Ok(with_subprotocol(request, response)),
             None => Ok(response),
             Some(refusal) => {
@@ -251,21 +279,33 @@ fn with_subprotocol(request: &Request, mut response: Response) -> Response {
     response
 }
 
-/// The rule `request` breaks, if any: its `Host` first, then its `Origin`.
-fn refusal(request: &Request, authorities: &Authorities) -> Option<Refusal> {
-    let value = |name| {
+/// The rule `request` breaks, if any: its `Host` first, then its `Origin`,
+/// each held to `authorities` and, when `forwarded` reads them, the
+/// `X-Forwarded-Host` and `X-Forwarded-Proto` a trusted proxy sent.
+/// `Forwarded` (RFC 7239) and `X-Forwarded-For` are never read.
+fn refusal(request: &Request, authorities: &Authorities, forwarded: Forwarded) -> Option<Refusal> {
+    let value = |name: &str| {
         request
             .headers()
             .get(name)
             .and_then(|value| value.to_str().ok())
     };
+    let authorities = match forwarded {
+        Forwarded::Ignored => Cow::Borrowed(authorities),
+        Forwarded::Read => {
+            Cow::Owned(authorities.forwarded(value(X_FORWARDED_HOST), value(X_FORWARDED_PROTO)))
+        }
+    };
     endpoint::refusal(
-        value(header::HOST),
-        value(header::ORIGIN),
-        Hosts::Named(authorities),
-        Origins::Required(&[authorities]),
+        value(header::HOST.as_str()),
+        value(header::ORIGIN.as_str()),
+        Hosts::Named(&authorities),
+        Origins::Required(&[&authorities]),
     )
 }
+
+const X_FORWARDED_HOST: &str = "x-forwarded-host";
+const X_FORWARDED_PROTO: &str = "x-forwarded-proto";
 
 /// The messages a WebSocket's Client sends.
 pub(super) struct MessageReader(SplitStream<WebSocketStream<Carried>>);

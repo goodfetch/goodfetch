@@ -16,7 +16,7 @@ use crate::merge_pr::until;
 use crate::workspace::Workspace;
 
 /// One entry of a form's step list, as `xtask gate steps` gives it: its
-/// name and its kind (`step`, `beside` or `command`).
+/// name and its kind (`step`, `beside`, `after` or `command`).
 struct Listed {
     name: String,
     kind: String,
@@ -87,8 +87,9 @@ const CHANGED_HOST_CALLS: [&str; 18] = [
 ];
 
 /// The calls of the steps the full gate and `just pre-merge` alone run beside
-/// the host's: TLC's with `all` in the full gate, without it alone.
-const BESIDE_CALLS: [&str; 9] = [
+/// the host's, TLC's with `all` in the full gate, without it alone, and the
+/// Windows step's, which runs once they and the host's have ended.
+const BESIDE_CALLS: [&str; 10] = [
     "perf",
     "counted-rows",
     "linux",
@@ -97,17 +98,19 @@ const BESIDE_CALLS: [&str; 9] = [
     "_tlc",
     "miri",
     "loom",
+    "simulation",
     "windows",
 ];
 
-/// The full gate's calls beside the host's, sorted.
-const ALL_BESIDE_CALLS: [&str; 8] = [
+/// The full gate's calls beside the host's and after them, sorted.
+const ALL_BESIDE_CALLS: [&str; 9] = [
     "_tlc all",
     "counted-rows",
     "linux",
     "loom",
     "miri",
     "perf",
+    "simulation",
     "visual",
     "windows",
 ];
@@ -429,6 +432,7 @@ fn without_all_the_suites_run_over_what_changed() {
             "loom",
             "miri",
             "perf",
+            "simulation",
             "visual",
             "windows"
         ]
@@ -665,7 +669,7 @@ fn a_red_check_leaves_every_other_check_of_the_quick_and_docs_forms_running(
 
 /// The steps a full gate records, in the order it records them: the host's
 /// as each ends, then the steps beside once it has waited for them.
-const RECORDED_STEPS: [&str; 25] = [
+const RECORDED_STEPS: [&str; 26] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -690,6 +694,7 @@ const RECORDED_STEPS: [&str; 25] = [
     "tlc",
     "miri",
     "loom",
+    "simulation",
     "windows",
 ];
 
@@ -757,13 +762,15 @@ fn one_red_step_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     one_red_step(call, step, recorded_red, host_calls);
 }
 
-/// The same for TLC, Miri (#2090's F7), loom (#2200) and the Windows build
-/// (#2767), which run beside the host's steps. Cases of their own, so the
-/// cases above keep their names.
+/// The same for TLC, Miri (#2090's F7), loom (#2200) and the Simulation
+/// (issue 359), which run beside the host's steps, and the Windows build
+/// (#2767), which runs after them (#3780). Cases of their own, so the cases
+/// above keep their names.
 #[rstest]
 #[case::tlc("_tlc all", "tlc")]
 #[case::miri("miri", "miri")]
 #[case::loom("loom", "loom")]
+#[case::simulation("simulation", "simulation")]
 #[case::windows("windows", "windows")]
 fn a_red_step_beside_the_hosts_leaves_every_other_step_of_the_full_gate_running_and_recorded(
     #[case] call: &str,
@@ -1084,6 +1091,37 @@ fn a_step_of_a_kind_the_script_does_not_know_fails_the_gate_without_running() {
     assert_eq!(
         run.calls,
         calls_between(HOST_SETUP, &[], &["_skips-report"])
+    );
+}
+
+/// The Windows step starts only once every other step of the full gate has
+/// ended and been recorded, the steps beside the host's with them, so its
+/// tests under Wine start their Proving grounds on a host nothing else loads
+/// (#3780). `perf` ends only once the host's last step has.
+#[test]
+fn the_windows_step_starts_once_every_other_step_has_ended_and_been_recorded() {
+    let workspace = Workspace::from_fixture("empty");
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("plan"), no_earlier_run(&workspace, "planned")).unwrap();
+    std::fs::write(stand_in.join("slow"), "perf").unwrap();
+    std::fs::write(stand_in.join("awaiting"), "Gate step kennel: ended at").unwrap();
+
+    let run = pre_merge(&workspace, &stand_in, &["all"]);
+
+    assert_eq!(run.code, Some(0), "{}", run.stderr);
+    let calls = std::fs::read_to_string(stand_in.join("calls")).unwrap();
+    let after_windows: Vec<&str> = calls
+        .lines()
+        .skip_while(|call| *call != "windows")
+        .collect();
+    assert_eq!(
+        after_windows,
+        [
+            "windows",
+            "_gate-record merge planned windows pass",
+            "_skips-report"
+        ],
+        "{calls}"
     );
 }
 

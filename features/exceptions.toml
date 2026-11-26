@@ -126,6 +126,12 @@ reason = "Declared with the missing Error codes (#2949), but nothing raises it y
 link = "https://github.com/goodfetch/goodfetch/issues/837"
 
 [[exception]]
+feature = "error:plugin_quarantined"
+evidence = "none"
+reason = "Declared with the Plugin instance's transition table (#819), which refuses a call on a quarantined instance with it, but no instance is quarantined yet: the third crash in 10 minutes quarantines it in #837, whose test removes this exception."
+link = "https://github.com/goodfetch/goodfetch/issues/837"
+
+[[exception]]
 feature = "error:hook_duplicate"
 evidence = "none"
 reason = "Declared for ADR 0104's Hooks in code (#2339), but nothing raises it yet: a crawl's second Hook of one name fails its declaration with this code in #1481, whose test removes this exception."

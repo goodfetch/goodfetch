@@ -31,6 +31,11 @@ pub(crate) enum Step {
     Tlc,
     Miri,
     Loom,
+    /// Every Simulation scenario at the Pre-merge suite's 16 seeds, its
+    /// committed Fault plans first (ADR 0060): the scenarios build only
+    /// under `--cfg tokio_unstable`, so no suite's tests hold them (issue
+    /// 359).
+    Simulation,
     Windows,
     Lint,
     FeatureCombinations,
@@ -79,7 +84,7 @@ pub(crate) enum Reach {
 
 impl Step {
     /// Every step, in the order `ci/pre-merge.sh` starts them.
-    pub(crate) const ALL: [Self; 27] = [
+    pub(crate) const ALL: [Self; 28] = [
         Self::Dco,
         Self::CommitMessages,
         Self::FloorGuard,
@@ -93,7 +98,7 @@ impl Step {
         Self::Tlc,
         Self::Miri,
         Self::Loom,
-        Self::Windows,
+        Self::Simulation,
         Self::Lint,
         Self::FeatureCombinations,
         Self::SemverChecks,
@@ -107,6 +112,7 @@ impl Step {
         Self::FeaturesTests,
         Self::Kennel,
         Self::CodegenTests,
+        Self::Windows,
     ];
 
     /// The step's name in the plan, the record and `ci/pre-merge.sh`.
@@ -136,6 +142,7 @@ impl Step {
             Self::Msrv => "msrv",
             Self::Miri => "miri",
             Self::Loom => "loom",
+            Self::Simulation => "simulation",
             Self::Windows => "windows",
             Self::Kennel => "kennel",
             Self::CodegenTests => "codegen-tests",
@@ -174,7 +181,9 @@ impl Step {
             Self::Visual => Reach::Job(Job::Visual),
             Self::Tlc => Reach::Job(Job::Tlc),
             Self::Kennel => Reach::Job(Job::Kennel),
-            Self::Msrv | Self::Miri | Self::Loom | Self::Windows => Reach::Crates,
+            Self::Msrv | Self::Miri | Self::Loom | Self::Simulation | Self::Windows => {
+                Reach::Crates
+            }
             Self::Quick | Self::PreMerge | Self::Stress => Reach::Members,
         }
     }
@@ -197,17 +206,26 @@ impl Step {
 
     /// Whether the step runs beside the host's: those that need Linux, in
     /// a container of their own where the host is not Linux, TLC, Miri
-    /// (#2090's F7) and loom (#2200), and the Windows build under Wine
-    /// (#2767), in a container of its own. Each builds and writes in
-    /// folders of its own (`target/tlc/`, `target/miri/`, `target/loom/`,
-    /// `target/windows/`), and its verdict follows from the
-    /// tree and its pinned tools, whatever runs beside it; what it shares
-    /// with the host's steps, it only reads or waits for (ADR 0135's note
-    /// of 2026-11-13). The Kennel's
+    /// (#2090's F7), loom (#2200) and the Simulation (issue 359). Each
+    /// builds and writes in folders of its own (`target/tlc/`,
+    /// `target/miri/`, `target/loom/`, `target/simulation/`), and its
+    /// verdict follows from the tree and its pinned tools, whatever runs
+    /// beside it; what it shares with the host's steps, it only reads or
+    /// waits for (ADR 0135's note of 2026-11-13). The Kennel's
     /// check stays on the host, after the suites: it builds the test tools
     /// into the build folder the suites' own are in, with the features of
     /// its own build (`kennel/scripts/check.sh`), so beside them each could
     /// replace an executable under the other's tests.
+    ///
+    /// The Windows build under Wine (#2767) is not among them, though it
+    /// builds in a container and a folder of its own: its verdict depends on
+    /// what runs beside it. Its tests start Proving grounds within a 30 s
+    /// deadline, which 34, 57 and 3 of them missed, failing after 35 to
+    /// 51 s, in three full gates of pull request 3326 under the other steps'
+    /// load (averaging 45 to 77 on 16 CPUs), while all 11542 passed in a gate
+    /// where the step ran nearly alone (ADR 0135's note of 2026-11-25). No test is retried (ADR 0064) and the deadline
+    /// stays, so the step runs once every other step has ended
+    /// ([`Self::after`], #3780).
     pub(crate) const fn beside(self) -> bool {
         matches!(
             self,
@@ -218,8 +236,17 @@ impl Step {
                 | Self::Tlc
                 | Self::Miri
                 | Self::Loom
-                | Self::Windows
+                | Self::Simulation
         )
+    }
+
+    /// Whether the step runs once every other step of its form has ended,
+    /// those beside the host's with them, so no other step of the gate loads
+    /// the host while it runs: the Windows build, whose tests under Wine
+    /// miss their start deadline beside the other steps ([`Self::beside`],
+    /// #3780). It is the form's last entry.
+    pub(crate) const fn after(self) -> bool {
+        matches!(self, Self::Windows)
     }
 
     /// The step whose units hold this one's, member by member: the Pre-merge
@@ -292,6 +319,10 @@ pub(crate) enum Kind {
     /// A step beside the host's, in a container or in folders of its own,
     /// whose result the gate records once it has ended.
     Beside,
+    /// A step the gate starts once every other step has ended and been
+    /// recorded, the steps beside the host's with them, so it runs alone
+    /// ([`Step::after`]).
+    After,
     /// A command on the host that is no step of the record.
     Command,
 }
@@ -301,6 +332,7 @@ impl Kind {
         match self {
             Self::Step => "step",
             Self::Beside => "beside",
+            Self::After => "after",
             Self::Command => "command",
         }
     }
@@ -322,7 +354,9 @@ pub(crate) enum Owner {
     /// ADR 0135's note of 2026-11-23 on the full gate's hosted steps), and
     /// the semver checks, which build both the tree's and the previous
     /// release's rustdoc of each Product and install cargo-semver-checks
-    /// (issue 148).
+    /// (issue 148). The Simulation stays here too, as loom does: it builds
+    /// its crates again under a cfg of its own, in a folder of its own, and
+    /// no hosted job runs it (issue 359).
     Local,
     /// The pull-request tier on hosted runners, on a batch, spec or fork
     /// pull request: `just merge` reuses its units, and runs here those no
@@ -354,6 +388,7 @@ impl Owner {
                     | Step::FeatureCombinations
                     | Step::SemverChecks
                     | Step::Loom
+                    | Step::Simulation
                     | Step::Miri
             )
         {
@@ -395,6 +430,8 @@ pub(crate) fn entries(form: Form) -> Vec<Entry> {
             name: step.name(),
             kind: if step.beside() {
                 Kind::Beside
+            } else if step.after() {
+                Kind::After
             } else {
                 Kind::Step
             },

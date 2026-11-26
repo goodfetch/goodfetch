@@ -29,6 +29,7 @@ mod fork;
 mod handlerless_starts;
 #[cfg(unix)]
 mod interrupt;
+mod key_value_store;
 mod limits;
 mod logging;
 mod page;
@@ -37,6 +38,7 @@ mod project_file;
 mod public_items;
 mod raw_call;
 mod refused_by_the_daemon;
+mod schedules;
 #[cfg(unix)]
 mod scripted;
 mod settings;

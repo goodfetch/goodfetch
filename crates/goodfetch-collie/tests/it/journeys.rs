@@ -5,4 +5,7 @@ mod j009;
 mod j015;
 mod j027;
 mod j029;
+#[cfg(unix)]
 mod j033;
+mod j040;
+mod j043;

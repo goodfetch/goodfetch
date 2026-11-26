@@ -93,9 +93,10 @@ use goodfetch_engine::governor::Permit as HttpAdmission;
 use goodfetch_engine::lease::{LeaseCheck, LeaseEnded, PermitWait};
 use goodfetch_engine::politeness::{Politeness, PolitenessError};
 use goodfetch_engine::robots_txt::{self, Fetch};
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunStateError;
 use goodfetch_engine::run_trace::RequestLog;
-use goodfetch_engine::runs::{Run, run_trace};
+use goodfetch_engine::runs::{self, Run, run_trace};
 use goodfetch_frontier::DomainKeys;
 use goodfetch_page::page_value::{
     Admission, DocumentJudgment, DocumentResponse, Navigation, NavigationGate, Permit, Refusal,
@@ -115,14 +116,16 @@ use crate::chain::{Gating, HopGate, Skip, Stop};
 use crate::content_types::ContentTypes;
 use crate::discovered_api::Capture;
 use crate::driver::{Hop, judged};
-use crate::site_preferences::{self, AfterRobotsTxt, Reading, RefusedBy, Request, SitePreferences};
+use crate::site_preferences::{
+    self, AfterRobotsTxt, Reading, RefusedBy, Request, RobotsTxtCopies, SitePreferences,
+};
 use crate::transports::AddressCheck;
 use crate::use_signals::UseSignals;
 
 /// Fetches a site file at a location for a Run, a robots.txt or an AI-use
 /// signal file, as a pool Session's own HTTP transport does
 /// (`HttpTier::robots_txt_fetch`).
-pub type RobotsTxtFetch = Arc<dyn Fn(Run, Url) -> Fetch<'static> + Send + Sync>;
+pub type RobotsTxtFetch = Arc<dyn Fn(RunIdentity, Url) -> Fetch<'static> + Send + Sync>;
 
 /// How long a request beside the Run's own whose domain is full waits
 /// before it asks for room again: the Politeness file wakes only the
@@ -270,6 +273,9 @@ pub struct RunHandOver {
     /// request's own document, its redirect hops and its handler's pages
     /// alike, and the AI-use signal files the Run fetched for them.
     pub site_preferences: SitePreferences,
+    /// Where the Run reads robots.txt: the copy its user's runs share
+    /// once its crawl shared it, its own until then.
+    pub robots_txt: RobotsTxtCopies,
     /// The Run's domain policy, which judges each redirect hop's address.
     pub egress: Arc<Policy>,
     /// How each redirect hop is checked against the visited set, and each
@@ -371,10 +377,24 @@ impl HandOver {
     /// [`HandOver::site_files`]; unreachable without it.
     pub async fn site_file(&self, location: Url) -> robots_txt::Answer {
         match &self.site_files {
-            Some(fetch) => fetch(self.of_run.run.clone(), location).await,
+            Some(fetch) => fetch(runs::identity(&self.of_run.run).clone(), location).await,
             None => robots_txt::Answer::Unreachable(
                 "the crawl has no transport to fetch robots.txt with".to_owned(),
             ),
+        }
+    }
+
+    /// Waits until `until` on the Run's clock before a hop to `url` is
+    /// sent, holding the attempt's lease through the wait.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future ends the wait; it holds nothing else.
+    pub(crate) async fn wait_until(&self, url: &str, until: SystemTime) {
+        let _waiting = self.lease.permit_wait(url);
+        let clock = runs::identity(self.run()).clock();
+        if let Ok(wait) = until.duration_since(clock.wall()) {
+            clock.sleep(wait).await;
         }
     }
 
@@ -451,7 +471,7 @@ impl HandOver {
         let Some(politeness) = &of_run.politeness else {
             return Ok(());
         };
-        let run = &of_run.run;
+        let run = runs::identity(&of_run.run);
         let key = of_run.keys.key(url);
         if let Some(send_at) = lead.then(|| self.reserved_send.take()).flatten() {
             if let Ok(wait) = send_at.duration_since(run.clock().wall())
@@ -524,7 +544,7 @@ impl RunHandOver {
         };
         let key = self.keys.key(hop.url.as_str());
         if let Err(error) = goodfetch_frontier::latency_measured(politeness, &key, latency).await {
-            tracing::warn!(%error, run_id = %self.run.id(), "a response's latency was not recorded for its domain");
+            tracing::warn!(%error, run_id = %runs::identity(&self.run).id(), "a response's latency was not recorded for its domain");
         }
     }
 }
@@ -542,7 +562,7 @@ impl fmt::Debug for Gate {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Gate")
-            .field("run", self.0.run().id())
+            .field("run", runs::identity(self.0.run()).id())
             .field("domain_key", &self.0.domain_key)
             .finish_non_exhaustive()
     }
@@ -658,11 +678,10 @@ impl NavigationGate for Gate {
                     // encoding reads the same for them.
                     let html = String::from_utf8_lossy(response.body).into_owned();
                     let readers = Arc::clone(&self.0.untouched);
-                    let counted = self.0.run().metrics().counted_work();
+                    let run = runs::identity(self.0.run());
+                    let counted = run.metrics().counted_work();
                     let work = counted.clone();
-                    self.0
-                        .run()
-                        .owner()
+                    run.owner()
                         .handler_analysis(counted, move || {
                             readers.markup_use_signals(signals, &html, &url, &work)
                         })
@@ -704,7 +723,7 @@ impl Gate {
     /// ([`SitePreferences::judged`]).
     pub(crate) async fn admitted(&self, url: &Url) -> Result<Permit, site_preferences::NotAllowed> {
         let hand_over = &self.0.of_run;
-        let run = &hand_over.run;
+        let run = runs::identity(&hand_over.run);
         let preferences = &hand_over.site_preferences;
         let key = hand_over.keys.key(url.as_str());
         let own = key == self.0.domain_key;
@@ -764,7 +783,7 @@ impl Gate {
         crawl_delay: Duration,
     ) -> Option<SystemTime> {
         let hand_over = &self.0.of_run;
-        let run = &hand_over.run;
+        let run = runs::identity(&hand_over.run);
         let spacing = hand_over.domain_delay.max(crawl_delay);
         if let Some(read) = read
             && let AfterRobotsTxt::At(start) = read
@@ -804,7 +823,7 @@ impl Gate {
         goodfetch_frontier::last_start(politeness, key)
             .await
             .unwrap_or_else(|error| {
-                tracing::warn!(%error, run_id = %self.0.run().id(), "a domain's last start could not be read");
+                tracing::warn!(%error, run_id = %runs::identity(self.0.run()).id(), "a domain's last start could not be read");
                 None
             })
     }
@@ -812,7 +831,7 @@ impl Gate {
     /// A Permit of `key` beside the Run's own requests, once the domain
     /// has room, given back once released.
     async fn beside(&self, key: &str) -> Permit {
-        let run = self.0.run();
+        let run = runs::identity(self.0.run());
         let clock = run.clock();
         loop {
             let room = self.0.second_copies.take(key, clock.now()).await;
@@ -834,10 +853,12 @@ impl Gate {
     /// domain from its response's arrival.
     async fn robots_txt(&self, url: &Url, key: &str) -> Option<Reading> {
         let hand_over = &self.0.of_run;
-        let run = &hand_over.run;
+        let run = runs::identity(&hand_over.run);
         let reading = hand_over
             .site_preferences
-            .read_robots_txt(run, url, |location| self.0.site_file(location))
+            .read_robots_txt(&hand_over.robots_txt, url, |location| {
+                self.0.site_file(location)
+            })
             .await?;
         if let (Some(at), Some(politeness)) = (reading.fetched(), &hand_over.politeness)
             && let Err(error) = goodfetch_frontier::started_again(politeness, key, at).await
@@ -860,7 +881,7 @@ impl ChainGate {
     /// another request. A run file that cannot answer leaves the hop to the
     /// navigation gate, and the transport's own judgment of it.
     async fn frontier(&self, hop: &Hop) -> goodfetch_frontier::Hop {
-        let run = self.hand_over.run();
+        let run = runs::identity(self.hand_over.run());
         self.hand_over
             .of_run
             .hops
@@ -951,13 +972,7 @@ impl HopGate for ChainGate {
     }
 
     fn wait_until<'a>(&'a self, hop: &'a Hop, until: SystemTime) -> Gating<'a, ()> {
-        Box::pin(async move {
-            let _waiting = self.hand_over.lease.permit_wait(hop.url.as_str());
-            let clock = self.hand_over.run().clock();
-            if let Ok(wait) = until.duration_since(clock.wall()) {
-                clock.sleep(wait).await;
-            }
-        })
+        Box::pin(self.hand_over.wait_until(hop.url.as_str(), until))
     }
 
     fn unparsable_retry_after<'a>(
@@ -996,7 +1011,7 @@ impl HopGate for ChainGate {
     /// file that cannot answer lets the chain end on its document.
     fn reached<'a>(&'a self, hop: &'a Hop) -> Gating<'a, Result<(), Stop>> {
         Box::pin(async move {
-            let run = self.hand_over.run();
+            let run = runs::identity(self.hand_over.run());
             let recorded = self
                 .hand_over
                 .of_run

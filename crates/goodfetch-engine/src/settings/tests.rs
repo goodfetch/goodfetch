@@ -9,10 +9,11 @@ use std::time::Duration;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::recipe::{RECIPE_MANIFEST_VERSION, RecipeEntry, RecipeManifest};
 use goodfetch_protocol::secrets::RUN_STATE_KEY_REFERENCE;
 use goodfetch_protocol::settings::{
-    Exposure, RecipeManifest, RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_NAVIGATION,
-    TIMEOUT_RUN, WeakenedSetting,
+    Exposure, RunOrigin, SettingLimit, SettingsLayer, TIMEOUT_NAVIGATION, TIMEOUT_RUN,
+    WeakenedSetting,
 };
 use proptest::prelude::*;
 use rstest::rstest;
@@ -48,8 +49,11 @@ fn policy(settings: Value, lock: Value, cap: Value) -> Policy {
 fn recipe(settings: Value, expose: &[(&str, Exposure)]) -> Recipe {
     Recipe::read(
         &RecipeManifest {
+            version: RECIPE_MANIFEST_VERSION,
             name: "listings".to_owned(),
             product: Product::Collie,
+            entry: RecipeEntry::Steps("listings.steps.json".to_owned()),
+            runtime: None,
             settings: nested(settings),
             expose: expose
                 .iter()
@@ -1054,6 +1058,42 @@ fn timeout_connect_is_set_only_in_the_project_file(
     );
 }
 
+/// The Response cache's bounds are the machine's: taken from user
+/// configuration and an Operator policy, and refused from the project file,
+/// a Recipe and a Run, naming where they are set (ADR 0046).
+///
+/// Covers: setting:cache.max_size, setting:cache.max_age_ceiling, error:setting_not_applicable
+#[rstest]
+fn the_response_caches_bounds_are_set_in_configuration_or_policy_only(
+    #[values(("cache.max_size", json!(1_000_000)), ("cache.max_age_ceiling", json!(60_000)))]
+    setting: (&str, serde_json::Value),
+    #[values(
+        (SettingsLayer::OperatorPolicy, true),
+        (SettingsLayer::UserConfiguration, true),
+        (SettingsLayer::ProjectConfiguration, false),
+        (SettingsLayer::Recipe, false),
+        (SettingsLayer::Run, false)
+    )]
+    layer: (SettingsLayer, bool),
+) {
+    let ((key, value), (layer, taken)) = (setting, layer);
+
+    let outcome = resolve(&only(layer, key, &value), Product::Collie, Product::Collie);
+
+    match &outcome {
+        Ok(_) => assert!(taken, "{key} set by {layer:?} was taken"),
+        Err(error @ SettingsError::NotApplicable { fix, .. }) => {
+            assert!(!taken, "{key} set by {layer:?} was refused: {error:?}");
+            assert_eq!(error.code(), "setting_not_applicable");
+            assert!(
+                fix.contains("user configuration or an Operator policy"),
+                "{fix}"
+            );
+        }
+        Err(error) => panic!("{error:?}"),
+    }
+}
+
 /// A Client's own bound is taken from `connect()`'s own `settings`, the
 /// run layer, alone: configuration, an Operator policy and a Recipe never
 /// reach the Client's transport, so each is refused naming `connect()`
@@ -1485,8 +1525,11 @@ fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {
 #[test]
 fn a_collie_engine_refuses_a_recipe_that_names_foxhound() {
     let manifest = RecipeManifest {
+        version: RECIPE_MANIFEST_VERSION,
         name: "catalog-crawl".to_owned(),
         product: Product::Foxhound,
+        entry: RecipeEntry::Crawl("catalog.crawl.json".to_owned()),
+        runtime: None,
         settings: Map::new(),
         expose: std::collections::BTreeMap::new(),
     };
@@ -1694,6 +1737,18 @@ fn an_empty_deployment_variable_is_invalid() {
         check_environment(&environment).unwrap_err().code(),
         "setting_invalid"
     );
+}
+
+/// `GOODFETCH_EKS_FARGATE_PROFILE` is the pod's Fargate profile label, which
+/// the downward API gives as an empty value on a node of any other kind, so
+/// it alone may be empty.
+/// Covers: story:4-86
+#[test]
+fn an_empty_eks_fargate_profile_is_a_pod_off_fargate() {
+    let environment =
+        std::collections::BTreeMap::from([("GOODFETCH_EKS_FARGATE_PROFILE".into(), "".into())]);
+
+    assert_eq!(check_environment(&environment), Ok(()));
 }
 
 /// The engine's channels are the ones the protocol crate lists, which the
@@ -2096,6 +2151,59 @@ fn a_session_source_of_registrable_domains_is_taken(#[case] source: Value) {
     assert_eq!(read.get("session.source"), Some(&source));
 }
 
+/// A `state_file`'s `key`, which opens a session export bundle, is a Secret
+/// reference (ADRs 0015 and 0092): a passphrase written in its place is
+/// `setting_invalid`, whose message never repeats it.
+/// Covers: story:4-68, setting:session.source, error:setting_invalid
+#[rstest]
+#[case::a_passphrase_with_spaces("c4n4ry horse battery staple")]
+#[case::a_word_without_a_provider("c4n4rypassphrase")]
+fn a_state_file_key_given_as_a_passphrase_is_invalid(#[case] passphrase: &str) {
+    let refused = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "session": { "source": {
+            "kind": "state_file",
+            "path": "login.age",
+            "format": "session_export",
+            "key": passphrase,
+        } } })),
+        Product::Collie,
+    )
+    .unwrap_err();
+
+    let shown = format!("{refused} {refused:?}");
+    assert_eq!(
+        (
+            refused.code(),
+            matches!(&refused, SettingsError::Invalid { key, .. } if key == "session.source"),
+            shown.contains("c4n4ry"),
+        ),
+        ("setting_invalid", true, false),
+        "{shown}"
+    );
+}
+
+/// A `state_file`'s `key` that is a Secret reference is taken.
+/// Covers: story:4-68, setting:session.source
+#[test]
+fn a_state_file_key_given_as_a_secret_reference_is_taken() {
+    let source = json!({
+        "kind": "state_file",
+        "path": "login.age",
+        "format": "session_export",
+        "key": "env:LOGIN_PASSPHRASE",
+    });
+
+    let read = Values::read(
+        SettingsLayer::Run,
+        &nested(json!({ "session": { "source": source } })),
+        Product::Collie,
+    )
+    .unwrap();
+
+    assert_eq!(read.get("session.source"), Some(&source));
+}
+
 /// What `key` resolves to when user configuration sets it to `configured`
 /// and `layer` gives `value`, from a Client acting for a model where
 /// `for_model`: the value taken, or the refusal's code and key.
@@ -2235,6 +2343,91 @@ fn consent_handling_off_weakens_the_run_and_detect_does_not(#[case] layer: Setti
         (weakened("off"), weakened("detect")),
         (vec![("consent.handling".to_owned(), layer)], vec![])
     );
+}
+
+/// #2445 (owner, 2026-11-10): a Recipe, and a Client acting for a model
+/// through its run layer or its project configuration, never switch a
+/// security control off unless the layers below already do; they switch one
+/// on, and the program's own code and configuration switch one off
+/// (positive controls).
+/// Covers: story:4-74, error:setting_locked, setting:security.field_encryption, setting:security.secure_delete, setting:security.resolved_ip_check, setting:security.raw_cdp_egress_proxy, setting:security.audit_chain, setting:security.redaction
+#[rstest]
+#[case::off_from_a_recipe(true, SettingsLayer::Recipe, false, false, None)]
+#[case::off_from_a_model(true, SettingsLayer::Run, true, false, None)]
+#[case::off_from_a_models_project_configuration(
+    true,
+    SettingsLayer::ProjectConfiguration,
+    true,
+    false,
+    None
+)]
+#[case::on_from_a_recipe(false, SettingsLayer::Recipe, false, true, Some(true))]
+#[case::on_from_a_model(false, SettingsLayer::Run, true, true, Some(true))]
+#[case::off_a_recipe_repeats(false, SettingsLayer::Recipe, false, false, Some(false))]
+#[case::off_a_model_repeats(false, SettingsLayer::Run, true, false, Some(false))]
+#[case::off_from_the_programs_own_code(true, SettingsLayer::Run, false, false, Some(false))]
+#[case::off_from_project_configuration(
+    true,
+    SettingsLayer::ProjectConfiguration,
+    false,
+    false,
+    Some(false)
+)]
+#[case::off_from_user_configuration(
+    true,
+    SettingsLayer::UserConfiguration,
+    false,
+    false,
+    Some(false)
+)]
+fn a_model_and_a_recipe_never_switch_a_security_control_off(
+    #[values(
+        "security.field_encryption",
+        "security.secure_delete",
+        "security.resolved_ip_check",
+        "security.raw_cdp_egress_proxy",
+        "security.audit_chain",
+        "security.redaction"
+    )]
+    key: &str,
+    #[case] configured: bool,
+    #[case] layer: SettingsLayer,
+    #[case] for_model: bool,
+    #[case] value: bool,
+    #[case] taken: Option<bool>,
+) {
+    let resolved = over_configuration(key, &json!(configured), layer, for_model, &json!(value));
+
+    assert_eq!(
+        resolved,
+        taken.map_or_else(|| locked(key), |taken| Ok(json!(taken)))
+    );
+}
+
+/// #2445: an Operator policy switches a security control off, and the Run
+/// report's `weakened` names the key and its layer.
+/// Covers: story:4-74, setting:security.field_encryption, setting:security.secure_delete, setting:security.resolved_ip_check, setting:security.raw_cdp_egress_proxy, setting:security.audit_chain, setting:security.redaction
+#[rstest]
+fn an_operator_policy_switches_a_security_control_off(
+    #[values(
+        "security.field_encryption",
+        "security.secure_delete",
+        "security.resolved_ip_check",
+        "security.raw_cdp_egress_proxy",
+        "security.audit_chain",
+        "security.redaction"
+    )]
+    key: &str,
+) {
+    let layers = only(SettingsLayer::OperatorPolicy, key, &json!(false));
+
+    let weakened: Vec<(String, SettingsLayer)> = resolved(&layers)
+        .weakened()
+        .into_iter()
+        .map(|weakened| (weakened.key, weakened.layer))
+        .collect();
+
+    assert_eq!(weakened, [(key.to_owned(), SettingsLayer::OperatorPolicy)]);
 }
 
 /// Story 4-4: `egress.private_ranges`, the third key of the domain policy,

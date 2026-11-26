@@ -19,6 +19,7 @@
     reason = "the files are read on the tasks module's blocking policy, never on an async worker"
 )]
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -506,7 +507,8 @@ fn file_tables(
     Ok(found_tables)
 }
 
-fn json_of_table(table: &toml_edit::Table) -> Value {
+/// A TOML table as the JSON value its readers check, its tables nested.
+pub(crate) fn json_of_table(table: &toml_edit::Table) -> Value {
     Value::Object(
         table
             .iter()
@@ -582,16 +584,7 @@ pub fn rewrite(text: &str, table: &str, key: &str, value: &Value) -> Result<Stri
         current.remove(last);
     } else {
         let written = toml_of(value).ok_or_else(|| invalid("TOML holds no `null`".to_owned()))?;
-        match current.get_mut(last).and_then(Item::as_value_mut) {
-            Some(existing) => {
-                let decor = existing.decor().clone();
-                *existing = written;
-                *existing.decor_mut() = decor;
-            }
-            None => {
-                current.insert(last, Item::Value(written));
-            }
-        }
+        set_keeping_decor(current, last, written);
     }
     Ok(document.to_string())
 }
@@ -643,15 +636,15 @@ pub fn set(
     };
     let marked = opener.written(found, Some(added_in));
     if marked.version != found.version {
-        set_top(
-            &mut document,
+        set_keeping_decor(
+            document.as_table_mut(),
             "version",
             toml_edit::Value::from(marked.version.to_string()),
         );
     }
     if marked.lowest_minor != found.lowest_minor {
-        set_top(
-            &mut document,
+        set_keeping_decor(
+            document.as_table_mut(),
             LOWEST_MINOR_KEY,
             toml_edit::Value::from(i64::from(marked.lowest_minor)),
         );
@@ -659,17 +652,17 @@ pub fn set(
     Ok(document.to_string())
 }
 
-/// Sets a top-level `key` of `document` to `value`, keeping its decor when
-/// it has one.
-fn set_top(document: &mut DocumentMut, key: &str, value: toml_edit::Value) {
-    match document.get_mut(key).and_then(Item::as_value_mut) {
+/// Sets `key` of `table` to `value`, keeping its decor, the comments and
+/// spaces around it, when it has one.
+fn set_keeping_decor(table: &mut toml_edit::Table, key: &str, value: toml_edit::Value) {
+    match table.get_mut(key).and_then(Item::as_value_mut) {
         Some(existing) => {
             let decor = existing.decor().clone();
             *existing = value;
             *existing.decor_mut() = decor;
         }
         None => {
-            document.insert(key, Item::Value(value));
+            table.insert(key, Item::Value(value));
         }
     }
 }
@@ -715,13 +708,14 @@ pub fn fuzz_settings_file(data: &[u8]) {
         let Ok(read) = configuration(SettingsLayer::UserConfiguration, text, product) else {
             continue;
         };
-        for (key, value) in &read.applied {
+        for (key, value) in read.applied() {
             let rewritten = rewrite(text, "settings", key, value)
                 .expect("invariant: a file that read rewrites");
             let again = configuration(SettingsLayer::UserConfiguration, &rewritten, product)
                 .expect("invariant: a rewritten file reads");
             assert_eq!(
-                again.applied, read.applied,
+                again.applied().collect::<BTreeMap<_, _>>(),
+                read.applied().collect::<BTreeMap<_, _>>(),
                 "a rewrite changed what the file sets"
             );
         }

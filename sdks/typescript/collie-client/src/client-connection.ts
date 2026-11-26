@@ -5,7 +5,6 @@
 // check of the engine's answers is the protocol version's (STYLE.md). A
 // Product's package reaches its own operations, streams and Run type
 // through it, and serves the engine's requests to its program's handlers.
-import { Buffer } from "node:buffer";
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
@@ -29,7 +28,6 @@ import {
   type GoodfetchError,
   type HelloParams,
   type HelloResult,
-  type KeyValueStoreSetParams,
   type LogLevel,
   type CatalogRunStartParams,
   type CatalogTarget,
@@ -44,7 +42,7 @@ import {
   type UsageSetParams,
 } from "./generated/index.ts";
 import type { JSONValue } from "./json.ts";
-import type { ProjectFile } from "./project-file.ts";
+import { TIMEOUT_CONNECT, type ProjectFile } from "./project-file.ts";
 import { limitList, type Limits } from "./limits.ts";
 import { logEngineEvent, logLevelOf, type Logger } from "./logger.ts";
 import { collieWire, type CollieWireType } from "./generated/wire.ts";
@@ -54,6 +52,7 @@ import { holdInRealm } from "./realm.ts";
 import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { RunView } from "./run-view.ts";
+import { Schedules } from "./schedules.ts";
 import { settingsOnWire, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -286,6 +285,8 @@ export class ClientConnection implements AsyncDisposable {
   #closing: Promise<void> | undefined;
   /** Reads the Trace context each call the program makes carries (ADR 0132), set before `hello`. */
   #traceContext: TraceContextSource = () => undefined;
+  /** The Schedules of the engine's major (spec 589), reached without a round trip. */
+  readonly schedules: Schedules;
 
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
@@ -325,40 +326,14 @@ export class ClientConnection implements AsyncDisposable {
       forget: (run) => this.#runs.delete(run),
       operationNames,
       logger: this.#logger,
-      keyValueStore: {
-        get: async (runId, key) => {
-          const { value } = await this.#operations.keyValueStoreGet({ runId, key });
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- engine answers are not validated beyond `hello`'s protocol version (STYLE.md): a stored value is JSON.
-          return value as JSONValue;
-        },
-        set: async (runId, key, value) => {
-          // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the generated layer types a schemaless JSON value as an object; any JSON value but null is the engine's to take.
-          const stored = value as KeyValueStoreSetParams["value"];
-          await this.#operations.keyValueStoreSet({ runId, key, value: stored });
-        },
-        getBytes: async (runId, key) => {
-          const { bytes } = await this.#operations.keyValueStoreGetBytes({ runId, key });
-          return bytes
-            ? {
-                content: new Uint8Array(Buffer.from(bytes.content, "base64")),
-                contentType: bytes.contentType,
-              }
-            : null;
-        },
-        setBytes: async (runId, key, content, contentType) => {
-          await this.#operations.keyValueStoreSetBytes({
-            runId,
-            key,
-            content: Buffer.from(content.buffer, content.byteOffset, content.byteLength).toString(
-              "base64",
-            ),
-            contentType,
-          });
-        },
-        delete: async (runId, key) =>
-          (await this.#operations.keyValueStoreDelete({ runId, key })).existed,
-      },
     };
+    this.schedules = new Schedules({
+      calls,
+      raw: (operation, params, callOptions) => this.#raw(operation, params, callOptions),
+      ensureOpen: (operation) => {
+        this.#openOrThrow(operation);
+      },
+    });
     holdInRealm(this);
   }
 
@@ -417,7 +392,7 @@ export class ClientConnection implements AsyncDisposable {
       gaveUp: (cause) =>
         new ClosedError(
           runtimeMessage(
-            "the Connection's link to the engine dropped, and reaching the engine again failed within timeout.connect",
+            `the Connection's link to the engine dropped, and reaching the engine again failed within ${TIMEOUT_CONNECT}`,
             { fix: CONNECT_AGAIN },
           ),
           { fix: CONNECT_AGAIN, cause },
@@ -889,7 +864,7 @@ export class ClientConnection implements AsyncDisposable {
       return answered.answer;
     }
     throw phaseExceeded(
-      `timeout.connect (${value} ms) passed before the engine answered hello`,
+      `${TIMEOUT_CONNECT} (${value} ms) passed before the engine answered hello`,
       "Raise connect()'s timeout, or find why the engine does not answer in the engine's stderr, which the logger got.",
       limit,
       startedAt,
@@ -1033,7 +1008,7 @@ export function connectLimit(
   timeout: number | null | undefined,
   project: ProjectFile | undefined,
 ): ConnectLimit | null {
-  const key = "timeout.connect";
+  const key = TIMEOUT_CONNECT;
   if (timeout === null) {
     return null;
   }

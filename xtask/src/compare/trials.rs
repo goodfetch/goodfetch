@@ -13,20 +13,26 @@ use super::hostile::Broken;
 pub(crate) use super::matrix::Tool;
 use super::matrix::{self, Cell, Scenario};
 
+mod quiet;
+pub(crate) use quiet::{Cores, QUIET_SAMPLE_SECONDS, QuietReading, Started};
+
 /// Trials of each measured cell, interleaved in random order.
 pub(crate) const TRIALS: u32 = 10;
-/// The 1-minute load average under which a machine counts as quiet: each
+/// The 1-minute load average under which a machine counts as quiet, where
+/// the OS gives no pressure files (macOS, or a kernel without PSI): each
 /// timed trial waits for it before it starts.
 pub(crate) const QUIET_LOAD: f64 = 4.0;
-/// The 1-minute load average under which a run under strace starts: its
-/// counts hold under some load, but a crawl slowed by a loaded machine is
-/// stopped as stalled, and its cell is not measured (#2521: a run started
-/// at 19.3 lost its cell). Half the threads of the 16-thread machine the
-/// comparison runs on.
+/// The 1-minute load average under which a run under strace starts, where
+/// the OS gives no pressure files: its counts hold under some load, but a
+/// crawl slowed by a loaded machine is stopped as stalled, and its cell is
+/// not measured (#2521: a run started at 19.3 lost its cell). Half the
+/// threads of the 16-thread machine the comparison runs on.
 pub(crate) const STRACE_QUIET_LOAD: f64 = 8.0;
 /// The longest a timed trial or a run under strace waits for a quiet
-/// machine before it starts anyway, its load recorded.
+/// machine before it starts anyway, what the check read recorded, when the
+/// run was given no time its waits must end by (`--quiet-until`).
 pub(crate) const QUIET_WAIT_SECONDS: u64 = 30 * 60;
+
 /// The statistic each figure is reported as, with its spread.
 pub(crate) const STATISTIC: &str = "median, with the lowest and highest trial";
 /// Requests in flight at once, for each tool: the resident-memory check's
@@ -262,8 +268,8 @@ pub(crate) struct Machine {
     pub(crate) threads: usize,
     /// Its memory, where the OS gives it.
     pub(crate) memory_bytes: Option<u64>,
-    /// The 1-minute load average when the first trial started, where the
-    /// OS gives one: a quiet machine is under 4.
+    /// The 1-minute load average when the run read the machine, before its
+    /// first trial, where the OS gives one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) load: Option<f64>,
 }
@@ -388,10 +394,10 @@ pub(crate) struct Trial {
     pub(crate) site_pages: u64,
     /// Requests it had in flight at once.
     pub(crate) concurrency: u32,
-    /// The 1-minute load average when it started, where the OS gives one:
-    /// a quiet machine is under [`QUIET_LOAD`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) load: Option<f64>,
+    /// What the machine was when it started: a timed trial of the full
+    /// [`TRIALS`] waits for the quiet check to pass.
+    #[serde(flatten)]
+    pub(crate) started: Started,
     /// Why its first attempt was stopped, when the comparison stopped it
     /// and these are its retry's figures.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -473,10 +479,11 @@ pub(crate) struct CountedRun {
     pub(crate) tool: Tool,
     /// Its number among the cell's runs, from 1.
     pub(crate) number: u32,
-    /// The 1-minute load average when it started, where the OS gives one:
-    /// a run under strace waits for one under [`STRACE_QUIET_LOAD`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) load: Option<f64>,
+    /// What the machine was when it started: a run under strace of the
+    /// full [`TRIALS`] waits for the quiet check to pass, its load fallback
+    /// [`STRACE_QUIET_LOAD`].
+    #[serde(flatten)]
+    pub(crate) started: Started,
     /// Callgrind's instructions, or strace's system calls.
     pub(crate) count: u64,
     /// strace's calls of `fsync`, `fdatasync`, `sync_file_range`,
@@ -700,9 +707,10 @@ pub(crate) struct CollieTrial {
     pub(crate) tool: Contender,
     /// Its number among the cell's trials of its tool, from 1.
     pub(crate) number: u32,
-    /// The 1-minute load average when it started, where the OS gives one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) load: Option<f64>,
+    /// What the machine was when it started: a trial of the full
+    /// [`TRIALS`] waits for the quiet check to pass.
+    #[serde(flatten)]
+    pub(crate) started: Started,
     /// The actions it took, which its figures are per: each click, fill,
     /// press or page read, the one that failed included, or each Session
     /// opened.
@@ -795,9 +803,10 @@ pub(crate) struct LoadTrial {
     pub(crate) row: Row,
     /// Its number among its row's trials on its page, from 1.
     pub(crate) number: u32,
-    /// The 1-minute load average when it started, where the OS gives one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) load: Option<f64>,
+    /// What the machine was when it started: a trial of the full
+    /// [`TRIALS`] waits for the quiet check to pass.
+    #[serde(flatten)]
+    pub(crate) started: Started,
     /// The document's status, when the navigation answered one.
     pub(crate) status: Option<u16>,
     /// The SHA-256 of the page's `#content` text, in hex.

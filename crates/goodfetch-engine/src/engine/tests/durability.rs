@@ -45,8 +45,7 @@ fn reading_synchronous() -> Contribution {
         |params: Value, context: CallContext| async move {
             let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
             let run = context.runs().live(run_id).await.unwrap();
-            let synchronous: i64 = run
-                .state()
+            let synchronous: i64 = crate::runs::state(&run)
                 .write(|connection| {
                     connection.pragma_query_value(None, "synchronous", |row| row.get(0))
                 })

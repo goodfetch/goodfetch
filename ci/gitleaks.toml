@@ -27,6 +27,12 @@ paths = [
 ]
 
 [[allowlists]]
+description = "The service account key GCP Secret Manager's tests sign with (issue 1658): a key made once for the tests, which only their loopback stand-in of Google's token endpoint knows, so it signs for no account"
+paths = [
+  '''(^|/)crates/goodfetch-secret-providers/tests/fixtures/service-account-key\.pem$''',
+]
+
+[[allowlists]]
 description = "Third-party filter lists vendored as published (ADR 0047, #713): their comments cite upstream commit IDs, which match token rules"
 paths = [
   '''(^|/)crates/goodfetch-clean-up-rules/rules/[^/]+\.txt$''',
@@ -43,3 +49,7 @@ regexes = ['''AgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg''']
 [[allowlists]]
 description = "The made-up token the Kennel's Text tests mask where the truncation cuts it (spec #2052): sixteen hex digits counting up, no key at all"
 regexes = ['''0123456789abcdef''']
+
+[[allowlists]]
+description = "The name of the environment variable the Proving ground's online copy reads its Anubis signing key from (#168), in its module docs and settings: a variable's name, not its value"
+regexes = ['''PROVING_GROUND_ANUBIS_HS512_SECRET''']

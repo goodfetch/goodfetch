@@ -10,7 +10,7 @@ use serde_json::Value;
 use tungstenite::handshake::client::generate_key;
 use tungstenite::{Error, HandshakeError, Message};
 
-use super::connection::{Connection, ListenerAddress, is_closed, is_silent};
+use super::connection::{Connection, ListenerAddress, ListenerTls, is_closed, is_silent};
 use super::runner::Observed;
 
 /// A WebSocket handshake.
@@ -23,18 +23,19 @@ pub(super) struct Handshake<'a> {
     pub(super) origin: Option<&'a str>,
 }
 
-/// Opens a WebSocket to `address` with `handshake`, sends `message` as its
-/// first message, and reads until the listener replies with an answer
-/// `replied` tells, such as a JSON-RPC `result`, closes, or stays silent
-/// past the deadline. Other messages, such as errors sent before closing,
-/// are no reply.
+/// Opens a WebSocket to `address` with `handshake`, over `tls` if any,
+/// sends `message` as its first message, and reads until the listener
+/// replies with an answer `replied` tells, such as a JSON-RPC `result`,
+/// closes, or stays silent past the deadline. Other messages, such as
+/// errors sent before closing, are no reply.
 pub(super) fn attempt(
     address: SocketAddr,
+    tls: Option<&ListenerTls>,
     handshake: &Handshake<'_>,
     message: &Value,
     replied: fn(&Value) -> bool,
 ) -> Observed {
-    let connection = match Connection::open(&ListenerAddress::Tcp(address)) {
+    let connection = match Connection::open(&ListenerAddress::Tcp(address), tls) {
         Ok(connection) => connection,
         Err(error) => {
             return Observed::Unreachable {
@@ -42,8 +43,9 @@ pub(super) fn attempt(
             };
         }
     };
+    let scheme = if tls.is_some() { "wss" } else { "ws" };
     let mut request = tungstenite::http::Request::builder()
-        .uri(format!("ws://{address}{}", handshake.target))
+        .uri(format!("{scheme}://{address}{}", handshake.target))
         .header("Host", handshake.host)
         .header("Connection", "Upgrade")
         .header("Upgrade", "websocket")
@@ -86,10 +88,12 @@ pub(super) fn attempt(
 /// What a WebSocket's failure shows.
 fn observed(error: &Error) -> Observed {
     match error {
-        Error::ConnectionClosed | Error::AlreadyClosed => Observed::Closed,
-        Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake) => {
-            Observed::Closed
-        }
+        Error::ConnectionClosed
+        | Error::AlreadyClosed
+        | Error::Protocol(
+            tungstenite::error::ProtocolError::ResetWithoutClosingHandshake
+            | tungstenite::error::ProtocolError::HandshakeIncomplete,
+        ) => Observed::Closed,
         Error::Io(error) if is_silent(error) => Observed::StayedOpen,
         Error::Io(error) if is_closed(error) => Observed::Closed,
         Error::Io(error) => Observed::Unreachable {

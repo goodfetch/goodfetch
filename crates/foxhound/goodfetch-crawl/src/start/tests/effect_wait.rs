@@ -199,6 +199,7 @@ fn a_drained_crawl_waits_for_its_running_effect_to_close(
         ops: Ops::default(),
         websocket: None,
         live_view: None,
+        accounts: None,
     };
 
     let engine = engine();

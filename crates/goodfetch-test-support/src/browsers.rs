@@ -29,7 +29,10 @@ use std::time::{Duration, Instant};
 use crate::env::{START_TIME, TestEnv};
 use crate::facts::{CHROME_FOR_TESTING_BUILD, LIGHTPANDA_BUILD};
 use crate::process::Process;
-use crate::variables::{PLAYWRIGHT_BROWSERS_VARIABLE, Variables};
+use crate::variables::{
+    CHROME_FOR_TESTING_DOWNLOADS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE,
+    PLAYWRIGHT_BROWSERS_VARIABLE, Variables,
+};
 
 /// Playwright's revision of the Chrome for Testing build Collie pins, which
 /// Playwright's pinned release (1.64.1, `browsers.json`) also runs: the name
@@ -446,11 +449,6 @@ fn lay_out_entry(
     Ok(())
 }
 
-/// The variable naming the folder `ci/lightpanda-fetch.sh` downloads the
-/// tests' copy of Lightpanda into, `~/.cache/goodfetch/lightpanda` by
-/// default.
-pub const LIGHTPANDA_DOWNLOADS_VARIABLE: &str = "GOODFETCH_LIGHTPANDA_DOWNLOADS";
-
 /// The name of Lightpanda's release executable for this platform.
 fn lightpanda_asset() -> Option<&'static str> {
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
@@ -510,11 +508,6 @@ pub(crate) fn downloads(variable: &str, name: &str) -> PathBuf {
         })
         .unwrap_or_default()
 }
-
-/// The variable naming the folder `ci/chrome-for-testing-fetch.sh`
-/// downloads the tests' copy of the pinned Chrome for Testing build's
-/// archive into, `~/.cache/goodfetch/chrome-for-testing` by default.
-pub const CHROME_FOR_TESTING_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS";
 
 /// The path of the pinned Chrome for Testing build's archive for this
 /// platform below Chrome for Testing's storage, or a mirror of it:

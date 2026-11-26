@@ -30,10 +30,14 @@
 //!   per setting a resume changed, with its key, the layer that sets it
 //!   from the resume on and the run epoch the resume began, never its
 //!   value.
+//! - **The Plugin call log** (ADR 0033), `trace/plugin-calls.jsonl`: one
+//!   JSON line per call a Plugin kind's driver made into an implementation,
+//!   with the implementation, the kind, the method, the class the engine
+//!   gave the call, its time and the Error code it failed with, if it did.
 //!
-//! Every Provenance, request-log and settings-log line passes through the
-//! Run's `Mask` as a kept output (spec #564): no value a Run resolved is
-//! written, unless the Run's `security.redaction` is off.
+//! Every Provenance, request-log, settings-log and Plugin-call line passes
+//! through the Run's `Mask` as a kept output (spec #564): no value a Run
+//! resolved is written, unless the Run's `security.redaction` is off.
 //!
 //! The writer is an actor of the Run's owner, started at the Run's first
 //! entry, the Run's work, once, counted on `E5.run_spawns`. It holds one
@@ -62,8 +66,8 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::home::{
-    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS,
-    RUN_TRACE_SETTINGS,
+    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PLUGIN_CALLS, RUN_TRACE_PROVENANCE,
+    RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -124,15 +128,17 @@ enum Log {
     CdpCommands,
     Calls,
     Settings,
+    PluginCalls,
 }
 
 impl Log {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Provenance,
         Self::Requests,
         Self::CdpCommands,
         Self::Calls,
         Self::Settings,
+        Self::PluginCalls,
     ];
 
     /// How many files the writer holds.
@@ -146,6 +152,7 @@ impl Log {
             Self::CdpCommands => 2,
             Self::Calls => 3,
             Self::Settings => 4,
+            Self::PluginCalls => 5,
         }
     }
 
@@ -157,6 +164,7 @@ impl Log {
             Self::CdpCommands => RUN_TRACE_CDP_COMMANDS,
             Self::Calls => RUN_TRACE_CALLS,
             Self::Settings => RUN_TRACE_SETTINGS,
+            Self::PluginCalls => RUN_TRACE_PLUGIN_CALLS,
         }
     }
 }
@@ -263,6 +271,24 @@ impl RunTrace {
         self.written_masked(Log::Settings, &mut entry).await
     }
 
+    /// Appends `call`, one call a Plugin kind's driver made into an
+    /// implementation (ADR 0033), as a line of the Plugin call log, masked
+    /// by the Run's `Mask` as a kept output, and returns once it is written.
+    ///
+    /// # Errors
+    ///
+    /// When the line cannot be encoded, the writer cannot start, or the
+    /// file cannot be opened or written; the next entry opens it again.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn plugin_call(&self, call: &impl Serialize) -> io::Result<()> {
+        let mut entry = serde_json::to_value(call)?;
+        self.written_masked(Log::PluginCalls, &mut entry).await
+    }
+
     /// Writes `entry`, masked by the Run's `Mask` as a kept output, as one
     /// line of `log`.
     async fn written_masked(&self, log: Log, entry: &mut serde_json::Value) -> io::Result<()> {
@@ -319,6 +345,12 @@ impl RunTrace {
     /// Cancel safe: a writer it started stays the Run's, for the next call.
     pub async fn calls(&self) -> io::Result<CallLog> {
         self.writer().await.map(|writer| CallLog(writer.clone()))
+    }
+
+    /// Sends `entry` to the writer, starting it first unless an entry did,
+    /// and waiting for its place in the mailbox.
+    async fn sent(&self, entry: Entry) -> io::Result<()> {
+        self.writer().await?.send(entry).await.map_err(|_| ended())
     }
 
     /// Sends `line` to the writer for `log` and waits until it is written.
@@ -461,18 +493,63 @@ impl RequestLog {
         }
     }
 
-    /// Records that a request no call waited for failed.
-    ///
-    /// # Errors
-    ///
-    /// When the file cannot be written.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future never stops a line being written once it was
-    /// sent to the writer.
-    pub async fn request_failed(&self, failed: &RequestFailed) -> io::Result<()> {
-        self.record(&PAGE_REQUEST_FAILED, failed).await
+    /// Records that a request no call waited for failed, without waiting,
+    /// as [`Self::record_now`] records a line.
+    pub fn request_failed(&self, failed: &RequestFailed) {
+        self.record_now(&PAGE_REQUEST_FAILED, failed);
+    }
+
+    /// Records `event` with its `data` as [`Self::record`] does, without
+    /// waiting: its line goes to the Run's writer at once once an entry
+    /// started it, else, before that or while the writer's mailbox is
+    /// full, through a task of the Run, which a caller counting the tasks
+    /// it starts counts (`C5.spawns`). A line that cannot be encoded, or
+    /// that the writer cannot write, is logged.
+    pub fn record_now(&self, event: &Event, data: &impl Serialize) {
+        self.line_now(event.name, data);
+    }
+
+    /// Records a request a site's service worker sent itself, which no
+    /// page's event reports (ADR 0121), as `service_worker.request`,
+    /// without waiting, as [`Self::record_now`] records a line.
+    pub fn service_worker_request(&self, request: &ServiceWorkerRequest) {
+        self.line_now(SERVICE_WORKER_REQUEST, request);
+    }
+
+    /// Records the line `name` with its `data` as [`Self::record_now`]
+    /// says.
+    fn line_now(&self, name: &str, data: &impl Serialize) {
+        let line = match self.line(name, data) {
+            Ok(line) => line,
+            Err(error) => {
+                tracing::warn!(%error, "a line of the Run trace's request log cannot be encoded");
+                return;
+            }
+        };
+        let entry = Entry {
+            log: Log::Requests,
+            line,
+            written: None,
+        };
+        let entry = match self.trace.0.writer.get() {
+            None => entry,
+            Some(writer) => match writer.try_send(entry) {
+                Ok(()) => return,
+                Err(TrySendError::Closed(_)) => {
+                    tracing::debug!(
+                        "a line of the request log is not in the Run trace: its Run has ended"
+                    );
+                    return;
+                }
+                Err(TrySendError::Full(entry)) => entry,
+            },
+        };
+        let trace = self.trace.clone();
+        self.trace.0.owner.spawn(async move {
+            if let Err(error) = trace.sent(entry).await {
+                tracing::warn!(%error, "the Run trace did not take a line of its request log");
+            }
+        });
     }
 
     /// Records `event` with its `data`, as the event stream carries it, such
@@ -507,25 +584,17 @@ impl RequestLog {
         self.record_line(name, data).await
     }
 
-    /// Records a request a site's service worker sent itself, which no
-    /// page's event reports (ADR 0121), as `service_worker.request`.
-    ///
-    /// # Errors
-    ///
-    /// When the file cannot be written.
-    ///
-    /// # Cancel safety
-    ///
-    /// Dropping the future never stops a line being written once it was
-    /// sent to the writer.
-    pub async fn service_worker_request(&self, request: &ServiceWorkerRequest) -> io::Result<()> {
-        self.record_line(SERVICE_WORKER_REQUEST, request).await
+    /// Writes the line `name` with its `data` and waits until it is
+    /// written.
+    async fn record_line(&self, name: &str, data: &impl Serialize) -> io::Result<()> {
+        let line = self.line(name, data)?;
+        self.trace.written(Log::Requests, line).await
     }
 
     /// Encodes the line once, from the event's own data, and masks it as
     /// text, string by string only where a masked value broke it, as a
-    /// call's answer is (#1882's E5-1).
-    async fn record_line(&self, name: &str, data: &impl Serialize) -> io::Result<()> {
+    /// call's answer is (#1882's E5-1); it counts on `C5.entries`.
+    fn line(&self, name: &str, data: &impl Serialize) -> serde_json::Result<Vec<u8>> {
         /// A line of the request log, its members in the order of their
         /// names.
         #[derive(Serialize)]
@@ -538,7 +607,7 @@ impl RequestLog {
         line.push(b'\n');
         let line = trace.mask.masks().apply_json_line(line, Scope::KeptOutput);
         trace.work.count(Row::InterceptedEntries);
-        self.trace.written(Log::Requests, line).await
+        Ok(line)
     }
 }
 

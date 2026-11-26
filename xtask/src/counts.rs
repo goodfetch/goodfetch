@@ -217,7 +217,7 @@ const LARGE: &str = "large_params";
 
 /// Every row with a counter. Adding one here, with its counter and its
 /// plant in the family's benchmark, is what gives a row its command.
-const ROWS: [Row; 146] = [
+const ROWS: [Row; 152] = [
     Row {
         name: "F1.parses",
         family: "B1",
@@ -510,6 +510,29 @@ const ROWS: [Row; 146] = [
         happens: false,
         valgrind: None,
     },
+    // Per event the browser sent, on any session: the readers the driver
+    // visits to hand it on.
+    Row {
+        name: "C1.event_visits",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.pending_orphans",
+        family: "B2",
+        unit: "commands",
+        happens: false,
+        valgrind: None,
+    },
+    Row {
+        name: "C1.event_decodes",
+        family: "B2",
+        unit: "events",
+        happens: true,
+        valgrind: None,
+    },
     // C6, a Live view frame's work: B2's default cell has a viewer watch
     // its Session, which gets a frame as the screencast starts and one per
     // navigation; its other cells have none. Each frame is acknowledged to
@@ -567,6 +590,15 @@ const ROWS: [Row; 146] = [
         family: "B2",
         unit: "sessions_opened",
         happens: false,
+        valgrind: None,
+    },
+    // The tasks and actors a page's opening starts itself, its Page's owner
+    // among them (ADR 0146); those they start in turn are theirs.
+    Row {
+        name: "C7.page_tasks",
+        family: "B2",
+        unit: "pages_opened",
+        happens: true,
         valgrind: None,
     },
     Row {
@@ -1006,6 +1038,15 @@ const ROWS: [Row; 146] = [
         happens: true,
         valgrind: None,
     },
+    // An engine read's ask to its Page's owner (ADR 0146): one per read, a
+    // wait asking once for all its checks.
+    Row {
+        name: "C2.owner_round_trips",
+        family: "B2",
+        unit: "reads",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "C5.fetch_messages_no_rule",
         family: "B2",
@@ -1016,7 +1057,7 @@ const ROWS: [Row; 146] = [
     Row {
         name: "C5.spawns",
         family: "B2",
-        unit: "refusals",
+        unit: "pauses",
         happens: false,
         valgrind: None,
     },
@@ -1090,6 +1131,15 @@ const ROWS: [Row; 146] = [
         happens: true,
         valgrind: None,
     },
+    // An action attempt's ask to its Page's owner (ADR 0146), over every
+    // kind's attempts.
+    Row {
+        name: "C3.owner_round_trips",
+        family: "B2",
+        unit: "attempts",
+        happens: true,
+        valgrind: None,
+    },
     Row {
         name: "C4.detection_reads",
         family: "B2",
@@ -1149,7 +1199,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 22] = [
+const NOT_RUN_YET: [NotRunYet; 23] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -1223,13 +1273,19 @@ const NOT_RUN_YET: [NotRunYet; 22] = [
     NotRunYet {
         name: "C5.cache_lookups",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {
         name: "C5.cache_file_opens",
         family: "B2",
-        builder: "#793",
+        builder: "#796",
+        capped: true,
+    },
+    NotRunYet {
+        name: "C5.cache_body_writes",
+        family: "B2",
+        builder: "#796",
         capped: true,
     },
     NotRunYet {
@@ -1346,8 +1402,8 @@ pub(crate) struct Arguments {
     prove: bool,
     /// Runs this executable as the family `<family>=<path>` names, in place
     /// of building its target.
-    #[arg(long, value_name = "FAMILY=PATH")]
-    executable: Vec<String>,
+    #[arg(long, value_name = "FAMILY=PATH", value_parser = named_executable)]
+    executable: Vec<NamedExecutable>,
     /// Runs the rows read under Valgrind, in place of the counted ones.
     #[arg(long, conflicts_with = "executable")]
     valgrind: bool,
@@ -1365,6 +1421,24 @@ pub(crate) struct Arguments {
     /// it, `GOODFETCH_COUNTS_CALLGRIND_AT_ONCE` sets it.
     #[arg(long, value_name = "N")]
     callgrind_at_once: Option<NonZeroUsize>,
+}
+
+/// One `--executable` value: the family it runs as, and its path.
+#[derive(Clone, Debug)]
+struct NamedExecutable {
+    family: String,
+    path: PathBuf,
+}
+
+/// Reads `FAMILY=PATH`, refusing a value with no `=`.
+fn named_executable(value: &str) -> Result<NamedExecutable, String> {
+    let (family, path) = value
+        .split_once('=')
+        .ok_or_else(|| format!("`{value}` is no FAMILY=PATH"))?;
+    Ok(NamedExecutable {
+        family: family.to_owned(),
+        path: PathBuf::from(path),
+    })
 }
 
 /// The cell that runs with every default feature on.
@@ -1402,7 +1476,7 @@ pub(crate) fn run(arguments: &Arguments, environment: &Environment) -> Result<Ex
     let named: Vec<&str> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('=').map(|(family, _)| family))
+        .map(|named| named.family.as_str())
         .collect();
     let uncounted = uncounted(&register.rows, &named, arguments);
     if !uncounted.is_empty() {
@@ -1754,10 +1828,10 @@ fn executables(
     environment: &Environment,
     rows: &[&Row],
 ) -> Result<BTreeMap<&'static str, PathBuf>> {
-    let named: BTreeMap<&str, &str> = arguments
+    let named: BTreeMap<&str, &Path> = arguments
         .executable
         .iter()
-        .filter_map(|named| named.split_once('='))
+        .map(|named| (named.family.as_str(), named.path.as_path()))
         .collect();
     let mut executables = BTreeMap::new();
     for family in FAMILIES {
@@ -1768,7 +1842,7 @@ fn executables(
             continue;
         }
         let executable = match named.get(family.name) {
-            Some(path) => environment.path(Path::new(path)),
+            Some(path) => environment.path(path),
             None => build(&family, arguments.valgrind, environment)?,
         };
         executables.insert(family.name, executable);

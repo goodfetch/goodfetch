@@ -8,8 +8,9 @@
 //! `popups`', its page function cases `page_functions`', its Page check
 //! cases `page_check`'s, its robots.txt reading cases `robots_txt`'s, its
 //! hostile-input cases `hostile_input`'s, its `page.read` cases `read`'s,
-//! the reset gate's cases `reset`'s, the start table's `run_start`'s and
-//! the fencing of a Run's two copies `two_copies`'.
+//! the reset gate's cases `reset`'s, the start table's `run_start`'s, the
+//! fencing of a Run's two copies `two_copies`' and the Schedule store's
+//! `schedules`'.
 //!
 //! Size: one concern, the table of every case the suites name: each ID to
 //! its case, each case to the module that runs it, and the Site and checks
@@ -43,6 +44,7 @@ mod robots_txt;
 mod routes;
 mod run_start;
 mod run_trace;
+mod schedules;
 mod service_workers;
 mod sessions;
 mod two_copies;
@@ -157,6 +159,8 @@ pub(crate) enum Case {
     RunStart(run_start::Case),
     /// A case of a Run's two copies, one fenced.
     TwoCopies(two_copies::Case),
+    /// A Schedule store case.
+    Schedule(schedules::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
     /// A `page.request` case, the hostile-input cases among them.
@@ -452,17 +456,18 @@ pub(crate) fn user_configuration(settings: &str) -> String {
 }
 
 /// The Proving ground's host names that belong to no task and that a case
-/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118), and the
-/// scope family's site and off-site host the route cases load, the
+/// reaches, which `resolve` maps too: the fetch edge's (ADR 0118) and the
+/// Response cache's (ADR 0046), and the scope family's site and off-site host the route cases load, the
 /// Clean-up pages' two hosts and the payment script's (ADR 0047), the
 /// consent pages' two hosts (ADR 0048), the `body-limits` family's host
 /// whose robots.txt is past the size limit, the `access-policy` family's
 /// host whose robots.txt answers late, and the `bombs` family's own
 /// host, whose zstd frame asks for a window past 8 MB (ADR 0067); and the
 /// delivery cases' plain host, which an engine would otherwise look up.
-const NAMED_HOSTS: [&str; 12] = [
+const NAMED_HOSTS: [&str; 13] = [
     delivery::PLAIN_HOST,
     "fetch-edge.test",
+    fetch_tiers::cached::HOST,
     "scope.test",
     "elsewhere.test",
     clean_up::HOST,
@@ -628,6 +633,7 @@ impl Case {
                     .or_else(|| reset::Case::from_id(id).map(Self::Reset))
                     .or_else(|| run_start::Case::from_id(id).map(Self::RunStart))
                     .or_else(|| two_copies::Case::from_id(id).map(Self::TwoCopies))
+                    .or_else(|| schedules::Case::from_id(id).map(Self::Schedule))
                     .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
                     .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
                     .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
@@ -789,6 +795,7 @@ impl Case {
             Self::Reset(case) => case.run(connection, target, site, checks),
             Self::RunStart(case) => case.run(connection, target, site, checks),
             Self::TwoCopies(case) => case.run(connection, target, site, checks),
+            Self::Schedule(case) => case.run(connection, checks),
             Self::Consent(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),
@@ -796,7 +803,12 @@ impl Case {
                 checks,
             ),
             Self::ServiceWorker(case) => case.run(connection, target, site, checks),
-            Self::FetchTier(case) => case.run(connection, site, checks),
+            Self::FetchTier(case) => case.run(
+                connection,
+                target.environment.get("GOODFETCH_HOME").map(String::as_str),
+                site,
+                checks,
+            ),
         }
     }
 }

@@ -13,6 +13,8 @@
 //! version, storage and schema as the registry gave them.
 //!
 //! `refusals` writes each registered format's generated refusal cases.
+//!
+//! `jobs` writes the Release suite's skew jobs, one set per released minor.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -20,6 +22,7 @@
 
 mod coverage;
 mod frozen;
+pub(crate) mod jobs;
 pub(crate) mod refusals;
 mod registry;
 mod sql;
@@ -38,7 +41,9 @@ use goodfetch_protocol::releases::{FormatName, FormatVersion, ReleasesFile};
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::output;
+use crate::tree::BUNDLE;
 use registry::Format;
+pub(crate) use registry::{reached, standalone};
 use tree::Tree;
 use writer::Writers;
 
@@ -53,7 +58,7 @@ const HEAD: &str = "head";
 
 /// The formats the committed bundle registers.
 fn formats(root: &Path) -> Result<Vec<Format>> {
-    let path = root.join(registry::BUNDLE);
+    let path = root.join(BUNDLE);
     let text = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
     registry::parse(&text).with_context(|| format!("reading {}", path.display()))
 }
@@ -370,8 +375,8 @@ pub(crate) fn freeze(root: &Path, tag_name: &str) -> Result<Freeze> {
         return Ok(Freeze::Prerelease);
     }
     tag::verify(root, tag_name)?;
-    let shipped = registry::parse(&tag::file(root, tag_name, registry::BUNDLE)?)
-        .with_context(|| format!("reading {} at {tag_name}", registry::BUNDLE))?;
+    let shipped = registry::parse(&tag::file(root, tag_name, BUNDLE)?)
+        .with_context(|| format!("reading {BUNDLE} at {tag_name}"))?;
     let mut frozen = Vec::new();
     for format in &shipped {
         let folder = set_folder(root, format.name.as_str(), &format.version.to_string());
@@ -416,7 +421,7 @@ pub(crate) fn write(cargo: &OsStr, root: &Path) -> Result<()> {
 /// Writes the refusal cases of every format the committed bundle registers,
 /// removing those of a format no longer registered.
 pub(crate) fn write_refusals(root: &Path) -> Result<()> {
-    let path = root.join(registry::BUNDLE);
+    let path = root.join(BUNDLE);
     let bundle = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
     let files = refusals::files(&bundle).with_context(|| format!("reading {}", path.display()))?;
     let folder = root.join(refusals::FOLDER);
@@ -460,6 +465,11 @@ pub(crate) enum Command {
     /// one file per case under `crates/goodfetch-protocol/generated/refusals/`,
     /// which `xtask codegen --check` holds to the registry.
     Refusals,
+    /// Writes the Release suite's skew jobs, `ci/release/skew-jobs.json`,
+    /// which `xtask codegen --check` holds to `compat/releases.toml`,
+    /// `compat/skew-checks.toml` and `compat/skew-exclusions.toml`. Notes a
+    /// job whose estimate passes the job budget.
+    Jobs,
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -476,6 +486,18 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         }
         Command::Refusals => {
             write_refusals(root)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Jobs => {
+            let jobs = jobs::jobs(root, &crate::product_version::read(root)?)?;
+            let path = root.join(jobs::JOBS);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("creating {}", parent.display()))?;
+            }
+            std::fs::write(&path, jobs.text()?)
+                .with_context(|| format!("writing {}", path.display()))?;
+            check::note(&jobs.over_budget());
             Ok(ExitCode::SUCCESS)
         }
         Command::Freeze { tag } => {

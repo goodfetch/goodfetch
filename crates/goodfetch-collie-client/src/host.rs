@@ -23,6 +23,7 @@ use crate::call::{Call, Note, Query};
 use crate::connection::{ClientConnection, Closes, close_timeout};
 use crate::error::Error;
 use crate::event_stream::{EventStream, Opens};
+use crate::logging;
 use crate::published::Interest;
 use crate::raw_call::{RawCall, RawValue};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
@@ -278,6 +279,72 @@ impl<Id> Host<Id> {
     }
 }
 
+/// What a handle of a value the Connection holds rather than a Run, such as
+/// a Schedule (spec 589), reaches its engine through: the Connection and
+/// the value's ID. Its value outlives the program, so the handle opens,
+/// closes and listens to nothing, and a call on it fails with `closed` once
+/// the Connection is closed. Cloning it is cheap.
+#[derive(Clone, Debug)]
+pub(crate) struct ConnectionHost<Id> {
+    id: Id,
+    connection: ClientConnection,
+}
+
+impl<Id> ConnectionHost<Id> {
+    /// The host of the value `id` names, whose calls go through
+    /// `connection`.
+    pub(crate) fn new(connection: ClientConnection, id: Id) -> Self {
+        Self { id, connection }
+    }
+
+    /// The ID that names the handle's value.
+    pub(crate) fn id(&self) -> &Id {
+        &self.id
+    }
+
+    /// The Connection the handle's calls go through.
+    pub(crate) fn connection(&self) -> &ClientConnection {
+        &self.connection
+    }
+
+    /// The call of `method` with `params`, whose reply reads as `T`.
+    pub(crate) fn call<T, P>(&self, method: &'static str, params: P) -> Call<T, P>
+    where
+        T: DeserializeOwned + Send + 'static,
+        P: Serialize + Send + 'static,
+    {
+        let params = if self.connection.is_closed() {
+            Err(Error::closed())
+        } else {
+            Ok(params)
+        };
+        Call::new(self.connection.sender(), method, params)
+    }
+
+    /// The raw call of `operation` on the handle's value (ADR 0099), of
+    /// the namespace `namespace`, its ID filling `param`. Whether the
+    /// Connection is closed is read when it is awaited.
+    pub(crate) fn raw(
+        &self,
+        operation: &str,
+        namespace: &'static str,
+        param: &'static str,
+    ) -> RawCall
+    where
+        Id: Serialize,
+    {
+        let connection = self.connection.clone();
+        let value = RawValue {
+            namespace,
+            param,
+            id: serde_json::to_value(&self.id).map_err(Error::shape),
+            closed: Box::new(move || connection.is_closed()),
+            note: None,
+        };
+        RawCall::new(self.connection.sender(), operation, Some(value))
+    }
+}
+
 /// Whether the value `value` names in `run`, or the Run itself when it
 /// names none, is closed: by its own close, a parent's, or the Run's.
 fn closed(run: &HeldRun, value: Option<&HeldValue>) -> bool {
@@ -317,7 +384,7 @@ impl Drop for HeldValue {
             return;
         }
         tracing::warn!(
-            target: "goodfetch::client",
+            target: logging::CLIENT,
             id = %dropped.id,
             "a {} was dropped without close(): it closes without waiting",
             dropped.value
@@ -536,7 +603,7 @@ impl Drop for HeldRun {
         // A detached Run outlives its value.
         if state == State::Running && !self.detached && self.connection.in_opener() {
             tracing::warn!(
-                target: "goodfetch::client",
+                target: logging::CLIENT,
                 run_id = %self.run_id,
                 "a running Run was dropped without close(): it is aborted without waiting"
             );

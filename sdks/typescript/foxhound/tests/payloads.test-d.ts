@@ -3,7 +3,15 @@
 // or a JSON object for a hand-written JSON Schema, so `tsc` fails on a
 // misspelled handle, a Payload of the wrong shape and a Payload given to a
 // Label that has none, as the package's typecheck runs it.
-import { Crawl, seed, type CrawlContext, type Label, type RequestSeed } from "@goodfetch/foxhound";
+import {
+  Crawl,
+  seed,
+  sitemap,
+  type CrawlContext,
+  type Label,
+  type RequestSeed,
+  type Seed,
+} from "@goodfetch/foxhound";
 import { z } from "zod";
 
 const crawl = new Crawl();
@@ -39,6 +47,17 @@ export function seeds(): RequestSeed[] {
   ];
 }
 
+// A sitemap entry carries no Payload, so a sitemap seed's rule takes only a
+// Label without one, and the seed goes beside request seeds in one start.
+export function sitemapSeeds(): Seed[] {
+  // @ts-expect-error a Label with a Payload names no sitemap entry
+  sitemap("https://shop.test/sitemap.xml", [["**/shelf/*", shelf]]);
+  return [
+    seed("https://shop.test/", page),
+    sitemap("https://shop.test/sitemap.xml", [["**/page/*", page]]),
+  ];
+}
+
 // A handler's enqueue and enqueueLinks follow the same rules.
 export async function enqueued(context: CrawlContext): Promise<void> {
   await context.enqueue("/shelf/2", shelf, { number: 2 });
@@ -51,4 +70,20 @@ export async function enqueued(context: CrawlContext): Promise<void> {
   await context.enqueue("/next", page, { from: "home" }, { priority: 1 });
   // @ts-expect-error a Label with a Payload needs one
   await context.enqueueLinks(context.page.locator("a.shelf"), shelf);
+}
+
+// enqueueLinks takes a Payload function in the Payload's place: each link's
+// Payload of its Label's shape, or null to leave it out, sync or async.
+export async function linkPayloads(context: CrawlContext): Promise<void> {
+  const links = context.page.locator("a.shelf");
+  await context.enqueueLinks(links, shelf, (link) =>
+    link.href === undefined ? null : { number: link.text.length },
+  );
+  await context.enqueueLinks(links, shelf, async () => Promise.resolve({ number: 1 }), {
+    limit: 2,
+  });
+  // @ts-expect-error a function's Payload of another shape than its Label's
+  await context.enqueueLinks(links, shelf, () => ({ number: "one" }));
+  // @ts-expect-error a Label without a Payload takes no Payload function
+  await context.enqueueLinks(context.page.locator("a"), page, () => null);
 }

@@ -1,4 +1,5 @@
-//! The Proving ground's command line: `serve`, `tasks` and their arguments.
+//! The Proving ground's command line: `serve`, `tasks`, `firefox-profile`
+//! and their arguments.
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -20,6 +21,25 @@ pub(crate) enum Command {
     /// each start URL on no port, and exits; `xtask journeys tasks` commits
     /// it (ADR 0063).
     Tasks(Tasks),
+    /// Writes a Firefox profile folder whose `cookies.sqlite` holds the
+    /// Session of `login/3`, the seeded login, opened at a time step, which
+    /// the Proving ground accepts until the time step changes; prints
+    /// nothing and exits.
+    FirefoxProfile(FirefoxProfile),
+}
+
+#[derive(Args)]
+pub(crate) struct FirefoxProfile {
+    /// The seed the Session is drawn from.
+    #[arg(long)]
+    pub(crate) seed: u64,
+    /// The time step the Session is opened at.
+    #[arg(long)]
+    pub(crate) time_step: u64,
+    /// The profile folder, created when missing; a `cookies.sqlite` already
+    /// in it is replaced.
+    #[arg(long)]
+    pub(crate) out: PathBuf,
 }
 
 #[derive(Args)]
@@ -59,14 +79,22 @@ pub(crate) struct Serve {
     /// every request `404`.
     #[arg(long)]
     pub(crate) browser_builds: Option<PathBuf>,
+    /// The online copy's vendors, a TOML file with one section per vendor
+    /// it carries (`online.rs`); required by `--copy online`, refused by
+    /// `--copy local`.
+    #[arg(long)]
+    pub(crate) online_config: Option<PathBuf>,
 }
 
-/// Which copy of the Proving ground runs (spec #152). The online copy is
-/// #168's.
+/// Which copy of the Proving ground runs (spec #152).
 #[derive(Clone, Copy, ValueEnum)]
 pub(crate) enum Copy {
     /// The local copy, which every published speed figure and every test uses.
     Local,
+    /// The online copy (#168), behind real vendor protections on a domain
+    /// Goodfetch owns, which verifies each vendor's verdict on the server
+    /// side.
+    Online,
 }
 
 /// The added round-trip time on every connection (ADR 0025's profiles).

@@ -93,6 +93,7 @@
           "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
           "crawl_request_id": "1",
           "lease_epoch": 1,
+          "page_id": "page-1",
           "url": "/products/P-0001",
           "label": "product"
         }

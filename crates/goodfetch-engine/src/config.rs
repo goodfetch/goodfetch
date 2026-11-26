@@ -32,6 +32,7 @@ use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::run::{run_error, run_id, settings_error};
+use crate::runs;
 use crate::settings::{
     Opening, Policy, SettingsError, Values, beneath_connection, operator_policy, policy_version,
 };
@@ -100,7 +101,7 @@ async fn explain(
     };
     let resolved = live
         .as_ref()
-        .and_then(|live| live.settings())
+        .and_then(|live| runs::identity(live).settings())
         .unwrap_or(&run)
         .resolved();
     let mut files = machine.files;
@@ -342,11 +343,7 @@ fn diff<'a>(
 
 /// The value `values` gives `key`, applied or the other Product's.
 fn value_of(values: &Values, key: &str) -> Option<Value> {
-    values
-        .applied
-        .get(key)
-        .or_else(|| values.others.get(key))
-        .cloned()
+    values.value(key).cloned()
 }
 
 /// The value `policy`'s `table` gives `key`.
@@ -368,14 +365,7 @@ fn entries(policy: &Policy) -> Vec<PolicyEntry> {
         .into_iter()
         .flat_map(|table| {
             let values = table_of(policy, table);
-            let mut keys: Vec<&'static str> = values
-                .applied
-                .keys()
-                .chain(values.others.keys())
-                .copied()
-                .collect();
-            keys.sort_unstable();
-            keys.into_iter().filter_map(move |key| {
+            values.every_key().into_iter().filter_map(move |key| {
                 value_of(values, key).map(|value| PolicyEntry {
                     table,
                     key: key.to_owned(),

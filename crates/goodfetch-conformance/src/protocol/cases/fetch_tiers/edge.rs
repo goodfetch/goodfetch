@@ -8,9 +8,10 @@
 //! Politeness start (pitfall H05); and requests a site's `Retry-After`
 //! past `politeness.retry_after.max` held end `failed` with
 //! `response_unavailable`, which `run.retry_failed` re-admits once the site
-//! is back, in the same Run and Dataset (ADR 0102). No Response cache or Response recording
-//! exists yet, so "never cached" and the `WARC-Truncated` record join these
-//! cases with them (#793, #1291).
+//! is back, in the same Run and Dataset (ADR 0102). That a cut body is
+//! never stored in the Response cache is the fetch-tier crate's own test
+//! (#793). No Response recording exists yet, so the `WARC-Truncated`
+//! record joins these cases with it (#1291).
 
 use std::time::Duration;
 

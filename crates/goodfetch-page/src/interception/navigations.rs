@@ -7,25 +7,30 @@
 //! page's: the wait for its permit is the page's, and its refusal raises
 //! from the page's navigation call. A navigation the worker answers from
 //! its own cache sends no request, so it takes none.
+//!
+//! Each page holds its own pending navigation, in its side of the
+//! interception, which its owner holds (ADR 0146); the Session lists its
+//! pages, which its service workers' pipelines search.
 #![expect(
     clippy::disallowed_types,
-    reason = "each lock guards the table for one operation, never across another lock or an `.await` (ADR 0060)"
+    reason = "each lock guards one list or one page's navigation for one operation, never across another lock or an `.await` (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
-use std::sync::{Mutex, Weak};
-
-use goodfetch_protocol::page::PageId;
+use std::sync::{Arc, Mutex, Weak};
 
 use super::{PageState, lock};
 use crate::driver::PageDriver;
 use crate::page_events::Refusals;
 use crate::page_value::Permit;
 
-/// A Session's pending navigations, by page. Each page's pipeline records
-/// its own; its service workers' pipelines take them.
+/// A Session's pages, whose pending navigations its service workers'
+/// pipelines take: each page's own pipeline records its own.
 #[derive(Default)]
-pub(super) struct Pending(Mutex<BTreeMap<PageId, Entry>>);
+pub(super) struct Pending(Mutex<Vec<Weak<PageState>>>);
+
+/// One page's main-frame navigation, while one is pending.
+#[derive(Default)]
+pub(super) struct PendingNavigation(Mutex<Option<Entry>>);
 
 struct Entry {
     /// The navigation's URL, fragment removed.
@@ -34,8 +39,6 @@ struct Entry {
     taken: bool,
     /// The permit it took, held until the page's `load`.
     permit: Option<Permit>,
-    /// The interception state of the page it is pending on.
-    page: Weak<PageState>,
 }
 
 /// What a page's navigations are admitted and refused through when a
@@ -53,48 +56,74 @@ fn without_fragment(url: &str) -> &str {
 }
 
 impl Pending {
-    /// The main frame of `page`, which `navigating` is, started a
-    /// navigation to `url`: one before it ended, its permit released.
-    pub(super) fn started(&self, page: &PageId, url: &str, navigating: &Weak<PageState>) {
-        let entry = Entry {
-            url: without_fragment(url).to_owned(),
-            taken: false,
-            permit: None,
-            page: Weak::clone(navigating),
-        };
-        let before = lock(&self.0).insert(page.clone(), entry);
-        drop(before);
+    /// Lists `page`, one of the Session's pages, whose navigations its
+    /// service workers' requests may carry; a page gone leaves the list.
+    pub(super) fn join(&self, page: &Arc<PageState>) {
+        let mut pages = lock(&self.0);
+        pages.retain(|page| page.strong_count() > 0);
+        pages.push(Arc::downgrade(page));
     }
 
-    /// The pending navigation of `page` ended with the page's `load`, or
-    /// with the page: its permit is released.
-    pub(super) fn ended(&self, page: &PageId) {
-        let ended = lock(&self.0).remove(page);
-        drop(ended);
+    /// The Session's pages that are still held.
+    fn pages(&self) -> Vec<Arc<PageState>> {
+        lock(&self.0).iter().filter_map(Weak::upgrade).collect()
     }
 
     /// Whether any navigation is pending.
     pub(super) fn any(&self) -> bool {
-        !lock(&self.0).is_empty()
+        self.pages()
+            .iter()
+            .any(|page| lock(&page.navigation.0).is_some())
     }
 
     /// Takes the pending navigation that a request to `url` carries, once:
     /// the page it is pending on.
-    pub(super) fn take(&self, url: &str) -> Option<(PageId, Weak<PageState>)> {
+    pub(super) fn take(&self, url: &str) -> Option<Arc<PageState>> {
         let url = without_fragment(url);
-        let mut pending = lock(&self.0);
-        let (page, entry) = pending
-            .iter_mut()
-            .find(|(_, entry)| !entry.taken && entry.url == url)?;
-        entry.taken = true;
-        Some((page.clone(), Weak::clone(&entry.page)))
+        self.pages()
+            .into_iter()
+            .find(|page| page.navigation.take(url))
+    }
+}
+
+impl PendingNavigation {
+    /// The page's main frame started a navigation to `url`: one before it
+    /// ended, its permit released.
+    pub(super) fn started(&self, url: &str) {
+        let entry = Entry {
+            url: without_fragment(url).to_owned(),
+            taken: false,
+            permit: None,
+        };
+        let before = lock(&self.0).replace(entry);
+        drop(before);
     }
 
-    /// Holds `permit` for the pending navigation of `page` until its
-    /// `load`; released at once when it is no longer pending.
-    pub(super) fn hold(&self, page: &PageId, permit: Permit) {
+    /// The pending navigation ended with the page's `load`, or with the
+    /// page: its permit is released.
+    pub(super) fn ended(&self) {
+        let ended = lock(&self.0).take();
+        drop(ended);
+    }
+
+    /// Takes the pending navigation when a request to `url`, fragment
+    /// removed, carries it and no request took it before: whether it did.
+    fn take(&self, url: &str) -> bool {
         let mut pending = lock(&self.0);
-        if let Some(entry) = pending.get_mut(page) {
+        match pending.as_mut() {
+            Some(entry) if !entry.taken && entry.url == url => {
+                entry.taken = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Holds `permit` for the pending navigation until the page's `load`;
+    /// released at once when it is no longer pending.
+    pub(super) fn hold(&self, permit: Permit) {
+        let mut pending = lock(&self.0);
+        if let Some(entry) = pending.as_mut() {
             entry.permit = Some(permit);
         } else {
             drop(pending);

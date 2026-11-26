@@ -12,15 +12,18 @@
 //! A popup waits for the governor's admission of one more browser page, as
 //! a page the program opens does, paused in the browser meanwhile.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use goodfetch_cdp::generated::target;
 use goodfetch_engine::events::Events;
 use goodfetch_engine::governor::Permit;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::runs::{Run, identity, run_trace};
 use goodfetch_engine::settings::Values;
+use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::connection::ClosedValue;
 use goodfetch_protocol::governor::WorkKind;
@@ -32,16 +35,27 @@ use goodfetch_protocol::page::{PageId, PageOpened, SessionId};
 use goodfetch_protocol::settings::page_check::PageCheck;
 use tokio::sync::watch;
 
-use super::life::{Ending, PageLife, session_closed};
+use super::life::{Ending, PageLife};
 use super::lifecycle::PageEffect;
 use super::robots_txt;
-use super::{OpenPage, Session, Sessions, action_timeout, wait_deadline};
-use crate::driver::{OnChild, OnPopup, PageDriver, PopupHandler, SessionEgress};
-use crate::hiding::{PageHiding, Sheets};
-use crate::interception::OnDocument;
-use crate::page_events::{PageEvents, Refusals};
-use crate::page_functions::FrameScripts;
+use super::{
+    OpenPage, Session, Sessions, action_timeout, events_run, interception_run, wait_deadline,
+};
+use crate::cdp::CdpPage;
+use crate::consent;
+use crate::consent_walls::Walls;
+use crate::dialogs::PageDialogs;
+use crate::driver::{OnPopup, PageDriver, PopupHandler, SessionEgress};
+use crate::errors::page_closed;
+use crate::gesture_order::{GestureOrder, PointerAsks};
+use crate::hiding::{Hiding, PageHiding, Sheets};
+use crate::init_scripts::InitScripts;
+use crate::interception::{OnDocument, PageInterception};
+use crate::page_children::{self, OnChild};
+use crate::page_events::{self, PageEvents, Refusals};
+use crate::page_owner::{PageOwner, PageParts};
 use crate::page_value::{Observer, Reader};
+use crate::page_worlds::PageWorlds;
 use crate::pool::InBrowser;
 use crate::recovery::{Checking, Declared};
 
@@ -70,35 +84,87 @@ pub(super) struct Adopting {
 /// does. Each of those parts holds the page's driver, and so its browser
 /// and its Run: one left behind would keep them past the Run's end, though
 /// the end no longer waits for it (#1763).
-struct TakenIn<'a> {
-    sessions: &'a Sessions,
+struct TakenIn {
     page: PageId,
     driver: PageDriver,
     run: Run,
+    /// Its Run's identity that starts its parts' tasks on its owner.
+    tasks: RunIdentity,
     /// Its place in its browser, until it is kept.
     in_browser: Option<InBrowser>,
+    /// Its events, once they are read.
+    events: Option<PageEvents>,
+    /// Its dialogs, once they are read.
+    dialogs: Option<PageDialogs>,
+    /// Its init scripts, once its frames take them.
+    init_scripts: Option<InitScripts>,
+    /// Its side of the interception, once the interception holds it.
+    interception: Option<PageInterception>,
+    /// The consent walls its Consent prompt runner leaves.
+    walls: Walls,
+    /// Its hiding, once live hiding and the Consent prompt runner started.
+    hiding: Option<Hiding>,
 }
 
-impl TakenIn<'_> {
+impl TakenIn {
     /// The page goes into its Session's table with nothing awaited first,
     /// where its close, its Session's end or its Run's takes it out:
-    /// answers its place in its browser.
-    fn kept(mut self) -> InBrowser {
-        self.in_browser
+    /// answers its place in its browser, and its parts its owner holds.
+    fn kept(mut self) -> (InBrowser, PageParts) {
+        let in_browser = self
+            .in_browser
             .take()
-            .expect("invariant: a page being taken in holds its place until it is kept")
+            .expect("invariant: a page being taken in holds its place until it is kept");
+        let events = self
+            .events
+            .take()
+            .expect("invariant: a page's events are read before it is held");
+        let dialogs = self
+            .dialogs
+            .take()
+            .expect("invariant: a page's dialogs are read before it is held");
+        let init_scripts = self
+            .init_scripts
+            .take()
+            .expect("invariant: a page's frames take its init scripts before it is held");
+        let interception = self
+            .interception
+            .take()
+            .expect("invariant: a page is kept once the interception holds it");
+        let hiding = self
+            .hiding
+            .take()
+            .expect("invariant: a page is kept once its hiding started");
+        (
+            in_browser,
+            PageParts {
+                events,
+                dialogs,
+                init_scripts,
+                interception,
+                walls: self.walls.clone(),
+                hiding,
+                worlds: PageWorlds::default(),
+                tasks: self.tasks.clone(),
+            },
+        )
     }
 }
 
-impl Drop for TakenIn<'_> {
+impl Drop for TakenIn {
     fn drop(&mut self) {
         let Some(in_browser) = self.in_browser.take() else {
             return;
         };
-        let pages = std::slice::from_ref(&self.page);
-        self.sessions.events.close(pages);
-        self.sessions.dialogs.close(pages);
-        self.sessions.interception.close_pages(pages);
+        if let Some(events) = &self.events {
+            events.close();
+        }
+        if let Some(dialogs) = &self.dialogs {
+            dialogs.close();
+        }
+        if let Some(interception) = &self.interception {
+            interception.close();
+        }
         let driver = self.driver.clone();
         self.run.spawn(async move {
             driver.close().await;
@@ -107,38 +173,30 @@ impl Drop for TakenIn<'_> {
     }
 }
 
-/// How many calls listen to each Session's `page` event, each counted when
-/// its call arrives, so a page published while the call waits for its
-/// Session is not missed. Clones share them.
+/// How many calls listen to one Session's `page` event, which the Session
+/// holds, so the count goes with it (ADR 0146). A call is counted when it
+/// arrives if its Session is open then, so a page published while the
+/// call waits is not missed. Clones share it.
 #[derive(Clone, Default)]
 pub(super) struct PageListeners(
     #[expect(
         clippy::disallowed_types,
-        reason = "one map read and changed alone, never with another lock or across an `.await`, so there is no interleaving to test under loom (ADR 0060)"
+        reason = "one count, added to and read alone, never with another lock or value it must agree with, so there is no interleaving to test under loom (ADR 0060)"
     )]
-    Arc<std::sync::Mutex<BTreeMap<SessionId, usize>>>,
+    Arc<std::sync::atomic::AtomicUsize>,
 );
 
 impl PageListeners {
-    fn counts(&self) -> std::sync::MutexGuard<'_, BTreeMap<SessionId, usize>> {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    /// Whether any call listens to the Session's `page` event.
+    fn any(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
     }
 
-    /// Whether any call listens to the Session `session`'s `page` event.
-    fn any(&self, session: &SessionId) -> bool {
-        self.counts().contains_key(session)
-    }
-
-    /// Counts one listener of the Session `session`'s `page` event while
-    /// the answer lives.
-    fn listen(&self, session: &SessionId) -> Listening {
-        *self.counts().entry(session.clone()).or_default() += 1;
-        Listening {
-            listeners: self.clone(),
-            session: session.clone(),
-        }
+    /// Counts one listener of the Session's `page` event while the answer
+    /// lives.
+    fn listen(&self) -> Listening {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        Listening(Some(self.clone()))
     }
 }
 
@@ -179,25 +237,73 @@ impl PopupHandler for SessionPopups {
     }
 }
 
-/// One listener of a Session's `page` event, counted while it lives.
-pub(crate) struct Listening {
-    listeners: PageListeners,
-    session: SessionId,
-}
+/// One listener of a Session's `page` event, counted while it lives; not
+/// yet counted when its Session was not open as its call arrived.
+pub(crate) struct Listening(Option<PageListeners>);
 
 impl Drop for Listening {
     fn drop(&mut self) {
-        let mut counts = self.listeners.counts();
-        if let Some(count) = counts.get_mut(&self.session) {
-            *count = count.saturating_sub(1);
-            if *count == 0 {
-                counts.remove(&self.session);
-            }
+        if let Some(listeners) = &self.0 {
+            listeners.0.fetch_sub(1, Ordering::AcqRel);
         }
     }
 }
 
 impl Sessions {
+    /// The ID of the next page the engine opens.
+    async fn next_page_id(&self) -> PageId {
+        let mut state = self.state.lock().await;
+        state.opened_pages += 1;
+        PageId(format!("page-{}", state.opened_pages))
+    }
+
+    /// The page `page`, which `driver` drives for `run` in its place
+    /// `in_browser`, as it starts being taken in, its events going on
+    /// `stream` and to `observer`: its events, read from before its requests
+    /// pause so every request of the page is followed, its init scripts and
+    /// its dialogs, each starting its tasks on `tasks`, the Run's identity
+    /// that starts them on the page's owner; with the page's refusals and
+    /// what each of its out-of-process frames takes before it runs: the
+    /// page's events read the frame's network and the frame takes the
+    /// page's init scripts (H7, M20).
+    fn taking_in(
+        &self,
+        (page, driver, (run, tasks)): (&PageId, &PageDriver, (&Run, &RunIdentity)),
+        in_browser: InBrowser,
+        (stream, observer): (&Events, Option<Observer>),
+    ) -> (TakenIn, Refusals, Vec<OnChild>) {
+        let refusals = Refusals::default();
+        let events = PageEvents::start(
+            page.clone(),
+            driver.clone(),
+            page_events::RunPowers {
+                identity: tasks.clone(),
+                ..events_run(run)
+            },
+            stream.clone(),
+            refusals.clone(),
+            wait_deadline(run),
+            observer,
+        );
+        let cdp = CdpPage::of(driver);
+        let init_scripts = InitScripts::new(cdp.clone(), tasks.clone());
+        let in_frames = vec![events.frames(), init_scripts.frames()];
+        let taken_in = TakenIn {
+            page: page.clone(),
+            driver: driver.clone(),
+            run: run.clone(),
+            tasks: tasks.clone(),
+            in_browser: Some(in_browser),
+            events: Some(events),
+            dialogs: Some(self.dialogs.start(page.clone(), cdp, tasks)),
+            init_scripts: Some(init_scripts),
+            interception: None,
+            walls: Walls::default(),
+            hiding: None,
+        };
+        (taken_in, refusals, in_frames)
+    }
+
     /// Takes in the page `adopting` describes as one of its Session's: it is
     /// named, followed and announced, and its Session's popups handed back
     /// to it; `closed` when its Session closed meanwhile.
@@ -219,83 +325,75 @@ impl Sessions {
         let run = open.run.clone();
         let session = &super::session_id(run.id(), open.position);
         let action_timeout = action_timeout(&run);
-        let page = {
-            let mut state = self.state.lock().await;
-            state.opened_pages += 1;
-            PageId(format!("page-{}", state.opened_pages))
-        };
+        let page = self.next_page_id().await;
         let browser = in_browser.browser();
-        let taken_in = TakenIn {
-            sessions: self,
-            page: page.clone(),
-            driver: driver.clone(),
-            run: run.clone(),
-            in_browser: Some(in_browser),
-        };
-        // The page's events are read from before its requests pause, so
-        // every request of the page is followed.
-        let refusals = Refusals::default();
-        let events = PageEvents::start(
-            page.clone(),
-            driver.clone(),
-            &run,
-            stream.clone(),
-            refusals.clone(),
-            driver.events(),
-            wait_deadline(&run),
-            observer,
+        // The owner's tasks, which start before it does, its parts' among
+        // them: their following ends with the page if the page is never
+        // kept.
+        let tasks = open.owner.child();
+        let unkept = tasks.token().clone().drop_guard();
+        let starting = identity(&run).starting_on(&tasks);
+        let (mut taken_in, refusals, in_frames) = self.taking_in(
+            (&page, &driver, (&run, &starting)),
+            in_browser,
+            (&stream, observer),
         );
-        let frame_scripts = FrameScripts::default();
-        // The page's events read each out-of-process frame's network, and
-        // each frame takes the page's init scripts, before it runs (H7, M20).
-        let in_frames = vec![events.frames(), frame_scripts.frames(&driver)];
-        self.events.insert(page.clone(), events);
-        self.dialogs
-            .start(page.clone(), driver.clone(), &run, driver.events());
-        let (hiding, sheets, routed) = self
+        // The runner clicks on the page while it is taken in, before its
+        // owner starts and lends it the pointer.
+        let (order, pointer) = GestureOrder::new();
+        let routed = self
             .hold(
-                (&page, session),
-                &driver,
-                &run,
-                &open.settings,
-                (refusals, in_frames),
+                (&mut taken_in, session, (&tasks, &starting)),
+                (&driver, open.as_ref()),
+                (refusals, in_frames, pointer),
             )
             .await?;
-        let mut state = self.state.lock().await;
-        if !state.sessions.contains_key(session) {
-            drop(state);
-            return Err(session_closed(session));
+        if !open.pages.open() {
+            return Err(self.closed_session(session));
         }
         let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
         // Nothing awaits from here until the page is in the table.
-        let in_browser = taken_in.kept();
+        let (in_browser, parts) = taken_in.kept();
+        // Its owner, under its Session's (ADR 0146).
+        let owner = PageOwner::start(
+            (&open.owner, tasks),
+            identity(&run).span(),
+            (&page, parts, order),
+            page_closed(&page),
+            run.metrics(),
+        );
+        unkept.disarm();
+        self.page_owners.kept(page.clone(), owner.clone());
         let opened = OpenPage {
             clock: run.clock(),
             run,
             session: session.clone(),
             settings,
             driver,
+            owner,
             life,
             action_timeout,
-            hiding,
-            sheets,
             page_check,
-            frame_scripts,
             injections: open.injections.clone(),
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };
-        state.pages.insert(page.clone(), opened.clone());
-        self.watched
-            .page_opened(session, &page, Arc::new(opened.driver.clone()));
-        drop(state);
-        // Its popups are followed once it is in the table, so the engine's
-        // Sessions lock is never held across the Session's frames' lock
+        // Its Session holds it before the index names it: a Session that
+        // ended meanwhile, or ends now, takes it with its own pages.
+        if !open.pages.hold(page.clone(), opened.clone()) {
+            self.page_owners.close(std::slice::from_ref(&page));
+            return Err(self.closed_session(session));
+        }
+        if !self.index.kept(page.clone(), (session, &open)) {
+            return Err(self.closed_session(session));
+        }
+        // Its popups are followed once it is in its Session, so no lock of
+        // the Sessions is held across the Session's frames' lock
         // (STYLE.md); a popup it opens finds its opener there.
         self.follow_popups(session, &open, &opened.driver).await;
         self.watch(page.clone(), opened, Arc::clone(&open), browser);
-        if self.page_listeners.any(session) {
+        if open.page_listeners.any() {
             stream
                 .publish(
                     &SESSION_PAGE,
@@ -310,45 +408,84 @@ impl Sessions {
         Ok(page)
     }
 
-    /// Puts the page `page` of the Session `session`, which `driver` drives
-    /// with the Session's own `settings`, under the interception, live
-    /// hiding and the Consent prompt runner, each of its out-of-process
-    /// frames and dedicated workers held by them, and then by `in_frames`,
-    /// before it runs; answers its live hiding, the documents' hiding
-    /// sheets it shares with the runner, and how many of its requests wait
+    /// Puts the page `taken_in` takes in, of the Session `session`, `open`,
+    /// which `driver` drives with the Session's own settings, under the
+    /// interception, live hiding and the Consent prompt runner, each of its
+    /// out-of-process frames and dedicated workers held by them, and then
+    /// by `in_frames`, before it runs, followed on its owner's `tasks`, on
+    /// which `starting`, the Run's identity its parts are given, starts
+    /// theirs; `taken_in` then holds its side of
+    /// the interception and its hiding, the documents' hiding sheets live
+    /// hiding shares with the runner. Answers how many of its requests wait
     /// on a route handler now.
     async fn hold(
         &self,
-        (page, session): (&PageId, &SessionId),
-        driver: &PageDriver,
-        run: &Run,
-        settings: &Values,
-        (refusals, in_frames): (Refusals, Vec<OnChild>),
-    ) -> Result<(Option<Arc<PageHiding>>, Arc<Sheets>, watch::Receiver<usize>), CallError> {
+        (taken_in, session, (tasks, starting)): (
+            &mut TakenIn,
+            &SessionId,
+            (&TaskStarter, &RunIdentity),
+        ),
+        (driver, open): (&PageDriver, &Session),
+        (refusals, in_frames, pointer): (Refusals, Vec<OnChild>, PointerAsks),
+    ) -> Result<watch::Receiver<usize>, CallError> {
+        let (run, settings) = (&open.run, &open.settings);
+        let page = &taken_in.page.clone();
         // A page a program opened reads robots.txt for each document its
         // main frame receives, beside its navigation, never before it (ADR
         // 0086).
-        let reader = robots_txt::Reader::of(self, page, session, driver.value(), run)
+        let reader = robots_txt::Reader::of(self, page, session, driver.value(), (run, starting))
             .map(|reader| Arc::new(reader) as Arc<dyn OnDocument>);
         let held = self
             .interception
-            .start(page, session, driver, run, settings, (refusals, reader))
+            .start(
+                page,
+                &open.interception,
+                driver,
+                (&interception_run(run), starting),
+                settings,
+                (refusals, reader),
+            )
             .await?;
+        taken_in.interception = Some(held.page);
         // Live hiding and the Consent prompt runner share each document's
         // one hiding sheet.
-        let sheets = Arc::new(Sheets::new(driver.clone(), run));
-        let hiding = self
-            .hiding
-            .start(page, session, driver, run, &held.clean_up, &sheets)
+        let sheets = Arc::new(Sheets::new(driver, starting));
+        let live = PageHiding::start(
+            (page, session),
+            driver,
+            (starting, run_trace(run)),
+            &held.clean_up,
+            &sheets,
+            &open.hiding,
+        )
+        .await?;
+        taken_in.hiding = Some(Hiding::new(live, Arc::clone(&sheets)));
+        let consent = self
+            .consent
+            .start(
+                page,
+                (driver, pointer),
+                consent::RunPowers {
+                    identity: starting.clone(),
+                    trace: run_trace(run).clone(),
+                    run_index: open.run_index.clone(),
+                },
+                &sheets,
+                &taken_in.walls,
+            )
             .await?;
-        let consent = self.consent.start(page, driver, run, &sheets).await?;
         // Each out-of-process frame and dedicated worker waits until the
         // interception holds it, the runner prepared it and the page's
         // other parts took it in.
         let mut handlers = vec![held.children, consent];
         handlers.extend(in_frames);
-        driver.follow_children(run, handlers).await?;
-        Ok((hiding, sheets, held.routed))
+        page_children::follow(
+            &CdpPage::of(driver),
+            (tasks, identity(run).span()),
+            handlers,
+        )
+        .await?;
+        Ok(held.routed)
     }
 
     /// Hands the page targets the pages of `driver`'s browser context open
@@ -376,20 +513,14 @@ impl Sessions {
         driver: PageDriver,
         opener: &target::TargetID,
     ) -> bool {
-        let found = {
-            let state = self.state.lock().await;
-            let open = state.sessions.get(session).cloned();
-            let opener = state
-                .pages
-                .iter()
-                .find(|(_, page)| &page.session == session && page.driver.main_frame() == opener)
-                .map(|(page_id, page)| (page_id.clone(), page.clone()));
-            open.zip(opener)
-        };
-        let Some((open, (opener_id, opener))) = found else {
+        let Some(open) = self.index.session(session) else {
             return false;
         };
-        let Ok(opener_events) = self.events.get(&opener_id) else {
+        let Some((opener_id, opener)) = open.pages.find(|page| page.driver.main_frame() == opener)
+        else {
+            return false;
+        };
+        let Ok(opener_events) = self.page_owners.events(&opener_id) else {
             return false;
         };
         let run = open.run.clone();
@@ -444,24 +575,21 @@ impl Sessions {
     ) -> Result<SessionPages, CallError> {
         // A crashed Session raises `page_crashed` again, and a closing one
         // `closed` (S21, R).
-        self.session(session, context).await?.life.call().await?;
-        let mut pages: Vec<PageId> = self
-            .state
-            .lock()
-            .await
-            .pages
-            .iter()
-            .filter(|(_, page)| &page.session == session)
-            .map(|(page_id, _)| page_id.clone())
-            .collect();
+        let open = self.session(session, context).await?;
+        open.life.call().await?;
+        let mut pages = open.pages.ids();
         pages.sort_by_key(opening_number);
         Ok(SessionPages { pages })
     }
 
     /// Counts a listener of the Session `session`'s `page` event from now,
-    /// when its call arrives, until the answer drops.
+    /// when its call arrives, until the answer drops, if the Session is
+    /// open now; else [`Self::listen_to_pages`] counts it once it finds the
+    /// Session.
     pub(crate) fn listen_for_pages(&self, session: &SessionId) -> Listening {
-        self.page_listeners.listen(session)
+        self.index
+            .session(session)
+            .map_or(Listening(None), |open| open.page_listeners.listen())
     }
 
     /// Listens to the Session `session`'s `page` event, as `listening`
@@ -469,10 +597,13 @@ impl Sessions {
     pub(crate) async fn listen_to_pages(
         &self,
         session: &SessionId,
-        listening: Listening,
+        mut listening: Listening,
         context: &CallContext,
     ) -> Result<SessionOnEnded, CallError> {
         let open = self.session(session, context).await?;
+        if listening.0.is_none() {
+            listening = open.page_listeners.listen();
+        }
         tokio::select! {
             () = open.life.ended() => {}
             () = open.run.cancellation().cancelled() => {}

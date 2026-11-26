@@ -37,7 +37,11 @@
 //! passes either bound, unanswered and logged the same way, so a Client
 //! that never proves itself cannot hold a Connection or its buffer (#2324).
 //! An Exposed Daemon's address carries its Connections as lines or over
-//! WebSocket (ADR 0049), whose refused handshakes are logged the same way.
+//! WebSocket (ADR 0049), whose refused handshakes are logged the same way;
+//! with its certificate files, each over TLS, and a Connection that opens
+//! with no TLS handshake is closed unanswered and logged as `tls_required`;
+//! behind TLS terminated upstream, in plain, a handshake's `X-Forwarded-*`
+//! read only from a trusted proxy's peer address.
 //! A WebSocket at the Live view's path is a Live view channel instead,
 //! served by the Daemon's [`LiveView`](crate::live_view::LiveView) under
 //! the same bounds, its refusals logged under its own listener; a machine's
@@ -77,12 +81,10 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-use super::framing::{
-    Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
-};
 use super::raw_call::{Named, RawCall};
 use super::websocket::{
-    self, LiveViewSocket, MessageReader, MessageWriter, NotOpened, Opened, Path, Prefixed, Rejoined,
+    self, Forwarded, LiveViewSocket, MessageReader, MessageWriter, NotOpened, Opened, Path,
+    Prefixed, Rejoined,
 };
 use super::{
     Line, cancelled_by_client, failure_line, handshake, not_in_product, notification_line, record,
@@ -98,9 +100,12 @@ use crate::composition::{
     ConnectionContext, DaemonSide, Driver, Handler, Handlers, InputSender, RunOfCall,
 };
 use crate::crash_report;
-use crate::endpoint::{Authorities, same_token};
+use crate::endpoint::{Authorities, Exposure, Termination, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::{Credits, Events};
+use crate::framing::{
+    Call, DecodeError, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, Received, decode,
+};
 use crate::live_view::{self, WatchedSessions};
 use crate::log::{ConnectionLog, LogEvents};
 use crate::mask::{Masks, Scope};
@@ -113,13 +118,15 @@ use crate::settings::{
     Opening as SettingsOpening, Resolved, SettingsError, check_client_bounds, check_scope,
     get_or_default,
 };
+use crate::staging::AttemptStaging;
 use crate::tasks::{OwnerKind, TaskOwner};
+use crate::tls::ServingCertificate;
 use crate::trace;
 use crate::transition::engine::{
     ConnectionEffect, ConnectionEvent, ConnectionState, InvalidConnectionTransition,
 };
 use crate::transition::{self, Refusal};
-use crate::transport::{Connection, ConnectionWriter};
+use crate::transport::{Connection, ConnectionReader, ConnectionWriter};
 use goodfetch_protocol::run::RunKind;
 
 /// How many bytes one read takes from the Connection.
@@ -164,6 +171,9 @@ pub(crate) struct Dispatch {
     pub(crate) runs_of_calls: Arc<[Arc<dyn RunOfCall>]>,
     /// The Sessions a Daemon's Live view watches (ADR 0031).
     pub(crate) watched_sessions: Arc<[Arc<dyn WatchedSessions>]>,
+    /// Where the attempts of each contribution's live Runs stage (ADR
+    /// 0145).
+    pub(crate) attempt_stagings: Arc<[Arc<dyn AttemptStaging>]>,
 }
 
 impl Dispatch {
@@ -185,7 +195,7 @@ pub(crate) enum Access {
     /// An Exposed Daemon's address (ADR 0049): a Daemon's listener that
     /// also carries the protocol over WebSocket, its handshake held to the
     /// names the Daemon is reached at.
-    Exposed(Arc<dyn DaemonSide>, Arc<Authorities>),
+    Exposed(Arc<dyn DaemonSide>, Arc<Exposure>),
     /// A machine's Daemon's `daemon.address`, opened at loopback while
     /// `live_view.enabled` is on (ADR 0049's note of 2026-11-01): Live
     /// view channels only, held to the same names, opened with its token.
@@ -203,16 +213,6 @@ impl Access {
                 Some(daemon.token())
             }
             Self::PrivateEndpoint(token) => Some(token),
-        }
-    }
-
-    /// The WebSocket paths it serves and the names their handshakes are
-    /// held to; none where it carries lines only.
-    fn websocket(&self) -> Option<(&Authorities, &'static [Path])> {
-        match self {
-            Self::Exposed(_, authorities) => Some((authorities, &[Path::Protocol, Path::LiveView])),
-            Self::LiveView(_, authorities) => Some((authorities, &[Path::LiveView])),
-            Self::Attached(..) | Self::Daemon(_) | Self::PrivateEndpoint(_) => None,
         }
     }
 
@@ -373,28 +373,62 @@ enum Way {
     LiveView(Box<LiveViewSocket>),
 }
 
-/// What `connection`, reached through `access`, carries; `None` when a
-/// WebSocket handshake was refused or failed, or lines came where only
-/// Live view channels open, which closes it.
+/// What `connection`, reached through `access`, carries; `None` when an
+/// Exposed Daemon refused it or its TLS or WebSocket handshake failed, or
+/// lines came where only Live view channels open, which closes it.
 async fn carriage(
     connection: Connection,
     access: &Access,
     engine: &EngineContext,
     opening: Option<Opening>,
 ) -> Option<Way> {
-    let (mut reader, writer) = connection.split();
-    let Some((authorities, served)) = access.websocket() else {
-        let reader = Prefixed::new(Vec::new(), reader);
-        return Some(Way::Protocol(
-            Reading::lines(reader, opening),
-            Writing::Lines(writer),
-            access.listener(),
-        ));
-    };
-    let mut first = vec![0; READ_CHUNK];
-    let read = reader.read(&mut first).await.unwrap_or(0);
-    first.truncate(read);
-    let reader = Prefixed::new(first, reader);
+    let (connection, authorities, forwarded, served): (_, Cow<'_, Authorities>, _, &[Path]) =
+        match access {
+            Access::Exposed(_, exposure) => {
+                let forwarded = if exposure
+                    .termination
+                    .trusts(connection.addresses().map(|addresses| addresses.peer))
+                {
+                    Forwarded::Read
+                } else {
+                    Forwarded::Ignored
+                };
+                let (connection, authorities) = match &exposure.termination {
+                    Termination::Plain | Termination::Upstream(_) => {
+                        (connection, Cow::Borrowed(&exposure.authorities))
+                    }
+                    Termination::Tls(certificate) => {
+                        let (connection, authorities) =
+                            terminated(connection, certificate, &exposure.authorities, engine)
+                                .await?;
+                        (connection, Cow::Owned(authorities))
+                    }
+                };
+                (
+                    connection,
+                    authorities,
+                    forwarded,
+                    &[Path::Protocol, Path::LiveView],
+                )
+            }
+            Access::LiveView(_, authorities) => (
+                connection,
+                Cow::Borrowed(&**authorities),
+                Forwarded::Ignored,
+                &[Path::LiveView],
+            ),
+            Access::Attached(..) | Access::Daemon(_) | Access::PrivateEndpoint(_) => {
+                let (reader, writer) = connection.split();
+                let reader = Prefixed::new(Vec::new(), reader);
+                return Some(Way::Protocol(
+                    Reading::lines(reader, opening),
+                    Writing::Lines(writer),
+                    access.listener(),
+                ));
+            }
+        };
+    let (reader, writer) = connection.split();
+    let reader = read_ahead(reader).await;
     if !reader.opens_a_request() {
         if !served.contains(&Path::Protocol) {
             engine
@@ -416,7 +450,14 @@ async fn carriage(
     } else {
         served.strip_suffix(&[Path::LiveView]).unwrap_or(served)
     };
-    match websocket::accept(Rejoined::new(reader, writer), authorities, paths).await {
+    match websocket::accept(
+        Rejoined::new(reader, writer),
+        &authorities,
+        forwarded,
+        paths,
+    )
+    .await
+    {
         Ok(Opened::Protocol(messages, sent)) => Some(Way::Protocol(
             Reading::Messages(messages),
             Writing::Messages(sent),
@@ -466,6 +507,60 @@ async fn watch(
     if let Err(reason) = served {
         engine.refusals().refused(Listener::LiveView, reason).await;
     }
+}
+
+/// `reader` with its first bytes read ahead, which tell how its
+/// Connection is carried.
+async fn read_ahead(mut reader: ConnectionReader) -> Prefixed {
+    let mut first = vec![0; READ_CHUNK];
+    let read = reader.read(&mut first).await.unwrap_or(0);
+    first.truncate(read);
+    Prefixed::new(first, reader)
+}
+
+/// `connection` once the Exposed Daemon terminated TLS on it with
+/// `certificate`, and the names of `authorities` a WebSocket handshake over
+/// it may carry; `None` when it closed, opened with no TLS handshake, which
+/// is refused as `tls_required` (a WebSocket's handshake sent in plain by
+/// the Daemon's WebSocket, any other by the Exposed Daemon), or its TLS
+/// handshake failed.
+async fn terminated(
+    connection: Connection,
+    certificate: &ServingCertificate,
+    authorities: &Authorities,
+    engine: &EngineContext,
+) -> Option<(Connection, Authorities)> {
+    let addresses = connection.addresses();
+    let (reader, writer) = connection.split();
+    let reader = read_ahead(reader).await;
+    if reader.is_closed() {
+        return None;
+    }
+    if !reader.opens_a_tls_handshake() {
+        let listener = if reader.opens_a_request() {
+            Listener::DaemonWebsocket
+        } else {
+            Listener::ExposedDaemon
+        };
+        engine
+            .refusals()
+            .refused(listener, RefusalReason::TlsRequired)
+            .await;
+        return None;
+    }
+    let acceptor = certificate.acceptor(engine.owner()).await;
+    let stream = match acceptor.accept(Rejoined::new(reader, writer)).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            tracing::debug!(%error, "a Connection whose TLS handshake failed closes");
+            return None;
+        }
+    };
+    let authorities = authorities.over_tls(
+        stream.get_ref().1.server_name(),
+        addresses.map(|addresses| addresses.local),
+    );
+    Some((Connection::over(stream, addresses), authorities))
 }
 
 /// Serves `connection` until it ends, its tasks those of `owner`, its calls
@@ -616,6 +711,7 @@ async fn serve_carried(
         settings: OnceLock::new(),
         registered: OnceLock::new(),
         drivers: Arc::clone(&dispatch.drivers),
+        attempt_stagings: Arc::clone(&dispatch.attempt_stagings),
         runs,
         events,
         engine,

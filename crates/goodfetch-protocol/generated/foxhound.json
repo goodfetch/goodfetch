@@ -2662,18 +2662,6 @@
           "description": "The ID of the crawl request whose attempt enqueues.",
           "type": "string"
         },
-        "document": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EnqueueDocument"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "arrived_in": "0.1",
-          "description": "The document the handler read, whose base URL a relative `url`\nresolves against; absent, the crawl request's own URL is the base."
-        },
         "forefront": {
           "arrived_in": "0.1",
           "default": false,
@@ -2704,6 +2692,18 @@
           "$ref": "#/$defs/HttpMethod",
           "arrived_in": "0.1",
           "description": "The method it is sent with: `GET` by default."
+        },
+        "page_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The page the attempt was given, whose document's base URL a relative\n`url` resolves against: its `<base href>`, resolved against the URL\nthe document was reached at after its redirects, or that URL\nitself. Absent, for an attempt given no page, the crawl request's\nown URL is the base. A page no fetch tier serves fails a relative\n`url` with `closed`."
         },
         "payload": {
           "arrived_in": "0.1",
@@ -3756,6 +3756,12 @@
     "DaemonState": {
       "description": "What `daemon.status` answers: the running Daemon's state.",
       "properties": {
+        "accounts": {
+          "arrived_in": "0.1",
+          "default": false,
+          "description": "Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts\nstore is open. Without, its person is the OS user, on its own\nmachine only, as with a Daemon that does not say.",
+          "type": "boolean"
+        },
         "clients": {
           "arrived_in": "0.1",
           "description": "How many Clients are connected, the caller included.",
@@ -3796,14 +3802,6 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
-        },
-        "live_view": {
-          "arrived_in": "0.1",
-          "description": "Where a Live view channel opens, the WebSocket's `host:port`; none\nwhere it accepts none, as with `live_view.enabled` off.",
-          "type": [
-            "string",
-            "null"
-          ]
         },
         "pid": {
           "arrived_in": "0.1",
@@ -3903,6 +3901,67 @@
       },
       "required": [
         "dataset"
+      ],
+      "type": "object"
+    },
+    "DatasetEraseParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.erase` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run, which no engine runs."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset"
+      ],
+      "type": "object"
+    },
+    "DatasetErased": {
+      "description": "What `dataset.erase` answers once the Dataset is erased.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many committed Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejected_records": {
+          "arrived_in": "0.1",
+          "description": "How many rejected Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "records",
+        "rejected_records"
       ],
       "type": "object"
     },
@@ -4288,6 +4347,86 @@
         "committed",
         "dropped",
         "rejected"
+      ],
+      "type": "object"
+    },
+    "DatasetSearchPage": {
+      "description": "One page of `dataset.search`.",
+      "properties": {
+        "next": {
+          "arrived_in": "0.1",
+          "description": "The next page's `after`; absent once no Record follows.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records that hold every word, in number order.",
+          "items": {
+            "$ref": "#/$defs/DatasetRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records"
+      ],
+      "type": "object"
+    },
+    "DatasetSearchParams": {
+      "additionalProperties": false,
+      "description": "What `dataset.search` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "arrived_in": "0.1",
+          "description": "The number of the last Record of the previous page, its `next`: the\npage starts after it. Absent, at the first.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's name.",
+          "type": "string"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records the page carries, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The words a Record holds, each anywhere in its values, in any case\nand with or without diacritics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "text"
       ],
       "type": "object"
     },
@@ -5361,29 +5500,6 @@
         }
       ]
     },
-    "EnqueueDocument": {
-      "additionalProperties": false,
-      "description": "The document a handler read, against which its relative URLs resolve.",
-      "properties": {
-        "base_href": {
-          "arrived_in": "0.1",
-          "description": "The `href` of its first `<base>` element, as written.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "url": {
-          "arrived_in": "0.1",
-          "description": "The URL the document was reached at, after every redirect.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "url"
-      ],
-      "type": "object"
-    },
     "Enqueued": {
       "description": "The Frontier's answer to a seed or an enqueue (ADRs 0079 and 0093): a\nvalue, never an error, since a request is one among many.",
       "oneOf": [
@@ -5669,6 +5785,35 @@
           "type": "boolean"
         }
       },
+      "type": "object"
+    },
+    "EveryTrigger": {
+      "additionalProperties": false,
+      "description": "A fixed interval: an occurrence every `every` milliseconds from the\nanchor.",
+      "properties": {
+        "anchor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The instant the intervals count from; the Schedule's creation when\nabsent."
+        },
+        "every": {
+          "arrived_in": "0.1",
+          "description": "The interval, in milliseconds, at least 1.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "every"
+      ],
       "type": "object"
     },
     "ExecutableBlockedBySmartAppControlDetails": {
@@ -6144,6 +6289,82 @@
       ],
       "type": "object"
     },
+    "ExtractContentParams": {
+      "description": "What `extract.content` reads a page's main content from: the document\nthe page holds, after the Clean-up rules, and the URL it came from.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "html": {
+          "description": "The page's document, serialized as HTML.",
+          "type": "string"
+        },
+        "url": {
+          "description": "The page's URL, which its relative links resolve against.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "html"
+      ],
+      "type": "object"
+    },
+    "ExtractContentResult": {
+      "additionalProperties": false,
+      "description": "A page's main content, as an Extractor read it. Everything in it is\npage content (ADR 0014): it reaches a model only marked as such.",
+      "properties": {
+        "markdown": {
+          "description": "The main content as Markdown.",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "What the Extractor read about the page, such as its author or its\ndate, each a text under its `snake_case` name.",
+          "type": "object"
+        },
+        "text": {
+          "description": "The main content as plain text.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The main content's title, when the Extractor found one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "markdown",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "ExtractHandlerFailedDetails": {
+      "description": "What `extract_handler_failed` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The URL of the page it was extracting.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor",
+        "url"
+      ],
+      "type": "object"
+    },
     "ExtractionFollow": {
       "description": "Which pages a code-free crawl fetches beyond its seeds.",
       "oneOf": [
@@ -6163,6 +6384,20 @@
           "type": "string"
         }
       ]
+    },
+    "ExtractorUnavailableDetails": {
+      "description": "What `extractor_unavailable` details.",
+      "properties": {
+        "extractor": {
+          "arrived_in": "0.1",
+          "description": "The Extractor, as `content.extractor` names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "extractor"
+      ],
+      "type": "object"
     },
     "FailedRequests": {
       "description": "What `run.failed_requests` answers.",
@@ -6665,6 +6900,39 @@
           "description": "The text of the page's main content, a paragraph per block."
         }
       },
+      "type": "object"
+    },
+    "FoundRecord": {
+      "description": "One Record `record.search` found.",
+      "properties": {
+        "dataset": {
+          "arrived_in": "0.1",
+          "description": "Its Dataset.",
+          "type": "string"
+        },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "Its number in its Dataset.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The run that returned it."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The Record, as JSON."
+        }
+      },
+      "required": [
+        "run_id",
+        "dataset",
+        "number",
+        "value"
+      ],
       "type": "object"
     },
     "GotoParams": {
@@ -7292,6 +7560,27 @@
           "type": "string"
         }
       ]
+    },
+    "JsonSecret": {
+      "additionalProperties": false,
+      "description": "A string of a JSON body that holds a Secret placeholder's value\n(ADR 0092).",
+      "properties": {
+        "placeholder": {
+          "arrived_in": "0.1",
+          "description": "The Secret placeholder.",
+          "type": "string"
+        },
+        "pointer": {
+          "arrived_in": "0.1",
+          "description": "Where the string goes, as a JSON Pointer (RFC 6901): a member of an\nobject, added or replaced, or an element an array holds.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "placeholder"
+      ],
+      "type": "object"
     },
     "JudgedBy": {
       "description": "What judged a page: the Session's own Page check, or the built-in\ndetector of a Session that declares none (ADR 0006).",
@@ -8203,20 +8492,6 @@
       "required": [
         "event",
         "lost"
-      ],
-      "type": "object"
-    },
-    "LiveViewViewerLimitDetails": {
-      "description": "What `live_view_viewer_limit` details.",
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/SettingLimit",
-          "arrived_in": "0.1",
-          "description": "`live_view.max_viewers`, its value and its layer."
-        }
-      },
-      "required": [
-        "limit"
       ],
       "type": "object"
     },
@@ -10951,6 +11226,17 @@
             "null"
           ]
         },
+        "json_secrets": {
+          "arrived_in": "0.1",
+          "description": "Strings of its body, which is then JSON, that hold a Secret\nplaceholder's value, each set at its JSON Pointer by the engine at\nits interception, checked as `secret_headers` are at every hop that\nsends the body (ADR 0092).",
+          "items": {
+            "$ref": "#/$defs/JsonSecret"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "max_redirects": {
           "arrived_in": "0.1",
           "description": "How many redirects it follows, from 0, which answers the 3xx itself,\nto 19, the default; past its count it raises `too_many_redirects`,\nand a count above 19 is refused with `setting_invalid`.",
@@ -10979,6 +11265,17 @@
           "description": "Its body, in Base64.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "secret_headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SecretHeader"
+          },
+          "arrived_in": "0.1",
+          "description": "Headers whose value holds a Secret placeholder, set over the\nbrowser's own and named in none of `headers`: the engine adds each\nvalue at its interception, at every hop whose URL is on the\nplaceholder's bound domains, and fails the request with\n`secret_domain_not_allowed` at a hop outside them (ADR 0092).",
+          "type": [
+            "object",
             "null"
           ]
         },
@@ -11883,6 +12180,36 @@
       ],
       "type": "object"
     },
+    "PluginUsage": {
+      "description": "What a Run's calls into one implementation of a Plugin kind used: its\n`plugin_calls` and `plugin_time` (ADR 0033).",
+      "properties": {
+        "calls": {
+          "arrived_in": "0.1",
+          "description": "The calls made into it, failed ones included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The implementation's name, as the setting that chose it names it.",
+          "type": "string"
+        },
+        "time": {
+          "arrived_in": "0.1",
+          "description": "The time those calls took, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "plugin",
+        "calls",
+        "time"
+      ],
+      "type": "object"
+    },
     "PointInTime": {
       "description": "A point in time in UTC, as RFC 3339.",
       "format": "date-time",
@@ -12596,6 +12923,32 @@
       ],
       "type": "object"
     },
+    "RecipeInvalidDetails": {
+      "description": "What `recipe_invalid` details.",
+      "properties": {
+        "field": {
+          "arrived_in": "0.1",
+          "description": "The field, dotted from the manifest's root such as `entry.program`,\nor the package's path of a file it refuses.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to write instead.",
+          "type": "string"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "What is wrong with it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
+    },
     "RecipeStartParams": {
       "additionalProperties": false,
       "description": "What `recipe.start` takes.",
@@ -12672,6 +13025,49 @@
           "format": "uint64",
           "minimum": 0,
           "setting": "timeout.run",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "recipe"
+      ],
+      "type": "object"
+    },
+    "RecipeTarget": {
+      "additionalProperties": false,
+      "description": "A Recipe a Schedule starts.",
+      "properties": {
+        "inputs": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Its inputs, by name.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "recipe": {
+          "arrived_in": "0.1",
+          "description": "The Recipe: published, by its digest, or local, by its path.",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's settings, by key.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "The run's `timeout.run`, in milliseconds, at least 1: absent for\nthe setting's value, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
           "type": [
             "integer",
             "null"
@@ -12873,6 +13269,76 @@
       },
       "required": [
         "request_id"
+      ],
+      "type": "object"
+    },
+    "RecordSearchParams": {
+      "additionalProperties": false,
+      "description": "What `record.search` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "datasets": {
+          "arrived_in": "0.1",
+          "description": "The Datasets it searches in each run; absent, every one.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The most Records it answers, from 1 to 1000; absent, 100.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "runs": {
+          "arrived_in": "0.1",
+          "description": "The runs it searches, from 1 to 100.",
+          "items": {
+            "$ref": "#/$defs/RunId"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The words a Record holds, each anywhere in its values, in any case\nand with or without diacritics.",
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "runs"
+      ],
+      "type": "object"
+    },
+    "RecordSearchResult": {
+      "description": "What `record.search` answers.",
+      "properties": {
+        "records": {
+          "arrived_in": "0.1",
+          "description": "The Records that hold every word, the best matches first, then by\nrun, Dataset and number.",
+          "items": {
+            "$ref": "#/$defs/FoundRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "records"
       ],
       "type": "object"
     },
@@ -16166,6 +16632,41 @@
       ],
       "type": "object"
     },
+    "RunTarget": {
+      "additionalProperties": false,
+      "description": "A code-free catalog run a Schedule starts.",
+      "properties": {
+        "run": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's own start parameters, as its kind defines them, without\nits Run ID, labels and Limits.",
+          "type": "object"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The run's settings, by key.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "The run's `timeout.run`, in milliseconds, at least 1: absent for\nthe setting's value, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "type": "object"
+    },
     "RunTargetUnbuiltDetails": {
       "description": "What `run_target_unbuilt`'s details hold.",
       "properties": {
@@ -16263,6 +16764,14 @@
           "description": "Its paid solves, by currency (ADR 0035).",
           "items": {
             "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Its calls into Plugin kinds' implementations, of every form, and the\ntime they took, by implementation (ADR 0033), in name order.",
+          "items": {
+            "$ref": "#/$defs/PluginUsage"
           },
           "type": "array"
         },
@@ -16552,6 +17061,385 @@
         }
       ]
     },
+    "ScheduleCreateParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.create` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "definition": {
+          "$ref": "#/$defs/ScheduleDefinition",
+          "arrived_in": "0.1",
+          "description": "The Schedule."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "definition"
+      ],
+      "type": "object"
+    },
+    "ScheduleCreated": {
+      "description": "What `schedule.create` answers.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID, as given or made."
+        },
+        "warnings": {
+          "arrived_in": "0.1",
+          "description": "What its program should know.",
+          "items": {
+            "$ref": "#/$defs/ScheduleWarning"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedule_id",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "ScheduleDefinition": {
+      "additionalProperties": false,
+      "description": "What a Schedule is, as a program writes it.",
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScheduleId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its ID; one is made when absent: `s` and a lowercase ULID."
+        },
+        "target": {
+          "$ref": "#/$defs/ScheduleTarget",
+          "arrived_in": "0.1",
+          "description": "What it starts."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its triggers read, such as `Europe/Paris`; the\nDaemon host's when absent, never \"local\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "When."
+        }
+      },
+      "required": [
+        "target",
+        "trigger"
+      ],
+      "type": "object"
+    },
+    "ScheduleDeleted": {
+      "description": "What `schedule.delete` answers.",
+      "properties": {
+        "deleted": {
+          "arrived_in": "0.1",
+          "description": "Whether it deleted the Schedule: false when the store held none of\nthat ID, as after a resent delete.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "ScheduleExistsDetails": {
+      "description": "What `schedule_exists` details.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule ID."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleGetParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.get` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ScheduleId": {
+      "description": "A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "type": "string"
+    },
+    "ScheduleInfo": {
+      "description": "A Schedule as its store holds it.",
+      "properties": {
+        "created_at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When it was created."
+        },
+        "creator": {
+          "arrived_in": "0.1",
+          "description": "The person who created it, for whom its occurrences fire.",
+          "type": "string"
+        },
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "Its ID."
+        },
+        "state": {
+          "$ref": "#/$defs/ScheduleState",
+          "arrived_in": "0.1",
+          "description": "Whether it fires."
+        },
+        "target": {
+          "$ref": "#/$defs/ScheduleTarget",
+          "arrived_in": "0.1",
+          "description": "What it starts, as given."
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone its triggers read.",
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "When."
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its definition's version: 1 at creation, one more at each edit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schedule_id",
+        "target",
+        "trigger",
+        "time_zone",
+        "version",
+        "state",
+        "creator",
+        "created_at"
+      ],
+      "type": "object"
+    },
+    "ScheduleList": {
+      "description": "What `schedule.list` answers.",
+      "properties": {
+        "schedules": {
+          "arrived_in": "0.1",
+          "description": "Every Schedule of the store, by ID.",
+          "items": {
+            "$ref": "#/$defs/ScheduleInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "schedules"
+      ],
+      "type": "object"
+    },
+    "ScheduleListParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.list` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ScheduleNotFoundDetails": {
+      "description": "What `schedule_not_found` details.",
+      "properties": {
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule ID."
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.info` and `schedule.delete` take: the Schedule.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "schedule_id": {
+          "$ref": "#/$defs/ScheduleId",
+          "arrived_in": "0.1",
+          "description": "The Schedule's ID."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schedule_id"
+      ],
+      "type": "object"
+    },
+    "ScheduleState": {
+      "description": "Whether a Schedule fires.",
+      "oneOf": [
+        {
+          "const": "on",
+          "description": "It fires at its occurrences.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
+    "ScheduleTarget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RecipeTarget",
+          "description": "A Recipe."
+        },
+        {
+          "$ref": "#/$defs/RunTarget",
+          "description": "A code-free catalog run."
+        }
+      ],
+      "description": "What a Schedule starts: a Recipe with its inputs, or a code-free\ncatalog run by its own start parameters, each with the run's settings\nand timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,\nlabels and Limits."
+    },
+    "ScheduleTrigger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EveryTrigger",
+          "description": "At a fixed interval."
+        }
+      ],
+      "description": "When a Schedule's occurrences fall (ADR 0036)."
+    },
+    "ScheduleTriggerInvalidDetails": {
+      "description": "What `schedule_trigger_invalid` details.",
+      "properties": {
+        "expression": {
+          "arrived_in": "0.1",
+          "description": "The trigger's expression, as given.",
+          "type": "string"
+        },
+        "position": {
+          "arrived_in": "0.1",
+          "description": "The character of the expression where it stops reading, from 0.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "$ref": "#/$defs/TriggerInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why."
+        }
+      },
+      "required": [
+        "expression",
+        "position",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "ScheduleWarning": {
+      "description": "Something about a created Schedule its program should know, which did\nnot stop its creation.",
+      "properties": {
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What it is about, such as `env_unresolved`.",
+          "type": "string"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "What it says, in the engine's English.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "type": "object"
+    },
     "SchemaValidatorFailedDetails": {
       "description": "What `schema_validator_failed` details: the schema, where in the value,\nand the exception, as `hook_failed`'s details name a Hook's.",
       "properties": {
@@ -16655,6 +17543,65 @@
           "const": "no_code",
           "description": "No one-time code came: a provider made none from the reference,\nsuch as a TOTP seed it cannot read, or a code source's code never\narrived (ADR 0092).",
           "type": "string"
+        }
+      ]
+    },
+    "SecretHeader": {
+      "description": "A header value that holds a Secret placeholder (ADR 0092). The value\nthe engine builds from the placeholder's is masked wherever the engine\nreturns, sends or keeps it, its Base64 in `Basic` included.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The placeholder's value after `prefix`, such as `Bearer `.",
+          "properties": {
+            "form": {
+              "const": "value",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder.",
+              "type": "string"
+            },
+            "prefix": {
+              "arrived_in": "0.1",
+              "description": "The text before the value; none when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "form",
+            "placeholder"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "HTTP Basic authentication's credentials (RFC 7617): `Basic` and the\nBase64 of `username`, a colon and the placeholder's value.",
+          "properties": {
+            "form": {
+              "const": "basic",
+              "type": "string"
+            },
+            "placeholder": {
+              "arrived_in": "0.1",
+              "description": "The Secret placeholder whose value is the password.",
+              "type": "string"
+            },
+            "username": {
+              "arrived_in": "0.1",
+              "description": "The user ID, which holds no colon.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "form",
+            "username",
+            "placeholder"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -16881,6 +17828,62 @@
         }
       ]
     },
+    "SessionExportFailure": {
+      "description": "Why a session export bundle did not open, which\n`session_export_open_failed` carries.",
+      "oneOf": [
+        {
+          "const": "wrong_key",
+          "description": "The key's value opens none of the bundle's recipients: another age\nidentity, or a wrong passphrase.",
+          "type": "string"
+        },
+        {
+          "const": "not_an_identity",
+          "description": "The bundle was sealed to a public key, and the key's value is no age\nidentity (`AGE-SECRET-KEY-1…`).",
+          "type": "string"
+        },
+        {
+          "const": "not_a_bundle",
+          "description": "The file is no age file, or what it holds is no session export:\ntruncated, changed, or another format.",
+          "type": "string"
+        },
+        {
+          "const": "excessive_work",
+          "description": "The bundle's passphrase asks more scrypt work than the engine does\nfor an import.",
+          "type": "string"
+        },
+        {
+          "const": "too_large",
+          "description": "What the bundle holds is larger than the engine reads.",
+          "type": "string"
+        }
+      ]
+    },
+    "SessionExportOpenFailedDetails": {
+      "description": "What `session_export_open_failed` details.",
+      "properties": {
+        "failure": {
+          "$ref": "#/$defs/SessionExportFailure",
+          "arrived_in": "0.1",
+          "description": "What failed."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What makes the bundle open.",
+          "type": "string"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference given as the bundle's key.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference",
+        "failure",
+        "fix"
+      ],
+      "type": "object"
+    },
     "SessionId": {
       "description": "A Session of a Run, named by the engine when it opens it.",
       "type": "string"
@@ -17041,7 +18044,7 @@
             },
             "key": {
               "arrived_in": "0.1",
-              "description": "The Secret reference that opens a session export bundle.",
+              "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
               "type": [
                 "string",
                 "null"
@@ -18970,6 +19973,42 @@
       ],
       "type": "object"
     },
+    "TriggerInvalidReason": {
+      "description": "Why a trigger does not parse.",
+      "oneOf": [
+        {
+          "const": "unknown_field",
+          "description": "A field it does not know.",
+          "type": "string"
+        },
+        {
+          "const": "out_of_range",
+          "description": "A value out of its field's range, such as an interval of 0.",
+          "type": "string"
+        },
+        {
+          "const": "bad_step",
+          "description": "A step that does not divide its range.",
+          "type": "string"
+        },
+        {
+          "const": "bad_macro",
+          "description": "A macro it does not know.",
+          "type": "string"
+        },
+        {
+          "const": "field_count",
+          "description": "Too few or too many fields.",
+          "type": "string"
+        },
+        {
+          "const": "other",
+          "description": "Another reason, which the message gives.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "UncertainEffect": {
       "description": "An Effect a Run left uncertain (ADR 0106), until a person reconciles it.",
       "properties": {
@@ -20393,7 +21432,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
+      "description": "A `cdp_url` Session source names an address ADR 0056's rules refuse, before any connection: a private address from a value that is not Operator-configured, loopback from a Client acting for a model (its project configuration included) or a Recipe, or from any Client of an Exposed Daemon, or a private address under `egress.no_private_endpoints`. The details name the address without its query or credentials, the settings layer that gave it, the rule, the address it resolved to and the fix: set the address in Operator policy or in user configuration, or give a public address.",
       "details": {
         "$ref": "#/$defs/CdpUrlNotAllowedDetails"
       },
@@ -20806,6 +21845,32 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Extractor `content.extractor` names answered `extract.content` with what the engine cannot take: an answer it cannot read, a result whose shape is not `{ title, text, markdown, metadata }`, or an Error code the catalog does not know. Its text is logged, never returned. The details name the Extractor and the page's URL. Fix the Extractor, or set `content.extractor` to a built-in one.",
+      "details": {
+        "$ref": "#/$defs/ExtractHandlerFailedDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "extract_handler_failed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No one answers for the Extractor `content.extractor` names: no built-in has its name and no installed Plugin of the Extractor kind does, its Plugin cannot start, or it is a handler the program registered that left its call unanswered. The details name the Extractor. Install the Plugin or name another Extractor, or retry once the program reads its Extractor's calls again.",
+      "details": {
+        "$ref": "#/$defs/ExtractorUnavailableDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "extractor_unavailable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The bytes of a file could not be written: no space or quota left, or an I/O error, or any failure where the engine keeps its files. No partial file is left. Free space where the files go, or ask the Daemon's operator, then make the same call again.",
       "details": {
         "$ref": "#/$defs/FileWriteFailedDetails"
@@ -21051,19 +22116,6 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "As many viewers as `live_view.max_viewers` allows already watch the Session, so the channel opened none. `limit` names the setting, its value and the layer that set it. Open the channel again once a viewer leaves, or raise the setting.",
-      "details": {
-        "$ref": "#/$defs/LiveViewViewerLimitDetails"
-      },
-      "exit_code": null,
-      "group": "refused",
-      "json_rpc_class": -32002,
-      "name": "live_view_viewer_limit",
-      "product": "collie",
-      "retryable": true
-    },
-    {
-      "arrived_in": "0.1",
       "description": "`egress.local_addresses` yields no address this host can send from: a listed address the host does not hold, an interface it does not have or that holds no address, or an IPv6 prefix with none of the host's addresses in it and, on Linux, not routed locally with `net.ipv6.ip_nonlocal_bind` on; or a Session whose browser this engine does not launch on this machine (a Borrowed browser, a third-party CDP browser, a Browser host's) or whose `https://` proxy the egress relay does not chain through. The binding is never ignored: assign the address, correct the value, route the prefix to the host, or open the Session on a browser the engine launches here.",
       "details": {
         "$ref": "#/$defs/LocalAddressUnavailableDetails"
@@ -21220,13 +22272,13 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Some of a page's events are lost. Either the engine fell too far behind the browser's events of a page that is still open and stopped reading them: the page's `page.on` listeners, waits and `response.body` reads raise this rather than answer from missing events, and the Run trace records it, while the page's other calls still work; open another page to follow its events. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call raises this once it sent them; listen again and grant credits as events are read.",
+      "description": "Some of a page's events are lost. Either the engine fell 4,096 events behind the browser's events of the page `page_id` names and closed that page, ending every request it had paused: its calls in flight and its later calls raise this, and the Run trace records it once; open another page and try again. Or one `page.on` call's Client took too few of its events, granting too few credits, so 1,024 waited unsent: that call alone raises this once it sent them, while the page and its other calls go on; listen again and grant credits as events are read.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "page_events_lost",
       "product": "collie",
-      "retryable": false
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -21383,6 +22435,36 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_manifest_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin and the engine share no plugin protocol version, which the reply to `hello` says before any other message. Upgrade the older side: the Plugin, or the engine.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_protocol_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The process Plugin crashed three times within 10 minutes of the run, so it stays quarantined for the rest of the run: its queued and later calls fail with this code, and one \"a Plugin quarantined\" Notification is sent. A later run starts it again; fix or replace the Plugin first.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_quarantined",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
       "details": {
         "$ref": "#/$defs/PolicyConflictDetails"
@@ -21497,6 +22579,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Recipe manifest, `goodfetch-recipe.toml`, or its package that is not valid: a manifest that does not parse, lacks a required field or holds an unknown one, names no entry or two, names a program without a runtime or a runtime it does not list, names a `CrawlDeclaration` for Collie, or an entry the package does not hold; or a package holding a symbolic link, or a path with no portable digest: absolute, escaping its root, holding `\\` or `:`, or the same as another in Unicode NFC or but for case. The details name the field or path and the fix.",
+      "details": {
+        "$ref": "#/$defs/RecipeInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "recipe_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
       "details": {
         "$ref": "#/$defs/RecordInvalidDetails"
@@ -21506,6 +22601,16 @@
       "json_rpc_class": -32001,
       "name": "record_invalid",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule's target sets `cache.mode` to `replay`, whose replayed pages would hide a change from the Baseline. Set `revalidate` or `off` for a scheduled target.",
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "replay_not_allowed",
+      "product": "collie",
       "retryable": false
     },
     {
@@ -21709,7 +22814,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "The engine still runs the Run, so it cannot be discarded: stop it first with `run.stop` or `run.abort`, or let it finish, then discard it. The details name the Run.",
+      "description": "The engine still runs the Run, so it cannot be discarded, nor a Dataset of it erased: stop it first with `run.stop` or `run.abort`, or let it finish, then try again. The details name the Run.",
       "details": {
         "$ref": "#/$defs/RunDetails"
       },
@@ -21807,6 +22912,45 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleExistsDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_exists",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "No Schedule has this Schedule ID: the Schedule store does not hold it. The details name the ID.",
+      "details": {
+        "$ref": "#/$defs/ScheduleNotFoundDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_not_found",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
+      "details": {
+        "$ref": "#/$defs/ScheduleTriggerInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "schedule_trigger_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A schema's own validation, run by the SDK in the program's process, raised something other than a rejection, so the call stopped at once: only the library's own rejection (Standard Schema issues, Pydantic's `ValidationError`) is one, and a bug is never retried or reported as a value the schema refused. The message always names the exception, and the original is the error's cause. The details name the schema by its JSON Schema `title` (`null` without one), the field path where known (`null` otherwise), and the exception's type and message. Fix the validator so that it rejects with the library's own issue, or never raises.",
       "details": {
         "$ref": "#/$defs/SchemaValidatorFailedDetails"
@@ -21880,6 +23024,19 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "session_bound_to_machine",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A session export bundle, encrypted with age to a public key or a passphrase, did not open under the Secret reference given as its `key`: the value opens none of its recipients, is no age identity where the bundle was sealed to a public key, or the file is no bundle, asks more scrypt work than an import does, or holds more than the engine reads. `failure` says which, and the details name the reference, never its value. Give the reference of the identity or passphrase the bundle was exported to, or export it again.",
+      "details": {
+        "$ref": "#/$defs/SessionExportOpenFailedDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "session_export_open_failed",
       "product": "collie",
       "retryable": false
     },
@@ -22773,6 +23930,9 @@
             "batches",
             "block_classifications",
             "builds",
+            "cache_body_writes",
+            "cache_file_opens",
+            "cache_lookups",
             "calls",
             "check_commands",
             "click_commands",
@@ -22795,6 +23955,8 @@
             "encodes",
             "end_round_trips",
             "entries",
+            "event_decodes",
+            "event_visits",
             "evidence_reads",
             "fetch_messages_no_rule",
             "file_opens",
@@ -22816,9 +23978,12 @@
             "opening_commands",
             "opens",
             "origin_transactions",
+            "owner_round_trips",
             "page_learning",
+            "page_tasks",
             "page_waits",
             "parses",
+            "pending_orphans",
             "plugin_answer_parses",
             "plugin_serializations",
             "politeness_read_round_trips",
@@ -23566,6 +24731,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.erase",
+      "params": {
+        "$ref": "#/$defs/DatasetEraseParams"
+      },
+      "product": "foxhound",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/DatasetErased"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists the Datasets a crawl's Run declares, in the order declared, each with its JSON Schema, its key and how many Records the crawl committed into it, a Hook dropped and were rejected into its rejection table, read from the Run's committed state. A Run no crawl wrote declares none.",
@@ -23617,6 +24801,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/DatasetQueryResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Answers one page of the committed Records of one Dataset of a run that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in number order, after `after` and at most `limit` (1 to 1000, 100 by default), with the next page's `after` while more follow. It reads the index a crawl writes as it commits each Record while `dataset.search.index` is on, so a crawl with it off finds none. An empty `text` fails with `invalid_params`, and a Dataset the crawl does not declare with `dataset_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "dataset.search",
+      "params": {
+        "$ref": "#/$defs/DatasetSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/DatasetSearchPage"
       },
       "stability": "experimental"
     },
@@ -24398,7 +25601,7 @@
       "cancellable": true,
       "class": "effect",
       "deprecated": null,
-      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`.",
+      "description": "Sends a request from inside the page's Session's browser, with its cookies, through the browser-fetch tier and the page's interception (its domain policy, never its routes), from a context no service worker controls, and answers the response whatever its status, a 429 included; `response.body` reads its kept body, and raises `response_truncated` for one that broke off. A count of redirects above 19 is refused with `setting_invalid`, a chain past its count raises `too_many_redirects`, and a body whose content coding fails to decode `navigation_failed`. A header value or a JSON body string may hold a Secret placeholder, whose value the engine adds at its interception after every page script and service worker: an unbound placeholder raises `secret_unbound`, a hop outside its bound domains `secret_domain_not_allowed`, and a header value holding a CR, an LF or a NUL `header_value_invalid`.",
       "events": [],
       "kind": "round_trip",
       "name": "page.request",
@@ -24561,6 +25764,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/RunStarted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Searches the committed Records of the runs `runs` selects, at most 100, for those that hold every word of `text`, each anywhere in the Record's values, in any case and with or without diacritics, in every Dataset or those `datasets` names, and answers at most `limit` (1 to 1000, 100 by default), the best matches first, each with its run, Dataset and number, so the runs that returned one can be read or queried with `dataset.query`. It reads only the selected runs' indexes, which a crawl writes while `dataset.search.index` is on, and runs under `timeout.dataset_query` and `dataset.query.memory_limit`. An empty `text` fails with `invalid_params`, and a run that does not exist with `run_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "record.search",
+      "params": {
+        "$ref": "#/$defs/RecordSearchParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/RecordSearchResult"
       },
       "stability": "experimental"
     },
@@ -25233,6 +26455,101 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.create",
+      "params": {
+        "$ref": "#/$defs/ScheduleCreateParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleCreated"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.delete",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleDeleted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.get",
+      "params": {
+        "$ref": "#/$defs/ScheduleGetParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.info",
+      "params": {
+        "$ref": "#/$defs/ScheduleParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleInfo"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists every Schedule of the Schedule store, by ID.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.list",
+      "params": {
+        "$ref": "#/$defs/ScheduleListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/ScheduleList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Closes the Session: its pages and its browser context close, and its pages' admissions go back to the Resource governor; a Borrowed browser is never closed. A later call on the Session or one of its pages raises `closed`, and closing it again changes nothing.",
@@ -25426,6 +26743,25 @@
   "plugin_kinds": [
     {
       "arrived_in": "0.1",
+      "description": "Reads a page's main content in place of the main-content step, on the page Collie is on.",
+      "methods": [
+        {
+          "description": "Reads the main content of a page's document.",
+          "name": "content",
+          "params": {
+            "$ref": "#/$defs/ExtractContentParams"
+          },
+          "result": {
+            "$ref": "#/$defs/ExtractContentResult"
+          }
+        }
+      ],
+      "name": "extract",
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Chooses the pages the sample crawl visits.",
       "methods": [
         {
@@ -25509,6 +26845,27 @@
   ],
   "protocol_version": "0.1",
   "settings": [
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "accounts.enabled",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
     {
       "arrived_in": "0.1",
       "authority": "every",
@@ -25834,6 +27191,79 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 2592000000,
+      "deprecated": null,
+      "description": "How long the Response cache keeps an entry, whatever its freshness: 30 days, after which it is deleted in every mode. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_age_ceiling",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10000000000,
+      "deprecated": null,
+      "description": "The most bytes the Response cache keeps for a user, its index and its bodies together: 10 GB, beyond which the least recently used entries are evicted. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "cache.max_size",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "off",
+      "deprecated": null,
+      "description": "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+      "fixed_for_run": false,
+      "name": "cache.mode",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "off",
+          "revalidate",
+          "replay"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": true,
       "default": null,
@@ -26150,7 +27580,7 @@
       "clearable": false,
       "default": "dom_smoothie",
       "deprecated": null,
-      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
+      "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
       "fixed_for_run": false,
       "name": "content.extractor",
       "product": "collie",
@@ -26166,10 +27596,10 @@
         "page"
       ],
       "value": {
-        "enum": [
-          "dom_smoothie",
-          "trafilatura"
-        ]
+        "description": "A built-in main-content step, `dom_smoothie` or `trafilatura`, or an installed Extractor Plugin's name.",
+        "minLength": 1,
+        "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
+        "type": "string"
       },
       "weakening": null,
       "weakens": false
@@ -26769,7 +28199,7 @@
       "clearable": false,
       "default": "127.0.0.1:7600",
       "deprecated": null,
-      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
       "fixed_for_run": false,
       "name": "daemon.address",
       "product": "collie",
@@ -26826,6 +28256,94 @@
         "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.tls.cert_file",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.tls.key_file",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": false,
+      "deprecated": null,
+      "description": "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.tls.upstream",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": [],
+      "deprecated": null,
+      "description": "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "daemon.trusted_proxies",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "items": {
+          "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+          "type": "string"
+        },
+        "type": "array"
       },
       "weakening": null,
       "weakens": false
@@ -26904,6 +28422,29 @@
         ]
       },
       "weakens": true
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether the crawl indexes each Record it commits for `dataset.search` and `record.search`, in the commit's transaction. On by default. Off, no Record is indexed, so neither search finds one of the crawl's Records, while each is still committed and read as before.",
+      "fixed_for_run": false,
+      "name": "dataset.search.index",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
     },
     {
       "arrived_in": "0.1",
@@ -28682,27 +30223,6 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": false,
-      "default": true,
-      "deprecated": null,
-      "description": "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. Set in user configuration or an Operator policy only.",
-      "fixed_for_run": false,
-      "name": "live_view.enabled",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "scopes": [],
-      "value": {
-        "type": "boolean"
-      },
-      "weakening": null,
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": "auto",
@@ -28725,52 +30245,6 @@
           "auto",
           "off",
           "always"
-        ]
-      },
-      "weakening": null,
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": false,
-      "default": 10,
-      "deprecated": null,
-      "description": "How many viewers may watch one Session at once: 10. The next one's channel is refused with `live_view_viewer_limit`. Set in user configuration or an Operator policy only.",
-      "fixed_for_run": false,
-      "name": "live_view.max_viewers",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "scopes": [],
-      "value": {
-        "minimum": 1,
-        "type": "integer"
-      },
-      "weakening": null,
-      "weakens": false
-    },
-    {
-      "arrived_in": "0.1",
-      "authority": "machine",
-      "clearable": false,
-      "default": "auto",
-      "deprecated": null,
-      "description": "How a Live view captures its Session: `auto` (the default) takes the best tier the Session's browser offers, `screencast` for a headless one, and falls back to the next when one fails; `screencast` takes the browser's own screencast of the shown page, JPEG frames sized to the largest screen watching. Set in user configuration or an Operator policy only.",
-      "fixed_for_run": false,
-      "name": "live_view.tier",
-      "product": "collie",
-      "products": [
-        "collie",
-        "foxhound"
-      ],
-      "scopes": [],
-      "value": {
-        "enum": [
-          "auto",
-          "screencast"
         ]
       },
       "weakening": null,
@@ -30451,7 +31925,7 @@
       "clearable": true,
       "default": null,
       "deprecated": null,
-      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
+      "description": "The AWS Region, such as `eu-west-3`, whose Secrets Manager answers `aws-sm:name#key` Secret references: the engine calls `GetSecretValue` for the secret `name`, signed with the access key in its environment's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, for temporary credentials, `AWS_SESSION_TOKEN`, or else with a role's temporary key, from a web identity token (`AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN`), the container credentials endpoint of ECS or EKS, or the EC2 instance metadata service, and answers the secret's text, or its JSON object's `key`. Unset, the default, the engine's environment's `AWS_REGION`, then `AWS_DEFAULT_REGION`, names it; with none, an `aws-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.aws_sm.region",
       "product": "collie",
@@ -30472,7 +31946,7 @@
       "clearable": false,
       "default": "https://login.microsoftonline.com",
       "deprecated": null,
-      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Microsoft Entra ID authority that issues the access token `azure-kv:` references are read with, `https://login.microsoftonline.com` by default, or a sovereign cloud's, such as `https://login.chinacloudapi.cn`: the engine asks `<authority>/<AZURE_TENANT_ID>/oauth2/v2.0/token` for a token of the client-credentials grant, with the service principal's secret or the workload identity's federated token. It is an Operator-configured endpoint, judged and verified as `secret_providers.azure_kv.endpoint` is. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.authority",
       "product": "collie",
@@ -30493,7 +31967,7 @@
       "clearable": false,
       "default": "https://{vault}.vault.azure.net",
       "deprecated": null,
-      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault that Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues to the service principal in its environment's `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`. With any of them unset, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Azure Key Vault that answers `azure-kv:vault/secret` Secret references, `{vault}` standing for the reference's vault name: `https://{vault}.vault.azure.net` by default, or a sovereign cloud's, such as `https://{vault}.vault.azure.cn`. The engine reads the secret's current version with an access token for Key Vault, from the first identity its environment gives, in the Azure Identity libraries' order: the service principal of `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`, or the workload identity of `AZURE_FEDERATED_TOKEN_FILE`, whose token Microsoft Entra ID (`secret_providers.azure_kv.authority`) issues, or else the host's managed identity, through `IDENTITY_ENDPOINT` or the instance metadata service; `AZURE_TOKEN_CREDENTIALS` keeps only the sources it names. With no identity, an `azure-kv:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.azure_kv.endpoint",
       "product": "collie",
@@ -30535,7 +32009,7 @@
       "clearable": false,
       "default": "https://secretmanager.googleapis.com",
       "deprecated": null,
-      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
+      "description": "The URL of the Google Cloud Secret Manager API that answers `gcp-sm:project/secret/version` Secret references, `https://secretmanager.googleapis.com` by default, or a regional or Private Service Connect endpoint: the engine accesses the secret's version (`latest` for the newest) with the OAuth 2.0 access token in its environment's `GOOGLE_OAUTH_ACCESS_TOKEN`, such as `gcloud auth print-access-token` prints, or else one it takes from a service account's key file that `GOOGLE_APPLICATION_CREDENTIALS` names or from the metadata server's service account, and answers its payload as text. With no token, a `gcp-sm:` reference fails with `secret_unavailable`, `failure: \"not_configured\"`. It is an Operator-configured endpoint: reached on a private address unless `egress.no_private_endpoints` refuses it, its certificate verified against Mozilla's roots and its own domain's `tls.trusted_cas`, never excepted by `tls.accept_invalid_certs`. Plain `http:` is taken only for a loopback address. Taken only from an Operator policy and user and project configuration.",
       "fixed_for_run": false,
       "name": "secret_providers.gcp_sm.endpoint",
       "product": "collie",
@@ -30722,11 +32196,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning.",
+      "description": "Whether the run's Audit log entries are hash-chained (ADR 0016). On by default; off, that run's entries are written unchained, each marked `chained: false`, which `audit verify` steps over while it verifies the chain around them; the switch itself is a chained entry, and the run says so in its report's `weakened` and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.audit_chain",
       "product": "collie",
@@ -30775,11 +32249,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether the run's state seals its secret fields with the run's data key (ADR 0015). On by default; off, they are written in the clear and the run makes no data key, and the run says so in its report's `weakened`, in the Audit log and in one warning. A field written in the clear opens only in a run that lists this switch as weakened. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.field_encryption",
       "product": "collie",
@@ -30803,11 +32277,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses.",
+      "description": "Whether every browser Session the engine launches reaches the network through the egress relay, which holds a raw CDP client or a Lent page at the network layer (ADR 0017). On by default; off, a Session with no certificate exception and no local address connects directly, held by interception alone, and the run says so in its report's `weakened`, in the Audit log and in one warning. It never removes the relay that carries certificate exceptions or local addresses. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.raw_cdp_egress_proxy",
       "product": "collie",
@@ -30831,11 +32305,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether logs, traces and HAR files are redacted and screenshots and recordings kept as outputs are masked (ADR 0014). On by default; off lifts that guarantee for those outputs only: secrets still never reach the model, Plans, caches, the Effect journal or observations. The run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.redaction",
       "product": "collie",
@@ -30859,11 +32333,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether every address a name resolves to is checked against the egress policy before a connection is made (ADR 0017). On by default; off, the domain policy alone applies, and the run says so in its report's `weakened`, in the Audit log and in one warning. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.resolved_ip_check",
       "product": "collie",
@@ -30887,11 +32361,11 @@
     },
     {
       "arrived_in": "0.1",
-      "authority": "every",
+      "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": true,
       "deprecated": null,
-      "description": "Whether the run's secret tables overwrite what they delete, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay on disk until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning.",
+      "description": "Whether the run's state overwrites what it deletes, its secret fields included, SQLite's `secure_delete` (ADR 0015). On by default; off, deleted values may stay in the run file's free pages until overwritten, and the run says so in its report's `weakened`, in the Audit log and in one warning. A discard overwrites the run's data key whatever its value. A Recipe or a Client acting for a model never switches it off: its `false` is `setting_locked`.",
       "fixed_for_run": false,
       "name": "security.secure_delete",
       "product": "collie",
@@ -31437,7 +32911,7 @@
               },
               "key": {
                 "arrived_in": "0.1",
-                "description": "The Secret reference that opens a session export bundle.",
+                "description": "The Secret reference that opens a session export bundle: its\nage identity or its passphrase, never the value itself.",
                 "type": [
                   "string",
                   "null"
@@ -33322,6 +34796,32 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
+      "clearable": false,
+      "default": 30000,
+      "deprecated": null,
+      "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+      "fixed_for_run": false,
+      "name": "timeout.plugin",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
       "clearable": true,
       "default": null,
       "deprecated": null,
@@ -33939,7 +35439,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
+      "description": "A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, a Connection whose opening sent no `hello` first, in time or within its size limit, or one opened without TLS where the listener serves TLS. `audit.refusals_per_minute` bounds how many one listener records in a minute.",
       "name": "endpoint_authentication_failed",
       "product": "collie",
       "type": "audit_kind"
@@ -34177,6 +35677,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
+      "name": "plugin_calls",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Usage figures come from a Plugin.",
       "name": "plugin_figures",
       "product": "collie",
@@ -34188,6 +35695,13 @@
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
+      "name": "plugin_time",
+      "product": "collie",
+      "type": "usage_kind"
     },
     {
       "arrived_in": "0.1",

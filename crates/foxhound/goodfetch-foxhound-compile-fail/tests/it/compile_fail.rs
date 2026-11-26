@@ -4,4 +4,5 @@
 //! `compile-fail` test group (TESTING.md, Isolation).
 
 mod crawl;
+mod datasets;
 mod payloads;

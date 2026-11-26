@@ -24,6 +24,11 @@
 //! (`under_default_seccomp`, `under_apparmor_restriction`),
 //! `DnsNamespace`, which starts a child on Linux whose resolver is the
 //! Proving ground's DNS fixture,
+//! the Goodfetch Chromium's test helpers over the Proving ground's pages
+//! (ADR 0074): `identity_report`, which compares one Identity profile
+//! surface across every script context and the headers, the codec and font
+//! samples an Identity profile's tests expect, and `NetLog::read`, which
+//! lists every socket a browser launch connected,
 //! and the Secret canaries, planted and searched for in every encoding
 //! with their `gitleaks` rule (ADR 0067); `refused_matches`, which finds
 //! what would let a new state or event through a transition table's
@@ -65,15 +70,19 @@ mod exercise;
 mod facts;
 mod fault_plan;
 mod fuzz;
+mod held_vfs;
 mod host_test;
 mod hostile;
+mod identity_consistency;
 mod invariants;
 mod journey_run;
 mod kill;
 #[cfg(target_os = "linux")]
 mod lazyfs;
 mod locales;
+mod media_samples;
 mod model_trace;
+mod net_log;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -85,6 +94,7 @@ mod no_console;
 ))]
 mod no_exec;
 mod observation;
+mod older_engine;
 mod player;
 mod process;
 mod protocol_fuzz;
@@ -94,6 +104,7 @@ mod proxy_in_front;
 mod pty;
 mod raw_calls;
 mod received_requests;
+mod recordings;
 mod resident;
 mod resolver;
 mod runtime;
@@ -121,12 +132,12 @@ mod user_namespaces;
 #[cfg(target_os = "linux")]
 mod valkey;
 mod variables;
+mod webhook_signatures;
 
 #[cfg(unix)]
 pub use browsers::ReadOnlyBrowserCache;
 pub use browsers::{
-    BROWSERS_PATH_VARIABLE, BrowserCacheError, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
-    DebuggedBrowser, LIGHTPANDA_DOWNLOADS_VARIABLE, browser_builds, browser_cache,
+    BROWSERS_PATH_VARIABLE, BrowserCacheError, DebuggedBrowser, browser_builds, browser_cache,
     browser_cache_in_home, browser_cache_with_headless_shell, browser_cache_with_lightpanda,
     chrome_for_testing, chrome_for_testing_debugged, chrome_for_testing_dumping_dom,
     chrome_for_testing_files, chrome_headless, chrome_headless_shell, empty_browser_cache,
@@ -136,11 +147,10 @@ pub use canaries::{
     Canaries, Canary, CanaryError, Encoding, Hit, Output, Placement, PlantAccount, SHORT_VALUE,
     SecretKind, Sighting, gitleaks_rule,
 };
-pub use cargo_consumer::{CargoRun, Consumer, ConsumerError, cargo_consumer, cargo_install};
-pub use claude_code::{
-    CLAUDE_CODE_DOWNLOADS_VARIABLE, ClaudeCodeError, PluginValidation, claude_code_copy,
-    validate_plugin,
+pub use cargo_consumer::{
+    CargoRun, Consumer, ConsumerError, cargo_command, cargo_consumer, cargo_install,
 };
+pub use claude_code::{ClaudeCodeError, PluginValidation, claude_code_copy, validate_plugin};
 pub use cli::{
     Cli, CliError, CliJson, CliOutput, Mode, Stream, cli, record_command, record_command_in,
 };
@@ -164,7 +174,7 @@ pub use dns_namespace::{
 };
 pub use endpoints::{
     AuditUnreadable, AuditVerifier, Endpoint, EndpointRunError, EndpointRunner, Expected, Failure,
-    Hello, Listener, ListenerAddress, ListenerKind, Observed, Open, RowFailure, Rule,
+    Hello, Listener, ListenerAddress, ListenerKind, ListenerTls, Observed, Open, RowFailure, Rule,
 };
 pub use env::{START_TIME, TEST_SETTINGS, TestEnv, TestEnvError, command};
 pub use exercise::{ANSWER_RECORD, AnsweredCalls, COMMAND_RECORD, COMMAND_TARGET};
@@ -174,12 +184,17 @@ pub use fault_plan::{
     FaultPlanFailure, FaultPlanGenerator, FaultPlanStep,
 };
 pub use fuzz::{CRASHERS_FOLDER, FuzzReplayError, Replayed, SEEDS_FOLDER, replay_fuzz_target};
+pub use held_vfs::{HeldAccess, HeldVfs, LONGEST_HOLD};
 pub use host_test::{HOST_DEADLINE, HostRun, past_the_harness, run_host_test};
 pub use hostile::{
     BodyFraming, ExpectedError, HeaderSource, HeaderValue, HostileCase, HostileTable,
     HostileTableError, HostileTables, JsonChannel, LimitSetting, MessageChannel, Os, PathHazard,
     PathName, PathTarget, RefKeyword, ResourceLimit, Schedule, SchemaRef, SchemaUse,
     SecretPlacement, SecretRedirect, ServedBy, TableGap, TableGaps,
+};
+pub use identity_consistency::{
+    CONSISTENCY_FRAME_HOST, CONSISTENCY_HOST, ConsistencyError, IdentityReport, PageValues,
+    ProbeContext, ValueSource, identity_report,
 };
 /// insta, for [`assert_cli_snapshot!`], whose expansion names it.
 #[doc(hidden)]
@@ -196,7 +211,12 @@ pub use kill::{KILL_DEADLINE, KillAtError, Killed, Moment, kill_at, kill_at_with
 #[cfg(target_os = "linux")]
 pub use lazyfs::{LAZYFS_DEADLINE, LazyFs, LazyFsError};
 pub use locales::{LocaleTableError, TimeZoneCase, locales, time_zones};
+pub use media_samples::{
+    CODECS_HOST, CodecSample, FONTS_HOST, FontAvailability, FontSample, FontSamples, MediaKind,
+    SamplesError,
+};
 pub use model_trace::model_trace;
+pub use net_log::{NetLog, NetLogError, NetLogSocket, SocketTransport};
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -210,6 +230,7 @@ pub use no_exec::NoExec;
 pub use observation::{
     Epoch, Fault, LOG_FILE, ObservationLog, Operation, REDACTED, Record, Redacted, ValueDigest,
 };
+pub use older_engine::older_engine;
 pub use player::{
     ATTACHED_ENVIRONMENT, ATTACHED_RECORD, ATTACHED_SCRIPT, Ending, PlayError, play, play_relinking,
 };
@@ -234,6 +255,10 @@ pub use proving_ground_format::{
 pub use proxy_in_front::proxy_in_front;
 pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
 pub use raw_calls::raw_call_lines;
+pub use recordings::{
+    ExchangeName, ModelRecording, Payload, RecordedExchange, RecordedRequest, RecordedResponse,
+    Recordings, RecordingsError, ServedExchanges, Unfinished, UnmatchedRequest,
+};
 pub use resident::{peak_resident_bytes, private_resident_bytes_of};
 pub use resolver::{Lookup, LookupFailure, ResolverHandle, ScriptedResolver};
 pub use runtime::{
@@ -286,9 +311,14 @@ pub use user_namespaces::{
 #[cfg(target_os = "linux")]
 pub use valkey::Valkey;
 pub use variables::{
-    CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE,
-    ENGINE_VARIABLE, FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, MAX_SEED,
-    NO_GUI_SESSION_VARIABLE, RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE,
-    SUITE_VARIABLE, SeedError, Suite, SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE,
-    Variables, case_logs, current_test,
+    CALLGRIND_AT_ONCE_VARIABLE, CASE_LOGS_VARIABLE, CHROME_FOR_TESTING_DOWNLOADS_VARIABLE,
+    CLAUDE_CODE_DOWNLOADS_VARIABLE, CallgrindAtOnceError, DNS_NAMESPACE_VARIABLE, ENGINE_VARIABLE,
+    FAULT_PLAN_VARIABLE, LAZYFS_FOLDER_VARIABLE, LAZYFS_VARIABLE, LIGHTPANDA_DOWNLOADS_VARIABLE,
+    MAX_SEED, MODEL_TRACES_VARIABLE, NO_GUI_SESSION_VARIABLE, OLDER_ENGINE_VARIABLE,
+    RECORDS_VARIABLE, RESULT_DOCUMENTS_VARIABLE, SEED_VARIABLE, SUITE_VARIABLE, SeedError, Suite,
+    SuiteError, TOOLS_VARIABLE, TOXIPROXY_DOWNLOADS_VARIABLE, Variables, case_logs, current_test,
+    model_traces,
+};
+pub use webhook_signatures::{
+    SignedVector, VerificationCase, VerificationOutcome, WebhookSignatures, webhook_signatures,
 };

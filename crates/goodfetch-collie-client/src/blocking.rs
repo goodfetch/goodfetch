@@ -23,8 +23,12 @@ use crate::answer::Answer;
 use crate::error::Error;
 use crate::field_values::FieldValues;
 use crate::run_view::RunView;
-pub use twins::{Locator, Page, Run, Session, WebSocket};
+pub use key_value_store::KeyValueStore;
+pub use schedules::{CreatedSchedule, Schedules};
+pub use twins::{Locator, Page, Run, Schedule, Session, WebSocket};
 
+mod key_value_store;
+mod schedules;
 /// The blocking twins of the handles, which `xtask codegen` writes.
 #[path = "generated/blocking.rs"]
 mod twins;
@@ -290,6 +294,10 @@ pub trait Connection {
     ///
     /// As [`crate::Connection::open_run`].
     fn open_run(&self, run_id: &RunId) -> Result<RunView, Error>;
+
+    /// The Connection's Schedules, as [`crate::Connection::schedules`]'s,
+    /// reached without I/O.
+    fn schedules(&self) -> Schedules;
 
     /// The raw call of `operation`, as [`crate::Connection::call`]'s,
     /// which `send()` sends.

@@ -22,6 +22,8 @@
 //! `goodfetch-engine`, from IANA's special-purpose registries committed
 //! beside it with their date (ADR 0067), and the label values of
 //! `goodfetch.counted_work`, from `goodfetch-counted-work`'s rows (ADR 0140).
+//! It writes the Release suite's skew jobs, as `xtask compat jobs` does
+//! (ADR 0066).
 //!
 //! `--check` regenerates in memory what `xtask codegen` writes itself and
 //! fails on any difference. It runs neither outside generator: the output of
@@ -74,6 +76,8 @@ use crate::check::Finding;
 use crate::compat;
 use crate::environment::Environment;
 use crate::features;
+use crate::product_version;
+use crate::tree::{self, PLUGIN_MANIFEST_SCHEMA, PLUGIN_PROTOCOL_SCHEMA, PROTOCOL_GENERATED};
 use emit::JOURNEY_FILES;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
@@ -87,15 +91,19 @@ pub(crate) use naming::{camel, pascal, rust_snake, rust_type, snake};
 pub(crate) const EXPERIMENTAL: &str =
     "Experimental: outside semver until it is promoted (ADR 0030).";
 
-/// Where `goodfetch-protocol`'s committed outputs live.
-const PROTOCOL_GENERATED: &str = "crates/goodfetch-protocol/generated";
-
 /// The digests of each outside generator's input and output, written with them.
 const DIGESTS: &str = "crates/goodfetch-protocol/generated/digests.json";
 
 /// The schema of every Journey file, written on its own from the bundle's
 /// `files` (ADR 0063).
 const JOURNEY_SCHEMA: &str = "journeys/journey.schema.json";
+
+/// Each schema written on its own, and where the bundle holds it.
+const STANDALONE_SCHEMAS: [(&str, &[&str]); 3] = [
+    (JOURNEY_SCHEMA, &["files", JOURNEY_FILES]),
+    (PLUGIN_PROTOCOL_SCHEMA, &["plugin"]),
+    (PLUGIN_MANIFEST_SCHEMA, &["plugin", "manifest"]),
+];
 
 /// The cargo-deny configuration that holds the `wrappers` list and the
 /// licenses.
@@ -380,7 +388,7 @@ impl Plan {
 /// Everything `xtask codegen` writes at `root`, with the executables' files
 /// `executables` gives.
 fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<Plan> {
-    let version = product_version(root)?;
+    let version = product_version::read(root)?;
     let emitted = emitter::emit(cargo, root)?;
     let bundle: Value =
         serde_json::from_slice(&emitted.bundle).context("reading the emitted bundle")?;
@@ -389,11 +397,8 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     settle_daemon_address(&mut catalog, &version)?;
 
     let mut files = compat::refusals::files(&emitted.bundle)?;
-    files.insert(format!("{PROTOCOL_GENERATED}/bundle.json"), emitted.bundle);
-    files.insert(
-        format!("{PROTOCOL_GENERATED}/catalog.json"),
-        json_text(&catalog)?,
-    );
+    files.insert(tree::BUNDLE.to_owned(), emitted.bundle);
+    files.insert(tree::CATALOG.to_owned(), json_text(&catalog)?);
 
     let collie = projection::project(&catalog, &bundle, Product::Collie)?;
     let foxhound = projection::project(&catalog, &bundle, Product::Foxhound)?;
@@ -431,10 +436,9 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     for (path, schema) in features::schemas() {
         files.insert(path.to_owned(), json_text(&schema)?);
     }
-    files.insert(
-        JOURNEY_SCHEMA.to_owned(),
-        json_text(&standalone(&bundle, JOURNEY_FILES)?)?,
-    );
+    for (path, at) in STANDALONE_SCHEMAS {
+        files.insert(path.to_owned(), json_text(&standalone(&bundle, at)?)?);
+    }
 
     files.extend(deny_files(root)?);
 
@@ -481,6 +485,11 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         deprecated_settings::generate(&catalog, &python_fields)?.into_bytes(),
     );
     helpers::add(&bundle, &mut files, &mut externals)?;
+    // The Release suite's skew jobs (ADR 0066).
+    files.insert(
+        compat::jobs::JOBS.to_owned(),
+        compat::jobs::jobs(root, &version)?.text()?,
+    );
     Ok(Plan { files, externals })
 }
 
@@ -504,35 +513,25 @@ fn rust_files(
     Ok(files)
 }
 
-/// The schema the bundle's `files` gives `key`, on its own: the bundle's
-/// draft, with the types it reaches under its own `$defs`.
-fn standalone(bundle: &Value, key: &str) -> Result<Value> {
-    let root = bundle
-        .get("files")
-        .and_then(|files| files.get(key))
+/// The bundle's value at `path`, such as the schema its `files` gives a
+/// file, on its own: the bundle's draft, with the types it reaches under its
+/// own `$defs`.
+fn standalone(bundle: &Value, path: &[&str]) -> Result<Value> {
+    let root = path
+        .iter()
+        .try_fold(bundle, |value, key| value.get(key))
         .and_then(Value::as_object)
-        .with_context(|| format!("the bundle's `files` maps no `{key}`"))?;
+        .with_context(|| format!("the bundle holds no object at `{}`", path.join(".")))?;
     let definitions = bundle
         .get("$defs")
         .and_then(Value::as_object)
         .context("the bundle has no `$defs`")?;
-    let reached = projection::reached(&Value::Object(root.clone()), definitions)?;
     let mut schema = Map::new();
     if let Some(draft) = bundle.get("$schema") {
         schema.insert("$schema".to_owned(), draft.clone());
     }
     schema.extend(root.clone());
-    schema.insert(
-        "$defs".to_owned(),
-        Value::Object(
-            definitions
-                .iter()
-                .filter(|(name, _)| reached.contains(name.as_str()))
-                .map(|(name, definition)| (name.clone(), definition.clone()))
-                .collect(),
-        ),
-    );
-    Ok(Value::Object(schema))
+    compat::standalone(Value::Object(schema), definitions)
 }
 
 /// The workspace's and Collie's `cargo deny` configurations, each rendered
@@ -820,25 +819,6 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<Exi
     Ok(ExitCode::SUCCESS)
 }
 
-/// The Product version the released crates carry, as Collie's executable
-/// crate states it: the root manifest's `[workspace.package] version` while
-/// it takes the workspace's, its own once `xtask release prepare` set it,
-/// the internal crates keeping the workspace's `0.0.x` (ADR 0030).
-fn product_version(root: &Path) -> Result<String> {
-    let path = root.join(crate::products::COLLIE.folder).join("Cargo.toml");
-    let manifest: toml::Table = toml::from_str(
-        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
-    )
-    .with_context(|| format!("reading {}", path.display()))?;
-    match manifest
-        .get("package")
-        .and_then(|package| package.get("version"))
-    {
-        Some(toml::Value::String(version)) => Ok(version.clone()),
-        _ => workspace_package(root, "version"),
-    }
-}
-
 /// Gives `catalog`'s `daemon.address` the default of the Product version
 /// `version`, where its release listens, in place of the one
 /// `goodfetch-protocol` emitted from its own `0.0.x` (ADR 0030); none in a
@@ -857,57 +837,13 @@ fn settle_daemon_address(catalog: &mut Value, version: &str) -> Result<()> {
     Ok(())
 }
 
-/// The root manifest's `[workspace.package]` string `key`, which every
-/// crate takes.
-fn workspace_package(root: &Path, key: &str) -> Result<String> {
-    let path = root.join("Cargo.toml");
-    let manifest: toml::Table = toml::from_str(
-        &std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?,
-    )
-    .with_context(|| format!("reading {}", path.display()))?;
-    manifest
-        .get("workspace")
-        .and_then(|workspace| workspace.get("package"))
-        .and_then(|package| package.get(key))
-        .and_then(toml::Value::as_str)
-        .map(str::to_owned)
-        .with_context(|| format!("{} has no `[workspace.package] {key}`", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
-    use goodfetch_test_support::TestEnv;
     use rstest::rstest;
 
     use serde_json::json;
 
-    use super::{product_version, settle_daemon_address};
-    use crate::products;
-
-    /// Both SDKs' `PRODUCT_VERSION` is the released crates' version: the
-    /// workspace's `0.0.x` until `xtask release prepare` sets theirs, and
-    /// the new version after, though the workspace's stays (issue 2876).
-    #[rstest]
-    #[case::before_a_release("version.workspace = true", "0.0.0")]
-    #[case::after_its_preparation("version = \"1.4.0-rc.2\"", "1.4.0-rc.2")]
-    fn the_product_version_is_the_released_crates(#[case] version: &str, #[case] expected: &str) {
-        let env = TestEnv::new();
-        let root = env.folder();
-        std::fs::write(
-            root.join("Cargo.toml"),
-            "[workspace]\n\n[workspace.package]\nversion = \"0.0.0\"\n",
-        )
-        .unwrap();
-        let collie = root.join(products::COLLIE.folder);
-        std::fs::create_dir_all(&collie).unwrap();
-        std::fs::write(
-            collie.join("Cargo.toml"),
-            format!("[package]\nname = \"goodfetch-collie\"\n{version}\n"),
-        )
-        .unwrap();
-
-        assert_eq!(product_version(root).unwrap(), expected);
-    }
+    use super::settle_daemon_address;
 
     /// The catalog lists `daemon.address`'s default for the released
     /// crates' Product version, which the executable listens on, and not

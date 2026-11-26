@@ -236,10 +236,11 @@ pub(crate) fn identified() -> Map<String, Value> {
 const READS: usize = 2;
 
 /// The rows C2's reads count, read over the reads alone.
-pub(crate) const READ_ROWS: [Row; 3] = [
+pub(crate) const READ_ROWS: [Row; 4] = [
     Row::PageReadCommands,
     Row::PageReadWorldCreations,
     Row::PageReadDocumentWorlds,
+    Row::PageReadOwnerRoundTrips,
 ];
 
 /// The rows a page's serialization for its formats counts, read over those
@@ -261,12 +262,13 @@ const READ_FIELDS: &str = include_str!("../src/fields/read.js");
 /// The rows C3's actions count, read over the actions alone: each of the
 /// program's reads is a wait, whose checks count on these rows too, and are
 /// C2's outcome, not an action's.
-const ACTION_ROWS: [Row; 5] = [
+const ACTION_ROWS: [Row; 6] = [
     Row::ActionScriptSends,
     Row::ActionCheckCommands,
     Row::ActionClickCommands,
     Row::ActionFillCommands,
     Row::ActionPressCommands,
+    Row::ActionOwnerRoundTrips,
 ];
 
 /// The range the pages' address is in, which the Run lists in
@@ -297,6 +299,8 @@ const ACTIONS: [(&str, &str); 3] = [
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
     pub(crate) commands: u64,
+    /// The events the browser sent, on any session.
+    pub(crate) events: u64,
     /// The navigations the browser was asked for, each once.
     pub(crate) navigations: u64,
     /// The guard's checks the browser was asked for outside the program's
@@ -422,14 +426,14 @@ impl Reading {
 /// The browser's one page: its frame's document, by its loader, and each
 /// isolated world it made, by its context, with the document it was made in.
 #[derive(Default)]
-struct Page {
+pub(crate) struct Page {
     loader: String,
     worlds: BTreeMap<u64, (String, String)>,
 }
 
 impl Page {
     /// A page just opened, on its blank document.
-    fn blank() -> Self {
+    pub(crate) fn blank() -> Self {
         Self {
             loader: "loader".to_owned(),
             ..Self::default()
@@ -466,6 +470,8 @@ const WAITED: [&str; 4] = ["attached", "detached", "visible", "hidden"];
 #[derive(Default)]
 struct Units {
     commands: AtomicU64,
+    /// The events the browser sent, on any session.
+    events: AtomicU64,
     requests: AtomicU64,
     paused: AtomicU64,
     refused: AtomicU64,
@@ -653,7 +659,11 @@ impl BlockClassifier for ReadsMarkers {
 
 /// The `result` of `method` as the browser answers it on `page`, and the
 /// events it sends right after.
-fn answered(method: &str, params: &Value, page: &mut Page) -> Result<(Value, Vec<Value>), Value> {
+pub(crate) fn answered(
+    method: &str,
+    params: &Value,
+    page: &mut Page,
+) -> Result<(Value, Vec<Value>), Value> {
     Ok(match method {
         "Browser.getVersion" => (
             json!({
@@ -984,7 +994,7 @@ struct Heard {
 
 /// How the browser hears the engine: a Borrowed browser's WebSocket, or a
 /// launched one's debugging pipe, each message JSON followed by a NUL byte.
-enum Wire {
+pub(crate) enum Wire {
     Socket(Box<WebSocketStream<TcpStream>>),
     Pipe {
         reader: BufReader<ReadHalf<DuplexStream>>,
@@ -994,7 +1004,7 @@ enum Wire {
 
 impl Wire {
     /// The browser's end of a launched browser's pipe.
-    fn pipe(pipe: DuplexStream) -> Self {
+    pub(crate) fn pipe(pipe: DuplexStream) -> Self {
         let (reader, writer) = tokio::io::split(pipe);
         Self::Pipe {
             reader: BufReader::new(reader),
@@ -1003,7 +1013,7 @@ impl Wire {
     }
 
     /// The engine's next message; `None` once it closed its end.
-    async fn next(&mut self) -> Option<String> {
+    pub(crate) async fn next(&mut self) -> Option<String> {
         match self {
             Self::Socket(socket) => loop {
                 match socket.next().await? {
@@ -1022,7 +1032,7 @@ impl Wire {
     }
 
     /// Sends `message`: whether the engine still reads.
-    async fn send(&mut self, message: String) -> bool {
+    pub(crate) async fn send(&mut self, message: String) -> bool {
         match self {
             Self::Socket(socket) => socket.send(Message::text(message)).await.is_ok(),
             Self::Pipe { writer, .. } => {
@@ -1208,6 +1218,10 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
                 }
             }
         }
+        counts.units.events.fetch_add(
+            u64::try_from(events.len()).expect("invariant: a command leads to few events"),
+            Ordering::Relaxed,
+        );
         let mut messages = vec![answer];
         messages.extend(events);
         for message in messages {
@@ -1221,27 +1235,52 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
     }
 }
 
-/// The engine's answer to one request of the program.
-struct Client {
+/// The Client of the program's Connection to the engine.
+pub(crate) struct Client {
     lines: tokio::io::Lines<BufReader<transport::ConnectionReader>>,
     writer: transport::ConnectionWriter,
     next_id: u64,
 }
 
 impl Client {
+    /// A Client on a Connection of its own to the engine `dialer` reaches.
+    pub(crate) async fn connected(dialer: &transport::InMemoryDialer) -> Self {
+        let (reader, writer) = dialer
+            .connect()
+            .await
+            .expect("invariant: the engine listens")
+            .split();
+        Self {
+            lines: BufReader::new(reader).lines(),
+            writer,
+            next_id: 0,
+        }
+    }
+
+    /// Opens the Connection and starts the Run [`RUN`] with `settings`.
+    pub(crate) async fn start_run(&mut self, settings: Map<String, Value>) {
+        self.call(
+            "hello",
+            &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
+        )
+        .await;
+        self.call("run.start", &json!({ "run_id": RUN, "settings": settings }))
+            .await;
+    }
+
     /// Calls `method`, failing the scenario on an error: a benchmark whose
     /// work did not happen proves nothing.
-    async fn call(&mut self, method: &str, params: &Value) -> Value {
-        self.next_id += 1;
-        let id = self.next_id;
-        let mut line = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })
-            .to_string()
-            .into_bytes();
-        line.push(b'\n');
-        self.writer
-            .write_all(&line)
-            .await
-            .expect("invariant: the engine reads its Connection");
+    pub(crate) async fn call(&mut self, method: &str, params: &Value) -> Value {
+        let id = self.start(method, params).await;
+        let message = self.answer(id).await;
+        message
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| panic!("`{method}` failed: {message}"))
+    }
+
+    /// The engine's answer, a result or an error, to the request `id`.
+    pub(crate) async fn answer(&mut self, id: u64) -> Value {
         loop {
             let line = self
                 .lines
@@ -1252,13 +1291,46 @@ impl Client {
             let message: Value =
                 serde_json::from_str(&line).expect("invariant: the engine writes JSON");
             if message["id"] == json!(id) && message.get("method").is_none() {
-                return message
-                    .get("result")
-                    .cloned()
-                    .unwrap_or_else(|| panic!("`{method}` failed: {message}"));
+                return message;
             }
         }
     }
+
+    /// Sends `method` without waiting for its answer, which a subscription
+    /// such as `page.on` gives once its page closes; answers its ID.
+    pub(crate) async fn start(&mut self, method: &str, params: &Value) -> u64 {
+        self.next_id += 1;
+        let id = self.next_id;
+        self.write(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
+            .await;
+        id
+    }
+
+    /// Writes `message`, a request or a notification, to the engine.
+    pub(crate) async fn write(&mut self, message: &Value) {
+        let mut line = message.to_string().into_bytes();
+        line.push(b'\n');
+        self.writer
+            .write_all(&line)
+            .await
+            .expect("invariant: the engine reads its Connection");
+    }
+
+    /// Closes its end and waits for the engine to close its own.
+    pub(crate) async fn close(&mut self) {
+        self.writer.shutdown().await.expect("invariant: in memory");
+        while let Ok(Some(_)) = self.lines.next_line().await {}
+    }
+}
+
+/// What the program arms on a Borrowed browser's page before it navigates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Armed {
+    /// Nothing.
+    Nothing,
+    /// A Route whose URLs no request has, and a `page.on` listener of the
+    /// page's requests: two more parts of the Page that read its events.
+    RouteAndListener,
 }
 
 /// What the program hands the viewer once its Session's page opened: the
@@ -1390,12 +1462,13 @@ async fn daemon(engine: &Engine, listener: DaemonListener, dependencies: Depende
 /// the browser pool, opens a page at each and closes it after. On each
 /// document, it does [`on_page`]'s work. Answers once the browser heard all
 /// of it, with the actions the engine answered, by kind, and the Sessions it
-/// opened. On a Borrowed browser, it hands its Session to `watch`, when
-/// given, once its page opened, and goes on once the viewer got its first
-/// frame and that frame's work ended.
+/// opened. On a Borrowed browser, `armed` is armed on the page once it
+/// opens, and it hands its Session to `watch`, when given, once its page
+/// opened, and goes on once the viewer got its first frame and that
+/// frame's work ended.
 async fn program(
     client: &mut Client,
-    (browsers, cdp_url, settings): (Browsers, &str, Map<String, Value>),
+    (browsers, armed, cdp_url, settings): (Browsers, Armed, &str, Map<String, Value>),
     (heard, work): (&Heard, &CountedWork),
     (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
     watch: Option<oneshot::Sender<Watch>>,
@@ -1451,6 +1524,24 @@ async fn program(
             &json!({ "session_id": session["session_id"] }),
         )
         .await;
+    if armed == Armed::RouteAndListener {
+        // Each is armed before the Client's next call on the page acts.
+        client
+            .start(
+                "page.route",
+                &json!({
+                    "page_id": opened["page_id"],
+                    "url": { "kind": "glob", "pattern": "http://unrouted.invalid/**" },
+                }),
+            )
+            .await;
+        client
+            .start(
+                "page.on",
+                &json!({ "page_id": opened["page_id"], "event": "request" }),
+            )
+            .await;
+    }
     if let Some(watch) = watch {
         quiet(&heard.units, work).await;
         let (first, came) = oneshot::channel();
@@ -1635,7 +1726,8 @@ async fn quiet(units: &Units, work: &CountedWork) {
 
 /// The program's way to a page of the Run's browser pool, as Foxhound's
 /// crawl opens one for a handler: `{ run_id, url }`, answered with the page's
-/// `page_id`, which the program then drives as its own.
+/// `page_id`, which the program then drives as its own. Its Session is the
+/// one the pool names `pooled` when the call gives one, else [`POOLED`].
 const OPEN_POOL_PAGE: Operation = Operation {
     name: "test.open_pool_page",
     description: "Opens a page of the Run's browser pool through BrowserPages, navigated to a URL.",
@@ -1660,10 +1752,30 @@ const CLOSE_POOL_PAGE: Operation = Operation {
     ..OPEN_POOL_PAGE
 };
 
-/// The pool's one Session, a fresh one, as the crawl's Session pool names it.
-fn pooled() -> PooledSession {
+/// Retires a Session of the pool, `{ run_id, pooled }`, as the crawl's
+/// Session pool retires one, and answers the runtime's alive tasks once the
+/// retirement returned, before anything else runs: `{ alive }`.
+const RETIRE_POOL_SESSION: Operation = Operation {
+    name: "test.retire_pool_session",
+    description: "Retires a Session of the Run's browser pool and answers the alive tasks after.",
+    ..OPEN_POOL_PAGE
+};
+
+/// The runtime's alive tasks: `{ alive }`.
+const ALIVE_TASKS: Operation = Operation {
+    name: "test.alive_tasks",
+    description: "Answers the runtime's alive tasks.",
+    ..OPEN_POOL_PAGE
+};
+
+/// The name of the pool's Session a program opens its pages in.
+const POOLED: &str = "pooled";
+
+/// The pool's Session `name`, a fresh one, as the crawl's Session pool
+/// names it.
+fn pooled(name: &str) -> PooledSession {
     PooledSession {
-        id: SessionId("pooled".to_owned()),
+        id: SessionId(name.to_owned()),
         source: Some(None),
         address_ordinal: None,
         place: HeldPlace::default(),
@@ -1698,7 +1810,7 @@ impl HandlerPages for PoolPages {
 
 /// The program's operations on the browser pool's pages.
 fn pool_pages(pages: &PoolPages) -> Contribution {
-    let (opening, closing) = (pages.clone(), pages.clone());
+    let (opening, closing, retiring) = (pages.clone(), pages.clone(), pages.clone());
     Contribution::new("test")
         .with_handler(Handler::new(
             &OPEN_POOL_PAGE,
@@ -1713,7 +1825,8 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                         method: "GET",
                         body: None,
                     };
-                    let (page_id, _) = pages.open(&run_id, &pooled(), own, &context).await?;
+                    let pooled = pooled(params["pooled"].as_str().unwrap_or(POOLED));
+                    let (page_id, _) = pages.open(&run_id, &pooled, own, &context).await?;
                     Ok::<_, CallError>(json!({ "page_id": page_id }))
                 }
             },
@@ -1729,12 +1842,38 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                 }
             },
         ))
+        .with_handler(Handler::new(
+            &RETIRE_POOL_SESSION,
+            move |params: Value, context: CallContext| {
+                let pages = retiring.pages();
+                async move {
+                    let run_id = RunId::parse(params["run_id"].as_str().unwrap_or_default())
+                        .expect("invariant: the program names its Run");
+                    let pooled = SessionId(params["pooled"].as_str().unwrap_or(POOLED).to_owned());
+                    pages.retire(&run_id, &pooled, &context).await?;
+                    Ok::<_, CallError>(json!({ "alive": alive_tasks() }))
+                }
+            },
+        ))
+        .with_handler(Handler::new(
+            &ALIVE_TASKS,
+            move |_params: Value, _context: CallContext| async move {
+                Ok::<_, CallError>(json!({ "alive": alive_tasks() }))
+            },
+        ))
+}
+
+/// The tasks alive on the runtime the engine runs on.
+fn alive_tasks() -> usize {
+    tokio::runtime::Handle::current()
+        .metrics()
+        .num_alive_tasks()
 }
 
 /// The Collie engine the scenario drives, counting on `metrics`, its pages
 /// judged by [`ReadsMarkers`], its Runs' browsers started by `launcher`, and
 /// the program's operations on the pool's pages beside its own.
-fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
+pub(crate) fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
     let identity = Identity {
         product: Product::Collie,
         product_version: ProductVersion::parse("0.0.0").expect("invariant: a literal version"),
@@ -1777,13 +1916,14 @@ async fn devtools_listener() -> (TcpListener, String) {
     )
 }
 
-/// Runs the scenario on `browsers`, watched by `viewer`, in the home `home`,
-/// with `settings` on its Run, doing `plant` once per command the browser
-/// reads, and answers what it counted.
+/// Runs the scenario on `browsers`, with `armed` on a Borrowed browser's
+/// page, watched by `viewer`, in the home `home`, with `settings` on its
+/// Run, doing `plant` once per command the browser reads, and answers what
+/// it counted.
 ///
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
 pub(crate) fn counted(
-    (browsers, viewer): (Browsers, Viewer),
+    (browsers, armed, viewer): (Browsers, Armed, Viewer),
     home: &Path,
     metrics: Metrics,
     mut settings: Map<String, Value>,
@@ -1814,20 +1954,11 @@ pub(crate) fn counted(
         let watch = (viewer == Viewer::On).then_some(watch);
         let (leave, left) = oneshot::channel();
         let client = async {
-            let (reader, writer) = dialer
-                .connect()
-                .await
-                .expect("invariant: the engine listens")
-                .split();
-            let mut client = Client {
-                lines: BufReader::new(reader).lines(),
-                writer,
-                next_id: 0,
-            };
+            let mut client = Client::connected(&dialer).await;
             let driven = async {
                 let programmed = program(
                     &mut client,
-                    (browsers, &cdp_url, settings),
+                    (browsers, armed, &cdp_url, settings),
                     (&heard, &work),
                     (&mut during_reads, &mut by_fields),
                     watch,
@@ -1841,12 +1972,7 @@ pub(crate) fn counted(
             let (programmed, frames) = tokio::join!(driven, watching);
             // The screencast stops once its viewer left.
             quiet(&heard.units, &work).await;
-            client
-                .writer
-                .shutdown()
-                .await
-                .expect("invariant: in memory");
-            while let Ok(Some(_)) = client.lines.next_line().await {}
+            client.close().await;
             (programmed, frames)
         };
         let dependencies = dependencies(home);
@@ -1863,6 +1989,7 @@ pub(crate) fn counted(
     let [commands, requests, paused, refused] = heard.units.reading();
     Counted {
         commands,
+        events: heard.units.events.load(Ordering::Relaxed),
         navigations: heard.navigations.load(Ordering::Relaxed),
         checks: heard.checks.load(Ordering::Relaxed),
         attempts,
@@ -1892,6 +2019,136 @@ pub(crate) fn counted(
     }
 }
 
+/// The tasks alive on the engine's runtime around a browser's recycle, in
+/// the browser pool, whose browsers each open one page: once a page of the
+/// pool's Session opened (which launches the first browser) and the browser
+/// went quiet, and once that page closed, a second page of the Session
+/// opened (which recycles the first browser and launches the second) and
+/// both browsers went quiet. A recycled browser stops and waits for every
+/// task it started, so the two are equal.
+#[cfg(test)]
+pub(crate) fn alive_around_a_recycle(home: &Path, metrics: Metrics) -> (u64, u64) {
+    let settings = Map::from_iter([
+        (
+            "egress".to_owned(),
+            json!({ "private_ranges": [PAGES_RANGE] }),
+        ),
+        (
+            "governor".to_owned(),
+            json!({ "browser": { "recycle_pages": 1 } }),
+        ),
+    ]);
+    let work = metrics.counted_work().clone();
+    let (launcher, started) = Launcher::scripted(Some(std::process::id()));
+    let engine = engine(metrics, launcher);
+    let heard = Heard::default();
+    let runtime = goodfetch_runtime::current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the runtime starts");
+    runtime.block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let served = launched_ends(started, heard.clone(), None);
+        let client = async {
+            let mut client = Client::connected(&dialer).await;
+            client.start_run(settings).await;
+            let open = |url: &str| json!({ "run_id": RUN, "url": url });
+            let alive = |answer: Value| {
+                answer["alive"]
+                    .as_u64()
+                    .expect("invariant: the program's operations answer a count")
+            };
+            let first = client.call(OPEN_POOL_PAGE.name, &open(PAGES[0])).await;
+            quiet(&heard.units, &work).await;
+            let before = alive(client.call(ALIVE_TASKS.name, &json!({})).await);
+            client
+                .call(
+                    CLOSE_POOL_PAGE.name,
+                    &json!({ "page_id": first["page_id"] }),
+                )
+                .await;
+            client.call(OPEN_POOL_PAGE.name, &open(PAGES[1])).await;
+            quiet(&heard.units, &work).await;
+            let after = alive(client.call(ALIVE_TASKS.name, &json!({})).await);
+            client.close().await;
+            (before, after)
+        };
+        let dependencies = dependencies(home);
+        let ran = async {
+            tokio::join!(
+                engine.run_attached(Network::InMemory(network), dependencies),
+                client,
+            )
+        };
+        tokio::pin!(ran);
+        let (engine_ended, alive) = tokio::select! {
+            ran = &mut ran => ran,
+            () = served => ran.await,
+        };
+        engine_ended.expect("invariant: the engine got its Connection");
+        alive
+    })
+}
+
+/// The tasks alive on the engine's runtime around a Session's end, in the
+/// browser pool: once a page of the pool's Session `kept` opened (which
+/// launches the browser) and the browser went quiet, and right after a page
+/// of a second Session opened, the browser went quiet again and that Session
+/// retired. A Session's end stops and waits for every task it and its pages
+/// started, so the two are equal.
+#[cfg(test)]
+pub(crate) fn alive_around_a_retirement(home: &Path, metrics: Metrics) -> (u64, u64) {
+    let settings = Map::from_iter([(
+        "egress".to_owned(),
+        json!({ "private_ranges": [PAGES_RANGE] }),
+    )]);
+    let work = metrics.counted_work().clone();
+    let (launcher, started) = Launcher::scripted(Some(std::process::id()));
+    let engine = engine(metrics, launcher);
+    let heard = Heard::default();
+    let runtime = goodfetch_runtime::current_thread()
+        .enable_all()
+        .build()
+        .expect("invariant: the runtime starts");
+    runtime.block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let served = launched_ends(started, heard.clone(), None);
+        let client = async {
+            let mut client = Client::connected(&dialer).await;
+            client.start_run(settings).await;
+            let open = |pooled: &str| json!({ "run_id": RUN, "url": PAGES[0], "pooled": pooled });
+            let alive = |answer: Value| {
+                answer["alive"]
+                    .as_u64()
+                    .expect("invariant: the program's operations answer a count")
+            };
+            client.call(OPEN_POOL_PAGE.name, &open("kept")).await;
+            quiet(&heard.units, &work).await;
+            let before = alive(client.call(ALIVE_TASKS.name, &json!({})).await);
+            client.call(OPEN_POOL_PAGE.name, &open("retired")).await;
+            quiet(&heard.units, &work).await;
+            let retired = json!({ "run_id": RUN, "pooled": "retired" });
+            let after = alive(client.call(RETIRE_POOL_SESSION.name, &retired).await);
+            client.close().await;
+            (before, after)
+        };
+        let dependencies = dependencies(home);
+        let ran = async {
+            tokio::join!(
+                engine.run_attached(Network::InMemory(network), dependencies),
+                client,
+            )
+        };
+        tokio::pin!(ran);
+        let (engine_ended, alive) = tokio::select! {
+            ran = &mut ran => ran,
+            () = served => ran.await,
+        };
+        engine_ended.expect("invariant: the engine got its Connection");
+        alive
+    })
+}
+
 /// What the engine runs on: its home in `home`, an environment map holding
 /// [`SIGNING_KEY`], the system's clock, seeded entropy and every blocking
 /// task inline.
@@ -1899,7 +2156,7 @@ pub(crate) fn counted(
     clippy::disallowed_methods,
     reason = "a benchmark's engine draws seeded entropy, the Entropy's test version (ADR 0059)"
 )]
-fn dependencies(home: &Path) -> Dependencies {
+pub(crate) fn dependencies(home: &Path) -> Dependencies {
     Dependencies {
         environment: std::collections::BTreeMap::from([(SIGNING_KEY.into(), RFC_KEY.into())]),
         keychain: goodfetch_engine::secrets::Keychain::absent(),

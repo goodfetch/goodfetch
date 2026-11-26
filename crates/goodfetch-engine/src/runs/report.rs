@@ -5,8 +5,11 @@
 //! an area supplies through its composition value ([`ReportPart`]), and the
 //! Verdict `needs_review` when a part left an Effect uncertain, all in
 //! the transaction that writes its end, so that the report read back later
-//! is the one answered.
+//! is the one answered. A live Run's owners record its warnings and why it
+//! did nothing through [`ReportWarnings`], the value a function takes in
+//! place of the Run's handle (ADR 0145).
 
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -14,17 +17,19 @@ use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
+    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
     UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
-    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PROXY_BYTES, REQUESTS,
+    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME, PROXY_BYTES,
+    REQUESTS,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
 use super::CompletenessReason;
-use crate::mask::{Masks, Scope};
+use crate::mask::{Mask, Masks, Scope};
+use crate::run_state::{RunState, RunStateError, Syncing};
 
 /// The Usage kind of Paid fetches, which only Foxhound charges (ADR 0045),
 /// named here since every Run's report carries them (ADR 0101).
@@ -249,6 +254,7 @@ pub(super) fn usage(
             .prepare_cached("SELECT uncapped FROM run")
             .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?,
         proxy_bytes_by_kind: proxy_bytes_by_kind(connection)?,
+        plugins: plugins(connection)?,
         ..RunUsage::default()
     };
     let mut statement = connection.prepare_cached(
@@ -277,6 +283,8 @@ pub(super) fn usage(
             (REQUESTS, None) => usage.requests = amount,
             (PAID_SOLVES, currency) => usage.paid_solves.push(UsageAmount { currency, amount }),
             (PAID_FETCH, currency) => usage.paid_fetches.push(UsageAmount { currency, amount }),
+            // `plugins` holds them, by implementation.
+            (PLUGIN_CALLS | PLUGIN_TIME, None) => {}
             (_, currency) => usage.other.push(KindUsage {
                 usage_kind,
                 currency,
@@ -314,6 +322,42 @@ fn proxy_bytes_by_kind(connection: &Connection) -> rusqlite::Result<Vec<ProxyKin
         ))
     });
     Ok(kinds)
+}
+
+/// What the Run's calls into each implementation of a Plugin kind used, in
+/// name order: the parts of `plugin_calls` and `plugin_time`.
+fn plugins(connection: &Connection) -> rusqlite::Result<Vec<PluginUsage>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT part, usage_kind, amount FROM usage_parts WHERE usage_kind IN (?1, ?2) ORDER BY part",
+    )?;
+    let parts = statement.query_map([PLUGIN_CALLS, PLUGIN_TIME], |row| {
+        let amount: i64 = row.get(2)?;
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            u64::try_from(amount).unwrap_or(0),
+        ))
+    })?;
+    let mut plugins: Vec<PluginUsage> = Vec::new();
+    for part in parts {
+        let (plugin, usage_kind, amount) = part?;
+        if plugins.last().is_none_or(|last| last.plugin != plugin) {
+            plugins.push(PluginUsage {
+                plugin,
+                calls: 0,
+                time: 0,
+            });
+        }
+        let usage = plugins
+            .last_mut()
+            .expect("invariant: the implementation's entry is the last");
+        if usage_kind == PLUGIN_CALLS {
+            usage.calls = amount;
+        } else {
+            usage.time = amount;
+        }
+    }
+    Ok(plugins)
 }
 
 /// Adds `delta` to what the Run used of `part` of `usage_kind`.
@@ -378,12 +422,123 @@ pub(super) fn masked(report: RunReport, masks: &Masks) -> RunReport {
     })
 }
 
+/// A live Run's warnings for its report, and the record of why it did
+/// nothing (ADR 0102), each written to its run state: a value a function
+/// takes in place of the Run's handle (ADR 0145). Clones share it.
+#[derive(Clone, Debug)]
+pub struct ReportWarnings {
+    state: RunState,
+    /// The Run's mask, which every warning's message is masked by first.
+    mask: Mask,
+}
+
+impl ReportWarnings {
+    /// The warnings of the Run whose run state `state` writes, masked by
+    /// its `mask`.
+    pub(super) fn new(state: RunState, mask: Mask) -> Self {
+        Self { state, mask }
+    }
+
+    /// Hands `warning` over to the Run's report (ADR 0102): kept in its run
+    /// state, in the order handed over, so a resume keeps it. A code of the
+    /// warning table, or any other, is kept as it is.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write was queued still writes it.
+    pub async fn warn(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        let warning = self.masked(warning);
+        self.state
+            .write(move |connection| warn(connection, &warning))
+            .await
+    }
+
+    /// `warning` with every value a Run resolved masked, as what the engine
+    /// keeps.
+    fn masked(&self, mut warning: RunWarning) -> RunWarning {
+        if let Cow::Owned(message) = self.mask.masks().apply(&warning.message, Scope::Kept) {
+            warning.message = message;
+        }
+        warning
+    }
+
+    /// Hands `warning` over to the Run's report unless it holds a warning
+    /// of the same code for the same folder, or with no folder, already,
+    /// such as one an earlier run epoch handed over before a resume.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future does not withdraw a write already queued: the
+    /// warning may still be handed over.
+    pub async fn warn_once(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.warn_once_with(Syncing::Required, warning).await
+    }
+
+    /// Hands `warning` over as [`ReportWarnings::warn_once`] does, in the
+    /// open batch, with no sync of its own: for a warning the Run hands
+    /// over again each time it opens, such as one its settings decide,
+    /// which a crash that loses it loses only until the resume (ADR 0142).
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`ReportWarnings::warn_once`]'s.
+    pub async fn warn_once_deferred(&self, warning: RunWarning) -> Result<(), RunStateError> {
+        self.warn_once_with(Syncing::Deferred { charged: 0 }, warning)
+            .await
+    }
+
+    async fn warn_once_with(
+        &self,
+        syncing: Syncing,
+        warning: RunWarning,
+    ) -> Result<(), RunStateError> {
+        let warning = self.masked(warning);
+        self.state
+            .write_with(syncing, move |connection| {
+                if warned(connection, &warning.code, warning.folder.as_deref())? {
+                    return Ok(());
+                }
+                warn(connection, &warning)
+            })
+            .await
+    }
+
+    /// Records why the Run did nothing (ADR 0102), as its driver found it:
+    /// no seed reached a handler, or a resume found nothing left. Its
+    /// report says so.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write was queued still writes it.
+    pub async fn nothing_done(&self, nothing_done: NothingDone) -> Result<(), RunStateError> {
+        self.state
+            .write(move |connection| record_nothing_done(connection, &nothing_done))
+            .await
+    }
+}
+
 /// Records `warning` among the Run's warnings, in the order handed over.
 ///
 /// # Errors
 ///
 /// When its run state cannot be written.
-pub(super) fn warn(connection: &Connection, warning: &RunWarning) -> rusqlite::Result<()> {
+fn warn(connection: &Connection, warning: &RunWarning) -> rusqlite::Result<()> {
     let sessions =
         serde_json::to_string(&warning.sessions).expect("invariant: Session names encode");
     connection
@@ -398,11 +553,7 @@ pub(super) fn warn(connection: &Connection, warning: &RunWarning) -> rusqlite::R
 
 /// Whether the Run's report holds a warning of `code` for `folder`, or
 /// with no folder when `folder` is none.
-pub(super) fn warned(
-    connection: &Connection,
-    code: &str,
-    folder: Option<&str>,
-) -> rusqlite::Result<bool> {
+fn warned(connection: &Connection, code: &str, folder: Option<&str>) -> rusqlite::Result<bool> {
     connection
         .prepare_cached("SELECT EXISTS (SELECT 1 FROM warnings WHERE code = ?1 AND folder IS ?2)")
         .and_then(|mut cached| cached.query_row((code, folder), |row| row.get(0)))
@@ -430,7 +581,7 @@ fn warnings(connection: &Connection) -> rusqlite::Result<Vec<RunWarning>> {
 /// # Errors
 ///
 /// When its run state cannot be written.
-pub(super) fn record_nothing_done(
+fn record_nothing_done(
     connection: &Connection,
     nothing_done: &NothingDone,
 ) -> rusqlite::Result<()> {

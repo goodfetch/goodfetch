@@ -1,0 +1,11 @@
+{"expires_at":70000,"lease_epoch":1,"now":0,"run_epoch":1,"run_id":"model","transition":"grant","work_item":"1"}
+{"expires_at":75000,"lease_epoch":1,"now":0,"run_epoch":1,"run_id":"model","transition":"renew","work_item":"1"}
+{"expires_at":75000,"lease_epoch":1,"now":0,"run_epoch":1,"run_id":"model","transition":"commit","work_item":"1"}
+{"expires_at":70000,"lease_epoch":1,"now":0,"run_epoch":1,"run_id":"model","transition":"grant","work_item":"2"}
+{"expires_at":70000,"lease_epoch":1,"now":71000,"run_epoch":1,"run_id":"model","transition":"expire","work_item":"2"}
+{"expires_at":70000,"lease_epoch":1,"now":71000,"reason":"lease_lost","run_epoch":1,"run_id":"model","transition":"refuse_commit","work_item":"2"}
+{"expires_at":141000,"lease_epoch":2,"now":71000,"run_epoch":1,"run_id":"model","transition":"grant","work_item":"2"}
+{"expires_at":141000,"lease_epoch":2,"now":71000,"run_epoch":1,"run_id":"model","transition":"release","work_item":"2"}
+{"expires_at":141000,"lease_epoch":2,"now":71000,"reason":"lease_lost","run_epoch":1,"run_id":"model","transition":"refuse_commit","work_item":"2"}
+{"expires_at":141000,"lease_epoch":1,"now":71000,"run_epoch":1,"run_id":"model","transition":"grant","work_item":"3"}
+{"expires_at":141000,"lease_epoch":1,"now":71000,"run_epoch":1,"run_id":"model","transition":"commit","work_item":"3"}

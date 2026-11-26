@@ -72,6 +72,10 @@ goodfetch-conformance.workspace = true
 # The clean-up's removal, which B4's counts example runs once more per page
 # as the plant of its instructions (examples/counts-extraction.rs).
 goodfetch-clean-up-rules.workspace = true
+# The site the tests' and the corpus writers' fetch tiers serve from memory
+# (examples/support/site.rs, tests/it/code_free_resume.rs, tests/it/kept_tree.rs),
+# and the body the tier race's scripted transport sends (tests/it/tier_race/scripted.rs).
+goodfetch-memory-site.workspace = true
 # The robots.txt URLs the run state's corpus writer keeps copies of
 # (examples/compat-run-state.rs).
 url.workspace = true
@@ -128,6 +132,13 @@ goodfetch-page.workspace = true
 # tower Service (tests/it/sdk/crawl.rs).
 axum.workspace = true
 tower-service.workspace = true
+
+# `cargo binstall goodfetch-foxhound` installs the executable from its
+# archive on the GitHub Release of the same version (ADRs 0090 and 0094).
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+pkg-fmt = "txz"
+bin-dir = "{ bin }{ binary-ext }"
 
 [package.metadata.cargo-shear]
 # The dev-dependency on itself only turns its executable on for its tests.

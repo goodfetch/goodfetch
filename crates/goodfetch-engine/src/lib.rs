@@ -8,7 +8,7 @@
 //! an interface defined here, such as a Run's driver and the tables it keeps
 //! in run state.
 
-mod accounts;
+pub mod accounts;
 pub mod admission;
 pub mod age_notice;
 mod attached;
@@ -39,6 +39,7 @@ pub mod entropy;
 pub mod events;
 pub mod executables;
 mod forward;
+pub mod framing;
 pub mod governor;
 pub mod happy_eyeballs;
 pub mod heap;
@@ -48,6 +49,7 @@ pub mod hostile_input;
 pub mod http_client;
 mod info;
 pub mod installed;
+mod kept_by_the_daemon;
 pub mod key_value_store;
 pub mod known_certificates;
 pub mod lease;
@@ -63,9 +65,14 @@ mod needs_you_operations;
 pub mod ops;
 pub mod otlp;
 pub mod pinned_download;
+pub mod plugin_host;
+pub mod plugin_kinds;
+pub mod plugin_store;
 pub mod politeness;
 mod product;
+pub mod recipe;
 pub mod request_signing;
+pub mod response_cache;
 pub mod response_limits;
 pub mod retry_after;
 pub mod robots_txt;
@@ -74,6 +81,7 @@ pub mod rule_sources;
 pub mod run;
 pub mod run_files;
 pub mod run_files_operations;
+pub mod run_identity;
 mod run_index;
 pub mod run_key;
 pub mod run_state;
@@ -83,6 +91,8 @@ pub mod sandbox_probe;
 mod sdk_handlers;
 pub mod secret_endpoint;
 pub mod secrets;
+pub mod session_bundle;
+pub mod session_transfer;
 pub mod settings;
 mod settings_editor;
 mod signing_key_operations;
@@ -98,6 +108,8 @@ pub mod transition;
 pub mod transport;
 pub mod upgrade;
 mod usage;
+pub mod user_store;
+pub mod webhook_signing;
 mod wire;
 
 pub use call_error::{CallError, named};
@@ -106,7 +118,10 @@ pub use composition::{
     Driver, Enclose, Guard, GuardAnswer, Handler, Params, ReadParams, RunOfCall,
 };
 pub use engine::{AttachedFailure, Dependencies, Engine};
-pub use engine_context::EngineContext;
+pub use engine_context::{CALLER, EngineContext};
+pub use forward::DaemonReach;
 pub use info::contribution;
+pub use kept_by_the_daemon::kept_by_the_daemon;
 pub use product::{Channel, Identity, Requested};
+pub use run_index::RunIndex;
 pub use stored_time::StoredTime;

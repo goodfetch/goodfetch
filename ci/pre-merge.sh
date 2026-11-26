@@ -25,18 +25,21 @@
 # (ci/perf.sh); `just linux`, the tests only Linux decides
 # (ci/linux.sh), which on a Linux host run among the host's tests, after the
 # OS-service setup below; `just visual`, the visual projects in the pinned Playwright
-# image (ci/visual/container.sh); `just windows`, the workspace built for
-# Windows and its tests under Wine (ci/windows.sh, issue 2767). TLC, Miri
-# (issue 2090's F7) and loom (issue 2200) run beside them too, on the host:
-# each builds and writes in folders of its own (`target/tlc/`,
-# `target/miri/`, `target/loom/`; `target/windows/` for Windows), which
+# image (ci/visual/container.sh). TLC, Miri
+# (issue 2090's F7), loom (issue 2200) and the Simulation (issue 359) run
+# beside them too, on the host: each builds and writes in folders of its own
+# (`target/tlc/`, `target/miri/`, `target/loom/`, `target/simulation/`), which
 # no other step reads, and its verdict
 # follows from the tree and its pinned tools; what it shares with the host's
 # steps it only reads or waits for (ADR 0135's note of 2026-11-13). The
 # Kennel's check does not: it
 # builds the test tools into the folder the suites' own are in, so it runs
 # after them. The suite waits for each and fails when one
-# fails. The host's checks that take seconds and judge the whole change
+# fails. `just windows`, the workspace built for Windows and its tests under
+# Wine (ci/windows.sh, issue 2767), runs last, alone, once every other step
+# has ended and been recorded (the kind `after`): its tests start Proving
+# grounds within a 30 s deadline, which the other steps' load made dozens
+# miss (issue 3780). The host's checks that take seconds and judge the whole change
 # (sign-offs, commit messages, the floor guard, secrets in commits,
 # advisories, notices) run first, before the steps
 # beside, so their reds show in the gate's first minute; the other checks of
@@ -63,11 +66,12 @@
 # `all` and `quick` are incremental (ADR 0135): on a head that descends from
 # a head whose gate already ran, they reuse the green results of the steps,
 # and of the members' tests, that the change since then does not reach, and
-# rerun the rest; see the plan below. They also reuse the hosted-owned
-# units a hosted run of the pull-request workflow holds, whose records
-# `just merge` downloaded (GOODFETCH_GATE_HOSTED_RECORDS), and end red on
-# one such run's red unit on the head's tree (ADR 0135's amendment of
-# 2026-11-22). `GOODFETCH_GATE_FULL=1` reuses nothing.
+# rerun the rest; see the plan below. Given the records of the
+# pull-request workflow's hosted runs (GOODFETCH_GATE_HOSTED_RECORDS), as a
+# hosted job is, they also reuse the hosted-owned units those runs hold, and
+# end red on one such run's red unit on the head's tree (ADR 0135's
+# amendment of 2026-11-22); `just merge` passes none (its note of
+# 2026-11-25). `GOODFETCH_GATE_FULL=1` reuses nothing.
 #
 # Each form's steps, their order and each step's `just` command come from
 # `xtask gate steps` (`just _gate-steps`, xtask/src/gate/steps.rs), and the
@@ -177,7 +181,7 @@ if [[ $form != changed ]]; then
 fi
 
 # The form's list: its steps' names in order, and each one's kind (`step`,
-# `beside` or `command`) and `just` command. The checks that judge the
+# `beside`, `after` or `command`) and `just` command. The checks that judge the
 # whole change in seconds come first in every form, before any build and
 # any step beside the host's, so the gate's log opens with their verdicts.
 listing=$(just _gate-steps "$form")
@@ -322,7 +326,7 @@ planned=""
 stress_base=""
 if [[ -n $planning ]]; then
   [[ $form != preflight ]] || echo "Preflight: the full gate's units only the gate host runs, the counted rows and the stress run, recorded by the layer preflight in $records, so the full gate on the same tree reuses them (ADR 0135)."
-  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
+  [[ $form != quick ]] || echo "The quick gate: no test reads this change, so perf, the Linux-only and visual tests, the Pre-merge suite, the stress run, TLC, the MSRV build, Miri, loom, the Simulation and the Windows build under Wine do not run (xtask affected's gate=quick, ADR 0135)."
   plan=$(just _gate-plan "$form" "$layer")
   previous=$(output_value previous "$plan")
   planned=$(output_value head "$plan")
@@ -520,8 +524,36 @@ run_step() {
       ;;
   esac
 }
+# A step beside the host's, as its plan has it: reused, not run here, red
+# elsewhere, or started beside the host's.
+start_beside() {
+  local planned_action
+  planned_action=$(action "$1")
+  case $planned_action in
+    reuse) reused "$1" ;;
+    covered | left) not_run "$1" ;;
+    red) red_elsewhere "$1" ;;
+    *) beside "$@" ;;
+  esac
+}
+# Waits for each step started beside the host's and records it: they run
+# to their own end, whatever the host's steps gave.
+wait_beside() {
+  local i status
+  for i in "${!beside_names[@]}"; do
+    echo "Waiting for ${beside_names[i]}…"
+    status=0
+    wait "${beside_pids[i]}" || status=$?
+    record "${beside_names[i]}" "$status"
+    [[ $status -eq 0 ]] || went_red "${beside_names[i]}" "$status"
+  done
+  beside_names=()
+  beside_pids=()
+}
 # The form's steps in their order: the whole change's checks, the steps
-# beside, then the host's others.
+# beside, then the host's others, and last those that run after every
+# other.
+after=()
 for step in "${steps[@]}"; do
   if [[ -n ${GOODFETCH_GATE_ONLY:-} && $step != "$GOODFETCH_GATE_ONLY" ]]; then
     echo "Gate step $step: not run (this job runs $GOODFETCH_GATE_ONLY alone)"
@@ -536,30 +568,24 @@ for step in "${steps[@]}"; do
       timed "$step" just "${command[@]}" || status=$?
       [[ $status -eq 0 ]] || went_red "$step" "$status"
       ;;
-    beside)
-      planned_action=$(action "$step")
-      case $planned_action in
-        reuse) reused "$step" ;;
-        covered | left) not_run "$step" ;;
-        red) red_elsewhere "$step" ;;
-        *) beside "$step" "${command[@]}" ;;
-      esac
-      ;;
+    beside) start_beside "$step" "${command[@]}" ;;
+    after) after+=("$step") ;;
     step) run_step "$step" "${command[@]}" ;;
     *)
-      echo "error: the kind of $step is $kind, not step, beside or command" >&2
+      echo "error: the kind of $step is $kind, not step, beside, after or command" >&2
       exit 1
       ;;
   esac
 done
+wait_beside
 
-# The steps beside run to their own end, whatever the host's steps gave.
-for i in "${!beside_names[@]}"; do
-  echo "Waiting for ${beside_names[i]}…"
-  status=0
-  wait "${beside_pids[i]}" || status=$?
-  record "${beside_names[i]}" "$status"
-  [[ $status -eq 0 ]] || went_red "${beside_names[i]}" "$status"
+# Each step after every other starts once those have ended and been
+# recorded, alone on the host, as a step beside it is started and waited
+# for, so a stop of the gate stops it the same way.
+for step in ${after[@]+"${after[@]}"}; do
+  arguments=$(output_value "$step.just" "$listing")
+  read -ra command <<<"$arguments"
+  start_beside "$step" "${command[@]}"
+  wait_beside
 done
-beside_pids=()
 conclude

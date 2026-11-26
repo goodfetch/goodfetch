@@ -25,13 +25,20 @@ form_urlencoded.workspace = true
 hmac.workspace = true
 http-body-util.workspace = true
 httparse.workspace = true
+httpdate.workspace = true
 hyper = { workspace = true, features = ["server", "http1", "http2"] }
 hyper-util = { workspace = true, features = ["tokio", "server-auto", "http1", "http2"] }
 loona-hpack.workspace = true
 p256 = { workspace = true, features = ["ecdsa", "pkcs8", "std"] }
 pulldown-cmark.workspace = true
+# The online copy's client of the vendors' verification endpoints (#168);
+# the tests also use it as the HTTP fetch tier builds its transport, for the
+# pages that answer by the client's TLS fingerprint.
+reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
 rcgen = { workspace = true, features = ["pem"] }
 rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# Writes the Firefox profile seed's `cookies.sqlite` (`firefox-profile`).
+rusqlite.workspace = true
 # Describes its interface (`interface.rs`) for the JSON Schemas test support
 # commits.
 schemars.workspace = true
@@ -47,6 +54,7 @@ tokio-util = { workspace = true, features = ["rt"] }
 url.workspace = true
 toml.workspace = true
 web-bot-auth.workspace = true
+webpki-roots.workspace = true
 # Builds its runtimes (ADR 0081).
 goodfetch-runtime.workspace = true
 goodfetch-workspace-hack.workspace = true
@@ -62,10 +70,8 @@ hmac.workspace = true
 httpdate.workspace = true
 proptest.workspace = true
 regex.workspace = true
-# The HTTP fetch tier's transport, as that tier builds it, for the pages that
-# answer by the client's TLS fingerprint.
-reqwest = { workspace = true, features = ["http2", "rustls-no-provider"] }
 rstest.workspace = true
+serde-saphyr.workspace = true
 sha1.workspace = true
 socket2.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

@@ -24,9 +24,12 @@ use goodfetch_protocol::connection::WaitedFor;
 
 use super::PageDriver;
 use super::navigation::Navigation;
+use super::page_reader::PageReader;
 
 /// The main frame's events from just before a gesture's input on.
 pub(crate) struct GestureWatch {
+    /// The page's reader, which hands them on.
+    reader: PageReader,
     events: Subscription,
     navigation: Navigation,
     /// Whether the connection ended, which sends no more events.
@@ -39,9 +42,12 @@ impl GestureWatch {
     /// never waits on this watch's unread ones. Every event the browser
     /// sent before the answer that ends `gesture` is read before it
     /// returns: the connection hands an event to its subscribers before it
-    /// hands over a later answer, so the events are polled first (#1766).
+    /// hands over a later answer, and the page's reader hands it on before
+    /// it answers an ask after that answer, so the events are polled first
+    /// (#1766).
     pub(crate) async fn during<T>(&mut self, gesture: impl Future<Output = T>) -> T {
-        let mut gesture = std::pin::pin!(gesture);
+        let reader = self.reader.clone();
+        let mut gesture = std::pin::pin!(reader.after_events(gesture));
         loop {
             tokio::select! {
                 biased;
@@ -60,7 +66,8 @@ impl PageDriver {
     /// be sent requests.
     pub(crate) fn watch_gesture(&self) -> GestureWatch {
         GestureWatch {
-            events: self.browser.connection.subscribe(Some(&self.session)),
+            reader: self.page_reader.clone(),
+            events: self.events(),
             navigation: Navigation::of(self.frame.clone()),
             ended: false,
         }

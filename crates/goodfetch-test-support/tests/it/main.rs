@@ -17,17 +17,23 @@
 mod browser_cache;
 mod canaries;
 mod cargo_consumer;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod chromium_probe_pages;
 mod cli;
 mod cli_json;
 #[cfg(target_os = "linux")]
 mod dns_namespace;
+mod downloads;
 mod endpoints;
 mod exercise_record;
 mod extra_loopback;
 mod hostile_tables;
+mod identity_consistency;
 mod journey_run;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+mod media_samples;
+mod net_log;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -37,6 +43,7 @@ mod observation_log;
 mod probe;
 mod proving_ground;
 mod pty;
+mod recordings;
 mod reported;
 mod scripted_daemon;
 mod scripted_engine;

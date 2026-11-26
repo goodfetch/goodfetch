@@ -50,13 +50,7 @@ from goodfetch_collie_client.generated.operations import (
 from goodfetch_collie_client.goodfetch_error import runtime_message
 from goodfetch_collie_client.handle import Subscription
 from goodfetch_collie_client.host_logging import CLIENT_LOGGER
-from goodfetch_collie_client.key_value_store import (
-    KEYS,
-    AsyncKeyValueStore,
-    KeyValueStore,
-    key_of,
-    keys_params,
-)
+from goodfetch_collie_client.key_value_store import AsyncKeyValueStore, KeyValueStore
 from goodfetch_collie_client.listeners import (
     Listening,
     Order,
@@ -77,7 +71,11 @@ if TYPE_CHECKING:
     from pydantic import BaseModel, JsonValue
 
     from goodfetch_collie_client._shared_subscription import SharedSubscription
-    from goodfetch_collie_client.generated.models import ProjectSettings, RunStarted
+    from goodfetch_collie_client.generated.models import (
+        KeyValueStoreAttempt,
+        ProjectSettings,
+        RunStarted,
+    )
     from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError
     from goodfetch_collie_client.handle import (
         AsyncHandleHost,
@@ -759,15 +757,23 @@ class AsyncRun(AsyncRunMembers):
         self._scope = scope
         self._detached = detached
         self._closing = Once()
-        self.key_value_store = AsyncKeyValueStore(
-            lambda prefix: host.read(KEYS, keys_params(self.id, prefix), key_of)
-        )
-        """Its Key-value store (ADR 0103)."""
+        self.key_value_store = AsyncKeyValueStore(host)
+        """Its Key-value store (ADR 0103), whose writes commit at once."""
 
     @property
     def id(self) -> str:
         """Its Run ID."""
         return self._scope.id
+
+    def _attempt_key_value_store(
+        self, attempt: KeyValueStoreAttempt
+    ) -> AsyncKeyValueStore:
+        """Its Key-value store bound to `attempt`, whose writes are staged with it.
+
+        For a Product's own Run whose handlers have attempts, such as
+        Foxhound's crawl Run.
+        """
+        return AsyncKeyValueStore(_held[self][0], attempt)
 
     def _read(
         self,
@@ -940,10 +946,14 @@ class Run(RunMembers):
         super().__init__(host, started)
         self._loop = loop
         self._run = run
-        self.key_value_store = KeyValueStore(
-            lambda prefix: host.read(KEYS, keys_params(run.id, prefix), key_of)
-        )
-        """Its Key-value store (ADR 0103)."""
+        self.key_value_store = KeyValueStore(host)
+        """Its Key-value store (ADR 0103), whose writes commit at once."""
+        self._attempt_key_value_store = functools.partial(KeyValueStore, host)
+        """Opens its Key-value store bound to an attempt, whose writes are staged.
+
+        For a Product's own Run whose handlers have attempts, such as
+        Foxhound's crawl Run. It holds the host alone, never the Run.
+        """
 
     @property
     def id(self) -> str:

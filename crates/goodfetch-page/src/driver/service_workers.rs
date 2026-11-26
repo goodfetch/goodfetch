@@ -34,9 +34,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use goodfetch_cdp::generated::{browser, fetch, network, runtime, target};
-use goodfetch_cdp::{SessionId as TargetSession, Subscription};
+use goodfetch_cdp::{RawEvent, SessionId as TargetSession, Subscription, SubscriptionEnd};
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use tokio::sync::{OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -54,10 +54,11 @@ const SCRIPT_HEADER: &str = "service-worker";
 /// What one service or shared worker's Session does once the browser
 /// attached the engine to it, before it runs: given the worker's driver and
 /// the token cancelled once the worker's target goes, it answers whether
-/// the interception now holds the worker's requests. A worker it does not
-/// hold never runs: the domain policy fails closed (ADR 0014).
+/// the interception now holds the worker's requests, whose tasks start on
+/// the identity it is given, its browser's owner's (ADR 0146). A worker it
+/// does not hold never runs: the domain policy fails closed (ADR 0014).
 pub(crate) type OnWorker = Arc<
-    dyn Fn(PageDriver, CancellationToken) -> Pin<Box<dyn Future<Output = bool> + Send>>
+    dyn Fn(PageDriver, CancellationToken, RunIdentity) -> Pin<Box<dyn Future<Output = bool> + Send>>
         + Send
         + Sync,
 >;
@@ -123,6 +124,7 @@ impl PageDriver {
         worker: target::TargetID,
     ) -> Self {
         Self {
+            page_reader: super::PageReader::new(&browser.connection, &session),
             browser,
             session,
             egress: super::SessionEgress::default(),
@@ -131,8 +133,6 @@ impl PageDriver {
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
-            turn: Arc::new(tokio::sync::Mutex::new(None)),
-            gesture: Arc::new(tokio::sync::Mutex::new(())),
             value: crate::page_value::PageValue::empty(),
             waits: None,
             reader: None,
@@ -164,6 +164,7 @@ impl PageDriver {
         let browser = &self.browser;
         if matches!(choice, ServiceWorkers::Block) {
             browser
+                .state
                 .service_workers
                 .scripts
                 .get_or_try_init(|| async {
@@ -188,7 +189,7 @@ impl PageDriver {
                 })
                 .await?;
         }
-        lock(&browser.service_workers.contexts)
+        lock(&browser.state.service_workers.contexts)
             .entry(self.context.clone())
             .or_insert(choice);
         Ok(())
@@ -198,22 +199,23 @@ impl PageDriver {
     /// its sites to `handler` before they run; a later handler for the same
     /// context changes nothing.
     pub(crate) fn shared_workers(&self, handler: OnWorker) {
-        lock(&self.browser.service_workers.shared)
+        lock(&self.browser.state.service_workers.shared)
             .entry(self.context.clone())
             .or_insert(handler);
     }
 }
 
-/// Starts following `browser`'s service workers and new pages for `run`:
-/// its browser events are read from now, then the browser attaches the
-/// engine to each worker and each page before it runs (`popups`).
+/// Starts following `browser`'s service workers and new pages on `tasks`,
+/// its owner's (ADR 0146): its browser events are read from now, then the
+/// browser attaches the engine to each worker and each page before it runs
+/// (`popups`), each such task one of its owner's.
 ///
 /// # Errors
 ///
 /// The code of opening a page when the browser refuses to attach.
-pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError> {
+pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), CallError> {
     let events = browser.connection.subscribe(None);
-    run.spawn(follow(events, browser.clone(), run.clone()));
+    tasks.spawn(follow(events, browser.clone(), tasks.clone()));
     browser
         .send(
             None,
@@ -250,43 +252,70 @@ pub(super) async fn start(browser: &Browser, run: &Run) -> Result<(), CallError>
 /// Reads the browser's own events until its connection ends: each worker
 /// attached is handed on as its context chose, each one gone is let go,
 /// and each script fetch the browser's interception paused is failed or
-/// sent on.
-async fn follow(mut events: Subscription, browser: Browser, run: Run) {
-    while let Some(event) = events.next().await {
-        if let Some(attached) = event.read::<target::AttachedToTargetEvent>() {
-            if attached.target_info.r#type == SERVICE_WORKER {
-                let (browser, task) = (browser.clone(), run.clone());
-                task.spawn(attach(browser, attached, run.clone()));
-            } else if attached.target_info.r#type == SHARED_WORKER {
-                let choice = browser
-                    .service_workers
-                    .shared_of(attached.target_info.browser_context_id.as_ref())
-                    .map(ServiceWorkers::Allow);
-                let (browser, task) = (browser.clone(), run.clone());
-                task.spawn(hold_then_run(browser, attached, run.clone(), choice));
-            } else if attached.target_info.r#type == super::popups::PAGE {
-                run.spawn(super::popups::attach(browser.clone(), attached));
-            }
-        } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
-            let detached = TargetSession(detached.session_id);
-            browser.popups.forget(&detached);
-            if let Some(gone) = lock(&browser.service_workers.attached).remove(&detached) {
-                gone.cancel();
-            }
-        } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
-            run.spawn(script_fetch(browser.clone(), paused));
+/// sent on. A reader that fell 4,096 events behind lost what the browser
+/// told meanwhile, so a worker or a page it attached then may wait for the
+/// engine forever: the browser is marked so, which takes a launched one
+/// out of service, and its events are read again from then on, so what it
+/// attaches next is served. No Session is crashed and no crash is charged:
+/// the browser runs on (spec #2256, #3261).
+async fn follow(mut events: Subscription, browser: Browser, tasks: RunIdentity) {
+    loop {
+        while let Some(event) = events.next().await {
+            take_in(&event, &browser, &tasks);
         }
+        if events.ended() != Some(SubscriptionEnd::FellBehind) {
+            return;
+        }
+        tracing::warn!(
+            executable = %browser.executable,
+            "the reader of a browser's own events fell behind and lost some: it reads them again, and what the browser attached meanwhile may never run"
+        );
+        browser.root_fell_behind.cancel();
+        events = browser.connection.subscribe(None);
+    }
+}
+
+/// Acts on `event`, one of the browser's own, starting what it calls for on
+/// `tasks`, the browser's owner.
+fn take_in(event: &RawEvent, browser: &Browser, tasks: &RunIdentity) {
+    if let Some(attached) = event.read::<target::AttachedToTargetEvent>() {
+        if attached.target_info.r#type == SERVICE_WORKER {
+            tasks.spawn(attach(browser.clone(), attached, tasks.clone()));
+        } else if attached.target_info.r#type == SHARED_WORKER {
+            let choice = browser
+                .state
+                .service_workers
+                .shared_of(attached.target_info.browser_context_id.as_ref())
+                .map(ServiceWorkers::Allow);
+            tasks.spawn(hold_then_run(
+                browser.clone(),
+                attached,
+                tasks.clone(),
+                choice,
+            ));
+        } else if attached.target_info.r#type == super::popups::PAGE {
+            tasks.spawn(super::popups::attach(browser.clone(), attached));
+        }
+    } else if let Some(detached) = event.read::<target::DetachedFromTargetEvent>() {
+        let detached = TargetSession(detached.session_id);
+        browser.state.popups.forget(&detached);
+        if let Some(gone) = lock(&browser.state.service_workers.attached).remove(&detached) {
+            gone.cancel();
+        }
+    } else if let Some(paused) = event.read::<fetch::RequestPausedEvent>() {
+        tasks.spawn(script_fetch(browser.clone(), paused));
     }
 }
 
 /// The service worker `attached` waits for the engine: under `allow` its
 /// Session's interception takes it first, under `block` it is closed; then
 /// it runs.
-async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: Run) {
+async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, tasks: RunIdentity) {
     let choice = browser
+        .state
         .service_workers
         .of(attached.target_info.browser_context_id.as_ref());
-    hold_then_run(browser, attached, run, choice).await;
+    hold_then_run(browser, attached, tasks, choice).await;
 }
 
 /// The worker `attached` waits for the engine: a site's worker is handed
@@ -299,7 +328,7 @@ async fn attach(browser: Browser, attached: target::AttachedToTargetEvent, run: 
 async fn hold_then_run(
     browser: Browser,
     attached: target::AttachedToTargetEvent,
-    run: Run,
+    tasks: RunIdentity,
     choice: Option<ServiceWorkers>,
 ) {
     let session = TargetSession(attached.session_id);
@@ -308,15 +337,16 @@ async fn hold_then_run(
     let choice = choice.filter(|_| of_a_site);
     let held = match (choice, info.browser_context_id.clone()) {
         (Some(ServiceWorkers::Allow(handle)), Some(context)) => {
-            let gone = run.cancellation().child_token();
-            lock(&browser.service_workers.attached).insert(session.clone(), gone.clone());
+            let gone = tasks.owner().child_token();
+            lock(&browser.state.service_workers.attached).insert(session.clone(), gone.clone());
             let driver = PageDriver::service_worker(
                 browser.clone(),
                 session.clone(),
                 context,
                 info.target_id.clone(),
             );
-            handle(driver, gone).await
+            tasks.spawn(driver.reading(None));
+            handle(driver, gone, tasks).await
         }
         // A worker of a context that blocks them, whose script fetch went
         // through all the same, never runs.
@@ -411,6 +441,7 @@ async fn blocks(browser: &Browser, worker: &str) -> bool {
     };
     matches!(
         browser
+            .state
             .service_workers
             .of(found.target_info.browser_context_id.as_ref()),
         Some(ServiceWorkers::Block)

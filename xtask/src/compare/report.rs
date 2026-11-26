@@ -30,7 +30,7 @@ use super::matrix::{self, CELLS, Cell, OutputCheck, Reading, Row, Scenario, Stat
 use super::sampler::{CORE_WINDOW_SAMPLES, INTERVAL_MILLISECONDS};
 use super::trials::{
     CURVE_PARTS, Comparison, CountedCell, CountedRun, Declared, GrowthCell, LatencyEnd, MILESTONES,
-    Machine, QUIET_LOAD, RATIOS, SPIDER, STRACE_QUIET_LOAD, TRIALS, Trial,
+    Machine, QUIET_LOAD, RATIOS, SPIDER, STRACE_QUIET_LOAD, Started, TRIALS, Trial,
 };
 
 mod auto;
@@ -1075,6 +1075,31 @@ const ROWS: &[(&str, &str)] = &[
     ),
 ];
 
+/// The lines saying how many of `runs`, named `what`, started on a machine
+/// that failed the quiet check, one for each check they were read by (see
+/// [`QuietReading::check`](super::trials::QuietReading::check)); `load` the
+/// load fallback's threshold.
+fn unquiet_markdown(
+    text: &mut String,
+    what: &str,
+    runs: impl ExactSizeIterator<Item = Started>,
+    load: f64,
+) {
+    let all = runs.len();
+    let mut unquiet: BTreeMap<String, usize> = BTreeMap::new();
+    for reading in runs.filter_map(|started| started.quiet) {
+        if reading.failed(load).is_some() {
+            *unquiet.entry(reading.check(load)).or_default() += 1;
+        }
+    }
+    for (check, count) in unquiet {
+        let _ = writeln!(
+            text,
+            "{count} of the {all} {what} started on a machine that failed the quiet check of {check}.\n"
+        );
+    }
+}
+
 /// The report as Markdown, for the owner's reading of the pass (ADR 0134).
 #[expect(
     clippy::too_many_lines,
@@ -1320,30 +1345,19 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
     );
     sizes_markdown(&mut text, &report.sizes);
     text.push_str("\n## Trials, in the order run\n\n");
-    let unquiet = trials
-        .trials
-        .iter()
-        .filter(|trial| trial.load.is_some_and(|load| load >= QUIET_LOAD))
-        .count();
-    if unquiet > 0 {
-        let _ = writeln!(
-            text,
-            "{unquiet} of the {} timed trials started above a 1-minute load of {QUIET_LOAD}.\n",
-            trials.trials.len()
-        );
-    }
+    unquiet_markdown(
+        &mut text,
+        "timed trials",
+        trials.trials.iter().map(|trial| trial.started),
+        QUIET_LOAD,
+    );
     if let CountedCell::Measured { runs, .. } = &trials.syscalls {
-        let unquiet = runs
-            .iter()
-            .filter(|run| run.load.is_some_and(|load| load >= STRACE_QUIET_LOAD))
-            .count();
-        if unquiet > 0 {
-            let _ = writeln!(
-                text,
-                "{unquiet} of the {} runs under strace started above a 1-minute load of {STRACE_QUIET_LOAD}.\n",
-                runs.len()
-            );
-        }
+        unquiet_markdown(
+            &mut text,
+            "runs under strace",
+            runs.iter().map(|run| run.started),
+            STRACE_QUIET_LOAD,
+        );
     }
     for redone in &trials.redone {
         let _ = writeln!(
@@ -1367,6 +1381,7 @@ pub(crate) fn markdown(report: &Report<'_>, trials: &Comparison) -> String {
                 |why| format!("{} (retried: {why})", trial.number)
             ),
             trial
+                .started
                 .load
                 .map_or_else(|| "not measured".to_owned(), |load| format!("{load:.2}")),
             trial.measured.seconds,

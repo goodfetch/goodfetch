@@ -42,6 +42,7 @@ use crate::composition::{CallContext, Contribution, Handler};
 use crate::engine::Engine;
 use crate::run_files::{self, FileKind};
 use crate::run_files_operations::keep_error;
+use crate::runs;
 
 /// Keeps a Download's file in a live Run, as the page's downloads will.
 const KEEP_DOWNLOAD: Operation = Operation {
@@ -69,14 +70,14 @@ async fn keep_download(params: Value, context: CallContext) -> Result<Value, Cal
     if let Some(wait) = params["wait"].as_u64() {
         tokio::time::sleep(Duration::from_millis(wait)).await;
     }
-    let kept = run
+    let kept = runs::files(&run)
         .keep_file(
             FileKind::Download,
             "report.csv".to_owned(),
             Cursor::new(bytes),
         )
         .await
-        .map_err(|error| keep_error(&run_id, run.folder(), error))?;
+        .map_err(|error| keep_error(&run_id, runs::identity(&run).folder(), error))?;
     Ok(json!({
         "download_id": DownloadId::of(&run_id, kept.position),
         "sha256": kept.sha256,
@@ -129,7 +130,7 @@ impl Drop for Signalling {
 async fn keep_beside_forget(params: Value, context: CallContext) -> Result<Value, CallError> {
     let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
     let run = context.runs().live(run_id).await.unwrap();
-    let first = run
+    let first = runs::files(&run)
         .keep_file(
             FileKind::Download,
             "first.csv".to_owned(),
@@ -138,12 +139,16 @@ async fn keep_beside_forget(params: Value, context: CallContext) -> Result<Value
         .await
         .unwrap();
     let (written, wait) = std::sync::mpsc::channel::<()>();
-    let held = run.state().write(move |_| {
+    let held = runs::state(&run).write(move |_| {
         let _ = wait.recv();
         Ok(())
     });
-    let (folder, sha256, position) = (run.folder().to_owned(), first.sha256, first.position);
-    let forgotten = run.state().write(move |connection| {
+    let (folder, sha256, position) = (
+        runs::identity(&run).folder().to_owned(),
+        first.sha256,
+        first.position,
+    );
+    let forgotten = runs::state(&run).write(move |connection| {
         run_files::unrecord(connection, position)?;
         run_files::forget(connection, &folder, &sha256)
     });
@@ -154,12 +159,12 @@ async fn keep_beside_forget(params: Value, context: CallContext) -> Result<Value
     let (held, forgotten, kept) = tokio::join!(
         held,
         forgotten,
-        run.keep_file(FileKind::Download, "second.csv".to_owned(), source)
+        runs::files(&run).keep_file(FileKind::Download, "second.csv".to_owned(), source)
     );
     held.unwrap();
     forgotten.unwrap();
     let kept = kept.unwrap();
-    let file = run_files::file(run.folder(), &kept.sha256).unwrap();
+    let file = run_files::file(runs::identity(&run).folder(), &kept.sha256).unwrap();
     Ok(json!({ "kept": file.exists() }))
 }
 

@@ -4,7 +4,7 @@
 // engine sends its events in `$/events` batches as the credits the Client
 // grants with `$/credit` allow. Across Connections, the Client keeps the
 // last position it read and subscribes again after it.
-import type { MessageId } from "./framing.ts";
+import { isRecord, type MessageId } from "./framing.ts";
 import type { Channel } from "./rpc.ts";
 
 /** The last event a Client read: its engine instance, from `hello`, and its position. */
@@ -40,10 +40,6 @@ export interface EventsSubscription {
   readonly ended: Promise<unknown>;
   /** Lets the engine send `credits` more events. */
   grant(credits: number): void;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isStreamedEvent(value: unknown): value is StreamedEvent {

@@ -25,6 +25,7 @@ export {
   journey,
   startJourneyRun,
   type FinishedJourneyRun,
+  type JourneyOptions,
   type JourneyRun,
   type JourneyRunStart,
   type TaskSubmission,
@@ -92,3 +93,10 @@ export {
   type Tools,
 } from "./test-env.ts";
 export { unicodeRecord, type UnicodeField, type UnicodeRecord } from "./unicode.ts";
+export {
+  webhookSignatures,
+  type SignedVector,
+  type VerificationCase,
+  type VerificationOutcome,
+  type WebhookSignatures,
+} from "./webhook-signatures.ts";

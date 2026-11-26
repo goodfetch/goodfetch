@@ -176,11 +176,17 @@ goodfetch-clean-up-rules = { path = "crates/goodfetch-clean-up-rules" }
 # their values are one type (ADR 0095); `xtask release prepare` repins it.
 goodfetch-collie-client = { path = "crates/goodfetch-collie-client", version = "=0.0.0" }
 goodfetch-collie = { path = "crates/goodfetch-collie" }
+# Plugin confinement (ADR 0033): the engine's Plugin host starts each
+# instance through it, and each Product's executable is its launcher.
+goodfetch-confinement = { path = "crates/goodfetch-confinement" }
 # Counted work (ADR 0140): the counts, and each primitive's counted function.
 goodfetch-counted-work = { path = "crates/goodfetch-counted-work" }
 # The Encoding a document's own bytes declare, read as Chrome reads it (ADR
 # 0119), which the fetch tiers and Collie's client crate both read.
 goodfetch-encoding = { path = "crates/goodfetch-encoding" }
+# The operating-system part of a Saved file (ADR 0116), which the engine and
+# Collie's client crate both use.
+goodfetch-saved-file = { path = "crates/goodfetch-saved-file" }
 # The conformance harness; the Stub gateway's tests run its gateway cases.
 goodfetch-conformance = { path = "crates/goodfetch-conformance" }
 # Foxhound's crawl; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
@@ -198,6 +204,9 @@ goodfetch-fetch-tier = { path = "crates/foxhound/goodfetch-fetch-tier" }
 goodfetch-frontier = { path = "crates/foxhound/goodfetch-frontier" }
 # The Model provider interface every model call goes through (spec #602).
 goodfetch-model-provider = { path = "crates/goodfetch-model-provider" }
+# The Memory site, a site served from memory through the fetch tiers' test
+# seam, a test adapter: only ever a dev-dependency (ADR 0125, issue 2512).
+goodfetch-memory-site = { path = "crates/foxhound/goodfetch-memory-site" }
 # Collie's pages, Sessions and browsers (spec #577).
 goodfetch-page = { path = "crates/goodfetch-page" }
 goodfetch-protocol = { path = "crates/goodfetch-protocol" }
@@ -209,8 +218,14 @@ goodfetch-recording-gate = { path = "crates/goodfetch-recording-gate" }
 goodfetch-runtime = { path = "crates/goodfetch-runtime" }
 # The built-in external Secret providers, which each Product's composition registers (spec #564).
 goodfetch-secret-providers = { path = "crates/goodfetch-secret-providers" }
+# Schedules and their store, which each Product's composition registers (spec #589).
+goodfetch-schedule = { path = "crates/goodfetch-schedule" }
 # Foxhound's Session pool; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-session-pool = { path = "crates/foxhound/goodfetch-session-pool" }
+# turmoil's adapter of `transport` and the Simulation harness, built only
+# under `--cfg tokio_unstable`; a test adapter: only ever a dev-dependency
+# (ADRs 0060 and 0125).
+goodfetch-simulation = { path = "crates/goodfetch-simulation" }
 # Foxhound's SQL tab, DuckDB's read path; only crates under `crates/foxhound/` and `xtask` take it (ADR 0087).
 goodfetch-sql-tab = { path = "crates/foxhound/goodfetch-sql-tab" }
 # The protocol-aware test helpers; only ever a dev-dependency (ADR 0062's note
@@ -294,6 +309,12 @@ httparse = { version = "1.10.1", default-features = false, features = ["std"] }
 # A `Retry-After`'s HTTP-date in RFC 9110's three formats (ADR 0118), which
 # hyper already brings.
 httpdate = { version = "1.0.3", default-features = false }
+# The Response cache's freshness and revalidation, RFC 9111's rules as one
+# private cache applies them (ADR 0046).
+http-cache-semantics = { version = "3.0.0", default-features = false }
+# Model recordings replay at an adapter's base URL (ADR 0065): each exchange
+# is one mock of its local server, matched on method, path and JSON body.
+httpmock = { version = "0.9.0", default-features = false }
 http-body-util = { version = "0.1.5", default-features = false }
 hyper = { version = "1.12.0", default-features = false }
 hyper-util = { version = "0.1.21", default-features = false }
@@ -341,8 +362,13 @@ mimalloc = { version = "0.1.48", default-features = false }
 moka = { version = "0.12.16", default-features = false, features = ["sync"] }
 # `xtask rss`'s peak reader: getrusage on Linux and macOS (ADR 0071); and
 # goodfetch-test-support's `NoExec`, which installs its seccomp filter and
-# starts its child with raw system calls on Linux (ADR 0067).
+# starts its child with raw system calls on Linux (ADR 0067); and
+# goodfetch-confinement's probe executable, which makes each probe's call raw.
 libc = { version = "0.2.191", default-features = false }
+# Plugin confinement on Linux (ADR 0033): goodfetch-confinement's applier
+# limits files and signals with Landlock and system calls with seccomp.
+landlock = { version = "0.4.8", default-features = false }
+seccompiler = { version = "0.5.0", default-features = false }
 # A local address's interface, read on every OS (ADR 0044).
 netdev = { version = "0.46.3", default-features = false }
 jiff = { version = "0.2.35", default-features = false, features = ["std", "serde"] }
@@ -393,6 +419,9 @@ socket2 = { version = "0.6.5", default-features = false }
 syn = { version = "3.0.9", default-features = false, features = ["full", "parsing", "printing"] }
 tar = { version = "0.4.46", default-features = false }
 tempfile = { version = "3.27.0", default-features = false }
+# A Recipe's package: the files of its folder, less the ones its
+# `.goodfetchignore` files leave out in gitignore's syntax (issue 1663).
+ignore = { version = "0.4.35", default-features = false }
 thiserror = { version = "2.0.21", default-features = false, features = ["std"] }
 # rcgen's dates; the Proving ground's leaf certificates are dated from its
 # clock.
@@ -523,6 +552,7 @@ clone_on_ref_ptr = "deny"
 exit = "deny"
 iter_over_hash_type = "deny"
 undocumented_unsafe_blocks = "deny"
+unused_result_ok = "deny"
 
 # Goodfetch's fork of `wreq` 0.16.1 (spec #565, ADR 0042), carried in
 # `vendor/wreq` as version `0.16.1+goodfetch.1`: upstream's commit
@@ -619,22 +649,38 @@ wreq-util = { path = "vendor/wreq-util" }
 # below, since its archived test binaries run away from the objects.
 [profile.dev]
 split-debuginfo = "unpacked"
+# No LTO pass at all: Cargo's default `false` still runs a thin LTO over each
+# crate's codegen units, a cost on every build of the optimized dependencies
+# below, as ruff and uv found (the implementation audit of 2026-11-25,
+# measure 8).
+lto = "off"
+
+# Dependencies carry no debug information: a backtrace names their functions
+# and reads file and line in the workspace's own crates alone, which get line
+# tables (`ci-test` below, and `CARGO_PROFILE_DEV_DEBUG` on the gate host).
+# The debug information of some 590 dependencies was most of what each build
+# wrote and each link read, on a volume that was the build's bottleneck; uv
+# measured about 20 % of its build time in these settings (the implementation
+# audit of 2026-11-25, measure 8). Build scripts and proc-macros match it
+# below, so a crate both the build and the code use is still built once.
+[profile.dev.package."*"]
+debug = false
 
 [profile.dev.package.sha2]
 opt-level = 3
 
-# Build scripts, proc-macros and the crates they use get line tables, as the
-# workspace's other crates get them in `ci-test` and in the gate host's
-# local builds (`CARGO_PROFILE_DEV_DEBUG`); Cargo's default gives them none.
-# Cargo builds a crate that both the build and the code use once when the
-# two settings match, and once for each when they differ, so with the
-# default whether it was shared, and with it every crate above it, hung on
-# what else a command built: `cargo run --bin xtask` and the test tools'
-# build compiled the engine, Page and Collie apart, and the test tools' and
-# the Quick suite's builds DuckDB apart. With them matching, those builds
-# share them.
+# Build scripts, proc-macros and the crates they use get no debug
+# information, as the dependencies the code uses (`package."*"` above), and
+# Cargo's default. Cargo builds a crate that both the build and the code use
+# once when the two settings match, and once for each when they differ. When
+# the workspace's crates got line tables and the dependencies kept full debug
+# information, whether a shared crate was built once, and with it every crate
+# above it, hung on what else a command built: `cargo run --bin xtask` and
+# the test tools' build compiled the engine, Page and Collie apart, and the
+# test tools' and the Quick suite's builds DuckDB apart. Kept explicit so the
+# two settings stay matched.
 [profile.dev.build-override]
-debug = "line-tables-only"
+debug = false
 
 # And for literal search: the reset gate searches every file of a Goodfetch
 # home for each Secret canary in a dozen encodings, the Browser cache's
@@ -652,9 +698,9 @@ opt-level = 3
 # DuckDB's C++ sources, which the `duckdb` crate builds through
 # `libduckdb-sys`'s build script: unoptimized, a query of the SQL tab's
 # tests takes minutes, so its tests and a debug Foxhound run them optimized;
-# without debug information, which made each build of it 4 to 8 GB of target/.
+# without debug information, as every dependency above (its own made each
+# build of it 4 to 8 GB of target/).
 [profile.dev.package.libduckdb-sys]
-debug = false
 opt-level = 3
 
 # rs-trafilatura writes its debug notes to stderr whenever debug assertions

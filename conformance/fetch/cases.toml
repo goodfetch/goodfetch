@@ -11,7 +11,7 @@ product = "foxhound"
 
 [suite]
 name = "fetch"
-version = "6"
+version = "9"
 
 [[capability]]
 name = "fetch.tier.http"
@@ -73,3 +73,51 @@ covers = ["story:5-125", "setting:fetch.refresh.max_delay"]
 [[capability.case]]
 id = "a-redirect-the-scope-the-domain-policy-or-the-address-check-refuses-ends-skipped-live"
 covers = ["story:4-94", "story:4-97", "story:4-103", "story:6-238", "setting:egress.blocked_domains", "setting:crawl.scope.exclude", "operation:run.outcomes", "operation:run.add_seed"]
+
+# The Response cache cases of the `http` tier (ADR 0046; pitfall H19), over
+# plain HTTP/1.1 on `cache.test`: crawls on the target's one Goodfetch home
+# share its cache, and each page names which answer of its path it is.
+[[capability]]
+name = "fetch.response_cache"
+
+[[capability.case]]
+id = "with-cache-mode-off-every-request-reaches-the-site"
+covers = ["setting:cache.mode"]
+
+[[capability.case]]
+id = "a-fresh-response-is-served-from-the-cache-with-no-request"
+covers = ["story:6-37", "setting:cache.mode"]
+
+[[capability.case]]
+id = "a-stale-response-is-revalidated-and-a-304-serves-its-stored-body"
+covers = ["story:6-38", "setting:cache.mode"]
+
+[[capability.case]]
+id = "a-response-varying-on-cookie-is-served-only-for-its-cookie"
+covers = ["story:6-37", "story:6-38"]
+
+[[capability.case]]
+id = "under-revalidate-a-post-reaches-the-site-each-time"
+covers = ["setting:cache.mode"]
+
+[[capability.case]]
+id = "replay-serves-a-post-again-to-the-same-json-in-another-key-order"
+covers = ["story:6-36", "setting:cache.mode"]
+
+[[capability.case]]
+id = "replay-serves-a-form-post-again-to-its-fields-in-another-order-each-names-values-in-theirs"
+covers = ["story:6-36"]
+
+# The cache's bounds (ADRs 0046 and 0122): each case sets one in the
+# target's user configuration and puts it back after.
+[[capability.case]]
+id = "past-cache-max-size-the-least-recently-used-entries-leave-and-the-bodies-kept-stay-within-it"
+covers = ["story:6-42", "setting:cache.max_size"]
+
+[[capability.case]]
+id = "an-entry-older-than-cache-max-age-ceiling-is-served-in-no-mode"
+covers = ["story:6-43", "setting:cache.max_age_ceiling"]
+
+[[capability.case]]
+id = "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served"
+covers = ["story:6-42", "setting:storage.low_free"]

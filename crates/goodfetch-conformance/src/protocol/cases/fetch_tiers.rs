@@ -7,8 +7,9 @@
 //! The harness names the crawl's operations by their wire names, since
 //! only `goodfetch-protocol` names its Foxhound module (ADR 0099).
 //! The page is the `content-coding` family's gzip page, over plain HTTP.
-//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, and
-//! those of its redirect chains `chain`'s.
+//! The fetch edge cases of the `http` tier (ADR 0118) are `edge`'s, those
+//! of its redirect chains `chain`'s, and its Response cache cases (ADR
+//! 0046) `cached`'s, those of the cache's bounds `bounded`'s.
 
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::page::PAGE_FORMATS;
@@ -20,6 +21,8 @@ use crate::protocol::connection::{Connection, Gone};
 use crate::protocol::foxhound::{CRAWL_REQUEST_HANDLE, CRAWL_START};
 use crate::protocol::target::DEADLINE;
 
+mod bounded;
+pub(super) mod cached;
 mod chain;
 mod edge;
 
@@ -45,6 +48,16 @@ pub(crate) enum Case {
     RedirectRetryAfter,
     HeldPastTheBoundAreRetried,
     RefreshStubs,
+    CacheOffReachesTheSite,
+    FreshResponseIsServed,
+    StaleResponseIsRevalidated,
+    VaryCookieIsKeyed,
+    RevalidatePostReachesTheSite,
+    ReplayServesAJsonPost,
+    ReplayServesAFormPost,
+    SizeCapEvictsTheLeastRecentlyUsed,
+    AgeCeilingServesNothingOlder,
+    LowStorageStoresNothingNew,
 }
 
 impl Case {
@@ -90,14 +103,47 @@ impl Case {
             "a-refresh-stub-within-fetch-refresh-max-delay-hands-the-handler-its-target" => {
                 Some(Self::RefreshStubs)
             }
+            "with-cache-mode-off-every-request-reaches-the-site" => {
+                Some(Self::CacheOffReachesTheSite)
+            }
+            "a-fresh-response-is-served-from-the-cache-with-no-request" => {
+                Some(Self::FreshResponseIsServed)
+            }
+            "a-stale-response-is-revalidated-and-a-304-serves-its-stored-body" => {
+                Some(Self::StaleResponseIsRevalidated)
+            }
+            "a-response-varying-on-cookie-is-served-only-for-its-cookie" => {
+                Some(Self::VaryCookieIsKeyed)
+            }
+            "under-revalidate-a-post-reaches-the-site-each-time" => {
+                Some(Self::RevalidatePostReachesTheSite)
+            }
+            "replay-serves-a-post-again-to-the-same-json-in-another-key-order" => {
+                Some(Self::ReplayServesAJsonPost)
+            }
+            "replay-serves-a-form-post-again-to-its-fields-in-another-order-each-names-values-in-theirs" => {
+                Some(Self::ReplayServesAFormPost)
+            }
+            "past-cache-max-size-the-least-recently-used-entries-leave-and-the-bodies-kept-stay-within-it" => {
+                Some(Self::SizeCapEvictsTheLeastRecentlyUsed)
+            }
+            "an-entry-older-than-cache-max-age-ceiling-is-served-in-no-mode" => {
+                Some(Self::AgeCeilingServesNothingOlder)
+            }
+            "at-the-low-storage-level-nothing-new-is-stored-and-what-is-held-is-served" => {
+                Some(Self::LowStorageStoresNothingNew)
+            }
             _ => None,
         }
     }
 
-    /// Runs the case on `connection` against `site`.
+    /// Runs the case on `connection` against `site`, the target's
+    /// Goodfetch home `home`, if known, holding the user configuration the
+    /// bounds cases set.
     pub(super) fn run(
         self,
         connection: &mut Connection,
+        home: Option<&str>,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -115,6 +161,22 @@ impl Case {
             Self::RedirectRetryAfter => chain::redirect_retry_after(connection, site, checks),
             Self::HeldPastTheBoundAreRetried => edge::held_past_the_bound(connection, site, checks),
             Self::RefreshStubs => chain::refresh_stubs(connection, site, checks),
+            Self::CacheOffReachesTheSite => cached::off(connection, site, checks),
+            Self::FreshResponseIsServed => cached::fresh(connection, site, checks),
+            Self::StaleResponseIsRevalidated => cached::stale(connection, site, checks),
+            Self::VaryCookieIsKeyed => cached::vary_cookie(connection, site, checks),
+            Self::RevalidatePostReachesTheSite => cached::revalidate_post(connection, site, checks),
+            Self::ReplayServesAJsonPost => cached::replay_json(connection, site, checks),
+            Self::ReplayServesAFormPost => cached::replay_form(connection, site, checks),
+            Self::SizeCapEvictsTheLeastRecentlyUsed => {
+                bounded::size_cap(connection, home, site, checks)
+            }
+            Self::AgeCeilingServesNothingOlder => {
+                bounded::age_ceiling(connection, home, site, checks)
+            }
+            Self::LowStorageStoresNothingNew => {
+                bounded::low_storage(connection, home, site, checks)
+            }
         }
     }
 }

@@ -180,6 +180,66 @@ fn a_run_with_the_audit_chain_switched_off_is_reported_once_and_its_entries_writ
     );
 }
 
+/// Field encryption and secure deletion switched off are each reported as
+/// the other controls are: listed in `weakened`, warned of once, and one
+/// chained `security_switch_turned_off` entry each.
+/// Covers: story:4-67, setting:security.field_encryption, setting:security.secure_delete
+#[test]
+fn a_run_with_field_encryption_and_secure_deletion_off_reports_each_once() {
+    let env = TestEnv::new();
+
+    let (report, warnings, entries) = started_twice(
+        &engine_with(Product::Collie, None),
+        &env,
+        &json!({ "security": { "field_encryption": false, "secure_delete": false } }),
+    );
+
+    assert_eq!(
+        (
+            &report["weakened"],
+            warnings,
+            entries
+                .into_iter()
+                .filter(|entry| entry[0] == "security_switch_turned_off")
+                .collect::<Vec<_>>(),
+        ),
+        (
+            &json!([
+                {
+                    "key": "security.field_encryption",
+                    "value": false,
+                    "layer": "run",
+                    "origin": "settings",
+                },
+                {
+                    "key": "security.secure_delete",
+                    "value": false,
+                    "layer": "run",
+                    "origin": "settings",
+                },
+            ]),
+            vec![
+                "security.field_encryption".to_owned(),
+                "security.secure_delete".to_owned()
+            ],
+            vec![
+                json!([
+                    "security_switch_turned_off",
+                    "switched",
+                    true,
+                    "security.field_encryption"
+                ]),
+                json!([
+                    "security_switch_turned_off",
+                    "switched",
+                    true,
+                    "security.secure_delete"
+                ]),
+            ]
+        )
+    );
+}
+
 /// A start with no Run ID of its own, whose engine generates one, writes
 /// its first entry, its key-encryption key's use before the Run exists,
 /// unchained and naming that Run, as the rest of its entries are.
@@ -506,7 +566,8 @@ async fn reach(params: Value, context: CallContext) -> Result<Value, CallError> 
         ("any.test", ExceptionKind::Any),
         ("pinned.test", ExceptionKind::TrustOnFirstUse),
     ] {
-        run.secrets()
+        crate::runs::keys(&run)
+            .secrets()
             .exception_hosts()
             .add(host, KeyHash::of_public_key(host.as_bytes()), kind)
             .await;

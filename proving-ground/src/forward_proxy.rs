@@ -16,7 +16,9 @@
 //! [`LIMITED_HOLD`] before relaying it, or, while a harness turned its hold
 //! on (`PUT /limited-proxy-hold`), until the harness turns it off. A proxy's own refusal names its cause in
 //! `Proxy-Status` (RFC 9209). The SOCKS5 proxy ([`socks5`]) takes the same
-//! credentials by RFC 1929 and relays one `CONNECT` per connection.
+//! credentials by RFC 1929 and relays one `CONNECT` per connection. The
+//! `https://` proxy speaks TLS to each client first, with the site's
+//! authority's leaf for [`TLS_HOST`], then relays as the open one does.
 #![expect(
     clippy::disallowed_types,
     reason = "the forward proxies open their own sockets, outside the engine's transport (ADR 0060)"
@@ -33,8 +35,9 @@ use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use serde::Serialize;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio_rustls::TlsAcceptor;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -68,6 +71,11 @@ const ANSWER_LIMIT: u64 = 1024 * 1024;
 /// icon, which a browser asks for of its own once a page loaded (ADRs 0086
 /// and 0088). It counts the pages a client loads.
 const UNCOUNTED: [&str; 2] = ["/robots.txt", "/favicon.ico"];
+
+/// The host name of the `https://` proxy, `open_tls`, whose leaf the site's
+/// authority signs: a client trusts the authority for it and maps it to
+/// the proxy's address, as it does the site's names.
+pub(crate) const TLS_HOST: &str = "tls-proxy.test";
 
 /// Who a proxy relays for.
 #[derive(Clone, Copy)]
@@ -186,6 +194,9 @@ pub(crate) struct Context {
 pub(crate) struct ForwardProxy {
     listener: TcpListener,
     proxy: Arc<Proxy>,
+    /// The TLS an `https://` proxy speaks to its clients before their
+    /// first head.
+    tls: Option<TlsAcceptor>,
 }
 
 impl ForwardProxy {
@@ -197,6 +208,21 @@ impl ForwardProxy {
         Ok(Self {
             listener,
             proxy: Arc::new(proxy),
+            tls: None,
+        })
+    }
+
+    /// Binds `proxy` on port 0 of `ip` as an `https://` proxy, each client
+    /// connection inside TLS under `config`: [`TLS_HOST`]'s leaf of the
+    /// site's authority.
+    pub(crate) async fn bind_tls(
+        ip: IpAddr,
+        proxy: Proxy,
+        config: Arc<rustls::ServerConfig>,
+    ) -> Result<Self> {
+        Ok(Self {
+            tls: Some(TlsAcceptor::from(config)),
+            ..Self::bind(ip, proxy).await?
         })
     }
 
@@ -231,6 +257,7 @@ impl ForwardProxy {
             let proxy = Arc::clone(&self.proxy);
             let context = Arc::clone(&context);
             let stop = stop.clone();
+            let tls = self.tls.clone();
             tracker.spawn(async move {
                 let relayed = async {
                     match proxy.access {
@@ -239,7 +266,7 @@ impl ForwardProxy {
                         | Access::RefusingTunnels
                         | Access::Limited
                         | Access::Authenticated => {
-                            relay(stream, source, &proxy, &context).await;
+                            relay(stream, source, &proxy, &context, tls.as_ref()).await;
                         }
                     }
                 };
@@ -271,7 +298,7 @@ impl Head {
 }
 
 /// Reads a request head; `None` if the client sends none the proxy reads.
-async fn read_head(stream: &mut TcpStream) -> Option<Head> {
+async fn read_head(stream: &mut (impl AsyncRead + Unpin)) -> Option<Head> {
     let mut buffer = Vec::new();
     let mut chunk = [0; 4096];
     loop {
@@ -364,8 +391,16 @@ fn failure(status: &str, error: &str) -> Vec<u8> {
     )
 }
 
-/// Relays one client connection.
-async fn relay(mut client: TcpStream, source: SocketAddr, proxy: &Proxy, context: &Context) {
+/// Relays one client connection, inside TLS under `tls` when it is an
+/// `https://` proxy's: the connection is recorded before its handshake,
+/// and one whose handshake fails is relayed nowhere.
+async fn relay(
+    client: TcpStream,
+    source: SocketAddr,
+    proxy: &Proxy,
+    context: &Context,
+    tls: Option<&TlsAcceptor>,
+) {
     let Ok(listening) = client.local_addr() else {
         return;
     };
@@ -376,6 +411,25 @@ async fn relay(mut client: TcpStream, source: SocketAddr, proxy: &Proxy, context
         source,
         listening,
     );
+    match tls {
+        None => relay_head(client, connection, proxy, context).await,
+        Some(acceptor) => {
+            if let Ok(client) = acceptor.accept(client).await {
+                relay_head(client, connection, proxy, context).await;
+            }
+        }
+    }
+}
+
+/// Relays the request whose head comes first on the accepted `connection`
+/// of `client`.
+async fn relay_head(
+    mut client: impl AsyncRead + AsyncWrite + Unpin,
+    connection: u64,
+    proxy: &Proxy,
+    context: &Context,
+) {
+    let observations = &context.observations;
     let Some(head) = read_head(&mut client).await else {
         let _ = client
             .write_all(&failure("400 Bad Request", "http_request_error"))
@@ -544,7 +598,7 @@ fn admit(
 /// answer first, up to [`ANSWER_LIMIT`], and stops counting before it
 /// relays it.
 async fn carry(
-    mut client: TcpStream,
+    mut client: impl AsyncRead + AsyncWrite + Unpin,
     context: &Context,
     head: &Head,
     (request, address, destination): (RelayRequest, SocketAddr, &Destination),
@@ -603,7 +657,7 @@ async fn carry(
 /// limit either way: the bytes copied each way, as
 /// `copy_bidirectional` counts them.
 async fn answered_first(
-    client: &mut TcpStream,
+    client: &mut (impl AsyncRead + AsyncWrite + Unpin),
     upstream: &mut TcpStream,
     in_flight: Option<InFlight<'_>>,
 ) -> (u64, u64) {

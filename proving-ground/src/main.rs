@@ -4,7 +4,8 @@
 //! address, prints one JSON line, and serves each page family on its own host
 //! name, the task list at `/tasks` and the oracle at `/oracle`, beside its
 //! network fixtures: forward proxies, a DNS fixture and a watched target.
-//! `tasks` prints one seed's task list and exits.
+//! `tasks` prints one seed's task list and exits; `firefox-profile` writes a
+//! Firefox profile logged in on the seeded login and exits.
 
 mod access;
 mod adversarial;
@@ -15,6 +16,7 @@ mod browser_builds;
 mod browser_pages;
 mod catalog;
 mod certificates;
+mod challenges;
 mod clean_up;
 mod client_hello;
 mod clock;
@@ -30,6 +32,7 @@ mod encodings;
 mod exchange;
 mod extraction;
 mod files;
+mod firefox_profile;
 mod fonts;
 mod forward_proxy;
 mod generator;
@@ -45,26 +48,32 @@ mod html;
 mod interface;
 mod languages;
 mod linger;
+mod locales;
 mod login;
 mod markdown;
 mod model;
 mod network;
 mod network_fixture;
 mod observation;
+mod online;
 mod oracle;
 mod output;
 mod page_load;
 mod portal;
 mod protection;
 mod push;
+mod quotes;
 mod raw;
 mod raw_site;
 mod rendered;
 mod replay;
 mod robots;
 mod schedule;
+mod search;
 mod server;
 mod site;
+mod site_tools;
+mod solvers;
 mod sync;
 mod tap;
 mod task;
@@ -72,15 +81,17 @@ mod totp;
 mod version;
 
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
 use clap::Parser as _;
 
 use crate::browser_builds::BrowserBuilds;
-use crate::command::{Command, NetworkProfile, Serve, Shaper, Tasks};
+use crate::command::{Command, Copy, FirefoxProfile, NetworkProfile, Serve, Shaper, Tasks};
 use crate::interface::ServeLine;
 use crate::network::{Loss, Network, Profile};
 use crate::network_fixture::NetworkFixtures;
+use crate::online::Online;
 use crate::server::{Server, StopSignal};
 use crate::site::Site;
 use crate::task::TaskList;
@@ -93,6 +104,11 @@ fn main() -> Result<()> {
             seed,
             &Site::every_task(seed, None),
         )),
+        Command::FirefoxProfile(FirefoxProfile {
+            seed,
+            time_step,
+            out,
+        }) => firefox_profile::write(&out, &login::seeded_session(seed, time_step)),
     }
 }
 
@@ -104,23 +120,49 @@ fn run(serve: &Serve) -> Result<()> {
         .context("building the Tokio runtime")?;
     let Serve {
         seed,
+        copy,
         address,
         network_profile,
         loss,
         shaper,
         ref browser_builds,
-        ..
+        ref online_config,
     } = *serve;
     let builds = match browser_builds {
         Some(folder) => BrowserBuilds::read(folder)?,
         None => BrowserBuilds::default(),
+    };
+    let online = match (copy, online_config) {
+        (Copy::Online, Some(path)) => Some(online(path)?),
+        (Copy::Online, None) => bail!("the online copy needs --online-config"),
+        (Copy::Local, Some(_)) => bail!("the local copy takes no --online-config"),
+        (Copy::Local, None) => None,
     };
     runtime.block_on(shape_and_serve(
         seed,
         address,
         (network_profile, loss, shaper),
         builds,
+        online,
     ))
+}
+
+/// The online copy of the configuration at `path`, each vendor's secret
+/// read from the variable its section names.
+fn online(path: &Path) -> Result<Online> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "`serve` reads its online configuration once, on its main thread, before its runtime starts"
+    )]
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("reading the online configuration {}", path.display()))?;
+    let config = online::Config::parse(&text)?;
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "main is the one reader of the environment (ADR 0059): the vendors' secrets"
+    )]
+    let secret = |name: &str| std::env::var(name).ok();
+    Online::new(&config, secret)
 }
 
 /// Listens for the stop signals, shapes and calibrates the network, binds
@@ -132,6 +174,7 @@ async fn shape_and_serve(
     address: SocketAddr,
     (network_profile, loss, shaper): (NetworkProfile, Loss, Shaper),
     builds: BrowserBuilds,
+    online: Option<Online>,
 ) -> Result<()> {
     let stop_signal = StopSignal::listen()?;
     let profile = match network_profile.round_trip() {
@@ -142,7 +185,7 @@ async fn shape_and_serve(
     let (network, server) = match (profile, shaper) {
         (None, _) => (
             Network::unshaped(),
-            Server::bind(address, None, seed, builds).await?,
+            Server::bind(address, None, seed, builds, online).await?,
         ),
         (Some(profile), Shaper::Proxy) => {
             let network = Network::proxy(profile, seed, address).await?;
@@ -150,11 +193,11 @@ async fn shape_and_serve(
             let behind = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
             (
                 network,
-                Server::bind(behind, reached_on, seed, builds).await?,
+                Server::bind(behind, reached_on, seed, builds, online).await?,
             )
         }
         (Some(profile), Shaper::Netem) => {
-            let server = Server::bind(address, None, seed, builds).await?;
+            let server = Server::bind(address, None, seed, builds, online).await?;
             (
                 Network::netem(profile, server.address().port()).await?,
                 server,
@@ -178,7 +221,13 @@ async fn serve(
 ) -> Result<()> {
     let upstream = server.address();
     let reached = network.proxy_address().unwrap_or(upstream);
-    let fixtures = NetworkFixtures::bind(reached.ip(), seed, server.observations()).await?;
+    let fixtures = NetworkFixtures::bind(
+        reached.ip(),
+        seed,
+        server.observations(),
+        server.proxy_tls(),
+    )
+    .await?;
     let addresses = fixtures.report()?;
     server.observations().set_network_fixtures(
         serde_json::to_value(&addresses).context("reporting the network fixtures")?,

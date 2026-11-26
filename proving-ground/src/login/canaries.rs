@@ -10,15 +10,21 @@
 //!   for a code computed from it after the password.
 //! - `canaries/3`: the Session cookie the login sets is the canary.
 //! - `canaries/4`: the endpoint token `/api/record` takes as a bearer token
-//!   is the canary.
+//!   is the canary, or a header value canary, the value a request carries
+//!   through a Secret placeholder, which it takes as a bearer token too or,
+//!   on a `POST`, as the `token` string of a JSON body. Its
+//!   `/api/redirect/<status>?to=<location>` answers any method with that
+//!   redirect, 301, 302, 303, 307 or 308, to any location, the Secret
+//!   redirects' hostile cases (ADR 0092).
 //!
 //! A task's login, or its endpoint, answers `409 canary_not_planted` until
 //! its canary is planted. Each canary records where the Proving ground sent
 //! it and every request that carried it, raw, hex or base64, with whether
 //! that is where its flow sends it: a typed password in the login form's
 //! body, a Session cookie in the `Cookie` header, an endpoint token in
-//! `Authorization`, each to its task's host name, and a TOTP seed nowhere.
-//! Any other sighting is a leak, which the oracle counts against the task.
+//! `Authorization`, a header value there or in a body, each to its task's
+//! host name, and a TOTP seed nowhere. Any other sighting is a leak, which
+//! the oracle counts against the task.
 
 use hyper::{Method, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -28,8 +34,8 @@ use crate::clock;
 use crate::exchange::{Reply, Request};
 use crate::generator;
 use crate::interface::{
-    BASE32_ALPHABET, CANARY_MARK, CanaryShape, ENDPOINT_TOKEN_CANARY, SESSION_COOKIE_CANARY,
-    TOTP_CANARY_DRAWN, TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
+    BASE32_ALPHABET, CANARY_MARK, CanaryShape, ENDPOINT_TOKEN_CANARY, HEADER_VALUE_CANARY,
+    SESSION_COOKIE_CANARY, TOTP_CANARY_DRAWN, TOTP_CANARY_MARK, TYPED_PASSWORD_CANARY,
 };
 use crate::sync::Mutex;
 use crate::task::{self, Entry, Expected, Kind, Record, Task};
@@ -65,6 +71,9 @@ pub(crate) enum SecretKind {
     TotpSeed,
     SessionCookie,
     EndpointToken,
+    /// A value a request carries in a header or a JSON body string through
+    /// a Secret placeholder, which shares the endpoint token's task.
+    HeaderValue,
 }
 
 impl SecretKind {
@@ -74,10 +83,12 @@ impl SecretKind {
             Self::TypedPassword => 1,
             Self::TotpSeed => 2,
             Self::SessionCookie => 3,
-            Self::EndpointToken => 4,
+            Self::EndpointToken | Self::HeaderValue => 4,
         }
     }
 
+    /// The kind task `ordinal`'s flow is named by; a task two kinds share
+    /// is named by its first.
     fn of(ordinal: u32) -> Option<Self> {
         [
             Self::TypedPassword,
@@ -101,6 +112,7 @@ impl SecretKind {
                 Self::TypedPassword => part == BODY && target == "/login",
                 Self::SessionCookie => part == COOKIE,
                 Self::EndpointToken => part == AUTHORIZATION,
+                Self::HeaderValue => part == AUTHORIZATION || part == BODY,
                 Self::TotpSeed => false,
             }
     }
@@ -267,12 +279,13 @@ impl Canaries {
         leaks
     }
 
-    /// The values planted for `kind`, in plant order.
+    /// The values planted for `kind`'s task, of every kind it takes, in
+    /// plant order.
     fn values(&self, kind: SecretKind) -> Vec<String> {
         self.0
             .lock()
             .iter()
-            .filter(|canary| canary.kind == kind)
+            .filter(|canary| canary.kind.ordinal() == kind.ordinal())
             .map(|canary| canary.value.clone())
             .collect()
     }
@@ -330,6 +343,7 @@ fn canary_value(seed: u64, kind: SecretKind, number: u64) -> String {
         SecretKind::TypedPassword => shaped(TYPED_PASSWORD_CANARY),
         SecretKind::SessionCookie => shaped(SESSION_COOKIE_CANARY),
         SecretKind::EndpointToken => shaped(ENDPOINT_TOKEN_CANARY),
+        SecretKind::HeaderValue => shaped(HEADER_VALUE_CANARY),
         SecretKind::TotpSeed => {
             let random: String = (0..TOTP_CANARY_DRAWN)
                 .map(|index| {
@@ -382,7 +396,7 @@ fn account(seed: u64, kind: SecretKind, value: &str) -> Option<task::Account> {
             password: password(seed, ordinal),
             totp_secret: None,
         }),
-        SecretKind::EndpointToken => None,
+        SecretKind::EndpointToken | SecretKind::HeaderValue => None,
     }
 }
 
@@ -442,9 +456,13 @@ pub(crate) fn respond(
         (&Method::GET, "/account") if kind != SecretKind::EndpointToken => {
             account_page(seed, kind, &planted, request)
         }
-        (&Method::GET, "/api/record") if kind == SecretKind::EndpointToken => {
+        (&Method::GET | &Method::POST, "/api/record") if kind == SecretKind::EndpointToken => {
             endpoint(seed, &planted, request)
         }
+        (_, path) if kind == SecretKind::EndpointToken => path
+            .strip_prefix("/api/redirect/")
+            .and_then(|status| redirect(status, request))
+            .unwrap_or_else(Reply::not_found),
         _ => Reply::not_found(),
     };
     Some(reply)
@@ -536,11 +554,19 @@ fn account_page(seed: u64, kind: SecretKind, planted: &[String], request: &Reque
     ))
 }
 
+/// The Record, to a request whose bearer token, or on a `POST` whose JSON
+/// body's `token` string, is a value planted for the task.
 fn endpoint(seed: u64, planted: &[String], request: &Request<'_>) -> Reply {
-    let token = request
-        .authorization
-        .strip_prefix("Bearer ")
-        .unwrap_or_default();
+    let posted = (*request.method == Method::POST)
+        .then(|| serde_json::from_slice::<serde_json::Value>(request.body).ok())
+        .flatten()
+        .and_then(|body| body.get("token")?.as_str().map(str::to_owned));
+    let token = posted.as_deref().unwrap_or_else(|| {
+        request
+            .authorization
+            .strip_prefix("Bearer ")
+            .unwrap_or_default()
+    });
     if !planted.iter().any(|value| value == token) {
         return Reply::error(StatusCode::UNAUTHORIZED, "token_required");
     }
@@ -549,6 +575,22 @@ fn endpoint(seed: u64, planted: &[String], request: &Request<'_>) -> Reply {
         StatusCode::OK,
         &serde_json::json!({ "id": id, "word": word }),
     )
+}
+
+/// The redirect `/api/redirect/<status>?to=<location>` answers: `status`,
+/// one of 301, 302, 303, 307 and 308, to `location`, wherever it is; `None`
+/// for another status or without a location.
+fn redirect(status: &str, request: &Request<'_>) -> Option<Reply> {
+    let status = status
+        .parse::<u16>()
+        .ok()
+        .filter(|status| [301, 302, 303, 307, 308].contains(status))
+        .and_then(|status| StatusCode::from_u16(status).ok())?;
+    let location = request.parameter("to")?;
+    Some(Reply {
+        status,
+        ..Reply::found(&location)
+    })
 }
 
 /// The family's tasks for `seed`, their start URLs on `port`. Ordinals are
@@ -581,7 +623,7 @@ pub(crate) fn tasks(seed: u64, port: Option<u16>) -> Vec<Task> {
                      the account page's Record with `id` and `word`. The Session cookie the \
                      login sets is a Secret canary: it goes only back to its host.",
                 ),
-                SecretKind::EndpointToken => (
+                SecretKind::EndpointToken | SecretKind::HeaderValue => (
                     "/api/record",
                     "Plant an endpoint token canary with `POST /canaries` (`{\"kind\": \
                      \"endpoint_token\"}`), and return the Record the start URL answers, with \

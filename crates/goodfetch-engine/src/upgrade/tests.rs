@@ -221,6 +221,25 @@ fn no_file_of_the_older_majors_daemon_reaches_the_new_major() {
     assert_eq!(reached, Vec::<PathBuf>::new());
 }
 
+/// The older major's Response cache is not copied: the new major's starts
+/// empty (ADR 0046).
+///
+/// Covers: story:6-49
+#[test]
+fn the_older_majors_response_cache_is_not_copied() {
+    let env = TestEnv::new();
+    let home = home_of_major_2(&env);
+    let cache = home.root().join("2/response-cache/bodies");
+    std::fs::create_dir_all(&cache).unwrap();
+    std::fs::write(cache.join("a-body"), "a cached body").unwrap();
+    std::fs::write(cache.with_file_name("index.sqlite"), "the index").unwrap();
+    let paths = UpgradePaths::parse("[[source]]\nmajor = \"2\"\n").unwrap();
+
+    upgrade_files(&home, &version("3.1.0"), None, &paths).unwrap();
+
+    assert!(!home.root().join("3/response-cache").exists());
+}
+
 /// A Goodfetch home that cannot be read is an error, never "nothing to
 /// upgrade", which would leave the older major's files behind unsaid.
 ///

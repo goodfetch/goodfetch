@@ -285,7 +285,7 @@ A run's or an AI task's statement of whether its Success checks, Page checks and
 _Avoid_: status, success, result (for the verdict)
 
 **Recipe**:
-A portable package of user code, described by a manifest, that runs the same locally or on Goodfetch Cloud and can be published.
+A portable package, described by its manifest, whose one entry is a program of user code, a list of steps or a crawl declared as data, so that a Recipe of data holds no code; it runs the same locally or on Goodfetch Cloud and can be published.
 _Avoid_: actor, app, pack, script
 
 **Setting**:
@@ -622,6 +622,10 @@ _Avoid_: KVS, blob store, cache
 A file the engine writes from a run's results in a chosen format.
 _Avoid_: dump, download
 
+**Saved file**:
+A file written at a path the program gives, such as an Export, a Download, a Checkpoint or a screenshot: the path ends up holding the whole file or what it held before.
+_Avoid_: atomic file, atomic save
+
 **Sink**:
 A system outside the engine that receives a run's committed Records, as rows or messages or as Export files, while the run is in progress or afterwards.
 _Avoid_: output, pipeline, connector
@@ -899,6 +903,10 @@ _Avoid_: fake engine, mock engine, mock server
 **Recording gate**:
 A stand-in, used only in the engine's own tests, for what Foxhound sets on a crawl handler's page: a navigation gate, lease check and response observer that record each call the page makes to them and refuse, hold or end as the test sets, so the page's call sites are tested without Foxhound.
 _Avoid_: mock gate, fake gate, spy
+
+**Memory site**:
+A site used only in Foxhound's own tests, served from memory through the fetch tiers' test seam, whose pages, latency and robots.txt the test sets, so a crawl runs with no network.
+_Avoid_: mock site, fake server, stub site
 
 **Testing kit**:
 The public module of each Product's SDK for testing a program written against it, holding a Scripted model and a test engine that reaches no site unless a test records.

@@ -36,7 +36,8 @@
 //! such as a hedge (ADRs 0040 and 0086): [`SecondCopies`] gives the copy
 //! room of its own, a Permit of its key under the same shared rule and a
 //! share of the rate cap, so a key that admits one request at a time never
-//! sends one, and one whose delay has not passed holds it until it has.
+//! sends one, and one whose delay has not passed holds it until it has. A
+//! live Run's opens through [`of_run`] (ADR 0145).
 //!
 //! Size: one concern, which waiting request a Run admits next and what
 //! holds the rest: its gate, its rate cap and the Permits of the
@@ -61,17 +62,15 @@ use tokio::time::Instant;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::politeness::{
-    Ending, Hold, Holder, OwnPoliteness, Permit, Politeness, PolitenessError, SharedRule, Taken,
-    Wake,
+    Ending, Hold, Holder, OwnPoliteness, Permit, Politeness, PolitenessError, RECLAIM_CHECK,
+    SharedRule, Taken, Wake,
 };
 use crate::run_state::SealedBatch;
 use crate::settings::Resolved;
 
-/// How long a key the Politeness holds for want of room waits for a wake
-/// before its Run tries it again: only to find a holder that died without
-/// giving its Permits back, whose Permits are then reclaimed. Every other
-/// wait is woken or ends at its own deadline.
-const RECLAIM_CHECK: Duration = Duration::from_secs(30);
+mod live;
+
+pub use live::{AdmissionError, of_run};
 
 /// A request waiting for admission, as a gate receives it.
 #[derive(Clone, Debug, PartialEq, Eq)]

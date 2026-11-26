@@ -6,8 +6,9 @@
 # job's container (ci/hosted/visual.sh), which `just pre-merge <form>` cannot
 # start from inside it, so their job records the step here, as the gate
 # records a step it ran (`just _gate-record`): on the head the plan names,
-# by the hosted layer, green on `success` and red otherwise, so `just merge`
-# reuses a green one and ends red on a red one (ci/hosted-records.sh).
+# by the hosted layer, green on `success` and red otherwise, so a plan given
+# the hosted records reuses a green one and ends red on a red one
+# (ci/hosted-records.sh).
 set -euo pipefail
 
 usage="usage: ci/hosted/record.sh <form> <step> <outcome>"

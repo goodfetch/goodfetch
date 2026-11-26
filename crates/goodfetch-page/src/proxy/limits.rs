@@ -28,22 +28,15 @@ use std::time::{Duration, SystemTime};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::politeness::{
     Ending, Hold, Holder, KeyState, MemoryTables, Permit, PermitRule, Politeness, PolitenessTables,
-    SharedRule, Step, Taken, Verdict, milliseconds, moment,
+    RECLAIM_CHECK, RECOVERY, SharedRule, Step, Taken, Verdict, milliseconds, moment,
 };
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::page::proxy::ProxyServer;
 use goodfetch_protocol::politeness::{POLITENESS_PROXY_CONCURRENCY, POLITENESS_PROXY_RATE};
 use rusqlite::{Connection, OptionalExtension as _};
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
-
-/// How long a lowered ceiling stays quiet before it grows back by one.
-pub(crate) const RECOVERY: Duration = Duration::from_secs(10);
-
-/// How long a wait for room lasts before the key is tried again, only to
-/// find a holder that died.
-const RECLAIM_CHECK: Duration = Duration::from_secs(30);
 
 /// The table the rule keeps each proxy key's shared state in.
 pub(crate) const TABLES: PolitenessTables = PolitenessTables {
@@ -271,7 +264,11 @@ fn key(account: Account<'_>) -> String {
 /// A Session's proxy's limits: the Politeness its Run shares, under the
 /// proxy's key and the Run's rule.
 pub(crate) struct ProxyLimits {
-    run: Run,
+    /// Its Run's identity, whose owner, its Session's, gives a Permit back
+    /// on a task of its own and ends a wait when it stops (ADR 0146).
+    run: RunIdentity,
+    /// Cancelled with that owner, which ends a wait for a Permit.
+    ending: CancellationToken,
     politeness: Politeness,
     holder: Holder,
     key: String,
@@ -288,22 +285,23 @@ impl std::fmt::Debug for ProxyLimits {
 }
 
 impl ProxyLimits {
-    /// The limits of `account`'s proxy, used by a Session of `run` under
-    /// `settings`; none, with a warning, when the Politeness its Run shares
-    /// cannot be opened, so the Session goes on unlimited.
+    /// The limits of `account`'s proxy, used by a Session of `run`'s Run
+    /// under `settings`; none, with a warning, when the Politeness its Run
+    /// shares cannot be opened, so the Session goes on unlimited.
     ///
     /// # Errors
     ///
     /// Why `settings` give no rule ([`ProxyRule::of`]).
     pub(crate) async fn open(
         settings: &Resolved,
-        run: &Run,
+        run: &super::RunPowers,
         account: Account<'_>,
     ) -> Result<Option<Arc<Self>>, String> {
         let rule = ProxyRule::of(settings)?;
-        Ok(match run.politeness(settings).await {
+        Ok(match run.politeness.open(settings).await {
             Ok((politeness, holder)) => Some(Arc::new(Self {
-                run: run.clone(),
+                run: run.identity.clone(),
+                ending: run.identity.owner().child_token(),
                 politeness,
                 holder,
                 key: key(account),
@@ -319,9 +317,9 @@ impl ProxyLimits {
     /// A Permit for one request through the proxy, once the rule admits
     /// it: a wait for a start's interval sleeps until then, and a wait for
     /// room until the Permit's give back wakes this Run, or the check for a
-    /// holder that died. None once its Run is cancelled, as its end does,
-    /// and, with a warning, when the Politeness file fails: the request
-    /// goes unlimited.
+    /// holder that died. None once its Session's owner is cancelled, as its
+    /// end and its Run's do, and, with a warning, when the Politeness file
+    /// fails: the request goes unlimited.
     ///
     /// # Cancel safety
     ///
@@ -334,7 +332,7 @@ impl ProxyLimits {
             &self.holder,
             &self.rule,
             &self.run.clock(),
-            self.run.cancellation(),
+            &self.ending,
         )
         .await?;
         Some(ProxyPermit {

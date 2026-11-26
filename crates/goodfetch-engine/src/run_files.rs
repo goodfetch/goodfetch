@@ -17,7 +17,9 @@
 //! folder named by the run epoch of the state it was written from (ADR
 //! 0003), but recorded in no table: it is written from the Run's committed
 //! state, a Run that ended having no writer, so its ID names its file by
-//! that run epoch and its SHA-256. It is deleted with its Run, and a Checkpoint does not carry it.
+//! that run epoch and its SHA-256. It is deleted with its Run, and with every
+//! other Export of the Run when one of its Datasets is erased (ADR 0031), and
+//! a Checkpoint does not carry it.
 //!
 //! A kept file reaches the program's path through [`save`], under ADR
 //! 0116's rule: a hidden temporary file beside the path,
@@ -27,16 +29,24 @@
 //! (`file_write_failed`) failed. [`Saving`] writes a path the same way
 //! from bytes that arrive in parts, such as the `$/chunk` notifications of
 //! an Export a CLI command receives from the Daemon.
+//!
+//! A live Run's [`RunFiles`] stores its page bodies and keeps its files
+//! (ADR 0145).
 
 mod carry;
+mod live;
 mod save;
 mod store;
 
 pub(crate) use carry::{CarryError, drop_chunks, pack, unpack};
+pub(crate) use goodfetch_saved_file::{os_code, reason_of};
+pub use live::RunFiles;
+pub(crate) use save::save;
 pub use save::{SaveError, Saving};
-pub(crate) use save::{os_code, reason_of, save};
 pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};
-pub(crate) use store::{file, find, forget, read, record, stage, store, store_export, unrecord};
+pub(crate) use store::{
+    file, find, forget, forget_exports, read, record, stage, store, store_export, unrecord,
+};
 
 use crate::run_state::RunStateTables;
 

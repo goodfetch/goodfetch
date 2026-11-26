@@ -14,7 +14,8 @@ import type { ValidateFunction } from "ajv/dist/2020.js";
 import { parse } from "smol-toml";
 import { hostPlatform, hostRuntime } from "./case-log.ts";
 import { TestSupportError } from "./errors.ts";
-import { test } from "./fixtures.ts";
+import type { TestContext } from "vitest";
+import type { TestSupportFixtures } from "./fixtures.ts";
 import type {
   CheckResult,
   JourneyOutcome,
@@ -32,7 +33,12 @@ import type { ProcessRecord, RecordedProcess } from "./process-record.ts";
 import { productEnv, type Product } from "./product-env.ts";
 import { judgeTask, type ProvingGroundDescription, type TaskResult } from "./proving-ground.ts";
 import { ajv } from "./schemas.ts";
-import { startTestEnv, toolPath, type TestEnvDescription } from "./test-env.ts";
+import {
+  startTestEnv,
+  toolPath,
+  type BrowserDownload,
+  type TestEnvDescription,
+} from "./test-env.ts";
 
 /** The catalog's folder, `journeys/` at the repository's root. */
 const CATALOG = new URL("../../../journeys/", import.meta.url);
@@ -78,6 +84,18 @@ export interface JourneyRunStart {
   readonly toolManifest: string | undefined;
   /** The environment the run's setup starts with, as `startTestEnv`'s `env`. */
   readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  /**
+   * How the engine's first use of an empty Browser cache goes, as
+   * `startTestEnv`'s `browserDownload`, from the Journey's Proving ground
+   * (#665): `served` for a variant whose engine downloads its browser.
+   */
+  readonly browserDownload?: BrowserDownload | undefined;
+}
+
+/** How a `journey()` variant's home is laid out. */
+export interface JourneyOptions {
+  /** As `JourneyRunStart`'s `browserDownload`. */
+  readonly browserDownload?: BrowserDownload | undefined;
 }
 
 /** A tool's result for one check's task, without the task: what the oracle judges. */
@@ -101,7 +119,7 @@ export interface JourneyRun {
   /** The test's home, as `goodfetch-test-env` describes it. */
   readonly testEnv: TestEnvDescription;
   /** The home's environment with the Product's engine path set: what an SDK of the Product runs under. */
-  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly env: Readonly<Record<string, string>>;
   /** The Proving ground started on the Journey's seed, for a Journey with a `[proving_ground]` table. */
   readonly provingGround: ProvingGroundDescription | undefined;
   /** Runs the executable with `args` in the home: how a step pinned `on = "cli"` runs in any variant. */
@@ -187,6 +205,7 @@ export async function startJourneyRun(start: JourneyRunStart): Promise<JourneyRu
     env: start.env,
     // The Journey's own seed, never the test's (ADR 0063).
     provingGroundSeed: variant.proving_ground?.seed,
+    browserDownload: start.browserDownload,
   });
   try {
     const testEnv = started.description;
@@ -210,24 +229,32 @@ export async function startJourneyRun(start: JourneyRunStart): Promise<JourneyRu
 }
 
 /**
- * Declares the Vitest test of the variant of `journeys/<id>.toml` on
- * `surface`, tagged with both: it starts the run, gives it to `body` to take
- * the steps and checks, finishes it and fails unless it is proved. A throw
- * outside a step or check fails the test with no document, as the Rust
- * helper's panic does.
+ * The body of the Vitest test of a variant, which the test file declares as
+ * `test("<id>@<surface>", { tags: ["<id>", "<surface>"] }, journey(…))` with
+ * test support's `test`: Vitest lists a file's tests by reading its source,
+ * so the name and tags are written there, and `journey` takes the variant of
+ * `journeys/<id>.toml` on `surface` from them (`journey_misdeclared` when
+ * they disagree). It starts the run, gives it to `body` to take the steps
+ * and checks, finishes it and fails unless it is proved. A throw outside a
+ * step or check fails the test with no document, as the Rust helper's panic
+ * does. `options` lay the variant's home out, such as an engine that
+ * downloads its browser on first use.
  */
 export function journey(
-  id: string,
-  surface: string,
   body: (run: JourneyRun) => void | Promise<void>,
-): void {
-  test(`${id}@${surface}`, { tags: [id, surface] }, async ({ processes, toolManifest, task }) => {
+  options: JourneyOptions = {},
+): (
+  context: Pick<TestContext, "task"> & Pick<TestSupportFixtures, "processes" | "toolManifest">,
+) => Promise<void> {
+  return async ({ processes, toolManifest, task }) => {
+    const { id, surface } = declaredVariant(task.name, task.tags ?? []);
     const run = await startJourneyRun({
       file: fileURLToPath(new URL(`${id}.toml`, CATALOG)),
       surface,
       processes,
       testName: task.fullName,
       toolManifest,
+      browserDownload: options.browserDownload,
     });
     let failed = true;
     try {
@@ -243,7 +270,31 @@ export function journey(
     } finally {
       await run.close({ failed });
     }
-  });
+  };
+}
+
+/**
+ * The variant a Journey test's name `<id>@<surface>` names, which its tags
+ * must both carry.
+ */
+function declaredVariant(
+  name: string,
+  tags: readonly string[],
+): { readonly id: string; readonly surface: string } {
+  const [id, surface, ...rest] = name.split("@");
+  if (
+    id === undefined ||
+    surface === undefined ||
+    rest.length > 0 ||
+    !tags.includes(id) ||
+    !tags.includes(surface)
+  ) {
+    throw new TestSupportError(
+      "journey_misdeclared",
+      `the Journey test "${name}" is not named <id>@<surface> and tagged with both (tags: ${tags.join(", ")})`,
+    );
+  }
+  return { id, surface };
 }
 
 function readJourney(file: string): JourneyFile {
@@ -313,7 +364,7 @@ class Run implements JourneyRun {
   readonly product: Product;
   readonly engine: string;
   readonly testEnv: TestEnvDescription;
-  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly env: Readonly<Record<string, string>>;
   readonly provingGround: ProvingGroundDescription | undefined;
   readonly command: (args: readonly string[]) => RecordedProcess;
   readonly close: (outcome?: { readonly failed: boolean }) => Promise<void>;

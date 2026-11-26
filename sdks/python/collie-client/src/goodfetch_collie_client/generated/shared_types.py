@@ -22,7 +22,7 @@ received (ADR 0079).
 - `certificate_pinned`: A host's certificate was pinned on first use under its domain's exception, with the SHA-256 of its public key (ADR 0042).
 - `consent_domain_allowed`: A person added a domain, or `*`, to `consent.domains` in user configuration, so later runs accept its consent walls (ADR 0048), with the warning of what they take on that they were shown (ADR 0052).
 - `effect_reconciled`: A person answered about an uncertain Effect (ADRs 0029 and 0106): "it happened", "it did not happen" or "leave uncertain"; `details` give the Run, the Effect journal `entry`, the `key`, the `crawl_request` and the `answer`.
-- `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, or a Connection whose opening sent no `hello` first, in time or within its size limit. `audit.refusals_per_minute` bounds how many one listener records in a minute.
+- `endpoint_authentication_failed`: A listening endpoint refused a request for a missing, wrong, expired or revoked token, a foreign `Host` or a foreign `Origin`, a Connection whose opening sent no `hello` first, in time or within its size limit, or one opened without TLS where the listener serves TLS. `audit.refusals_per_minute` bounds how many one listener records in a minute.
 - `endpoint_refusals_folded`: A listener refused more attempts in a minute than `audit.refusals_per_minute` records: the count of those not recorded one by one, each still logged.
 - `exposed_daemon_set_up`: An Exposed Daemon's setup completed through its setup link (ADR 0049).
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
@@ -124,7 +124,7 @@ received (ADR 0079).
 - `storage_low`: The Run met the `low` storage level: the folder, its free space and what was shed.
 """
 
-UsageKind: TypeAlias = Literal["browser_time", "model_calls", "model_tokens", "page_crashes", "paid_solves", "proxy_bytes", "requests", "sample_echoes"] | str
+UsageKind: TypeAlias = Literal["browser_time", "model_calls", "model_tokens", "page_crashes", "paid_solves", "plugin_calls", "plugin_time", "proxy_bytes", "requests", "sample_echoes"] | str
 """A `usage_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -135,6 +135,8 @@ received (ADR 0079).
 - `model_tokens`: Model tokens a run used, input and output (ADR 0101).
 - `page_crashes`: Crashes of a run: one per renderer that crashed, and one per browser process that crashed, however many pages it held (ADR 0040). A crash racing the page's close does not count.
 - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
+- `plugin_calls`: Calls a run made into Plugins, of every form, per implementation (ADR 0033).
+- `plugin_time`: The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).
 - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
 - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.
 - `sample_echoes`: Texts the sample operation repeated.

@@ -3,8 +3,8 @@
 //! of a value that cannot take effect where it is set, `config.explain`
 //! with the explanation it answers and `config explain --json` prints, the
 //! files of the two layers kept in Goodfetch home (Operator policy and user
-//! configuration, per major, shared by both Products), the Recipe
-//! manifest's Product and settings, the closed list of deployment
+//! configuration, per major, shared by both Products), the bounds of a
+//! Recipe's exposed setting, the closed list of deployment
 //! variables (kept in `deployment`), and the keys of areas whose own modules
 //! do not exist yet, each with its area first (ADR 0083). Each later area moves its keys into
 //! its own module.
@@ -12,8 +12,6 @@
 //! Size: one catalog module: the contract of settings and their layers, and
 //! the flat declarations of the keys whose areas have no module yet, which
 //! leave as those modules arrive.
-
-use std::collections::BTreeMap;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -32,8 +30,8 @@ pub mod session_source;
 pub use deployment::{
     BROWSERS_PATH_VARIABLE, CHANNEL_VARIABLE, CHANNELS, COLLIE_ENGINE_PATH_VARIABLE,
     DAEMON_ADDRESS_VARIABLE, DAEMON_DRAIN_GRACE_VARIABLE, DEPLOYMENT_PREFIX, DEPLOYMENT_VARIABLES,
-    FOXHOUND_ENGINE_PATH_VARIABLE, HOME_VARIABLE, OPS_ADDRESS_VARIABLE, TEST_SEED_VARIABLE,
-    TOKEN_VARIABLE, URL_VARIABLE,
+    EKS_FARGATE_PROFILE_VARIABLE, FOXHOUND_ENGINE_PATH_VARIABLE, HOME_VARIABLE,
+    OPS_ADDRESS_VARIABLE, TEST_SEED_VARIABLE, TOKEN_VARIABLE, URL_VARIABLE,
 };
 
 /// A field that is present, `null` included, as `Some`; one left out stays
@@ -533,27 +531,6 @@ pub struct Exposure {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub one_of: Vec<Value>,
-}
-
-/// What a Recipe's manifest says about its Product and its settings
-/// (ADRs 0028 and 0096).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct RecipeManifest {
-    /// The Recipe's name.
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub name: String,
-    /// The Product the Recipe needs, which `init` writes (ADR 0096).
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub product: Product,
-    /// The settings it declares, each locked for its users unless exposed.
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub settings: Map<String, Value>,
-    /// The settings its users may set, by key, each with its bounds.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    #[schemars(extend("arrived_in" = "0.1"))]
-    pub expose: BTreeMap<String, Exposure>,
 }
 
 /// A user configuration or project configuration file: its format version
@@ -1181,6 +1158,21 @@ pub const TIMEOUT_HOOK: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `timeout.plugin` (ADRs 0033 and 0080; spec #596).
+pub const TIMEOUT_PLUGIN: Setting = Setting {
+    name: "timeout.plugin",
+    description: "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
+    kind: ValueKind::Duration,
+    default: thirty_seconds,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `timeout.sink_write` (ADRs 0080 and 0083), refused away from its default until its phase is
 /// built.
 pub const TIMEOUT_SINK_WRITE: Setting = Setting {
@@ -1324,6 +1316,7 @@ pub const ENTRIES: Entries = Entries {
         TIMEOUT_WAIT,
         TIMEOUT_FIRST_BYTE,
         TIMEOUT_HOOK,
+        TIMEOUT_PLUGIN,
         TIMEOUT_SINK_WRITE,
         TIMEOUT_AGENT,
         TIMEOUT_AI,

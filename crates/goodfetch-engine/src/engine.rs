@@ -36,10 +36,10 @@ use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{EngineContext, Stores, os_user};
+use crate::engine_context::{EngineContext, Host, Stores, ToTheDaemon, host_zone, os_user, places};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
-use crate::forward::ToOwner;
+use crate::forward::{DaemonReach, ThroughTheReach, ToOwner};
 use crate::governor::{Governor, System};
 use crate::home::{Home, RunStateLocation};
 use crate::log::LogEvents;
@@ -56,7 +56,7 @@ use crate::runs::{
     CleanUpVersions, Driving, PanicStop, ProgressPart, ReportPart, Runs, RunsSetup, SendWindow,
 };
 use crate::sandbox_probe::{self, SandboxProbe};
-use crate::secrets::{self, Carried, Keychain, ProviderFactory, Secrets};
+use crate::secrets::{self, Carried, DriverSlot, Keychain, ProviderFactory, Secrets};
 use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
@@ -64,6 +64,11 @@ use crate::transition::{
     engine::{EngineEvent, EngineState},
 };
 use crate::transport::{Connection, DaemonListener, Network, TransportError};
+use crate::user_store::UserStoreKind;
+
+/// The stream of the engine's entropy its handlers draw from, such as a
+/// schedule's ID; drawn from the seed alone, so no other owner's draws move.
+const HANDLERS_STREAM: u64 = 1;
 
 /// An engine of one Product, composed and ready to serve.
 #[derive(Clone)]
@@ -79,12 +84,15 @@ pub struct Engine {
     gates: Option<Arc<dyn Gates>>,
     needs_you_sources: Vec<NeedsYouSource>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
+    user_stores: Vec<&'static UserStoreKind>,
     controls: Controls,
     events: EventsOptions,
     metrics: Metrics,
     system: Option<System>,
     audit_events: Option<AuditEvents>,
+    driver_slot: DriverSlot,
     drain_grace: Duration,
+    daemon_reach: Option<Arc<dyn DaemonReach>>,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -127,6 +135,7 @@ impl Engine {
                 metrics: metrics.clone(),
                 runs_of_calls: composition.runs_of_calls(),
                 watched_sessions: composition.watched_sessions(),
+                attempt_stagings: composition.attempt_stagings(),
             }),
             tables: composition.run_state_tables(),
             driving: composition.driving(),
@@ -138,12 +147,15 @@ impl Engine {
             gates: composition.admission_gates()?,
             needs_you_sources: composition.needs_you_sources(),
             secret_providers: composition.secret_providers(),
+            user_stores: composition.user_stores(),
             controls: composition.controls(),
             events: EventsOptions::default(),
             metrics,
             system: None,
             audit_events: None,
+            driver_slot: DriverSlot::default(),
             drain_grace: get_or_default(None, &DRAIN_GRACE),
+            daemon_reach: None,
         })
     }
 
@@ -190,6 +202,21 @@ impl Engine {
         self
     }
 
+    /// The same, filling `slot` with its Secret references' driver once it
+    /// built it, for a part made before it, such as the OTLP exports'
+    /// collector, which reads its client certificate's key through it
+    /// (issue 1648).
+    #[must_use]
+    pub fn with_driver_slot(mut self, slot: DriverSlot) -> Self {
+        self.driver_slot = slot;
+        self
+    }
+
+    /// The slot its Secret references' driver fills once it built it.
+    pub fn driver_slot(&self) -> &DriverSlot {
+        &self.driver_slot
+    }
+
     /// The same, its event stream's buffers sized by `options`.
     #[must_use]
     pub fn with_events(mut self, options: EventsOptions) -> Self {
@@ -204,6 +231,16 @@ impl Engine {
     #[must_use]
     pub fn with_drain_grace(mut self, grace: Duration) -> Self {
         self.drain_grace = grace;
+        self
+    }
+
+    /// The same, an Attached engine that forwards the calls its major's
+    /// Daemon keeps, such as `schedule.*`, to the Daemon `reach` reaches,
+    /// started when none runs (spec 589). Without it, and on a Daemon, the
+    /// engine answers them itself.
+    #[must_use]
+    pub fn with_daemon_reach(mut self, reach: Arc<dyn DaemonReach>) -> Self {
+        self.daemon_reach = Some(reach);
         self
     }
 
@@ -347,7 +384,9 @@ impl Engine {
     /// The engine's event stream, Runs registry and what its Runs and
     /// calls are given, tasks of `owner`; the Run index names `reached_at`
     /// as the owner of its live Runs, whose run state is in `install` in
-    /// the per-install layout.
+    /// the per-install layout. On any engine but a Daemon, the calls the
+    /// major's Daemon keeps go to the Daemon its reach reaches, if it has
+    /// one.
     fn start_runs(
         &self,
         mut dependencies: Dependencies,
@@ -379,8 +418,12 @@ impl Engine {
             &dependencies.home,
             &self.identity().product_version,
             dependencies.run_state.vfs.clone(),
-            Arc::new(owner.part("engine's stores")),
-            part_stopped_with(owner, "engine's store connections"),
+            (
+                Arc::new(owner.part("engine's stores")),
+                part_stopped_with(owner, "engine's store connections"),
+            ),
+            (self.metrics.counted_work().clone(), &governor),
+            &self.user_stores,
         );
         let needs_you = NeedsYou::start(
             &self.needs_you_sources,
@@ -402,10 +445,11 @@ impl Engine {
             clock: dependencies.clock,
             settings: settings.clone(),
         });
+        let daemon = self.to_the_daemon(reached_at.as_ref(), &forwarder);
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
-            (needs_you, sandbox_probe, stores),
+            (needs_you, sandbox_probe, stores, daemon),
             owner,
         );
         let runs = Runs::start_registry(
@@ -450,6 +494,21 @@ impl Engine {
         (runs, events, context)
     }
 
+    /// What sends the calls the major's Daemon keeps to it, through the
+    /// engine's reach and as `forwarder` calls: none on a Daemon, which
+    /// `reached_at` names, nor on an engine without a reach.
+    fn to_the_daemon(
+        &self,
+        reached_at: Option<&RunOwner>,
+        forwarder: &Arc<ToOwner>,
+    ) -> Option<Arc<dyn ToTheDaemon>> {
+        let reach = match reached_at {
+            Some(RunOwner::Daemon(_)) => None,
+            Some(RunOwner::Attached(_)) | None => self.daemon_reach.clone(),
+        }?;
+        Some(Arc::new(ThroughTheReach::new(reach, Arc::clone(forwarder))))
+    }
+
     /// What the engine's Runs and calls are given, under `settings` with
     /// `needs_you` and `stores`, and the engine's
     /// Secret-provider driver, which records in the same Audit log: both
@@ -461,7 +520,12 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        (needs_you, sandbox_probe, stores): (NeedsYou, SandboxProbe, Stores),
+        (needs_you, sandbox_probe, stores, daemon): (
+            NeedsYou,
+            SandboxProbe,
+            Stores,
+            Option<Arc<dyn ToTheDaemon>>,
+        ),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
         let audit = Arc::new(
@@ -489,7 +553,13 @@ impl Engine {
             stores,
             needs_you,
             sandbox_probe,
-            os_user(&dependencies.environment),
+            Host {
+                person: os_user(&dependencies.environment),
+                zone: host_zone(&dependencies.environment),
+                entropy: dependencies.entropy.stream(HANDLERS_STREAM),
+                places: places(&dependencies.home, &dependencies.environment),
+                daemon,
+            },
         );
         let secrets = Secrets::new(
             Carried {
@@ -509,6 +579,7 @@ impl Engine {
             .fold(secrets, |secrets, (provider, factory)| {
                 secrets.with_configured(*provider, Arc::clone(factory))
             });
+        self.driver_slot.fill(&secrets);
         (context, secrets)
     }
 

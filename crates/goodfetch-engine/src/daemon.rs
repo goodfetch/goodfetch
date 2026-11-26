@@ -59,10 +59,11 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use crate::accounts::AccountsStore;
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::composition::{Answering, CallContext, Closing, DaemonSide, Handler, Holding};
-use crate::endpoint::Authorities;
+use crate::endpoint::{Authorities, Exposure};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::live_view::LiveView;
@@ -125,9 +126,13 @@ pub struct DaemonOptions {
     pub ops: Ops,
     /// Whether its listener also carries the protocol over WebSocket, as
     /// an Exposed Daemon's address does (ADR 0049): the names a handshake's
-    /// `Host` may carry, and its `Origin` over `http`; none for a Daemon
-    /// on the machine.
-    pub websocket: Option<Authorities>,
+    /// `Host` may carry, and the certificate it serves TLS with, if it
+    /// does; none for a Daemon on the machine.
+    pub websocket: Option<Exposure>,
+    /// Its Accounts store, opened once as it starts, when it has accounts
+    /// (`accounts.enabled`, ADR 0149); none for a Daemon whose person is
+    /// the OS user.
+    pub accounts: Option<AccountsStore>,
     /// Where its Live view channels open (ADR 0031), as `live_view.enabled`
     /// was when it started; none while it is off.
     pub live_view: Option<LiveViewAt>,
@@ -329,7 +334,8 @@ struct Shared {
     /// Runs show as live.
     runs_held: Holds,
     succession: Arc<dyn Succession>,
-    websocket: Option<Arc<Authorities>>,
+    websocket: Option<Arc<Exposure>>,
+    accounts: Option<Arc<AccountsStore>>,
     live_view: LiveView,
     /// Where its Live view channels open, if they do.
     live_view_at: Option<SocketAddr>,
@@ -370,6 +376,7 @@ impl Shared {
             runs_held: Holds::new(),
             succession: options.succession,
             websocket: options.websocket.map(Arc::new),
+            accounts: options.accounts.map(Arc::new),
             live_view: live_view.0,
             live_view_at: live_view.1,
             presence: watch::Sender::new(Presence::default()),
@@ -566,6 +573,7 @@ impl DaemonSide for ConnectionSide {
                 live_runs: count(shared.runs.live_count().await),
                 kept_alive: shared.kept_alive(),
                 idle_timeout: u64::try_from(shared.idle_timeout.as_millis()).unwrap_or(u64::MAX),
+                accounts: shared.accounts.is_some(),
                 heap: crate::heap::live(),
                 live_view: shared.live_view_at,
             }
@@ -598,6 +606,17 @@ fn count(live: usize) -> u32 {
     u32::try_from(live).unwrap_or(u32::MAX)
 }
 
+/// Records in the Audit log, when the Daemon is exposed behind TLS
+/// terminated upstream, that choice (ADR 0049).
+async fn record_termination(serving: &Serving, shared: &Shared) {
+    if let Some(exposure) = &shared.websocket {
+        let address = shared.endpoint.to_string();
+        exposure
+            .record_upstream(serving.engine.audit(), address, serving.engine.now())
+            .await;
+    }
+}
+
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
 /// those of children of `owner`.
 pub(crate) async fn serve(
@@ -626,6 +645,7 @@ pub(crate) async fn serve(
         (live_view, live_view_at),
     ));
     serving.metrics.draining(false);
+    record_termination(&serving, &shared).await;
     if let Some(ops) = ops {
         let (health, engine) = (shared.health.clone(), serving.engine.clone());
         owner.spawn(ops::serve(ops, health, owner.part("ops endpoint"), engine));
@@ -1050,7 +1070,7 @@ fn serve_connection(
         let served = async {
             let access = match (door, websocket) {
                 (Door::LiveView(authorities), _) => rpc::Access::LiveView(side, authorities),
-                (Door::Listener, Some(authorities)) => rpc::Access::Exposed(side, authorities),
+                (Door::Listener, Some(exposure)) => rpc::Access::Exposed(side, exposure),
                 (Door::Listener, None) => rpc::Access::Daemon(side),
             };
             rpc::serve(

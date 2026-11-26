@@ -22,9 +22,11 @@ use goodfetch_protocol::page::waits::{
 use goodfetch_protocol::page::{Locator, PageId};
 
 use super::{Pages, in_call, pattern_of};
+use crate::cdp::CdpPage;
 use crate::guard::{self, Awaited, Wait, Waited, Window};
 use crate::page_events::WaitDeadline;
 use crate::page_functions::{self, Injection, Matches};
+use crate::page_reads;
 use crate::sessions::PageEvent;
 
 /// How long `page.wait_for_function` leaves between two checks when the
@@ -50,7 +52,7 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
             &PAGE_WAIT_FOR_REQUEST,
             move |params: WaitForExchangeParams, context: CallContext| {
                 let pages = requesting.clone();
-                let armed = pages.events.get(&params.page_id).and_then(|events| {
+                let armed = pages.events(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_request(pattern, deadline))
@@ -68,7 +70,7 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
             &PAGE_WAIT_FOR_RESPONSE,
             move |params: WaitForExchangeParams, context: CallContext| {
                 let pages = responding.clone();
-                let armed = pages.events.get(&params.page_id).and_then(|events| {
+                let armed = pages.events(&params.page_id).and_then(|events| {
                     let pattern = params.url.as_ref().map(pattern_of).transpose()?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_response(pattern, deadline))
@@ -86,7 +88,7 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
             &PAGE_WAIT_FOR_URL,
             move |params: WaitForUrlParams, context: CallContext| {
                 let pages = locating.clone();
-                let armed = pages.events.get(&params.page_id).and_then(|events| {
+                let armed = pages.events(&params.page_id).and_then(|events| {
                     let pattern = pattern_of(&params.url)?;
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_url(
@@ -111,7 +113,7 @@ fn with_armed_handlers(contribution: Contribution, pages: &Pages) -> Contributio
             &PAGE_WAIT_FOR_LOAD_STATE,
             move |params: WaitForLoadStateParams, context: CallContext| {
                 let pages = loading.clone();
-                let armed = pages.events.get(&params.page_id).and_then(|events| {
+                let armed = pages.events(&params.page_id).and_then(|events| {
                     let deadline = events.wait_deadline(params.timeout)?;
                     Ok(events.wait_for_load_state(params.state.unwrap_or_default(), deadline))
                 });
@@ -189,8 +191,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                 let awaited = Awaited::State(params.state.unwrap_or_default());
                 in_call((LOCATOR_WAIT_FOR.name, context.form()), async move {
                     let deadline = pages
-                        .events
-                        .get(&params.locator.page_id)?
+                        .events(&params.locator.page_id)?
                         .wait_deadline(params.timeout)?;
                     pages
                         .wait_on_locator(
@@ -211,8 +212,7 @@ fn with_checking_handlers(contribution: Contribution, pages: &Pages) -> Contribu
                 in_call((LOCATOR_WAIT_FOR_COUNT.name, context.form()), async move {
                     let count = count_of(params.count)?;
                     let deadline = pages
-                        .events
-                        .get(&params.locator.page_id)?
+                        .events(&params.locator.page_id)?
                         .wait_deadline(params.timeout)?;
                     let waited = pages
                         .wait_on_locator(
@@ -273,7 +273,9 @@ impl Pages {
     ) -> Result<T, CallError> {
         // It only listens, and its limit runs in `armed`: it waits for no
         // `Runtime` a `page.on` is turning on.
-        self.init_scripts.settled(page_id).await;
+        if let Some(settling) = self.sessions.page_owners().settling(page_id) {
+            settling.await;
+        }
         let page = self.opened(page_id).await?;
         page.life
             .call(PageEvent::Read, async {
@@ -311,14 +313,13 @@ impl Pages {
         };
         let (page, spent) = self
             .open(wait.page_id, |_| {
-                let deadline = self.events.get(wait.page_id)?.wait_deadline(wait.timeout)?;
+                let deadline = self.events(wait.page_id)?.wait_deadline(wait.timeout)?;
                 Ok(deadline.deadline().cloned())
             })
             .await?;
         tracing::Span::current().record("run_id", page.run.id().as_str());
         let deadline = self
-            .events
-            .get(wait.page_id)?
+            .events(wait.page_id)?
             .wait_deadline(wait.timeout)?
             .having_spent(spent);
         let world = wait.world.unwrap_or_default();
@@ -327,10 +328,10 @@ impl Pages {
                 .mark(&page.run, &page.session, wait.page_id, injection)
                 .await;
         }
+        let cdp = &CdpPage::of(&page.driver);
         let truthy = Box::pin(page_functions::until_truthy(
-            &page.driver,
-            (wait.expression, operation),
-            world,
+            || page_reads::evaluate(cdp, wait.expression, world, operation),
+            operation,
             (interval, deadline.clock()),
             form,
         ));
@@ -366,6 +367,7 @@ impl Pages {
                 spent,
             }),
             form: context.form(),
+            owner: &page.owner,
         };
         page.life
             .call(

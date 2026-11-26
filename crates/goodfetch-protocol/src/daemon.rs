@@ -14,7 +14,7 @@
 use std::time::SystemTime;
 
 use std::fmt;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use schemars::JsonSchema;
@@ -22,10 +22,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
     Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
+    Product, ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 pub use crate::connection::DaemonEndpoint;
 use crate::connection::ProductVersion;
+use crate::egress::PrivateRange;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -121,7 +122,7 @@ fn address_of_this_version() -> serde_json::Value {
 /// any other Daemon's Live view channels.
 pub const ADDRESS: Setting = Setting {
     name: "daemon.address",
-    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. Only a loopback address, until the Daemon terminates TLS. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+    description: "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
     kind: ValueKind::Text,
     default: address_of_this_version,
     clearable: false,
@@ -146,6 +147,171 @@ pub const DRAIN_GRACE: Setting = Setting {
     description: "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
     kind: ValueKind::Duration,
     default: hundred_and_ten_seconds,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn unset() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
+/// `daemon.tls.cert_file` (ADR 0049): the certificate chain an Exposed
+/// Daemon serves TLS with.
+pub const TLS_CERT_FILE: Setting = Setting {
+    name: "daemon.tls.cert_file",
+    description: "The certificate chain `daemon run`, the foreground Daemon, serves TLS with on `daemon.address`, a PEM or DER file, set together with `daemon.tls.key_file`. With both set, every Connection opens with a TLS handshake, its JSON-RPC lines and its WebSocket alike, and one that does not is closed and recorded in the Audit log; a replaced file is read again at the next Connection, with no restart. Unset by default, which limits `daemon.address` to loopback unless `daemon.tls.upstream` is set. Set in user configuration or an Operator policy.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `daemon.tls.key_file` (ADR 0049): the private key of
+/// `daemon.tls.cert_file`'s certificate.
+pub const TLS_KEY_FILE: Setting = Setting {
+    name: "daemon.tls.key_file",
+    description: "The private key of `daemon.tls.cert_file`'s certificate, a PEM file (PKCS #8, PKCS #1 or SEC 1) or a DER file, set together with it. A replaced file is read again at the next Connection, with no restart. Unset by default. Set in user configuration or an Operator policy.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no() -> serde_json::Value {
+    serde_json::Value::Bool(false)
+}
+
+/// `daemon.tls.upstream` (ADR 0049): TLS terminated in front of an
+/// Exposed Daemon.
+pub const TLS_UPSTREAM: Setting = Setting {
+    name: "daemon.tls.upstream",
+    description: "Whether TLS is terminated in front of `daemon run`, the foreground Daemon, by an ingress or a reverse proxy, which lets `daemon.address` be other than loopback with no `daemon.tls.cert_file`. The Daemon then serves in plain, still requires its token, checks each WebSocket handshake's `Host` and `Origin`, and reads `X-Forwarded-Host` and `X-Forwarded-Proto` only from the addresses `daemon.trusted_proxies` lists. `false` by default, and refused together with the TLS files. A Daemon started with it records `tls_terminated_upstream` in the Audit log. Set in user configuration or an Operator policy.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// One entry of `daemon.trusted_proxies`: a CIDR range, or one address.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedProxy {
+    first: IpAddr,
+    prefix: u8,
+}
+
+impl TrustedProxy {
+    /// Reads one entry: `10.0.0.0/8`, `192.0.2.7`, `[::1]` or `fd00::/8`.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with it, for a `setting_invalid` message: a host name
+    /// among them, since a proxy is known by its peer address.
+    pub fn parse(entry: &str) -> Result<Self, String> {
+        match PrivateRange::parse(entry) {
+            Ok(PrivateRange::Block { first, prefix }) => Ok(Self { first, prefix }),
+            Ok(PrivateRange::Host(_)) | Err(_) => Err(format!(
+                "expected a CIDR range or an IP address, found `{entry}`"
+            )),
+        }
+    }
+
+    /// Reads the setting's value, a list of entries.
+    ///
+    /// # Errors
+    ///
+    /// What is wrong with the first entry that does not read.
+    pub fn list(value: &serde_json::Value) -> Result<Vec<Self>, String> {
+        match value {
+            serde_json::Value::Null => Ok(Vec::new()),
+            serde_json::Value::Array(entries) => entries
+                .iter()
+                .map(|entry| match entry.as_str() {
+                    Some(text) => Self::parse(text),
+                    None => Err(format!(
+                        "expected a CIDR range or an IP address, found `{entry}`"
+                    )),
+                })
+                .collect(),
+            _ => Err(format!(
+                "expected a list of CIDR ranges and IP addresses, found `{value}`"
+            )),
+        }
+    }
+
+    /// Whether `peer`, a Connection's peer address, is in the range: an
+    /// IPv4 peer as a dual-stack socket maps it into IPv6 too.
+    pub fn holds(self, peer: IpAddr) -> bool {
+        match (self.first, peer.to_canonical()) {
+            (IpAddr::V4(first), IpAddr::V4(peer)) => {
+                let mask = u32::MAX
+                    .checked_shl(32 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                first.to_bits() & mask == peer.to_bits() & mask
+            }
+            (IpAddr::V6(first), IpAddr::V6(peer)) => {
+                let mask = u128::MAX
+                    .checked_shl(128 - u32::from(self.prefix))
+                    .unwrap_or(0);
+                first.to_bits() & mask == peer.to_bits() & mask
+            }
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for TrustedProxy {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}/{}", self.first, self.prefix)
+    }
+}
+
+/// `daemon.trusted_proxies`' values: what [`TrustedProxy::list`] reads.
+pub const TRUSTED_PROXIES_SHAPE: ValueShape = ValueShape {
+    name: "TrustedProxies",
+    check: |value| TrustedProxy::list(value).map(drop),
+    schema: || {
+        serde_json::json!({
+            "type": "array",
+            "items": {
+                "type": "string",
+                "description": "A CIDR range such as `10.0.0.0/8`, or an IP address such as `192.0.2.7`.",
+            },
+        })
+    },
+    examples: || vec![serde_json::json!(["10.0.0.0/8", "192.0.2.7"])],
+};
+
+fn none_listed() -> serde_json::Value {
+    serde_json::json!([])
+}
+
+/// `daemon.trusted_proxies` (ADR 0049): the proxies whose `X-Forwarded-*`
+/// an Exposed Daemon behind them reads.
+pub const TRUSTED_PROXIES: Setting = Setting {
+    name: "daemon.trusted_proxies",
+    description: "The proxies in front of `daemon run`, the foreground Daemon, whose `X-Forwarded-Host` and `X-Forwarded-Proto` it reads under `daemon.tls.upstream`: IP addresses and CIDR ranges such as `10.0.0.0/8`, matched on a Connection's peer address. From a listed proxy, `X-Forwarded-Proto: https` makes a WebSocket handshake's `Origin` one over `https`, and with it the name `X-Forwarded-Host` gives is one the Daemon answers to; each header's first value counts. From any other address both are ignored, and `Forwarded` and `X-Forwarded-For` are never read. Empty by default, and refused without `daemon.tls.upstream`. Set in user configuration or an Operator policy.",
+    kind: ValueKind::Shape(&TRUSTED_PROXIES_SHAPE),
+    default: none_listed,
     clearable: false,
     authority: Authority::Machine,
     weakens: None,
@@ -247,6 +413,12 @@ pub struct DaemonState {
     /// Its `daemon.idle_timeout`, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub idle_timeout: u64,
+    /// Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+    /// store is open. Without, its person is the OS user, on its own
+    /// machine only, as with a Daemon that does not say.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub accounts: bool,
     /// Its live heap: the bytes its own allocations hold now, as its
     /// executable's allocator counts them, without the pages that
     /// allocator keeps once they are freed; none where nothing counts
@@ -496,7 +668,15 @@ pub const ENTRIES: Entries = Entries {
     error_codes: &[NOT_A_DAEMON, DAEMON_DRAINING, DAEMON_UNREACHABLE],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[IDLE_TIMEOUT, ADDRESS, DRAIN_GRACE],
+    settings: &[
+        IDLE_TIMEOUT,
+        ADDRESS,
+        DRAIN_GRACE,
+        TLS_CERT_FILE,
+        TLS_KEY_FILE,
+        TLS_UPSTREAM,
+        TRUSTED_PROXIES,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

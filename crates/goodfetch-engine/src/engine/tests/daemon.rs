@@ -88,6 +88,7 @@ pub(super) fn options(pick: bool, handovers: &Handovers) -> DaemonOptions {
         ops: Ops::default(),
         websocket: None,
         live_view: None,
+        accounts: None,
     }
 }
 
@@ -544,7 +545,7 @@ fn daemon_status_counts_its_clients_and_live_runs() {
         json!({
             "product": "collie", "product_version": "1.4.0", "pid": 4242,
             "endpoint": { "unix": "daemon.sock" }, "clients": 2, "live_runs": 2,
-            "kept_alive": false, "idle_timeout": 600_000,
+            "kept_alive": false, "idle_timeout": 600_000, "accounts": false,
         })
     );
 }
@@ -941,8 +942,9 @@ fn a_daemon_not_the_pick_hands_over_with_only_a_kennel_left_unless_it_keeps_the_
 /// unraised its new Run starts, and it keeps its Client until the Client
 /// leaves (ADR 0098).
 ///
-/// Covers: story:3-144, story:3-138, error:format_version_unsupported
+/// Covers: story:3-144, story:3-138
 #[rstest]
+/// Covers: error:format_version_unsupported
 #[case::raised(true, (Some("format_version_unsupported".to_owned()), true, 1))]
 #[case::unraised(false, (None, false, 0))]
 fn a_daemon_locked_out_of_the_run_index_hands_over_once_its_runs_end(
@@ -1209,8 +1211,9 @@ pub(super) fn stuck() -> Contribution {
 pub(super) fn stuck_handler() -> Handler {
     Handler::new(&STUCK, |params: Value, context: CallContext| async move {
         let run = driven(&context, &params).await;
-        run.spawn(std::future::pending());
-        Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+        let identity = crate::runs::identity(&run);
+        identity.spawn(std::future::pending());
+        Ok::<Value, CallError>(json!({ "run_id": identity.id().to_string() }))
     })
 }
 

@@ -63,6 +63,14 @@ mod cookies;
 mod deadlines;
 #[path = "../src/egress_relay/head.rs"]
 mod head;
+#[path = "../src/egress_relay/message.rs"]
+mod message;
+#[path = "../src/cdp/requests.rs"]
+#[expect(
+    dead_code,
+    reason = "the scenario reads its Referer as the browser named it, never the headers by name"
+)]
+mod requests;
 #[path = "../src/egress_relay/serve.rs"]
 #[expect(
     dead_code,
@@ -88,7 +96,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_cdp::generated::{fetch, network};
-use goodfetch_cdp::{Connection, Framer};
+use goodfetch_cdp::{Connection, Framer, NetError};
 use goodfetch_clean_up_rules::matching::Choices;
 use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::rules::FilterLists;
@@ -96,6 +104,7 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::egress::{Policy, RequestKind};
 use goodfetch_page::url_pattern::UrlPattern;
 use goodfetch_test_support::runtime;
+use requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders, kind_of};
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 
@@ -320,9 +329,12 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
                         .next()
                         .await
                         .expect("invariant: the browser end pauses every request");
-                    let paused = event
+                    let mut paused = event
                         .read::<fetch::RequestPausedEvent>()
                         .expect("invariant: the browser end pauses requests");
+                    // Taken out of the event, as the pipeline's paused
+                    // request takes it.
+                    let id = PausedId::new(std::mem::take(&mut paused.request_id));
                     let url = &paused.request.url;
                     if routes.iter().any(|route| route.matches(url)) {
                         continue;
@@ -335,26 +347,26 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
                         .and_then(Value::as_str)
                         .unwrap_or(url);
                     let request = steps::Paused {
-                        id: &paused.request_id,
+                        id: &id,
                         url,
                         method: &paused.request.method,
                         overrides: &overrides,
-                        headers: &paused.request.headers,
-                        kind: steps::kind(paused.resource_type, true),
+                        headers: RequestHeaders::of(&paused.request.headers),
+                        kind: kind_of(paused.resource_type, true),
                         source_url: source,
                         egress: RequestKind::Page,
                     };
                     match steps::send_on(&request, &policy, blocking, None, false) {
                         Ok(steps::Sent::Continue(command)) => {
-                            sent(&connection, &command).await;
+                            sent(&connection, &command.into_params()).await;
                             sent_on += 1;
                         }
                         Ok(steps::Sent::StandIn(stand_in)) => {
-                            sent(&connection, &stand_in).await;
+                            sent(&connection, &stand_in.into_params()).await;
                         }
                         Err(_) => {
                             let failed = fetch::FailRequestParams {
-                                request_id: paused.request_id.clone(),
+                                request_id: id.as_str().to_owned(),
                                 error_reason: network::ErrorReason::BlockedByClient,
                             };
                             sent(&connection, &failed).await;

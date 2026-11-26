@@ -22,3 +22,4 @@ A pull request's tests meet this list, a standard the `code-review` skill applie
 18. A new message or code from a party Goodfetch did not write has its named case in its translation point's table, which also holds one case for a failure it does not recognize (ADR 0127).
 19. A new lifecycle state or event adds a named case for each pair it forms, with the outcome copied from its area spec's table (ADR 0128).
 20. A Proving ground page or task a feature's test needs comes in the same pull request as the feature and its test (ADR 0032).
+21. A finding of the review names the lines or the run that prove it, and dismissing a finding takes the same proof.

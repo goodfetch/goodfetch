@@ -44,11 +44,13 @@ use std::process::ExitCode;
 use std::sync::LazyLock;
 
 use anyhow::{Context as _, Result, bail};
+use goodfetch_protocol::catalog::Stability;
 use serde_json::{Map, Value};
 
 use crate::api_baseline::{self, Changes, Outcome};
 use crate::check::Finding;
 use crate::git;
+use crate::tree::BUNDLE;
 
 mod connection;
 mod defaults;
@@ -61,10 +63,6 @@ const PROJECTIONS: [(&str, &str); 2] = [
         "crates/goodfetch-protocol/generated/foxhound.json",
     ),
 ];
-
-/// The bundle, whose `outputs` are the `--json` output types and
-/// `command_failed` that of every command that fails (ADR 0069).
-const BUNDLE: &str = "crates/goodfetch-protocol/generated/bundle.json";
 
 /// An entry's fields that no caller depends on.
 const UNCHECKED_FIELDS: [&str; 5] = [
@@ -284,7 +282,7 @@ fn by_name(entries: &[Value]) -> BTreeMap<String, &Value> {
 }
 
 fn is_experimental(entry: &Value) -> bool {
-    entry.get("stability").and_then(Value::as_str) == Some("experimental")
+    entry.get("stability").and_then(Value::as_str) == Some(Stability::Experimental.as_str())
 }
 
 /// The side each schema-valued field of an entry describes.

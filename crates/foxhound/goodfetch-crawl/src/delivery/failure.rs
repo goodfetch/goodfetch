@@ -14,7 +14,7 @@ use goodfetch_engine::mask::{Masks, Scope};
 use goodfetch_engine::{CallError, retry_after};
 use goodfetch_fetch_tier::{FetchFailure, TransportFailure};
 use goodfetch_frontier::backoff_classes::{Class, Met, class};
-use goodfetch_protocol::connection::DEADLINE_EXCEEDED;
+use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, ENGINE_PANICKED};
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::crawl::{HANDLER_FAILED, RESPONSE_UNAVAILABLE};
 use goodfetch_protocol::hook::HOOK_FAILED;
@@ -259,6 +259,11 @@ fn read(code: &str, details: &Map<String, Value>) -> Why {
     }
     if code == HANDLER_FAILED.name {
         return Why::Handler;
+    }
+    // A call on a Page a panic of its owner's tasks closed (ADR 0148): the
+    // attempt that used the Page fails under the Run's retry rule.
+    if code == ENGINE_PANICKED.name {
+        return Why::Panicked;
     }
     // A wrapped code is retried as its own retryable flag says.
     if code == HOOK_FAILED.name && details.get("wrapped_code").is_none_or(Value::is_null) {

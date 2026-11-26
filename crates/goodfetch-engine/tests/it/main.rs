@@ -64,6 +64,7 @@ mod message_scenario;
 mod name_server;
 mod nothing_leaves;
 mod operator_endpoints;
+mod plugin_install;
 mod plugin_traffic;
 #[cfg(target_os = "linux")]
 mod politeness_store;

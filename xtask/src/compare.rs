@@ -133,8 +133,10 @@ pub(crate) struct RunArguments {
     /// `xtask/compare-openspider` into `openspider`,
     /// `xtask/compare-fastcrw` into `fastcrw` (with fastCRW's server
     /// installed into `fastcrw/<profile>/bin`), `xtask/compare-crawlberg`
-    /// into `crawlberg` and the Collie scenario's
-    /// `xtask/compare-chromiumoxide` into `chromiumoxide`.
+    /// into `crawlberg`, the Collie scenario's
+    /// `xtask/compare-chromiumoxide` into `chromiumoxide`, and the handled
+    /// cell's Rust program, `goodfetch-foxhound`'s `compare-handled`
+    /// example, from the workspace into `foxhound-rust`.
     #[arg(long)]
     spider_builds: PathBuf,
     /// The profile those builds were made with, which names the folder

@@ -1915,7 +1915,7 @@
     {
       "id": "error:live_view_viewer_limit",
       "kind": "error",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10203,7 +10203,7 @@
     {
       "id": "setting:live_view.enabled",
       "kind": "setting",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10225,7 +10225,7 @@
     {
       "id": "setting:live_view.max_viewers",
       "kind": "setting",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10236,7 +10236,7 @@
     {
       "id": "setting:live_view.tier",
       "kind": "setting",
-      "area": null,
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [

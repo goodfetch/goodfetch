@@ -8,6 +8,7 @@ Hand-written, since no catalog entry shapes them.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import timedelta
 from functools import cache, partial
 from types import NoneType, UnionType
 from typing import (
@@ -27,6 +28,7 @@ from typing import (
 
 from pydantic import AwareDatetime, BaseModel, RootModel
 
+from goodfetch_collie_client.duration import duration
 from goodfetch_collie_client.point_in_time import point_in_time
 from goodfetch_collie_client.unknown_member import UnknownMember
 
@@ -119,13 +121,16 @@ def _build(annotation: object) -> _Build | None:
     """What builds a value of a type unvalidated; none when it holds no model or time.
 
     Pydantic gives a field typed `PointInTime` the annotation `AwareDatetime`,
-    the alias's first argument, and keeps the rest as the field's metadata.
+    the alias's first argument, and keeps the rest as the field's metadata;
+    and one typed `Duration` the annotation `timedelta`.
     """
     origin = get_origin(annotation)
     if origin is Annotated:
         return _build(get_args(annotation)[0])
     if annotation is AwareDatetime:
         return point_in_time
+    if annotation is timedelta:
+        return duration
     if origin is Union or origin is UnionType:
         return _build_union([m for m in get_args(annotation) if m is not NoneType])
     if origin is list:

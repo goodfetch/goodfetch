@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "65"
+version = "67"
 
 [[capability]]
 name = "lifecycle"
@@ -572,18 +572,25 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 # 1282): `finish()` answers the whole Run report and `stop()` the Run
 # stopped as an abort by its program, with its Checkpoint; a Run that ended
 # `failed` makes both raise the error that failed it, and a call's timeout
-# ends only its wait. `progress()` answers the Run's progress at once, and
-# the next read, sent once the program asks for the next value with the
-# last value's position as `after`, answers the value carrying the message
-# `setProgressMessage` set. It plays on the Scripted engine, in Rust as
-# the Daemon (`daemon`), whose script checks every message the SDK sends.
-# That following the progress prints no status line is
-# `nothing-at-import-or-connect`'s, whose guest program follows it.
+# ends only its wait. `progress()` answers the Run's progress at once, with
+# the Human pause the Run waits on, and the next read, sent once the
+# program asks for the next value with the last value's position as
+# `after`, answers the latest value, the ones between coalesced, carrying
+# the message `setProgressMessage` set. It plays on the Scripted engine,
+# attached and as the Daemon, whose script checks every message the SDK
+# sends, and in Rust linked as far as that engine goes: the progress answers
+# at once and coalesces two messages set before the next read into the
+# latest, `finish()` answers the report with Rust's times, and `stop()` the
+# Run stopped by its program with its Checkpoint. A Human pause, a timeout
+# that ends a finish's wait and a failed Run need a page or a failure the
+# linked engine has no way to make on cue, so they play on the Scripted
+# engine, in Rust as the Daemon. That following the progress
+# prints no status line is `nothing-at-import-or-connect`'s, whose guest
+# program follows it.
 [[capability.case]]
 id = "finish-stop-and-progress"
 covers = ["story:11-128", "story:11-129"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
-modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["daemon"] }
 
 # A scope's settings (ADR 0083; issue 2952): `connect()`'s own reach the
 # engine in `hello`, and a Run's own sit over them in three states, a key

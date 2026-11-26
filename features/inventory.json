@@ -1946,6 +1946,17 @@
       ]
     },
     {
+      "id": "error:live_view_viewer_limit",
+      "kind": "error",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:local_address_unavailable",
       "kind": "error",
       "area": 4,
@@ -10300,9 +10311,42 @@
       ]
     },
     {
+      "id": "setting:live_view.enabled",
+      "kind": "setting",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:live_view.hiding",
       "kind": "setting",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:live_view.max_viewers",
+      "kind": "setting",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:live_view.tier",
+      "kind": "setting",
+      "area": 12,
       "milestone": null,
       "status": "active",
       "products": [
@@ -18087,6 +18131,17 @@
       ]
     },
     {
+      "id": "story:12-144",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:12-15",
       "kind": "story",
       "area": 12,
@@ -18423,6 +18478,17 @@
       "kind": "story",
       "area": 12,
       "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:12-38",
+      "kind": "story",
+      "area": 12,
+      "milestone": "M3 Browser automation",
       "status": "active",
       "products": [
         "collie",

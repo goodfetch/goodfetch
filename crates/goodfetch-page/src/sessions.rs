@@ -111,6 +111,7 @@ use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::cdp::launch::Launcher;
+use crate::cdp::live_view::WatchedTabs;
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
@@ -554,6 +555,11 @@ impl Sessions {
         }
     }
 
+    /// Its open Sessions' tabs, as the Live view watches them.
+    pub(crate) fn watched(&self) -> WatchedTabs {
+        self.index.watched()
+    }
+
     /// Each open page's owner, by its ID, which a call that acts as it
     /// arrives reads.
     pub(crate) fn page_owners(&self) -> &PageOwners {
@@ -655,7 +661,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
             });
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session.clone(), &open);
             (session, life, open)
         };
@@ -809,7 +815,7 @@ impl Sessions {
         {
             let mut state = self.state.lock().await;
             reached(&mut state, &run.identity)?;
-            self.index.opened(session.clone(), Arc::clone(&held));
+            self.index.opened(&session, Arc::clone(&held));
             self.watch_session(session.clone(), &held);
         }
         if let Some(fingerprint) = &held.fingerprint {
@@ -1286,7 +1292,7 @@ impl Sessions {
         for open in reopened {
             let session = session_id(run.identity.id(), open.position);
             let open = Arc::new(open);
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session, &open);
         }
         state.runs.insert(run.identity.id().clone(), runs);

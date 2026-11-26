@@ -115,6 +115,11 @@
           "const": "proxy_relay",
           "description": "A Session's proxy relay (`goodfetch-page`'s `proxy::relay`): a\nloopback HTTP proxy of the Session's own, which tunnels only for the\nSession's per-Session credentials (ADR 0037 / SA-22; spec #577).",
           "type": "string"
+        },
+        {
+          "const": "live_view",
+          "description": "A Daemon's Live view channels (ADR 0031): a WebSocket at the\nchannel's path of `daemon.address`, its handshake held to the\nDaemon's `Host` and `Origin`, opened by an `open` carrying the\nDaemon's token.",
+          "type": "string"
         }
       ]
     },

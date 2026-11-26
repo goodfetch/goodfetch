@@ -4,8 +4,8 @@
 //! is built. It is the one module of the page crate that names the CDP
 //! crate, as the module check holds (`[crates]` in the crate's
 //! `modules.toml`): the browser's launch and the borrowed browser's
-//! connection, the driver, the CDP command log, what a CDP failure raises
-//! and the keys a keyboard sends are its own. A primitive sends through
+//! connection, the driver, the CDP command log, what a CDP failure raises,
+//! the keys a keyboard sends and the Live view's screencast are its own. A primitive sends through
 //! the page's driver, whose lease check, counted rows, Run trace and
 //! deadlines it keeps.
 //!
@@ -98,6 +98,7 @@ mod hop;
 mod init_scripts;
 pub(crate) mod keys;
 pub(crate) mod launch;
+pub(crate) mod live_view;
 mod masking;
 mod memory;
 mod navigation;

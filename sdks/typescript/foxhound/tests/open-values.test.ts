@@ -129,9 +129,51 @@ describe("a value a newer engine adds", () => {
   });
 
   test("of Foxhound's own reaches a Collie program as a string", () => {
-    const usage: CollieUsageKind = "paid_fetches";
+    const usage: CollieUsageKind = "paid_fetch";
     const scope: CollieLimitScope = { kind: "partitioned_crawl", id: "books" };
 
-    expect([usage, scope.kind]).toEqual(["paid_fetches", "partitioned_crawl"]);
+    expect([usage, scope.kind]).toEqual(["paid_fetch", "partitioned_crawl"]);
   });
+});
+
+describe("a value only Foxhound carries", () => {
+  test(
+    "reads in a crawl's usage: its Paid fetches, and a Partitioned crawl's Limit on them",
+    { tags: ["story:11-1085"] },
+    () => {
+      const report = {
+        run_id: "run-1",
+        usage: {
+          paid_fetches: [{ amount: 3, currency: "USD" }],
+          limits: [
+            {
+              amount: 10,
+              left: 7,
+              scope: "partitioned_crawl",
+              set_by: "client",
+              usage_kind: "paid_fetch",
+            },
+          ],
+        },
+      };
+
+      const read = fromWire(report, { type: "CrawlRunReport" }, foxhoundWire.types);
+
+      expect(read).toStrictEqual({
+        runId: "run-1",
+        usage: {
+          paidFetches: [{ amount: 3, currency: "USD" }],
+          limits: [
+            {
+              amount: 10,
+              left: 7,
+              scope: "partitioned_crawl",
+              setBy: "client",
+              usageKind: "paid_fetch",
+            },
+          ],
+        },
+      });
+    },
+  );
 });

@@ -30,10 +30,7 @@ const LIST: &str = "wording.toml";
 const UNPUBLISHED: [&str; 3] = ["docs/adr/", "docs/agents/", "docs/testing/"];
 
 /// The generated contract files whose texts are published (ADR 0038).
-const CONTRACTS: [&str; 2] = [
-    "crates/goodfetch-protocol/generated/catalog.json",
-    "crates/goodfetch-protocol/generated/bundle.json",
-];
+const CONTRACTS: [&str; 2] = [tree::CATALOG, tree::BUNDLE];
 
 /// The keys of the contract files that hold prose.
 const PROSE_KEYS: [&str; 3] = ["description", "message", "title"];

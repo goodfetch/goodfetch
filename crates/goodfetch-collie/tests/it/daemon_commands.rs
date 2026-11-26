@@ -35,7 +35,7 @@ fn checked(env: &TestEnv, arguments: &[&str], definition: &str) -> (CliOutput, V
 /// Snapshots `outputs` as `name`, each under its command line, with the
 /// shared filters and the Daemon's PID and socket, whose folder depends on
 /// the OS's longest socket path, replaced.
-fn assert_transcript(name: &str, outputs: &[(&[&str], &CliOutput)]) {
+pub(crate) fn assert_transcript(name: &str, outputs: &[(&[&str], &CliOutput)]) {
     let mut settings = outputs[0].1.settings();
     settings.add_filter(r#""pid": [0-9]+"#, r#""pid": "[pid]""#);
     settings.add_filter(r#""address": "[^"]+""#, r#""address": "[address]""#);

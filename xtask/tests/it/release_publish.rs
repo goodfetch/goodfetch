@@ -3,6 +3,7 @@
 //! interface. What is already out is skipped, so a re-run finishes a partial
 //! publish; a name not on its registry yet is flagged, since trusted
 //! publishing needs a first publish by hand (spec #130).
+//! Covers: story:1-82, story:1-83, story:1-88, story:1-89, story:1-118
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use std::time::{Duration, Instant};
 use rstest::rstest;
 
 use crate::github::{GitHub, Request};
+use crate::release_assets::product_files;
 use crate::workspace::{Outcome, Workspace, finding};
 
 /// The Node platforms each Product's npm platform packages are named
@@ -51,6 +53,12 @@ const VARIANTS: [&str; 5] = ["", "-slim", "-full", "-node", "-python"];
 
 /// The fixture's first-party Plugin's repository (ADR 0033).
 const PLUGIN: &str = "goodfetch/goodfetch-plugin-archive";
+
+/// Each Product's formula in the tap (ADR 0090).
+const FORMULAS: [&str; 2] = ["goodfetch-collie", "goodfetch-foxhound"];
+
+/// Each Product's installers, under the site's `/install/` (ADR 0090).
+const INSTALLERS: [&str; 4] = ["collie.sh", "collie.ps1", "foxhound.sh", "foxhound.ps1"];
 
 /// Every OCI repository of a stable release: each Product's image and
 /// chart, and the Plugin.
@@ -92,7 +100,14 @@ struct Published {
     /// `Some(true)` for a draft GitHub Release of the version, `Some(false)`
     /// for a published one.
     release: Option<bool>,
+    /// The files on that release, each with its size.
+    uploaded: Vec<(String, u64)>,
     tag: bool,
+    /// Each formula of the tap, by name, with the version whose archives it
+    /// points at; a name left out is not in the tap.
+    formulas: BTreeMap<String, String>,
+    /// Each installer on the site, by file, likewise.
+    installers: BTreeMap<String, String>,
 }
 
 impl Published {
@@ -124,10 +139,25 @@ impl Published {
             pypi,
             oci: BTreeMap::new(),
             release: None,
+            uploaded: Vec::new(),
             tag: false,
+            formulas: BTreeMap::new(),
+            installers: BTreeMap::new(),
         };
         published.oci_release("1.3.0");
+        published.pointing_at("1.3.0");
         published
+    }
+
+    /// Points each formula and installer at `version`'s archives.
+    fn pointing_at(&mut self, version: &str) {
+        for formula in FORMULAS {
+            self.formulas.insert(formula.to_owned(), version.to_owned());
+        }
+        for installer in INSTALLERS {
+            self.installers
+                .insert(installer.to_owned(), version.to_owned());
+        }
     }
 
     /// Every step of both Products out at `1.4.0`: a draft GitHub Release
@@ -135,6 +165,10 @@ impl Published {
     fn every_step_out() -> Self {
         let mut published = Self::previous_release();
         published.release = Some(true);
+        published.uploaded = release_files()
+            .into_iter()
+            .map(|(file, bytes)| (file, bytes.len() as u64))
+            .collect();
         for name in [
             "goodfetch-collie",
             "goodfetch-collie-client",
@@ -150,6 +184,7 @@ impl Published {
         }
         published.oci_release("1.4.0");
         published.tag = true;
+        published.pointing_at("1.4.0");
         published
     }
 
@@ -210,6 +245,25 @@ impl Published {
     }
 }
 
+/// The GitHub Release's files, as `xtask release assets` leaves them: each
+/// Product file, its name's bytes, and the digest table that lists them.
+fn release_files() -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = product_files()
+        .into_iter()
+        .map(|file| {
+            let bytes = file.clone().into_bytes();
+            (file, bytes)
+        })
+        .collect();
+    let table = files
+        .iter()
+        .map(|(file, bytes)| format!("{:064}  {file}\n", bytes.len()))
+        .collect::<Vec<_>>()
+        .concat();
+    files.push(("SHA256SUMS".to_owned(), table.into_bytes()));
+    files
+}
+
 /// A digest of its own for each tag's manifest, as a registry would answer.
 fn manifest_digest(repository: &str, tag: &str) -> String {
     format!("sha256:{}-{tag}", repository.replace('/', "-"))
@@ -225,6 +279,8 @@ struct Registries {
     pypi: GitHub,
     oci: GitHub,
     github: GitHub,
+    /// The site, serving each installer.
+    site: GitHub,
 }
 
 impl Registries {
@@ -280,7 +336,7 @@ impl Registries {
                     })
                     .collect();
                 (
-                    format!("/pypi/{project}/json"),
+                    format!("/{project}/json"),
                     format!(
                         r#"{{"info":{{"name":"{project}"}},"releases":{{{}}}}}"#,
                         listed.join(",")
@@ -288,20 +344,6 @@ impl Registries {
                 )
             })
             .collect();
-
-        let mut github = vec![(
-            "/repos/goodfetch/goodfetch/releases?per_page=100&page=1".to_owned(),
-            match published.release {
-                None => "[]".to_owned(),
-                Some(draft) => format!(r#"[{{"tag_name":"v1.4.0","draft":{draft}}}]"#),
-            },
-        )];
-        if published.tag {
-            github.push((
-                "/repos/goodfetch/goodfetch/git/ref/tags/v1.4.0".to_owned(),
-                r#"{"ref":"refs/tags/v1.4.0"}"#.to_owned(),
-            ));
-        }
 
         let mut oci = Vec::new();
         let mut digests = Vec::new();
@@ -332,9 +374,81 @@ impl Registries {
             npm: serve(&npm),
             pypi: serve(&pypi),
             oci: GitHub::serving_with_headers(&oci_routes, &digest_headers),
-            github: serve(&github),
+            github: serve(&github_routes(published)),
+            site: serve(&site_routes(published)),
         }
     }
+}
+
+/// Where a formula or an installer of `product` fetches its executable:
+/// its archive on the GitHub Release of `version`.
+fn archive_url(product: &str, version: &str) -> String {
+    format!(
+        "https://github.com/goodfetch/goodfetch/releases/download/v{version}/goodfetch-{product}-x86_64-unknown-linux-gnu.tar.xz"
+    )
+}
+
+/// The site's answers: each installer, fetching its Product's archive.
+fn site_routes(published: &Published) -> Vec<(String, String)> {
+    published
+        .installers
+        .iter()
+        .map(|(file, version)| {
+            let product = file.split_once('.').unwrap().0;
+            (
+                format!("/install/{file}"),
+                format!("url=\"{}\"\n", archive_url(product, version)),
+            )
+        })
+        .collect()
+}
+
+/// GitHub's answers: the version's release with its files, and its tag.
+fn github_routes(published: &Published) -> Vec<(String, String)> {
+    let uploaded: Vec<String> = published
+        .uploaded
+        .iter()
+        .map(|(name, size)| format!(r#"{{"name":"{name}","size":{size},"state":"uploaded"}}"#))
+        .collect();
+    let mut github = vec![(
+        "/repos/goodfetch/goodfetch/releases?per_page=100&page=1".to_owned(),
+        match published.release {
+            None => "[]".to_owned(),
+            Some(draft) => format!(
+                r#"[{{"tag_name":"v1.4.0","draft":{draft},"assets":[{}]}}]"#,
+                uploaded.join(",")
+            ),
+        },
+    )];
+    if published.tag {
+        github.push((
+            "/repos/goodfetch/goodfetch/git/ref/tags/v1.4.0".to_owned(),
+            r#"{"ref":"refs/tags/v1.4.0"}"#.to_owned(),
+        ));
+    }
+    for (formula, version) in &published.formulas {
+        let product = formula.trim_start_matches("goodfetch-");
+        let ruby = format!(
+            "class Goodfetch < Formula\n  url \"{}\"\nend\n",
+            archive_url(product, version)
+        );
+        // GitHub's contents answer holds the file in base64, broken into
+        // lines.
+        let encoded = data_encoding::BASE64.encode(ruby.as_bytes());
+        let lines: Vec<&str> = encoded
+            .as_bytes()
+            .chunks(60)
+            .map(|line| std::str::from_utf8(line).unwrap())
+            .collect();
+        github.push((
+            format!("/repos/goodfetch/homebrew-tap/contents/Formula/{formula}.rb"),
+            format!(
+                r#"{{"name":"{formula}.rb","encoding":"base64","content":"{}\n"}}"#,
+                lines.join("\\n")
+            ),
+        ));
+    }
+    github
 }
 
 fn serve(routes: &[(String, String)]) -> GitHub {
@@ -368,62 +482,61 @@ fn serve_folder(folder: &Path) -> GitHub {
 }
 
 /// The fixture with `version` prepared in its released manifests and
-/// committed, as the release job runs the plan.
+/// committed, as the release job runs the plan: the release's files in
+/// [`ASSETS`], and each Product crate's digest table of them.
 fn prepared(version: &str) -> Workspace {
     let workspace = Workspace::from_fixture("release");
     let outcome = workspace.xtask(&["release", "prepare", "--version", version]);
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     workspace.commit_all();
+    for (file, bytes) in release_files() {
+        workspace.write(&format!("{ASSETS}/{file}"), &bytes);
+    }
+    let outcome = workspace.xtask(&[
+        "release",
+        "digests",
+        "--assets",
+        ASSETS,
+        "--version",
+        version,
+    ]);
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     workspace
 }
 
+/// The folder of the release's files, in the workspace.
+const ASSETS: &str = "dist";
+
 fn plan(workspace: &Workspace, version: &str, registries: &Registries) -> Outcome {
-    plan_with(
-        workspace,
-        version,
-        registries,
-        registries.npm.url(),
-        registries.oci.url(),
-    )
+    plan_with(workspace, version, registries, &[])
 }
 
-fn plan_with_npm(
-    workspace: &Workspace,
-    version: &str,
-    registries: &Registries,
-    npm: &str,
-) -> Outcome {
-    plan_with(workspace, version, registries, npm, registries.oci.url())
-}
-
-/// The plan, reading npm at `npm` and OCI at `oci` instead of their
-/// stand-ins in `registries`.
+/// The plan, reading each registry its option names in `instead` at the
+/// address beside it, such as Verdaccio's for `--npm-registry`, and every
+/// other at its stand-in in `registries`.
 fn plan_with(
     workspace: &Workspace,
     version: &str,
     registries: &Registries,
-    npm: &str,
-    oci: &str,
+    instead: &[(&str, &str)],
 ) -> Outcome {
-    workspace.xtask_with_env(
-        &[
-            "release",
-            "plan",
-            "--version",
-            version,
-            "--cargo-index",
-            registries.cargo.url(),
-            "--npm-registry",
-            npm,
-            "--pypi",
-            registries.pypi.url(),
-            "--oci-registry",
-            oci,
-            "--api-url",
-            registries.github.url(),
-        ],
-        &[("GITHUB_TOKEN", "a-read-token".as_ref())],
-    )
+    let mut arguments = vec!["release", "plan", "--version", version];
+    for (option, stand_in) in [
+        ("--assets", ASSETS),
+        ("--cargo-index", registries.cargo.url()),
+        ("--npm-registry", registries.npm.url()),
+        ("--pypi", registries.pypi.url()),
+        ("--oci-registry", registries.oci.url()),
+        ("--api-url", registries.github.url()),
+        ("--site", registries.site.url()),
+    ] {
+        let address = instead
+            .iter()
+            .find(|(name, _)| *name == option)
+            .map_or(stand_in, |(_, address)| *address);
+        arguments.extend([option, address]);
+    }
+    workspace.xtask_with_env(&arguments, &[("GITHUB_TOKEN", "a-read-token".as_ref())])
 }
 
 /// Each step's state, by the step it names.
@@ -450,9 +563,64 @@ fn plan_orders_every_step_of_both_products_for_publishing() {
         &registries.pypi,
         &registries.cargo,
         &registries.oci,
+        &registries.site,
     ] {
         assert_eq!(registry.writes(), Vec::<Request>::new());
     }
+}
+
+/// Each formula and installer fetches its archive from the GitHub Release,
+/// so it moves to the version only once the release is published; one
+/// still at the previous version, or not there yet, is left to update.
+#[test]
+fn plan_updates_each_formula_and_installer_once_the_release_is_published() {
+    let workspace = prepared("1.4.0");
+    let mut published = Published::every_step_out();
+    published.release = Some(false);
+    published
+        .formulas
+        .insert("goodfetch-foxhound".to_owned(), "1.3.0".to_owned());
+    published
+        .installers
+        .insert("collie.sh".to_owned(), "1.3.0".to_owned());
+    published.installers.remove("foxhound.ps1");
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    for (step, state) in [
+        ("homebrew goodfetch/tap/goodfetch-collie 1.4.0", "published"),
+        ("homebrew goodfetch/tap/goodfetch-foxhound 1.4.0", "publish"),
+        ("installer install/collie.sh 1.4.0", "publish"),
+        ("installer install/collie.ps1 1.4.0", "published"),
+        ("installer install/foxhound.sh 1.4.0", "published"),
+        ("installer install/foxhound.ps1 1.4.0", "publish"),
+    ] {
+        assert_eq!(states.get(step), Some(&state), "{step}\n{}", outcome.stdout);
+    }
+}
+
+/// Homebrew and the installers carry stable versions only (ADR 0030); a
+/// nightly's steps are `plan_publishes_neither_crates_nor_wheels_for_a_nightly`'s.
+#[test]
+fn plan_leaves_formulas_and_installers_at_the_stable_version_for_a_candidate() {
+    let version = "1.5.0-rc.1";
+    let workspace = prepared(version);
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, version, &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    assert!(
+        states(&outcome.stdout)
+            .keys()
+            .all(|step| !step.starts_with("homebrew ") && !step.starts_with("installer ")),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(registries.site.requests(), Vec::<Request>::new());
 }
 
 #[test]
@@ -525,6 +693,10 @@ fn published_but(left: &str) -> Published {
                 .unwrap();
         }
         Some(("github", "tag")) => published.tag = false,
+        Some(("github", step)) if step.starts_with("asset ") => {
+            let file = &step["asset ".len()..];
+            published.uploaded.retain(|(name, _)| name != file);
+        }
         _ => unreachable!("{left}"),
     }
     published
@@ -542,6 +714,7 @@ fn published_but(left: &str) -> Published {
 #[case::foxhound_chart("oci goodfetch/charts/foxhound 1.4.0", "pushed", "held")]
 #[case::plugin("oci goodfetch/goodfetch-plugin-archive 1.4.0", "pushed", "held")]
 #[case::foxhound_latest("oci goodfetch/foxhound latest", "pushed", "held")]
+#[case::foxhound_sbom("github asset goodfetch-foxhound.cdx.json", "pushed", "held")]
 #[case::tag_alone("github tag", "push", "held")]
 fn plan_holds_what_waits_on_a_step_either_product_left(
     #[case] left: &str,
@@ -600,12 +773,120 @@ fn plan_leaves_nothing_to_do_once_the_release_is_published() {
     let states = states(&outcome.stdout);
     let left: Vec<_> = states
         .iter()
-        .filter(|(_, state)| !matches!(**state, "published" | "pushed"))
+        .filter(|(_, state)| !matches!(**state, "published" | "uploaded" | "pushed"))
         .collect();
     assert!(left.is_empty(), "{left:?}");
     // Each image's six tags and its chart, and the Plugin.
     let oci = 2 * (6 + 1) + 1;
-    assert_eq!(states.len(), 1 + CRATES.len() + 15 + 1 + 3 + oci + 1);
+    let assets = release_files().len();
+    assert_eq!(
+        states.len(),
+        1 + assets + CRATES.len() + 15 + 1 + 3 + oci + 1 + FORMULAS.len() + INSTALLERS.len()
+    );
+}
+
+/// A re-run uploads each file the draft lacks, or holds at another size,
+/// such as one whose upload was cut short.
+#[test]
+fn plan_uploads_each_file_the_draft_lacks() {
+    let workspace = prepared("1.4.0");
+    let mut published = Published::every_step_out();
+    published
+        .uploaded
+        .retain(|(name, _)| name != "goodfetch-collie-x86_64-pc-windows-msvc.tar.xz");
+    for (name, size) in &mut published.uploaded {
+        if name == "goodfetch-foxhound-aarch64-apple-darwin-debug.tar.xz" {
+            *size -= 1;
+        }
+    }
+    let registries = Registries::serving(&published);
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    for (step, state) in [
+        (
+            "github asset goodfetch-collie-x86_64-pc-windows-msvc.tar.xz",
+            "upload",
+        ),
+        (
+            "github asset goodfetch-foxhound-aarch64-apple-darwin-debug.tar.xz",
+            "upload",
+        ),
+        ("github asset goodfetch-collie.cdx.json", "uploaded"),
+        ("github asset SHA256SUMS", "uploaded"),
+        ("github release v1.4.0", "held"),
+    ] {
+        assert_eq!(states.get(step), Some(&state), "{step}\n{}", outcome.stdout);
+    }
+}
+
+/// The plan uploads only a folder `xtask release assets` made ready: each
+/// file listed in its digest table, so none is over GitHub's limit.
+#[rstest]
+#[case::a_file_added_since("chromedriver-linux-x64.zip", "chromedriver-linux-x64.zip")]
+#[case::no_table("SHA256SUMS", "SHA256SUMS")]
+fn plan_refuses_a_file_the_digest_table_does_not_list(
+    #[case] changed: &str,
+    #[case] unlisted: &str,
+) {
+    let workspace = prepared("1.4.0");
+    let registries = Registries::serving(&Published::previous_release());
+    let path = format!("{ASSETS}/{changed}");
+    if workspace.read(&path).is_some() {
+        workspace.remove(&path);
+    } else {
+        workspace.write(&path, b"a driver");
+    }
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("unlisted", unlisted)]);
+    assert_eq!(registries.github.requests(), Vec::<Request>::new());
+}
+
+/// Each Product's crate carries its archives' digests at the version's
+/// URLs, beside a `[package.metadata.binstall]` that points at the archive
+/// of the same version (ADR 0094); the plan publishes no crate otherwise.
+#[test]
+fn plan_refuses_a_product_crate_whose_digest_table_is_not_the_archives() {
+    let workspace = prepared("1.4.0");
+    let archive = "goodfetch-collie-aarch64-apple-darwin.tar.xz";
+    workspace.edit(
+        &format!("{ASSETS}/SHA256SUMS"),
+        &format!("{:064}  {archive}", archive.len()),
+        &format!("{:064}  {archive}", 1),
+    );
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(
+        outcome.findings(),
+        [finding("undigested", "crates/goodfetch-collie/Cargo.toml")]
+    );
+    assert_eq!(registries.github.requests(), Vec::<Request>::new());
+}
+
+#[test]
+fn plan_refuses_a_product_crate_binstall_does_not_point_at_its_archive() {
+    let workspace = prepared("1.4.0");
+    let manifest = "crates/foxhound/goodfetch-foxhound/Cargo.toml";
+    workspace.edit(
+        manifest,
+        "/releases/download/v{ version }/",
+        "/releases/latest/download/",
+    );
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, "1.4.0", &registries);
+
+    assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+    assert_eq!(outcome.findings(), [finding("binstall", manifest)]);
+    assert_eq!(registries.github.requests(), Vec::<Request>::new());
 }
 
 #[test]
@@ -940,7 +1221,12 @@ fn plan_reads_npm_packages_through_verdaccio() {
         verdaccio.publish(name, "1.3.0");
     }
 
-    let outcome = plan_with_npm(&workspace, "1.4.0", &registries, &verdaccio.url);
+    let outcome = plan_with(
+        &workspace,
+        "1.4.0",
+        &registries,
+        &[("--npm-registry", &verdaccio.url)],
+    );
 
     assert_eq!(outcome.code, 0, "{}", outcome.stderr);
     let states = states(&outcome.stdout);
@@ -970,7 +1256,12 @@ fn plan_flags_an_npm_package_verdaccio_has_never_seen() {
         verdaccio.publish(name, "1.3.0");
     }
 
-    let outcome = plan_with_npm(&workspace, "1.4.0", &registries, &verdaccio.url);
+    let outcome = plan_with(
+        &workspace,
+        "1.4.0",
+        &registries,
+        &[("--npm-registry", &verdaccio.url)],
+    );
 
     assert_eq!(outcome.code, 1, "{}", outcome.stderr);
     assert_eq!(
@@ -1052,7 +1343,7 @@ mod distribution {
         push(url, "goodfetch/foxhound", "1.4.0", &["1.4.0", "latest"]);
         push(url, "goodfetch/charts/collie", "1.4.0", &["1.4.0"]);
 
-        let outcome = plan_with(&workspace, "1.4.0", &registries, registries.npm.url(), url);
+        let outcome = plan_with(&workspace, "1.4.0", &registries, &[("--oci-registry", url)]);
 
         assert_eq!(outcome.code, 0, "{}", outcome.stderr);
         let states = states(&outcome.stdout);
@@ -1107,4 +1398,88 @@ fn verdaccio_starts_again_on_a_port_picked_again_when_its_first_was_taken() {
     ureq::get(&format!("{}/-/ping", verdaccio.url))
         .call()
         .unwrap();
+}
+
+/// pypiserver (`ci/pypiserver/image.toml`), whose root serves the
+/// `<project>/json` document PyPI serves under `https://pypi.org/pypi`, run
+/// where the tests run images. It lists no file sizes: the quota's sums are
+/// read from PyPI's own documents, served statically above.
+#[cfg(target_os = "linux")]
+mod pypiserver {
+    use super::{Published, Registries, plan_with, prepared, states};
+    use crate::container::Container;
+    use crate::workspace::finding;
+
+    const PIN: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../ci/pypiserver/image.toml"
+    ));
+
+    /// Uploads a wheel of `project` at `version` through the legacy upload
+    /// form `twine upload` posts, which pypiserver takes with no password
+    /// when started with `-a . -P .`.
+    fn upload(url: &str, project: &str, version: &str) {
+        let boundary = "goodfetch-upload-boundary";
+        let file = format!("{}-{version}-py3-none-any.whl", project.replace('-', "_"));
+        let mut parts: Vec<String> = [
+            (":action", "file_upload"),
+            ("name", project),
+            ("version", version),
+        ]
+        .into_iter()
+        .map(|(name, value)| {
+            format!("Content-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n")
+        })
+        .collect();
+        parts.push(format!(
+            "Content-Disposition: form-data; name=\"content\"; filename=\"{file}\"\r\nContent-Type: application/octet-stream\r\n\r\nnot a real wheel\r\n"
+        ));
+        let body: String = parts
+            .iter()
+            .map(|part| format!("--{boundary}\r\n{part}"))
+            .chain([format!("--{boundary}--\r\n")])
+            .collect();
+        ureq::post(&format!("{url}/"))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .send(body.as_bytes())
+            .unwrap();
+    }
+
+    #[test]
+    fn plan_reads_pypi_projects_through_pypiserver() {
+        let workspace = prepared("1.4.0");
+        let registries = Registries::serving(&Published::previous_release());
+        let pypiserver = Container::start(
+            PIN,
+            8080,
+            "/",
+            &["run", "-a", ".", "-P", ".", "/data/packages"],
+        );
+        let url = pypiserver.url();
+        upload(url, "goodfetch-collie-client", "1.4.0");
+        upload(url, "goodfetch-collie", "1.3.0");
+
+        let outcome = plan_with(&workspace, "1.4.0", &registries, &[("--pypi", url)]);
+
+        assert_eq!(outcome.code, 1, "{}", outcome.stderr);
+        let states = states(&outcome.stdout);
+        assert_eq!(
+            (
+                states.get("pypi goodfetch-collie-client 1.4.0"),
+                states.get("pypi goodfetch-collie 1.4.0"),
+            ),
+            (Some(&"published"), Some(&"publish")),
+            "{}",
+            outcome.stdout
+        );
+        assert_eq!(
+            outcome.findings(),
+            [finding("new-name", "pypi goodfetch-foxhound")]
+        );
+        // pypiserver lists no sizes, so the use of the limit is not summed.
+        assert_eq!(outcome.notes(), [finding("pypi-quota", "goodfetch-collie")]);
+    }
 }

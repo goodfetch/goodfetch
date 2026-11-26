@@ -1,0 +1,37 @@
+# The Schedule store's case list (#854, spec 589, ADR 0036): through the
+# catalog's `schedule.*` operations only, a create answers the Schedule ID
+# given and refuses a taken one with `schedule_exists`, a get reads the
+# Schedule as it was defined and refuses an unknown ID with
+# `schedule_not_found`, a list holds every Schedule created, and a delete
+# answers whether it deleted one. The store is the major's Daemon's: an
+# Attached engine forwards these calls to it, starting it when none runs.
+# Collie keeps Schedules, so the suite announces Collie and runs on
+# Collie's executable (ADR 0094). `goodfetch-conformance` runs it as it
+# runs the protocol suite (`conformance/protocol/cases.toml`): every case
+# in order over one Connection it opens with `hello`, each case under
+# Schedule IDs of its own. Bump the version whenever a case changes.
+
+product = "collie"
+
+[suite]
+name = "schedule"
+version = "1"
+
+[[capability]]
+name = "schedule"
+
+[[capability.case]]
+id = "a-create-answers-the-schedule-id-given-and-refuses-a-taken-one"
+covers = ["story:10-1", "story:10-13", "operation:schedule.create"]
+
+[[capability.case]]
+id = "a-get-reads-the-schedule-as-it-was-defined"
+covers = ["story:10-1", "story:10-13", "operation:schedule.create", "operation:schedule.get"]
+
+[[capability.case]]
+id = "a-list-holds-every-schedule-created"
+covers = ["story:10-1", "story:10-13", "operation:schedule.create", "operation:schedule.list"]
+
+[[capability.case]]
+id = "a-delete-answers-whether-it-deleted-the-schedule"
+covers = ["story:10-1", "story:10-13", "operation:schedule.create", "operation:schedule.delete", "operation:schedule.get"]

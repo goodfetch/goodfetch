@@ -25,6 +25,7 @@ fn daemon_client(
     goodfetch_test_client::DaemonClient::opened(&found.endpoint, &daemon_hello(&found.token))
 }
 
+mod accounts;
 mod ai_work;
 mod attached;
 mod audit;
@@ -118,8 +119,10 @@ mod relay_fingerprint;
 #[cfg(any(target_os = "macos", windows))]
 mod renderer_sandbox;
 mod request_kinds;
+mod request_secrets;
 mod run;
 mod rust_client;
+mod schedules;
 mod sdk;
 mod secrets;
 mod security_controls;

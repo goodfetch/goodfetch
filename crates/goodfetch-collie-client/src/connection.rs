@@ -909,7 +909,7 @@ impl Drop for Inner {
         // the opener's, which closes them.
         if !self.tasks.is_closed() && self.sender.in_opener() {
             tracing::warn!(
-                target: "goodfetch::client",
+                target: logging::CLIENT,
                 "a Connection was dropped without close(): it closes without waiting"
             );
             self.sender.close();

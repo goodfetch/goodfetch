@@ -47,8 +47,10 @@ use serde::Deserialize;
 use crate::check::{self, Finding};
 use crate::environment::Environment;
 use crate::features;
+use crate::journeys::listing_file;
 use crate::output;
 use crate::products::{self, Product};
+use crate::runners::Runner;
 
 #[derive(clap::Subcommand)]
 pub(crate) enum Command {
@@ -97,15 +99,11 @@ const RUST_MODE: &str = "RustMode";
 const TYPESCRIPT_PACKAGES: &str = "sdks/typescript/";
 /// The prefix of the Vitest tag that carries a case's ID.
 const CASE_TAG: &str = "client_case/";
-/// Vitest's listing in the listings folder.
-const VITEST_LISTING: &str = "vitest.json";
 /// The folder of the packages whose pytest tests implement the `sdk-python`
 /// surface's cases: each Product's Python SDK packages.
 const PYTHON_PACKAGES: &str = "sdks/python/";
 /// The pytest marker that carries a case's ID and mode.
 const CASE_MARKER: &str = "client_case";
-/// pytest's listing in the listings folder, with each test's markers.
-const PYTEST_LISTING: &str = "pytest.json";
 
 /// A Client surface a case applies to (ADR 0069).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -759,7 +757,7 @@ fn typescript_tests<'a>(
     cases: &BTreeMap<&str, &'a Case>,
     findings: &mut Vec<Finding>,
 ) -> Result<BTreeSet<(&'a str, Mode)>> {
-    let path = folder.join(VITEST_LISTING);
+    let path = folder.join(listing_file(Runner::Vitest));
     let bytes = std::fs::read(&path).with_context(|| {
         format!(
             "reading {}; `xtask journeys listings` writes it",
@@ -862,7 +860,7 @@ fn python_tests<'a>(
     cases: &BTreeMap<&str, &'a Case>,
     findings: &mut Vec<Finding>,
 ) -> Result<BTreeSet<(&'a str, Mode)>> {
-    let path = folder.join(PYTEST_LISTING);
+    let path = folder.join(listing_file(Runner::Pytest));
     let bytes = std::fs::read(&path).with_context(|| {
         format!(
             "reading {}; `xtask journeys listings` writes it",

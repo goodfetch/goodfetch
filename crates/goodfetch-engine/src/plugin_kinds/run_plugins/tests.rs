@@ -104,7 +104,7 @@ fn a_host_that_cannot_confine_refuses_the_start_before_resolving_a_secret() {
             None,
             Product::Collie,
             RunId::parse("confined").unwrap(),
-            Arc::clone(&owner),
+            (Arc::clone(&owner), Clock::paused(env.start_time())),
         );
         plugins
             .extractor("scripted", Some(&resolved), &secrets, &probe)

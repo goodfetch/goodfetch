@@ -4946,7 +4946,7 @@ impl Registry {
             self.setup.engine.places().cloned(),
             self.setup.product,
             run_id.clone(),
-            Arc::clone(owner),
+            (Arc::clone(owner), self.setup.engine.clock()),
         )
     }
 

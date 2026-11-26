@@ -10,21 +10,31 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_types,
+    reason = "a Plugin's `net.fetch` reaches stand-in endpoints on loopback sockets (ADR 0062)"
+)]
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::Layout;
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::plugin_gate::PluginFetch;
 use goodfetch_engine::plugin_host::instance::{self, CallFailure, PluginInstance, Scope};
 use goodfetch_engine::plugin_host::process::{Pipes, PluginProcess};
+use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::plugin::{COOKIE, COOKIE_VARIABLE, PluginManifest};
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_test_support::{Tool, capturing, tools};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -114,13 +124,36 @@ impl Plugin {
         }
     }
 
-    /// What starts its instance in Collie.
+    /// What starts its instance in Collie, its `net.fetch` under the
+    /// built-in settings.
     pub(crate) fn instance(&self) -> instance::Plugin {
+        self.instance_with(&json!({}))
+    }
+
+    /// What starts its instance in Collie, its `net.fetch` under the
+    /// settings user configuration sets to `user`, a settings object.
+    fn instance_with(&self, user: &Value) -> instance::Plugin {
+        let Value::Object(user) = user else {
+            panic!("settings are an object");
+        };
+        let layers = Layers {
+            user_configuration: Values::read(
+                SettingsLayer::UserConfiguration,
+                user,
+                Product::Collie,
+            )
+            .unwrap(),
+            ..Layers::default()
+        };
+        let settings = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+        let blocking = TaskOwner::root(BlockingPolicy::Threads).blocking_threads();
+        let fetch = PluginFetch::of(&settings, "scripted", Clock::system(), blocking).unwrap();
         instance::Plugin {
             launcher: COLLIE.into(),
             launch: self.launch.clone(),
             manifest: self.manifest.clone(),
             product: Product::Collie,
+            fetch: Arc::new(fetch),
         }
     }
 }
@@ -399,4 +432,120 @@ async fn a_plugins_stray_answers_are_malformed_answers_not_events() {
         "{written}"
     );
     instance.stop().await;
+}
+
+/// A `net.fetch` of `url`, as the scripted Plugin's answer calls back with
+/// it, naming `call_id` when given, the served call's id otherwise.
+fn fetching(url: &str, call_id: Option<u64>) -> Value {
+    let mut params = json!({ "method": "GET", "url": url });
+    if let Some(call_id) = call_id {
+        params["call_id"] = json!(call_id);
+    }
+    json!({ "call_back": { "method": "net.fetch", "params": params } })
+}
+
+/// A loopback server, a task of `owner`, that answers its first request
+/// `200` with `hello`, and the address it listens on.
+async fn answering_once(owner: &TaskOwner) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    owner.spawn(async move {
+        let Ok((stream, _)) = listener.accept().await else {
+            return;
+        };
+        let (reader, mut writer) = stream.into_split();
+        let mut lines = BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await
+            && !line.is_empty()
+        {}
+        let _ = writer
+            .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\nconnection: close\r\n\r\nhello")
+            .await;
+    });
+    address
+}
+
+/// A Plugin calls back only while it serves a call, naming that call's
+/// id: a `net.fetch` it sends before any call, or naming an id it does not
+/// serve, is refused with `plugin_call_back_refused`, and reaches nothing.
+///
+/// Covers: story:7-53, error:plugin_call_back_refused
+#[tokio::test]
+async fn a_call_back_outside_the_call_it_names_is_refused() {
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let mut script = json!({
+        "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+        "answers": { "kettle.fetch": fetching("https://example.com/", Some(42)) },
+    });
+    script["after_hello"] = json!([{
+        "jsonrpc": "2.0",
+        "id": "before-any-call",
+        "method": "net.fetch",
+        "params": { "call_id": 1000, "method": "GET", "url": "https://example.com/" },
+    }]);
+    let plugin = Plugin::scripted(&script);
+    let instance = PluginInstance::start(&root, plugin.instance(), Scope::Task(None));
+
+    let naming_another = answer(&instance, "kettle.fetch").await;
+    let calls = answer(&instance, "scripted.calls").await;
+
+    let before_any_call = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["id"] == "before-any-call")
+        .unwrap_or_else(|| panic!("{calls} holds no answer to the call back before any call"));
+    assert_eq!(
+        (
+            before_any_call["error"]["data"]["code"].clone(),
+            naming_another["error"]["data"]["code"].clone(),
+        ),
+        (
+            json!("plugin_call_back_refused"),
+            json!("plugin_call_back_refused")
+        ),
+        "{calls}"
+    );
+    instance.stop().await;
+    root.stop().await;
+}
+
+/// A call back during the call it names is sent: to one of the Plugin's
+/// endpoints, which user configuration set, on loopback, it gets the whole
+/// response; to a loopback address that is none of them, checked as a
+/// page's, it is refused with `egress_refused` before any connection.
+///
+/// Covers: story:7-53, story:7-57, story:7-58, error:egress_refused
+#[tokio::test]
+async fn a_call_back_during_its_call_reaches_an_endpoint_and_no_other_loopback_address() {
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let endpoint = answering_once(&root).await;
+    let elsewhere = TcpListener::bind("127.0.0.1:0").unwrap();
+    elsewhere.set_nonblocking(true).unwrap();
+    let elsewhere_url = format!("http://{}/", elsewhere.local_addr().unwrap());
+    let plugin = Plugin::scripted(&json!({
+        "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+        "answers": {
+            "kettle.endpoint": fetching(&format!("{endpoint}/status"), None),
+            "kettle.elsewhere": fetching(&elsewhere_url, None),
+        },
+    }));
+    let user = json!({ "plugins": { "scripted": { "settings": { "api": endpoint } } } });
+    let instance = PluginInstance::start(&root, plugin.instance_with(&user), Scope::Task(None));
+
+    let reached = answer(&instance, "kettle.endpoint").await;
+    let refused = answer(&instance, "kettle.elsewhere").await;
+
+    assert_eq!(
+        (
+            reached["result"]["status"].clone(),
+            reached["result"]["body"].clone(),
+            refused["error"]["data"]["code"].clone(),
+            elsewhere.accept().is_err(),
+        ),
+        (json!(200), json!("aGVsbG8="), json!("egress_refused"), true),
+        "{reached} {refused}"
+    );
+    instance.stop().await;
+    root.stop().await;
 }

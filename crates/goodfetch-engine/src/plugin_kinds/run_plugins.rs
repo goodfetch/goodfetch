@@ -24,13 +24,15 @@ use goodfetch_protocol::run::RunId;
 
 use super::extractor::{ProcessExtractor, unavailable};
 use crate::call_error::CallError;
+use crate::clock::Clock;
 use crate::home::Home;
+use crate::plugin_gate::PluginFetch;
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{RunSecrets, SecretError};
-use crate::settings::Resolved;
+use crate::settings::{Layers, Resolved, resolve};
 use crate::tasks::TaskOwner;
 
 /// One Run's process Plugins, started as its calls name them.
@@ -41,6 +43,8 @@ pub struct RunPlugins {
     product: Product,
     run_id: RunId,
     owner: Arc<TaskOwner>,
+    /// What its Plugins' `net.fetch` waits on.
+    clock: Clock,
     /// The Extractors, by name, each set once its instance started: one
     /// whose start failed stays unset, so a Plugin installed after a failed
     /// start is found on the next call. The lock is held only to find a
@@ -59,14 +63,15 @@ impl std::fmt::Debug for RunPlugins {
 
 impl RunPlugins {
     /// The Plugins of the Run `run_id` of `product`'s engine at `home`,
-    /// confined away from `places`, none of which starts without them, and
-    /// started as tasks of the Run's `owner`.
+    /// confined away from `places`, none of which starts without them,
+    /// started as tasks of the Run's `owner`, their `net.fetch` waiting on
+    /// `clock`.
     pub fn new(
         home: &Home,
         places: Option<Arc<Places>>,
         product: Product,
         run_id: RunId,
-        owner: Arc<TaskOwner>,
+        (owner, clock): (Arc<TaskOwner>, Clock),
     ) -> Self {
         Self {
             store: PluginStore::new(home.plugins()),
@@ -75,6 +80,7 @@ impl RunPlugins {
             product,
             run_id,
             owner,
+            clock,
             extractors: tokio::sync::Mutex::new(BTreeMap::new()),
         }
     }
@@ -158,6 +164,16 @@ impl RunPlugins {
                 EnvironmentError::Secret(error) => StartError::Secret(error),
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
+        let defaults;
+        let resolved = if let Some(settings) = settings {
+            settings
+        } else {
+            defaults = resolve(&Layers::default(), self.product, self.product)
+                .expect("invariant: the built-in defaults resolve");
+            &defaults
+        };
+        let fetch = PluginFetch::of(resolved, name, self.clock, self.owner.blocking_threads())
+            .map_err(|invalid| cannot_start(&invalid))?;
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let places = self.places.clone();
         let plugin = self
@@ -172,6 +188,7 @@ impl RunPlugins {
                 launch: plugin.launch,
                 manifest: plugin.manifest,
                 product: self.product,
+                fetch: Arc::new(fetch),
             },
             Scope::Run(self.run_id.clone()),
         );

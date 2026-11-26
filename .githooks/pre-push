@@ -52,6 +52,15 @@
 # touched crates stays in the batch: warm, over one crate, it took 24
 # seconds for xtask and 35 for goodfetch-engine (2026-11-23), against under
 # a second for the floor guard and about 11 for the module check.
+#
+# When that head's change against `origin/main` also reaches a file the
+# drift checks read (`drift_paths` below: the SDKs, the protocol crate, the
+# Compatibility corpus, a format's writer, a settings module or a generated
+# folder), the push runs them too: the xtask steps of `just lint-drift` and
+# `just lint`'s containment check, which read the checkout as the module
+# check does. PRs 3891, 3898 and 3907 each reached their gate red on one of
+# them on 2026-11-26 (retro of #607). A change that reaches none of those
+# paths pays one `git diff`.
 set -euo pipefail
 # git gives this hook the push's GIT_DIR (a linked worktree's), and a build
 # script's `git init` under `just quick` (btls-sys's) would then reinitialize
@@ -126,18 +135,46 @@ done <<< "$held"
 # failed, as the commit checks.
 static=0
 modules=0
+# What the drift steps read: the `xtask` steps of `just lint-drift` (keep
+# both lists in step) and the containment check.
+drift_paths=(sdks/ crates/goodfetch-protocol/ compat/ ':(glob)**/generated/**'
+  ':(glob)**/settings.rs' ':(glob)**/settings/**' ':(glob)crates/**/examples/compat-*')
+drift_steps=('codegen --check' 'clients check' sdk-manifests sdk-exports 'compat check'
+  api-check sdk-api containment)
+drift=0
 for oid in $specs; do
   just floor-guard origin/main "$oid" </dev/null || static=1
   [[ $oid == "$head" ]] && modules=1
+  git diff --quiet origin/main..."$oid" -- "${drift_paths[@]}" && continue
+  if [[ $oid == "$head" ]]; then
+    drift=1
+  else
+    echo "pre-push: $oid reaches what the drift steps read, but they read the checkout, whose head it is not: run them in its own worktree (\`just lint-drift\`)."
+  fi
 done
 if ((modules)); then
   cargo run --quiet --bin xtask -- modules </dev/null || static=1
+fi
+if ((drift)); then
+  echo "pre-push: the change reaches what the drift steps read (sdks/, the protocol crate, compat/, settings or generated/), so they run."
+  # The SDK steps read the TypeScript packages through `node_modules` and the
+  # Python one through `.venv`, which a new worktree has neither of: the
+  # locked installs first, as `just batch-check` does.
+  if pnpm install --frozen-lockfile --reporter=silent </dev/null && uv sync --frozen --all-extras --quiet </dev/null; then
+    for step in "${drift_steps[@]}"; do
+      # shellcheck disable=SC2086 # Each step is the subcommand and its words.
+      cargo run --quiet --bin xtask -- $step </dev/null || static=1
+    done
+  else
+    echo "pre-push: the locked installs failed (above), so the drift steps did not run."
+    static=1
+  fi
 fi
 if ((commits)); then
   echo "error: pre-push refuses this push: a commit it adds is not signed off, its subject is no Conventional Commit, or, on a tree a green \`just quick\` holds, the floor guard or the scan for secrets is red (above, CONTRIBUTING.md, TESTING.md's Quality register). Rewrite it and push again; \`just quick\` did not run." >&2
 fi
 if ((static)); then
-  echo "error: pre-push refuses this push: the floor guard or the module check failed on what it pushes to a \`spec/\` branch (above). Fix it and push again." >&2
+  echo "error: pre-push refuses this push: the floor guard, the module check or a drift step failed on what it pushes to a \`spec/\` branch (above). Fix it and push again." >&2
 fi
 if ((commits || static)); then
   exit 1

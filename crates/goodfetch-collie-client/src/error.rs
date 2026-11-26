@@ -198,10 +198,7 @@ impl Error {
                     chain.push_str(&next.to_string());
                     cause = next.source();
                 }
-                let (group, retryable) = entries::error_code(own.as_str())
-                    .map_or((ErrorGroup::Program, false), |defined| {
-                        (defined.group, defined.retryable)
-                    });
+                let (group, retryable) = catalogued(own).unwrap_or((ErrorGroup::Program, false));
                 let mut data = Map::new();
                 data.insert("exception_type".to_owned(), BOX_ERROR.into());
                 data.insert("exception_message".to_owned(), chain.clone().into());
@@ -761,6 +758,13 @@ impl std::error::Error for Error {
             .as_deref()
             .map(|source| source as &(dyn std::error::Error + 'static))
     }
+}
+
+/// The group and retryable flag the catalog gives `code`, either
+/// Product's, or none for a code neither Product knows, as a newer
+/// engine's.
+pub(crate) fn catalogued(code: ErrorCode) -> Option<(ErrorGroup, bool)> {
+    entries::error_code(code.as_str()).map(|defined| (defined.group, defined.retryable))
 }
 
 /// C-SEND-SYNC and C-GOOD-ERR: an error crosses tasks and threads, and

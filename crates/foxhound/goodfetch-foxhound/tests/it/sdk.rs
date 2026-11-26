@@ -21,10 +21,12 @@ mod connect_options;
 mod crawl;
 mod datasets;
 mod enqueue;
+mod foxhound_keys;
 mod label_declaration;
 mod limits;
 mod public_items;
 mod seeds;
+mod test_values;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

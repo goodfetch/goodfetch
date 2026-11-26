@@ -74,6 +74,14 @@ async def each_call_refuses_another_scopes_settings(collie: AsyncCollie) -> None
     await session.new_page(settings={"browser": {"headless": True}})  # type: ignore[arg-type]
 
 
+async def refuses_a_key_only_foxhound_carries(collie: AsyncCollie) -> None:
+    """A setting only Foxhound carries is no Collie key (ADR 0095)."""
+    a: RunSettings = {"politeness": {"domain": {"concurrency": 2}}}  # type: ignore[typeddict-unknown-key]
+    b: Settings = {"crawl": {"max_requests": 10}}  # type: ignore[typeddict-unknown-key]
+    del a, b
+    await collie.start(settings={"politeness": {"domain": {"concurrency": 2}}})  # type: ignore[arg-type]
+
+
 async def connects_with_the_connections_settings() -> None:
     """`connect()` takes the Connection's settings and refuses a key no code sets."""
     await AsyncCollie.connect(settings={"timeout": {"run": timedelta(hours=1)}})

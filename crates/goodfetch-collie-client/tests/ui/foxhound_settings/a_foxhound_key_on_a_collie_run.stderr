@@ -1,0 +1,5 @@
+error[E0433]: cannot find `domain` in `politeness`
+ --> tests/ui/foxhound_settings/a_foxhound_key_on_a_collie_run.rs:7:53
+  |
+7 |     let _settings = Settings::new().set(politeness::domain::CONCURRENCY, 2);
+  |                                                     ^^^^^^ could not find `domain` in `politeness`

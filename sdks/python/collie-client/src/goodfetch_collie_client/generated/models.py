@@ -1222,6 +1222,63 @@ class ExecutableBlockedBySmartAppControlDetails(BaseModel):
     """The path of the file Windows refused to start."""
 
 
+class ExtractContentParams(BaseModel):
+    """
+    What `extract.content` reads a page's main content from: the document
+    the page holds, after the Clean-up rules, and the URL it came from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    html: str
+    """The page's document, serialized as HTML."""
+    url: str
+    """The page's URL, which its relative links resolve against."""
+
+
+class ExtractContentResult(BaseModel):
+    """
+    A page's main content, as an Extractor read it. Everything in it is
+    page content (ADR 0014): it reaches a model only marked as such.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    markdown: str
+    """The main content as Markdown."""
+    metadata: dict[str, str]
+    """
+    What the Extractor read about the page, such as its author or its
+    date, each a text under its `snake_case` name.
+    """
+    text: str
+    """The main content as plain text."""
+    title: str | None = None
+    """The main content's title, when the Extractor found one."""
+
+
+class ExtractHandlerFailedDetails(BaseModel):
+    """What `extract_handler_failed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
+class ExtractorUnavailableDetails(BaseModel):
+    """What `extractor_unavailable` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    extractor: str
+    """The Extractor, as `content.extractor` names it."""
+
+
 class FetchTier(StrEnum):
     """
     A tier that fetches a crawl request's document (ADR 0020), from the
@@ -2783,6 +2840,23 @@ class PluginRun(BaseModel):
     """Its name."""
     network_level: str
     """The network level it ran at."""
+
+
+class PluginUsage(BaseModel):
+    """
+    What a Run's calls into one implementation of a Plugin kind used: its
+    `plugin_calls` and `plugin_time` (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    calls: Annotated[int, Field(ge=0)]
+    """The calls made into it, failed ones included."""
+    plugin: str
+    """The implementation's name, as the setting that chose it names it."""
+    time: Annotated[int, Field(ge=0)]
+    """The time those calls took, in milliseconds."""
 
 
 class PolicyConflictDetails(BaseModel):
@@ -6109,6 +6183,12 @@ class DaemonState(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    accounts: bool | None = False
+    """
+    Whether it has accounts (`accounts.enabled`, ADR 0149): its Accounts
+    store is open. Without, its person is the OS user, on its own
+    machine only, as with a Daemon that does not say.
+    """
     clients: Annotated[int, Field(ge=0)]
     """How many Clients are connected, the caller included."""
     endpoint: DaemonEndpoint
@@ -9517,6 +9597,11 @@ class RunUsage(BaseModel):
     """Its Paid fetches, by currency (ADR 0045)."""
     paid_solves: list[UsageAmount] | None = None
     """Its paid solves, by currency (ADR 0035)."""
+    plugins: list[PluginUsage] | None = None
+    """
+    Its calls into Plugin kinds' implementations, of every form, and the
+    time they took, by implementation (ADR 0033), in name order.
+    """
     proxy_bytes: Annotated[int, Field(ge=0)]
     """The bytes it sent and received through a proxy."""
     proxy_bytes_by_kind: list[ProxyKindBytes] | None = None

@@ -6,11 +6,15 @@
 //! trusted publishing takes a package only after a first publish by hand.
 //!
 //! The order:
-//! 1. the GitHub Release's draft, which takes the archives each crate's
-//!    `[package.metadata.binstall]` points at, before any crate (ADR 0094);
+//! 1. the GitHub Release's draft, then each of its files `xtask release
+//!    assets` made ready, among them the archives each crate's
+//!    `[package.metadata.binstall]` points at, before any crate (ADR 0094):
+//!    a file the draft holds at its size is uploaded;
 //! 2. the crates, each after the workspace crates it depends on: the
 //!    internal ones at `0.0.x`, the Collie client crate, then each Product's
-//!    (none for a nightly, ADR 0030);
+//!    (none for a nightly, ADR 0030), whose table of its archives and whose
+//!    `[package.metadata.binstall]` must point at the version's archives
+//!    ([`digests`]);
 //! 3. npm: the Collie client package, then each Product's platform packages
 //!    before its root package (ADR 0090);
 //! 4. the tag, only after both Products' npm packages (ADR 0094): `held`
@@ -23,11 +27,14 @@
 //! 7. the GitHub Release's publishing, which makes it immutable, once both
 //!    Products' files are on it (ADR 0094): `held` while any other step of
 //!    either Product is left, so a failed step of one Product holds both,
-//!    and the re-run that finishes it lets the publishing go.
+//!    and the re-run that finishes it lets the publishing go;
+//! 8. for a stable version, each Product's formula in the Homebrew tap,
+//!    then its installers, which fetch its archives from the published
+//!    release: `held` until then ([`installers`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result, bail};
@@ -35,18 +42,20 @@ use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use toml_edit::{DocumentMut, Item, Table};
 
-use super::{CRATES, ProductVersion, Stage, Tree, name, toml};
+use super::{CRATES, ProductVersion, Stage, Tree, assets, digests, name, toml};
 use crate::check::{self, Finding};
 use crate::github::{self, List};
 use crate::output;
 use crate::products::Product;
 
+mod installers;
 mod oci;
 
 /// crates.io's sparse index.
 const CRATES_IO_INDEX: &str = "https://index.crates.io";
 const NPM_REGISTRY: &str = "https://registry.npmjs.org";
-const PYPI: &str = "https://pypi.org";
+/// PyPI's JSON interface, which serves `<project>/json` under it.
+const PYPI: &str = "https://pypi.org/pypi";
 
 /// The Node platforms each Product's npm platform packages are named after,
 /// `process.platform` and `process.arch` (ADR 0090).
@@ -82,19 +91,32 @@ pub(crate) struct Arguments {
     /// The Product version `xtask release prepare` set.
     #[arg(long)]
     version: ProductVersion,
+    /// The folder of the GitHub Release's files, as `xtask release assets`
+    /// left it.
+    #[arg(long)]
+    assets: PathBuf,
     /// A sparse Cargo index: crates.io's, or a stand-in's address.
     #[arg(long, default_value = CRATES_IO_INDEX)]
     cargo_index: String,
     /// An npm registry: npm's, or a stand-in's address.
     #[arg(long, default_value = NPM_REGISTRY)]
     npm_registry: String,
-    /// PyPI, whose JSON interface the plan reads, or a stand-in's address.
+    /// PyPI's JSON interface, the base `<project>/json` is read under:
+    /// PyPI's, or a stand-in's, such as pypiserver's root.
     #[arg(long, default_value = PYPI)]
     pypi: String,
     /// The OCI registry the images, charts and Plugins go to: GHCR, or a
     /// stand-in's address.
     #[arg(long, default_value = oci::REGISTRY)]
     oci_registry: String,
+    /// The Homebrew tap's repository, as `owner/name`, read through
+    /// GitHub's API.
+    #[arg(long, default_value = installers::TAP)]
+    tap: String,
+    /// The site the installers are served from: Goodfetch's, or a
+    /// stand-in's address.
+    #[arg(long, default_value = installers::SITE)]
+    site: String,
     #[command(flatten)]
     github: github::Arguments,
 }
@@ -134,6 +156,9 @@ enum PackageState {
     Published,
     /// The registry has never had the name.
     NewName,
+    /// Waits on the GitHub Release's publishing: a formula or an installer
+    /// fetches its archives from there ([`installers`]).
+    Held,
 }
 
 impl fmt::Display for PackageState {
@@ -142,6 +167,7 @@ impl fmt::Display for PackageState {
             Self::Publish => "publish",
             Self::Published => "published",
             Self::NewName => "new name",
+            Self::Held => "held",
         })
     }
 }
@@ -154,7 +180,11 @@ impl Step {
             Self::Package { state, .. } => *state == PackageState::Published,
             Self::GitHub { state, .. } => !matches!(
                 state,
-                GitHubState::Create | GitHubState::Push | GitHubState::Publish | GitHubState::Held
+                GitHubState::Create
+                    | GitHubState::Upload
+                    | GitHubState::Push
+                    | GitHubState::Publish
+                    | GitHubState::Held
             ),
         }
     }
@@ -166,6 +196,9 @@ enum GitHubState {
     Create,
     /// A draft of it, which a re-run uploads the missing files to.
     Exists,
+    /// A file the draft lacks, or holds at another size.
+    Upload,
+    Uploaded,
     Push,
     Pushed,
     Publish,
@@ -181,6 +214,8 @@ impl fmt::Display for GitHubState {
         formatter.write_str(match self {
             Self::Create => "create",
             Self::Exists => "exists",
+            Self::Upload => "upload",
+            Self::Uploaded => "uploaded",
             Self::Push => "push",
             Self::Pushed => "pushed",
             Self::Publish => "publish",
@@ -203,9 +238,19 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     if !unprepared.is_empty() {
         return Ok(check::report(&unprepared));
     }
+    let files = match release_files(&arguments.assets)? {
+        Ok(files) => files,
+        Err(unlisted) => return Ok(check::report(&unlisted)),
+    };
+    let repository = &arguments.github.repository;
+    if !nightly {
+        let undigested = digests::check(root, &arguments.assets, repository, &semver)?;
+        if !undigested.is_empty() {
+            return Ok(check::report(&undigested));
+        }
+    }
 
     let api = arguments.github.authenticated(token)?;
-    let repository = &arguments.github.repository;
     let tag = format!("v{semver}");
     let releases: Vec<Release> =
         api.get_all(&format!("/repos/{repository}/releases"), List::Array)?;
@@ -219,6 +264,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             Some(_) => GitHubState::Published,
         },
     }];
+    steps.extend(asset_steps(files, release));
     if !nightly {
         for krate in &crates {
             let published = crate_versions(&arguments.cargo_index, &krate.name)?;
@@ -268,20 +314,29 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
     let registry = oci::Registry::new(&arguments.oci_registry, token);
     steps.extend(oci::steps(root, &registry, version)?);
     let rest_out = steps.iter().all(Step::done);
+    let release_out = release.is_some_and(|release| !release.draft);
     steps.push(Step::GitHub {
         name: format!("release {tag}"),
-        state: match release {
-            Some(release) if !release.draft => GitHubState::Published,
-            _ if rest_out => GitHubState::Publish,
-            _ => GitHubState::Held,
+        state: match (release_out, rest_out) {
+            (true, _) => GitHubState::Published,
+            (false, true) => GitHubState::Publish,
+            (false, false) => GitHubState::Held,
         },
     });
+    if version.stage == Stage::Stable {
+        steps.extend(installers::steps(&api, arguments, &semver, release_out)?);
+    }
 
     for step in &steps {
         output::line(&step.to_string());
     }
     check::note(&notes);
-    let new_names: Vec<Finding> = steps
+    Ok(check::report(&new_names(&steps)))
+}
+
+/// An `error[new-name]` for each step whose name is not on its registry.
+fn new_names(steps: &[Step]) -> Vec<Finding> {
+    steps
         .iter()
         .filter_map(|step| match step {
             Step::Package {
@@ -296,8 +351,7 @@ pub(crate) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
             )),
             _ => None,
         })
-        .collect();
-    Ok(check::report(&new_names))
+        .collect()
 }
 
 /// An `error[unprepared]` for each released crate whose manifest does not
@@ -367,6 +421,80 @@ fn package_step(
 struct Release {
     tag_name: String,
     draft: bool,
+    #[serde(default)]
+    assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseAsset {
+    name: String,
+    size: u64,
+    /// `uploaded`, or `open` for an upload cut short.
+    state: String,
+}
+
+/// One step per file of the assets folder: `uploaded` once the release
+/// holds it at its size, `upload` otherwise.
+fn asset_steps(files: BTreeMap<String, u64>, release: Option<&Release>) -> Vec<Step> {
+    files
+        .into_iter()
+        .map(|(file, size)| {
+            let state = match release {
+                Some(release) if !release.draft => GitHubState::Uploaded,
+                Some(release)
+                    if release.assets.iter().any(|asset| {
+                        asset.name == file && asset.size == size && asset.state == "uploaded"
+                    }) =>
+                {
+                    GitHubState::Uploaded
+                }
+                _ => GitHubState::Upload,
+            };
+            Step::GitHub {
+                name: format!("asset {file}"),
+                state,
+            }
+        })
+        .collect()
+}
+
+/// Each file of the assets folder, by name, with its size, the digest table
+/// among them; or an `error[unlisted]` for each file the table does not
+/// list, or for the table itself when it is missing: `xtask release assets`
+/// has not run on the folder since the file came.
+fn release_files(folder: &Path) -> Result<Result<BTreeMap<String, u64>, Vec<Finding>>> {
+    let unlisted = |file: &str| {
+        Finding::new(
+            "unlisted",
+            file,
+            format!(
+                "not in {}'s digest table: run `xtask release assets --folder {}` first",
+                folder.display(),
+                folder.display()
+            ),
+        )
+    };
+    let Some(listed) = assets::listed(folder)? else {
+        return Ok(Err(vec![unlisted(assets::TABLE)]));
+    };
+    let mut files = BTreeMap::new();
+    let mut findings = Vec::new();
+    for entry in
+        std::fs::read_dir(folder).with_context(|| format!("reading {}", folder.display()))?
+    {
+        let entry = entry?;
+        let file = entry.file_name().to_string_lossy().into_owned();
+        if file != assets::TABLE && !listed.contains_key(&file) {
+            findings.push(unlisted(&file));
+        }
+        files.insert(file, entry.metadata()?.len());
+    }
+    findings.sort_by(|left, right| left.subject.cmp(&right.subject));
+    Ok(if findings.is_empty() {
+        Ok(files)
+    } else {
+        Err(findings)
+    })
 }
 
 /// A crate the release publishes.
@@ -593,13 +721,22 @@ fn pypi_quotas(root: &Path) -> Result<BTreeMap<String, u64>> {
 }
 
 /// A `pypi-quota` note when the sizes of every file of every version of
-/// `project` pass [`QUOTA_WARNING_PERCENT`] of its `quota`.
+/// `project` pass [`QUOTA_WARNING_PERCENT`] of its `quota`, or when a file
+/// lists no size, so they cannot be summed.
 fn quota_warning(
     project: &str,
     releases: &BTreeMap<String, Vec<PypiFile>>,
     quota: u64,
 ) -> Option<Finding> {
-    let used: u64 = releases.values().flatten().map(|file| file.size).sum();
+    let sizes: Option<Vec<u64>> = releases.values().flatten().map(|file| file.size).collect();
+    let Some(sizes) = sizes else {
+        return Some(Finding::new(
+            "pypi-quota",
+            project,
+            format!("lists a file with no size, so its use of its {quota} bytes is not summed"),
+        ));
+    };
+    let used: u64 = sizes.iter().sum();
     (used * 100 > quota * QUOTA_WARNING_PERCENT).then(|| {
         Finding::new(
             "pypi-quota",
@@ -662,7 +799,7 @@ struct Packument {
 /// Each version of `project` on PyPI at `pypi`, with its files, from its
 /// JSON interface; `None` when PyPI has never had it.
 fn pypi_releases(pypi: &str, project: &str) -> Result<Option<BTreeMap<String, Vec<PypiFile>>>> {
-    let url = format!("{}/pypi/{project}/json", pypi.trim_end_matches('/'));
+    let url = format!("{}/{project}/json", pypi.trim_end_matches('/'));
     let project: Option<PypiProject> = fetch_json(&url)?;
     Ok(project.map(|project| project.releases))
 }
@@ -675,7 +812,8 @@ struct PypiProject {
 
 #[derive(Deserialize)]
 struct PypiFile {
-    size: u64,
+    /// PyPI lists each file's; a stand-in such as pypiserver lists none.
+    size: Option<u64>,
 }
 
 fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<Option<T>> {

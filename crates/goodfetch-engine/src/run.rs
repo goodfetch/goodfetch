@@ -85,6 +85,7 @@ use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
 
+mod accounts;
 mod detached;
 mod starts;
 

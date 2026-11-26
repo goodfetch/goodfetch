@@ -13,6 +13,12 @@
 #                                     as a recipe line runs, its output shown and
 #                                     kept in <name>.log; skipped, and named so,
 #                                     when a step it comes --after did not pass
+#   steps_lane_begin, steps_lane_end  the steps between them run one after another
+#                                     in a background lane, beside the steps after
+#                                     steps_lane_end; each keeps its own log and
+#                                     result, and steps_end waits for the lane and
+#                                     prints its output in one block, never
+#                                     interleaved with the other steps'
 #   steps_end                         print the summary; fails when a step did not pass
 #   steps_mark                        print a mark of the steps that did not pass so far
 #   steps_red_since <mark>            succeed when a step did not pass after the mark
@@ -21,7 +27,12 @@
 # records its steps in the outer run's list, and only the outer run prints
 # the summary, naming the inner run's failed steps rather than the step that
 # started it. With GOODFETCH_STEPS_LIST=1, `step` prints its command and the
-# steps it comes after instead of running it (`just quick-steps`).
+# steps it comes after instead of running it (`just quick-steps`), a lane's
+# steps in their place among the others.
+#
+# A lane's steps may come --after one another, never after a step outside
+# the lane, and no step outside it comes --after one of them: `just lint`
+# puts there the steps that build nothing, so they run while Cargo builds.
 #
 # It keeps to bash 3.2, which stock macOS runs.
 
@@ -30,6 +41,9 @@ steps_begin() {
   _steps_bad='|'
   _steps_red=0
   _steps_parent=${GOODFETCH_STEP:-}
+  _steps_queue=
+  _steps_lane=
+  _steps_lane_pid=
   [[ ${GOODFETCH_STEPS_LIST:-} == 1 ]] && return 0
   if [[ -n ${GOODFETCH_STEPS_DIR:-} ]]; then
     _steps_outer=
@@ -55,6 +69,10 @@ _steps_record() {
 
 step() {
   local needs=() need name command log status
+  if [[ -n $_steps_queue ]]; then
+    _steps_lane="$_steps_lane$(printf '%q ' step "$@")"$'\n'
+    return 0
+  fi
   while [[ ${1:-} == --after ]]; do
     needs+=("$2")
     shift 2
@@ -98,6 +116,49 @@ step() {
   fi
 }
 
+steps_lane_begin() {
+  [[ ${GOODFETCH_STEPS_LIST:-} == 1 ]] && return 0
+  _steps_queue=1
+  _steps_lane=
+}
+
+# Starts the queued steps in the background, their output kept in the lane's
+# file, and the steps that did not pass in another, which steps_end reads.
+steps_lane_end() {
+  [[ ${GOODFETCH_STEPS_LIST:-} == 1 ]] && return 0
+  _steps_queue=
+  [[ -n $_steps_lane ]] || return 0
+  _steps_lane_out=$(mktemp "$GOODFETCH_STEPS_DIR/lane.XXXXXX")
+  _steps_lane_from=$_steps_bad
+  (
+    eval "$_steps_lane"
+    printf '%s\n' "$_steps_bad" >"$_steps_lane_out.bad"
+  ) >"$_steps_lane_out" 2>&1 &
+  _steps_lane_pid=$!
+  _steps_lane=
+}
+
+# Waits for the lane, prints its output, and counts its steps that did not
+# pass in the run's.
+_steps_lane_wait() {
+  local bad
+  [[ -n $_steps_lane_pid ]] || return 0
+  wait "$_steps_lane_pid" || true
+  _steps_lane_pid=
+  cat "$_steps_lane_out"
+  if ! bad=$(cat "$_steps_lane_out.bad" 2>/dev/null); then
+    echo "== lane: ended before it recorded its steps' results (log: $_steps_lane_out)"
+    _steps_record failed lane "$_steps_lane_out"
+    _steps_red=1
+    return 0
+  fi
+  rm -f "$_steps_lane_out" "$_steps_lane_out.bad"
+  if [[ $bad != "$_steps_lane_from" ]]; then
+    _steps_bad="$_steps_bad${bad#"$_steps_lane_from"}"
+    _steps_red=1
+  fi
+}
+
 steps_mark() {
   printf '%s\n' "$_steps_bad"
 }
@@ -108,6 +169,7 @@ steps_red_since() {
 
 steps_end() {
   [[ ${GOODFETCH_STEPS_LIST:-} == 1 ]] && return 0
+  _steps_lane_wait
   if [[ -z $_steps_outer ]]; then
     # The outer run's summary names this run's failed steps, not its own
     # step that started this run.

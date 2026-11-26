@@ -157,8 +157,8 @@ class ConnectionConsentSettings(TypedDict):
 class ConnectionContentSettings(TypedDict):
     """The `content` settings of `Settings`."""
 
-    extractor: NotRequired[Literal["dom_smoothie", "trafilatura"]]
-    """The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    extractor: NotRequired[str]
+    """The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
 
     `content.extractor`.
     """
@@ -976,6 +976,12 @@ class ConnectionTimeoutSettings(TypedDict):
     `timeout.navigation`.
     """
 
+    plugin: NotRequired[timedelta]
+    """How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+
+    `timeout.plugin`.
+    """
+
     run: NotRequired[timedelta | None]
     """How long a Run may go on before it checkpoints and stops at its next safe point, resumable; none by default.
 
@@ -1238,8 +1244,8 @@ class RunConsentSettings(TypedDict):
 class RunContentSettings(TypedDict):
     """The `content` settings of `RunSettings`."""
 
-    extractor: NotRequired[Literal["dom_smoothie", "trafilatura"]]
-    """The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    extractor: NotRequired[str]
+    """The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
 
     `content.extractor`.
     """
@@ -1862,6 +1868,12 @@ class RunTimeoutSettings(TypedDict):
     `timeout.navigation`.
     """
 
+    plugin: NotRequired[timedelta]
+    """How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+
+    `timeout.plugin`.
+    """
+
     secret: NotRequired[timedelta]
     """How long a Secret provider may take to answer one reference before the resolution fails with `secret_unavailable`, `failure: "timed_out"`: 30 s. A provider that answers it is briefly busy, such as a rate limit's, is asked again within it, with exponential backoff and full jitter, after its `Retry-After` when it gave one.
 
@@ -2004,8 +2016,8 @@ class SessionBrowserSettings(TypedDict):
 class SessionContentSettings(TypedDict):
     """The `content` settings of `SessionSettings`."""
 
-    extractor: NotRequired[Literal["dom_smoothie", "trafilatura"]]
-    """The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    extractor: NotRequired[str]
+    """The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
 
     `content.extractor`.
     """
@@ -2218,8 +2230,8 @@ class SessionSettings(TypedDict):
 class PageContentSettings(TypedDict):
     """The `content` settings of `PageSettings`."""
 
-    extractor: NotRequired[Literal["dom_smoothie", "trafilatura"]]
-    """The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    extractor: NotRequired[str]
+    """The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
 
     `content.extractor`.
     """

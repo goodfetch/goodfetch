@@ -387,37 +387,20 @@ pub mod consent {
 /// The `content.*` settings.
 pub mod content {
 
-    /// The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.
+    /// The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.
     ///
     /// `content.extractor`.
-    pub const EXTRACTOR: crate::settings::Setting<Extractor> = crate::settings::Setting::new(
-        "content.extractor",
-        &[
-            ::goodfetch_protocol::catalog::SettingScope::Connection,
-            ::goodfetch_protocol::catalog::SettingScope::Run,
-            ::goodfetch_protocol::catalog::SettingScope::Label,
-            ::goodfetch_protocol::catalog::SettingScope::Session,
-            ::goodfetch_protocol::catalog::SettingScope::Page,
-        ],
-    );
-
-    /// A word a setting of this module takes, as the catalog spells it.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-    pub enum Extractor {
-        /// `dom_smoothie`.
-        DomSmoothie,
-        /// `trafilatura`.
-        Trafilatura,
-    }
-
-    impl ::goodfetch_protocol::catalog::SettingWord for Extractor {
-        fn word(&self) -> &'static str {
-            match self {
-                Self::DomSmoothie => "dom_smoothie",
-                Self::Trafilatura => "trafilatura",
-            }
-        }
-    }
+    pub const EXTRACTOR: crate::settings::Setting<::goodfetch_protocol::page::ExtractorName> =
+        crate::settings::Setting::new(
+            "content.extractor",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+                ::goodfetch_protocol::catalog::SettingScope::Session,
+                ::goodfetch_protocol::catalog::SettingScope::Page,
+            ],
+        );
 }
 
 /// The `effect.*` settings.
@@ -1726,6 +1709,18 @@ pub mod timeout {
     pub const NAVIGATION: crate::settings::Setting<::std::time::Duration> =
         crate::settings::Setting::new(
             "timeout.navigation",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+    /// How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.
+    ///
+    /// `timeout.plugin`.
+    pub const PLUGIN: crate::settings::Setting<::std::time::Duration> =
+        crate::settings::Setting::new(
+            "timeout.plugin",
             &[
                 ::goodfetch_protocol::catalog::SettingScope::Connection,
                 ::goodfetch_protocol::catalog::SettingScope::Run,

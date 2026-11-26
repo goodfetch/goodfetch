@@ -22,6 +22,23 @@
         "arrived_in": "0.1",
         "description": "The settings it sets, nested by key.",
         "properties": {
+          "accounts": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Whether the Daemon knows its person by an Account, kept in its Accounts store beside the Operator policy. Unset, the default, it is on for `daemon run`, the Exposed Daemon, and off for a machine's Daemon. Off, the Daemon opens no Accounts store and its person is the OS user, on its own machine only. Read once, as the Daemon starts. Set in user configuration or an Operator policy only."
+              }
+            },
+            "type": "object"
+          },
           "admission": {
             "additionalProperties": false,
             "properties": {
@@ -278,11 +295,10 @@
             "additionalProperties": false,
             "properties": {
               "extractor": {
-                "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown, its main HTML and its text: `dom_smoothie` (the default), Readability's algorithm, or `trafilatura`, the rs-trafilatura port. A step that finds no text in a document holding text outside its navigation landmarks answers that text. Set at any scope down to a page: a Run, a Session's or a page's own `settings`.",
-                "enum": [
-                  "dom_smoothie",
-                  "trafilatura"
-                ]
+                "description": "The main-content step `page.formats` reads a page's main content with, before its Markdown and its text: `dom_smoothie` (the default), Readability's algorithm, `trafilatura`, the rs-trafilatura port, or the name of an installed Extractor Plugin. A built-in step that finds no text in a document holding text outside its navigation landmarks answers that text. An Extractor Plugin reads the page as the Clean-up rules left it and answers its Markdown and its text; it has no main HTML. Set at any scope down to a page: a Run, a Session's or a page's own `settings`. A Session or a page naming no built-in and no installed Extractor is refused; a Run's name is checked as its page reads with it.",
+                "minLength": 1,
+                "pattern": "^([^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f.][^/\\\\\\u0000-\\u001f\\u007f-\\u009f]*|\\.\\.[^/\\\\\\u0000-\\u001f\\u007f-\\u009f]+)$",
+                "type": "string"
               }
             },
             "type": "object"
@@ -3938,6 +3954,11 @@
               },
               "navigation": {
                 "description": "How long a navigation may take before its attempt fails with `deadline_exceeded`: 30 s, Playwright's default.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "plugin": {
+                "description": "How long a call into a Plugin, of any form, may wait for its answer before it is abandoned and fails with `deadline_exceeded`: 30 s. A kind with a timeout of its own, such as a Hook's `timeout.hook`, waits under that one instead.",
                 "minimum": 0,
                 "type": "integer"
               },

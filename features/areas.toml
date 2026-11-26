@@ -231,6 +231,24 @@ number = 7
 kind = "error"
 prefix = "confinement_unavailable"
 
+# The plugin protocol and the Plugin manifest (ADRs 0033 and 0066, spec #596).
+[[area]]
+number = 7
+kind = "format"
+prefix = "plugin-"
+
+# An Extractor's answer the engine cannot take, and an Extractor no one
+# answers for (ADRs 0104 and 0127, issue 823).
+[[area]]
+number = 7
+kind = "error"
+prefix = "extract_handler_failed"
+
+[[area]]
+number = 7
+kind = "error"
+prefix = "extractor_unavailable"
+
 [[area]]
 number = 3
 kind = "operation"
@@ -1505,6 +1523,18 @@ prefix = "needs-you"
 number = 12
 kind = "error"
 prefix = "connection_lost"
+
+# Area 12's Accounts store (#1941, spec #1937): `accounts.enabled` and the
+# store's format.
+[[area]]
+number = 12
+kind = "setting"
+prefix = "accounts."
+
+[[area]]
+number = 12
+kind = "format"
+prefix = "accounts-store"
 
 # Area 11, the Client surfaces (spec #608): the Error code a CLI command
 # fails with when no Daemon answers it (G14).

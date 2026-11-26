@@ -1,0 +1,36 @@
+# goodfetch-protocol's cargo-fuzz targets (ADR 0067; TESTING.md, Fuzzing),
+# outside the workspace: each target's body is a plain function of the
+# crate, whose seeds and past crashers `fuzz_replay!` replays from
+# `fuzz/<target>/` on every OS. Build and run with the pinned nightly, the
+# git-ignored corpus first so a run never grows the committed seeds:
+# `cargo fuzz run plugin_manifest fuzz/corpus/plugin_manifest
+# fuzz/plugin_manifest/seeds -- -dict=fuzz/plugin_manifest/dictionary.dict`,
+# and likewise `plugin_messages`.
+[package]
+name = "goodfetch-protocol-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+goodfetch-protocol = { path = ".." }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "plugin_manifest"
+path = "fuzz_targets/plugin_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "plugin_messages"
+path = "fuzz_targets/plugin_messages.rs"
+test = false
+doc = false
+bench = false

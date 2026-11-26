@@ -1714,6 +1714,28 @@
       ]
     },
     {
+      "id": "error:extract_handler_failed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:extractor_unavailable",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:file_write_failed",
       "kind": "error",
       "area": 3,
@@ -2209,6 +2231,17 @@
     },
     {
       "id": "error:plugin_protocol_unsupported",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_quarantined",
       "kind": "error",
       "area": 7,
       "milestone": null,
@@ -3406,6 +3439,17 @@
       ]
     },
     {
+      "id": "format:accounts-store",
+      "kind": "format",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:audit-log",
       "kind": "format",
       "area": 4,
@@ -3475,6 +3519,28 @@
       "id": "format:operator-policy",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:plugin-manifest",
+      "kind": "format",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:plugin-protocol",
+      "kind": "format",
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -8761,6 +8827,17 @@
       ]
     },
     {
+      "id": "setting:accounts.enabled",
+      "kind": "setting",
+      "area": 12,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:admission.max_requests_per_minute",
       "kind": "setting",
       "area": 3,
@@ -11417,6 +11494,17 @@
     },
     {
       "id": "setting:timeout.navigation",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:timeout.plugin",
       "kind": "setting",
       "area": 3,
       "milestone": null,

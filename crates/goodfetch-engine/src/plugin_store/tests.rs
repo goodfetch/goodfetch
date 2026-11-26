@@ -1,0 +1,98 @@
+use std::fs;
+use std::path::Path;
+
+use goodfetch_protocol::plugin::PluginKindName;
+use rstest::rstest;
+use serde_json::{Value, json};
+
+use super::PluginStore;
+
+/// A manifest of the Extractor `name`.
+fn manifest(name: &str) -> Value {
+    json!({
+        "manifest_version": "0.1",
+        "name": name,
+        "version": "1.0.0",
+        "kinds": ["extract"],
+        "protocol": { "min": "0.1", "max": "0.1" },
+        "entrypoint": "plugin",
+        "network_level": "none",
+    })
+}
+
+/// Writes `manifest` as the bundle `<name>/<version>` of the store at
+/// `store`.
+fn installed(store: &Path, name: &str, version: &str, manifest: &Value) {
+    let bundle = store.join(name).join(version);
+    fs::create_dir_all(&bundle).unwrap();
+    fs::write(bundle.join("goodfetch-plugin.json"), manifest.to_string()).unwrap();
+}
+
+/// An installed Plugin resolves to its bundle and its manifest.
+#[test]
+fn an_installed_plugin_resolves_to_its_bundle() {
+    let store = tempfile::tempdir().unwrap();
+    installed(store.path(), "kettle", "1.0.0", &manifest("kettle"));
+
+    let resolved = PluginStore::new(store.path().to_owned())
+        .resolve("kettle", &PluginKindName::EXTRACT)
+        .unwrap();
+
+    assert_eq!(
+        (resolved.bundle, resolved.manifest.name),
+        (
+            store.path().join("kettle").join("1.0.0"),
+            "kettle".to_owned()
+        )
+    );
+}
+
+/// A name resolves to nothing the store cannot vouch for: each refusal
+/// names the Plugin and no path.
+#[rstest]
+#[case::not_installed("absent", "no Plugin `absent` is installed")]
+#[case::parent_folder("..", "`..` is no Plugin's name")]
+#[case::nested_path("kettle/1.0.0", "is no Plugin's name")]
+#[case::windows_separator("kettle\\1.0.0", "is no Plugin's name")]
+#[case::two_versions("two", "the Plugin `two` has 2 versions installed")]
+#[case::no_version("empty", "the Plugin `empty` has 0 versions installed")]
+#[case::misnamed("misnamed", "names the Plugin `kettle`")]
+#[case::another_kind("decision", "the Plugin `decision` is no extract Plugin")]
+#[case::newer_major("newer", "is of version 1.0")]
+#[case::malformed("malformed", "the Plugin `malformed`'s manifest")]
+#[case::no_manifest("bare", "the Plugin `bare`'s files cannot be read")]
+fn a_name_the_store_cannot_vouch_for_resolves_to_nothing(
+    #[case] name: &str,
+    #[case] refused: &str,
+) {
+    let store = tempfile::tempdir().unwrap();
+    let root = store.path();
+    installed(root, "two", "1.0.0", &manifest("two"));
+    installed(root, "two", "1.1.0", &manifest("two"));
+    fs::create_dir_all(root.join("empty")).unwrap();
+    installed(root, "misnamed", "1.0.0", &manifest("kettle"));
+    let mut decision = manifest("decision");
+    decision["kinds"] = json!(["decision"]);
+    installed(root, "decision", "1.0.0", &decision);
+    let mut newer = manifest("newer");
+    newer["manifest_version"] = json!("1.0");
+    installed(root, "newer", "1.0.0", &newer);
+    installed(
+        root,
+        "malformed",
+        "1.0.0",
+        &json!({ "manifest_version": "0.1" }),
+    );
+    fs::create_dir_all(root.join("bare").join("1.0.0")).unwrap();
+
+    let resolved = PluginStore::new(root.to_owned()).resolve(name, &PluginKindName::EXTRACT);
+
+    let Err(error) = resolved else {
+        panic!("`{name}` resolved");
+    };
+    let text = error.to_string();
+    assert!(
+        text.contains(refused) && !text.contains(&*root.to_string_lossy()),
+        "{text}"
+    );
+}

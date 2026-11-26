@@ -261,6 +261,7 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("browser-cache", Rule::Default),
             ("clean-up-rules", Rule::NewestReadable),
             ("run-index", Rule::SharedStore),
+            ("accounts-store", Rule::Default),
             ("run-state", Rule::Default),
             ("installed-executables", Rule::FrozenMajor),
             ("usage-ledger", Rule::FrozenMajor),
@@ -272,7 +273,9 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("user-configuration", Rule::SharedStore),
             ("export", Rule::Default),
             ("session-export", Rule::Default),
-            ("recipe-manifest", Rule::Default)
+            ("recipe-manifest", Rule::Default),
+            ("plugin-protocol", Rule::LowerMinor),
+            ("plugin-manifest", Rule::Default)
         ]
     );
 }

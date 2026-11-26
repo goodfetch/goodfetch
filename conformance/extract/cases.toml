@@ -1,0 +1,33 @@
+# The Extractor's suite (spec #596, ticket 823): the Plugin kind `extract`,
+# whose one primitive, `extract.content`, reads a page's main content (ADRs
+# 0007, 0033 and 0129). The harness runs it against a process Plugin as it
+# runs every kind's suite (`run_plugin_suite`), and against an
+# implementation called in process (`PluginSuite::checks_in_process`), so
+# the built-in extractors pass the same cases as a Plugin. Each case sends
+# the harness's article page, whose main content holds one sentence and
+# whose navigation holds another. `product` is the smallest Product that
+# carries the kind. Each case ID names an exchange the harness runs. Bump
+# the version whenever a case changes.
+
+product = "collie"
+kind = "extract"
+
+[suite]
+name = "extract"
+version = "1"
+
+[[capability]]
+name = "content"
+
+[[capability.case]]
+# `extract.content` of the article page answers `{ title, text, markdown,
+# metadata }`, no other field, its metadata keys `snake_case`, whose text and
+# Markdown hold the article's sentence and none of the navigation's.
+id = "a-pages-main-content-is-answered-in-the-kinds-shape"
+covers = ["story:7-87"]
+
+[[capability.case]]
+# `extract.content` whose params carry a field a newer engine adds is
+# answered as without it (ADRs 0077 and 0082).
+id = "params-from-a-newer-engine-are-read-without-their-unknown-field"
+covers = ["story:7-87"]

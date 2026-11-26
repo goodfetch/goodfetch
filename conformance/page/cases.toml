@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
-# spec #580, tickets #783, #784, #785, #786, #787, #788, #789 and #2402): a Collie program's pages, their locator actions
+# spec #580, tickets #783, #784, #785, #786, #787, #788, #789, #2402 and #796): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "42"
+version = "43"
 
 [[capability]]
 name = "sessions.default"
@@ -792,3 +792,14 @@ covers = ["story:6-62", "operation:run.new_page", "operation:page.request"]
 [[capability.case]]
 id = "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file"
 covers = ["story:6-62", "story:6-64", "operation:run.new_session", "operation:session.new_page", "operation:session.close", "operation:page.goto"]
+
+[[capability]]
+name = "response_cache"
+
+[[capability.case]]
+id = "a-later-runs-page-takes-its-script-and-frame-from-the-response-cache"
+covers = ["story:6-41", "setting:cache.mode", "operation:page.goto", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "a-call-a-service-worker-answers-misses-the-response-cache-and-is-kept-with-service-workers-blocked"
+covers = ["story:6-41", "story:6-51", "setting:cache.mode", "setting:browser.service_workers", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]

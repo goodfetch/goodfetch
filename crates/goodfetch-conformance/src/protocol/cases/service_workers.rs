@@ -14,7 +14,9 @@
 //! browser's own refusal does, `register` stays native, no worker controls
 //! the page, and the page's own calls reach its route and the site. In a
 //! headless Run, the worker's own requests show the site the user agent
-//! the build shows with a window, as its pages' do (ticket #696).
+//! the build shows with a window, as its pages' do (ticket #696). A call
+//! the worker answers is a miss of the Response cache, which a Session
+//! blocking service workers lets reach it (ticket #796).
 
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::egress::EGRESS_REFUSED;
@@ -41,6 +43,7 @@ pub(crate) enum Case {
     UnderTheInterception,
     Blocked,
     Identity,
+    CacheMiss,
 }
 
 impl Case {
@@ -55,6 +58,9 @@ impl Case {
             }
             "a-headless-service-workers-requests-show-the-site-its-windows-identity" => {
                 Self::Identity
+            }
+            "a-call-a-service-worker-answers-misses-the-response-cache-and-is-kept-with-service-workers-blocked" => {
+                Self::CacheMiss
             }
             _ => return None,
         })
@@ -72,6 +78,7 @@ impl Case {
             Self::UnderTheInterception => under_the_interception(connection, target, site, checks),
             Self::Blocked => blocked(connection, site, checks),
             Self::Identity => identity(connection, site, checks),
+            Self::CacheMiss => answered_by_a_worker_misses_the_cache(connection, site, checks),
         }
     }
 }
@@ -174,6 +181,18 @@ impl<'connection> Watch<'connection> {
     /// Serves the engine until the page at `page` reported whether a worker
     /// controls it, or the wait runs out; its reports as `(check, observed)`.
     fn until_reported(&mut self, site: &Site, page: &str) -> Result<Vec<(String, String)>, Gone> {
+        self.until_reported_load(site, page, 1)
+    }
+
+    /// [`Self::until_reported`] for the `load`th load of the page at
+    /// `page`: the reports of that load alone, those of earlier loads,
+    /// each ending with whether a worker controlled it, left out.
+    fn until_reported_load(
+        &mut self,
+        site: &Site,
+        page: &str,
+        load: usize,
+    ) -> Result<Vec<(String, String)>, Gone> {
         let polls = BROWSER_DEADLINE.as_millis() / POLL.as_millis();
         let mut seen = Vec::new();
         for _ in 0..polls {
@@ -181,12 +200,25 @@ impl<'connection> Watch<'connection> {
                 .observations()
                 .map(|observations| reports(&observations, page))
                 .unwrap_or_default();
-            if seen.iter().any(|(check, _)| check == "controlled") {
+            if seen
+                .iter()
+                .filter(|(check, _)| check == "controlled")
+                .count()
+                >= load
+            {
                 break;
             }
             self.read(POLL)?;
         }
-        Ok(seen)
+        let earlier = seen
+            .iter()
+            .enumerate()
+            .filter(|(_, (check, _))| check == "controlled")
+            .map(|(at, _)| at + 1)
+            .take(load.saturating_sub(1))
+            .last()
+            .unwrap_or(0);
+        Ok(seen.split_off(earlier))
     }
 
     /// Serves the engine until the Proving ground received a request for
@@ -506,21 +538,7 @@ fn blocked(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
     let query = "?case=block";
     start_run(connection, site, run_id, &settings(), checks)?;
     let mut watch = Watch::new(connection);
-    let opened = watch.call(
-        RUN_NEW_SESSION.name,
-        &json!({ "run_id": run_id, "settings": { "browser": { "service_workers": "block" } } }),
-    )?;
-    let session = opened["result"]["session_id"].clone();
-    checks.check(
-        "a Session opens with `browser.service_workers: block`",
-        session.is_string(),
-    );
-    if !session.is_string() {
-        return finish_run(watch.connection, run_id);
-    }
-    let paged = watch.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
-    let Ok(page) = serde_json::from_value::<PageOpened>(paged["result"].clone()) else {
-        checks.check("the Session opens a page", false);
+    let Some(page) = blocked_page(&mut watch, run_id, checks)? else {
         return finish_run(watch.connection, run_id);
     };
     let page_route = watch.connection.request(
@@ -569,6 +587,103 @@ fn blocked(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Res
         ) == (1, 1, 0),
     );
     watch.end(run_id, &[page_route])
+}
+
+/// A page of a Session of the Run `run_id` opened with
+/// `browser.service_workers: block`; `None` when either did not open.
+fn blocked_page(
+    watch: &mut Watch<'_>,
+    run_id: &str,
+    checks: &mut Checks,
+) -> Result<Option<PageOpened>, Gone> {
+    let opened = watch.call(
+        RUN_NEW_SESSION.name,
+        &json!({ "run_id": run_id, "settings": { "browser": { "service_workers": "block" } } }),
+    )?;
+    let session = opened["result"]["session_id"].clone();
+    checks.check(
+        "a Session opens with `browser.service_workers: block`",
+        session.is_string(),
+    );
+    if !session.is_string() {
+        return Ok(None);
+    }
+    let paged = watch.call(SESSION_NEW_PAGE.name, &json!({ "session_id": session }))?;
+    let page = serde_json::from_value::<PageOpened>(paged["result"].clone()).ok();
+    checks.check("the Session opens a page", page.is_some());
+    Ok(page)
+}
+
+/// Under `cache.mode: revalidate`, a call a service worker answers never
+/// pauses on its page, so the Response cache neither serves nor stores it
+/// (ticket #796): the site sees no request for it, and a later Run whose
+/// Session blocks service workers sends it on to the site, which lets it be
+/// kept an hour. A third Run, alike, takes it from the cache with no
+/// request, while the call the site never lets be kept reaches it each
+/// time.
+fn answered_by_a_worker_misses_the_cache(
+    connection: &mut Connection,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let (path, url) = page_of(site, "cache");
+    let cached = "/service-worker/cached.json?case=cache";
+    let network = "/service-worker/network.json?case=cache";
+    let mut settings = settings();
+    settings["cache"] = json!({ "mode": "revalidate" });
+    let run_id = "conformance-service-worker-cache-1";
+    start_run(connection, site, run_id, &settings, checks)?;
+    let Some(page) = new_page(connection, run_id, checks)? else {
+        return finish_run(connection, run_id);
+    };
+    let mut watch = Watch::new(connection);
+    watch.call(
+        PAGE_GOTO.name,
+        &json!({ "page_id": page.page_id, "url": url }),
+    )?;
+    let reports = watch.until_reported(site, &path)?;
+    checks.check(
+        "the page's worker registers and controls the page",
+        (
+            reported(&reports, "register"),
+            reported(&reports, "controlled"),
+        ) == (Some("registered"), Some("true")),
+    );
+    checks.check(
+        "the call the worker answers reaches no network",
+        received(site, IDENTITY_HOST, cached) == 0,
+    );
+    watch.end(run_id, &[])?;
+    // The worker's own fetch of the call never kept reached the site in
+    // the first Run; the page's own does in each later one.
+    for run in [2, 3] {
+        let run_id = format!("conformance-service-worker-cache-{run}");
+        start_run(connection, site, &run_id, &settings, checks)?;
+        let mut watch = Watch::new(connection);
+        let Some(page) = blocked_page(&mut watch, &run_id, checks)? else {
+            return finish_run(watch.connection, &run_id);
+        };
+        watch.call(
+            PAGE_GOTO.name,
+            &json!({ "page_id": page.page_id, "url": url }),
+        )?;
+        let reports = watch.until_reported_load(site, &path, run)?;
+        checks.check(
+            format!("in `{run_id}`, no worker controls the page"),
+            reported(&reports, "controlled") == Some("false"),
+        );
+        checks.check(
+            format!(
+                "after `{run_id}`, the site saw the call kept an hour once and the call never kept {run} times"
+            ),
+            (
+                received(site, IDENTITY_HOST, cached),
+                received(site, IDENTITY_HOST, network),
+            ) == (1, run),
+        );
+        watch.end(&run_id, &[])?;
+    }
+    Ok(())
 }
 
 /// The `User-Agent` of each request to `target` the Proving ground saw.

@@ -205,12 +205,12 @@ fn copy_tree(from: &Path, to: &Path) {
 /// alike (`NEXTEST_RUN_ID`, and `NEXTEST_STRESS_CURRENT`, `none` outside a
 /// stress run); outside nextest, this test process.
 fn run_key() -> String {
+    static PROCESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if let Ok(run) = std::env::var("NEXTEST_RUN_ID") {
         let iteration =
             std::env::var("NEXTEST_STRESS_CURRENT").unwrap_or_else(|_| "none".to_owned());
         return format!("{run}-{iteration}");
     }
-    static PROCESS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     PROCESS
         .get_or_init(|| {
             let started = std::time::SystemTime::now()
@@ -234,7 +234,7 @@ fn remove_runs_older_than_a_day(runs: &Path) {
             .and_then(|metadata| metadata.modified())
             .ok()
             .and_then(|modified| modified.elapsed().ok())
-            .is_some_and(|age| age > std::time::Duration::from_secs(24 * 60 * 60));
+            .is_some_and(|age| age > std::time::Duration::from_hours(24));
         if old {
             let _ = std::fs::remove_dir_all(entry.path());
         }
@@ -271,19 +271,19 @@ impl Workspace {
             .open(shared.join(format!("{name}.lock")))
             .unwrap();
         lock.lock().unwrap();
-        let made = shared.join(name);
-        if !made.exists() {
+        let stored = shared.join(name);
+        if !stored.exists() {
             let staging = shared.join(format!("{name}.staging"));
             if staging.exists() {
                 std::fs::remove_dir_all(&staging).unwrap();
             }
             copy_tree(make().path(), &staging);
-            std::fs::rename(&staging, &made).unwrap();
+            std::fs::rename(&staging, &stored).unwrap();
         }
         drop(lock);
         let target = TargetSlot::take();
         let folder = tempfile::tempdir().unwrap();
-        copy_tree(&made, folder.path());
+        copy_tree(&stored, folder.path());
         Self { folder, target }
     }
 

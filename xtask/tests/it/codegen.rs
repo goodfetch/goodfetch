@@ -98,11 +98,14 @@ const GENERATED_FOLDERS: [&str; 10] = [
     "sdks/python/foxhound/src/goodfetch_foxhound/generated",
 ];
 
-/// How many times `counted_workspace` ran in this test's process.
-static MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+thread_local! {
+    /// How many times `counted_workspace` ran on this test's thread, which
+    /// is where `made_once_per_run` calls it.
+    static MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 fn counted_workspace() -> Workspace {
-    MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    MADE.set(MADE.get() + 1);
     Workspace::from_fixture("codegen")
 }
 
@@ -117,10 +120,7 @@ fn a_workspace_made_once_per_run_is_made_once_and_copied_for_each_caller() {
     let second = Workspace::made_once_per_run(&name, counted_workspace);
 
     assert_eq!(
-        (
-            MADE.load(std::sync::atomic::Ordering::SeqCst),
-            second.read("written-by-the-first.txt"),
-        ),
+        (MADE.get(), second.read("written-by-the-first.txt")),
         (1, None)
     );
 }

@@ -44,6 +44,7 @@ mod schedules;
 mod scripted;
 mod settings;
 mod start;
+mod start_options;
 mod test_engine;
 // The crate's tests take its `opentelemetry` feature, except in the build
 // `just feature-combinations` makes without it, which runs

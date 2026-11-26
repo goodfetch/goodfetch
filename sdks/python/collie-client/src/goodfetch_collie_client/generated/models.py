@@ -4777,6 +4777,10 @@ class StartInput(StrEnum):
     """Who started it."""
     seeds = "seeds"
     """A crawl's seeds."""
+    plan = "plan"
+    """The Plan file's path (ADR 0091)."""
+    recording = "recording"
+    """The Response recording (ADR 0105)."""
 
 
 class StartedAs(StrEnum):
@@ -7911,14 +7915,32 @@ class RunStartParams(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    accept_plugin_change: list[str] | None = None
+    """
+    The third-party Plugins, by name, whose changed digest a start that
+    resumes the Run accepts (ADR 0033), where it would otherwise refuse
+    the resume.
+    """
     limits: list[RunLimit] | None = None
     """
     The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
     kind and currency. A start that names the Run again lowers them and
     never raises them (ADR 0102).
     """
+    plan: str | None = None
+    """
+    The Run's Plan file (ADR 0091), on the program's machine, relative
+    to its working directory: an input of the Run, which a start that
+    names the Run again gives unchanged, else it fails with
+    `run_conflict`.
+    """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
+    recording: Recording | None = None
+    """
+    The Response recording the Run replays or records (ADR 0105): an
+    input of the Run, as `plan` is.
+    """
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None
@@ -7932,6 +7954,14 @@ class RunStartParams(BaseModel):
     """The Run's settings, nested by key: the run layer (ADR 0083)."""
     tags: Tags | None = None
     """The Run's opaque tags."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the Run may last, in milliseconds, at least 1, as
+    `timeout.run` for this Run (ADR 0080): absent for the setting's
+    value, `null` for none. Past it, the Run checkpoints and stops at
+    its next safe point, resumable; a start that resumes it counts its
+    own on a fresh clock (ADR 0102).
+    """
 
 
 class RunStarted(BaseModel):

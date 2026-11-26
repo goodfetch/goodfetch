@@ -290,8 +290,9 @@ fn source(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Resu
 }
 
 /// A Session source's `domains` are registrable domains (ADR 0056): a Run
-/// whose `session.source` lists `www.example.com` does not start, and its
-/// `setting_invalid` names `session.source` and gives `example.com` instead.
+/// whose `session.source` lists `www.example.com` does not start, nor does
+/// a Session given that source as its own, and each `setting_invalid` names
+/// `session.source` and gives `example.com` instead.
 fn not_registrable(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
     let source = json!({
         "kind": "cdp_url",
@@ -305,22 +306,43 @@ fn not_registrable(connection: &mut Connection, checks: &mut Checks) -> Result<(
             "settings": { "session": { "source": source } },
         }),
     )?;
-    let data = &started["error"]["data"];
     checks.check(
         format!(
             "`www.example.com` in `domains` raises `{}` naming `{}`, whose fix gives `example.com`",
             SETTING_INVALID.name, SESSION_SOURCE.name
         ),
-        code_of(&started) == &json!(SETTING_INVALID.name)
-            && data["key"] == json!(SESSION_SOURCE.name)
-            && data["layer"] == json!("run")
-            && data["reason"]
-                == json!(
-                    "`www.example.com` in `domains` is no registrable domain, whose is `example.com`"
-                )
-            && data["fix"] == json!("Give `example.com` in `domains`"),
+        names_the_registrable_domain(&started),
     );
-    Ok(())
+    let run_id = "conformance-sessions-own-source-not-registrable";
+    let started = connection.call(RUN_START.name, &json!({ "run_id": run_id }))?;
+    checks.check("the Run starts", started.get("result").is_some());
+    let opened = connection.call(
+        RUN_NEW_SESSION.name,
+        &json!({ "run_id": run_id, "source": source }),
+    )?;
+    checks.check(
+        format!(
+            "the same domain in a Session's own `source` raises `{}` where the Session opens",
+            SETTING_INVALID.name
+        ),
+        names_the_registrable_domain(&opened),
+    );
+    finish_run(connection, run_id)
+}
+
+/// Whether `answer` is the `setting_invalid` of `www.example.com` in a
+/// Session source's `domains` set in the run layer, whose fix gives
+/// `example.com`.
+fn names_the_registrable_domain(answer: &Value) -> bool {
+    let data = &answer["error"]["data"];
+    code_of(answer) == &json!(SETTING_INVALID.name)
+        && data["key"] == json!(SESSION_SOURCE.name)
+        && data["layer"] == json!("run")
+        && data["reason"]
+            == json!(
+                "`www.example.com` in `domains` is no registrable domain, whose is `example.com`"
+            )
+        && data["fix"] == json!("Give `example.com` in `domains`")
 }
 
 /// A finished Run takes no new Session and no new page: both raise

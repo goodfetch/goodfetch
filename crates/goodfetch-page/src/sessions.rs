@@ -115,6 +115,7 @@ use crate::document_request::{DocumentRequest, Unread};
 use crate::egress_relay::{self, EgressRelay};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
+use crate::fingerprint_method::FingerprintPlan;
 use crate::hiding::SessionHiding;
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers, SessionInterception};
 use crate::page_events;
@@ -243,6 +244,9 @@ struct Session {
     held_frames: Option<session_pages::HeldFrames>,
     /// Its marks of main-world injections in Provenance, each once.
     injections: Injections,
+    /// How its pages mask their browser's fingerprint, when it is
+    /// `stealth` (ADR 0035).
+    fingerprint: Option<FingerprintPlan>,
     /// The live hiding its pages share: the clicks' lifted rules and its
     /// pages under live hiding.
     hiding: Arc<SessionHiding>,
@@ -584,6 +588,7 @@ impl Sessions {
         }
         let settings = extractor_installed(settings, &run, context).await?;
         let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
+        let fingerprint = FingerprintPlan::of(&identity);
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
@@ -613,7 +618,7 @@ impl Sessions {
                     .pool
                     .borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
                 None => runs.pool.seat(
-                    Placement::Shared,
+                    placement(fingerprint.as_ref()),
                     egress(proxy.as_ref(), relay.as_ref()),
                     TaskStarter::clone(&owner),
                 ),
@@ -642,6 +647,7 @@ impl Sessions {
                     .as_ref()
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
+                fingerprint,
                 hiding: Arc::default(),
                 interception,
                 page_listeners: session_pages::PageListeners::default(),
@@ -666,6 +672,9 @@ impl Sessions {
         self.record(&run, position, false, &settings, borrowed.as_ref(), context)
             .await?;
         mark_egress(&open, &session).await;
+        if let Some(fingerprint) = &open.fingerprint {
+            fingerprint.chosen(&run, &session).await;
+        }
         Ok(SessionOpened {
             session_id: session,
         })
@@ -688,13 +697,7 @@ impl Sessions {
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
             .get_or_try_init(|| {
-                self.open_held(
-                    &run,
-                    borrowed.as_ref(),
-                    identity.signing.as_ref(),
-                    Opener::Default,
-                    context,
-                )
+                self.open_held(&run, borrowed.as_ref(), &identity, Opener::Default, context)
             })
             .await?;
         if reached(&mut *self.state.lock().await, &run.identity)?
@@ -716,20 +719,22 @@ impl Sessions {
 
     /// Opens the default Session of `run`, or a Session its crawl's Session
     /// pool holds, as `opener` says, on the Borrowed browser at `borrowed`
-    /// if there is one, signing as `signing` plans when it is `identified`,
-    /// and answers its position: its signing key is resolved, and its proxy
-    /// and the default Session's record in run state are opened and
-    /// written, outside the table's lock.
+    /// if there is one, with the `identity` it opens with: signing as it
+    /// plans when it is `identified`, masking its fingerprint when it is
+    /// `stealth`; and answers its position: its signing key is resolved,
+    /// and its proxy and the default Session's record in run state are
+    /// opened and written, outside the table's lock.
     async fn open_held(
         &self,
         run: &Arc<BrowserRun>,
         borrowed: Option<&CdpUrl>,
-        signing: Option<&SigningPlan>,
+        identity: &SessionIdentityPlan,
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
         no_local_address_on(run, source_of(borrowed))?;
-        let signing = open_signing(run, signing, context).await?;
+        let signing = open_signing(run, identity.signing.as_ref(), context).await?;
+        let fingerprint = FingerprintPlan::of(identity);
         let (position, pool) = taken(&mut *self.state.lock().await, run)?;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
@@ -754,7 +759,7 @@ impl Sessions {
         let seat = match borrowed {
             Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
             None => pool.seat(
-                Placement::Shared,
+                placement(fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 TaskStarter::clone(&owner),
             ),
@@ -793,15 +798,21 @@ impl Sessions {
             reopen_failed: None,
             held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
+            fingerprint,
             hiding: Arc::default(),
             interception,
             page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
         });
-        let mut state = self.state.lock().await;
-        reached(&mut state, &run.identity)?;
-        self.index.opened(session.clone(), Arc::clone(&held));
-        self.watch_session(session, &held);
+        {
+            let mut state = self.state.lock().await;
+            reached(&mut state, &run.identity)?;
+            self.index.opened(session.clone(), Arc::clone(&held));
+            self.watch_session(session.clone(), &held);
+        }
+        if let Some(fingerprint) = &held.fingerprint {
+            fingerprint.chosen(run, &session).await;
+        }
         Ok(position)
     }
 
@@ -931,15 +942,7 @@ impl Sessions {
             address_ordinal: pooled.address_ordinal,
         };
         let position = *cell
-            .get_or_try_init(|| {
-                self.open_held(
-                    &run,
-                    borrowed.as_ref(),
-                    identity.signing.as_ref(),
-                    opener,
-                    context,
-                )
-            })
+            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), &identity, opener, context))
             .await?;
         Ok(session_id(run.identity.id(), position))
     }
@@ -1786,10 +1789,10 @@ async fn reopened_session(
         context,
     )
     .await;
-    let (signing, reopen_failed) =
-        match reopened_signing(run, &settings, borrowed.is_some(), context).await {
-            Ok(signing) => (signing, reopen_failed),
-            Err(error) => (None, reopen_failed.or(Some(error))),
+    let ((signing, fingerprint), reopen_failed) =
+        match reopened_identity(run, &settings, borrowed.is_some(), context).await {
+            Ok(identity) => (identity, reopen_failed),
+            Err(error) => ((None, None), reopen_failed.or(Some(error))),
         };
     let session = session_id(run.identity.id(), position);
     let (seat, attributes) = match &borrowed {
@@ -1799,7 +1802,7 @@ async fn reopened_session(
         ),
         None => (
             pool.seat(
-                Placement::Shared,
+                placement(fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 TaskStarter::clone(&owner),
             ),
@@ -1828,6 +1831,7 @@ async fn reopened_session(
             .as_ref()
             .map(|_| session_pages::HeldFrames::default()),
         injections: Injections::default(),
+        fingerprint,
         hiding: Arc::default(),
         interception,
         page_listeners: session_pages::PageListeners::default(),
@@ -1883,8 +1887,8 @@ struct NamedSource {
 /// The Access mode a Session of the Run `identity` names opens in, as its
 /// `own` settings, over the Run's, ask for from the source `named` (ADR
 /// 0021): the [`access_mode`](crate::access_mode) module's refusal when it
-/// does not open. A `stealth` Session does not open until the tickets that
-/// build its Identity profile land.
+/// does not open, or asks for an effect this engine does not build yet
+/// (ADR 0083).
 fn access_mode_opens(
     own: &Values,
     identity: &RunIdentity,
@@ -1894,7 +1898,7 @@ fn access_mode_opens(
     let source = named.map(|named| &named.source);
     let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
     access_mode::resolve(&settings, source, BrowserFamily::of(source))
-        .and_then(SessionIdentityPlan::built)
+        .and_then(|plan| plan.built(&settings))
         .map_err(|refusal| refusal.call_error(context))
 }
 
@@ -2107,26 +2111,34 @@ async fn reopened_egress(
     }
 }
 
-/// The signer of a Session of `run` reopened from run state with its own
-/// `settings`, as [`open_signing`] makes it when a Session opens: its key
-/// resolved again, once for the reopened Session. One on a Borrowed
-/// browser, when `borrowed`, never signs (ADR 0021).
+/// The signer and the Fingerprint method of a Session of `run` reopened
+/// from run state with its own `settings`, as a Session opens with them:
+/// its key resolved again, once for the reopened Session, as
+/// [`open_signing`] makes it. One on a Borrowed browser, when `borrowed`,
+/// neither signs nor masks (ADR 0021).
 ///
 /// # Errors
 ///
 /// As [`access_mode_opens`] and [`open_signing`] say: the Session then
 /// raises it from each page it is asked for.
-async fn reopened_signing(
+async fn reopened_identity(
     run: &Arc<BrowserRun>,
     settings: &Values,
     borrowed: bool,
     context: &CallContext,
-) -> Result<Option<Arc<RequestSigner>>, CallError> {
+) -> Result<(Option<Arc<RequestSigner>>, Option<FingerprintPlan>), CallError> {
     if borrowed {
-        return Ok(None);
+        return Ok((None, None));
     }
     let identity = access_mode_opens(settings, &run.identity, None, context)?;
-    open_signing(run, identity.signing.as_ref(), context).await
+    let signing = open_signing(run, identity.signing.as_ref(), context).await?;
+    Ok((signing, FingerprintPlan::of(&identity)))
+}
+
+/// Where a Session whose pages mask their fingerprint as `fingerprint`
+/// says, if they do, is placed in its Run's browser pool (ADR 0129).
+fn placement(fingerprint: Option<&FingerprintPlan>) -> Placement {
+    fingerprint.map_or(Placement::Shared, FingerprintPlan::placement)
 }
 
 /// The side of the interception of the Session `session` of `run`, which

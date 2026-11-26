@@ -17,12 +17,13 @@ fast_html2md = { version = "=0.0.63", package = "fast_html2md" }
 mdka = "=3.3.0"
 quick_html2md = "=0.2.1"
 html-escape = "=0.2.15"
-# The product's chain (#818): goodfetch-extractor's `formats`, from the repository's crates.
+# Goodfetch's chain (#818): goodfetch-extractor's `formats`, from the repository's crates.
 goodfetch-extractor = { path = "../../../../crates/goodfetch-extractor" }
 goodfetch-protocol = { path = "../../../../crates/goodfetch-protocol" }
 
-# The repository's patched crates, so the product's chain here is the product's: a patch applies only in the
-# workspace that declares it. The lab's own modes that use these crates read the patched ones too.
+# The four vendored crates goodfetch-extractor reads, as the repository's root manifest patches them, so the chain here
+# is the one Goodfetch builds: a patch applies only in the workspace that declares it. The lab's own modes that use these
+# crates read the patched ones too.
 [patch.crates-io]
 dom_smoothie = { path = "../../../../vendor/dom_smoothie" }
 html-cleaning = { path = "../../../../vendor/html-cleaning" }

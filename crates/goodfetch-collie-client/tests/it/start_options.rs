@@ -1,12 +1,14 @@
 //! A start's options through the client crate (ADRs 0033, 0080, 0091,
 //! 0102 and 0105), with the Scripted engine as the Daemon playing the
-//! corpus's script of the `start-takes-every-option` client conformance
-//! case, which the TypeScript SDK plays too: a start sends its settings,
-//! its `timeout`, its Plan file, its Response recording and each Plugin
-//! change it accepts, and a resume honours them; `.no_timeout()` sends
-//! `null`; a zero `timeout` is refused before anything is sent; and a start
-//! the program drops once it is sent is cancelled with one `$/cancel`
-//! naming it. The Daemon checks every message the crate sends and fails on
+//! crate's copy of the corpus's script of the `start-takes-every-option`
+//! client conformance case: a start sends its settings, its `timeout`, its
+//! Plan file, its Response recording and each Plugin change it accepts, and
+//! a resume honours them; `.no_timeout()` sends `null`; a zero `timeout` is
+//! refused before anything is sent; and a start the program drops once it
+//! is sent is given up with no `$/cancel`, since the catalog marks
+//! `run.start` not cancellable, where TypeScript's and Python's copies send
+//! one the engine may ignore. The Daemon checks every message the crate
+//! sends and fails on
 //! a step left unused, so its clean exit says each start carried exactly
 //! what the script holds.
 //! Covers: story:11-50, story:11-132
@@ -25,8 +27,8 @@ use serde_json::json;
 use crate::scripted_daemon::scripted_daemon;
 use crate::start::failure;
 
-/// The corpus's script of the case.
-const SCRIPT: &str = "run/start-takes-every-option.json";
+/// The crate's copy of the corpus's script of the case.
+const SCRIPT: &str = "sdk-rust/run/start-takes-every-option.json";
 
 /// How long the program waits before it drops the start it sent.
 const SOON: Duration = Duration::from_millis(50);
@@ -79,7 +81,7 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
     );
     // The program drops the start once it is sent.
     tokio::select! {
-        started = connection.start().run_id(&id("slow")) => panic!("the engine answers only its cancel: {started:?}"),
+        started = connection.start().run_id(&id("slow")) => panic!("the engine never answers it: {started:?}"),
         () = tokio::time::sleep(SOON) => {}
     }
     connection.close().await.unwrap();
@@ -90,9 +92,10 @@ async fn play(endpoint: DaemonEndpoint) -> Played {
 }
 
 /// Each start sends every option it is given, `null` for no timeout; a
-/// zero timeout sends nothing; and a dropped start is cancelled once.
+/// zero timeout sends nothing; and a dropped start is given up with no
+/// `$/cancel`.
 #[test]
-fn a_start_sends_every_option_refuses_a_zero_timeout_and_cancels_when_dropped() {
+fn a_start_sends_every_option_refuses_a_zero_timeout_and_gives_up_when_dropped() {
     let mut case = ClientCaseRun::start(
         case_logs().as_deref(),
         "start-takes-every-option",
@@ -127,7 +130,7 @@ fn a_start_sends_every_option_refuses_a_zero_timeout_and_cancels_when_dropped() 
         },
     );
     case.check(
-        "the Daemon heard every option and the cancel, so it played its script whole",
+        "the Daemon heard every option and no cancel, so it played its script whole",
         || assert!(process.child().wait().unwrap().success()),
     );
 }

@@ -573,17 +573,21 @@ surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 # none), its Plan file, its Response recording and each Plugin change it
 # accepts, and a resume honours them; a zero `timeout` is refused with
 # `setting_invalid` from the argument, naming the null form, before
-# anything is sent; and a start given up once sent (TypeScript's `signal`,
-# Python's cancelled task, Rust's dropped future) is cancelled with one
-# `$/cancel` naming it. On the Scripted engine the script checks every
+# anything is sent; and a start given up once sent rejects at once:
+# TypeScript's `signal` and Python's cancelled task send one `$/cancel`
+# naming it, which the engine may ignore, and Rust's dropped future sends
+# none, since the catalog marks `run.start` not cancellable. On the
+# Scripted engine the script checks every
 # message; linked, a start's own `timeout` stops the Run with a
 # Checkpoint, a start of its Run ID resumes it, and another Plan file or
-# recording is `run_conflict` naming each. The TypeScript and Python SDKs
-# join with the rest of issue 2888.
+# recording is `run_conflict` naming each. TypeScript and Python play the
+# script as an Attached engine, Python's async API only since the sync
+# API gives a start up only on Ctrl+C, and the linked checks on the Daemon
+# of the same commit.
 [[capability.case]]
 id = "start-takes-every-option"
 covers = ["story:11-50", "story:11-132"]
-surfaces = ["sdk-rust"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 
 # How a Run ends and what it does meanwhile (ADRs 0029 and 0102; issue
 # 1282): `finish()` answers the whole Run report and `stop()` the Run

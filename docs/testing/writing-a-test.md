@@ -8,7 +8,7 @@
   _Why:_ Error codes are the contract (ADR 0038); messages change freely.
 - **Every test creates its own data.** No test reads another test's data or depends on test order.
   - One exception: a fixture workspace that a fixed setup function makes once per nextest run and stress iteration, which no test changes and each test copies before use (`Workspace::made_once_per_run` in `xtask`'s tests). `xtask codegen`'s tests read their generated fixtures this way.
-  _Why:_ the setups generate the same tree for every test that reads it, and generating it once per setup took about 115 CPU-seconds off each run of the codegen tests.
+  _Why:_ the setups generate the same tree for every test that reads it, and generating it once per setup takes about 80 CPU-seconds and 20 seconds of wall time off each run of the codegen tests.
 - **Names state the behaviour in glossary terms**, never `_Avoid_` terms:
   - Rust: `resumed_run_never_repeats_an_effect`, with no `test_` prefix.
   - Python: `test_resumed_run_never_repeats_an_effect`.

@@ -2895,6 +2895,8 @@ entries = [
   "daemon.stop",
   "engine.info",
   "events.subscribe",
+  "group.init",
+  "group.token",
   "needs_you.dismiss",
   "needs_you.list",
   "run.list",

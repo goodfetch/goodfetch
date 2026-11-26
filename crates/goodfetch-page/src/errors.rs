@@ -11,7 +11,7 @@ use goodfetch_engine::crash_report;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::net_error::{BROWSER_REDIRECT_CHAIN, CertificateError, NetError};
 use goodfetch_engine::run::limit_reached;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::connection::{
     CALL_CANCELLED, CLOSED, CallCancelledDetails, CancelledBy, ClosedValue, EnginePanickedDetails,
     INTERNAL, InternalDetails, PanicEnded,
@@ -269,7 +269,7 @@ fn cancelled_for(by: CancelledBy, closed: ClosedValue, person: Option<String>) -
 /// Run reached, as the charge that reached it raised (ADR 0041), and
 /// otherwise `call_cancelled` closing the Run (ADR 0113), by whoever
 /// aborted it, or by the program for any other stop, such as a pause.
-pub(crate) fn run_stopped(run: &Run) -> CallError {
+pub(crate) fn run_stopped(run: &RunIdentity) -> CallError {
     match run.stopping().now_or_never() {
         Some(StopReason::Limit(reached)) => limit_reached(&reached),
         Some(StopReason::Abort { by, person }) => {

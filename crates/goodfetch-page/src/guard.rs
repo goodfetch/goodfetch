@@ -33,7 +33,7 @@ use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::lease::LeaseCheck;
-use goodfetch_engine::runs::Run;
+use goodfetch_engine::runs::RunSendWindow;
 use goodfetch_protocol::connection::{DEADLINE_EXCEEDED, DeadlineExceededDetails, Form};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{Count, ElementState};
@@ -43,7 +43,7 @@ use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
 use crate::cdp::driver::PageDriver;
-use crate::cdp::{CdpPage, KeyEvent, TargetSession, keys};
+use crate::cdp::{CdpPage, ExecutionContextId, KeyPress, TargetSession, keys};
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;
@@ -59,9 +59,6 @@ const SET_VALUE: &str = include_str!("guard/set_value.js");
 /// press's input was sent.
 const SETTLED: &str = "function settled() {}";
 
-/// The browser's ID of a world in a document.
-type ExecutionContextId = i64;
-
 /// The longest one check waits in the page before it answers, so that a
 /// navigation that replaced the document, or the call's cancellation, is
 /// seen within it.
@@ -73,8 +70,8 @@ pub(crate) enum Action {
     Click,
     /// Replaces its text with this text.
     Fill(String),
-    /// Sends these key events to it.
-    Press(Vec<KeyEvent>),
+    /// Sends this key press to it.
+    Press(KeyPress),
 }
 
 impl Action {
@@ -154,8 +151,8 @@ pub(crate) struct Request<'a> {
 /// naming the attempt when a handler's page, whose bodies the first command
 /// that may change the page marks sent.
 pub(crate) struct SentMark<'a> {
-    /// The page's Run.
-    pub(crate) run: &'a Run,
+    /// The send window of the page's Run.
+    pub(crate) window: &'a RunSendWindow,
     /// The page's lease, when a handler's page.
     pub(crate) lease: Option<Arc<dyn LeaseCheck>>,
 }
@@ -169,7 +166,7 @@ impl SentMark<'_> {
     /// `run_state_unavailable` when the mark could not be written:
     /// `command` must not go out.
     pub(crate) async fn mark(&self, command: &str) -> Result<(), CallError> {
-        self.run.sending(self.lease.as_deref(), command).await
+        self.window.sending(self.lease.as_deref(), command).await
     }
 }
 

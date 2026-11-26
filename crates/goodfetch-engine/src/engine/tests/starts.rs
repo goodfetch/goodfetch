@@ -69,7 +69,7 @@ fn starting() -> Contribution {
             let Started::New(run) = started else {
                 panic!("the Run began before");
             };
-            Ok::<Value, CallError>(json!({ "run_id": run.id().to_string() }))
+            Ok::<Value, CallError>(json!({ "run_id": run.identity.id().to_string() }))
         },
     ))
 }

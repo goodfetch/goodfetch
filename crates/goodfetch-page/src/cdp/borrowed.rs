@@ -16,6 +16,7 @@
     reason = "a Borrowed browser's connection is opened here alone, to the addresses its `cdp_url` was judged on, so no other lookup chooses where it goes (ADRs 0056 and 0060)"
 )]
 
+use crate::browser_run::BrowserRun;
 use futures_util::{Sink, SinkExt as _, Stream, StreamExt as _};
 use goodfetch_cdp::{Connection, Framer, MAX_FRAME};
 use goodfetch_engine::CallError;
@@ -25,7 +26,6 @@ use goodfetch_engine::egress::{
 };
 use goodfetch_engine::http_client;
 use goodfetch_engine::run_identity::RunIdentity;
-use goodfetch_engine::runs::Run;
 use goodfetch_engine::settings::{Resolved, RunSettings};
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
 use goodfetch_protocol::settings::{
@@ -94,14 +94,14 @@ pub(crate) fn resolve_of(settings: Option<&Resolved>) -> HostMapping {
 /// host; and `browser_launch_failed` naming the address when nothing
 /// answers there as a browser (#743 gives each case its own code).
 pub(crate) async fn connect(
-    (run, on): (&Run, &RunIdentity),
+    (run, on): (&BrowserRun, &RunIdentity),
     cdp_url: &CdpUrl,
 ) -> Result<Connection, CallError> {
     let address = cdp_url.address();
     let (host, port) = cdp_url
         .host_and_port()
         .ok_or_else(|| unsupported(cdp_url))?;
-    let settings = run.settings().map(RunSettings::resolved);
+    let settings = run.identity.settings().map(RunSettings::resolved);
     let addresses = http_client::lookup(&host, port, &resolve_of(settings))
         .await
         .map_err(|_| unreachable(&address, "its host has no address"))?;
@@ -133,8 +133,12 @@ pub(crate) async fn connect(
         })?;
     let (engine, bridge_end) = tokio::io::duplex(BUFFER);
     let (reader, writer) = tokio::io::split(engine);
-    let (connection, driver) =
-        Connection::new(reader, writer, run.metrics().counted_work().clone(), log);
+    let (connection, driver) = Connection::new(
+        reader,
+        writer,
+        run.identity.metrics().counted_work().clone(),
+        log,
+    );
     on.spawn(async move {
         let ended = driver.run().await;
         tracing::debug!(?ended, "a Borrowed browser's connection ended");

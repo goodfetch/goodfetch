@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use goodfetch_engine::CallError;
-use goodfetch_engine::runs;
 use goodfetch_page::page_value::Permit;
 use goodfetch_protocol::foxhound::crawl::{RESPONSE_NOT_OK, RESPONSE_UNAVAILABLE};
 use url::Url;
@@ -36,7 +35,7 @@ impl HttpTier {
     ///
     /// Dropping the future closes the fetch's connection.
     pub async fn sitemap(&self, url: &Url, hand_over: &HandOver) -> Result<Bytes, FetchFailure> {
-        let run = runs::identity(hand_over.run());
+        let run = &hand_over.run().identity;
         let clock = run.clock();
         let gate = SitemapHops(hand_over);
         let fetched = follow(
@@ -98,7 +97,7 @@ impl HopGate for SitemapHops<'_> {
 
     fn wait_until<'a>(&'a self, _hop: &'a Hop, until: std::time::SystemTime) -> Gating<'a, ()> {
         Box::pin(async move {
-            let clock = runs::identity(self.0.run()).clock();
+            let clock = self.0.run().identity.clock();
             if let Ok(wait) = until.duration_since(clock.wall()) {
                 clock.sleep(wait).await;
             }

@@ -2,7 +2,7 @@
 //! Standard Webhooks delivery, `{ type, timestamp, format, data }`, whose
 //! `webhook-id` is the event ID, signed by `goodfetch_engine`'s
 //! `webhook_signing` with every key of the channel's `webhook.secret`. It
-//! posts through the engine's Notification webhook endpoint, its own HTTP
+//! posts through the engine's Notification channel endpoint, its own HTTP
 //! client and never a Session's (ADR 0088), so no cookie goes with it, and
 //! its translation point maps the receiver's answer to the driver's
 //! [`Failure`](crate::failure::Failure).

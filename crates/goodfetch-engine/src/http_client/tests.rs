@@ -42,7 +42,7 @@ const CALLERS: [(&str, Destination); 5] = [
     ("pinned_download", Destination::PinnedDownload),
     (
         "notification_endpoint",
-        Destination::Configured(ConfiguredKind::NotificationWebhook),
+        Destination::Configured(ConfiguredKind::NotificationChannel),
     ),
     (
         "rule_sources",

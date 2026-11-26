@@ -17,6 +17,7 @@
     "crates/goodfetch-clean-up-rules/stand-ins/**",
     "crates/goodfetch-clean-up-rules/src/removal/tests/fixtures/**",
     "crates/goodfetch-clean-up-rules/consent/autoconsent/**",
+    "crates/goodfetch-identity-profile/data/**",
     "**/fuzz/*/seeds/**",
     "**/journeys/journey.schema.json",
     "**/compat/**",

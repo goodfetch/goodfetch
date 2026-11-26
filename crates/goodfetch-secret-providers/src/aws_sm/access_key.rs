@@ -37,9 +37,9 @@ use hyper::header::HeaderValue;
 use quick_xml::events::Event;
 use secrecy::{ExposeSecret as _, SecretString};
 
-use super::Credentials;
 use crate::endpoint::{metadata_url, server_url, unreached, variable};
 use crate::identity::{METADATA_WAIT, Reach, not_configured, unrecognized};
+use goodfetch_engine::aws_signing::Credentials;
 
 /// The container credentials endpoint's host, which
 /// `AWS_CONTAINER_CREDENTIALS_RELATIVE_URI`'s path is read at.

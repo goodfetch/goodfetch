@@ -11,7 +11,7 @@ use super::{CONFIGURED_KINDS, ConfiguredKind, EgressClass};
 #[case::a_model_provider(ConfiguredKind::ModelProvider)]
 #[case::a_secret_provider(ConfiguredKind::SecretProvider)]
 #[case::a_proxy(ConfiguredKind::Proxy)]
-#[case::a_notification_webhook(ConfiguredKind::NotificationWebhook)]
+#[case::a_notification_channel(ConfiguredKind::NotificationChannel)]
 #[case::an_otlp_collector(ConfiguredKind::Otlp)]
 #[case::the_plugin_index(ConfiguredKind::PluginIndex)]
 #[case::a_cdp_url(ConfiguredKind::CdpUrl)]

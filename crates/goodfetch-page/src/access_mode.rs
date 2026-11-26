@@ -25,6 +25,7 @@ mod tests;
 use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError, Values, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError};
+use goodfetch_identity_profile::{Constraints, EngineFamily, NarrowingKey};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::access_mode::{
     BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
@@ -345,7 +346,7 @@ pub(crate) struct StealthProfile {
 }
 
 /// Why a Session does not open in the Access mode its settings ask for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Refusal {
     /// A stealth item set on a Session that opens `standard`.
     ItemOnStandard { key: &'static str },
@@ -395,6 +396,14 @@ pub(crate) enum Refusal {
         key: &'static str,
         layer: SettingsLayer,
         item: Unbuilt,
+    },
+    /// The `stealth.identity.*` setting `key`, set in `layer`, whose values
+    /// the browser family's population does not hold, or together with the
+    /// identity's other values leave it empty, as `reason` says.
+    IdentityOutsidePopulation {
+        key: &'static str,
+        layer: SettingsLayer,
+        reason: String,
     },
 }
 
@@ -497,6 +506,11 @@ impl Refusal {
             }
             Self::EngineUnavailable { layer } => return engine_unavailable(layer),
             Self::UnbuiltItem { key, layer, item } => return unbuilt_item(key, layer, item),
+            Self::IdentityOutsidePopulation { key, layer, reason } => SettingsError::Invalid {
+                key: key.to_owned(),
+                layer: Some(layer),
+                reason,
+            },
         };
         settings_error(&error, context)
     }
@@ -685,13 +699,44 @@ pub(crate) fn resolve(
         AccessMode::Stealth if family == BrowserFamily::WebKit => {
             Err(Refusal::StealthOnWebKit { layer })
         }
-        AccessMode::Stealth => Ok(SessionIdentityPlan {
-            mode,
-            layer,
-            profile: Some(stealth_profile(settings)),
-            signing: None,
-        }),
+        AccessMode::Stealth => {
+            let profile = stealth_profile(settings);
+            drawn_among(settings, &profile, family)?;
+            Ok(SessionIdentityPlan {
+                mode,
+                layer,
+                profile: Some(profile),
+                signing: None,
+            })
+        }
     }
+}
+
+/// Refuses a `stealth` `profile` whose `stealth.identity.*` values the
+/// population of `family`, Chromium or Firefox, draws no browser from.
+fn drawn_among(
+    settings: &SessionSettings<'_>,
+    profile: &StealthProfile,
+    family: BrowserFamily,
+) -> Result<(), Refusal> {
+    let family = match family {
+        BrowserFamily::Firefox => EngineFamily::Firefox,
+        BrowserFamily::Chromium | BrowserFamily::WebKit => EngineFamily::Chromium,
+    };
+    Constraints::narrowed(family, &profile.os, &profile.device, &profile.brand)
+        .map(|_| ())
+        .map_err(|error| {
+            let setting = match error.key() {
+                NarrowingKey::Os => &STEALTH_IDENTITY_OS,
+                NarrowingKey::Device => &STEALTH_IDENTITY_DEVICE,
+                NarrowingKey::Brand => &STEALTH_IDENTITY_BRAND,
+            };
+            Refusal::IdentityOutsidePopulation {
+                key: setting.name,
+                layer: settings.scoped(setting).1.layer(),
+                reason: error.to_string(),
+            }
+        })
 }
 
 /// What an `identified` Session, chosen in `layer`, signs with: both

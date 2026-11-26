@@ -1,5 +1,5 @@
 //! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716; spec #580,
-//! tickets #783, #789 and #2402) against an Attached engine of Collie's executable, given by path, on
+//! tickets #783, #789 and #2402; spec #599, ticket #913) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
 //!
@@ -52,7 +52,7 @@ const NAVIGATION: Part = (
 );
 const FORMATS: Part = ("formats", &["formats"]);
 const FORMATS_EXTRACTOR: Part = ("formats-extractor", &["formats.extractor"]);
-const LAUNCH: Part = ("launch", &["launch"]);
+const LAUNCH: Part = ("launch", &["launch", "launch.stealth"]);
 const LOCATORS: Part = ("locators", &["locators.guard", "locators.input"]);
 const ROUTES: Part = ("routes", &["routes", "routes.interception_order"]);
 const CLEAN_UP_BLOCKING: Part = (
@@ -251,7 +251,7 @@ fn the_page_suite_proves_the_extractor_against_collies_attached_engine() {
     prove(FORMATS_EXTRACTOR);
 }
 
-/// Covers: story:5-56, story:5-11, operation:run.new_page, operation:page.goto
+/// Covers: story:5-56, story:5-11, story:8-1, story:8-13, setting:browser.access_mode, setting:stealth.fingerprint_method, operation:run.new_page, operation:page.goto
 #[test]
 fn the_page_suite_proves_launch_against_collies_attached_engine() {
     if skipped_without_gui_session(

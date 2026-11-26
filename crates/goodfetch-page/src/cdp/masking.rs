@@ -4,8 +4,17 @@
 //! its locale, its geolocation and its core count; and the one that has it
 //! run a script in each document's main world before the document's own,
 //! from its opening (`js_injection`).
+//!
+//! An out-of-process frame takes the same overrides on its own target but
+//! for its screen, which Chromium sets on the top-level target alone, so
+//! the frame's stays its window's. A worker takes those it reads: its user
+//! agent, through `Network`, which its `navigator` reads too (its
+//! `navigator.platform` stays the machine's whatever the override says),
+//! its time zone and its core count; its locale is its page's, which
+//! Chromium refuses to override a second time, and it has no screen and no
+//! geolocation.
 
-use goodfetch_cdp::generated::{emulation, page};
+use goodfetch_cdp::generated::{emulation, network, page};
 use goodfetch_engine::CallError;
 use goodfetch_identity_profile::{BrandVersion, ClientHints};
 
@@ -28,6 +37,17 @@ pub(crate) struct Emulated {
     pub(crate) geolocation: Option<Geolocation>,
     /// The core count `navigator.hardwareConcurrency` reads.
     pub(crate) core_count: Option<u32>,
+}
+
+impl Emulated {
+    /// What an out-of-process frame of a page showing these values shows:
+    /// all of them but the screen, which only the top-level target takes.
+    pub(crate) fn in_frame(&self) -> Self {
+        Self {
+            screen: None,
+            ..self.clone()
+        }
+    }
 }
 
 /// A user agent a page shows, with what goes with it.
@@ -79,7 +99,7 @@ impl CdpPage {
             self.page
                 .opening_command(&emulation::SetUserAgentOverrideParams {
                     user_agent: agent.user_agent.clone(),
-                    accept_language: agent.accept_language.clone(),
+                    accept_language: agent.accept_language.as_deref().map(languages),
                     platform: Some(agent.platform.clone()),
                     user_agent_metadata: agent.client_hints.as_ref().map(metadata),
                 })
@@ -115,6 +135,53 @@ impl CdpPage {
         Ok(())
     }
 
+    /// Has the worker this page drives show those of `values` a worker
+    /// reads, its user agent, time zone and core count, from now on,
+    /// within a deadline of opening a page.
+    ///
+    /// # Errors
+    ///
+    /// The code of opening a page when the browser refuses.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave some of the values set.
+    pub(crate) async fn emulate_worker_opening(&self, values: &Emulated) -> Result<(), CallError> {
+        if let Some(agent) = &values.user_agent {
+            self.page
+                .opening_command(&network::SetUserAgentOverrideParams {
+                    user_agent: agent.user_agent.clone(),
+                    accept_language: agent.accept_language.as_deref().map(languages),
+                    platform: Some(agent.platform.clone()),
+                    user_agent_metadata: agent.client_hints.as_ref().map(metadata),
+                })
+                .await?;
+        }
+        if let Some(zone) = &values.time_zone {
+            self.page
+                .opening_command(&emulation::SetTimezoneOverrideParams {
+                    timezone_id: zone.clone(),
+                })
+                .await?;
+        }
+        if let Some(cores) = values.core_count {
+            self.page
+                .opening_command(&emulation::SetHardwareConcurrencyOverrideParams {
+                    hardware_concurrency: i64::from(cores),
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Has each service and shared worker of the page's browser context
+    /// show those of `values` a worker reads before it runs, as
+    /// [`Self::emulate_worker_opening`] has; the first values given for a
+    /// context hold until it closes.
+    pub(crate) fn emulate_in_context_workers(&self, values: Emulated) {
+        self.page.emulate_in_context_workers(values);
+    }
+
     /// Adds `source` to the scripts run in the main world of every document
     /// the page loads from now on, and of the one it holds now, before
     /// their own scripts, within a deadline of opening a page.
@@ -135,9 +202,21 @@ impl CdpPage {
     }
 }
 
+/// The languages of the `Accept-Language` header `header`, in its order and
+/// without their weights, as a user agent override takes them: the browser
+/// weighs each one itself.
+fn languages(header: &str) -> String {
+    header
+        .split(',')
+        .filter_map(|part| part.split(';').next().map(str::trim))
+        .filter(|language| !language.is_empty())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// The client hints `navigator.userAgentData` and the `Sec-CH-UA` headers
 /// show, as `Emulation.setUserAgentOverride` takes them.
-fn metadata(hints: &ClientHints) -> emulation::UserAgentMetadata {
+pub(super) fn metadata(hints: &ClientHints) -> emulation::UserAgentMetadata {
     let brands = |list: &[BrandVersion]| {
         list.iter()
             .map(|brand| emulation::UserAgentBrandVersion {
@@ -198,3 +277,6 @@ const fn geolocation(position: Geolocation) -> emulation::SetGeolocationOverride
         speed: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

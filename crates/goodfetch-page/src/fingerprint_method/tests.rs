@@ -1,7 +1,8 @@
-//! The Fingerprint method driver's pure part: which Sessions get a plan,
-//! where they are placed, which primitive each method fills with the
-//! Session's Identity profile, the warning each one leaves, what its
-//! record says and the script `js_injection` writes.
+//! The Fingerprint method driver: which Sessions get a plan, where they
+//! are placed, which primitive each method fills with the Session's
+//! Identity profile, the warning each one leaves, what its record says,
+//! the script `js_injection` writes, and what a page's out-of-process
+//! frames and dedicated workers take before they run.
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -16,15 +17,19 @@ use goodfetch_protocol::run::warning::{
     STEALTH_RUNTIME_ALLOWED,
 };
 use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_test_support::runtime;
 use rstest::rstest;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
-use super::{FingerprintPlan, Method, init_script};
+use super::{FingerprintPlan, Method, children, init_script};
 use crate::access_mode::{
     AccessMode, ChromiumBuild, FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan,
     StealthProfile,
 };
-use crate::cdp::{Emulated, Geolocation, ScreenSize, UserAgentOverride};
+use crate::cdp::{CdpPage, Emulated, Geolocation, ScreenSize, TargetSession, UserAgentOverride};
+use crate::live_run::played_page;
+use crate::page_children::{Child, ChildKind};
 use crate::pool::Placement;
 
 const SET: MethodSource = MethodSource::Set(SettingsLayer::Run);
@@ -168,6 +173,7 @@ fn each_method_fills_its_own_primitive(
 /// `basic` shows the profile's user agent and client hints at the
 /// browser's own version, which no built method changes, and its locale,
 /// core count, screen, and the exit's time zone and geolocation.
+/// Covers: story:8-13
 #[test]
 fn basic_shows_the_profile_at_the_browsers_version() {
     let identity = at_the_exit();
@@ -240,6 +246,9 @@ fn an_unread_version_keeps_the_drawn_one(#[case] product: Option<&str>) {
 /// show the browser's own values, naming `stealth.generated_identity`, and
 /// one whose profile has no exit's time zone says its time zone stays the
 /// machine's.
+/// Covers: story:8-12
+/// Covers: story:8-14
+/// Covers: story:8-107
 #[rstest]
 #[case::none(Method::None, SET, Some(at_the_exit()), FINGERPRINT_NONE, true, &[], (false, false))]
 #[case::js_injection(Method::JsInjection, SET, Some(at_the_exit()), FINGERPRINT_JS_INJECTION, false, &["session-1"], (false, false))]
@@ -285,6 +294,7 @@ fn each_method_leaves_its_warning(
 /// The record of a Session's choice names its method, whether it fell
 /// back, and the layer that chose the method: the one that set it, or the
 /// one that chose `stealth` for the fallback.
+/// Covers: story:8-94
 #[rstest]
 #[case::set_in_the_user_configuration(
     Method::JsInjection,
@@ -359,6 +369,114 @@ fn the_runtime_domain_opens_only_where_the_setting_allows_it(
             json!(recorded),
         )
     );
+}
+
+/// The methods a page's child of kind `kind` takes on its own session,
+/// before it runs, from the Fingerprint method `plan`, the browser
+/// answering each, or refusing the first when `refused`; and
+/// whether the child may run.
+fn taken_by_child(
+    plan: Option<&FingerprintPlan>,
+    kind: ChildKind,
+    refused: bool,
+) -> (Vec<String>, bool) {
+    runtime().block_on(async {
+        let (driver, mut played, mut connection) = played_page();
+        let on_child = children(plan, &CdpPage::of(&driver));
+        let child = Child {
+            kind,
+            parent: TargetSession("page".to_owned()),
+            session: TargetSession("child".to_owned()),
+            target: "child-target".to_owned(),
+            url: "https://example.test/".to_owned(),
+            gone: CancellationToken::new(),
+        };
+        let held = on_child(&child);
+        tokio::pin!(held);
+        let mut methods = Vec::new();
+        let runs = loop {
+            tokio::select! {
+                biased;
+                runs = &mut held => break runs,
+                command = played.command() => {
+                    assert_eq!(command["sessionId"], json!("child"), "{command}");
+                    let method = command["method"].as_str().unwrap_or_default().to_owned();
+                    let answer = if refused {
+                        json!({ "id": command["id"], "sessionId": command["sessionId"], "error": { "code": -32000, "message": "refused" } })
+                    } else if method == "Page.addScriptToEvaluateOnNewDocument" {
+                        json!({ "id": command["id"], "sessionId": command["sessionId"], "result": { "identifier": "1" } })
+                    } else {
+                        json!({ "id": command["id"], "sessionId": command["sessionId"], "result": {} })
+                    };
+                    methods.push(method);
+                    assert!(played.send(&[answer]).await);
+                }
+                () = &mut connection => panic!("the page's connection ended before the test"),
+            }
+        };
+        drop((on_child, driver, played));
+        connection.await;
+        (methods, runs)
+    })
+}
+
+/// A page's out-of-process frame takes `basic`'s values on its own
+/// session, all of the page's but the screen, which the browser sets only
+/// on a top-level target, and `js_injection`'s script; a dedicated worker
+/// takes the user agent through `Network`, the time zone and the core
+/// count, and no script; a Session with no method has its children take
+/// nothing (ADR 0035's rows).
+/// Covers: story:8-13
+#[rstest]
+#[case::basic_in_a_frame(Method::Basic, ChildKind::Frame, &[
+    "Emulation.setUserAgentOverride",
+    "Emulation.setTimezoneOverride",
+    "Emulation.setLocaleOverride",
+    "Emulation.setGeolocationOverride",
+    "Emulation.setHardwareConcurrencyOverride",
+])]
+#[case::basic_in_a_worker(Method::Basic, ChildKind::Worker, &[
+    "Network.setUserAgentOverride",
+    "Emulation.setTimezoneOverride",
+    "Emulation.setHardwareConcurrencyOverride",
+])]
+#[case::js_injection_in_a_frame(Method::JsInjection, ChildKind::Frame, &["Page.addScriptToEvaluateOnNewDocument"])]
+#[case::js_injection_in_a_worker(Method::JsInjection, ChildKind::Worker, &[])]
+fn a_pages_children_take_its_methods_values_before_they_run(
+    #[case] method: Method,
+    #[case] kind: ChildKind,
+    #[case] methods: &[&str],
+) {
+    let plan = plan(method, SET, Some(at_the_exit()));
+
+    assert_eq!(
+        taken_by_child(Some(&plan), kind, false),
+        (
+            methods.iter().map(|method| (*method).to_owned()).collect(),
+            true
+        )
+    );
+}
+
+/// A child of a Session without a plan takes nothing and runs.
+#[rstest]
+fn a_child_without_a_plan_takes_nothing(
+    #[values(ChildKind::Frame, ChildKind::Worker)] kind: ChildKind,
+) {
+    assert_eq!(taken_by_child(None, kind, false), (Vec::new(), true));
+}
+
+/// A child that refuses its values does not run, so it never shows the
+/// machine's own ones.
+#[rstest]
+fn a_child_that_refuses_its_values_does_not_run(
+    #[values(ChildKind::Frame, ChildKind::Worker)] kind: ChildKind,
+) {
+    let plan = plan(Method::Basic, SET, Some(at_the_exit()));
+
+    let (methods, runs) = taken_by_child(Some(&plan), kind, true);
+
+    assert_eq!((methods.len(), runs), (1, false));
 }
 
 /// `js_injection`'s script writes each value as a JSON literal, so a value

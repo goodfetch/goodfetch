@@ -9,8 +9,14 @@
 //! #395 has nothing of theirs yet. `basic` has each page show its values
 //! through the browser's own overrides, and `js_injection` through a script
 //! run in the main world of each document of the page's own process, which
-//! Provenance marks as a main-world injection (ADRs 0019 and 0048); its
-//! out-of-process frames and its workers are not masked yet (#913). `engine` is not built: a
+//! Provenance marks as a main-world injection (ADRs 0019 and 0048). None of
+//! a page's overrides reaches its out-of-process frames or its workers, so
+//! each takes them on its own target before it runs (`children`): a frame
+//! `basic`'s values but the screen, which Chromium sets on a page alone,
+//! and `js_injection`'s script; a dedicated, shared or service worker the
+//! values a worker reads, its user agent, time zone and core count, and no
+//! script. A shared or service worker's `navigator.userAgent` and every
+//! worker's `navigator.platform` stay the browser's own. `engine` is not built: a
 //! `stealth` Session that leaves the method unset falls back to `basic`
 //! with its warning, and one that asks for `engine` is refused (ADR 0083).
 //! The values come from the Session's Identity profile (#993), at the
@@ -22,6 +28,9 @@
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
+
+use goodfetch_engine::CallError;
 use goodfetch_engine::audit::Origin;
 use goodfetch_identity_profile::{BrowserVersion, IdentityProfile, refresh_version_fields};
 use goodfetch_protocol::audit::{Actor, FINGERPRINT_METHOD_CHOSEN};
@@ -36,7 +45,8 @@ use serde_json::json;
 
 use crate::access_mode::{FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan};
 use crate::browser_run::BrowserRun;
-use crate::cdp::{CdpPage, Emulated, Geolocation, ScreenSize, UserAgentOverride};
+use crate::cdp::{CdpPage, Emulated, Geolocation, ScreenSize, TargetSession, UserAgentOverride};
+use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_functions::{Injection, Injections};
 use crate::pool::Placement;
 use crate::trace;
@@ -291,6 +301,7 @@ impl FingerprintPlan {
         let (values, script) = self.primitives(page.browser_product());
         if let Some(values) = values {
             page.emulate_opening(&values).await?;
+            page.emulate_in_context_workers(values);
         }
         if let Some(script) = script {
             page.add_init_script_opening(script).await?;
@@ -300,6 +311,73 @@ impl FingerprintPlan {
         }
         Ok(())
     }
+}
+
+/// What a page's out-of-process frames and dedicated workers show, which
+/// none of the page's own overrides reach: its browser's identity, then
+/// what `plan`'s method has them show.
+struct ChildMasks {
+    page: CdpPage,
+    /// `basic`'s values in a frame: all of the page's but its screen.
+    frame: Option<Emulated>,
+    /// `basic`'s values in a worker, of which it reads its own.
+    worker: Option<Emulated>,
+    /// `js_injection`'s script, run in a frame's documents; a worker runs
+    /// no page script.
+    script: Option<String>,
+}
+
+impl ChildMasks {
+    /// Has the child on `session`, of kind `kind`, show them.
+    async fn show(&self, kind: ChildKind, session: &TargetSession) -> Result<(), CallError> {
+        let child = self.page.child(session);
+        child.show_identity_opening(kind).await?;
+        match kind {
+            ChildKind::Frame => {
+                if let Some(values) = &self.frame {
+                    child.emulate_opening(values).await?;
+                }
+                if let Some(script) = &self.script {
+                    child.add_init_script_opening(script.clone()).await?;
+                }
+            }
+            ChildKind::Worker => {
+                if let Some(values) = &self.worker {
+                    child.emulate_worker_opening(values).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What a page of `page`'s Session does with each of its out-of-process
+/// frames and dedicated workers, which `page_children::follow` hands over
+/// before it runs: the child shows its headless browser's identity, as its
+/// page does, then what the Session's Fingerprint method `plan`, if any,
+/// shows on the page (ADR 0035's rows). A child that cannot take them does
+/// not run.
+pub(crate) fn children(plan: Option<&FingerprintPlan>, page: &CdpPage) -> OnChild {
+    let (values, script) =
+        plan.map_or((None, None), |plan| plan.primitives(page.browser_product()));
+    let masks = Arc::new(ChildMasks {
+        page: page.clone(),
+        frame: values.as_ref().map(Emulated::in_frame),
+        worker: values,
+        script,
+    });
+    Arc::new(move |child: &Child| {
+        let (masks, kind, session) = (Arc::clone(&masks), child.kind, child.session.clone());
+        Box::pin(async move {
+            match masks.show(kind, &session).await {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(?kind, %error, "a page's child could not take its Session's identity");
+                    false
+                }
+            }
+        })
+    })
 }
 
 /// The values a page shows of `identity` at the version of the browser

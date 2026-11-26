@@ -47,6 +47,7 @@ mod run_trace;
 mod schedules;
 mod service_workers;
 mod sessions;
+mod stealth;
 mod two_copies;
 mod waits;
 
@@ -134,6 +135,7 @@ pub(crate) enum Case {
     /// A `content.extractor` case (#788).
     Extractor(formats::extractor::Case),
     HeadlessIdentity,
+    EveryContextShowsTheSessionsIdentity,
     BackgroundTimer,
     ClickWaitsOutACover,
     TransientDuplicateIsWaitedOut,
@@ -462,9 +464,10 @@ pub(crate) fn user_configuration(settings: &str) -> String {
 /// consent pages' two hosts (ADR 0048), the `body-limits` family's host
 /// whose robots.txt is past the size limit, the `access-policy` family's
 /// host whose robots.txt answers late, and the `bombs` family's own
-/// host, whose zstd frame asks for a window past 8 MB (ADR 0067); and the
-/// delivery cases' plain host, which an engine would otherwise look up.
-const NAMED_HOSTS: [&str; 13] = [
+/// host, whose zstd frame asks for a window past 8 MB (ADR 0067), the
+/// consistency probe's two hosts (ADR 0074); and the delivery cases' plain
+/// host, which an engine would otherwise look up.
+const NAMED_HOSTS: [&str; 15] = [
     delivery::PLAIN_HOST,
     "fetch-edge.test",
     fetch_tiers::cached::HOST,
@@ -478,6 +481,8 @@ const NAMED_HOSTS: [&str; 13] = [
     robots_txt::PAST_THE_SIZE_HOST,
     robots_txt::SLOW_ROBOTS_HOST,
     hostile_input::BOMBS_HOST,
+    stealth::HOST,
+    stealth::FRAME_HOST,
 ];
 
 /// The host name of an `http` URL.
@@ -605,6 +610,9 @@ impl Case {
                 Self::FormatsDefaultsAndUnknownOptions
             }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
+            "every-frame-and-worker-of-a-page-shows-its-sessions-identity" => {
+                Self::EveryContextShowsTheSessionsIdentity
+            }
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
             "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
@@ -744,6 +752,9 @@ impl Case {
             Self::References(case) => case.run(connection, site, checks),
             Self::Structured(case) => case.run(connection, site, checks),
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
+            Self::EveryContextShowsTheSessionsIdentity => {
+                stealth::every_context(connection, site, checks)
+            }
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::ClickWaitsOutACover => guard::lands(
                 connection,

@@ -54,7 +54,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, emulation, network, page, target};
+use goodfetch_cdp::generated::{browser, emulation, network, page, storage, target};
 use goodfetch_cdp::{
     Command, Connection, Failure, SessionId as TargetSession, Subscription, SubscriptionEnd,
 };
@@ -1552,6 +1552,21 @@ impl PageDriver {
     /// request may be gone.
     pub(crate) async fn command<C: Command>(&self, params: &C) -> Result<C::Returns, Failure> {
         self.browser.try_send(Some(&self.session), params).await
+    }
+
+    /// The cookies of the page's browser context, as the browser holds them
+    /// now, asked of the browser: a shared or service worker's target
+    /// answers no `Network.getCookies`.
+    pub(crate) async fn context_cookies(&self) -> Result<Vec<network::Cookie>, Failure> {
+        self.browser
+            .try_send(
+                None,
+                &storage::GetCookiesParams {
+                    browser_context_id: Some(self.context.clone()),
+                },
+            )
+            .await
+            .map(|found| found.cookies)
     }
 
     /// The Error code `failure` raises from `call`, naming how the browser

@@ -93,7 +93,7 @@ fn header_values(requests: &ReceivedRequests, host: &str, name: &str) -> Vec<Str
 
 /// Opens a page of the Run `run_id` and takes it to `url`; whether the
 /// document answered 200.
-fn open_at(
+pub(super) fn open_at(
     connection: &mut Connection,
     run_id: &str,
     url: &str,

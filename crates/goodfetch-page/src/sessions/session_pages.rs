@@ -46,7 +46,7 @@ use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
 use crate::errors::page_closed;
-use crate::fingerprint_method::FingerprintPlan;
+use crate::fingerprint_method::{self, FingerprintPlan};
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::init_scripts::InitScripts;
@@ -499,9 +499,12 @@ impl Sessions {
             )
             .await?;
         // Each out-of-process frame and dedicated worker waits until the
-        // interception holds it, the runner prepared it and the page's
-        // other parts took it in.
-        let mut handlers = vec![held.children, consent];
+        // interception holds it, it shows the page's identity, the runner
+        // prepared it and the page's other parts took it in. Its identity
+        // comes after the interception, which must hold its first request.
+        let identity =
+            fingerprint_method::children(open.fingerprint.as_ref(), &CdpPage::of(driver));
+        let mut handlers = vec![held.children, identity, consent];
         handlers.extend(in_frames);
         page_children::follow(&CdpPage::of(driver), (tasks, run.identity.span()), handlers).await?;
         Ok(held.routed)

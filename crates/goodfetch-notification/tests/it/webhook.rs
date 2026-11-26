@@ -23,7 +23,9 @@ use goodfetch_notification::failure::Failure;
 use goodfetch_notification::message::{EventId, Message};
 use goodfetch_notification::webhook::{Payload, Webhook};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::notifications::NotificationEvent;
 use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::schedule::ScheduleId;
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_test_support::{Canaries, Canary, Output, SecretKind};
 use httpmock::MockServer;
@@ -71,9 +73,9 @@ fn settings(policy: Value) -> Resolved {
 fn message() -> Message {
     Message {
         event_id: EventId::new("evt_01JDQ8X2Y5").unwrap(),
-        event: "run_failed".to_owned(),
+        event: NotificationEvent::RUN_FAILED,
         run_id: Some(RunId::parse("nightly-prices").unwrap()),
-        schedule_id: Some("prices".to_owned()),
+        schedule_id: Some(ScheduleId::parse("prices").unwrap()),
         product: Product::Collie,
         title: "Run failed".to_owned(),
         text: "The Run nightly-prices failed: navigation_failed.".to_owned(),
@@ -369,7 +371,8 @@ fn summary(failure: &Failure) -> (&'static str, bool, Option<Duration>) {
 #[case::unprocessable(422, &[], 0, ("rejected", false, None))]
 #[case::unknown_status(418, &[], 0, ("unrecognized", true, None))]
 #[case::redirect(302, &[("location", "http://127.0.0.1:1/")], 0, ("unrecognized", true, None))]
-#[case::answer_too_long(200, &[], 65 * 1024, ("unrecognized", true, None))]
+#[case::server_error_too_long(500, &[], 65 * 1024, ("server_error", true, None))]
+#[case::unknown_status_too_long(418, &[], 65 * 1024, ("unrecognized", true, None))]
 fn each_answer_maps_to_its_failure(
     #[case] status: u16,
     #[case] headers: &[(&str, &str)],
@@ -377,6 +380,26 @@ fn each_answer_maps_to_its_failure(
     #[case] expected: (&str, bool, Option<Duration>),
 ) {
     assert_eq!(answered(status, headers, body_bytes), expected);
+}
+
+/// A success whose answer runs past the endpoint's limit delivered the
+/// Notification: it is not sent again.
+/// Covers: story:11-269
+#[test]
+fn a_success_with_a_long_answer_is_delivered() {
+    let (server, delivered) = receiver(200, &[], 65 * 1024);
+    let runtime = runtime();
+    let channel = webhook(
+        &server.url("/hooks"),
+        signer(&[V1_SECRET], None),
+        Payload::Full,
+        &settings(json!({})),
+        Clock::system(),
+    );
+
+    let sent = runtime.block_on(channel.send(&message()));
+
+    assert_eq!((sent.is_ok(), delivered.lock().unwrap().len()), (true, 1));
 }
 
 /// A receiver nobody listens on is `unreachable`, retried.

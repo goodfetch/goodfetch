@@ -109,7 +109,7 @@ impl SecretProviderEndpoint {
                     EndpointFailure::ClientCertificate(failure)
                 }
                 WholeFailure::Network => EndpointFailure::Network,
-                WholeFailure::TooLong => EndpointFailure::TooLong,
+                WholeFailure::TooLong { .. } => EndpointFailure::TooLong,
             })
     }
 

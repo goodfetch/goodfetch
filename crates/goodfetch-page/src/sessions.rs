@@ -570,13 +570,16 @@ impl Sessions {
     ) -> Result<SessionOpened, CallError> {
         let run = live(&params.run_id, context).await?;
         let settings = own_settings(&params.settings, &run, context)?;
-        // The rule `session.source` meets in every layer (ADR 0056).
-        if let Some(Some(source)) = &params.source {
-            check_session_source(source, Some(SettingsLayer::Run))
+        let own_source = params.source.is_some();
+        let named = named_source(&run, params.source, context);
+        // A Session's own source meets the rule `session.source` meets in
+        // every layer (ADR 0056), in the layer `named_source` gives it; the
+        // Run's met it when the Run started.
+        if own_source && let Some(named) = &named {
+            check_session_source(&named.source, Some(named.layer))
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
-        let named = named_source(&run, params.source, context);
         let identity = access_mode_opens(&settings, &run, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;

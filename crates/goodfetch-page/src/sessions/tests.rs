@@ -12,6 +12,9 @@
 //! Session's end the run file waits for (#2168). Another panics in a task
 //! of a Session's owner, which closes that Session alone (#3263), and one
 //! in a task of a browser's owner, which is that browser's crash (#3265).
+//! One more starts a Run and opens a Session of it through `run.new_session`
+//! from its own source, whose domain lies below its registrable domain,
+//! which the open refuses with `setting_invalid` (#1310).
 #![expect(
     clippy::disallowed_methods,
     reason = "tests run on the test Clock and Entropy (ADR 0059)"
@@ -41,7 +44,6 @@ use goodfetch_protocol::catalog::{
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::governor::BROWSER_PAGE_MEMORY_CAP;
 use goodfetch_protocol::page::PageId;
-use goodfetch_protocol::page::session::NewSessionParams;
 use goodfetch_protocol::run::{RunId, RunKind, Tags};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use goodfetch_test_support::{OUTCOME_TARGET, TestEnv, capturing};
@@ -103,13 +105,6 @@ const SESSION_PANICKED: Operation = Operation {
 const BROWSER_PANICKED: Operation = Operation {
     name: "test.browser_panicked",
     description: "Panics in a task of a browser's owner and reads what its Session and its pages meet.",
-    ..STOPPED_OPEN
-};
-
-/// Opens a Session of a new Run from the source it is given.
-const NEW_SESSION: Operation = Operation {
-    name: "test.new_session",
-    description: "Opens a Session of a new Run from its own source and reads what it raised.",
     ..STOPPED_OPEN
 };
 
@@ -308,33 +303,6 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     }))
 }
 
-/// `test.new_session`: starts the Run `run_id` and opens a Session of it
-/// in a Sessions table of its own from `source`, its own Session source.
-/// Answers the code and details of what the open raised, if anything.
-async fn new_session(params: Value, context: CallContext) -> Result<Value, CallError> {
-    let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
-    let run = started(&run_id, &context).await?;
-    let source = serde_json::from_value(params["source"].clone()).unwrap();
-
-    let raised = table()
-        .new_session(
-            NewSessionParams {
-                run_id,
-                source: Some(Some(source)),
-                settings: serde_json::Map::new(),
-            },
-            &context,
-        )
-        .await
-        .err();
-
-    run.cancellation().cancel();
-    Ok(json!({
-        "raised": raised.as_ref().map(CallError::code),
-        "details": raised.as_ref().and_then(CallError::details),
-    }))
-}
-
 /// Longer than a browser treated as crashed takes to say so, on the
 /// paused clock, which moves on only once every task waits.
 const CRASH_KNOWN_WITHIN: Duration = Duration::from_secs(60);
@@ -467,8 +435,7 @@ fn engine() -> Engine {
                 .with_handler(Handler::new(&ENDED_PAST_CAP, ended_past_cap))
                 .with_handler(Handler::new(&SESSION_ENDED, session_ended))
                 .with_handler(Handler::new(&SESSION_PANICKED, session_panicked))
-                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked))
-                .with_handler(Handler::new(&NEW_SESSION, new_session)),
+                .with_handler(Handler::new(&BROWSER_PANICKED, browser_panicked)),
         );
     Engine::new(identity, &composition).unwrap()
 }
@@ -490,6 +457,13 @@ fn dependencies(env: &TestEnv) -> Dependencies {
 /// Runs the engine while a Client says `hello`, then calls `method` with
 /// `params`, and answers the call's reply.
 fn call(env: &TestEnv, method: &str, params: Value) -> Value {
+    let [answer] = calls(env, [(method, params)]);
+    answer
+}
+
+/// Runs the engine while a Client says `hello`, then makes each call of
+/// `sent` in turn, and answers their replies in the same order.
+fn calls<const N: usize>(env: &TestEnv, sent: [(&str, Value); N]) -> [Value; N] {
     let engine = engine();
     goodfetch_test_support::runtime().block_on(async {
         let (network, dialer) = transport::in_memory();
@@ -523,17 +497,20 @@ fn call(env: &TestEnv, method: &str, params: Value) -> Value {
             )
             .await;
             assert_eq!(hello["result"]["product"], "collie");
-            let answer = reply(1, method, params).await;
+            let mut answers = Vec::with_capacity(N);
+            for (id, (method, params)) in (1_i64..).zip(sent) {
+                answers.push(reply(id, method, params).await);
+            }
             drop(reply);
             writer.shutdown().await.unwrap();
-            answer
+            answers
         };
-        let (served, answer) = tokio::join!(
+        let (served, answers) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies(env)),
             client
         );
         served.unwrap();
-        answer
+        <[Value; N]>::try_from(answers).unwrap()
     })
 }
 
@@ -577,35 +554,41 @@ fn a_page_ended_past_its_memory_cap_answers_page_memory_exceeded_once_its_close_
 /// layer (ADR 0056): a domain below its registrable domain is refused
 /// where the Session opens, before anything is reached, with
 /// `setting_invalid` naming the registrable domain to give instead.
-/// Covers: story:5-62, story:11-92
+/// Covers: story:5-62
 #[test]
 fn a_sessions_own_source_with_a_domain_below_its_registrable_domain_is_setting_invalid() {
     let env = TestEnv::new();
 
-    let reply = call(
+    let [started, opened] = calls(
         &env,
-        "test.new_session",
-        json!({
-            "run_id": "not-registrable",
-            "source": {
-                "kind": "cdp_url",
-                "url": "http://127.0.0.1:9222",
-                "domains": ["www.example.com"],
-            },
-        }),
+        [
+            ("run.start", json!({ "run_id": "not-registrable" })),
+            (
+                "run.new_session",
+                json!({
+                    "run_id": "not-registrable",
+                    "source": {
+                        "kind": "cdp_url",
+                        "url": "http://127.0.0.1:9222",
+                        "domains": ["www.example.com"],
+                    },
+                }),
+            ),
+        ],
     );
 
+    assert_eq!(started["error"], Value::Null, "{started}");
     assert_eq!(
-        reply["result"],
+        opened["error"]["data"],
         json!({
-            "raised": "setting_invalid",
-            "details": {
-                "key": "session.source",
-                "layer": "run",
-                "reason": "`www.example.com` in `domains` is no registrable domain, whose is `example.com`",
-                "fix": "Give `example.com` in `domains`",
-            },
-        })
+            "code": "setting_invalid",
+            "retryable": false,
+            "key": "session.source",
+            "layer": "run",
+            "reason": "`www.example.com` in `domains` is no registrable domain, whose is `example.com`",
+            "fix": "Give `example.com` in `domains`",
+        }),
+        "{opened}"
     );
 }
 

@@ -445,6 +445,11 @@
           "const": "mouse_movements",
           "description": "Recorded mouse movements (ADR 0035).",
           "type": "string"
+        },
+        {
+          "const": "plugin",
+          "description": "A Plugin's artifact (ADR 0033), which the Plugin store keeps rather\nthan the Browser cache.",
+          "type": "string"
         }
       ]
     },
@@ -12178,6 +12183,44 @@
         }
       ]
     },
+    "PluginDigestMismatchDetails": {
+      "description": "What `plugin_digest_mismatch` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do about it.",
+          "type": "string"
+        },
+        "found": {
+          "arrived_in": "0.1",
+          "description": "The digest the reference gives.",
+          "type": "string"
+        },
+        "locked": {
+          "arrived_in": "0.1",
+          "description": "The digest the lockfile pins.",
+          "type": "string"
+        },
+        "lockfile": {
+          "arrived_in": "0.1",
+          "description": "The lockfile.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "locked",
+        "found",
+        "lockfile",
+        "fix"
+      ],
+      "type": "object"
+    },
     "PluginRun": {
       "description": "A Plugin that ran in a Run (ADRs 0016 and 0033).",
       "properties": {
@@ -22491,6 +22534,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin's registry served an artifact the engine refuses to install: an image index or manifest it does not read, no artifact for the host's platform, or a bundle with an entry whose path leaves it, a link whose target leaves it, a device file, or more entries or bytes than a bundle may hold. The message names the reason; nothing is left in the Plugin store.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_artifact_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine refused a Plugin's call back: it came while the Plugin served no call the engine made to it, it named another call's `call_id`, or it asked for what the Plugin may not do, such as a `net.fetch` other than `GET` or `HEAD` toward a destination checked as a page's, which is an Effect, or a request that sets a header the engine sets itself. Call back only while serving a call, with that call's `call_id`.",
       "exit_code": null,
       "group": "refused",
@@ -22511,6 +22564,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin lockfile pins the Plugin's name to another image index digest than the one its reference gives, so nothing is installed and the lockfile is left as it was. Give the reference with the pinned digest, or remove the Plugin's entry from the lockfile to accept the new one.",
+      "details": {
+        "$ref": "#/$defs/PluginDigestMismatchDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_digest_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine sent a Plugin's `net.fetch` and got no response: its host had no address, no connection to it could be opened, or the connection broke before the whole response arrived. Nothing about the destination's egress check failed; ask again later, or check that the host is up and reachable from the engine's machine.",
       "exit_code": null,
       "group": "unavailable",
@@ -22518,6 +22584,16 @@
       "name": "plugin_fetch_failed",
       "product": "collie",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin lockfile, `goodfetch-plugins.lock`, is not TOML, holds a field a lockfile has not, or pins one Plugin name twice, so the engine leaves it as it is and installs nothing. The message names the fault; correct the file, or restore it from version control. A lockfile of a version this engine does not read fails with `format_version_unsupported` instead.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_lockfile_invalid",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",

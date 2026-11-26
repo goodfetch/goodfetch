@@ -42,17 +42,21 @@ pub enum ArtifactKind {
     CleanUpRules,
     /// Recorded mouse movements (ADR 0035).
     MouseMovements,
+    /// A Plugin's artifact (ADR 0033), which the Plugin store keeps rather
+    /// than the Browser cache.
+    Plugin,
 }
 
 impl ArtifactKind {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Browser,
         Self::Driver,
         Self::ExecutableCopy,
         Self::EngineExecutable,
         Self::CleanUpRules,
         Self::MouseMovements,
+        Self::Plugin,
     ];
 
     /// Its name on disk and on the wire.

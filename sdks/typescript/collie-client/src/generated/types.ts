@@ -147,7 +147,7 @@ export type ArtifactDownloadFailedDetails = {
  * via the `definition` "ArtifactKind".
  */
 export type ArtifactKind =
-  "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
+  "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements" | "plugin";
 /**
  * What pins an artifact, as an error's details name it, by its `kind`: a
  * Product version, or an installed Plugin that uses a Plugin runtime (ADRs
@@ -7122,6 +7122,30 @@ export interface PlanReport {
    * The version it used.
    */
   version?: number | null;
+}
+/**
+ * What `plugin_digest_mismatch` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginDigestMismatchDetails".
+ */
+export interface PluginDigestMismatchDetails {
+  /**
+   * The digest the reference gives.
+   */
+  found: string;
+  /**
+   * The digest the lockfile pins.
+   */
+  locked: string;
+  /**
+   * The lockfile.
+   */
+  lockfile: string;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
 }
 /**
  * A Plugin that ran in a Run (ADRs 0016 and 0033).

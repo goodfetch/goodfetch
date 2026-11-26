@@ -371,3 +371,11 @@ reason = "A Run report's durations are each language's duration type (ADR 0080, 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
 reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated ArtifactKind"
+reason = "An installed Plugin is a pinned artifact (ADR 0033, issue 889): `ArtifactKind` gains `\"plugin\"`, so an `artifact_download_failed` or `artifact_unavailable_offline` refusal can name a Plugin's pull."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types ArtifactKind"
+reason = "An installed Plugin is a pinned artifact (ADR 0033, issue 889): `ArtifactKind` gains `\"plugin\"`, so an `artifact_download_failed` or `artifact_unavailable_offline` refusal can name a Plugin's pull."

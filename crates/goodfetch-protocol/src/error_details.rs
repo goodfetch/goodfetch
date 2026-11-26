@@ -191,6 +191,7 @@ details! {
     crate::page::route::PageHandlerFailedDetails => ErrorCode::PAGE_HANDLER_FAILED,
     crate::page::route::RouteAlreadyHandledDetails => ErrorCode::ROUTE_ALREADY_HANDLED,
     crate::plugin::ConfinementUnavailableDetails => ErrorCode::CONFINEMENT_UNAVAILABLE,
+    crate::plugin::add::PluginDigestMismatchDetails => ErrorCode::PLUGIN_DIGEST_MISMATCH,
     crate::plugin::extractor::ExtractHandlerFailedDetails => ErrorCode::EXTRACT_HANDLER_FAILED,
     crate::plugin::extractor::ExtractorUnavailableDetails => ErrorCode::EXTRACTOR_UNAVAILABLE,
     crate::recipe::RecipeInvalidDetails => ErrorCode::RECIPE_INVALID,

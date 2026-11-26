@@ -144,6 +144,11 @@ class ArtifactKind(StrEnum):
     """A full Clean-up rules set (ADR 0047)."""
     mouse_movements = "mouse_movements"
     """Recorded mouse movements (ADR 0035)."""
+    plugin = "plugin"
+    """
+    A Plugin's artifact (ADR 0033), which the Plugin store keeps rather
+    than the Browser cache.
+    """
 
 
 class Asked(RootModel[Literal[True]]):
@@ -2773,6 +2778,22 @@ class PlanStatus(StrEnum):
     """They wait for a person."""
     frozen = "frozen"
     """The Plan file is frozen."""
+
+
+class PluginDigestMismatchDetails(BaseModel):
+    """What `plugin_digest_mismatch` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    found: str
+    """The digest the reference gives."""
+    locked: str
+    """The digest the lockfile pins."""
+    lockfile: str
+    """The lockfile."""
+    name: str
+    """The Plugin's name."""
 
 
 class PluginRun(BaseModel):

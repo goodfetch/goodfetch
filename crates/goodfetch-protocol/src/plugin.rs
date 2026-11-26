@@ -30,8 +30,10 @@ use crate::jsonrpc::RequestId;
 use crate::run::RunId;
 use crate::security::SandboxEnvironment;
 
+pub mod add;
 pub mod extractor;
 mod fuzz;
+pub mod lockfile;
 mod manifest;
 mod names;
 pub mod net;

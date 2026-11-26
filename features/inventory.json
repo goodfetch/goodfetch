@@ -2175,6 +2175,17 @@
       ]
     },
     {
+      "id": "error:plugin_artifact_refused",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_call_back_refused",
       "kind": "error",
       "area": 7,
@@ -2197,7 +2208,29 @@
       ]
     },
     {
+      "id": "error:plugin_digest_mismatch",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_fetch_failed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_lockfile_invalid",
       "kind": "error",
       "area": 7,
       "milestone": null,
@@ -3508,6 +3541,17 @@
       "id": "format:operator-policy",
       "kind": "format",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "format:plugin-lockfile",
+      "kind": "format",
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [

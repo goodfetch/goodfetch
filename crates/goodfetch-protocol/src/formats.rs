@@ -19,6 +19,7 @@ use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::plugin::lockfile::{LOCKFILE_VERSION, PluginLockfile};
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
@@ -483,6 +484,18 @@ pub const PLUGIN_MANIFEST: Format = Format {
     schema: schema_of::<PluginManifest>,
 };
 
+/// The Plugin lockfile (ADR 0033), `goodfetch-plugins.lock`: its reader
+/// takes the version first, reads its own major up to its own minor, and
+/// refuses any other before the rest.
+pub const PLUGIN_LOCKFILE: Format = Format {
+    name: "plugin-lockfile",
+    version: LOCKFILE_VERSION,
+    storage: Storage::Toml,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<PluginLockfile>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -504,6 +517,7 @@ pub const FORMATS: &[&Format] = &[
     &RECIPE_MANIFEST,
     &PLUGIN_PROTOCOL,
     &PLUGIN_MANIFEST,
+    &PLUGIN_LOCKFILE,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

@@ -69,6 +69,7 @@ fn file_formats() -> serde_json::Value {
         stored_format("recipe-manifest", "toml", "default", "RecipeManifest"),
         stored_format("plugin-protocol", "transcript", "lower_minor", "Message"),
         stored_format("plugin-manifest", "json", "default", "PluginManifest"),
+        stored_format("plugin-lockfile", "toml", "default", "PluginLockfile"),
     ])
 }
 

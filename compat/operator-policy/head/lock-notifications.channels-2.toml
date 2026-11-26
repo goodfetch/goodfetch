@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.notifications]
+channels = { "example.test" = { type = "webhook", url = "env:HOOK_URL", webhook = { secret = "env:HOOK_SECRET" } } }

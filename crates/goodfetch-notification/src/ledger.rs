@@ -112,6 +112,10 @@ impl Ledger {
     /// # Errors
     ///
     /// As [`RunState::read`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future only stops waiting.
     pub async fn entry(
         &self,
         event: &EventId,
@@ -131,6 +135,12 @@ impl Ledger {
     /// # Errors
     ///
     /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s: a dropped claim may still commit, and its
+    /// attempt then reads `sending` until a later run epoch settles it
+    /// `uncertain`, so the event is never sent twice.
     pub async fn claim(
         &self,
         event: &EventId,
@@ -183,6 +193,12 @@ impl Ledger {
     /// # Errors
     ///
     /// As [`RunState::write`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`RunState::write`]'s: a dropped settlement may still commit; one
+    /// that does not leaves the attempt `sending`, as a claim with no
+    /// settlement.
     pub async fn settle(
         &self,
         event: &EventId,

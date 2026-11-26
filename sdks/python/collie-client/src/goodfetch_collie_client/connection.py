@@ -565,13 +565,11 @@ class ClientConnection:
         warn_deprecated_settings(settings, DEPRECATED_SETTINGS)
         self._ensure_owner("run.start")
         self.ensure_open("run.start")
-        fields = _start_fields(run_id, tags, limits, settings, self._project)
-        if not isinstance(timeout, NotGiven):
-            fields["timeout"] = timeout_of(timeout, "timeout.run")
+        fields = _start_fields(
+            run_id, tags, limits, settings, recording, timeout, self._project
+        )
         if plan is not None:
             fields["plan"] = plan
-        if recording is not None:
-            fields["recording"] = recording
         accepted = [] if accept_plugin_change is None else list(accept_plugin_change)
         if accepted:
             fields["accept_plugin_change"] = accepted
@@ -693,11 +691,9 @@ class ClientConnection:
         """
         self._ensure_owner(operation)
         self.ensure_open(operation)
-        fields = _start_fields(run_id, tags, limits, settings, self._project)
-        if recording is not None:
-            fields["recording"] = recording
-        if not isinstance(timeout, NotGiven):
-            fields["timeout"] = timeout_of(timeout, "timeout.run")
+        fields = _start_fields(
+            run_id, tags, limits, settings, recording, timeout, self._project
+        )
         if detached:
             fields["detached"] = True
         return fields
@@ -1150,12 +1146,15 @@ def _start_fields(
     tags: Iterable[str] | None,
     limits: Limits | None,
     settings: RunSettings | None,
+    recording: Recording | None,
+    timeout: timedelta | NotGiven | None,
     project: ProjectSettings | None,
 ) -> dict[str, object]:
     """The fields every start takes, each one given, and the project file read.
 
     Raises:
-        SettingInvalidError: A `limits` amount the SDK cannot turn exactly.
+        SettingInvalidError: A `limits` amount the SDK cannot turn exactly,
+            or a `timeout` of zero or less.
     """
     fields: dict[str, object] = {}
     if run_id is not None:
@@ -1167,6 +1166,10 @@ def _start_fields(
         fields["limits"] = run_limits
     if settings is not None:
         fields["settings"] = settings_on_wire(settings)
+    if recording is not None:
+        fields["recording"] = recording
+    if not isinstance(timeout, NotGiven):
+        fields["timeout"] = timeout_of(timeout, "timeout.run")
     if project is not None:
         fields["project"] = project
     return fields

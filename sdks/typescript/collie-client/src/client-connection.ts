@@ -501,11 +501,12 @@ export class ClientConnection implements AsyncDisposable {
       // takes no signal: the Channel gives the start up in the Client and
       // tells the engine with `$/cancel`, which it may ignore.
       () => {
-        if (signal === undefined) {
-          return this.#operations.runStart(params);
-        }
         warnDeprecatedSettings(params.settings);
-        return this.#runHost.calls.call("run.start", params, { signal });
+        return this.#runHost.calls.call(
+          "run.start",
+          params,
+          signal === undefined ? {} : { signal },
+        );
       },
       (host, started) => new Run(host, started),
     );

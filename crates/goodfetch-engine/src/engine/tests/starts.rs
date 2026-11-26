@@ -334,20 +334,23 @@ fn a_starts_zero_timeout_is_setting_invalid_from_the_argument_and_starts_no_run(
 ///
 /// Covers: operation:run.start, error:run_conflict
 #[rstest]
-#[case::same(json!({}), json!(null))]
-#[case::other_plan(json!({ "plan": "other.plan.json" }), json!(["plan"]))]
-#[case::no_plan(json!({ "plan": null }), json!(["plan"]))]
+#[case::same(json!({}), json!(null), json!("resumed"))]
+#[case::other_plan(json!({ "plan": "other.plan.json" }), json!(["plan"]), json!(null))]
+#[case::no_plan(json!({ "plan": null }), json!(["plan"]), json!(null))]
 #[case::other_mode(
     json!({ "recording": { "mode": "record", "path": "site.warc" } }),
-    json!(["recording"])
+    json!(["recording"]),
+    json!(null)
 )]
 #[case::other_path(
     json!({ "recording": { "mode": "replay", "path": "other.warc" } }),
-    json!(["recording"])
+    json!(["recording"]),
+    json!(null)
 )]
 fn a_start_naming_a_run_again_gives_its_plan_and_recording_unchanged(
     #[case] changed: Value,
     #[case] differences: Value,
+    #[case] started_as: Value,
 ) {
     let env = TestEnv::new();
     let began = json!({
@@ -381,14 +384,7 @@ fn a_start_naming_a_run_again_gives_its_plan_and_recording_unchanged(
             resumed["error"]["data"]["differences"].clone(),
             resumed["result"]["started_as"].clone(),
         ),
-        (
-            differences.clone(),
-            if differences.is_null() {
-                json!("resumed")
-            } else {
-                json!(null)
-            },
-        ),
+        (differences, started_as),
         "{resumed}"
     );
 }

@@ -65,12 +65,26 @@ impl Start {
     /// it counts its own on a fresh clock (ADRs 0080 and 0102). A zero
     /// `timeout` fails the start with `setting_invalid` before anything is
     /// sent.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().timeout(std::time::Duration::from_secs(600)).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = RunTimeout::After(timeout);
         self
     }
 
     /// Lets the Run last as long as it takes, whatever `timeout.run` says.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().no_timeout().await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn no_timeout(mut self) -> Self {
         self.timeout = RunTimeout::Unbounded;
         self
@@ -79,6 +93,13 @@ impl Start {
     /// Names the Plan file the Run follows, by its path relative to the
     /// working directory (ADR 0091): an input of the Run, so a start that
     /// names the Run again with another fails with `run_conflict`.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().plan("site.plan.json").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn plan(mut self, path: impl Into<String>) -> Self {
         self.params.plan = Some(path.into());
         self
@@ -87,6 +108,16 @@ impl Start {
     /// Sets the Response recording the Run replays or records (ADR 0105):
     /// an input of the Run, so a start that names the Run again with
     /// another fails with `run_conflict`.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// use goodfetch_protocol::run::{Recording, RecordingMode};
+    ///
+    /// let recording = Recording { mode: RecordingMode::Replay, path: "site.warc".to_owned() };
+    /// let run = connection.start().recording(recording).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn recording(mut self, recording: Recording) -> Self {
         self.params.recording = Some(recording);
         self
@@ -94,6 +125,13 @@ impl Start {
 
     /// Accepts a change of the Plugin `name` since the Run last ran, which
     /// a resume honours (ADR 0033). Each call adds one.
+    ///
+    /// ```no_run
+    /// # async fn start(connection: goodfetch_collie_client::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().accept_plugin_change("shop-login").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn accept_plugin_change(mut self, name: impl Into<String>) -> Self {
         self.params.accept_plugin_change.push(name.into());
         self

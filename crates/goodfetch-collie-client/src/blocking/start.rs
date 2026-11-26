@@ -41,30 +41,68 @@ impl Start {
 
     /// Bounds how long the Run may last, as [`crate::Start::timeout`]
     /// does.
+    ///
+    /// ```no_run
+    /// # fn start(connection: &goodfetch_collie_client::blocking::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().timeout(std::time::Duration::from_secs(600)).send()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn timeout(self, timeout: Duration) -> Self {
         Self(self.0.timeout(timeout), self.1)
     }
 
     /// Lets the Run last as long as it takes, as
     /// [`crate::Start::no_timeout`] does.
+    ///
+    /// ```no_run
+    /// # fn start(connection: &goodfetch_collie_client::blocking::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().no_timeout().send()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn no_timeout(self) -> Self {
         Self(self.0.no_timeout(), self.1)
     }
 
     /// Names the Plan file the Run follows, as [`crate::Start::plan`]
     /// does.
+    ///
+    /// ```no_run
+    /// # fn start(connection: &goodfetch_collie_client::blocking::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().plan("site.plan.json").send()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn plan(self, path: impl Into<String>) -> Self {
         Self(self.0.plan(path), self.1)
     }
 
     /// Sets the Response recording the Run replays or records, as
     /// [`crate::Start::recording`] does.
+    ///
+    /// ```no_run
+    /// # fn start(connection: &goodfetch_collie_client::blocking::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// use goodfetch_protocol::run::{Recording, RecordingMode};
+    ///
+    /// let recording = Recording { mode: RecordingMode::Replay, path: "site.warc".to_owned() };
+    /// let run = connection.start().recording(recording).send()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn recording(self, recording: Recording) -> Self {
         Self(self.0.recording(recording), self.1)
     }
 
     /// Accepts a change of the Plugin `name`, as
     /// [`crate::Start::accept_plugin_change`] does.
+    ///
+    /// ```no_run
+    /// # fn start(connection: &goodfetch_collie_client::blocking::ClientConnection) -> Result<(), goodfetch_collie_client::Error> {
+    /// let run = connection.start().accept_plugin_change("shop-login").send()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn accept_plugin_change(self, name: impl Into<String>) -> Self {
         Self(self.0.accept_plugin_change(name), self.1)
     }

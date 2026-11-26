@@ -336,7 +336,7 @@ pub(crate) fn wire_timeout(timeout: RunTimeout) -> Result<Option<Option<u64>>, E
         RunTimeout::Unbounded => Ok(Some(None)),
         RunTimeout::After(after) if after.is_zero() => {
             let key = TIMEOUT_RUN.name;
-            let reason = "a timeout of 0 ms would end the Run at once";
+            let reason = "a timeout of 0 ms would end the call at once";
             let fix = "give at least 1 ms, or `.no_timeout()` for no timeout";
             let details = SettingInvalidDetails {
                 key: key.to_owned(),

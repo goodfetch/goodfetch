@@ -1344,6 +1344,7 @@ dependencies = [
  "http",
  "http-body-util",
  "http-cache-semantics",
+ "httparse",
  "httpdate",
  "hyper",
  "hyper-util",

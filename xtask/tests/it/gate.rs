@@ -1384,7 +1384,7 @@ fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinis
 }
 
 /// The full form's steps the hosted tier owns (spec 3373's Step ownership):
-/// a finishing spec pull request's hosted run holds those its change
+/// a hosted run in the full form holds those its change
 /// reaches.
 const HOSTED_OWNED_FULL: [&str; 8] = [
     "visual",
@@ -1459,7 +1459,7 @@ fn preflight_run(workspace: &Workspace, records: &Path, ran: &mut Ran) -> Plan {
     preflight
 }
 
-/// The no-double-run walk of a finishing spec pull request (#3382):
+/// The no-double-run walk of a full gate's pull request (#3382):
 /// `just preflight` records the stress run and the counts on the head, the
 /// hosted run in the full form runs each hosted-owned step its change
 /// reaches, and `just merge`'s full gate reads both. It reuses every unit

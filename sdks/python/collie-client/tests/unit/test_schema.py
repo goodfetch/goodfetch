@@ -32,7 +32,14 @@ from goodfetch_collie_client.schema import (
 )
 from hypothesis import example, given, seed, settings
 from hypothesis import strategies as st
-from pydantic import BaseModel, Field, computed_field, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_serializer,
+    field_validator,
+)
 from typing_extensions import TypeForm
 
 
@@ -79,6 +86,23 @@ class Notes(BaseModel):
 
 class Pickled:
     """An object only pickle could carry."""
+
+
+class StrictShelf(BaseModel):
+    """A nested model that refuses a field it does not declare."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    room: str
+
+
+class Strict(BaseModel):
+    """A model that refuses a field it does not declare, holding another."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    shelf: StrictShelf
 
 
 class Shelved(BaseModel):
@@ -234,6 +258,34 @@ def test_an_answer_of_an_older_shape_fails_the_typed_read_at_its_path() -> None:
         )
 
     assert [issue.path for issue in refused.value.issues] == ["/0/publishedIn"]
+
+
+@PYDANTIC
+def test_a_read_that_keeps_unknown_fields_keeps_each_one_a_strict_model_refuses() -> (
+    None
+):
+    """A Record read so keeps a field its model refuses, a nested model's too.
+
+    A plain read still refuses it, as the model's own config says.
+    """
+    answer: JSONValue = {
+        "title": "Dune",
+        "colour": "red",
+        "shelf": {"room": "hall", "height": 2},
+    }
+
+    kept = schema_codec(Strict).decode(answer, keep_unknown=True)
+    with pytest.raises(SchemaRejectedError) as refused:
+        schema_codec(Strict).decode(answer)
+
+    assert (kept.model_extra, kept.shelf.model_extra) == (
+        {"colour": "red"},
+        {"height": 2},
+    )
+    assert sorted(issue.path for issue in refused.value.issues) == [
+        "/colour",
+        "/shelf/height",
+    ]
 
 
 @pytest.mark.covers("story:11-67", "error:schema_validator_failed")

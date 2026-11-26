@@ -1947,6 +1947,16 @@ form = "read"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "(module)"
+member = "DatasetRecord"
+entry = "none"
+reason = "A committed Record as a Run's `records` reads it: the wire's Record with its value of the Dataset's own type, parsed by its model with each undeclared field kept in its `model_extra` (ADR 0103, G3)."
+only = "Rust's Records read as their Dataset's own type come in a later part of spec 611 (issue 1487)."
+words = ["dataset", "record"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
 member = "CrawlContext"
 entry = "none"
 reason = "What a plain-function handler is given for one attempt of a request of its Label (ADR 0093)."
@@ -2163,6 +2173,15 @@ form = "opener"
 [[member]]
 package = "goodfetch_foxhound"
 receiver = "AsyncCrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+only = "Rust's read of the rejection table comes in a later part of spec 611 (issue 1487)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -2217,6 +2236,15 @@ receiver = "CrawlRun"
 member = "records"
 entry = "run.records"
 words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+only = "Rust's read of the rejection table comes in a later part of spec 611 (issue 1487)."
+words = ["rejected", "records"]
 form = "opener"
 
 [[member]]
@@ -3300,10 +3328,6 @@ reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl
 [[unreached]]
 entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
-
-[[unreached]]
-entries = ["run.rejected_records"]
-reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[logger]]
 package = "goodfetch-collie-client"

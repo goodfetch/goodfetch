@@ -57,6 +57,9 @@ from goodfetch_foxhound.generated.models import (
     RequestSeed,
     SitemapSeed,
 )
+from goodfetch_foxhound.generated.models import (
+    DatasetRecord as WireDatasetRecord,
+)
 from goodfetch_foxhound.generated.operations import (
     DEPRECATED_OPERATIONS,
     EXPERIMENTAL_OPERATIONS,
@@ -99,6 +102,7 @@ __all__ = [
     "CrawlContext",
     "CrawlRequest",
     "Dataset",
+    "DatasetRecord",
     "Label",
     "seed",
     "sitemap",
@@ -147,6 +151,20 @@ class Dataset(Generic[R]):
     def name(self) -> str:
         """The name the Dataset was declared with, unique in its crawl."""
         return self._name
+
+
+class DatasetRecord(WireDatasetRecord, Generic[R]):
+    """A committed Record of a Dataset read back (ADR 0103).
+
+    Its number, when and by which crawl request it was committed, and its
+    value, of its Dataset's own type `R`: a Dataset declared with a model
+    reads each value parsed by it, each field the model does not declare
+    kept in its `model_extra`, a nested model's included (G3); one without
+    a schema, or with a hand-written one, reads the JSON as it was pushed.
+    """
+
+    value: R
+    """The Record, of its Dataset's own type."""
 
 
 @final
@@ -1546,3 +1564,39 @@ def payload_of(crawl: AsyncCrawl | Crawl, label: str, payload: JSONValue) -> obj
     declared = _crawls[crawl].labels.get(label)
     codec = None if declared is None else _payload_codecs.get(declared.label)
     return None if codec is None else codec.decode(payload)
+
+
+def read_record(dataset: Dataset[R], record: DatasetRecord[Any]) -> DatasetRecord[R]:
+    """`record`, a committed Record of `dataset`, read as the Dataset's own type.
+
+    Its model's own parse gives its value, and a Record it refuses fails
+    naming its number, since reading on would hide a drift of the model
+    (ADRs 0082, 0103). Without a model the value stays the JSON it is.
+
+    Raises:
+        RecordInvalidError: The Dataset's model refuses the Record.
+        SchemaValidatorFailedError: A validator of the model raised
+            something other than a rejection.
+    """
+    codec = _record_codecs.get(dataset)
+    if codec is None:
+        return cast("DatasetRecord[R]", record)
+    try:
+        value: R = codec.decode(record.value, keep_unknown=True)
+    except SchemaRejectedError as rejected:
+        issues = [(issue.path, issue.message) for issue in rejected.issues]
+        named = ", ".join(
+            f"{path or 'its root'}: {message}" for path, message in issues
+        )
+        raise RecordInvalidError(
+            f"the Dataset {dataset.name}'s Record {record.number} does not parse: "
+            + named,
+            fix="Read the Dataset with the schema its Records were pushed under, "
+            "or resume past this Record with `after` set to its number.",
+            details={
+                "dataset": dataset.name,
+                "records": [_invalid(0, issues).model_dump(mode="json")],
+                "number": record.number,
+            },
+        ) from None
+    return cast("DatasetRecord[R]", record.model_copy(update={"value": value}))

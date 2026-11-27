@@ -148,6 +148,7 @@ mod screenshots;
 mod sdk_api;
 mod sdk_exports;
 mod sdk_manifests;
+mod seccomp;
 mod semver_checks;
 mod size;
 mod skew_jobs;

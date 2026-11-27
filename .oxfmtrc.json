@@ -23,6 +23,8 @@
     "**/compat/**",
     "**/ci/release/skew-jobs.json",
     "packaging/helm/*/templates/**",
+    "packaging/oci/moby-default-seccomp.json",
+    "packaging/oci/seccomp-profile.json",
     ".agents/**",
     "ci/proofs/**",
     "**/*.md",

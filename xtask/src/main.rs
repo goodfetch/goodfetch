@@ -94,6 +94,7 @@ mod scorecard;
 mod screenshots;
 mod sdk_api;
 mod sdk_manifests;
+mod seccomp;
 mod semver_checks;
 mod size;
 mod static_pie;
@@ -441,6 +442,13 @@ enum Command {
     /// manifest does not list, and on a line naming no hand-written member
     /// the SDK exports (ADRs 0069, 0099).
     SdkExports,
+    /// The container seccomp profile generator and drift check (ADR 0049;
+    /// issue 1260): Docker's default profile at the pinned moby version plus
+    /// Chromium's three user-namespace rules.
+    Seccomp {
+        #[command(subcommand)]
+        command: seccomp::Command,
+    },
     /// The Rust crates' API breakage check (ADRs 0030, 0069, 0095):
     /// cargo-semver-checks on `goodfetch-collie-client`, `goodfetch-collie`
     /// and `goodfetch-foxhound`, their testing kits included, against the
@@ -770,6 +778,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::SdkApi => sdk_api::run(root),
         Command::SdkManifests => Ok(check::report(&sdk_manifests::check(root)?)),
         Command::SdkExports => Ok(check::report(&sdk_manifests::exports::check(root)?)),
+        Command::Seccomp { command } => seccomp::run(command, root),
         Command::SemverChecks => semver_checks::run(root, cargo),
         Command::Screenshots { command } => screenshots::run(command, environment),
         Command::Runtimes => Ok(check::report(&runtimes::check(root)?)),

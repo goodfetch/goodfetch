@@ -38,3 +38,11 @@ milestone = "M1 Core"
 journey = false
 not_journey = "reach"
 status = "active"
+
+[[story]]
+id = 55
+title = "As a contributor, I want the seccomp profile checked to be Docker's default profile for its pinned version plus exactly the user-namespace rules, so that it never widens silently."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
+status = "active"

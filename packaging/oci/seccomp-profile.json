@@ -1,18 +1,62 @@
 {
-  "defaultAction": "SCMP_ACT_ERRNO",
-  "defaultErrnoRet": 1,
   "archMap": [
     {
       "architecture": "SCMP_ARCH_X86_64",
-      "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]
+      "subArchitectures": [
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ]
     },
     {
       "architecture": "SCMP_ARCH_AARCH64",
-      "subArchitectures": ["SCMP_ARCH_ARM"]
+      "subArchitectures": [
+        "SCMP_ARCH_ARM"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPS64",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPS",
+        "SCMP_ARCH_MIPS64N32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPS64N32",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPS",
+        "SCMP_ARCH_MIPS64"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPSEL64",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPSEL",
+        "SCMP_ARCH_MIPSEL64N32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPSEL64N32",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPSEL",
+        "SCMP_ARCH_MIPSEL64"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_S390X",
+      "subArchitectures": [
+        "SCMP_ARCH_S390"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_RISCV64",
+      "subArchitectures": null
     }
   ],
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
   "syscalls": [
     {
+      "action": "SCMP_ACT_ALLOW",
       "names": [
         "accept",
         "accept4",
@@ -21,6 +65,7 @@
         "alarm",
         "bind",
         "brk",
+        "cachestat",
         "capget",
         "capset",
         "chdir",
@@ -35,8 +80,6 @@
         "clock_gettime64",
         "clock_nanosleep",
         "clock_nanosleep_time64",
-        "clone",
-        "clone3",
         "close",
         "close_range",
         "connect",
@@ -68,6 +111,7 @@
         "fchdir",
         "fchmod",
         "fchmodat",
+        "fchmodat2",
         "fchown",
         "fchown32",
         "fchownat",
@@ -89,8 +133,12 @@
         "ftruncate",
         "ftruncate64",
         "futex",
+        "futex_requeue",
         "futex_time64",
+        "futex_wait",
         "futex_waitv",
+        "futex_wake",
+        "futimesat",
         "getcpu",
         "getcwd",
         "getdents",
@@ -154,14 +202,17 @@
         "listen",
         "listxattr",
         "llistxattr",
+        "_llseek",
         "lremovexattr",
         "lseek",
         "lsetxattr",
         "lstat",
         "lstat64",
         "madvise",
+        "map_shadow_stack",
         "membarrier",
         "memfd_create",
+        "memfd_secret",
         "mincore",
         "mkdir",
         "mkdirat",
@@ -190,8 +241,10 @@
         "munlock",
         "munlockall",
         "munmap",
+        "name_to_handle_at",
         "nanosleep",
         "newfstatat",
+        "_newselect",
         "open",
         "openat",
         "openat2",
@@ -200,6 +253,9 @@
         "pidfd_send_signal",
         "pipe",
         "pipe2",
+        "pkey_alloc",
+        "pkey_free",
+        "pkey_mprotect",
         "poll",
         "ppoll",
         "ppoll_time64",
@@ -208,6 +264,7 @@
         "preadv",
         "preadv2",
         "prlimit64",
+        "process_mrelease",
         "pselect6",
         "pselect6_time64",
         "pwrite64",
@@ -275,7 +332,6 @@
         "setgroups",
         "setgroups32",
         "setitimer",
-        "setns",
         "setpgid",
         "setpriority",
         "setregid",
@@ -305,7 +361,6 @@
         "signalfd4",
         "sigprocmask",
         "sigreturn",
-        "socket",
         "socketcall",
         "socketpair",
         "splice",
@@ -344,7 +399,6 @@
         "uname",
         "unlink",
         "unlinkat",
-        "unshare",
         "utime",
         "utimensat",
         "utimensat_time64",
@@ -356,9 +410,472 @@
         "waitpid",
         "write",
         "writev"
-      ],
+      ]
+    },
+    {
       "action": "SCMP_ACT_ALLOW",
-      "comment": "Docker default container syscalls plus unshare/setns/clone/clone3 so Chromium's Linux user-namespace sandbox runs without --no-sandbox (ADR 0049)."
+      "includes": {
+        "minKernel": "4.8"
+      },
+      "names": [
+        "process_vm_readv",
+        "process_vm_writev",
+        "ptrace"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_NE",
+          "value": 40
+        }
+      ],
+      "names": [
+        "socket"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_EQ",
+          "value": 0
+        }
+      ],
+      "names": [
+        "personality"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_EQ",
+          "value": 8
+        }
+      ],
+      "names": [
+        "personality"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_EQ",
+          "value": 131072
+        }
+      ],
+      "names": [
+        "personality"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_EQ",
+          "value": 131080
+        }
+      ],
+      "names": [
+        "personality"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_EQ",
+          "value": 4294967295
+        }
+      ],
+      "names": [
+        "personality"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "ppc64le"
+        ]
+      },
+      "names": [
+        "sync_file_range2",
+        "swapcontext"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "arm",
+          "arm64"
+        ]
+      },
+      "names": [
+        "arm_fadvise64_64",
+        "arm_sync_file_range",
+        "sync_file_range2",
+        "breakpoint",
+        "cacheflush",
+        "set_tls"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "amd64",
+          "x32"
+        ]
+      },
+      "names": [
+        "arch_prctl"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "amd64",
+          "x32",
+          "x86"
+        ]
+      },
+      "names": [
+        "modify_ldt"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      },
+      "names": [
+        "s390_pci_mmio_read",
+        "s390_pci_mmio_write",
+        "s390_runtime_instr"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "riscv64"
+        ]
+      },
+      "names": [
+        "riscv_flush_icache"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_DAC_READ_SEARCH"
+        ]
+      },
+      "names": [
+        "open_by_handle_at"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "names": [
+        "bpf",
+        "clone",
+        "clone3",
+        "fanotify_init",
+        "fsconfig",
+        "fsmount",
+        "fsopen",
+        "fspick",
+        "lookup_dcookie",
+        "mount",
+        "mount_setattr",
+        "move_mount",
+        "open_tree",
+        "perf_event_open",
+        "quotactl",
+        "quotactl_fd",
+        "setdomainname",
+        "sethostname",
+        "setns",
+        "syslog",
+        "umount",
+        "umount2",
+        "unshare"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_MASKED_EQ",
+          "value": 2114060288
+        }
+      ],
+      "excludes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ],
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "names": [
+        "clone"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 1,
+          "op": "SCMP_CMP_MASKED_EQ",
+          "value": 2114060288
+        }
+      ],
+      "comment": "s390 parameter ordering for clone is different",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "includes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      },
+      "names": [
+        "clone"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 38,
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "names": [
+        "clone3"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_BOOT"
+        ]
+      },
+      "names": [
+        "reboot"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_CHROOT"
+        ]
+      },
+      "names": [
+        "chroot"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_MODULE"
+        ]
+      },
+      "names": [
+        "delete_module",
+        "init_module",
+        "finit_module"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_PACCT"
+        ]
+      },
+      "names": [
+        "acct"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_PTRACE"
+        ]
+      },
+      "names": [
+        "kcmp",
+        "pidfd_getfd",
+        "process_madvise",
+        "process_vm_readv",
+        "process_vm_writev",
+        "ptrace"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_RAWIO"
+        ]
+      },
+      "names": [
+        "iopl",
+        "ioperm"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_TIME"
+        ]
+      },
+      "names": [
+        "settimeofday",
+        "stime",
+        "clock_settime",
+        "clock_settime64"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_TTY_CONFIG"
+        ]
+      },
+      "names": [
+        "vhangup"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_NICE"
+        ]
+      },
+      "names": [
+        "get_mempolicy",
+        "mbind",
+        "set_mempolicy",
+        "set_mempolicy_home_node"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYSLOG"
+        ]
+      },
+      "names": [
+        "syslog"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_BPF"
+        ]
+      },
+      "names": [
+        "bpf"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_PERFMON"
+        ]
+      },
+      "names": [
+        "perf_event_open"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "op": "SCMP_CMP_MASKED_EQ",
+          "value": 268435456,
+          "valueTwo": 268435456
+        }
+      ],
+      "comment": "Goodfetch (ADR 0049, moby v27.5.1): allow clone with CLONE_NEWUSER for Chromium's namespace sandbox.",
+      "excludes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ],
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "names": [
+        "clone"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "comment": "Goodfetch (ADR 0049, moby v27.5.1): allow unshare for Chromium's namespace sandbox.",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "names": [
+        "unshare"
+      ]
+    },
+    {
+      "action": "SCMP_ACT_ALLOW",
+      "comment": "Goodfetch (ADR 0049, moby v27.5.1): allow setns for Chromium's namespace sandbox.",
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      },
+      "names": [
+        "setns"
+      ]
     }
   ]
 }

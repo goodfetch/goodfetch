@@ -170,7 +170,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/release/deploy-smoke/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/release/deploy-smoke/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh scripts/seccomp-profile.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -245,6 +245,7 @@ lint:
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
     step --after xtask xtask-probes 'cargo run --quiet --bin xtask -- probes check'
+    step --after xtask xtask-seccomp 'cargo run --quiet --bin xtask -- seccomp check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     steps_end
 

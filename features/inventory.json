@@ -19148,6 +19148,17 @@
       ]
     },
     {
+      "id": "story:13-55",
+      "kind": "story",
+      "area": 13,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "story:14-13",
       "kind": "story",
       "area": 14,

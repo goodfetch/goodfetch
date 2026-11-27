@@ -76,6 +76,7 @@ use crate::cdp::launch::{Launcher, Window};
 use crate::egress_relay::application_settings::ApplicationSettings;
 use crate::egress_relay::authority::Authority;
 use crate::egress_relay::{Local, RelayTls};
+use crate::emulation::SessionEmulation;
 use crate::errors::browser_panicked;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
@@ -516,17 +517,18 @@ impl Pool {
     }
 
     /// A seat for a Session whose requests leave through `egress`, its
-    /// proxy and its egress relay, in every browser it is seated in, placed
-    /// under `placement` on its first use, in browsers that show its pages
-    /// as `window` says. Its place actor and its pages' readers are tasks
-    /// of `tasks`, its Session's owner.
+    /// proxy and its egress relay, and whose pages run under `emulation` in
+    /// every browser it is seated in, placed under `placement` on its first
+    /// use, in browsers that show its pages as `window` says. Its place actor
+    /// and its pages' readers are tasks of `tasks`, its Session's owner.
     pub(crate) fn seat(
         &self,
         placement: (Placement, Window),
         egress: SessionEgress,
+        emulation: SessionEmulation,
         tasks: TaskStarter,
     ) -> Seat {
-        self.seat_of((placement, egress), None, tasks)
+        self.seat_of((placement, egress, emulation), None, tasks)
     }
 
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
@@ -543,6 +545,7 @@ impl Pool {
             (
                 (Placement::Shared, Window::Headless),
                 SessionEgress::default(),
+                SessionEmulation::borrowed(),
             ),
             Some(browser),
             tasks,
@@ -551,7 +554,11 @@ impl Pool {
 
     fn seat_of(
         &self,
-        ((placement, window), egress): ((Placement, Window), SessionEgress),
+        ((placement, window), egress, emulation): (
+            (Placement, Window),
+            SessionEgress,
+            SessionEmulation,
+        ),
         borrowed: Option<Arc<BorrowedBrowser>>,
         tasks: TaskStarter,
     ) -> Seat {
@@ -567,6 +574,7 @@ impl Pool {
             placement,
             window,
             egress,
+            emulation,
             borrowed,
             origins: Origins::default(),
             place,
@@ -1045,6 +1053,9 @@ struct SeatShared {
     /// The Session's one proxy and its egress relay, which it keeps in
     /// every browser (SA-22).
     egress: SessionEgress,
+    /// The Session's device emulation and network throttling, kept across
+    /// browser recycles (ADR 0083).
+    emulation: SessionEmulation,
     /// The Borrowed browser it is seated in for good, outside the pool.
     borrowed: Option<Arc<BorrowedBrowser>>,
     origins: Origins,
@@ -1420,6 +1431,7 @@ impl SeatShared {
             let driver = Arc::new(SessionDriver::new(
                 Behind::Borrowed(Arc::clone(borrowed)),
                 SessionEgress::default(),
+                SessionEmulation::borrowed(),
             ));
             driver.open().await?;
             place.at = Some((BORROWED, Arc::clone(&driver)));
@@ -1430,6 +1442,7 @@ impl SeatShared {
         let driver = Arc::new(SessionDriver::new(
             Behind::Launched(browser),
             self.egress.clone(),
+            self.emulation.clone(),
         ));
         let opened = match driver.open().await {
             Ok(()) => driver.restore(&place.carried).await,

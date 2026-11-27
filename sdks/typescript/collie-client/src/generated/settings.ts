@@ -44,6 +44,30 @@ export interface Settings {
      */
     readonly cdpCommandLog?: boolean;
     /**
+     * The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.color_scheme`.
+     */
+    readonly colorScheme?: "light" | "dark" | "no-preference";
+    /**
+     * The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.device_scale_factor`.
+     */
+    readonly deviceScaleFactor?: number;
+    /**
+     * The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.geolocation`.
+     */
+    readonly geolocation?: { readonly accuracy?: number | null; readonly latitude: number; readonly longitude: number } | null;
+    /**
+     * Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.has_touch`.
+     */
+    readonly hasTouch?: boolean;
+    /**
      * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
      *
      * `browser.headless`.
@@ -56,11 +80,47 @@ export interface Settings {
      */
     readonly headlessShell?: boolean;
     /**
+     * Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.is_mobile`.
+     */
+    readonly isMobile?: boolean;
+    /**
+     * Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.java_script_enabled`.
+     */
+    readonly javaScriptEnabled?: boolean;
+    /**
+     * The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.locale`.
+     */
+    readonly locale?: string | null;
+    /**
+     * Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.permissions`.
+     */
+    readonly permissions?: readonly ("geolocation" | "midi" | "midi-sysex" | "notifications" | "camera" | "microphone" | "background-sync" | "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" | "clipboard-read" | "clipboard-write" | "payment-handler" | "storage-access" | "local-fonts" | "screen-wake-lock" | "idle-detection" | "periodic-background-sync" | "window-management" | "local-network-access")[];
+    /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+    /**
+     * The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.timezone_id`.
+     */
+    readonly timezoneId?: string | null;
+    /**
+     * The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.viewport`.
+     */
+    readonly viewport?: { readonly height: number; readonly width: number } | null;
   };
   readonly browserCache?: {
     /**
@@ -355,6 +415,12 @@ export interface Settings {
      * `network.resolve`.
      */
     readonly resolve?: { readonly [key: string]: readonly string[] };
+    /**
+     * Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `network.throttle`.
+     */
+    readonly throttle?: { readonly downloadBytesPerSecond?: number | null; readonly latency?: number; readonly offline?: boolean; readonly uploadBytesPerSecond?: number | null } | null;
   };
   readonly politeness?: {
     /**
@@ -874,6 +940,30 @@ export interface RunSettings {
      */
     readonly cdpCommandLog?: boolean;
     /**
+     * The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.color_scheme`.
+     */
+    readonly colorScheme?: "light" | "dark" | "no-preference";
+    /**
+     * The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.device_scale_factor`.
+     */
+    readonly deviceScaleFactor?: number;
+    /**
+     * The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.geolocation`.
+     */
+    readonly geolocation?: { readonly accuracy?: number | null; readonly latitude: number; readonly longitude: number } | null;
+    /**
+     * Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.has_touch`.
+     */
+    readonly hasTouch?: boolean;
+    /**
      * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
      *
      * `browser.headless`.
@@ -886,11 +976,47 @@ export interface RunSettings {
      */
     readonly headlessShell?: boolean;
     /**
+     * Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.is_mobile`.
+     */
+    readonly isMobile?: boolean;
+    /**
+     * Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.java_script_enabled`.
+     */
+    readonly javaScriptEnabled?: boolean;
+    /**
+     * The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.locale`.
+     */
+    readonly locale?: string | null;
+    /**
+     * Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.permissions`.
+     */
+    readonly permissions?: readonly ("geolocation" | "midi" | "midi-sysex" | "notifications" | "camera" | "microphone" | "background-sync" | "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" | "clipboard-read" | "clipboard-write" | "payment-handler" | "storage-access" | "local-fonts" | "screen-wake-lock" | "idle-detection" | "periodic-background-sync" | "window-management" | "local-network-access")[];
+    /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+    /**
+     * The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.timezone_id`.
+     */
+    readonly timezoneId?: string | null;
+    /**
+     * The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.viewport`.
+     */
+    readonly viewport?: { readonly height: number; readonly width: number } | null;
   };
   readonly browserCache?: {
     /**
@@ -1165,6 +1291,12 @@ export interface RunSettings {
      * `network.resolve`.
      */
     readonly resolve?: { readonly [key: string]: readonly string[] };
+    /**
+     * Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `network.throttle`.
+     */
+    readonly throttle?: { readonly downloadBytesPerSecond?: number | null; readonly latency?: number; readonly offline?: boolean; readonly uploadBytesPerSecond?: number | null } | null;
   };
   readonly politeness?: {
     /**
@@ -1664,11 +1796,71 @@ export interface SessionSettings {
      */
     readonly blockResources?: readonly ("image" | "media" | "font" | "stylesheet")[];
     /**
+     * The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.color_scheme`.
+     */
+    readonly colorScheme?: "light" | "dark" | "no-preference";
+    /**
+     * The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.device_scale_factor`.
+     */
+    readonly deviceScaleFactor?: number;
+    /**
+     * The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.geolocation`.
+     */
+    readonly geolocation?: { readonly accuracy?: number | null; readonly latitude: number; readonly longitude: number } | null;
+    /**
+     * Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.has_touch`.
+     */
+    readonly hasTouch?: boolean;
+    /**
+     * Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.is_mobile`.
+     */
+    readonly isMobile?: boolean;
+    /**
+     * Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.java_script_enabled`.
+     */
+    readonly javaScriptEnabled?: boolean;
+    /**
+     * The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.locale`.
+     */
+    readonly locale?: string | null;
+    /**
+     * Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.permissions`.
+     */
+    readonly permissions?: readonly ("geolocation" | "midi" | "midi-sysex" | "notifications" | "camera" | "microphone" | "background-sync" | "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" | "clipboard-read" | "clipboard-write" | "payment-handler" | "storage-access" | "local-fonts" | "screen-wake-lock" | "idle-detection" | "periodic-background-sync" | "window-management" | "local-network-access")[];
+    /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+    /**
+     * The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.timezone_id`.
+     */
+    readonly timezoneId?: string | null;
+    /**
+     * The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.viewport`.
+     */
+    readonly viewport?: { readonly height: number; readonly width: number } | null;
   };
   readonly content?: {
     /**
@@ -1725,6 +1917,14 @@ export interface SessionSettings {
      * `live_view.hiding`.
      */
     readonly hiding?: "auto" | "off" | "always";
+  };
+  readonly network?: {
+    /**
+     * Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `network.throttle`.
+     */
+    readonly throttle?: { readonly downloadBytesPerSecond?: number | null; readonly latency?: number; readonly offline?: boolean; readonly uploadBytesPerSecond?: number | null } | null;
   };
   readonly proxy?: {
     /**
@@ -1884,10 +2084,20 @@ const SPELLING: Spelling = {
     accessMode: "access_mode",
     blockResources: "block_resources",
     cdpCommandLog: "cdp_command_log",
+    colorScheme: "color_scheme",
+    deviceScaleFactor: "device_scale_factor",
+    geolocation: "geolocation",
+    hasTouch: "has_touch",
     headless: "headless",
     headlessShell: "headless_shell",
+    isMobile: "is_mobile",
+    javaScriptEnabled: "java_script_enabled",
+    locale: "locale",
     mirror: "mirror",
+    permissions: "permissions",
     serviceWorkers: "service_workers",
+    timezoneId: "timezone_id",
+    viewport: "viewport",
   }],
   browserCache: ["browser_cache", {
     maxUnusedAge: "max_unused_age",
@@ -2019,6 +2229,7 @@ const SPELLING: Spelling = {
     maxHelloSize: "max_hello_size",
     maxJSONDepth: "max_json_depth",
     resolve: "resolve",
+    throttle: { setting: "throttle", value: { fields: { "download_bytes_per_second": "downloadBytesPerSecond", "upload_bytes_per_second": "uploadBytesPerSecond" } } },
   }],
   notifications: ["notifications", {
     channels: { setting: "channels", value: { values: { fields: { "email": ["email", { fields: { "api_key": "apiKey" } }], "sns": ["sns", { fields: { "topic_arn": "topicArn" } }], "telegram": ["telegram", { fields: { "bot_token": "botToken", "chat_id": "chatId" } }] } } } },

@@ -264,6 +264,28 @@ pub(crate) fn opened(answer: &Value) -> PageOpened {
         .unwrap_or_else(|error| panic!("{error}: {answer}"))
 }
 
+pub(crate) fn eval(
+    engine: &mut goodfetch_test_client::Attached,
+    id: i64,
+    page_id: &str,
+    expr: &str,
+) -> Value {
+    let answer = engine.ask(
+        id,
+        "page.evaluate",
+        &json!({ "page_id": page_id, "function": expr }),
+    );
+    assert!(
+        answer.get("error").is_none(),
+        "page.evaluate failed: {answer}"
+    );
+    answer["result"]["value"].clone()
+}
+
+pub(crate) fn secure(proving_ground: &ProvingGround, host: &str, path: &str) -> String {
+    format!("https://{host}:{}{path}", proving_ground.address().port())
+}
+
 /// Covers: story:5-61, operation:run.new_page, operation:page.goto
 #[test]
 fn a_program_opens_pages_in_the_runs_default_session_and_gets_a_documents_response() {

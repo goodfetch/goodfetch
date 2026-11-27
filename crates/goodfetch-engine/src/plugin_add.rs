@@ -29,14 +29,18 @@ use goodfetch_protocol::browser_cache::{
     ARTIFACT_DOWNLOAD_FAILED, ARTIFACT_UNAVAILABLE_OFFLINE, ArtifactDownloadFailedDetails,
     ArtifactId, ArtifactKind, ArtifactUnavailableOfflineDetails,
 };
+use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{FILE_WRITE_FAILED, FileWriteFailedDetails, WriteSide};
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::plugin::add::{
-    PLUGIN_ADD, PLUGIN_ARTIFACT_REFUSED, PLUGIN_DIGEST_MISMATCH, PLUGIN_INSTALLED, PluginAddParams,
-    PluginAdded, PluginApproval, PluginDigestMismatchDetails,
+    AttestationFailureReason, PLUGIN_ADD, PLUGIN_ARTIFACT_REFUSED, PLUGIN_DIGEST_MISMATCH,
+    PLUGIN_INSTALLED, PluginAddParams, PluginAdded, PluginApproval, PluginDigestMismatchDetails,
 };
-use goodfetch_protocol::plugin::approvals::{Approvals, PLUGIN_APPROVED, Permission, stated};
+use goodfetch_protocol::plugin::approvals::{
+    Approvals, Origin, PLUGIN_APPROVED, Permission, stated,
+};
+use goodfetch_protocol::plugin::index::{PluginIndex, SignerIdentity};
 use goodfetch_protocol::plugin::lockfile::{LOCKFILE_NAME, LockedPlugin, PluginLockfile};
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
@@ -48,16 +52,30 @@ use crate::composition::{CallContext, Handler};
 use crate::config;
 use crate::durable;
 use crate::pinned_download::Fetching;
-use crate::plugin_install::{self, InstallError, PullFailure};
+use crate::plugin_index::PluginIndexStore;
+use crate::plugin_install::{self, AttestationFetchError, InstallError, PullFailure};
 use crate::plugin_lockfile;
 use crate::plugin_oci::Reference;
+use crate::plugin_provenance::{self, AttestationTrustRoot, AttestationVerdict, ResolveError};
 use crate::plugin_runtime::{self, RuntimeCatalog};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::run::settings_error;
 use crate::run_files::{os_code, reason_of};
-use crate::settings::{Opening, rewrite};
+use crate::settings::{Layers, Opening, Policy, Resolved, Values, resolve, rewrite};
 use crate::settings_editor::{self, Change, SettingsEditor};
 use crate::tasks::BlockingThreads;
+
+/// Provenance and index inputs used by [`add_checked`] to enforce look-alike
+/// name protection and provenance attestation verification (ADR 0033,
+/// issue 916).
+pub struct ProvenancePolicy<'a> {
+    /// The cached Plugin index, when available.
+    pub index: Option<&'a PluginIndex>,
+    /// Resolved settings holding any Operator policy exact-digest allowance.
+    pub settings: Option<&'a Resolved>,
+    /// Trust root for verifying provenance attestation signatures.
+    pub trust: &'a AttestationTrustRoot,
+}
 
 /// The `plugin.*` handlers.
 pub(crate) fn handlers() -> [Handler; 1] {
@@ -68,10 +86,6 @@ async fn add_operation(
     params: PluginAddParams,
     context: CallContext,
 ) -> Result<PluginAdded, CallError> {
-    let reference: Reference = params
-        .reference
-        .parse()
-        .map_err(|error| CallError::protocol(ProtocolFailure::InvalidParams, format!("{error}")))?;
     let engine = context.engine();
     let beside = match &params.project {
         Some(project) => Path::new(&project.path),
@@ -101,15 +115,32 @@ async fn add_operation(
     );
     let cache = BrowserCache::new(&location, blocking.clone());
     let catalog = RuntimeCatalog::built_in();
-    let mut added = add_with_runtime(
-        &reference,
+    let now = engine.clock().timestamp();
+    let index_folder = engine.home().plugin_index();
+    let cached_index = blocking
+        .run(move || {
+            PluginIndexStore::new(index_folder)
+                .status(now)
+                .ok()
+                .and_then(|status| status.index().cloned())
+        })
+        .await;
+    let trust = AttestationTrustRoot::bundled();
+    let provenance = ProvenancePolicy {
+        index: cached_index.as_ref(),
+        settings: Some(settings.resolved()),
+        trust: &trust,
+    };
+    let mut added = add_checked(
+        &params.reference,
+        &provenance,
         &fetching,
         &blocking,
         &store,
         &lockfile,
         &cache,
         &catalog,
-        engine.clock().timestamp(),
+        now,
     )
     .await?;
     if params.approve {
@@ -229,7 +260,8 @@ pub async fn add(
 
 /// Installs the Plugin `reference` pins into `store`, fetches and verifies
 /// its declared language runtime into `cache` through `catalog` before
-/// committing the Plugin to `store`, and pins it in `lockfile`.
+/// committing the Plugin to `store`, and pins it in `lockfile`, treating the
+/// caller-supplied exact digest as allowed by Operator policy.
 ///
 /// # Errors
 ///
@@ -251,24 +283,95 @@ pub async fn add_with_runtime(
     catalog: &RuntimeCatalog,
     now: jiff::Timestamp,
 ) -> Result<PluginAdded, CallError> {
+    let resolved = allow_exact_digest_policy(reference.plugin(), &reference.index().to_string());
+    let trust = AttestationTrustRoot::bundled();
+    let provenance = ProvenancePolicy {
+        index: None,
+        settings: Some(&resolved),
+        trust: &trust,
+    };
+    add_checked(
+        &reference.to_string(),
+        &provenance,
+        fetching,
+        blocking,
+        store,
+        lockfile,
+        cache,
+        catalog,
+        now,
+    )
+    .await
+}
+
+/// Resolves `raw_reference` against `provenance.index` (refusing look-alike
+/// names without an exact digest with `plugin_name_ambiguous`), verifies the
+/// artifact's provenance attestation against the index-recorded signer
+/// (unless Operator policy in `provenance.settings` explicitly allows the
+/// exact digest), pulls and stages the bundle, fetches any declared language
+/// runtime into `cache`, commits to `store`, and pins the Plugin (including
+/// its verified signer identity) in `lockfile`.
+///
+/// # Errors
+///
+/// `plugin_name_ambiguous` (`ProgramError`) for a look-alike or ambiguous
+/// name without an exact digest, `plugin_attestation_invalid` for a missing
+/// or mismatching provenance attestation without an Operator policy
+/// exact-digest allowance, plus all errors of [`add_with_runtime`].
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each dependency (provenance policy, registry, runtime cache, catalog, lockfile, clock timestamp) is injected explicitly for testing (ADR 0059)"
+)]
+pub async fn add_checked(
+    raw_reference: &str,
+    provenance: &ProvenancePolicy<'_>,
+    fetching: &Fetching,
+    blocking: &BlockingThreads,
+    store: &PluginStore,
+    lockfile: &Path,
+    cache: &BrowserCache,
+    catalog: &RuntimeCatalog,
+    now: jiff::Timestamp,
+) -> Result<PluginAdded, CallError> {
+    let resolved_ref = plugin_provenance::resolve_reference(raw_reference, provenance.index)
+        .map_err(|error| match error {
+            ResolveError::Ambiguous { name, similar } => {
+                plugin_provenance::name_ambiguous_error(&name, similar)
+            }
+            ResolveError::Malformed(err) => {
+                CallError::protocol(ProtocolFailure::InvalidParams, format!("{err}"))
+            }
+        })?;
+    let reference = resolved_ref.reference();
     let name = reference.plugin().to_owned();
     let digest = reference.index().to_string();
     let mut pins = {
         let path = lockfile.to_owned();
         blocking.run(move || read_lockfile(&path)).await?
     };
-    let pinned = match pins.locked(&name) {
+    let pinned_signer = match pins.locked(&name) {
         Some(locked) if locked.digest != digest => {
             return Err(mismatch(&name, &locked.digest, &digest, lockfile));
         }
-        locked => locked.is_some(),
+        Some(locked) => Some(locked.signer.clone()),
+        None => None,
     };
+    let pinned = pinned_signer.is_some();
     let held = {
         let (store, name) = (store.clone(), name.clone());
         blocking.run(move || store.installed(&name)).await
     };
     match held {
-        Ok(held) if pinned => return Ok(added(held, digest, lockfile)),
+        Ok(held) if pinned => {
+            let signer = pinned_signer.flatten().and_then(|recorded| {
+                provenance
+                    .index
+                    .and_then(|idx| idx.entry(&name))
+                    .filter(|entry| entry.signer.to_string() == recorded)
+                    .map(|entry| entry.signer.clone())
+            });
+            return Ok(added(held, digest, lockfile, signer));
+        }
         Ok(held) => return Err(installed(&name, &held.manifest.version)),
         Err(StoreError::NotInstalled(_) | StoreError::Versions { versions: 0, .. }) => {}
         Err(error) => {
@@ -278,6 +381,8 @@ pub async fn add_with_runtime(
             ));
         }
     }
+    let verified_signer =
+        check_provenance(reference, &name, &digest, provenance, fetching, store).await?;
     let staged = plugin_install::stage(reference, fetching, blocking, store)
         .await
         .map_err(|error| refusal(error, reference, store))?;
@@ -305,7 +410,7 @@ pub async fn add_with_runtime(
             name: name.clone(),
             version: held.manifest.version.clone(),
             digest: digest.clone(),
-            signer: None,
+            signer: verified_signer.as_ref().map(ToString::to_string),
             approvals: None,
         })
         .map_err(|found| mismatch(&name, &found.locked, &digest, lockfile))?;
@@ -315,7 +420,127 @@ pub async fn add_with_runtime(
             .await
             .map_err(|error| unwritten(&error, lockfile, &name))?;
     }
-    Ok(added(held, digest, lockfile))
+    Ok(added(held, digest, lockfile, verified_signer))
+}
+
+/// Checks provenance attestation for `reference` against `provenance`,
+/// returning the verified [`SignerIdentity`] when attested and matching,
+/// `None` when allowed without a matching attestation (exact digest allowed
+/// in Operator policy, or first-party without attestation), or
+/// `plugin_attestation_invalid` when refused.
+async fn check_provenance(
+    reference: &Reference,
+    name: &str,
+    digest: &str,
+    provenance: &ProvenancePolicy<'_>,
+    fetching: &Fetching,
+    store: &PluginStore,
+) -> Result<Option<SignerIdentity>, CallError> {
+    let policy_allows = provenance.settings.is_some_and(|settings| {
+        plugin_provenance::policy_allows_exact_digest(settings, name, digest)
+    });
+    if policy_allows && provenance.index.is_none() {
+        return Ok(None);
+    }
+    let expected_signer = provenance
+        .index
+        .and_then(|idx| idx.entry(name))
+        .map(|entry| &entry.signer);
+    let origin = provenance
+        .index
+        .map_or(Origin::ThirdParty, |idx| idx.origin_of(name, Some(digest)));
+    let attestations = match plugin_install::fetch_attestations(reference, fetching).await {
+        Ok(attestations) => attestations,
+        Err(AttestationFetchError::Offline(layer)) => {
+            return Err(offline(
+                ArtifactId {
+                    kind: ArtifactKind::Plugin,
+                    name: name.to_owned(),
+                    build: digest.to_owned(),
+                },
+                layer,
+                store,
+            ));
+        }
+        Err(AttestationFetchError::Pull(failure)) => {
+            if policy_allows {
+                return Ok(None);
+            }
+            return Err(pull_failed(
+                ArtifactId {
+                    kind: ArtifactKind::Plugin,
+                    name: name.to_owned(),
+                    build: digest.to_owned(),
+                },
+                reference,
+                &failure,
+            ));
+        }
+        Err(AttestationFetchError::Malformed(_)) => {
+            if policy_allows {
+                return Ok(None);
+            }
+            return Err(plugin_provenance::attestation_invalid_error(
+                name,
+                digest,
+                AttestationFailureReason::Malformed,
+                expected_signer.cloned(),
+                None,
+            ));
+        }
+    };
+    match plugin_provenance::verify_attestations(
+        &attestations,
+        digest,
+        expected_signer,
+        provenance.trust,
+    ) {
+        AttestationVerdict::Verified(signer) => Ok(Some(signer)),
+        AttestationVerdict::Refused {
+            reason,
+            expected_signer,
+            found_signer,
+        } => {
+            if policy_allows
+                || (origin == Origin::FirstParty && reason == AttestationFailureReason::Missing)
+            {
+                return Ok(None);
+            }
+            Err(plugin_provenance::attestation_invalid_error(
+                name,
+                digest,
+                reason,
+                expected_signer,
+                found_signer,
+            ))
+        }
+    }
+}
+
+/// Constructs a resolved Operator policy allowing the exact `(name, digest)`
+/// pair for callers that explicitly pass a digest-pinned [`Reference`]
+/// without a separate Operator policy.
+fn allow_exact_digest_policy(name: &str, digest: &str) -> Resolved {
+    let mut map = Map::new();
+    map.insert(
+        PLUGINS.name.to_owned(),
+        json!({
+            name: {
+                "allow": true,
+                "digest": digest,
+            }
+        }),
+    );
+    let layers = Layers {
+        operator_policy: Policy {
+            settings: Values::read(SettingsLayer::OperatorPolicy, &map, Product::Collie)
+                .expect("invariant: valid exact-digest Operator policy entry"),
+            ..Policy::default()
+        },
+        ..Layers::default()
+    };
+    resolve(&layers, Product::Collie, Product::Collie)
+        .expect("invariant: single-layer exact-digest policy resolves")
 }
 
 /// The lockfile at `path`, an empty one when there is none.
@@ -343,7 +568,12 @@ fn write_lockfile(path: &Path, text: &str) -> io::Result<()> {
 
 /// What `plugin.add` answers for the Plugin `held`, pinned to `digest` in
 /// `lockfile`.
-fn added(held: Installed, digest: String, lockfile: &Path) -> PluginAdded {
+fn added(
+    held: Installed,
+    digest: String,
+    lockfile: &Path,
+    signer: Option<SignerIdentity>,
+) -> PluginAdded {
     let permissions = Permission::needed_by(&held.manifest)
         .into_iter()
         .map(stated)
@@ -360,6 +590,7 @@ fn added(held: Installed, digest: String, lockfile: &Path) -> PluginAdded {
         processes: held.manifest.processes,
         browsers: held.manifest.browsers,
         permissions,
+        signer,
         approval: None,
     }
 }

@@ -3,8 +3,9 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::{
-    Compression, DOCUMENT_LIMIT, DocumentError, INDEX_MEDIA_TYPE, LAYER_LIMIT, MANIFEST_MEDIA_TYPE,
-    Platform, Reference, TAR_GZIP_MEDIA_TYPE, TAR_MEDIA_TYPE, bundle_layer, manifest_for,
+    ATTESTATION_LIMIT, Compression, DOCUMENT_LIMIT, DocumentError, INDEX_MEDIA_TYPE, LAYER_LIMIT,
+    MANIFEST_MEDIA_TYPE, Platform, Reference, SIGSTORE_BUNDLE_MEDIA_TYPE, TAR_GZIP_MEDIA_TYPE,
+    TAR_MEDIA_TYPE, attestation_layer, attestation_manifests, bundle_layer, manifest_for,
 };
 use crate::pinned_download::Digest;
 
@@ -211,6 +212,39 @@ fn the_host_platform_is_named_as_oci_names_it() {
         "{host:?}"
     );
     assert!(["amd64", "arm64"].contains(&host.architecture), "{host:?}");
+}
+
+#[test]
+fn attestation_manifests_filters_sigstore_referrers_and_attestation_layer_decodes_bundle() {
+    let referrers = index(&[
+        json!({
+            "mediaType": MANIFEST_MEDIA_TYPE,
+            "artifactType": "application/spdx+json",
+            "digest": A,
+            "size": 100,
+        }),
+        json!({
+            "mediaType": MANIFEST_MEDIA_TYPE,
+            "artifactType": SIGSTORE_BUNDLE_MEDIA_TYPE,
+            "digest": B,
+            "size": 256,
+        }),
+    ]);
+    let found = attestation_manifests(&referrers).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].digest, B.parse::<Digest>().unwrap());
+    assert_eq!(found[0].size, 256);
+
+    let att_manifest = manifest(&[layer(SIGSTORE_BUNDLE_MEDIA_TYPE, 512)]);
+    let desc = attestation_layer(&att_manifest).unwrap();
+    assert_eq!(desc.digest, B.parse::<Digest>().unwrap());
+    assert_eq!(desc.size, 512);
+
+    let oversize = manifest(&[layer(SIGSTORE_BUNDLE_MEDIA_TYPE, ATTESTATION_LIMIT + 1)]);
+    assert!(matches!(
+        attestation_layer(&oversize),
+        Err(DocumentError::TooLarge { .. })
+    ));
 }
 
 goodfetch_test_support::fuzz_replay!(

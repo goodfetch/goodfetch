@@ -29,9 +29,16 @@ pub const TAR_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 /// The media type of a layer that is a gzip-compressed tar archive.
 pub const TAR_GZIP_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
 
+/// The OCI artifact and layer media type of a Sigstore provenance attestation
+/// bundle attached through the OCI 1.1 Referrers API (ADR 0033, issue 916).
+pub const SIGSTORE_BUNDLE_MEDIA_TYPE: &str = "application/vnd.dev.sigstore.bundle.v0.3+json";
+
 /// The most bytes an index or a manifest may hold: the 4 MiB the OCI
 /// distribution specification lets a registry refuse a manifest above.
 pub const DOCUMENT_LIMIT: u64 = 4 * 1024 * 1024;
+
+/// The most bytes a Plugin's provenance attestation bundle may hold (1 MiB).
+pub const ATTESTATION_LIMIT: u64 = 1024 * 1024;
 
 /// The most bytes a Plugin's bundle layer may hold, compressed or not.
 pub const LAYER_LIMIT: u64 = 512 * 1024 * 1024;
@@ -106,6 +113,13 @@ impl Reference {
     #[must_use]
     pub fn blob_path(&self, digest: Digest) -> String {
         format!("/v2/{}/blobs/{digest}", self.repository)
+    }
+
+    /// The OCI 1.1 Referrers API path for the image index this reference
+    /// pins, used to discover provenance attestations (ADR 0033, issue 916).
+    #[must_use]
+    pub fn referrers_path(&self) -> String {
+        format!("/v2/{}/referrers/{}", self.repository, self.index)
     }
 }
 
@@ -348,6 +362,8 @@ struct RawDescriptor {
     digest: String,
     size: u64,
     #[serde(default)]
+    artifact_type: Option<String>,
+    #[serde(default)]
     platform: Option<RawPlatform>,
 }
 
@@ -511,6 +527,81 @@ pub fn bundle_layer(json: &[u8]) -> Result<Layer, DocumentError> {
     })
 }
 
+/// Descriptors of provenance attestation manifests (`artifactType` equal to
+/// [`SIGSTORE_BUNDLE_MEDIA_TYPE`]) listed in an OCI 1.1 Referrers image index
+/// (ADR 0033, issue 916).
+///
+/// # Errors
+///
+/// [`DocumentError`] when `json` is no valid OCI image index, or an
+/// attestation descriptor exceeds [`DOCUMENT_LIMIT`] or has a malformed
+/// digest.
+pub fn attestation_manifests(json: &[u8]) -> Result<Vec<Descriptor>, DocumentError> {
+    let index: RawIndex = read(INDEX, json)?;
+    check_header(
+        INDEX,
+        index.schema_version,
+        index.media_type,
+        INDEX_MEDIA_TYPE,
+    )?;
+    let mut found = Vec::new();
+    for raw in &index.manifests {
+        if raw.artifact_type.as_deref() != Some(SIGSTORE_BUNDLE_MEDIA_TYPE) {
+            continue;
+        }
+        if raw.media_type != MANIFEST_MEDIA_TYPE {
+            return Err(DocumentError::MediaType {
+                document: INDEX,
+                found: raw.media_type.clone(),
+                expected: MANIFEST_MEDIA_TYPE,
+            });
+        }
+        if raw.size > DOCUMENT_LIMIT {
+            return Err(DocumentError::TooLarge {
+                document: MANIFEST,
+                size: raw.size,
+            });
+        }
+        found.push(descriptor(INDEX, raw)?);
+    }
+    Ok(found)
+}
+
+/// The single provenance attestation layer of an attestation image manifest
+/// `json`, of media type [`SIGSTORE_BUNDLE_MEDIA_TYPE`] and at most
+/// [`ATTESTATION_LIMIT`] bytes (ADR 0033, issue 916).
+///
+/// # Errors
+///
+/// [`DocumentError`] when `json` is no attestation manifest the engine
+/// follows.
+pub fn attestation_layer(json: &[u8]) -> Result<Descriptor, DocumentError> {
+    let manifest: RawManifest = read(MANIFEST, json)?;
+    check_header(
+        MANIFEST,
+        manifest.schema_version,
+        manifest.media_type,
+        MANIFEST_MEDIA_TYPE,
+    )?;
+    let [raw] = manifest.layers.as_slice() else {
+        return Err(DocumentError::Layers(manifest.layers.len()));
+    };
+    if raw.media_type != SIGSTORE_BUNDLE_MEDIA_TYPE {
+        return Err(DocumentError::MediaType {
+            document: MANIFEST,
+            found: raw.media_type.clone(),
+            expected: SIGSTORE_BUNDLE_MEDIA_TYPE,
+        });
+    }
+    if raw.size > ATTESTATION_LIMIT {
+        return Err(DocumentError::TooLarge {
+            document: MANIFEST,
+            size: raw.size,
+        });
+    }
+    descriptor(MANIFEST, raw)
+}
+
 /// The fuzz target's body for OCI image indexes and manifests (ADR 0067):
 /// reads `data` as an index, for every platform the engine ships on, and
 /// as a manifest, and parses it as a reference; a reference it reads must
@@ -525,6 +616,8 @@ pub fn fuzz_oci_image_index(data: &[u8]) {
         let _ = manifest_for(data, Platform { os, architecture });
     }
     let _ = bundle_layer(data);
+    let _ = attestation_manifests(data);
+    let _ = attestation_layer(data);
     if let Ok(text) = std::str::from_utf8(data)
         && let Ok(reference) = text.parse::<Reference>()
     {

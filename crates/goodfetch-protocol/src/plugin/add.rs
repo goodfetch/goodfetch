@@ -14,6 +14,7 @@ use crate::catalog::{
     ProtocolVersion, Reach, Stability, schema_of,
 };
 use crate::plugin::approvals::{StatedPermission, is_false};
+use crate::plugin::index::SignerIdentity;
 use crate::plugin::manifest::{ManifestBrowser, NetworkLevel};
 use crate::plugin::names::PluginKindName;
 use crate::settings::ProjectSettings;
@@ -25,9 +26,12 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 #[serde(deny_unknown_fields)]
 pub struct PluginAddParams {
     /// The Plugin's OCI reference,
-    /// `<registry>/<repository>@sha256:<hex>`: the repository's last
-    /// segment is `goodfetch-plugin-<name>`, and the digest is its image
-    /// index's. No tag names one, since a tag moves.
+    /// `<registry>/<repository>@sha256:<hex>` (where the repository's last
+    /// segment is `goodfetch-plugin-<name>` and the digest is its image
+    /// index's), or a Plugin name listed in the Plugin index (which resolves
+    /// to its pinned digest; a look-alike or ambiguous name without an exact
+    /// digest is refused with `plugin_name_ambiguous`). No tag names one,
+    /// since a tag moves.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub reference: String,
     /// The project configuration the Client found, layer 3 (ADR 0083): the
@@ -113,6 +117,11 @@ pub struct PluginAdded {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub permissions: Vec<StatedPermission>,
+    /// The verified signer identity recorded from the artifact's provenance
+    /// attestation, when verified.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signer: Option<SignerIdentity>,
     /// Where the person's approval went, when they gave one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -199,6 +208,86 @@ pub const PLUGIN_INSTALLED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// Why a Plugin artifact's provenance attestation was refused (ADR 0033,
+/// issue 916).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AttestationFailureReason {
+    /// No provenance attestation was attached to the artifact.
+    Missing,
+    /// The attestation's signature did not verify under the trust root.
+    BadSignature,
+    /// The attestation's signer identity did not match the signer recorded in
+    /// the Plugin index (or the Plugin has no index-recorded signer).
+    SignerMismatch,
+    /// The attestation's subject digest did not match the artifact's image
+    /// index digest.
+    DigestMismatch,
+    /// The attestation document could not be parsed.
+    Malformed,
+}
+
+/// A Plugin artifact whose provenance attestation is missing or invalid
+/// (ADR 0033, issue 916).
+pub const PLUGIN_ATTESTATION_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_attestation_invalid",
+    description: "A third-party Plugin's OCI artifact carried no valid provenance attestation matching the signer identity recorded in the Plugin index, so nothing was installed. Allow its exact digest in Operator policy (`plugins.<name>.allow = true` and `plugins.<name>.digest`) only if you trust that exact artifact without an index-matched attestation.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `plugin_attestation_invalid` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginAttestationInvalidDetails {
+    /// The Plugin's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The artifact's image index digest, `sha256:<hex>`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub digest: String,
+    /// Why verification failed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reason: AttestationFailureReason,
+    /// The signer identity recorded in the Plugin index, when listed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub expected_signer: Option<SignerIdentity>,
+    /// The signer identity carried by the attestation, when readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub found_signer: Option<SignerIdentity>,
+    /// What resolves the refusal.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
+/// A Plugin name that is ambiguous or a look-alike of an index entry without
+/// an exact digest (ADR 0033, issue 916).
+pub const PLUGIN_NAME_AMBIGUOUS: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_name_ambiguous",
+    description: "The Plugin name is ambiguous or closely resembles an entry in the Plugin index (typosquatting protection) and was given without an exact `@sha256:<hex>` digest, so nothing was installed. Use the exact index entry name or pass the full OCI reference pinned by its `@sha256:<hex>` digest.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `plugin_name_ambiguous` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginNameAmbiguousDetails {
+    /// The Plugin name that was requested.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The index entry name(s) that match or closely resemble `name`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub similar: Vec<String>,
+    /// What resolves the refusal.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub fix: String,
+}
+
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -210,6 +299,8 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_ARTIFACT_REFUSED,
         PLUGIN_LOCKFILE_INVALID,
         PLUGIN_INSTALLED,
+        PLUGIN_ATTESTATION_INVALID,
+        PLUGIN_NAME_AMBIGUOUS,
     ],
     plugin_kinds: &[],
     metrics: &[],

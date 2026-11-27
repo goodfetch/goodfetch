@@ -68,6 +68,7 @@ mod plugin_add;
 mod plugin_host;
 mod plugin_index;
 mod plugin_install;
+mod plugin_provenance;
 mod plugin_runtime;
 mod plugin_secrets;
 mod plugin_traffic;

@@ -211,12 +211,16 @@ fn approval_question(added: &PluginAdded) -> String {
 /// its approval question (ADR 0033, issues 900 and 907).
 fn stated(added: &PluginAdded) -> String {
     let mut text = format!("The Plugin {} {} grants:", added.name, added.version);
+    if let Some(signer) = &added.signer {
+        writeln!(text, "\n  Signer: {signer}").expect("invariant: writing into a String");
+    }
     let kinds: Vec<&str> = added
         .kinds
         .iter()
         .map(goodfetch_protocol::plugin::PluginKindName::as_str)
         .collect();
-    writeln!(text, "\n  Kinds: {}", joined(&kinds)).expect("invariant: writing into a String");
+    let sep = if added.signer.is_some() { "" } else { "\n" };
+    writeln!(text, "{sep}  Kinds: {}", joined(&kinds)).expect("invariant: writing into a String");
     writeln!(text, "  Network level: {}", added.network_level.as_str())
         .expect("invariant: writing into a String");
     let env: Vec<String> = added

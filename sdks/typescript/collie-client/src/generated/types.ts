@@ -209,6 +209,15 @@ export type ProductVersion = string;
  */
 export type Asked = true;
 /**
+ * Why a Plugin artifact's provenance attestation was refused (ADR 0033,
+ * issue 916).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "AttestationFailureReason".
+ */
+export type AttestationFailureReason =
+  "missing" | "bad_signature" | "signer_mismatch" | "digest_mismatch" | "malformed";
+/**
  * The layers settings resolve through, lowest first (ADRs 0028 and 0083).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7682,9 +7691,12 @@ export interface PluginAddParams {
   project?: ProjectSettings | null;
   /**
    * The Plugin's OCI reference,
-   * `<registry>/<repository>@sha256:<hex>`: the repository's last
-   * segment is `goodfetch-plugin-<name>`, and the digest is its image
-   * index's. No tag names one, since a tag moves.
+   * `<registry>/<repository>@sha256:<hex>` (where the repository's last
+   * segment is `goodfetch-plugin-<name>` and the digest is its image
+   * index's), or a Plugin name listed in the Plugin index (which resolves
+   * to its pinned digest; a look-alike or ambiguous name without an exact
+   * digest is refused with `plugin_name_ambiguous`). No tag names one,
+   * since a tag moves.
    */
   reference: string;
 }
@@ -7746,6 +7758,11 @@ export interface PluginAdded {
    */
   processes?: string[];
   /**
+   * The verified signer identity recorded from the artifact's provenance
+   * attestation, when verified.
+   */
+  signer?: SignerIdentity | null;
+  /**
    * Its version, as its manifest names it.
    */
   version: string;
@@ -7770,6 +7787,57 @@ export interface StatedPermission {
    * The permission.
    */
   permission: Permission;
+}
+/**
+ * The repository and workflow identity that signed a Plugin artifact or
+ * index (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignerIdentity".
+ */
+export interface SignerIdentity {
+  /**
+   * The OIDC issuer that minted the signing identity, such as
+   * `https://token.actions.githubusercontent.com`.
+   */
+  issuer: string;
+  /**
+   * The source repository that owns the workflow, such as
+   * `github.com/goodfetch/goodfetch`.
+   */
+  repository: string;
+  /**
+   * The CI workflow reference that signed the artifact or index.
+   */
+  workflow: string;
+}
+/**
+ * What `plugin_attestation_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginAttestationInvalidDetails".
+ */
+export interface PluginAttestationInvalidDetails {
+  /**
+   * The artifact's image index digest, `sha256:<hex>`.
+   */
+  digest: string;
+  /**
+   * The signer identity recorded in the Plugin index, when listed.
+   */
+  expectedSigner?: SignerIdentity | null;
+  /**
+   * The signer identity carried by the attestation, when readable.
+   */
+  foundSigner?: SignerIdentity | null;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * Why verification failed.
+   */
+  reason: AttestationFailureReason;
 }
 /**
  * What `plugin_digest_mismatch` details.
@@ -7818,6 +7886,22 @@ export interface PluginIndexStaleDetails {
    * The index's `version`, when known.
    */
   version?: number | null;
+}
+/**
+ * What `plugin_name_ambiguous` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginNameAmbiguousDetails".
+ */
+export interface PluginNameAmbiguousDetails {
+  /**
+   * The Plugin name that was requested.
+   */
+  name: string;
+  /**
+   * The index entry name(s) that match or closely resemble `name`.
+   */
+  similar: string[];
 }
 /**
  * What `plugin_not_allowed` details.

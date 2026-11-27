@@ -2241,6 +2241,17 @@
       ]
     },
     {
+      "id": "error:plugin_attestation_invalid",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_call_back_refused",
       "kind": "error",
       "area": 7,
@@ -2319,6 +2330,17 @@
     },
     {
       "id": "error:plugin_manifest_mismatch",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_name_ambiguous",
       "kind": "error",
       "area": 7,
       "milestone": null,

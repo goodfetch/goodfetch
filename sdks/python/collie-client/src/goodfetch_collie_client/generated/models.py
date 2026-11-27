@@ -164,6 +164,30 @@ class Asked(RootModel[Literal[True]]):
     """The format, with its default options."""
 
 
+class AttestationFailureReason(StrEnum):
+    """
+    Why a Plugin artifact's provenance attestation was refused (ADR 0033,
+    issue 916).
+    """
+
+    missing = "missing"
+    """No provenance attestation was attached to the artifact."""
+    bad_signature = "bad_signature"
+    """The attestation's signature did not verify under the trust root."""
+    signer_mismatch = "signer_mismatch"
+    """
+    The attestation's signer identity did not match the signer recorded in
+    the Plugin index (or the Plugin has no index-recorded signer).
+    """
+    digest_mismatch = "digest_mismatch"
+    """
+    The attestation's subject digest did not match the artifact's image
+    index digest.
+    """
+    malformed = "malformed"
+    """The attestation document could not be parsed."""
+
+
 class AuditExportParams(BaseModel):
     """What `audit.export` takes: nothing."""
 
@@ -3116,6 +3140,18 @@ class PluginIndexStaleDetails(BaseModel):
     """The index's `version`, when known."""
 
 
+class PluginNameAmbiguousDetails(BaseModel):
+    """What `plugin_name_ambiguous` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The Plugin name that was requested."""
+    similar: list[str]
+    """The index entry name(s) that match or closely resemble `name`."""
+
+
 class PluginNotAllowedDetails(BaseModel):
     """What `plugin_not_allowed` details."""
 
@@ -4969,6 +5005,29 @@ class SettingsLayer(StrEnum):
     The run: a program's settings, a call's argument, a CLI flag or an
     Integration's form.
     """
+
+
+class SignerIdentity(BaseModel):
+    """
+    The repository and workflow identity that signed a Plugin artifact or
+    index (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issuer: str
+    """
+    The OIDC issuer that minted the signing identity, such as
+    `https://token.actions.githubusercontent.com`.
+    """
+    repository: str
+    """
+    The source repository that owns the workflow, such as
+    `github.com/goodfetch/goodfetch`.
+    """
+    workflow: str
+    """The CI workflow reference that signed the artifact or index."""
 
 
 class SigningKeyCreateParams(BaseModel):
@@ -8168,9 +8227,12 @@ class PluginAddParams(BaseModel):
     reference: str
     """
     The Plugin's OCI reference,
-    `<registry>/<repository>@sha256:<hex>`: the repository's last
-    segment is `goodfetch-plugin-<name>`, and the digest is its image
-    index's. No tag names one, since a tag moves.
+    `<registry>/<repository>@sha256:<hex>` (where the repository's last
+    segment is `goodfetch-plugin-<name>` and the digest is its image
+    index's), or a Plugin name listed in the Plugin index (which resolves
+    to its pinned digest; a look-alike or ambiguous name without an exact
+    digest is refused with `plugin_name_ambiguous`). No tag names one,
+    since a tag moves.
     """
 
 
@@ -8215,8 +8277,31 @@ class PluginAdded(BaseModel):
     """
     processes: list[str] | None = None
     """The executables its manifest declares it may start."""
+    signer: SignerIdentity | None = None
+    """
+    The verified signer identity recorded from the artifact's provenance
+    attestation, when verified.
+    """
     version: str
     """Its version, as its manifest names it."""
+
+
+class PluginAttestationInvalidDetails(BaseModel):
+    """What `plugin_attestation_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The artifact's image index digest, `sha256:<hex>`."""
+    expected_signer: SignerIdentity | None = None
+    """The signer identity recorded in the Plugin index, when listed."""
+    found_signer: SignerIdentity | None = None
+    """The signer identity carried by the attestation, when readable."""
+    name: str
+    """The Plugin's name."""
+    reason: AttestationFailureReason
+    """Why verification failed."""
 
 
 class PolicyChange(BaseModel):

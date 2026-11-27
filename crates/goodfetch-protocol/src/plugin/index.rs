@@ -302,6 +302,39 @@ pub struct SignedBundle<T> {
     pub bundle: SignatureBundle,
 }
 
+/// The statement a Plugin artifact's provenance attestation signs (ADR 0033,
+/// issue 916): binds an OCI multi-platform image index digest to the
+/// repository and CI workflow identity that built it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProvenanceStatement {
+    /// The OCI multi-platform image index digest (`sha256:<hex>`) this
+    /// attestation covers.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub subject_digest: String,
+    /// The repository, CI workflow and OIDC issuer identity that built and
+    /// signed the artifact.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signer: SignerIdentity,
+}
+
+/// A signed provenance attestation attached to a Plugin OCI artifact via the
+/// OCI 1.1 Referrers API (ADR 0033, issue 916).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProvenanceAttestation {
+    /// The attested statement binding subject digest and signer identity.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub statement: ProvenanceStatement,
+    /// Identifier of the verifying key in the attestation trust root.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub key_id: String,
+    /// Base64-encoded Ed25519 signature over the domain-separated RFC 8785
+    /// canonical JSON of [`Self::statement`].
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signature: String,
+}
+
 /// Why a Plugin index was refused or blocked third-party loading.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

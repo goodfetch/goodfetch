@@ -95,6 +95,7 @@ fn a_plugin_added_is_installed_and_pinned_and_a_repeat_pulls_nothing() {
             processes: vec![],
             browsers: vec![],
             permissions: vec![],
+            signer: None,
             approval: None,
         }
     );

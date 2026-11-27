@@ -140,6 +140,7 @@ export type CollieWireType =
   | "Period"
   | "PlanReport"
   | "PluginAdded"
+  | "PluginAttestationInvalidDetails"
   | "PluginIndexStaleDetails"
   | "PluginRun"
   | "PressParams"
@@ -373,6 +374,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "Period": { fields: { "time_zone": "timeZone" } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
+    "PluginAttestationInvalidDetails": { fields: { "expected_signer": "expectedSigner", "found_signer": "foundSigner" } },
     "PluginIndexStaleDetails": { fields: { "expires_at": "expiresAt", "last_seen": "lastSeen" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },

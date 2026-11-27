@@ -78,6 +78,7 @@ pub mod plugin_install;
 pub mod plugin_kinds;
 pub mod plugin_lockfile;
 pub mod plugin_oci;
+pub mod plugin_provenance;
 pub mod plugin_runtime;
 pub mod plugin_store;
 pub mod politeness;

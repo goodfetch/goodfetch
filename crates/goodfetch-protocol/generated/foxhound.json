@@ -537,6 +537,36 @@
       ],
       "type": "object"
     },
+    "AttestationFailureReason": {
+      "description": "Why a Plugin artifact's provenance attestation was refused (ADR 0033,\nissue 916).",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "No provenance attestation was attached to the artifact.",
+          "type": "string"
+        },
+        {
+          "const": "bad_signature",
+          "description": "The attestation's signature did not verify under the trust root.",
+          "type": "string"
+        },
+        {
+          "const": "signer_mismatch",
+          "description": "The attestation's signer identity did not match the signer recorded in\nthe Plugin index (or the Plugin has no index-recorded signer).",
+          "type": "string"
+        },
+        {
+          "const": "digest_mismatch",
+          "description": "The attestation's subject digest did not match the artifact's image\nindex digest.",
+          "type": "string"
+        },
+        {
+          "const": "malformed",
+          "description": "The attestation document could not be parsed.",
+          "type": "string"
+        }
+      ]
+    },
     "AuditExportParams": {
       "additionalProperties": false,
       "description": "What `audit.export` takes: nothing.",
@@ -12966,7 +12996,7 @@
         },
         "reference": {
           "arrived_in": "0.1",
-          "description": "The Plugin's OCI reference,\n`<registry>/<repository>@sha256:<hex>`: the repository's last\nsegment is `goodfetch-plugin-<name>`, and the digest is its image\nindex's. No tag names one, since a tag moves.",
+          "description": "The Plugin's OCI reference,\n`<registry>/<repository>@sha256:<hex>` (where the repository's last\nsegment is `goodfetch-plugin-<name>` and the digest is its image\nindex's), or a Plugin name listed in the Plugin index (which resolves\nto its pinned digest; a look-alike or ambiguous name without an exact\ndigest is refused with `plugin_name_ambiguous`). No tag names one,\nsince a tag moves.",
           "type": "string"
         }
       },
@@ -13060,6 +13090,18 @@
           },
           "type": "array"
         },
+        "signer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignerIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The verified signer identity recorded from the artifact's provenance\nattestation, when verified."
+        },
         "version": {
           "arrived_in": "0.1",
           "description": "Its version, as its manifest names it.",
@@ -13118,6 +13160,62 @@
           "type": "object"
         }
       ]
+    },
+    "PluginAttestationInvalidDetails": {
+      "description": "What `plugin_attestation_invalid` details.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The artifact's image index digest, `sha256:<hex>`.",
+          "type": "string"
+        },
+        "expected_signer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignerIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The signer identity recorded in the Plugin index, when listed."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What resolves the refusal.",
+          "type": "string"
+        },
+        "found_signer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignerIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The signer identity carried by the attestation, when readable."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/AttestationFailureReason",
+          "arrived_in": "0.1",
+          "description": "Why verification failed."
+        }
+      },
+      "required": [
+        "name",
+        "digest",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
     },
     "PluginDigestMismatchDetails": {
       "description": "What `plugin_digest_mismatch` details.",
@@ -13265,6 +13363,35 @@
         }
       ],
       "open": true
+    },
+    "PluginNameAmbiguousDetails": {
+      "description": "What `plugin_name_ambiguous` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What resolves the refusal.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin name that was requested.",
+          "type": "string"
+        },
+        "similar": {
+          "arrived_in": "0.1",
+          "description": "The index entry name(s) that match or closely resemble `name`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "similar",
+        "fix"
+      ],
+      "type": "object"
     },
     "PluginNotAllowedDetails": {
       "description": "What `plugin_not_allowed` details.",
@@ -20018,6 +20145,33 @@
       ],
       "type": "object"
     },
+    "SignerIdentity": {
+      "additionalProperties": false,
+      "description": "The repository and workflow identity that signed a Plugin artifact or\nindex (ADR 0033).",
+      "properties": {
+        "issuer": {
+          "arrived_in": "0.1",
+          "description": "The OIDC issuer that minted the signing identity, such as\n`https://token.actions.githubusercontent.com`.",
+          "type": "string"
+        },
+        "repository": {
+          "arrived_in": "0.1",
+          "description": "The source repository that owns the workflow, such as\n`github.com/goodfetch/goodfetch`.",
+          "type": "string"
+        },
+        "workflow": {
+          "arrived_in": "0.1",
+          "description": "The CI workflow reference that signed the artifact or index.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issuer",
+        "workflow",
+        "repository"
+      ],
+      "type": "object"
+    },
     "SigningKeyCreateParams": {
       "additionalProperties": false,
       "description": "What `signing_key.create` takes: where the key is kept.",
@@ -23879,6 +24033,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A third-party Plugin's OCI artifact carried no valid provenance attestation matching the signer identity recorded in the Plugin index, so nothing was installed. Allow its exact digest in Operator policy (`plugins.<name>.allow = true` and `plugins.<name>.digest`) only if you trust that exact artifact without an index-matched attestation.",
+      "details": {
+        "$ref": "#/$defs/PluginAttestationInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_attestation_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The engine refused a Plugin's call back: it came while the Plugin served no call the engine made to it, it named another call's `call_id`, or it asked for what the Plugin may not do, such as a `net.fetch` other than `GET` or `HEAD` toward a destination checked as a page's, which is an Effect, or a request that sets a header the engine sets itself. Call back only while serving a call, with that call's `call_id`.",
       "exit_code": null,
       "group": "refused",
@@ -23960,6 +24127,19 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "plugin_manifest_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin name is ambiguous or closely resembles an entry in the Plugin index (typosquatting protection) and was given without an exact `@sha256:<hex>` digest, so nothing was installed. Use the exact index entry name or pass the full OCI reference pinned by its `@sha256:<hex>` digest.",
+      "details": {
+        "$ref": "#/$defs/PluginNameAmbiguousDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "plugin_name_ambiguous",
       "product": "collie",
       "retryable": false
     },

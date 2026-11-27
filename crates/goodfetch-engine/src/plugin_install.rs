@@ -29,13 +29,15 @@ use std::path::PathBuf;
 
 use goodfetch_protocol::browser_cache::DownloadFailure;
 use goodfetch_protocol::plugin::PluginManifest;
+use goodfetch_protocol::plugin::index::ProvenanceAttestation;
 use goodfetch_protocol::settings::SettingsLayer;
 
 use crate::http_client;
 use crate::pinned_download::{self, Digest, Fetching, Receiving};
 use crate::plugin_bundle::{self, BundleError};
 use crate::plugin_oci::{
-    self, DOCUMENT_LIMIT, DocumentError, INDEX_MEDIA_TYPE, MANIFEST_MEDIA_TYPE, Platform, Reference,
+    self, ATTESTATION_LIMIT, DOCUMENT_LIMIT, DocumentError, INDEX_MEDIA_TYPE, MANIFEST_MEDIA_TYPE,
+    Platform, Reference,
 };
 use crate::plugin_store::{self, Installed, PluginStore, StoreError};
 use crate::tasks::BlockingThreads;
@@ -352,6 +354,117 @@ async fn document(
     }
     if Digest::of(&body) != digest {
         return Err(PullFailure::DigestMismatch.into());
+    }
+    Ok(body)
+}
+
+/// Why fetching provenance attestations from an OCI registry's Referrers API
+/// failed.
+#[derive(Debug, thiserror::Error)]
+pub enum AttestationFetchError {
+    /// `egress.offline`, set at this layer, refused the fetch.
+    #[error("`egress.offline` refused fetching the Plugin's provenance attestation")]
+    Offline(SettingsLayer),
+    /// The registry did not answer cleanly (other than 404 on `/referrers/`).
+    #[error("the Plugin's registry did not serve its provenance attestation: {0}")]
+    Pull(#[from] PullFailure),
+    /// The referrers index, attestation manifest or attestation JSON was
+    /// malformed or exceeded size limits.
+    #[error("the Plugin's provenance attestation document is malformed: {0}")]
+    Malformed(String),
+}
+
+/// Fetches provenance attestations attached to `reference`'s image index via
+/// the OCI 1.1 Referrers API (`GET /v2/<repo>/referrers/<index_digest>`,
+/// ADR 0033, issue 916).
+///
+/// A `404 Not Found` on `/referrers/` or an empty referrers list returns
+/// `Ok(Vec::new())` (the artifact carries no attestation).
+///
+/// # Errors
+///
+/// [`AttestationFetchError::Offline`] when `egress.offline` is set,
+/// [`AttestationFetchError::Pull`] on transport/HTTP failures other than 404,
+/// or [`AttestationFetchError::Malformed`] when the referrers index,
+/// attestation manifest or attestation JSON is invalid.
+pub async fn fetch_attestations(
+    reference: &Reference,
+    fetching: &Fetching,
+) -> Result<Vec<ProvenanceAttestation>, AttestationFetchError> {
+    if let Some(layer) = fetching.offline {
+        return Err(AttestationFetchError::Offline(layer));
+    }
+    let response = match get(
+        reference,
+        &reference.referrers_path(),
+        Some(INDEX_MEDIA_TYPE),
+        fetching,
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(PullFailure::Absent) => return Ok(Vec::new()),
+        Err(failure) => return Err(AttestationFetchError::Pull(failure)),
+    };
+    let referrers_body = read_bounded(response, DOCUMENT_LIMIT, "Plugin's referrers index").await?;
+    let manifests = plugin_oci::attestation_manifests(&referrers_body)
+        .map_err(|error| AttestationFetchError::Malformed(error.to_string()))?;
+    let mut attestations = Vec::with_capacity(manifests.len());
+    for desc in manifests {
+        let manifest_bytes = document(
+            reference,
+            desc.digest,
+            MANIFEST_MEDIA_TYPE,
+            Some(desc.size),
+            fetching,
+        )
+        .await
+        .map_err(|error| match error {
+            InstallError::Pull(failure) => AttestationFetchError::Pull(failure),
+            other => AttestationFetchError::Malformed(other.to_string()),
+        })?;
+        let layer = plugin_oci::attestation_layer(&manifest_bytes)
+            .map_err(|error| AttestationFetchError::Malformed(error.to_string()))?;
+        let blob_response = get(
+            reference,
+            &reference.blob_path(layer.digest),
+            None,
+            fetching,
+        )
+        .await
+        .map_err(AttestationFetchError::Pull)?;
+        let limit = layer.size.min(ATTESTATION_LIMIT);
+        let blob_bytes = read_bounded(blob_response, limit, "Plugin's attestation blob").await?;
+        if u64::try_from(blob_bytes.len()).unwrap_or(u64::MAX) != layer.size
+            || Digest::of(&blob_bytes) != layer.digest
+        {
+            return Err(AttestationFetchError::Pull(PullFailure::DigestMismatch));
+        }
+        let attestation: ProvenanceAttestation = serde_json::from_slice(&blob_bytes)
+            .map_err(|error| AttestationFetchError::Malformed(error.to_string()))?;
+        attestations.push(attestation);
+    }
+    Ok(attestations)
+}
+
+async fn read_bounded(
+    mut response: http_client::Response,
+    limit: u64,
+    what: &str,
+) -> Result<Vec<u8>, AttestationFetchError> {
+    let mut body = Vec::new();
+    while let Some(bytes) = response
+        .chunk()
+        .await
+        .map_err(|error| AttestationFetchError::Pull(PullFailure::from(error)))?
+    {
+        body.extend_from_slice(&bytes);
+        let received = u64::try_from(body.len()).unwrap_or(u64::MAX);
+        if received > limit {
+            return Err(AttestationFetchError::Malformed(format!(
+                "{what} holds {received} bytes, above the {limit} limit"
+            )));
+        }
     }
     Ok(body)
 }

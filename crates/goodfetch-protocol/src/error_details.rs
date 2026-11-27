@@ -202,6 +202,7 @@ details! {
     crate::plugin::extractor::ExtractorUnavailableDetails => ErrorCode::EXTRACTOR_UNAVAILABLE,
     crate::plugin::index::PluginIndexStaleDetails => ErrorCode::PLUGIN_INDEX_STALE,
     crate::plugin::index::PluginRevokedDetails => ErrorCode::PLUGIN_REVOKED,
+    crate::plugin::update::PluginSignerChangedDetails => ErrorCode::PLUGIN_SIGNER_CHANGED,
     crate::recipe::RecipeInvalidDetails => ErrorCode::RECIPE_INVALID,
     crate::response_limits::ResponseLimitExceededDetails => ErrorCode::RESPONSE_LIMIT_EXCEEDED,
     crate::run::DetachUnsupportedDetails => ErrorCode::DETACH_UNSUPPORTED,

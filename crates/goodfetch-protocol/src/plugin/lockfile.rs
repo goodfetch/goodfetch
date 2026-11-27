@@ -140,6 +140,16 @@ impl PluginLockfile {
         Some(self.plugins.remove(index))
     }
 
+    /// Replaces any existing entry for `plugin.name` (or inserts a new one),
+    /// preserving name order (ADR 0033, issue 924).
+    pub fn replace(&mut self, plugin: LockedPlugin) {
+        let _ = self.remove(&plugin.name);
+        let at = self
+            .plugins
+            .partition_point(|locked| locked.name < plugin.name);
+        self.plugins.insert(at, plugin);
+    }
+
     /// Pins `plugin`, in name order, unless the lockfile already pins its
     /// name: to the same digest, which it keeps, or to another.
     ///

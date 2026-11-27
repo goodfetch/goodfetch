@@ -9234,6 +9234,44 @@
         }
       ]
     },
+    "PermissionDiff": {
+      "description": "The diff of permissions between an installed Plugin manifest and a target\nrelease manifest (ADR 0033, issue 924).",
+      "properties": {
+        "added": {
+          "arrived_in": "0.1",
+          "description": "Permissions declared by the new release that were not in the installed\nmanifest.",
+          "items": {
+            "$ref": "#/$defs/StatedPermission"
+          },
+          "type": "array"
+        },
+        "removed": {
+          "arrived_in": "0.1",
+          "description": "Permissions declared by the installed manifest that are no longer\nrequested by the new release.",
+          "items": {
+            "$ref": "#/$defs/StatedPermission"
+          },
+          "type": "array"
+        },
+        "requires_approval": {
+          "arrived_in": "0.1",
+          "description": "Whether this diff adds or widens any permission and therefore requires\nexplicit person approval before applying.",
+          "type": "boolean"
+        },
+        "widened": {
+          "arrived_in": "0.1",
+          "description": "Permissions or capabilities that became wider in the new release (for\nexample a higher `network_level`, a broader wildcard domain, a Secret\nescalated from injected reference to raw `secret_value`, or a changed\nbrowser download digest).",
+          "items": {
+            "$ref": "#/$defs/WidenedPermission"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "requires_approval"
+      ],
+      "type": "object"
+    },
     "PersonRequiredDetails": {
       "description": "What `person_required` details.",
       "properties": {
@@ -10321,6 +10359,186 @@
         "name",
         "version",
         "schema"
+      ],
+      "type": "object"
+    },
+    "PluginSignerChangedDetails": {
+      "description": "What `plugin_signer_changed` details (ADR 0033, issue 924).",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The target release's image index digest, `sha256:<hex>`.",
+          "type": "string"
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do about it.",
+          "type": "string"
+        },
+        "found_signer": {
+          "$ref": "#/$defs/SignerIdentity",
+          "arrived_in": "0.1",
+          "description": "The verified signer identity of the target release."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "previous_signer": {
+          "arrived_in": "0.1",
+          "description": "The signer identity previously recorded for the installed Plugin.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "previous_signer",
+        "found_signer",
+        "digest",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "PluginUpdateParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.update` takes (ADR 0033, issue 924).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "approve": {
+          "arrived_in": "0.1",
+          "description": "Whether the person approved any added or widened permissions shown in\nthe diff (writes the updated Operator policy entry).",
+          "type": "boolean"
+        },
+        "approve_signer_change": {
+          "arrived_in": "0.1",
+          "description": "Whether the person explicitly approved a changed signer identity when\nthe new release's verified signer differs from the previously recorded\nsigner.",
+          "type": "boolean"
+        },
+        "preview": {
+          "arrived_in": "0.1",
+          "description": "When `true`, inspect the target release and return its new digest,\nsigner identity and permission diff without modifying the Plugin store,\nlockfile or Operator policy.",
+          "type": "boolean"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083): the\nlockfile beside it is updated, else the Goodfetch home's lockfile."
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The target release: either a digest-pinned OCI reference\n`<registry>/<repository>@sha256:<hex>`, or a Plugin name listed in the\ncached Plugin index (which resolves to its pinned digest).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "type": "object"
+    },
+    "PluginUpdated": {
+      "description": "What `plugin.update` answers (ADR 0033, issue 924).",
+      "properties": {
+        "applied": {
+          "arrived_in": "0.1",
+          "description": "Whether the update was applied to the Plugin store and lockfile\n(`false` on a `preview` call).",
+          "type": "boolean"
+        },
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where the person's updated approval went, when written or managed."
+        },
+        "diff": {
+          "$ref": "#/$defs/PermissionDiff",
+          "arrived_in": "0.1",
+          "description": "The added, widened and removed permissions between the installed\nrelease and the target release."
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The target release's image index digest, `sha256:<hex>`.",
+          "type": "string"
+        },
+        "lockfile": {
+          "arrived_in": "0.1",
+          "description": "The lockfile that pins this Plugin.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "previous_digest": {
+          "arrived_in": "0.1",
+          "description": "The previously installed image index digest, when recorded.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "previous_signer": {
+          "arrived_in": "0.1",
+          "description": "The signer identity previously recorded in the lockfile, when any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "previous_version": {
+          "arrived_in": "0.1",
+          "description": "The previously installed version.",
+          "type": "string"
+        },
+        "signer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignerIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The verified signer identity of the target release, when attested."
+        },
+        "signer_changed": {
+          "arrived_in": "0.1",
+          "description": "Whether the target release's signer differs from the previously\nrecorded signer.",
+          "type": "boolean"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The target release's version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "previous_version",
+        "version",
+        "digest",
+        "lockfile",
+        "signer_changed",
+        "diff",
+        "applied"
       ],
       "type": "object"
     },
@@ -17523,6 +17741,44 @@
         }
       ]
     },
+    "WidenedPermission": {
+      "description": "A permission or capability that widened between the installed manifest and\nthe target release (ADR 0033, issue 924).",
+      "properties": {
+        "from": {
+          "arrived_in": "0.1",
+          "description": "The previous narrower value.",
+          "type": "string"
+        },
+        "kind": {
+          "arrived_in": "0.1",
+          "description": "What widened (`network_level`, `effects`, `page_script`,\n`session_credentials`, `secret_value`, or `browser`).",
+          "type": "string"
+        },
+        "statement": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatedPermission"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Plain-word statement of the widened permission when it maps to a\n[`Permission`]."
+        },
+        "to": {
+          "arrived_in": "0.1",
+          "description": "The new wider value.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
     "World": {
       "description": "Where a page function runs (ADR 0085).",
       "oneOf": [
@@ -18715,6 +18971,19 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "plugin_revoked",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The target Plugin release was signed by a different signer identity than the previously installed release, so nothing was updated. Review the previous and new signer identities and re-run `plugin update` interactively to approve the signer change.",
+      "details": {
+        "$ref": "#/$defs/PluginSignerChangedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_signer_changed",
       "product": "collie",
       "retryable": false
     },
@@ -21716,6 +21985,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PluginSearchResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Updates an installed Plugin to a new digest-pinned release (a person's answer, ADR 0099). With `preview: true`, pulls and inspects the target release without changing the Plugin store, lockfile or Operator policy, returning the new digest, verified signer identity, whether the signer changed, and the permission diff (added, widened and removed permissions). Applying an update whose diff adds or widens any permission requires `approve: true` (else refused with `plugin_permission_denied`); applying a release whose verified signer differs from the previously recorded signer requires `approve_signer_change: true` (else refused with `plugin_signer_changed`). Plugins are never updated automatically on engine start, Run start or index refresh. Refused with `person_required` on any non-person surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.update",
+      "params": {
+        "$ref": "#/$defs/PluginUpdateParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PluginUpdated"
       },
       "stability": "experimental"
     },

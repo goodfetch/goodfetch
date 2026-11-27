@@ -33,6 +33,7 @@ use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
 use crate::needs_you::NeedsYou;
+use crate::plugin_provenance::AttestationTrustRoot;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
@@ -143,6 +144,9 @@ pub(crate) struct Host {
     /// The trust root verifying signed Plugin index updates and offline
     /// imports (bundled in production, injected as a value in tests, ADR 0059).
     pub(crate) plugin_index_trust_root: TrustRoot,
+    /// The trust root verifying Plugin artifact provenance attestations
+    /// (bundled in production, injected as a value in tests, ADR 0059).
+    pub(crate) plugin_attestation_trust_root: AttestationTrustRoot,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -244,6 +248,7 @@ struct Held {
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
     plugin_index_trust_root: TrustRoot,
+    plugin_attestation_trust_root: AttestationTrustRoot,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -282,6 +287,7 @@ impl EngineContext {
             places,
             daemon,
             plugin_index_trust_root,
+            plugin_attestation_trust_root,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -299,6 +305,7 @@ impl EngineContext {
                 places: places.map(Arc::new),
                 daemon,
                 plugin_index_trust_root,
+                plugin_attestation_trust_root,
             }),
         }
     }
@@ -308,6 +315,13 @@ impl EngineContext {
     #[must_use]
     pub fn plugin_index_trust_root(&self) -> &TrustRoot {
         &self.held.plugin_index_trust_root
+    }
+
+    /// The trust root used to verify Plugin artifact provenance attestations
+    /// (bundled with the release or injected in tests, ADR 0059).
+    #[must_use]
+    pub fn plugin_attestation_trust_root(&self) -> &AttestationTrustRoot {
+        &self.held.plugin_attestation_trust_root
     }
 
     /// The Goodfetch home the engine runs in.

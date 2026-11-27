@@ -731,6 +731,17 @@
       ]
     },
     {
+      "id": "command:plugin.update",
+      "kind": "command",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:recipe.digest",
       "kind": "command",
       "area": 11,
@@ -2440,6 +2451,17 @@
     },
     {
       "id": "error:plugin_revoked",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_signer_changed",
       "kind": "error",
       "area": 7,
       "milestone": null,
@@ -4758,6 +4780,17 @@
     },
     {
       "id": "operation:plugin.search",
+      "kind": "operation",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.update",
       "kind": "operation",
       "area": 7,
       "milestone": null,

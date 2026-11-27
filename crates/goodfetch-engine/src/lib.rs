@@ -83,6 +83,7 @@ pub mod plugin_oci;
 pub mod plugin_provenance;
 pub mod plugin_runtime;
 pub mod plugin_store;
+pub mod plugin_update;
 pub mod politeness;
 mod product;
 pub mod recipe;

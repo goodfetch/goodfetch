@@ -6348,6 +6348,31 @@ class WebhookInvalidReason(StrEnum):
     """
 
 
+class WidenedPermission(BaseModel):
+    """
+    A permission or capability that widened between the installed manifest and
+    the target release (ADR 0033, issue 924).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    from_: Annotated[str, Field(alias="from")]
+    """The previous narrower value."""
+    kind: str
+    """
+    What widened (`network_level`, `effects`, `page_script`,
+    `session_credentials`, `secret_value`, or `browser`).
+    """
+    statement: StatedPermission | None = None
+    """
+    Plain-word statement of the widened permission when it maps to a
+    [`Permission`].
+    """
+    to: str
+    """The new wider value."""
+
+
 class World(StrEnum):
     """Where a page function runs (ADR 0085)."""
 
@@ -8441,6 +8466,39 @@ class Period(BaseModel):
     """The IANA time zone its midnights are in, such as `Europe/Paris`."""
 
 
+class PermissionDiff(BaseModel):
+    """
+    The diff of permissions between an installed Plugin manifest and a target
+    release manifest (ADR 0033, issue 924).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    added: list[StatedPermission] | None = None
+    """
+    Permissions declared by the new release that were not in the installed
+    manifest.
+    """
+    removed: list[StatedPermission] | None = None
+    """
+    Permissions declared by the installed manifest that are no longer
+    requested by the new release.
+    """
+    requires_approval: bool
+    """
+    Whether this diff adds or widens any permission and therefore requires
+    explicit person approval before applying.
+    """
+    widened: list[WidenedPermission] | None = None
+    """
+    Permissions or capabilities that became wider in the new release (for
+    example a higher `network_level`, a broader wildcard domain, a Secret
+    escalated from injected reference to raw `secret_value`, or a changed
+    browser download digest).
+    """
+
+
 class Pinner1(BaseModel):
     """A Product version."""
 
@@ -8645,6 +8703,99 @@ class PluginSearchResult(BaseModel):
     Matching Plugins from the index, each carrying its kinds, signer
     identity and conformance results.
     """
+
+
+class PluginSignerChangedDetails(BaseModel):
+    """What `plugin_signer_changed` details (ADR 0033, issue 924)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str
+    """The target release's image index digest, `sha256:<hex>`."""
+    found_signer: SignerIdentity
+    """The verified signer identity of the target release."""
+    name: str
+    """The Plugin's name."""
+    previous_signer: str
+    """The signer identity previously recorded for the installed Plugin."""
+
+
+class PluginUpdateParams(BaseModel):
+    """What `plugin.update` takes (ADR 0033, issue 924)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    approve: bool | None = None
+    """
+    Whether the person approved any added or widened permissions shown in
+    the diff (writes the updated Operator policy entry).
+    """
+    approve_signer_change: bool | None = None
+    """
+    Whether the person explicitly approved a changed signer identity when
+    the new release's verified signer differs from the previously recorded
+    signer.
+    """
+    preview: bool | None = None
+    """
+    When `true`, inspect the target release and return its new digest,
+    signer identity and permission diff without modifying the Plugin store,
+    lockfile or Operator policy.
+    """
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083): the
+    lockfile beside it is updated, else the Goodfetch home's lockfile.
+    """
+    reference: str
+    """
+    The target release: either a digest-pinned OCI reference
+    `<registry>/<repository>@sha256:<hex>`, or a Plugin name listed in the
+    cached Plugin index (which resolves to its pinned digest).
+    """
+
+
+class PluginUpdated(BaseModel):
+    """What `plugin.update` answers (ADR 0033, issue 924)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    applied: bool
+    """
+    Whether the update was applied to the Plugin store and lockfile
+    (`false` on a `preview` call).
+    """
+    approval: PluginApproval | None = None
+    """Where the person's updated approval went, when written or managed."""
+    diff: PermissionDiff
+    """
+    The added, widened and removed permissions between the installed
+    release and the target release.
+    """
+    digest: str
+    """The target release's image index digest, `sha256:<hex>`."""
+    lockfile: str
+    """The lockfile that pins this Plugin."""
+    name: str
+    """The Plugin's name."""
+    previous_digest: str | None = None
+    """The previously installed image index digest, when recorded."""
+    previous_signer: str | None = None
+    """The signer identity previously recorded in the lockfile, when any."""
+    previous_version: str
+    """The previously installed version."""
+    signer: SignerIdentity | None = None
+    """The verified signer identity of the target release, when attested."""
+    signer_changed: bool
+    """
+    Whether the target release's signer differs from the previously
+    recorded signer.
+    """
+    version: str
+    """The target release's version."""
 
 
 class PolicyChange(BaseModel):

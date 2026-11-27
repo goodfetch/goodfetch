@@ -10,12 +10,17 @@
     reason = "a test's own statements, on no Shared path (ADR 0140)"
 )]
 
+use goodfetch_engine::plugin_oci::{
+    INDEX_MEDIA_TYPE, MANIFEST_MEDIA_TYPE, Platform, TAR_GZIP_MEDIA_TYPE,
+};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{TestEnv, cli, pty};
 use rstest::rstest;
 use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
 
 use crate::COLLIE;
+use crate::clean_up_rules::stand_in::StandIn;
 
 /// A visibly fake image index digest.
 const DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -324,5 +329,264 @@ fn plugin_search_lists_index_and_index_import_requires_a_person() {
     assert!(
         fix.is_some_and(|text| text.contains("plugin index import")),
         "{failed}"
+    );
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+/// Minimal POSIX ustar tar wrapped in a stored RFC 1952 gzip stream (no extra
+/// dev-dependencies needed).
+fn tar_gz_bundle(files: &[(&str, &[u8], u32)]) -> Vec<u8> {
+    let mut tar = Vec::new();
+    for &(name, data, mode) in files {
+        let mut header = [0u8; 512];
+        header[..name.len()].copy_from_slice(name.as_bytes());
+        header[100..108].copy_from_slice(format!("{mode:07o}\0").as_bytes());
+        header[108..116].copy_from_slice(b"0000000\0");
+        header[116..124].copy_from_slice(b"0000000\0");
+        header[124..136].copy_from_slice(format!("{:011o}\0", data.len()).as_bytes());
+        header[136..148].copy_from_slice(b"00000000000\0");
+        header[148..156].copy_from_slice(b"        ");
+        header[156] = b'0';
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+        let checksum: u32 = header.iter().map(|&b| u32::from(b)).sum();
+        header[148..156].copy_from_slice(format!("{checksum:06o}\0 ").as_bytes());
+        tar.extend_from_slice(&header);
+        tar.extend_from_slice(data);
+        let rem = data.len() % 512;
+        if rem != 0 {
+            tar.resize(tar.len() + (512 - rem), 0);
+        }
+    }
+    tar.resize(tar.len() + 1024, 0);
+
+    // IEEE 802.3 CRC-32 for the RFC 1952 trailer.
+    let mut crc = 0xffff_ffffu32;
+    for &byte in &tar {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    crc ^= 0xffff_ffff;
+
+    let mut gz = Vec::with_capacity(tar.len() + 32);
+    gz.extend_from_slice(&[0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0x03]);
+    let mut chunks = tar.chunks(65_535).peekable();
+    while let Some(chunk) = chunks.next() {
+        let last = u8::from(chunks.peek().is_none());
+        let len = u16::try_from(chunk.len()).unwrap();
+        gz.push(last);
+        gz.extend_from_slice(&len.to_le_bytes());
+        gz.extend_from_slice(&(!len).to_le_bytes());
+        gz.extend_from_slice(chunk);
+    }
+    gz.extend_from_slice(&crc.to_le_bytes());
+    let isize_len = u32::try_from(tar.len()).unwrap();
+    gz.extend_from_slice(&isize_len.to_le_bytes());
+    gz
+}
+
+fn publish_plugin_v2(stand_in: &StandIn, manifest: &Value) -> String {
+    let manifest_text = manifest.to_string();
+    let layer = tar_gz_bundle(&[
+        ("goodfetch-plugin.json", manifest_text.as_bytes(), 0o644),
+        ("kettle", b"#!/bin/sh\nexit 0\n", 0o755),
+    ]);
+    let layer_digest = sha256_hex(&layer);
+    let oci_manifest = serde_json::to_vec(&json!({
+        "schemaVersion": 2,
+        "mediaType": MANIFEST_MEDIA_TYPE,
+        "config": {
+            "mediaType": "application/vnd.oci.empty.v1+json",
+            "digest": sha256_hex(b"{}"),
+            "size": 2,
+        },
+        "layers": [{
+            "mediaType": TAR_GZIP_MEDIA_TYPE,
+            "digest": layer_digest,
+            "size": layer.len(),
+        }],
+    }))
+    .unwrap();
+    let manifest_digest = sha256_hex(&oci_manifest);
+    let host = Platform::host();
+    let index = serde_json::to_vec(&json!({
+        "schemaVersion": 2,
+        "mediaType": INDEX_MEDIA_TYPE,
+        "manifests": [{
+            "mediaType": MANIFEST_MEDIA_TYPE,
+            "digest": manifest_digest,
+            "size": oci_manifest.len(),
+            "platform": { "os": host.os, "architecture": host.architecture },
+        }],
+    }))
+    .unwrap();
+    let index_digest = sha256_hex(&index);
+    let repo = "goodfetch-plugin-kettle";
+    stand_in.serve(&format!("/v2/{repo}/manifests/{index_digest}"), index);
+    stand_in.serve(
+        &format!("/v2/{repo}/manifests/{manifest_digest}"),
+        oci_manifest,
+    );
+    stand_in.serve(&format!("/v2/{repo}/blobs/{layer_digest}"), layer);
+    index_digest
+}
+
+/// `plugin update` in a PTY prints the new digest, signer and permission diff
+/// once with a single `[y/N]` prompt (no confirmation loop); answering `y`
+/// updates the store, lockfile and Operator policy while answering `n` leaves
+/// them unchanged.
+///
+/// Covers: story:7-11, story:7-12, operation:plugin.update
+#[rstest]
+#[case::approved("y", true)]
+#[case::declined("n", false)]
+fn plugin_update_prints_digest_signer_and_diff_once_in_pty(
+    #[case] answer: &str,
+    #[case] updated: bool,
+) {
+    let env = TestEnv::new();
+    let host = "registry.test";
+    let stand_in = StandIn::start(&[host]);
+    let ca_file = env.folder().join("registry-ca.pem");
+    stand_in.write_authority(&ca_file);
+
+    // Installed v1.0.0 with `effects` on `api.shop.test` and `old.example`.
+    place(
+        &env,
+        &json!({
+            "manifest_version": "0.1",
+            "name": "kettle",
+            "version": "1.0.0",
+            "kinds": ["notification"],
+            "protocol": { "min": "0.1", "max": "0.1" },
+            "entrypoint": "kettle",
+            "network_level": "none",
+            "permissions": {
+                "domains": ["api.shop.test", "old.example"],
+                "grants": ["effects"],
+            },
+        }),
+    );
+
+    // Target v2.0.0 widens `network_level` and `api.shop.test -> *.shop.test`,
+    // adds `new.example`, and removes `old.example`.
+    let v2_digest = publish_plugin_v2(
+        &stand_in,
+        &json!({
+            "manifest_version": "0.1",
+            "name": "kettle",
+            "version": "2.0.0",
+            "kinds": ["notification"],
+            "protocol": { "min": "0.1", "max": "0.1" },
+            "entrypoint": "kettle",
+            "network_level": "proxy_tcp",
+            "permissions": {
+                "domains": ["*.shop.test", "new.example"],
+                "grants": ["effects"],
+            },
+        }),
+    );
+
+    // Trust the local stand-in registry and allow the exact test digest in
+    // Operator policy (the CLI binary uses the empty bundled attestation root).
+    let layout = HomeLayout::of(env.home());
+    let policy_path = layout.operator_policy();
+    std::fs::create_dir_all(policy_path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &policy_path,
+        format!(
+            "version = \"0.1\"\n\n[settings.network.resolve]\n\"{host}\" = [\"127.0.0.1\"]\n\n[settings.tls.trusted_cas]\n\"{host}\" = ['{}']\n\n[settings.plugins.kettle]\nallow = true\ndigest = \"{v2_digest}\"\n",
+            ca_file.display()
+        ),
+    )
+    .unwrap();
+
+    let target_ref = format!(
+        "{}/goodfetch-plugin-kettle@{v2_digest}",
+        stand_in.origin(host)
+    );
+    let mut proc = pty(&env, COLLIE)
+        .args(["plugin", "update", &target_ref])
+        .spawn()
+        .unwrap();
+    if let Err(err) = proc.expect("[y/N]") {
+        let out = proc.finish().map(|o| (o.exit, o.stripped()));
+        panic!("prompt not shown: {err:?}; output: {out:?}");
+    }
+    proc.send_line(answer).unwrap();
+    let output = proc.finish().unwrap();
+
+    let shown = output.stripped();
+    assert_eq!(output.exit, Some(0), "{shown}");
+    // Prints digest, signer, and diff once with a single prompt (no confirmation loop).
+    assert_eq!(shown.matches("[y/N]").count(), 1, "{shown}");
+    assert_eq!(shown.matches("New digest:").count(), 1, "{shown}");
+    assert_eq!(shown.matches("Signer:").count(), 1, "{shown}");
+    assert!(shown.contains(&v2_digest), "{shown}");
+    assert!(shown.contains("Added (1):"), "{shown}");
+    assert!(shown.contains("Widened (2):"), "{shown}");
+    assert!(shown.contains("Removed (1):"), "{shown}");
+
+    let lockfile = std::fs::read_to_string(env.folder().join("goodfetch-plugins.lock")).unwrap();
+    assert_eq!(
+        lockfile.contains(&v2_digest),
+        updated,
+        "{lockfile}\n{shown}"
+    );
+    assert_eq!(
+        env.home()
+            .join("plugins")
+            .join("kettle")
+            .join("2.0.0")
+            .exists(),
+        updated,
+        "{shown}"
+    );
+}
+
+/// Under `--json` and in a non-terminal pipe/script, `plugin update` is
+/// refused with `person_required` and exit `4`, its `fix` naming `plugin
+/// update`, before any engine call.
+///
+/// Covers: story:7-11, story:7-12, operation:plugin.update
+#[test]
+fn plugin_update_refuses_json_and_piped_stdin_with_person_required() {
+    let env = TestEnv::new();
+    let target = reference();
+
+    // 1. Under `--json`.
+    let json_out = cli(&env, COLLIE)
+        .args(["plugin", "update", &target, "--json"])
+        .run()
+        .unwrap();
+    let failed: Value = serde_json::from_str(&json_out.stdout).unwrap();
+    assert_eq!(json_out.exit, Some(4), "{json_out:?}");
+    assert_eq!(failed["error"]["code"], json!("person_required"));
+    assert!(
+        failed["error"]["fix"]
+            .as_str()
+            .is_some_and(|fix| fix.contains("plugin update")),
+        "{failed}"
+    );
+
+    // 2. From a pipe/script (no TTY, no `--json`).
+    let pipe_out = cli(&env, COLLIE)
+        .args(["plugin", "update", &target])
+        .stdin("y\n")
+        .run()
+        .unwrap();
+    assert_eq!(pipe_out.exit, Some(4), "{pipe_out:?}");
+    assert!(
+        pipe_out.stderr.contains("person_required") || pipe_out.stderr.contains("plugin update"),
+        "{pipe_out:?}"
     );
 }

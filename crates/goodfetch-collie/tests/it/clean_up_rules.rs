@@ -21,7 +21,7 @@
     reason = "the sources' stand-in listens and keeps its table outside the engine (ADR 0060)"
 )]
 
-mod stand_in;
+pub(crate) mod stand_in;
 
 use std::path::{Path, PathBuf};
 

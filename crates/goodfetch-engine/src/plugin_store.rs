@@ -309,22 +309,7 @@ impl PluginStore {
     /// another Plugin, a version of the Plugin is installed already, or the
     /// folder cannot be moved.
     pub fn add(&self, name: &str, staged: &Path, digest: &str) -> Result<Installed, StoreError> {
-        if !is_one_folder(name) {
-            return Err(StoreError::Name(name.to_owned()));
-        }
-        let manifest = read_manifest(name, staged)?;
-        if manifest.name != name {
-            return Err(StoreError::Misnamed {
-                name: name.to_owned(),
-                named: manifest.name,
-            });
-        }
-        if !is_one_folder(&manifest.version) {
-            return Err(StoreError::Version {
-                name: name.to_owned(),
-                version: manifest.version,
-            });
-        }
+        let manifest = validate_staged(name, staged)?;
         match self.installed(name) {
             Ok(installed) => {
                 return Err(StoreError::Installed {
@@ -349,6 +334,65 @@ impl PluginStore {
                 tracing::warn!(error = %left, "a Plugin's digest record outlived its failed add");
             }
             return Err(unreadable(error));
+        }
+        Ok(Installed {
+            bundle,
+            manifest,
+            digest: Some(digest.to_owned()),
+        })
+    }
+
+    /// Replaces the currently installed version of `name` with the bundle
+    /// unpacked at `staged` (from `digest`), leaving the previous version
+    /// intact if validation or moving fails (ADR 0033, issue 924).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError`] when `name` or the version holds a path, the manifest
+    /// cannot be read, is of a version this engine does not read or names
+    /// another Plugin, or the folder cannot be moved.
+    pub fn replace(
+        &self,
+        name: &str,
+        staged: &Path,
+        digest: &str,
+    ) -> Result<Installed, StoreError> {
+        let manifest = validate_staged(name, staged)?;
+        let previous = self.installed(name).ok();
+        let unreadable = |source| StoreError::Unreadable {
+            name: name.to_owned(),
+            source,
+        };
+        let folder = self.folder.join(name);
+        fs::create_dir_all(&folder).map_err(unreadable)?;
+        let bundle = folder.join(&manifest.version);
+        let recorded = digest_file(&bundle);
+
+        let same_version = previous.as_ref().is_some_and(|old| old.bundle == bundle);
+        if same_version {
+            let backup_dir = self.staging().map_err(unreadable)?;
+            let backup = backup_dir.path().join("old");
+            fs::rename(&bundle, &backup).map_err(unreadable)?;
+            if let Err(error) = fs::rename(staged, &bundle) {
+                let _ = fs::rename(&backup, &bundle);
+                return Err(unreadable(error));
+            }
+            if let Err(error) = fs::write(&recorded, digest) {
+                let _ = fs::remove_dir_all(&bundle);
+                let _ = fs::rename(&backup, &bundle);
+                return Err(unreadable(error));
+            }
+            drop(backup_dir);
+        } else {
+            fs::write(&recorded, digest).map_err(unreadable)?;
+            if let Err(error) = fs::rename(staged, &bundle) {
+                let _ = fs::remove_file(&recorded);
+                return Err(unreadable(error));
+            }
+            if let Some(old) = previous {
+                let _ = fs::remove_dir_all(&old.bundle);
+                let _ = fs::remove_file(digest_file(&old.bundle));
+            }
         }
         Ok(Installed {
             bundle,
@@ -437,6 +481,28 @@ pub fn runtime_artifact_id(runtime: &Runtime, platform: &str) -> Option<Artifact
         name: name.to_owned(),
         build: format!("{version}-{platform}"),
     })
+}
+
+/// Checks that `name`, the staged manifest's declared name and its version each
+/// name a single folder and match before installing or replacing a bundle.
+fn validate_staged(name: &str, staged: &Path) -> Result<PluginManifest, StoreError> {
+    if !is_one_folder(name) {
+        return Err(StoreError::Name(name.to_owned()));
+    }
+    let manifest = read_manifest(name, staged)?;
+    if manifest.name != name {
+        return Err(StoreError::Misnamed {
+            name: name.to_owned(),
+            named: manifest.name,
+        });
+    }
+    if !is_one_folder(&manifest.version) {
+        return Err(StoreError::Version {
+            name: name.to_owned(),
+            version: manifest.version,
+        });
+    }
+    Ok(manifest)
 }
 
 /// The manifest at the root of the Plugin `name`'s bundle `bundle`.

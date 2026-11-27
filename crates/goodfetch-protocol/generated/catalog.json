@@ -1391,6 +1391,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The target Plugin release was signed by a different signer identity than the previously installed release, so nothing was updated. Review the previous and new signer identities and re-run `plugin update` interactively to approve the signer change.",
+      "details": {
+        "$ref": "#/$defs/PluginSignerChangedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_signer_changed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Operator policy's digest changed since it was read, as by a hand edit, so nothing was written; `fix` says to read it again.",
       "details": {
         "$ref": "#/$defs/PolicyConflictDetails"
@@ -4862,6 +4875,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/PluginSearchResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Updates an installed Plugin to a new digest-pinned release (a person's answer, ADR 0099). With `preview: true`, pulls and inspects the target release without changing the Plugin store, lockfile or Operator policy, returning the new digest, verified signer identity, whether the signer changed, and the permission diff (added, widened and removed permissions). Applying an update whose diff adds or widens any permission requires `approve: true` (else refused with `plugin_permission_denied`); applying a release whose verified signer differs from the previously recorded signer requires `approve_signer_change: true` (else refused with `plugin_signer_changed`). Plugins are never updated automatically on engine start, Run start or index refresh. Refused with `person_required` on any non-person surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.update",
+      "params": {
+        "$ref": "#/$defs/PluginUpdateParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PluginUpdated"
       },
       "stability": "experimental"
     },

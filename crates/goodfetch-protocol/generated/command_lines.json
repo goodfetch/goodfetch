@@ -78,6 +78,10 @@
           {
             "commands": [],
             "name": "remove"
+          },
+          {
+            "commands": [],
+            "name": "update"
           }
         ],
         "name": "plugin"
@@ -560,6 +564,10 @@
           {
             "commands": [],
             "name": "remove"
+          },
+          {
+            "commands": [],
+            "name": "update"
           }
         ],
         "name": "plugin"

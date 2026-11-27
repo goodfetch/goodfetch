@@ -82,12 +82,27 @@ pub(crate) fn handlers() -> [Handler; 1] {
     [Handler::new(&PLUGIN_ADD, add_operation)]
 }
 
-async fn add_operation(
-    params: PluginAddParams,
-    context: CallContext,
-) -> Result<PluginAdded, CallError> {
+/// Dependencies opened for a `plugin.add` or `plugin.update` RPC call.
+pub(crate) struct InstallContext {
+    pub(crate) lockfile: std::path::PathBuf,
+    pub(crate) resolved: Resolved,
+    pub(crate) fetching: Fetching,
+    pub(crate) blocking: BlockingThreads,
+    pub(crate) store: PluginStore,
+    pub(crate) cache: BrowserCache,
+    pub(crate) catalog: RuntimeCatalog,
+    pub(crate) now: jiff::Timestamp,
+    pub(crate) cached_index: Option<PluginIndex>,
+}
+
+/// Opens the lockfile path, settings, HTTP fetcher, store, runtime cache and
+/// cached Plugin index for a `plugin.add` or `plugin.update` call.
+pub(crate) async fn open_install_context(
+    project: Option<goodfetch_protocol::settings::ProjectSettings>,
+    context: &CallContext,
+) -> Result<InstallContext, CallError> {
     let engine = context.engine();
-    let beside = match &params.project {
+    let beside = match &project {
         Some(project) => Path::new(&project.path),
         None => engine.settings().files().user_configuration(),
     };
@@ -98,14 +113,14 @@ async fn add_operation(
     let (settings, _) = engine
         .settings()
         .open(Opening {
-            project: params.project,
+            project,
             registered: context.registered_settings().clone(),
             acting_for_model: context.surface().acts_for_model(),
             exposed: context.exposed(),
             ..Opening::default()
         })
         .await
-        .map_err(|error| settings_error(&error, &context))?;
+        .map_err(|error| settings_error(&error, context))?;
     let fetching = Fetching::of(settings.resolved(), engine.clock(), engine.owner()).await;
     let blocking = engine.owner().blocking_threads();
     let store = PluginStore::new(engine.home().plugins());
@@ -125,22 +140,39 @@ async fn add_operation(
                 .and_then(|status| status.index().cloned())
         })
         .await;
-    let trust = AttestationTrustRoot::bundled();
+    Ok(InstallContext {
+        lockfile,
+        resolved: settings.resolved().clone(),
+        fetching,
+        blocking,
+        store,
+        cache,
+        catalog,
+        now,
+        cached_index,
+    })
+}
+
+async fn add_operation(
+    params: PluginAddParams,
+    context: CallContext,
+) -> Result<PluginAdded, CallError> {
+    let ctx = open_install_context(params.project, &context).await?;
     let provenance = ProvenancePolicy {
-        index: cached_index.as_ref(),
-        settings: Some(settings.resolved()),
-        trust: &trust,
+        index: ctx.cached_index.as_ref(),
+        settings: Some(&ctx.resolved),
+        trust: context.engine().plugin_attestation_trust_root(),
     };
     let mut added = add_checked(
         &params.reference,
         &provenance,
-        &fetching,
-        &blocking,
-        &store,
-        &lockfile,
-        &cache,
-        &catalog,
-        now,
+        &ctx.fetching,
+        &ctx.blocking,
+        &ctx.store,
+        &ctx.lockfile,
+        &ctx.cache,
+        &ctx.catalog,
+        ctx.now,
     )
     .await?;
     if params.approve {
@@ -162,16 +194,33 @@ async fn add_operation(
 /// does not read, and an internal error for a file that cannot be read or
 /// written, or an approval written that the Audit log cannot record.
 async fn approve(added: &PluginAdded, context: &CallContext) -> Result<PluginApproval, CallError> {
-    let name = added.name.clone();
-    let digest = added.digest.clone();
+    approve_permissions(
+        added.name.clone(),
+        added.digest.clone(),
+        added.permissions.clone(),
+        context,
+    )
+    .await
+}
+
+/// Writes the person's approval of `name` at `digest` with `permissions` into
+/// the Operator policy's `plugins.<name>` entry (preserving any existing
+/// Plugin `settings`), audited as `plugin_approved` (ADR 0033, issues 900
+/// and 924).
+pub(crate) async fn approve_permissions(
+    name: String,
+    digest: String,
+    permissions: Vec<goodfetch_protocol::plugin::approvals::StatedPermission>,
+    context: &CallContext,
+) -> Result<PluginApproval, CallError> {
     let mut approved = Approvals::default();
-    for stated in &added.permissions {
+    for stated in &permissions {
         approved.approve(&stated.permission);
     }
     let details = json!({
         "plugin": name,
         "digest": digest,
-        "permissions": added.permissions,
+        "permissions": permissions,
     });
     let path = context.engine().settings().files().operator_policy();
     let policy = path.display().to_string();
@@ -423,6 +472,49 @@ pub async fn add_checked(
     Ok(added(held, digest, lockfile, verified_signer))
 }
 
+/// Fetches provenance attestations for `reference`, translating transport and
+/// parse errors into `CallError` (or returning `Ok(None)` when Operator policy
+/// allows the exact digest and no attestation could be fetched).
+pub(crate) async fn fetch_attestations_or_allow(
+    reference: &Reference,
+    name: &str,
+    digest: &str,
+    policy_allows: bool,
+    expected_signer: Option<&SignerIdentity>,
+    fetching: &Fetching,
+    store: &PluginStore,
+) -> Result<Option<Vec<goodfetch_protocol::plugin::index::ProvenanceAttestation>>, CallError> {
+    let artifact = ArtifactId {
+        kind: ArtifactKind::Plugin,
+        name: name.to_owned(),
+        build: digest.to_owned(),
+    };
+    match plugin_install::fetch_attestations(reference, fetching).await {
+        Ok(attestations) => Ok(Some(attestations)),
+        Err(AttestationFetchError::Offline(layer)) => Err(offline(artifact, layer, store)),
+        Err(AttestationFetchError::Pull(failure)) => {
+            if policy_allows {
+                Ok(None)
+            } else {
+                Err(pull_failed(artifact, reference, &failure))
+            }
+        }
+        Err(AttestationFetchError::Malformed(_)) => {
+            if policy_allows {
+                Ok(None)
+            } else {
+                Err(plugin_provenance::attestation_invalid_error(
+                    name,
+                    digest,
+                    AttestationFailureReason::Malformed,
+                    expected_signer.cloned(),
+                    None,
+                ))
+            }
+        }
+    }
+}
+
 /// Checks provenance attestation for `reference` against `provenance`,
 /// returning the verified [`SignerIdentity`] when attested and matching,
 /// `None` when allowed without a matching attestation (exact digest allowed
@@ -449,45 +541,18 @@ async fn check_provenance(
     let origin = provenance
         .index
         .map_or(Origin::ThirdParty, |idx| idx.origin_of(name, Some(digest)));
-    let attestations = match plugin_install::fetch_attestations(reference, fetching).await {
-        Ok(attestations) => attestations,
-        Err(AttestationFetchError::Offline(layer)) => {
-            return Err(offline(
-                ArtifactId {
-                    kind: ArtifactKind::Plugin,
-                    name: name.to_owned(),
-                    build: digest.to_owned(),
-                },
-                layer,
-                store,
-            ));
-        }
-        Err(AttestationFetchError::Pull(failure)) => {
-            if policy_allows {
-                return Ok(None);
-            }
-            return Err(pull_failed(
-                ArtifactId {
-                    kind: ArtifactKind::Plugin,
-                    name: name.to_owned(),
-                    build: digest.to_owned(),
-                },
-                reference,
-                &failure,
-            ));
-        }
-        Err(AttestationFetchError::Malformed(_)) => {
-            if policy_allows {
-                return Ok(None);
-            }
-            return Err(plugin_provenance::attestation_invalid_error(
-                name,
-                digest,
-                AttestationFailureReason::Malformed,
-                expected_signer.cloned(),
-                None,
-            ));
-        }
+    let Some(attestations) = fetch_attestations_or_allow(
+        reference,
+        name,
+        digest,
+        policy_allows,
+        expected_signer,
+        fetching,
+        store,
+    )
+    .await?
+    else {
+        return Ok(None);
     };
     match plugin_provenance::verify_attestations(
         &attestations,
@@ -544,7 +609,7 @@ fn allow_exact_digest_policy(name: &str, digest: &str) -> Resolved {
 }
 
 /// The lockfile at `path`, an empty one when there is none.
-fn read_lockfile(path: &Path) -> Result<PluginLockfile, CallError> {
+pub(crate) fn read_lockfile(path: &Path) -> Result<PluginLockfile, CallError> {
     match std::fs::read_to_string(path) {
         Ok(text) => plugin_lockfile::read(&text),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(PluginLockfile::empty()),
@@ -559,7 +624,7 @@ fn read_lockfile(path: &Path) -> Result<PluginLockfile, CallError> {
 }
 
 /// Writes `text` as the lockfile at `path`, its folder made when missing.
-fn write_lockfile(path: &Path, text: &str) -> io::Result<()> {
+pub(crate) fn write_lockfile(path: &Path, text: &str) -> io::Result<()> {
     if let Some(folder) = path.parent() {
         durable::create_folder(folder)?;
     }
@@ -629,7 +694,11 @@ fn installed(name: &str, version: &str) -> CallError {
 
 /// The failure `plugin.add` answers for the install of `reference` into
 /// `store` that failed with `error`.
-fn refusal(error: InstallError, reference: &Reference, store: &PluginStore) -> CallError {
+pub(crate) fn refusal(
+    error: InstallError,
+    reference: &Reference,
+    store: &PluginStore,
+) -> CallError {
     let artifact = ArtifactId {
         kind: ArtifactKind::Plugin,
         name: reference.plugin().to_owned(),
@@ -649,7 +718,11 @@ fn refusal(error: InstallError, reference: &Reference, store: &PluginStore) -> C
 
 /// `artifact_unavailable_offline` for `artifact`, whose pull `egress.offline`,
 /// set at `layer`, refused.
-fn offline(artifact: ArtifactId, layer: SettingsLayer, store: &PluginStore) -> CallError {
+pub(crate) fn offline(
+    artifact: ArtifactId,
+    layer: SettingsLayer,
+    store: &PluginStore,
+) -> CallError {
     let name = artifact.name.clone();
     CallError::new(
         &ARTIFACT_UNAVAILABLE_OFFLINE,
@@ -677,7 +750,11 @@ fn offline(artifact: ArtifactId, layer: SettingsLayer, store: &PluginStore) -> C
 
 /// `artifact_download_failed` for `artifact`, which `reference`'s registry
 /// did not serve.
-fn pull_failed(artifact: ArtifactId, reference: &Reference, failure: &PullFailure) -> CallError {
+pub(crate) fn pull_failed(
+    artifact: ArtifactId,
+    reference: &Reference,
+    failure: &PullFailure,
+) -> CallError {
     let host = reference.registry().to_owned();
     CallError::new(
         &ARTIFACT_DOWNLOAD_FAILED,
@@ -729,7 +806,7 @@ fn store_unwritten(error: &io::Error, store: &PluginStore, name: &str) -> CallEr
 
 /// `file_write_failed`, side `program`, for the lockfile `lockfile`, which
 /// could not pin the installed Plugin `name`.
-fn unwritten(error: &io::Error, lockfile: &Path, name: &str) -> CallError {
+pub(crate) fn unwritten(error: &io::Error, lockfile: &Path, name: &str) -> CallError {
     CallError::new(
         &FILE_WRITE_FAILED,
         format!(

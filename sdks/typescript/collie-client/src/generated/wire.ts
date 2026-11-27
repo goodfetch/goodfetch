@@ -143,6 +143,7 @@ export type CollieWireType =
   | "PathNotWritableDetails"
   | "PaymentMark"
   | "Period"
+  | "PermissionDiff"
   | "PlanReport"
   | "PluginAdded"
   | "PluginAttestationInvalidDetails"
@@ -154,6 +155,9 @@ export type CollieWireType =
   | "PluginRemoved"
   | "PluginRun"
   | "PluginSearchResult"
+  | "PluginSignerChangedDetails"
+  | "PluginUpdateParams"
+  | "PluginUpdated"
   | "PressParams"
   | "PrivateEndpoint"
   | "ProtocolVersionUnsupportedDetails"
@@ -249,7 +253,8 @@ export type CollieWireType =
   | "WaitForUrlParams"
   | "WebError"
   | "WebSocketClosed"
-  | "WebSocketFrame";
+  | "WebSocketFrame"
+  | "WidenedPermission";
 
 /** Where Collie's types, operation params and results and event payloads hold fields the engine names otherwise, and points in time, which a program reads as `Date`s (ADRs 0092 and 0099). */
 export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieEventPayloads & string, CollieWireType> = {
@@ -391,6 +396,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PathNotWritableDetails": { fields: { "os_code": "osCode" } },
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "Period": { fields: { "time_zone": "timeZone" } },
+    "PermissionDiff": { fields: { "added": ["added", { items: { type: "StatedPermission" } }], "removed": ["removed", { items: { type: "StatedPermission" } }], "requires_approval": "requiresApproval", "widened": ["widened", { items: { type: "WidenedPermission" } }] } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
     "PluginAttestationInvalidDetails": { fields: { "expected_signer": "expectedSigner", "found_signer": "foundSigner" } },
@@ -402,6 +408,9 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PluginRemoved": { fields: { "removed_from_lockfile": "removedFromLockfile", "removed_from_store": "removedFromStore" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PluginSearchResult": { fields: { "expires_at": "expiresAt", "index_version": "indexVersion", "plugins": ["plugins", { items: { type: "IndexEntry" } }] } },
+    "PluginSignerChangedDetails": { fields: { "found_signer": "foundSigner", "previous_signer": "previousSigner" } },
+    "PluginUpdateParams": { fields: { "approve_signer_change": "approveSignerChange" } },
+    "PluginUpdated": { fields: { "diff": ["diff", { type: "PermissionDiff" }], "previous_digest": "previousDigest", "previous_signer": "previousSigner", "previous_version": "previousVersion", "signer_changed": "signerChanged" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
@@ -498,6 +507,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "WebError": { fields: { "page_id": "pageId" } },
     "WebSocketClosed": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
     "WebSocketFrame": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
+    "WidenedPermission": { fields: { "statement": ["statement", { type: "StatedPermission" }] } },
   },
   params: {
     "cache.clear": { type: "CacheClearParams" },

@@ -7870,6 +7870,85 @@ export interface PatternUnsupportedDetails {
   pattern: string;
 }
 /**
+ * The diff of permissions between an installed Plugin manifest and a target
+ * release manifest (ADR 0033, issue 924).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PermissionDiff".
+ */
+export interface PermissionDiff {
+  /**
+   * Permissions declared by the new release that were not in the installed
+   * manifest.
+   */
+  added?: StatedPermission[];
+  /**
+   * Permissions declared by the installed manifest that are no longer
+   * requested by the new release.
+   */
+  removed?: StatedPermission[];
+  /**
+   * Whether this diff adds or widens any permission and therefore requires
+   * explicit person approval before applying.
+   */
+  requiresApproval: boolean;
+  /**
+   * Permissions or capabilities that became wider in the new release (for
+   * example a higher `network_level`, a broader wildcard domain, a Secret
+   * escalated from injected reference to raw `secret_value`, or a changed
+   * browser download digest).
+   */
+  widened?: WidenedPermission[];
+}
+/**
+ * A permission with what it lets the Plugin do and what the engine cannot
+ * check, in plain words, as an approval states them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StatedPermission".
+ */
+export interface StatedPermission {
+  /**
+   * What the engine cannot check once it is approved.
+   */
+  cannotCheck: string;
+  /**
+   * What it lets the Plugin do.
+   */
+  lets: string;
+  /**
+   * The permission.
+   */
+  permission: Permission;
+}
+/**
+ * A permission or capability that widened between the installed manifest and
+ * the target release (ADR 0033, issue 924).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WidenedPermission".
+ */
+export interface WidenedPermission {
+  /**
+   * The previous narrower value.
+   */
+  from: string;
+  /**
+   * What widened (`network_level`, `effects`, `page_script`,
+   * `session_credentials`, `secret_value`, or `browser`).
+   */
+  kind: string;
+  /**
+   * Plain-word statement of the widened permission when it maps to a
+   * [`Permission`].
+   */
+  statement?: StatedPermission | null;
+  /**
+   * The new wider value.
+   */
+  to: string;
+}
+/**
  * What `person_required` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7998,27 +8077,6 @@ export interface PluginAdded {
    * Its version, as its manifest names it.
    */
   version: string;
-}
-/**
- * A permission with what it lets the Plugin do and what the engine cannot
- * check, in plain words, as an approval states them.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "StatedPermission".
- */
-export interface StatedPermission {
-  /**
-   * What the engine cannot check once it is approved.
-   */
-  cannotCheck: string;
-  /**
-   * What it lets the Plugin do.
-   */
-  lets: string;
-  /**
-   * The permission.
-   */
-  permission: Permission;
 }
 /**
  * What `plugin_attestation_invalid` details.
@@ -8474,6 +8532,125 @@ export interface PluginSettingsSchema {
   };
   /**
    * The version installed.
+   */
+  version: string;
+}
+/**
+ * What `plugin_signer_changed` details (ADR 0033, issue 924).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSignerChangedDetails".
+ */
+export interface PluginSignerChangedDetails {
+  /**
+   * The target release's image index digest, `sha256:<hex>`.
+   */
+  digest: string;
+  /**
+   * The verified signer identity of the target release.
+   */
+  foundSigner: SignerIdentity;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * The signer identity previously recorded for the installed Plugin.
+   */
+  previousSigner: string;
+}
+/**
+ * What `plugin.update` takes (ADR 0033, issue 924).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUpdateParams".
+ */
+export interface PluginUpdateParams {
+  /**
+   * Whether the person approved any added or widened permissions shown in
+   * the diff (writes the updated Operator policy entry).
+   */
+  approve?: boolean;
+  /**
+   * Whether the person explicitly approved a changed signer identity when
+   * the new release's verified signer differs from the previously recorded
+   * signer.
+   */
+  approveSignerChange?: boolean;
+  /**
+   * When `true`, inspect the target release and return its new digest,
+   * signer identity and permission diff without modifying the Plugin store,
+   * lockfile or Operator policy.
+   */
+  preview?: boolean;
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083): the
+   * lockfile beside it is updated, else the Goodfetch home's lockfile.
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The target release: either a digest-pinned OCI reference
+   * `<registry>/<repository>@sha256:<hex>`, or a Plugin name listed in the
+   * cached Plugin index (which resolves to its pinned digest).
+   */
+  reference: string;
+}
+/**
+ * What `plugin.update` answers (ADR 0033, issue 924).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUpdated".
+ */
+export interface PluginUpdated {
+  /**
+   * Whether the update was applied to the Plugin store and lockfile
+   * (`false` on a `preview` call).
+   */
+  applied: boolean;
+  /**
+   * Where the person's updated approval went, when written or managed.
+   */
+  approval?: PluginApproval | null;
+  /**
+   * The added, widened and removed permissions between the installed
+   * release and the target release.
+   */
+  diff: PermissionDiff;
+  /**
+   * The target release's image index digest, `sha256:<hex>`.
+   */
+  digest: string;
+  /**
+   * The lockfile that pins this Plugin.
+   */
+  lockfile: string;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * The previously installed image index digest, when recorded.
+   */
+  previousDigest?: string | null;
+  /**
+   * The signer identity previously recorded in the lockfile, when any.
+   */
+  previousSigner?: string | null;
+  /**
+   * The previously installed version.
+   */
+  previousVersion: string;
+  /**
+   * The verified signer identity of the target release, when attested.
+   */
+  signer?: SignerIdentity | null;
+  /**
+   * Whether the target release's signer differs from the previously
+   * recorded signer.
+   */
+  signerChanged: boolean;
+  /**
+   * The target release's version.
    */
   version: string;
 }

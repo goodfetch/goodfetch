@@ -47,6 +47,7 @@ use crate::mask::Masks;
 use crate::metrics::Metrics;
 use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
 use crate::ops::{self, Health, OpsOptions};
+use crate::plugin_provenance::AttestationTrustRoot;
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
 use crate::rpc::{self, Access, Dispatch};
@@ -95,6 +96,7 @@ pub struct Engine {
     drain_grace: Duration,
     daemon_reach: Option<Arc<dyn DaemonReach>>,
     plugin_index_trust_root: TrustRoot,
+    plugin_attestation_trust_root: AttestationTrustRoot,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -159,6 +161,7 @@ impl Engine {
             drain_grace: get_or_default(None, &DRAIN_GRACE),
             daemon_reach: None,
             plugin_index_trust_root: TrustRoot::bundled(),
+            plugin_attestation_trust_root: AttestationTrustRoot::bundled(),
         })
     }
 
@@ -167,6 +170,14 @@ impl Engine {
     #[must_use]
     pub fn with_plugin_index_trust_root(mut self, trust: TrustRoot) -> Self {
         self.plugin_index_trust_root = trust;
+        self
+    }
+
+    /// The same, verifying Plugin artifact provenance attestations against
+    /// `trust` instead of the bundled release trust root (ADR 0059).
+    #[must_use]
+    pub fn with_plugin_attestation_trust_root(mut self, trust: AttestationTrustRoot) -> Self {
+        self.plugin_attestation_trust_root = trust;
         self
     }
 
@@ -571,6 +582,7 @@ impl Engine {
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,
                 plugin_index_trust_root: self.plugin_index_trust_root.clone(),
+                plugin_attestation_trust_root: self.plugin_attestation_trust_root.clone(),
             },
         );
         let secrets = Secrets::new(

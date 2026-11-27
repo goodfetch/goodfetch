@@ -197,6 +197,29 @@ impl StagedPlugin {
             })
             .await
     }
+
+    /// Replaces any currently installed version of the Plugin in `store` with
+    /// the staged bundle on `blocking` (ADR 0033, issue 924).
+    ///
+    /// # Errors
+    ///
+    /// [`InstallError::Store`] if the store refuses the bundle.
+    pub async fn commit_replace(
+        self,
+        blocking: &BlockingThreads,
+        store: &PluginStore,
+    ) -> Result<Installed, InstallError> {
+        let store = store.clone();
+        blocking
+            .run(move || {
+                let installed = store
+                    .replace(&self.name, &self.bundle, &self.digest)
+                    .map_err(InstallError::Store);
+                drop(self.staging);
+                installed
+            })
+            .await
+    }
 }
 
 /// Pulls, verifies and unpacks the Plugin `reference` pins into a staging

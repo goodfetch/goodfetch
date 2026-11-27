@@ -27,6 +27,7 @@ use goodfetch_protocol::plugin::index::{
 use goodfetch_protocol::plugin::manage::{
     PLUGIN_REMOVE, PluginApprovalsRemoval, PluginRemoveParams, PluginRemoved,
 };
+use goodfetch_protocol::plugin::update::{PLUGIN_UPDATE, PluginUpdateParams, PluginUpdated};
 use goodfetch_protocol::settings::ProjectSettings;
 
 use super::catalog_commands::{Joined, Joining};
@@ -53,6 +54,13 @@ const INDEX_IMPORT: Prompt = Prompt {
 /// The prompt that removes an installed Plugin.
 const REMOVE: Prompt = Prompt {
     operation: &PLUGIN_REMOVE,
+    elsewhere: None,
+};
+
+/// The prompt that updates an installed Plugin after showing its digest,
+/// signer and permission diff.
+const UPDATE: Prompt = Prompt {
+    operation: &PLUGIN_UPDATE,
     elsewhere: None,
 };
 
@@ -96,6 +104,20 @@ pub(super) enum OwnPluginCommand {
     Remove {
         /// The name of the Plugin to remove.
         name: String,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
+    },
+    /// Updates an installed Plugin to a new digest-pinned release after
+    /// printing the new digest, signer and permission diff once: a person's
+    /// answer, asked at the terminal, and refused with `person_required` under
+    /// `--json` or when stdin is no terminal.
+    Update {
+        /// The target OCI reference (`<registry>/<repository>@sha256:<hex>`)
+        /// or Plugin name listed in the Plugin index.
+        reference: String,
         /// Refused: a person answers at a terminal, never under `--json`.
         #[arg(long)]
         json: bool,
@@ -168,7 +190,199 @@ pub(super) fn run(
             let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             remove(engine, dependencies, &reach, name, json, human)
         }
+        PluginCommand::Own(OwnPluginCommand::Update {
+            reference,
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
+            update(engine, dependencies, &reach, reference, json, human)
+        }
     }
+}
+
+/// Previews an update to the Plugin `reference` names, prints the new digest,
+/// signer identity and permission diff once, and asks the person at the
+/// terminal (with no confirmation loop) before applying it.
+fn update(
+    engine: &Engine,
+    mut dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    reference: String,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    if let Err(exit) = UPDATE.person_present(json, human) {
+        return exit;
+    }
+    let Ok(folder) = std::env::current_dir() else {
+        tracing::error!("the working folder cannot be read");
+        return ExitCode::FAILURE;
+    };
+    let project = match project(&folder) {
+        Ok(project) => project,
+        Err(error) => {
+            return output::fail(
+                local_settings_error(&error, engine.identity()).to_error_object(),
+                None,
+                false,
+                human,
+            );
+        }
+    };
+    let mut params = PluginUpdateParams {
+        reference,
+        project,
+        preview: true,
+        approve: false,
+        approve_signer_change: false,
+    };
+    let preview = match plugin_update(engine, forked(&mut dependencies), reach, &params, human) {
+        Ok(preview) => preview,
+        Err(exit) => return exit,
+    };
+    let summary = format_update_summary(&preview);
+    let question = update_question(&preview);
+    let yes = match UPDATE.ask(&question, Some(&summary), human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
+    };
+    if !yes {
+        output::line("Nothing was updated.");
+        return ExitCode::from(exit_codes::SUCCESS);
+    }
+    params.preview = false;
+    params.approve = true;
+    params.approve_signer_change = preview.signer_changed;
+    let applied = match plugin_update(engine, dependencies, reach, &params, human) {
+        Ok(applied) => applied,
+        Err(exit) => return exit,
+    };
+    output::line(&format!(
+        "Updated the Plugin {} from {} to {}, pinned at {} in {}.",
+        applied.name, applied.previous_version, applied.version, applied.digest, applied.lockfile
+    ));
+    match applied.approval {
+        Some(PluginApproval::Written { policy }) => output::line(&format!(
+            "Updated approvals for the Plugin {} in the Operator policy {policy}.",
+            applied.name
+        )),
+        Some(PluginApproval::Managed { entry }) => {
+            human.warning(
+                "The Operator policy is managed elsewhere, so nothing was written: update this entry there.",
+            );
+            output::line(&entry);
+        }
+        None => {}
+    }
+    ExitCode::from(exit_codes::SUCCESS)
+}
+
+fn plugin_update(
+    engine: &Engine,
+    dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    params: &PluginUpdateParams,
+    human: &Human,
+) -> Result<PluginUpdated, ExitCode> {
+    let params = serde_json::to_value(params).expect("invariant: plugin.update params serialize");
+    let result = run_operation(
+        engine,
+        dependencies,
+        reach,
+        &PLUGIN_UPDATE,
+        params,
+        false,
+        human,
+    )?;
+    serde_json::from_value(result).map_err(|error| {
+        tracing::error!(%error, "the engine's `plugin.update` answer does not read");
+        ExitCode::FAILURE
+    })
+}
+
+fn update_question(preview: &PluginUpdated) -> String {
+    let mut extras = Vec::new();
+    if preview.signer_changed {
+        extras.push("the changed signer");
+    }
+    if preview.diff.requires_approval {
+        extras.push("the added or widened permissions above");
+    }
+    if extras.is_empty() {
+        format!(
+            "Update the Plugin {} to {} at {}?",
+            preview.name, preview.version, preview.digest
+        )
+    } else {
+        format!(
+            "Update the Plugin {} to {} at {} and approve {}?",
+            preview.name,
+            preview.version,
+            preview.digest,
+            extras.join(" and ")
+        )
+    }
+}
+
+fn format_update_summary(preview: &PluginUpdated) -> String {
+    let mut text = format!(
+        "Update Plugin {}: {} -> {}\n  New digest: {}",
+        preview.name, preview.previous_version, preview.version, preview.digest
+    );
+    match &preview.signer {
+        Some(signer) => writeln!(text, "\n  Signer: {signer}"),
+        None => writeln!(text, "\n  Signer: unattested"),
+    }
+    .expect("invariant: writing into a String");
+    if preview.signer_changed {
+        let previous = preview.previous_signer.as_deref().unwrap_or("unknown");
+        writeln!(text, "  WARNING: Signer changed from {previous}")
+            .expect("invariant: writing into a String");
+    }
+    if preview.diff.is_empty() {
+        write!(text, "  Permission diff: unchanged").expect("invariant: writing into a String");
+        return text;
+    }
+    writeln!(text, "  Permission diff:").expect("invariant: writing into a String");
+    if !preview.diff.added.is_empty() {
+        writeln!(text, "    Added ({}):", preview.diff.added.len())
+            .expect("invariant: writing into a String");
+        for item in &preview.diff.added {
+            writeln!(
+                text,
+                "      + it may {}.\n        The engine cannot check {}.",
+                item.lets, item.cannot_check
+            )
+            .expect("invariant: writing into a String");
+        }
+    }
+    if !preview.diff.widened.is_empty() {
+        writeln!(text, "    Widened ({}):", preview.diff.widened.len())
+            .expect("invariant: writing into a String");
+        for item in &preview.diff.widened {
+            writeln!(text, "      ~ {}: {} -> {}", item.kind, item.from, item.to)
+                .expect("invariant: writing into a String");
+            if let Some(statement) = &item.statement {
+                writeln!(
+                    text,
+                    "        it may {}.\n        The engine cannot check {}.",
+                    statement.lets, statement.cannot_check
+                )
+                .expect("invariant: writing into a String");
+            }
+        }
+    }
+    if !preview.diff.removed.is_empty() {
+        writeln!(text, "    Removed ({}):", preview.diff.removed.len())
+            .expect("invariant: writing into a String");
+        for item in &preview.diff.removed {
+            writeln!(text, "      - it may {}.", item.lets)
+                .expect("invariant: writing into a String");
+        }
+    }
+    text.trim_end().to_owned()
 }
 
 /// Asks the person at the terminal to remove the Plugin `name` and calls

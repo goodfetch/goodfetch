@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Literal, TypeAlias
 
-AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "lent_page_attached", "operator_policy_written", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
+AuditKind: TypeAlias = Literal["audit_log_anchor", "audit_log_pruned", "certificate_any_used", "certificate_change_accepted", "certificate_exceptions_used", "certificate_pin_forgotten", "certificate_pinned", "consent_domain_allowed", "effect_reconciled", "endpoint_authentication_failed", "endpoint_refusals_folded", "exposed_daemon_set_up", "fingerprint_method_chosen", "lent_page_attached", "operator_policy_written", "politeness_weakened", "pressing_harder_value_set", "private_addresses_allowed", "raw_cdp_attached", "refetch_domain_removed", "run_rolled_back", "secret_reference_used", "security_switch_turned_off", "session_exported", "session_imported", "tls_terminated_upstream", "user_configuration_written", "wall_domain_denied"] | str
 """A `audit_kind`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -28,6 +28,7 @@ received (ADR 0079).
 - `fingerprint_method_chosen`: A `stealth` Session opened with a Fingerprint method: the Session, the method, whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035), and whether `stealth.allow_runtime` let its pages turn on the browser's `Runtime` domain.
 - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
 - `operator_policy_written`: A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.
+- `politeness_weakened`: A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).
 - `pressing_harder_value_set`: A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).
 - `private_addresses_allowed`: A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.
 - `raw_cdp_attached`: A raw CDP client attached to a Session's browser.

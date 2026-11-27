@@ -403,3 +403,7 @@ reason = "A Product's sequence may make each item asynchronously, such as a Reco
 [[announced]]
 entry = "typescript @goodfetch/foxhound DatasetRecord"
 reason = "`CrawlRun.records()` reads each Record as its Dataset's own output type (issue 1487, ADR 0103): `DatasetRecord` is generic in its value's type, `DatasetRecord<O>`, keeping the wire Record's members, and its `value` is read-only; the default `O` is the wire's JSON object, so a program that names `DatasetRecord` alone reads the same members."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated AuditKind"
+reason = "`politeness_weakened` joined Collie's `AuditKind` so Collie records a weakened `politeness.sharing` (ADR 0086, issue 643): Foxhound's `AuditKind` inherits it through `CollieAuditKind` instead of repeating the literal, keeping the same values."

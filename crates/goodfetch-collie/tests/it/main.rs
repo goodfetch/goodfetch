@@ -137,6 +137,7 @@ mod settings_flags;
 #[cfg(unix)]
 mod shedding;
 mod signing_key;
+mod site_preferences;
 mod skill_examples;
 mod skill_install;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]

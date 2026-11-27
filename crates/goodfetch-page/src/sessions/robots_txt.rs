@@ -25,13 +25,16 @@
 //! of the origin fetches again, and Provenance records it `not_read`, with
 //! its reason and no verdict.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, NotRead, RobotsTxt};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::page::{PageId, SessionId};
-use goodfetch_protocol::site_preferences::SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION;
+use goodfetch_protocol::site_preferences::{
+    SITE_PREFERENCES_PURPOSE, SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION,
+};
 use serde_json::{Value, json};
 use url::Url;
 
@@ -40,7 +43,7 @@ use crate::browser_fetch::{self, Body};
 use crate::browser_run::BrowserRun;
 use crate::interception::{EngineRequests, OnDocument};
 use crate::page_value::PageValue;
-use crate::robots_txt::{Group, applicable_rules};
+use crate::robots_txt::{Group, applicable_groups, applicable_rules};
 use crate::trace;
 
 /// How many redirects a robots.txt fetch follows: RFC 9309 §2.3.1.2's
@@ -58,6 +61,9 @@ pub(crate) struct Reader {
     value: PageValue,
     run: Arc<BrowserRun>,
     tasks: RunIdentity,
+    /// The Run's declared `site_preferences.purpose`, read once from the Run's
+    /// resolved settings (ADR 0016, ADR 0140).
+    purpose: Arc<str>,
 }
 
 impl OnDocument for Reader {
@@ -86,6 +92,13 @@ impl Reader {
                 .resolved()
                 .get::<bool>(&SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION)
         });
+        let purpose: Arc<str> = run
+            .identity
+            .settings()
+            .map_or("search", |settings| {
+                settings.resolved().get::<&str>(&SITE_PREFERENCES_PURPOSE)
+            })
+            .into();
         (reads && value.gate().is_none()).then(|| Self {
             sessions: sessions.clone(),
             page_id: page_id.clone(),
@@ -93,6 +106,7 @@ impl Reader {
             value: value.clone(),
             run: Arc::clone(run),
             tasks: tasks.clone(),
+            purpose,
         })
     }
 
@@ -125,6 +139,7 @@ impl Reader {
                 session: &reader.session,
                 url: &url,
                 location: &location,
+                purpose: &reader.purpose,
             };
             trace::provenance(&reader.run.trace, reading.entry(&fetched)).await;
         });
@@ -194,6 +209,8 @@ struct Reading<'a> {
     url: &'a Url,
     /// Its origin's robots.txt.
     location: &'a Url,
+    /// The Run's declared `site_preferences.purpose`.
+    purpose: &'a str,
 }
 
 impl Reading<'_> {
@@ -205,6 +222,7 @@ impl Reading<'_> {
             "page_id": self.page_id,
             "session_id": self.session,
             "url": self.url.as_str(),
+            "purpose": self.purpose,
             "robots_txt": self.location.as_str(),
             "group": null,
             "rule": null,
@@ -217,6 +235,10 @@ impl Reading<'_> {
                 if let Some((group, rule)) = decided {
                     entry["group"] = group;
                     entry["rule"] = rule;
+                }
+                let signals = content_signals_of(file);
+                if !signals.is_empty() {
+                    entry["content_signals"] = json!(signals);
                 }
             }
             Ok(Fetched::NotFound(status)) => {
@@ -263,4 +285,16 @@ fn judged(file: &RobotsTxt, url: &Url) -> (bool, Option<(Value, Value)>) {
         ))
     });
     (allowed, decided)
+}
+
+/// The `Content-Signal` values declared by the applicable groups of `file`,
+/// read from the already-parsed copy without fetching again.
+fn content_signals_of(file: &RobotsTxt) -> BTreeMap<String, bool> {
+    let mut signals = BTreeMap::new();
+    for group in applicable_groups(file.groups(), robots_txt::Group::user_agents, None) {
+        for (name, allowed) in group.content_signals() {
+            signals.insert(name.clone(), *allowed);
+        }
+    }
+    signals
 }

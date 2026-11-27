@@ -11,7 +11,7 @@ use crate::catalog::{
     Authority, Entries, ProtocolVersion, Setting, SharedType, SharedTypeValue, ValueKind,
 };
 use crate::foxhound::fetch::FETCH_HTTP_FROM;
-use crate::politeness::POLITENESS_SHARING;
+pub use crate::politeness::POLITENESS_WEAKENED;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -79,16 +79,6 @@ fn under_a_second(value: &Value) -> bool {
     shorter_than(value, 1_000)
 }
 
-/// The Audit log kind of a Politeness or Site-preferences value that
-/// presses a site harder than its built-in default (ADR 0086), which
-/// Foxhound's composition records once per run per key.
-pub const POLITENESS_WEAKENED: SharedTypeValue = SharedTypeValue {
-    shared_type: SharedType::AuditKind,
-    name: "politeness_weakened",
-    description: "A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).",
-    arrived_in: ARRIVED_IN,
-};
-
 /// A Politeness or Site-preferences key whose pressing-harder values
 /// Foxhound's composition records as [`POLITENESS_WEAKENED`], with the
 /// built-in default ADR 0086 measures them against.
@@ -107,16 +97,12 @@ fn one_second() -> Value {
 }
 
 /// The Politeness and Site-preferences keys whose pressing-harder values
-/// Foxhound's composition records as [`POLITENESS_WEAKENED`] (ADR 0086).
-pub const PRESSING_HARDER: [PressingHarder; 8] = [
+/// Foxhound's composition records as [`POLITENESS_WEAKENED`] (ADR 0086);
+/// `politeness.sharing` is registered by the engine for both Products.
+pub const PRESSING_HARDER: [PressingHarder; 7] = [
     PressingHarder {
         setting: &POLITENESS_DOMAIN_CONCURRENCY,
         built_in: one,
-    },
-    // Anything but `shared` presses harder (ADR 0086), against `shared`.
-    PressingHarder {
-        setting: &POLITENESS_SHARING,
-        built_in: POLITENESS_SHARING.default,
     },
     PressingHarder {
         setting: &POLITENESS_DOMAIN_DELAY,
@@ -541,5 +527,5 @@ pub const ENTRIES: Entries = Entries {
         FETCH_BLOCK_CLASSIFICATION,
     ],
     hook_stages: &[],
-    shared_type_values: &[POLITENESS_WEAKENED, FEATURE_SWITCHED_OFF],
+    shared_type_values: &[FEATURE_SWITCHED_OFF],
 };

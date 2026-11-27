@@ -15695,7 +15695,7 @@
       "arrived_in": "0.1",
       "description": "A run set a Politeness or Site-preferences value that presses a site harder than its built-in default, or a `site_preferences.robots_txt_user_agent`, once per run per key, with the key, its value, its built-in default and the layer that set it (ADR 0086).",
       "name": "politeness_weakened",
-      "product": "foxhound",
+      "product": "collie",
       "type": "audit_kind"
     },
     {

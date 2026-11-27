@@ -17,7 +17,7 @@ use goodfetch_engine::run_files::RunFiles;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::RunTrace;
-use goodfetch_engine::runs::{ReportWarnings, RunKeys, RunParts, RunSendWindow};
+use goodfetch_engine::runs::{Progress, ReportWarnings, RunKeys, RunParts, RunSendWindow};
 
 /// A live Run, as the page crate holds it: no method of its own reaches a
 /// power, each field is the power's value (ADR 0145).
@@ -44,6 +44,8 @@ pub struct BrowserRun {
     pub files: RunFiles,
     /// Its Run trace.
     pub trace: RunTrace,
+    /// Its progress, where live Human pauses appear (ADRs 0092 and 0102).
+    pub progress: Progress,
     /// Its send window, which its pages' commands mark before they go out.
     pub send_window: RunSendWindow,
     /// Its process Plugins, which its pages' Extractors start.
@@ -69,6 +71,7 @@ impl BrowserRun {
             own_robots_txt: parts.own_robots_txt.clone(),
             files: parts.files.clone(),
             trace: parts.trace.clone(),
+            progress: parts.progress.clone(),
             send_window: parts.send_window.clone(),
             plugins: Arc::clone(&parts.plugins),
             engine: engine.clone(),

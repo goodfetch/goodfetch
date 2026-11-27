@@ -59,6 +59,7 @@ pub mod dialog;
 pub mod events;
 pub mod functions;
 pub mod input;
+pub mod pause;
 pub mod proxy;
 pub mod read;
 pub mod request;
@@ -2027,6 +2028,8 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_WAIT_FOR_FUNCTION,
         LOCATOR_WAIT_FOR,
         LOCATOR_WAIT_FOR_COUNT,
+        pause::PAGE_PAUSE,
+        pause::PAGE_PAUSE_ANSWER,
     ],
     events: &[
         PAGE_DOWNLOAD,
@@ -2076,6 +2079,7 @@ pub const ENTRIES: Entries = Entries {
         PAGE_VALUE_INVALID,
         NOT_VERIFIED,
         PAGE_NAVIGATED_DURING_CALL,
+        pause::HUMAN_PAUSE_DECLINED,
     ],
     plugin_kinds: &[],
     metrics: &[],

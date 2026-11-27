@@ -1137,6 +1137,13 @@ export type PauseOrigin =
       step: EngineStep;
     };
 /**
+ * What ended a Human pause that succeeded (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PauseResolvedBy".
+ */
+export type PauseResolvedBy = "condition" | "person";
+/**
  * What judged a page: the Session's own Page check, or the built-in
  * detector of a Session that declares none (ADR 0006).
  *
@@ -1493,6 +1500,59 @@ export type PageField = ValueField | ListField | RowsField;
  */
 export type PageHandler = "route" | "dialog";
 /**
+ * A person's answer to a waiting Human pause (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PauseAnswer".
+ */
+export type PauseAnswer = "done" | "hand_back" | "decline";
+/**
+ * The condition that ends a Human pause by itself (ADR 0092): a locator
+ * becoming visible on the page, or the page's URL matching a `UrlMatcher`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PauseUntil".
+ */
+export type PauseUntil =
+  | {
+      kind: "visible";
+      /**
+       * The locator's selector.
+       */
+      selector: string;
+    }
+  | {
+      kind: "url";
+      /**
+       * The URL matcher, as `page.wait_for_url` takes it.
+       */
+      url: UrlMatcher;
+    };
+/**
+ * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
+ * one, or a regular expression in the `regex` crate's syntax. A predicate
+ * runs in the program, which routes every URL and falls back for the
+ * requests it does not match.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "UrlMatcher".
+ */
+export type UrlMatcher =
+  | {
+      kind: "glob";
+      /**
+       * The glob.
+       */
+      pattern: string;
+    }
+  | {
+      kind: "regex";
+      /**
+       * The expression's source.
+       */
+      pattern: string;
+    };
+/**
  * A header value that holds a Secret placeholder (ADR 0092). The value
  * the engine builds from the placeholder's is masked wherever the engine
  * returns, sends or keeps it, its Base64 in `Basic` included.
@@ -1522,30 +1582,6 @@ export type SecretHeader =
        * The user ID, which holds no colon.
        */
       username: string;
-    };
-/**
- * A URL pattern the engine matches (ADR 0081): a glob as Playwright reads
- * one, or a regular expression in the `regex` crate's syntax. A predicate
- * runs in the program, which routes every URL and falls back for the
- * requests it does not match.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "UrlMatcher".
- */
-export type UrlMatcher =
-  | {
-      kind: "glob";
-      /**
-       * The glob.
-       */
-      pattern: string;
-    }
-  | {
-      kind: "regex";
-      /**
-       * The expression's source.
-       */
-      pattern: string;
     };
 /**
  * Which way a value outside JSON was going.
@@ -5160,6 +5196,27 @@ export interface HumanPause {
   until?: string | null;
 }
 /**
+ * What `page.pause` answers once its condition holds or a person answers
+ * "Done" or "Hand back" (ADR 0092).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "HumanPauseResult".
+ */
+export interface HumanPauseResult {
+  /**
+   * Who answered, when a person ended it; absent when `until` ended it.
+   */
+  person?: string | null;
+  /**
+   * Whether the `until` condition or a person's answer ended the pause.
+   */
+  resolvedBy: PauseResolvedBy;
+  /**
+   * How long the pause waited, in milliseconds.
+   */
+  waited: number;
+}
+/**
  * An image of the page: an `<img src>`, in document order.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7431,6 +7488,71 @@ export interface PageParams {
    * count against it no more than against the setting.
    */
   timeout?: number | null;
+}
+/**
+ * What `page.pause_answer` takes: the paused page, the person's answer, and
+ * an optional note for `decline`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PagePauseAnswerParams".
+ */
+export interface PagePauseAnswerParams {
+  /**
+   * The person's answer.
+   */
+  answer: PauseAnswer;
+  /**
+   * The person's note, carried by `human_pause_declined` when declining.
+   */
+  note?: string | null;
+  /**
+   * The paused page.
+   */
+  pageId: PageId;
+}
+/**
+ * What `page.pause_answer` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PagePauseAnswered".
+ */
+export interface PagePauseAnswered {
+  /**
+   * Whether the waiting pause accepted the answer.
+   */
+  accepted: boolean;
+  /**
+   * Why the answer was not accepted, such as when `until` does not hold
+   * yet or no pause waits on the page.
+   */
+  reason?: string | null;
+}
+/**
+ * What `page.pause` takes: the page, why it waits, the optional `until`
+ * condition, and its optional `timeout`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PagePauseParams".
+ */
+export interface PagePauseParams {
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * Why the program paused, shown to the person.
+   */
+  reason?: string | null;
+  /**
+   * How long the pause may wait, in milliseconds, at least 1: absent for
+   * `timeout.human_pause`, `null` for no limit (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * The condition that ends the pause by itself; a person's "Done" or
+   * "Hand back" is accepted only while it holds.
+   */
+  until?: PauseUntil | null;
 }
 /**
  * What `page.popup` reports: the page that opened a popup, and the

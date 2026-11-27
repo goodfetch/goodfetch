@@ -775,6 +775,17 @@
       ]
     },
     {
+      "id": "command:page.pause",
+      "kind": "command",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:page.read",
       "kind": "command",
       "area": 11,
@@ -1968,6 +1979,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:human_pause_declined",
+      "kind": "error",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -4648,6 +4670,28 @@
     },
     {
       "id": "operation:page.on_dialog",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.pause",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:page.pause_answer",
       "kind": "operation",
       "area": 5,
       "milestone": null,

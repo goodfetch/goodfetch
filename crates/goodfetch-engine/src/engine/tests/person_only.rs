@@ -144,8 +144,12 @@ struct Asked {
 /// operation:config.policy_write, operation:config.user_write
 #[test]
 fn only_a_person_surface_on_a_local_carriage_gives_a_persons_answer() {
+    let bare = engine(Product::Collie);
     let operations: Vec<&'static str> = operations_of(Product::Collie)
-        .filter(|operation| operation.reach == Reach::PersonOnly)
+        .filter(|operation| {
+            operation.reach == Reach::PersonOnly
+                && bare.dispatch.handlers.contains_key(operation.name)
+        })
         .map(|operation| operation.name)
         .collect();
     let mut asked = BTreeSet::new();

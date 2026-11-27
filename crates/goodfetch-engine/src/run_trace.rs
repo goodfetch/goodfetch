@@ -66,8 +66,8 @@ use std::sync::{Arc, OnceLock};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::home::{
-    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PLUGIN_CALLS, RUN_TRACE_PROVENANCE,
-    RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
+    RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PAUSES, RUN_TRACE_PLUGIN_CALLS,
+    RUN_TRACE_PROVENANCE, RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
@@ -129,16 +129,18 @@ enum Log {
     Calls,
     Settings,
     PluginCalls,
+    Pauses,
 }
 
 impl Log {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 7] = [
         Self::Provenance,
         Self::Requests,
         Self::CdpCommands,
         Self::Calls,
         Self::Settings,
         Self::PluginCalls,
+        Self::Pauses,
     ];
 
     /// How many files the writer holds.
@@ -153,6 +155,7 @@ impl Log {
             Self::Calls => 3,
             Self::Settings => 4,
             Self::PluginCalls => 5,
+            Self::Pauses => 6,
         }
     }
 
@@ -165,6 +168,7 @@ impl Log {
             Self::Calls => RUN_TRACE_CALLS,
             Self::Settings => RUN_TRACE_SETTINGS,
             Self::PluginCalls => RUN_TRACE_PLUGIN_CALLS,
+            Self::Pauses => RUN_TRACE_PAUSES,
         }
     }
 }
@@ -251,6 +255,23 @@ impl RunTrace {
             return Ok(());
         }
         self.written_masked(Log::Provenance, &mut entry).await
+    }
+
+    /// Appends `entry`, one Human pause record (ADRs 0102 and 0113), as a line
+    /// of `trace/pauses.jsonl`, masked by the Run's `Mask` as a kept output,
+    /// and returns once it is written.
+    ///
+    /// # Errors
+    ///
+    /// When the writer cannot start, or the file cannot be opened or
+    /// written; the next entry opens it again.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never stops a line being written once it was
+    /// sent to the writer.
+    pub async fn pause(&self, mut entry: serde_json::Value) -> io::Result<()> {
+        self.written_masked(Log::Pauses, &mut entry).await
     }
 
     /// Appends `change`, a setting a resume changed (ADR 0102), as a line of

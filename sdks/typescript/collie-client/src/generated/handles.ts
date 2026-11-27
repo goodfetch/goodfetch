@@ -652,6 +652,16 @@ export class Page extends Handle implements AsyncDisposable {
   }
 
   /**
+   * Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
+   *
+   * @experimental
+   */
+  async pause(options: { readonly reason?: types.PagePauseParams["reason"] | undefined; readonly timeout?: types.PagePauseParams["timeout"] | undefined; readonly until?: types.PagePauseParams["until"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.HumanPauseResult> {
+    warnExperimental("page.pause");
+    return this.#host.call("page.pause", defined({ pageId: this.#host.id, reason: options.reason, timeout: timeoutOf(options.timeout, "timeout.human_pause"), until: options.until }), { signal: options.signal, deadline: { key: "timeout.human_pause", value: options.timeout } });
+  }
+
+  /**
    * Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
    *
    * @experimental

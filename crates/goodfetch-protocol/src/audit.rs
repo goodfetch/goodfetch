@@ -518,6 +518,13 @@ pub const AUDIT_LOG_PRUNED: SharedTypeValue = kind(
     "`audit.retention` pruned the Audit log's beginning: the last pruned sequence and its hash, which the anchor carries, and the retention, with the layer that set it.",
 );
 
+/// A Human pause ended by a person's answer or by its page or browser
+/// closing (ADR 0113).
+pub const HUMAN_PAUSE_ENDED: SharedTypeValue = kind(
+    "human_pause_ended",
+    "A Human pause ended by a person's answer (Done, Hand back or Decline) or by its page or browser closing outside every Client (ADR 0113).",
+);
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -551,5 +558,6 @@ pub const ENTRIES: Entries = Entries {
         EXPOSED_DAEMON_SET_UP,
         PRESSING_HARDER_VALUE_SET,
         RUN_ROLLED_BACK,
+        HUMAN_PAUSE_ENDED,
     ],
 };

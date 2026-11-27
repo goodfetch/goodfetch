@@ -1638,7 +1638,9 @@ fn watch_safe_points(run: &LiveRun, timeout: Option<Duration>, ended_by: EndedBy
             let clock = timed.identity.clock();
             tokio::select! {
                 () = timed.owner.cancelled() => {}
-                () = clock.sleep(timeout) => stop_at_safe_point(&timed, StopReason::Timeout),
+                () = timed.shared.progress.sleep_unpaused(&clock, timeout) => {
+                    stop_at_safe_point(&timed, StopReason::Timeout);
+                }
             }
         });
     }

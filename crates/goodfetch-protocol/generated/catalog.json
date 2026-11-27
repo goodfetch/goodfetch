@@ -767,6 +767,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person declined the step `page.pause()` asked for, rather than finishing it. The details name the person and their note, when they gave one; the page stays open.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "human_pause_declined",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A bug in Goodfetch: an object such as a Session or a page received an event its state cannot receive. Report it with the object, the state and the event its details carry.",
       "details": {
         "$ref": "#/$defs/InternalDetails"
@@ -4642,6 +4652,44 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/DialogsEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.pause",
+      "params": {
+        "$ref": "#/$defs/PagePauseParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/HumanPauseResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Answers a Human pause waiting on a page as a person: `done` or `hand_back` (accepted only while `until` holds, or at once when there is no `until`) ends the pause and returns `HumanPauseResult`; `decline` ends it with `human_pause_declined` carrying the note. Offered only on a person's Client.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.pause_answer",
+      "params": {
+        "$ref": "#/$defs/PagePauseAnswerParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PagePauseAnswered"
       },
       "stability": "experimental"
     },
@@ -14275,10 +14323,10 @@
     {
       "arrived_in": "0.1",
       "authority": "every",
-      "clearable": false,
+      "clearable": true,
       "default": 86400000,
       "deprecated": null,
-      "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+      "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
       "fixed_for_run": false,
       "name": "timeout.human_pause",
       "product": "collie",
@@ -15159,6 +15207,13 @@
       "name": "human_input_fallback",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Human pause ended by a person's answer (Done, Hand back or Decline) or by its page or browser closing outside every Client (ADR 0113).",
+      "name": "human_pause_ended",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

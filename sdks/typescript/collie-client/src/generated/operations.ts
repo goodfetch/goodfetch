@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, HumanPauseResult, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PagePauseParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -64,6 +64,7 @@ export interface CollieOperationTypes {
   "page.mouse.wheel": { params: MouseWheelParams; result: Acted };
   "page.on": { params: PageOnParams; result: PageOnEnded };
   "page.on_dialog": { params: PageOnDialogParams; result: DialogsEnded };
+  "page.pause": { params: PagePauseParams; result: HumanPauseResult };
   "page.read": { params: PageReadParams; result: PageRead };
   "page.reload": { params: PageParams; result: Navigated };
   "page.request": { params: PageRequestParams; result: PageResponse };
@@ -173,6 +174,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "page.mouse.wheel": { experimental: true, deprecated: undefined },
   "page.on": { experimental: true, deprecated: undefined },
   "page.on_dialog": { experimental: true, deprecated: undefined },
+  "page.pause": { experimental: true, deprecated: undefined },
   "page.read": { experimental: true, deprecated: undefined },
   "page.reload": { experimental: true, deprecated: undefined },
   "page.request": { experimental: true, deprecated: undefined },
@@ -282,6 +284,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "page.mouse.wheel": "page.mouse.wheel",
   "page.on": "page.on",
   "page.on_dialog": "page.onDialog",
+  "page.pause": "page.pause",
   "page.read": "page.read",
   "page.reload": "page.reload",
   "page.request": "page.request",
@@ -391,6 +394,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "page.mouse.wheel": "effect",
   "page.on": "read",
   "page.on_dialog": "idempotent_write",
+  "page.pause": "effect",
   "page.read": "read",
   "page.reload": "effect",
   "page.request": "effect",
@@ -986,6 +990,16 @@ export class CollieOperations {
   pageOnDialog(params: PageOnDialogParams, options: CallOptions = {}): Promise<DialogsEnded> {
     warnExperimental("page.on_dialog");
     return this.#caller.call("page.on_dialog", params, options);
+  }
+
+  /**
+   * Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
+   *
+   * @experimental
+   */
+  pagePause(params: PagePauseParams, options: CallOptions = {}): Promise<HumanPauseResult> {
+    warnExperimental("page.pause");
+    return this.#caller.call("page.pause", params, options);
   }
 
   /**

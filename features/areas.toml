@@ -1168,6 +1168,17 @@ number = 5
 kind = "error"
 prefix = "logged_out"
 
+# The Human pause (#732, ADRs 0092 and 0113).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.pause"
+
+[[area]]
+number = 5
+kind = "error"
+prefix = "human_pause_declined"
+
 # A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
 # and 0092).
 [[area]]

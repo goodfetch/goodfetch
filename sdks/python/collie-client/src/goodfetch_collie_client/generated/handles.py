@@ -511,6 +511,23 @@ class AsyncPage(AsyncHandle):
         response = result_of(models.Navigated, await self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
         return None if response is None else AsyncResponse(self._host, response)
 
+    async def pause(self, *, reason: str | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, until: models.PauseUntil | None | NotGiven = not_given) -> models.HumanPauseResult:
+        """Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
+
+        Left out, `timeout` takes the Run's `timeout.human_pause`, by default `timedelta(days=1)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.pause")
+        params = models.PagePauseParams(page_id=self._host.id)
+        if not isinstance(reason, NotGiven):
+            params.reason = reason
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.human_pause")
+        if not isinstance(until, NotGiven):
+            params.until = until
+        return result_of(models.HumanPauseResult, await self._host.call("page.pause", params, timeout_setting="timeout.human_pause"))
+
     async def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
 
@@ -1313,6 +1330,23 @@ class Page(Handle):
             params.wait_until = None if wait_until is None else models.WaitUntil(wait_until)
         response = result_of(models.Navigated, self._host.call("page.goto", params, timeout_setting="timeout.navigation")).response
         return None if response is None else Response(self._host, response)
+
+    def pause(self, *, reason: str | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, until: models.PauseUntil | None | NotGiven = not_given) -> models.HumanPauseResult:
+        """Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
+
+        Left out, `timeout` takes the Run's `timeout.human_pause`, by default `timedelta(days=1)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.pause")
+        params = models.PagePauseParams(page_id=self._host.id)
+        if not isinstance(reason, NotGiven):
+            params.reason = reason
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.human_pause")
+        if not isinstance(until, NotGiven):
+            params.until = until
+        return result_of(models.HumanPauseResult, self._host.call("page.pause", params, timeout_setting="timeout.human_pause"))
 
     def read(self, fields: dict[str, models.PageField]) -> models.PageRead:
         """Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.

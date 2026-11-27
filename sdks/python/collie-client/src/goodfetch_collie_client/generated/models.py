@@ -2514,6 +2514,21 @@ class PageParams(BaseModel):
     """
 
 
+class PagePauseAnswered(BaseModel):
+    """What `page.pause_answer` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    accepted: bool
+    """Whether the waiting pause accepted the answer."""
+    reason: str | None = None
+    """
+    Why the answer was not accepted, such as when `until` does not hold
+    yet or no pause waits on the page.
+    """
+
+
 class PageRequestParams(BaseModel):
     """
     What `page.request` takes: the page whose Session sends the request, and
@@ -2778,6 +2793,26 @@ class PatternUnsupportedDetails(BaseModel):
     """The pattern as the call passed it."""
 
 
+class PauseAnswer(StrEnum):
+    """A person's answer to a waiting Human pause (ADR 0092)."""
+
+    done = "done"
+    """
+    The person finished the step: accepted only while `until` holds (or
+    at once when the pause has no `until`).
+    """
+    hand_back = "hand_back"
+    """
+    The person handed control back: ends a program's pause as `done`
+    does.
+    """
+    decline = "decline"
+    """
+    The person declined the step: ends the pause with
+    `human_pause_declined` carrying their note.
+    """
+
+
 class PauseOrigin1(BaseModel):
     """The program, with `page.pause()`."""
 
@@ -2801,6 +2836,26 @@ class PauseOrigin2(BaseModel):
 class PauseOrigin(RootModel[PauseOrigin1 | PauseOrigin2]):
     root: PauseOrigin1 | PauseOrigin2
     """Who raised a Human pause."""
+
+
+class PauseResolvedBy(StrEnum):
+    """What ended a Human pause that succeeded (ADR 0092)."""
+
+    condition = "condition"
+    """Its `until` condition held."""
+    person = "person"
+    """A person answered "Done" or "Hand back"."""
+
+
+class PauseUntil1(BaseModel):
+    """A locator on the page becomes visible."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["visible"]
+    selector: str
+    """The locator's selector."""
 
 
 class PaymentMark(BaseModel):
@@ -6946,6 +7001,23 @@ class HumanPause(BaseModel):
     """The condition that ends it by itself, as text."""
 
 
+class HumanPauseResult(BaseModel):
+    """
+    What `page.pause` answers once its condition holds or a person answers
+    "Done" or "Hand back" (ADR 0092).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    person: str | None = None
+    """Who answered, when a person ended it; absent when `until` ended it."""
+    resolved_by: PauseResolvedBy
+    """Whether the `until` condition or a person's answer ended the pause."""
+    waited: Annotated[int, Field(ge=0)]
+    """How long the pause waited, in milliseconds."""
+
+
 class KeyValueStoreBytes(BaseModel):
     """Bytes the store holds for a key, with their content type."""
 
@@ -7864,6 +7936,23 @@ class PageOpened(BaseModel):
     """Its Session: the Run's default Session for `run.new_page`."""
 
 
+class PagePauseAnswerParams(BaseModel):
+    """
+    What `page.pause_answer` takes: the paused page, the person's answer, and
+    an optional note for `decline`.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: PauseAnswer
+    """The person's answer."""
+    note: str | None = None
+    """The person's note, carried by `human_pause_declined` when declining."""
+    page_id: PageId
+    """The paused page."""
+
+
 class PagePopup(BaseModel):
     """
     What `page.popup` reports: the page that opened a popup, and the
@@ -7963,6 +8052,25 @@ class PageValueInvalidDetails(BaseModel):
     """
     Where the first value outside JSON is, from `$`, the whole value,
     such as `$.rows[2].cell`.
+    """
+
+
+class PauseUntil2(BaseModel):
+    """The page's URL matches `url`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["url"]
+    url: UrlMatcher
+    """The URL matcher, as `page.wait_for_url` takes it."""
+
+
+class PauseUntil(RootModel[PauseUntil1 | PauseUntil2]):
+    root: PauseUntil1 | PauseUntil2
+    """
+    The condition that ends a Human pause by itself (ADR 0092): a locator
+    becoming visible on the page, or the page's URL matching a `UrlMatcher`.
     """
 
 
@@ -9761,6 +9869,31 @@ class PageExchange(BaseModel):
 class PageField(RootModel[ValueField | ListField | RowsField]):
     root: ValueField | ListField | RowsField
     """One named field (ADR 0147): a value field, a list or rows."""
+
+
+class PagePauseParams(BaseModel):
+    """
+    What `page.pause` takes: the page, why it waits, the optional `until`
+    condition, and its optional `timeout`.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    reason: str | None = None
+    """Why the program paused, shown to the person."""
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the pause may wait, in milliseconds, at least 1: absent for
+    `timeout.human_pause`, `null` for no limit (ADR 0080).
+    """
+    until: PauseUntil | None = None
+    """
+    The condition that ends the pause by itself; a person's "Done" or
+    "Hand back" is accepted only while it holds.
+    """
 
 
 class PageRead(BaseModel):

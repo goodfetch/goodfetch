@@ -72,6 +72,7 @@ export type CollieWireType =
   | "HelloResult"
   | "HookFailedDetails"
   | "HumanPause"
+  | "HumanPauseResult"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
   | "KeyValueStoreBytesValue"
@@ -137,6 +138,8 @@ export type CollieWireType =
   | "PageOnParams"
   | "PageOpened"
   | "PageParams"
+  | "PagePauseAnswerParams"
+  | "PagePauseParams"
   | "PagePopup"
   | "PageReadParams"
   | "PageRequest"
@@ -312,6 +315,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
+    "HumanPauseResult": { fields: { "resolved_by": "resolvedBy" } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },
     "KeyValueStoreBytesValue": { fields: { "bytes": ["bytes", { type: "KeyValueStoreBytes" }] } },
@@ -377,6 +381,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PageOnParams": { fields: { "page_id": "pageId" } },
     "PageOpened": { fields: { "page_id": "pageId", "session_id": "sessionId" } },
     "PageParams": { fields: { "page_id": "pageId" } },
+    "PagePauseAnswerParams": { fields: { "page_id": "pageId" } },
+    "PagePauseParams": { fields: { "page_id": "pageId" } },
     "PagePopup": { fields: { "page_id": "pageId", "popup": ["popup", { type: "PageOpened" }] } },
     "PageReadParams": { fields: { "fields": ["fields", { values: { type: "PageField" } }], "page_id": "pageId" } },
     "PageRequest": { fields: { "failure": ["failure", { type: "RequestFailure" }], "is_navigation_request": "isNavigationRequest", "page_id": "pageId", "post_data": "postData", "redirect_chain": "redirectChain", "redirected_from": "redirectedFrom", "request_id": "requestId", "resource_type": "resourceType" } },
@@ -528,6 +534,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.mouse.wheel": { type: "MouseWheelParams" },
     "page.on": { type: "PageOnParams" },
     "page.on_dialog": { type: "PageOnDialogParams" },
+    "page.pause": { type: "PagePauseParams" },
     "page.read": { type: "PageReadParams" },
     "page.reload": { type: "PageParams" },
     "page.request": { type: "PageRequestParams" },
@@ -594,6 +601,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.go_back": { type: "Navigated" },
     "page.go_forward": { type: "Navigated" },
     "page.goto": { type: "Navigated" },
+    "page.pause": { type: "HumanPauseResult" },
     "page.reload": { type: "Navigated" },
     "page.request": { type: "PageResponse" },
     "page.wait_for_request": { type: "PageRequest" },

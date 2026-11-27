@@ -1700,10 +1700,10 @@ pub mod timeout {
         ],
     );
 
-    /// How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.
+    /// How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.
     ///
-    /// `timeout.human_pause`.
-    pub const HUMAN_PAUSE: crate::settings::Setting<::std::time::Duration> =
+    /// `timeout.human_pause`. `None` clears it.
+    pub const HUMAN_PAUSE: crate::settings::Setting<Option<::std::time::Duration>> =
         crate::settings::Setting::new(
             "timeout.human_pause",
             &[

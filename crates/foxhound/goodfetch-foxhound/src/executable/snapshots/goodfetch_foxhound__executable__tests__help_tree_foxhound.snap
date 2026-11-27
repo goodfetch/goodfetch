@@ -1268,6 +1268,7 @@ Commands:
   mouse.wheel           Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085)
   touchscreen.tap       Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085)
   close                 Closes the page, a popup as any other: its calls in flight raise `call_cancelled` naming the program, it emits `close`, and a later call on it raises `closed`, while closing it again changes nothing. Its `beforeunload` handlers do not run unless `run_before_unload` is set: the page then closes once they let it, a dialog they raise going to its dialog handlers, and the call answers without waiting for that
+  pause                 Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1608,6 +1609,24 @@ Options:
       --daemon                          Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>                    When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                            Print help
+
+$ goodfetch-foxhound page pause --help
+Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`
+
+Usage: goodfetch-foxhound page pause [OPTIONS] <PAGE_ID>
+
+Arguments:
+  <PAGE_ID>  The page
+
+Options:
+      --reason <REASON>     Why the program paused, shown to the person
+      --timeout <DURATION>  How long the pause may wait, in milliseconds, at least 1: absent for `timeout.human_pause`, `null` for no limit (ADR 0080)
+      --until <UNTIL>       The condition that ends the pause by itself; a person's "Done" or "Hand back" is accepted only while it holds
+      --json                Prints the result as JSON
+      --attached            Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help                Print help
 
 $ goodfetch-foxhound locator --help
 Calls the catalog's `locator` operations

@@ -11,7 +11,7 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::run::{
     HumanPause, Lifecycle, ProgressMessage, RUN_PROGRESS, RunId, RunProgress, RunStorage,
@@ -285,6 +285,44 @@ impl Progress {
         PauseHeld {
             progress: self.clone(),
             id,
+        }
+    }
+
+    /// Sleeps `remaining` on `clock`, counting only time when no Human pause
+    /// is active on this Run (ADRs 0080 and 0092): every enclosing clock
+    /// stops while a Human pause waits and resumes once it ends.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops the wait.
+    pub async fn sleep_unpaused(&self, clock: &Clock, mut remaining: Duration) {
+        let mut changes = self.changes.subscribe();
+        loop {
+            if remaining.is_zero() {
+                return;
+            }
+            if !changes.borrow_and_update().pauses.is_empty() {
+                if changes
+                    .wait_for(|progressing| progressing.pauses.is_empty())
+                    .await
+                    .is_err()
+                {
+                    std::future::pending::<()>().await;
+                }
+                continue;
+            }
+            let started = clock.now();
+            tokio::select! {
+                biased;
+                () = clock.sleep(remaining) => return,
+                updated = changes.changed() => {
+                    remaining = remaining.saturating_sub(clock.now().saturating_duration_since(started));
+                    if updated.is_err() {
+                        clock.sleep(remaining).await;
+                        return;
+                    }
+                }
+            }
         }
     }
 }

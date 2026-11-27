@@ -688,11 +688,11 @@ export interface Settings {
      */
     readonly hook?: number;
     /**
-     * How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.
+     * How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.
      *
      * `timeout.human_pause`.
      */
-    readonly humanPause?: number;
+    readonly humanPause?: number | null;
     /**
      * How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.
      *
@@ -1432,11 +1432,11 @@ export interface RunSettings {
      */
     readonly hook?: number;
     /**
-     * How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.
+     * How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.
      *
      * `timeout.human_pause`.
      */
-    readonly humanPause?: number;
+    readonly humanPause?: number | null;
     /**
      * How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.
      *

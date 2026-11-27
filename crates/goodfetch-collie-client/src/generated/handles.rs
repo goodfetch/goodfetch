@@ -996,6 +996,33 @@ impl Page {
         })
     }
 
+    /// Waits for a person in the headful window or the Live view, stopping every enclosing clock while Limits keep counting, holding the page's later Gestures while reads and waits run, and ending when `until` holds or a person answers `page.pause_answer` (ADRs 0092 and 0113). Closing the page's window or quitting the browser ends the pause with `call_cancelled` naming what closed, never `human_pause_declined`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn pause(
+        &self,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::pause::HumanPauseResult>,
+        ::goodfetch_protocol::page::pause::PagePauseParams,
+    > {
+        crate::markers::warn("page.pause", true, None);
+        self.host
+            .call(
+                "page.pause",
+                ::goodfetch_protocol::page::pause::PagePauseParams {
+                    page_id: self.host.id().clone(),
+                    reason: None,
+                    until: None,
+                    timeout: None,
+                },
+            )
+            .wire_timeout("timeout.human_pause")
+    }
+
     /// Reads the named fields from the page's current document in one call and answers each one's value: a value field's from the first element its CSS or XPath locator finds, its text or one attribute, optionally a `match` group, then its Value transform; a list's from every element its locator finds; rows' from each element a base locator finds, each row one object of its fields read under that element. A value the page does not give is null, and `unread` names it with why: a row lacking a field keeps its other fields. It never waits: an absent element is an answer. It needs neither layout nor pixels, so every tier serves it, and in the browser it is one read of the page whatever the number of fields.
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
@@ -1729,6 +1756,18 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::input::MouseMoveParams> {
     /// last on the point; none for one, as `0` is. At most 1000.
     pub fn steps(self, steps: u32) -> Self {
         self.edit(move |params| params.steps = Some(steps))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::pause::PagePauseParams> {
+    /// Why the program paused, shown to the person.
+    pub fn reason(self, reason: impl Into<String>) -> Self {
+        self.edit(move |params| params.reason = Some(reason.into()))
+    }
+    /// The condition that ends the pause by itself; a person's "Done" or
+    /// "Hand back" is accepted only while it holds.
+    pub fn until(self, until: ::goodfetch_protocol::page::pause::PauseUntil) -> Self {
+        self.edit(move |params| params.until = Some(until))
     }
 }
 

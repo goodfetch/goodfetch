@@ -581,6 +581,14 @@ class HookFailedError(ProgramError):
         self.typed_details = details_of(HookFailedDetails, self.details)
 
 
+class HumanPauseDeclinedError(RefusedError):
+    """A person declined the step `page.pause()` asked for, rather than finishing it. The details name the person and their note, when they gave one; the page stays open."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="human_pause_declined", group="refused", retryable=False, **fields)
+
+
 class LimitNotUnderstoodError(RefusedError):
     """A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine."""
 
@@ -1619,6 +1627,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "format_version_unsupported": FormatVersionUnsupportedError,
     "header_value_invalid": HeaderValueInvalidError,
     "hook_failed": HookFailedError,
+    "human_pause_declined": HumanPauseDeclinedError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,

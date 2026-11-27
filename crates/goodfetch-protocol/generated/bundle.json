@@ -9756,6 +9756,36 @@
       ],
       "type": "object"
     },
+    "HumanPauseResult": {
+      "description": "What `page.pause` answers once its condition holds or a person answers\n\"Done\" or \"Hand back\" (ADR 0092).",
+      "properties": {
+        "person": {
+          "arrived_in": "0.1",
+          "description": "Who answered, when a person ended it; absent when `until` ended it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resolved_by": {
+          "$ref": "#/$defs/PauseResolvedBy",
+          "arrived_in": "0.1",
+          "description": "Whether the `until` condition or a person's answer ended the pause."
+        },
+        "waited": {
+          "arrived_in": "0.1",
+          "description": "How long the pause waited, in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "resolved_by",
+        "waited"
+      ],
+      "type": "object"
+    },
     "Image": {
       "additionalProperties": false,
       "description": "An image of the page: an `<img src>`, in document order.",
@@ -16462,6 +16492,111 @@
       ],
       "type": "object"
     },
+    "PagePauseAnswerParams": {
+      "additionalProperties": false,
+      "description": "What `page.pause_answer` takes: the paused page, the person's answer, and\nan optional note for `decline`.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "answer": {
+          "$ref": "#/$defs/PauseAnswer",
+          "arrived_in": "0.1",
+          "description": "The person's answer."
+        },
+        "note": {
+          "arrived_in": "0.1",
+          "description": "The person's note, carried by `human_pause_declined` when declining.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The paused page."
+        }
+      },
+      "required": [
+        "page_id",
+        "answer"
+      ],
+      "type": "object"
+    },
+    "PagePauseAnswered": {
+      "description": "What `page.pause_answer` answers.",
+      "properties": {
+        "accepted": {
+          "arrived_in": "0.1",
+          "description": "Whether the waiting pause accepted the answer.",
+          "type": "boolean"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the answer was not accepted, such as when `until` does not hold\nyet or no pause waits on the page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accepted"
+      ],
+      "type": "object"
+    },
+    "PagePauseParams": {
+      "additionalProperties": false,
+      "description": "What `page.pause` takes: the page, why it waits, the optional `until`\ncondition, and its optional `timeout`.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the program paused, shown to the person.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the pause may wait, in milliseconds, at least 1: absent for\n`timeout.human_pause`, `null` for no limit (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.human_pause",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "until": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PauseUntil"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The condition that ends the pause by itself; a person's \"Done\" or\n\"Hand back\" is accepted only while it holds."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
     "PagePopup": {
       "description": "What `page.popup` reports: the page that opened a popup, and the\npopup, a page of the same Session.",
       "properties": {
@@ -17182,6 +17317,26 @@
       ],
       "type": "object"
     },
+    "PauseAnswer": {
+      "description": "A person's answer to a waiting Human pause (ADR 0092).",
+      "oneOf": [
+        {
+          "const": "done",
+          "description": "The person finished the step: accepted only while `until` holds (or\nat once when the pause has no `until`).",
+          "type": "string"
+        },
+        {
+          "const": "hand_back",
+          "description": "The person handed control back: ends a program's pause as `done`\ndoes.",
+          "type": "string"
+        },
+        {
+          "const": "decline",
+          "description": "The person declined the step: ends the pause with\n`human_pause_declined` carrying their note.",
+          "type": "string"
+        }
+      ]
+    },
     "PauseOrigin": {
       "description": "Who raised a Human pause.",
       "oneOf": [
@@ -17214,6 +17369,64 @@
           "required": [
             "by",
             "step"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PauseResolvedBy": {
+      "description": "What ended a Human pause that succeeded (ADR 0092).",
+      "oneOf": [
+        {
+          "const": "condition",
+          "description": "Its `until` condition held.",
+          "type": "string"
+        },
+        {
+          "const": "person",
+          "description": "A person answered \"Done\" or \"Hand back\".",
+          "type": "string"
+        }
+      ]
+    },
+    "PauseUntil": {
+      "description": "The condition that ends a Human pause by itself (ADR 0092): a locator\nbecoming visible on the page, or the page's URL matching a `UrlMatcher`.",
+      "oneOf": [
+        {
+          "description": "A locator on the page becomes visible.",
+          "properties": {
+            "kind": {
+              "const": "visible",
+              "type": "string"
+            },
+            "selector": {
+              "arrived_in": "0.1",
+              "description": "The locator's selector.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The page's URL matches `url`.",
+          "properties": {
+            "kind": {
+              "const": "url",
+              "type": "string"
+            },
+            "url": {
+              "$ref": "#/$defs/UrlMatcher",
+              "arrived_in": "0.1",
+              "description": "The URL matcher, as `page.wait_for_url` takes it."
+            }
+          },
+          "required": [
+            "kind",
+            "url"
           ],
           "type": "object"
         }
@@ -30036,9 +30249,17 @@
                     "type": "integer"
                   },
                   "human_pause": {
-                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
-                    "minimum": 0,
-                    "type": "integer"
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts."
                   },
                   "launch": {
                     "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
@@ -34420,9 +34641,17 @@
                     "type": "integer"
                   },
                   "human_pause": {
-                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
-                    "minimum": 0,
-                    "type": "integer"
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts."
                   },
                   "launch": {
                     "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
@@ -38920,9 +39149,17 @@
                     "type": "integer"
                   },
                   "human_pause": {
-                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
-                    "minimum": 0,
-                    "type": "integer"
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts."
                   },
                   "launch": {
                     "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",
@@ -43436,9 +43673,17 @@
                     "type": "integer"
                   },
                   "human_pause": {
-                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
-                    "minimum": 0,
-                    "type": "integer"
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts."
                   },
                   "launch": {
                     "description": "How long a browser the engine launches, or a Borrowed one it connects to, may leave each command of its bring-up unanswered, its identity read's page load included, before the call that needs it fails with `deadline_exceeded`: 30 s, Playwright's default.",

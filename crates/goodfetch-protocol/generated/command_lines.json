@@ -381,6 +381,10 @@
           {
             "commands": [],
             "name": "close"
+          },
+          {
+            "commands": [],
+            "name": "pause"
           }
         ],
         "name": "page"
@@ -917,6 +921,10 @@
           {
             "commands": [],
             "name": "close"
+          },
+          {
+            "commands": [],
+            "name": "pause"
           }
         ],
         "name": "page"

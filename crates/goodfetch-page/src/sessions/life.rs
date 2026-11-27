@@ -301,12 +301,16 @@ impl PageLife {
         work: impl Future<Output = Result<T, CallError>>,
     ) -> Result<T, CallError> {
         let _in_flight = InFlight::new(&self.shared.calls);
-        let navigation = self.admit(event).await?;
-        let mut navigated = navigation.map(|number| Navigated {
-            life: self,
-            number,
-            committed: false,
-        });
+        let admitted = self.admit(event).await?;
+        let mut navigated = match admitted {
+            Admitted::Navigation(number) => Some(Navigated {
+                life: self,
+                number,
+                committed: false,
+            }),
+            Admitted::Other | Admitted::Paused => None,
+        };
+        let _paused = matches!(admitted, Admitted::Paused).then(|| Paused { life: self });
         let mut ended = self.shared.ended.subscribe();
         let mut work = std::pin::pin!(work);
         tokio::select! {
@@ -330,7 +334,7 @@ impl PageLife {
     /// pending navigation (P14), which gives up its turn while one of the
     /// page's requests waits on a route handler, so a handler's gesture
     /// never deadlocks the navigation whose request it answers (ADR 0085).
-    async fn admit(&self, event: PageEvent) -> Result<Option<u64>, CallError> {
+    async fn admit(&self, event: PageEvent) -> Result<Admitted, CallError> {
         let mut state = self.shared.state.subscribe();
         let mut routed = self.shared.routed.clone();
         // A count no route table holds any more never changes again.
@@ -351,28 +355,42 @@ impl PageLife {
                     }
                     outcome => outcome,
                 };
-                let served = matches!(outcome, Ok((_, PageEffect::Serve | PageEffect::Interrupt)));
-                let navigation = (served && event == PageEvent::Goto).then(|| {
-                    self.shared.navigation.send_modify(|latest| *latest += 1);
-                    *self.shared.navigation.borrow()
-                });
+                let admitted = matches!(
+                    outcome,
+                    Ok((
+                        _,
+                        PageEffect::Serve | PageEffect::Interrupt | PageEffect::Pause
+                    ))
+                );
+                let token = match outcome {
+                    Ok((_, PageEffect::Pause)) => Admitted::Paused,
+                    Ok((_, PageEffect::Serve | PageEffect::Interrupt))
+                        if event == PageEvent::Goto =>
+                    {
+                        self.shared.navigation.send_modify(|latest| *latest += 1);
+                        Admitted::Navigation(*self.shared.navigation.borrow())
+                    }
+                    _ => Admitted::Other,
+                };
                 let before = *now;
                 let changed = match outcome {
-                    Ok((next, _)) if served && next != *now => {
+                    Ok((next, _)) if admitted && next != *now => {
                         *now = next;
                         true
                     }
                     Ok(_) | Err(_) => false,
                 };
-                asked = Some((before, outcome, navigation));
+                asked = Some((before, outcome, token));
                 changed
             });
-            let (now, outcome, navigation) = asked.expect("invariant: the table was asked");
+            let (now, outcome, token) = asked.expect("invariant: the table was asked");
             match outcome {
                 // A second navigation runs: the engine's navigation code
                 // interrupts the pending one, which raises
                 // `navigation_interrupted` (P37).
-                Ok((_, PageEffect::Serve | PageEffect::Interrupt)) => return Ok(navigation),
+                Ok((_, PageEffect::Serve | PageEffect::Interrupt | PageEffect::Pause)) => {
+                    return Ok(token);
+                }
                 Ok((_, PageEffect::Wait)) => {
                     waited = true;
                     tokio::select! {
@@ -387,7 +405,6 @@ impl PageLife {
                     | PageEffect::FailNavigation
                     | PageEffect::Judge
                     | PageEffect::Defer
-                    | PageEffect::Pause
                     | PageEffect::EndPause
                     | PageEffect::Close
                     | PageEffect::ClosedInBrowser
@@ -412,6 +429,23 @@ impl PageLife {
                 }
             }
         }
+    }
+
+    /// Its Human pause ended: leaves `Paused` for `Open` (`PauseEnded`),
+    /// waking any waiting Gesture, navigation or second pause.
+    fn pause_ended(&self) {
+        self.shared.state.send_if_modified(|state| {
+            if *state != PageState::Paused {
+                return false;
+            }
+            match lifecycle::page(*state, PageEvent::PauseEnded) {
+                Ok((next, _)) if next != *state => {
+                    *state = next;
+                    true
+                }
+                Ok(_) | Err(_) => false,
+            }
+        });
     }
 
     /// Its navigation call `number` ended, `committed` or not: once it is
@@ -581,6 +615,28 @@ struct Navigated<'a> {
 impl Drop for Navigated<'_> {
     fn drop(&mut self) {
         self.life.navigated(self.number, self.committed);
+    }
+}
+
+/// What [`PageLife::admit`] returned for the admitted call.
+enum Admitted {
+    /// A navigation call with its sequence number.
+    Navigation(u64),
+    /// A Human pause call that moved the page into `Paused`.
+    Paused,
+    /// Any other admitted call.
+    Other,
+}
+
+/// A Human pause on a page, which leaves `Paused` for `Open` once it ends,
+/// its future dropped included.
+struct Paused<'a> {
+    life: &'a PageLife,
+}
+
+impl Drop for Paused<'_> {
+    fn drop(&mut self) {
+        self.life.pause_ended();
     }
 }
 

@@ -998,10 +998,6 @@ impl InBrowser {
     /// item's lease, held by `PageHold::Held`, or a person in the Live view,
     /// by `PageHold::Person`, whose Run the governor's last resort stops
     /// last (ADR 0040).
-    #[expect(
-        dead_code,
-        reason = "the Human pause, the Live view and raw CDP attach hold a page once their tickets land (#978)"
-    )]
     pub(crate) fn hold(&self, by: PageHold) -> Hold {
         let mut browsers = lock(&self.pool.shared.browsers);
         if let Some(pooled) = browsers.list.get_mut(&self.number) {
@@ -1043,10 +1039,6 @@ impl Drop for Opening {
 }
 
 /// A held page's hold on its browser.
-#[expect(
-    dead_code,
-    reason = "the Human pause, the Live view and raw CDP attach hold a page once their tickets land (#978)"
-)]
 pub(crate) struct Hold {
     pool: Pool,
     number: u64,

@@ -126,6 +126,10 @@ pub const RUN_TRACE_SETTINGS: &str = "trace/settings.jsonl";
 /// the run folder.
 pub const RUN_TRACE_PLUGIN_CALLS: &str = "trace/plugin-calls.jsonl";
 
+/// The run trace's Human pauses and how each ended (ADRs 0102 and 0113), in
+/// the run folder.
+pub const RUN_TRACE_PAUSES: &str = "trace/pauses.jsonl";
+
 /// The per-major folder of the Product version `version` in the home at
 /// `home`.
 pub fn per_major(home: &Path, version: &ProductVersion) -> PathBuf {

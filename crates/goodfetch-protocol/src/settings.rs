@@ -1259,18 +1259,17 @@ pub const TIMEOUT_MODEL: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
-/// `timeout.human_pause` (ADRs 0080 and 0092), refused away from its default until its phase is
-/// built.
+/// `timeout.human_pause` (ADRs 0080 and 0092).
 pub const TIMEOUT_HUMAN_PAUSE: Setting = Setting {
     name: "timeout.human_pause",
-    description: "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
+    description: "How long a Human pause may wait for a person before it fails with `deadline_exceeded`: 24 h, `null` for no limit; in a scheduled run, ADR 0036's pause timeout governs too, and the first to expire acts.",
     kind: ValueKind::Duration,
     default: a_day,
-    clearable: false,
+    clearable: true,
     authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
-    unbuilt: Some("human_pause"),
+    unbuilt: None,
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };

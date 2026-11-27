@@ -134,6 +134,7 @@ mod blocked;
 mod blocking_off;
 mod clean_up;
 mod input;
+mod pause;
 mod plugin_extractor;
 pub(crate) mod served_formats;
 mod waits;
@@ -179,6 +180,7 @@ pub fn contribution_with(
         ),
         interception,
         dialogs,
+        pauses: pause::ActivePauses::default(),
         product: handler_pages,
         blocks,
     };
@@ -201,6 +203,7 @@ pub fn contribution_with(
         with_dialog_handlers(contribution, (&pages.dialogs, pages.sessions.page_owners()));
     let contribution = with_function_handlers(contribution, &pages);
     let contribution = waits::with_wait_handlers(contribution, &pages);
+    let contribution = pause::with_pause_handlers(contribution, &pages);
     let contribution = with_request_handler(contribution, &pages);
     pages.product.opened(Arc::new(Opener {
         pages: pages.clone(),
@@ -1216,6 +1219,8 @@ struct Pages {
     interception: Interception,
     /// The open dialogs' slots, which the answers to them reach.
     dialogs: Dialogs,
+    /// The waiting Human pauses' slots, which `page.pause_answer` reaches.
+    pauses: pause::ActivePauses,
     /// The Product's seam that sets what its handlers' pages carry, which
     /// also serves the pages its fetch tiers opened from a document.
     product: Arc<dyn HandlerPages>,

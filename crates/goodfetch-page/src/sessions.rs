@@ -61,7 +61,7 @@ use goodfetch_engine::browser_cache::{PinnedArtifact, Pins};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::egress::CdpUrlOrigin;
-use goodfetch_engine::governor::Permit;
+use goodfetch_engine::governor::{PageHold, Permit};
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::request_signing::{KeyError, RequestSigner};
@@ -366,6 +366,13 @@ impl OpenPage {
     /// sends for the request it serves now (ADR 0106's window).
     pub(crate) fn lease(&self) -> Option<Arc<dyn LeaseCheck>> {
         self.driver.value().lease().cloned()
+    }
+
+    /// Holds the page's browser from being recycled or shed until the
+    /// returned hold drops (ADR 0040): used by Human pauses, Live view, and
+    /// raw CDP attach.
+    pub(crate) fn hold(&self, by: PageHold) -> crate::pool::Hold {
+        self.in_browser.hold(by)
     }
 
     /// Marks sent each body of the page's attempt, or of its Run outside

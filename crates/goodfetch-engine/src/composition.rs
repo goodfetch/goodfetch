@@ -373,7 +373,7 @@ impl CallContext {
 
     /// The person the call acts for, as the Audit log names them: the OS
     /// user, its own name on a single-user install (#826).
-    pub(crate) fn person(&self) -> String {
+    pub fn person(&self) -> String {
         self.engine().person().to_owned()
     }
 

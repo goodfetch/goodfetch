@@ -49,6 +49,14 @@ pub trait LeaseCheck: Debug + Send + Sync {
         PermitWait::none()
     }
 
+    /// Holds the lease while its page waits in a Human pause, a wait that
+    /// counts against no timeout (ADR 0092): the lease is renewed and the
+    /// enclosing handler's clock pauses until the answer is dropped. A lease
+    /// with nothing to renew answers [`PermitWait::none`].
+    fn pause_wait(&self) -> PermitWait {
+        PermitWait::none()
+    }
+
     /// The end of the call that encloses its page's calls, when one does,
     /// such as a crawl handler's under `timeout.handler` (ADR 0080): a page
     /// call still waiting at that end ends with `deadline_exceeded` naming

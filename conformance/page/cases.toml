@@ -578,6 +578,10 @@ covers = ["story:5-100", "setting:consent.handling"]
 id = "cookie-section-rules-remove-leftover-notices-from-extraction-without-blocking-or-live-hiding"
 covers = ["story:5-98", "story:5-100", "operation:page.formats"]
 
+[[capability.case]]
+id = "global-privacy-control-follows-the-presented-browser-and-forces-only-with-its-own-browser"
+covers = ["story:5-103", "setting:consent.gpc"]
+
 [[capability]]
 name = "clean_up.consent_walls"
 

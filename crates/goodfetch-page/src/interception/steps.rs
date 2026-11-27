@@ -109,10 +109,24 @@ pub(crate) enum Stopped {
     Blocked { by_list: bool },
 }
 
-/// Steps 3 to 7 for `paused` under `policy` and `blocking`, signed by
-/// `signing`, an `identified` Session's signer, and step 8's command;
-/// `fetch` pauses its response, so a stand-in, which has none, blocks a
-/// fetched request instead.
+/// Step 7's engine-owned additions, applied after every route ran: a Borrowed
+/// browser's `Sec-GPC: 1` header when `consent.gpc: on` (ADR 0048) and an
+/// `identified` Session's signature (ADR 0045), signed last over what leaves.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Additions<'a> {
+    pub(crate) signing: Option<&'a RequestSigner>,
+    pub(crate) send_gpc_header: bool,
+}
+
+/// The Global Privacy Control request header name (ADR 0048).
+const SEC_GPC_NAME: &str = "Sec-GPC";
+
+/// The Global Privacy Control request header value (ADR 0048).
+const SEC_GPC_VALUE: &str = "1";
+
+/// Steps 3 to 7 for `paused` under `policy` and `blocking`, with step 7's
+/// `additions`, and step 8's command; `fetch` pauses its response, so a
+/// stand-in, which has none, blocks a fetched request instead.
 ///
 /// # Errors
 ///
@@ -121,7 +135,7 @@ pub(crate) fn send_on(
     paused: &Paused<'_>,
     policy: &Policy,
     blocking: &Blocking,
-    signing: Option<&RequestSigner>,
+    additions: Additions<'_>,
     fetch: bool,
 ) -> Result<Sent, Stopped> {
     // Step 3: the egress check and the domain policy.
@@ -176,16 +190,19 @@ pub(crate) fn send_on(
     // Session's cookies are the browser's own: it puts them on the request
     // as it sends it on, whatever headers a route set, and the routes' view
     // leaves them out. Secret placeholders and the Session's credentials
-    // (#654, #733) are resolved here. An `identified` Session signs the
-    // request last, over what it sends (ADR 0045; #1551).
-    let signed = signing.and_then(|signer| {
+    // (#654, #733) are resolved here. On a Borrowed browser with
+    // `consent.gpc: on`, `Sec-GPC: 1` goes here (ADR 0048, issue 758). An
+    // `identified` Session signs the request last, over what it sends
+    // (ADR 0045; #1551).
+    let signed = additions.signing.and_then(|signer| {
         Url::parse(paused.url)
             .ok()
             .and_then(|url| signer.sign(&url))
     });
-    let headers = match signed {
-        Some(signed) => Some(signed_entries(paused, signed)),
-        None => paused.overrides.headers.as_ref().map(entries),
+    let headers = if signed.is_some() || additions.send_gpc_header {
+        Some(added_entries(paused, additions.send_gpc_header, signed))
+    } else {
+        paused.overrides.headers.as_ref().map(entries)
     };
     // Step 8: the network.
     Ok(Sent::Continue(ContinueRequest {
@@ -198,9 +215,14 @@ pub(crate) fn send_on(
     }))
 }
 
-/// The headers `paused` is sent on with, its overrides' or its own, and
-/// `signed`, which replace any of the same names it carried.
-fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<Header> {
+/// The headers `paused` is sent on with, its overrides' or its own, plus
+/// `Sec-GPC: 1` when `send_gpc_header` is set and `signed` when present,
+/// replacing any carried headers of the same names.
+fn added_entries(
+    paused: &Paused<'_>,
+    send_gpc_header: bool,
+    signed: Option<SignedHeaders>,
+) -> Vec<Header> {
     let carried: Vec<(&str, &str)> = match paused.overrides.headers.as_ref() {
         Some(headers) => headers
             .iter()
@@ -208,18 +230,29 @@ fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<Header> {
             .collect(),
         None => paused.headers.iter().collect(),
     };
-    carried
+    let mut out: Vec<Header> = carried
         .into_iter()
         .filter(|(name, _)| {
-            !SignedHeaders::NAMES
-                .iter()
-                .any(|signed| signed.eq_ignore_ascii_case(name))
+            let replaced_by_gpc = send_gpc_header && SEC_GPC_NAME.eq_ignore_ascii_case(name);
+            let replaced_by_sig = signed.is_some()
+                && SignedHeaders::NAMES
+                    .iter()
+                    .any(|signed| signed.eq_ignore_ascii_case(name));
+            !replaced_by_gpc && !replaced_by_sig
         })
         .map(|(name, value)| Header {
             name: name.to_owned(),
             value: value.to_owned(),
         })
-        .chain(
+        .collect();
+    if send_gpc_header {
+        out.push(Header {
+            name: SEC_GPC_NAME.to_owned(),
+            value: SEC_GPC_VALUE.to_owned(),
+        });
+    }
+    if let Some(signed) = signed {
+        out.extend(
             signed
                 .into_entries()
                 .into_iter()
@@ -227,8 +260,9 @@ fn signed_entries(paused: &Paused<'_>, signed: SignedHeaders) -> Vec<Header> {
                     name: name.to_owned(),
                     value,
                 }),
-        )
-        .collect()
+        );
+    }
+    out
 }
 
 /// Headers as the browser takes them.

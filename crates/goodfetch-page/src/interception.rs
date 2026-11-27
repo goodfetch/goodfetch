@@ -323,6 +323,9 @@ pub(crate) struct SessionInterception {
     /// When it is `identified`, the signer its requests are signed with
     /// (ADR 0045; #1551).
     signing: Option<Arc<RequestSigner>>,
+    /// Whether interception step 7 sends `Sec-GPC: 1` (Borrowed browser
+    /// with `consent.gpc: on`, ADR 0048, issue 758).
+    send_gpc_header: bool,
     /// Where a Session route's handler that failed on a service worker's
     /// request leaves its failure, for the next call on any of its pages.
     failure: LeftFailure,
@@ -331,11 +334,13 @@ pub(crate) struct SessionInterception {
 impl SessionInterception {
     /// The side of the Session `id`: held by interception alone through
     /// `lookups` when no relay is under it, its requests signed by
-    /// `signing` when it is `identified`.
+    /// `signing` when it is `identified`, and `Sec-GPC: 1` added in step 7
+    /// when `send_gpc_header` is set.
     pub(crate) fn new(
         id: SessionId,
         lookups: Option<Lookups>,
         signing: Option<Arc<RequestSigner>>,
+        send_gpc_header: bool,
     ) -> Self {
         Self {
             id,
@@ -344,6 +349,7 @@ impl SessionInterception {
             warned: AtomicBool::new(false),
             lookups: lookups.map(Arc::new),
             signing,
+            send_gpc_header,
             failure: LeftFailure::default(),
         }
     }
@@ -451,6 +457,9 @@ pub(crate) struct EngineRequests {
     blocking: steps::Blocking,
     /// An `identified` Session's signer, step 7's last addition.
     signing: Option<Arc<RequestSigner>>,
+    /// Whether step 7 injects `Sec-GPC: 1` (Borrowed browser with
+    /// `consent.gpc: on`, ADR 0048, issue 758).
+    send_gpc_header: bool,
 }
 
 /// A request the engine sent itself, paused at `id`, as the browser sent
@@ -463,6 +472,14 @@ pub(crate) struct EngineRequest<'a> {
 }
 
 impl EngineRequests {
+    /// Step 7's engine-owned additions (borrowed GPC header and request signing).
+    pub(super) fn additions(&self) -> steps::Additions<'_> {
+        steps::Additions {
+            signing: self.signing.as_deref(),
+            send_gpc_header: self.send_gpc_header,
+        }
+    }
+
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
     /// step 8's command, which pauses its response; its source is its own
     /// URL, since no document of the page sent it.
@@ -493,7 +510,10 @@ impl EngineRequests {
             &request,
             &self.policy,
             &self.blocking,
-            self.signing.as_deref(),
+            steps::Additions {
+                signing: self.signing.as_deref(),
+                send_gpc_header: self.send_gpc_header,
+            },
             true,
         ) {
             Ok(steps::Sent::Continue(command)) => Ok(command),
@@ -787,6 +807,7 @@ impl Interception {
                 policy: policy.clone(),
                 blocking: blocking.clone(),
                 signing: session.signing.clone(),
+                send_gpc_header: session.send_gpc_header,
             },
             on_document,
         });
@@ -933,6 +954,7 @@ impl Interception {
                             policy: policy.clone(),
                             blocking: blocking.clone(),
                             signing: session.signing.clone(),
+                            send_gpc_header: session.send_gpc_header,
                         },
                         on_document: None,
                     });
@@ -1101,6 +1123,7 @@ impl Interception {
             policy,
             blocking,
             signing: session.signing.clone(),
+            send_gpc_header: session.send_gpc_header,
         })
     }
 }

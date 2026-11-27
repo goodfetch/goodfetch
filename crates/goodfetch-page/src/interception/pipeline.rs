@@ -915,8 +915,8 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let signing = self.state.engine_requests.signing.as_deref();
-        let stepped = match steps::send_on(&paused, &self.policy, blocking, signing, fetch) {
+        let additions = self.state.engine_requests.additions();
+        let stepped = match steps::send_on(&paused, &self.policy, blocking, additions, fetch) {
             Ok(steps::Sent::Continue(command)) => {
                 match self.judged_addresses(held.url(), paused.egress).await {
                     Ok(()) => Ok(steps::Sent::Continue(command)),

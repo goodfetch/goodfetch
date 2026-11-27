@@ -77,6 +77,12 @@ const PRERENDER_OFF: [&str; 2] = ["Prerender2", "Prerender2FallbackPrefetchSpecR
 /// removes the renderers' seccomp-bpf layer.
 const NO_SANDBOX: &str = "--no-sandbox";
 
+/// Chromium's Global Privacy Control base feature, passed ONLY for a
+/// Session with its own browser whose GPC plan enables it (ADR 0048,
+/// issue 758): by itself the feature exposes `navigator.globalPrivacyControl`,
+/// which is absent from stock Chrome.
+const GPC_FEATURE: &str = "--enable-features=GlobalPrivacyControlTest";
+
 /// The variables the browser starts with beside the engine's own. On
 /// Linux, a character type of UTF-8 whatever the host's locale: under one
 /// whose character type is not, `C`, none, or a `LANG` naming a locale the
@@ -91,6 +97,14 @@ const ENVIRONMENT: &[(&str, &str)] = &[("LC_ALL", "C.UTF-8")];
 /// where paths are not read through the locale's character type.
 #[cfg(not(target_os = "linux"))]
 const ENVIRONMENT: &[(&str, &str)] = &[];
+
+/// Whether this dedicated Chromium launch enables `GlobalPrivacyControlTest`
+/// for `Browser.setGlobalPrivacyControl` (ADR 0048, issue 758).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GlobalPrivacyControl {
+    Off,
+    On,
+}
 
 /// What a launch decided.
 pub(crate) struct Launch<'a> {
@@ -114,6 +128,10 @@ pub(crate) struct Launch<'a> {
     /// browser takes the leaves the relay presents for the listed hosts
     /// (ADR 0042).
     pub(crate) relay_authority: Option<&'a str>,
+    /// Whether this dedicated browser enables Chromium's
+    /// `GlobalPrivacyControlTest` feature for `Browser.setGlobalPrivacyControl`
+    /// (ADR 0048, issue 758).
+    pub(crate) gpc: GlobalPrivacyControl,
 }
 
 /// The command line, the variables the browser starts with beside the
@@ -190,6 +208,9 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     );
     if !launch.sandbox {
         arguments.push(NO_SANDBOX.to_owned());
+    }
+    if launch.gpc == GlobalPrivacyControl::On {
+        arguments.push(GPC_FEATURE.to_owned());
     }
     if let Some(spki) = launch.relay_authority {
         arguments.push(format!("--ignore-certificate-errors-spki-list={spki}"));

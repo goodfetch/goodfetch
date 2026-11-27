@@ -50,6 +50,7 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
                 work: goodfetch_counted_work::CountedWork::default(),
             },
             signing: None,
+            send_gpc_header: false,
         },
         pending: Arc::clone(&session.pending),
         navigation: PendingNavigation::default(),
@@ -85,7 +86,7 @@ pub(crate) fn hold_serving(
 /// The side of the interception of a Session `session-1`, held by its
 /// relay and unsigned.
 pub(crate) fn session_side() -> SessionInterception {
-    SessionInterception::new(SessionId("session-1".to_owned()), None, None)
+    SessionInterception::new(SessionId("session-1".to_owned()), None, None, false)
 }
 
 /// The page and the side of the Session the tests hold.
@@ -256,7 +257,7 @@ fn sent_headers(
     url: &str,
     headers: &Map<String, Value>,
     overrides: &steps::Overrides,
-    signing: Option<&RequestSigner>,
+    additions: steps::Additions<'_>,
 ) -> Option<Vec<(String, String)>> {
     let state = state_of(&session_side(), None);
     let request_id = PausedId::new("request-1".to_owned());
@@ -273,7 +274,7 @@ fn sent_headers(
     let EngineRequests {
         policy, blocking, ..
     } = &state.engine_requests;
-    match steps::send_on(&paused, policy, blocking, signing, false) {
+    match steps::send_on(&paused, policy, blocking, additions, false) {
         Ok(steps::Sent::Continue(command)) => command.headers.map(|headers| {
             headers
                 .into_iter()
@@ -300,7 +301,10 @@ fn an_identified_session_signs_a_request_in_place_of_the_signature_it_carried() 
         "https://identity.test/",
         carried,
         &steps::Overrides::default(),
-        Some(&signer()),
+        steps::Additions {
+            signing: Some(&signer()),
+            send_gpc_header: false,
+        },
     )
     .expect("the request is sent with its signature");
 
@@ -326,7 +330,10 @@ fn a_routes_headers_are_signed_in_place_of_the_requests() {
             .as_object()
             .expect("an object"),
         &overrides,
-        Some(&signer()),
+        steps::Additions {
+            signing: Some(&signer()),
+            send_gpc_header: false,
+        },
     )
     .expect("the request is sent with its signature");
 
@@ -345,8 +352,35 @@ fn a_session_that_does_not_sign_keeps_the_requests_own_headers() {
             .as_object()
             .expect("an object"),
         &steps::Overrides::default(),
-        None,
+        steps::Additions::default(),
     );
 
     assert_eq!(sent, None);
+}
+
+/// On a Borrowed browser with `consent.gpc: on`, step 7 injects `Sec-GPC: 1`
+/// in place of any carried header of the same name (ADR 0048, issue 758).
+#[test]
+fn header_only_gpc_adds_sec_gpc_in_place_of_any_carried_one() {
+    let carried = json!({ "Accept": "text/html", "sec-gpc": "0" });
+    let carried = carried.as_object().expect("an object");
+
+    let sent = sent_headers(
+        "https://consent.test/gpc",
+        carried,
+        &steps::Overrides::default(),
+        steps::Additions {
+            signing: None,
+            send_gpc_header: true,
+        },
+    )
+    .expect("the request is sent with Sec-GPC");
+
+    assert_eq!(
+        sent,
+        vec![
+            ("Accept".to_owned(), "text/html".to_owned()),
+            ("Sec-GPC".to_owned(), "1".to_owned()),
+        ]
+    );
 }

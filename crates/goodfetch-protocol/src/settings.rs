@@ -695,6 +695,28 @@ fn report() -> Value {
     Value::String("report".to_owned())
 }
 
+/// The values `consent.gpc` takes (ADR 0048, issue 758).
+pub const CONSENT_GPC_VALUES: &[&str] = &["auto", "on", "off"];
+
+/// `consent.gpc` (ADR 0048, issue 758).
+pub const CONSENT_GPC: Setting = Setting {
+    name: "consent.gpc",
+    description: "Whether a browser Session sends Global Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`): `auto` (the default) follows the presented browser identity (sent only for browsers that send GPC by default, such as Brave, DuckDuckGo and private Firefox, never for stock Chrome, Edge or Safari); `on` forces it (on a launched Chromium Session, in a browser process of its own with `GlobalPrivacyControlTest` and `Browser.setGlobalPrivacyControl`, warning when the presented browser does not send GPC; on a Borrowed browser, through the `Sec-GPC` header in interception alone, warning that `navigator.globalPrivacyControl` is absent); `off` sends neither.",
+    kind: ValueKind::Choice(CONSENT_GPC_VALUES),
+    default: auto,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn auto() -> Value {
+    Value::String("auto".to_owned())
+}
+
 /// `wall.domains` (ADR 0052).
 pub const WALL_DOMAINS: Setting = Setting {
     name: "wall.domains",
@@ -1288,6 +1310,7 @@ pub const ENTRIES: Entries = Entries {
         CONSENT_HANDLING,
         CONSENT_DOMAINS,
         CONSENT_ON_WALL,
+        CONSENT_GPC,
         WALL_DOMAINS,
         WALL_REFETCH_DOMAINS,
         WALL_DENIED_DOMAINS,

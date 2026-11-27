@@ -113,6 +113,7 @@ use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_openi
 use crate::cdp::launch::Launcher;
 use crate::cdp::live_view::WatchedTabs;
 use crate::consent::Consent;
+use crate::consent::gpc::GpcPlan;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
 use crate::egress_relay::{self, EgressRelay};
@@ -125,7 +126,7 @@ use crate::page_events;
 use crate::page_functions::Injections;
 use crate::page_owner::{PageOwner, PageOwners};
 use crate::page_value::{HandlerPages, HeldPlace, PageValue, PooledSession};
-use crate::pool::{InBrowser, LocalFailure, Placement, Pool, Seat};
+use crate::pool::{BrowserPlacement, InBrowser, LocalFailure, Placement, Pool, Seat};
 use crate::proxy::{self, Opening, SessionProxy};
 use crate::recovery::Checking;
 use crate::trace;
@@ -597,7 +598,7 @@ impl Sessions {
         let settings = extractor_installed(settings, &run, context).await?;
         let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context).await?;
         let fingerprint = FingerprintPlan::of(&identity);
-        let borrowed = opening_source(named)?;
+        let (borrowed, gpc) = opening_source_and_gpc(&settings, &run, named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
@@ -626,7 +627,7 @@ impl Sessions {
                     .pool
                     .borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
                 None => runs.pool.seat(
-                    placement(fingerprint.as_ref()),
+                    placement(fingerprint.as_ref(), gpc),
                     egress(proxy.as_ref(), relay.as_ref()),
                     TaskStarter::clone(&owner),
                 ),
@@ -638,6 +639,7 @@ impl Sessions {
                 borrowed.as_ref(),
                 (relay.is_some(), proxy.is_some()),
                 signing,
+                gpc.header_only(),
             );
             let open = Arc::new(Session {
                 owner,
@@ -683,6 +685,7 @@ impl Sessions {
         if let Some(fingerprint) = &open.fingerprint {
             fingerprint.chosen(&run, &session).await;
         }
+        warn_gpc(&run, &session, gpc).await;
         Ok(SessionOpened {
             session_id: session,
         })
@@ -743,6 +746,12 @@ impl Sessions {
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
         let fingerprint = FingerprintPlan::of(identity);
+        let gpc = GpcPlan::of(
+            &Values::default(),
+            run.identity.settings().map(RunSettings::resolved),
+            None,
+            borrowed.is_some(),
+        );
         let (position, pool) = taken(&mut *self.state.lock().await, run)?;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
@@ -767,7 +776,7 @@ impl Sessions {
         let seat = match borrowed {
             Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
             None => pool.seat(
-                placement(fingerprint.as_ref()),
+                placement(fingerprint.as_ref(), gpc),
                 egress(proxy.as_ref(), relay.as_ref()),
                 TaskStarter::clone(&owner),
             ),
@@ -791,6 +800,7 @@ impl Sessions {
             borrowed,
             (relay.is_some(), proxy.is_some()),
             signing,
+            gpc.header_only(),
         );
         let held = Arc::new(Session {
             owner,
@@ -821,6 +831,7 @@ impl Sessions {
         if let Some(fingerprint) = &held.fingerprint {
             fingerprint.chosen(run, &session).await;
         }
+        warn_gpc(run, &session, gpc).await;
         Ok(position)
     }
 
@@ -1803,6 +1814,12 @@ async fn reopened_session(
             Err(error) => ((None, None), reopen_failed.or(Some(error))),
         };
     let session = session_id(run.identity.id(), position);
+    let gpc = GpcPlan::of(
+        &settings,
+        run.identity.settings().map(RunSettings::resolved),
+        None,
+        borrowed.is_some(),
+    );
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
             pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
@@ -1810,7 +1827,7 @@ async fn reopened_session(
         ),
         None => (
             pool.seat(
-                placement(fingerprint.as_ref()),
+                placement(fingerprint.as_ref(), gpc),
                 egress(proxy.as_ref(), relay.as_ref()),
                 TaskStarter::clone(&owner),
             ),
@@ -1822,7 +1839,9 @@ async fn reopened_session(
         borrowed.as_ref(),
         (relay.is_some(), proxy.is_some()),
         signing,
+        gpc.header_only(),
     );
+    warn_gpc(run, &session, gpc).await;
     Ok(Session {
         owner,
         pages: HeldPages::default(),
@@ -2155,9 +2174,50 @@ async fn reopened_identity(
 }
 
 /// Where a Session whose pages mask their fingerprint as `fingerprint`
-/// says, if they do, is placed in its Run's browser pool (ADR 0129).
-fn placement(fingerprint: Option<&FingerprintPlan>) -> Placement {
-    fingerprint.map_or(Placement::Shared, FingerprintPlan::placement)
+/// says, and whose Global Privacy Control plan is `gpc`, is placed in its
+/// Run's browser pool (ADRs 0048 and 0129): a dedicated GPC browser is
+/// never shared with another Session.
+fn placement(fingerprint: Option<&FingerprintPlan>, gpc: GpcPlan) -> BrowserPlacement {
+    if gpc.own_browser_gpc() {
+        BrowserPlacement::OwnProcess { gpc: true }
+    } else if fingerprint.is_some_and(|plan| plan.placement() == Placement::OwnProcess) {
+        BrowserPlacement::OwnProcess { gpc: false }
+    } else {
+        BrowserPlacement::Shared
+    }
+}
+
+/// Resolves `named` into a Borrowed browser URL (if any) and the Session's
+/// Global Privacy Control plan (ADR 0048).
+fn opening_source_and_gpc(
+    settings: &Values,
+    run: &BrowserRun,
+    named: Option<NamedSource>,
+) -> Result<(Option<CdpUrl>, GpcPlan), CallError> {
+    let source = named.as_ref().map(|named| named.source.clone());
+    let borrowed = opening_source(named)?;
+    let gpc = GpcPlan::of(
+        settings,
+        run.identity.settings().map(RunSettings::resolved),
+        source.as_ref(),
+        borrowed.is_some(),
+    );
+    Ok((borrowed, gpc))
+}
+
+/// Records the `gpc_forced` warning in `run`'s report when `gpc` degrades
+/// consistency or runs header-only on a Borrowed browser (ADR 0048).
+async fn warn_gpc(run: &BrowserRun, session: &SessionId, gpc: GpcPlan) {
+    let Some(warning) = gpc.warning() else {
+        return;
+    };
+    if let Err(error) = run
+        .warnings
+        .warn_once(warning.to_run_warning(session))
+        .await
+    {
+        tracing::warn!(%error, "the warning for `consent.gpc: on` was not kept");
+    }
 }
 
 /// The side of the interception of the Session `session` of `run`, which
@@ -2166,12 +2226,14 @@ fn placement(fingerprint: Option<&FingerprintPlan>) -> Placement {
 /// when `proxied`, is held by interception alone, its requests' hosts
 /// resolved through the Run's `network.resolve`, and a name the engine
 /// cannot resolve judged by where it would be resolved (ADR 0056; #2435);
-/// its requests are signed by `signing` when it is `identified`.
+/// its requests are signed by `signing` when it is `identified`, and carry
+/// `Sec-GPC: 1` when `send_gpc_header` is set (ADR 0048).
 fn session_interception(
     (session, run): (&SessionId, &Arc<BrowserRun>),
     borrowed: Option<&CdpUrl>,
     (relayed, proxied): (bool, bool),
     signing: Option<Arc<RequestSigner>>,
+    send_gpc_header: bool,
 ) -> Arc<SessionInterception> {
     let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
         Lookups::new(
@@ -2179,7 +2241,12 @@ fn session_interception(
             browser,
         )
     });
-    Arc::new(SessionInterception::new(session.clone(), lookups, signing))
+    Arc::new(SessionInterception::new(
+        session.clone(),
+        lookups,
+        signing,
+        send_gpc_header,
+    ))
 }
 
 /// The browser interception alone holds for a Session: a Borrowed one at

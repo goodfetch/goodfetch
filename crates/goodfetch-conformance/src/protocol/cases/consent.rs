@@ -20,8 +20,10 @@ use std::time::Duration;
 
 use goodfetch_protocol::home::{RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PROVENANCE};
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
+use goodfetch_protocol::page::session::{RUN_NEW_SESSION, SESSION_NEW_PAGE};
 use goodfetch_protocol::page::{PAGE_FORMATS, PAGE_GOTO, PageOpened};
 use goodfetch_protocol::run::RUN_FINISH;
+use goodfetch_protocol::run::warning::GPC_FORCED;
 use serde_json::{Value, json};
 
 use super::clean_up::{self, AD, ANNOYANCE, TRACKER};
@@ -73,6 +75,7 @@ pub(crate) enum Case {
     Detect,
     Off,
     CookieLeftover,
+    Gpc,
     Walls,
     WallsAtOnce,
     WallsDetect,
@@ -103,6 +106,9 @@ impl Case {
             "consent-handling-off-registers-no-runner-and-no-cosmetic-rule-acts" => Self::Off,
             "cookie-section-rules-remove-leftover-notices-from-extraction-without-blocking-or-live-hiding" => {
                 Self::CookieLeftover
+            }
+            "global-privacy-control-follows-the-presented-browser-and-forces-only-with-its-own-browser" => {
+                Self::Gpc
             }
             "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-never-answered" => {
                 Self::Walls
@@ -143,6 +149,7 @@ impl Case {
             Self::Detect => detect(connection, home, site, checks),
             Self::Off => off(connection, home, site, checks),
             Self::CookieLeftover => cookie_leftover(connection, home, site, checks),
+            Self::Gpc => gpc(connection, site, checks),
             Self::Walls => walls::walls(connection, home, site, checks),
             Self::WallsAtOnce => walls::walls_at_once(connection, site, checks),
             Self::WallsDetect => walls::walls_detect(connection, home, site, checks),
@@ -767,6 +774,174 @@ fn cookie_leftover(
     checks.check(
         "Provenance names `.gdpr-cookie-notice` under `annoyances` in the `formats` entry",
         removed_named,
+    );
+    Ok(())
+}
+
+/// Opens a Session with `settings` in `run_id` and opens one page in it.
+fn session_page(
+    connection: &mut Connection,
+    run_id: &str,
+    settings: &Value,
+    checks: &mut Checks,
+) -> Result<Option<PageOpened>, Gone> {
+    let id = connection.request(
+        RUN_NEW_SESSION.name,
+        &json!({ "run_id": run_id, "settings": settings }),
+    )?;
+    let opened_session = connection.browser_answer(id)?.message;
+    let Some(session_id) = opened_session["result"]["session_id"].as_str() else {
+        checks.check(
+            format!("`run.new_session` opens a Session ({opened_session})"),
+            false,
+        );
+        return Ok(None);
+    };
+    let id = connection.request(SESSION_NEW_PAGE.name, &json!({ "session_id": session_id }))?;
+    let opened_page = connection.browser_answer(id)?.message;
+    let page: Option<PageOpened> = serde_json::from_value(opened_page["result"].clone()).ok();
+    checks.check(
+        format!("`session.new_page` opens a page ({opened_page})"),
+        page.is_some(),
+    );
+    Ok(page)
+}
+
+/// Visits `/gpc?case=<label>` on `page` and verifies via the Proving
+/// ground's server-side observations that the `Sec-GPC` header (on both the
+/// document request and the `/consent/gpc` beacon) and
+/// `navigator.globalPrivacyControl` agree with `expected_gpc`.
+fn check_gpc_case(
+    connection: &mut Connection,
+    site: &Site,
+    page: &PageOpened,
+    label: &str,
+    expected_gpc: bool,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let doc_path = format!("/gpc?case={label}");
+    let before = count(site, "/consent/gpc", &[("case", label)]);
+    visit(connection, site, page, &doc_path, checks)?;
+    let reported = arrives(
+        site,
+        "/consent/gpc",
+        &[("case", label)],
+        before,
+        ANSWER_WAIT,
+    );
+    checks.check(
+        format!("the `{label}` page reported its `navigator.globalPrivacyControl` observation"),
+        reported,
+    );
+    let requests = site.received_requests();
+    let doc_request = requests
+        .of_the_case()
+        .find(|request| request.host == HOST && request.target == doc_path);
+    let expected_header = expected_gpc.then_some("1");
+    checks.check(
+        format!(
+            "server-side observation for `{label}` document has Sec-GPC = {expected_header:?} (got {:?})",
+            doc_request.and_then(|request| request.header("sec-gpc"))
+        ),
+        doc_request.is_some_and(|request| request.header("sec-gpc") == expected_header),
+    );
+    let expected_has = if expected_gpc { "true" } else { "false" };
+    let expected_val = if expected_gpc { "true" } else { "undefined" };
+    let beacon = requests.of_the_case().find(|request| {
+        request.host == HOST
+            && request
+                .target
+                .starts_with(&format!("/consent/gpc?case={label}&"))
+    });
+    let expected_beacon_target =
+        format!("/consent/gpc?case={label}&has={expected_has}&val={expected_val}");
+    checks.check(
+        format!(
+            "server-side observation for `{label}` beacon confirms header and JS property agree (expected {expected_beacon_target} with Sec-GPC = {expected_header:?}, got {:?} / {:?})",
+            beacon.map(|request| request.target.as_str()),
+            beacon.and_then(|request| request.header("sec-gpc")),
+        ),
+        beacon.is_some_and(|request| {
+            request.target == expected_beacon_target && request.header("sec-gpc") == expected_header
+        }),
+    );
+    Ok(())
+}
+
+/// Global Privacy Control (`consent.gpc`, ADR 0048, issue 758):
+/// - under `auto` (default on stock Chrome), neither `Sec-GPC` nor
+///   `navigator.globalPrivacyControl` is exposed, and no `gpc_forced`
+///   warning is emitted;
+/// - under `on`, the Session gets its own browser with
+///   `GlobalPrivacyControlTest` and `Browser.setGlobalPrivacyControl`,
+///   sending `Sec-GPC: 1` and exposing `navigator.globalPrivacyControl === true`,
+///   and the Run report carries a `gpc_forced` warning;
+/// - a sibling `auto` Session in the same Run does not share the `on`
+///   browser and sends neither;
+/// - under `off`, neither is sent.
+fn gpc(connection: &mut Connection, site: &Site, checks: &mut Checks) -> Result<(), Gone> {
+    // Run 1: default `auto` alone must emit no `gpc_forced` warning.
+    let auto_run = "conformance-consent-gpc-auto";
+    start_run(connection, site, auto_run, &json!({}), checks)?;
+    if let Some(page) = session_page(connection, auto_run, &json!({}), checks)? {
+        check_gpc_case(connection, site, &page, "auto", false, checks)?;
+    }
+    let id = connection.request(RUN_FINISH.name, &json!({ "run_id": auto_run }))?;
+    let auto_finished = connection.browser_answer(id)?.message;
+    let auto_warned = auto_finished["result"]["warnings"]
+        .as_array()
+        .is_some_and(|warnings| {
+            warnings
+                .iter()
+                .any(|warning| warning["code"] == json!(GPC_FORCED))
+        });
+    checks.check(
+        "`consent.gpc: auto` on stock Chrome emits no `gpc_forced` warning",
+        !auto_warned,
+    );
+
+    // Run 2: `on` gets its own browser; sibling `auto` and `off` Sessions in
+    // the same Run share no GPC browser and expose neither signal.
+    let forced_run = "conformance-consent-gpc-forced";
+    start_run(connection, site, forced_run, &json!({}), checks)?;
+    if let Some(on_page) = session_page(
+        connection,
+        forced_run,
+        &json!({ "consent.gpc": "on" }),
+        checks,
+    )? {
+        check_gpc_case(connection, site, &on_page, "on", true, checks)?;
+    }
+    if let Some(sibling_page) = session_page(connection, forced_run, &json!({}), checks)? {
+        check_gpc_case(
+            connection,
+            site,
+            &sibling_page,
+            "sibling-auto",
+            false,
+            checks,
+        )?;
+    }
+    if let Some(off_page) = session_page(
+        connection,
+        forced_run,
+        &json!({ "consent.gpc": "off" }),
+        checks,
+    )? {
+        check_gpc_case(connection, site, &off_page, "off", false, checks)?;
+    }
+    let id = connection.request(RUN_FINISH.name, &json!({ "run_id": forced_run }))?;
+    let forced_finished = connection.browser_answer(id)?.message;
+    let forced_warned = forced_finished["result"]["warnings"]
+        .as_array()
+        .is_some_and(|warnings| {
+            warnings
+                .iter()
+                .any(|warning| warning["code"] == json!(GPC_FORCED))
+        });
+    checks.check(
+        "`consent.gpc: on` on stock Chrome records a `gpc_forced` warning in the Run report",
+        forced_warned,
     );
     Ok(())
 }

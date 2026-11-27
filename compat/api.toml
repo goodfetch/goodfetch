@@ -391,3 +391,7 @@ reason = "A Run report's durations are each language's duration type (ADR 0080, 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
 reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunWarningCode"
+reason = "The `gpc_forced` warning code joins the open list of Run warning codes (ADR 0048, issue 758): the type's closed members gain it; a program that reads any warning code still reads it."

@@ -120,7 +120,7 @@ received (ADR 0079).
 - `verdict_rejected`: A Run's success check rejected its result.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "gpc_forced", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -142,6 +142,7 @@ received (ADR 0079).
 - `fingerprint_basic_fallback`: A Session fell back to the basic fingerprint.
 - `fingerprint_js_injection`: A Session's fingerprint was injected by JavaScript, which a site can detect.
 - `fingerprint_none`: A Session ran with no fingerprint.
+- `gpc_forced`: A Session's `consent.gpc: on` forces Global Privacy Control on a browser identity that does not send it by default, or on a Borrowed browser where only the `Sec-GPC` header is sent without `navigator.globalPrivacyControl`.
 - `human_input_fallback`: A Session's human input fell back to plain input.
 - `path_not_writable`: A file the Run writes at its end could not be written at its path.
 - `plugin_figures`: Usage figures come from a Plugin.

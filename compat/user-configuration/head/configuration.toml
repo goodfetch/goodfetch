@@ -256,6 +256,7 @@ echo_repeats = 4
 handling = "answer"
 domains = ["example"]
 on_wall = "report"
+gpc = "auto"
 
 [settings.wall]
 domains = ["example"]

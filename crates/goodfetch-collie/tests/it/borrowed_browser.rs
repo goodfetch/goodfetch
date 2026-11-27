@@ -251,6 +251,22 @@ fn answer(
     if path == MINE {
         std::thread::sleep(MINE_DELAY);
     }
+    if path == "/gpc" {
+        let gpc = text
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("sec-gpc").then(|| value.trim())
+            })
+            .unwrap_or("none");
+        let body = format!("<!doctype html><p id=\"sec-gpc\">{gpc}</p>");
+        let _ = write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        return;
+    }
     if path == LARGE {
         let _ = write!(
             stream,
@@ -1707,4 +1723,83 @@ fn every_redirect_case_of_the_ssrf_table_is_refused_at_its_hop_on_a_borrowed_bro
     lent.stop();
 
     assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+}
+
+/// On a Borrowed browser, `consent.gpc: auto` leaves requests untouched,
+/// while `consent.gpc: on` injects `Sec-GPC: 1` via interception step 7,
+/// leaves `navigator.globalPrivacyControl` absent, and records a `gpc_forced`
+/// warning noting that the JavaScript property is absent (ADR 0048,
+/// issue 758).
+///
+/// Covers: story:5-103, setting:consent.gpc
+#[test]
+fn borrowed_browser_gpc_on_sends_sec_gpc_header_without_js_property_and_warns() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
+    program.run("gpc-borrowed", &[(SITE, &[PUBLIC])]);
+
+    let auto_session = program.borrow("gpc-borrowed", &lent.cdp_url);
+    let auto_page = program.new_page(&auto_session["result"]["session_id"]);
+    let auto_went = program.goto(&auto_page, &site.url(SITE, "/gpc"));
+    assert_eq!(auto_went["result"]["response"]["status"], json!(200));
+    let auto_obs = program.call(
+        "page.evaluate",
+        &json!({
+            "page_id": auto_page,
+            "function": "() => ({ header: document.getElementById('sec-gpc').textContent, has: 'globalPrivacyControl' in navigator })",
+        }),
+    );
+
+    let on_session = program.call(
+        "run.new_session",
+        &json!({
+            "run_id": "gpc-borrowed",
+            "source": { "kind": "cdp_url", "url": lent.cdp_url },
+            "settings": { "consent.gpc": "on" },
+        }),
+    );
+    let on_page = program.new_page(&on_session["result"]["session_id"]);
+    let on_went = program.goto(&on_page, &site.url(SITE, "/gpc"));
+    assert_eq!(on_went["result"]["response"]["status"], json!(200));
+    let on_obs = program.call(
+        "page.evaluate",
+        &json!({
+            "page_id": on_page,
+            "function": "() => ({ header: document.getElementById('sec-gpc').textContent, has: 'globalPrivacyControl' in navigator })",
+        }),
+    );
+
+    let finished = program.call("run.finish", &json!({ "run_id": "gpc-borrowed" }));
+    lent.stop();
+
+    let warnings = finished["result"]["warnings"]
+        .as_array()
+        .expect("warnings array");
+    let gpc_warning = warnings
+        .iter()
+        .find(|warning| warning["code"] == json!("gpc_forced"))
+        .expect("gpc_forced warning recorded");
+
+    assert_eq!(
+        (
+            &auto_obs["result"]["value"]["header"],
+            &auto_obs["result"]["value"]["has"],
+            &on_obs["result"]["value"]["header"],
+            &on_obs["result"]["value"]["has"],
+            gpc_warning["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("navigator.globalPrivacyControl")),
+        ),
+        (
+            &json!("none"),
+            &json!(false),
+            &json!("1"),
+            &json!(false),
+            true,
+        ),
+        "{auto_obs} {on_obs} {finished}"
+    );
 }

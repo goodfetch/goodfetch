@@ -678,6 +678,10 @@ pub(crate) struct LocalBrowser {
     released: Mutex<Option<CancellationToken>>,
     /// The egress relay's certificate authority, which it trusts.
     authority: Option<Arc<Authority>>,
+    /// Whether this dedicated browser enables Global Privacy Control
+    /// (`GlobalPrivacyControlTest` + `Browser.setGlobalPrivacyControl`,
+    /// ADR 0048, issue 758).
+    gpc: bool,
 }
 
 impl LocalBrowser {
@@ -687,6 +691,7 @@ impl LocalBrowser {
         pins: Pins,
         number: u64,
         authority: Option<Arc<Authority>>,
+        gpc: bool,
     ) -> Self {
         let owner = run.identity.owner().child();
         Self {
@@ -700,6 +705,7 @@ impl LocalBrowser {
             launched: OnceCell::new(),
             released: Mutex::new(None),
             authority,
+            gpc,
         }
     }
 
@@ -790,6 +796,7 @@ impl Connect for LocalBrowser {
                     (
                         self.number,
                         self.authority.as_deref().map(Authority::spki_sha256),
+                        self.gpc,
                     ),
                     attempt.clone(),
                 )
@@ -815,6 +822,15 @@ impl Connect for LocalBrowser {
                 let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
+                if self.gpc {
+                    browser
+                        .send(
+                            None,
+                            &browser::SetGlobalPrivacyControlParams { gpc: true },
+                            &browser.launching(),
+                        )
+                        .await?;
+                }
                 if launched.headless {
                     browser.identity = Some(identity::read(&browser, &version.user_agent).await?);
                 }

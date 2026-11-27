@@ -28920,6 +28920,35 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "auto",
+      "deprecated": null,
+      "description": "Whether a browser Session sends Global Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`): `auto` (the default) follows the presented browser identity (sent only for browsers that send GPC by default, such as Brave, DuckDuckGo and private Firefox, never for stock Chrome, Edge or Safari); `on` forces it (on a launched Chromium Session, in a browser process of its own with `GlobalPrivacyControlTest` and `Browser.setGlobalPrivacyControl`, warning when the presented browser does not send GPC; on a Borrowed browser, through the `Sec-GPC` header in interception alone, warning that `navigator.globalPrivacyControl` is absent); `off` sends neither.",
+      "fixed_for_run": false,
+      "name": "consent.gpc",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "session"
+      ],
+      "value": {
+        "enum": [
+          "auto",
+          "on",
+          "off"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "not_weakened_by_recipe_or_model",
       "clearable": false,
       "default": "answer",
@@ -37411,6 +37440,13 @@
       "arrived_in": "0.1",
       "description": "A Session ran with no fingerprint.",
       "name": "fingerprint_none",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Session's `consent.gpc: on` forces Global Privacy Control on a browser identity that does not send it by default, or on a Borrowed browser where only the `Sec-GPC` header is sent without `navigator.globalPrivacyControl`.",
+      "name": "gpc_forced",
       "product": "collie",
       "type": "run_warning_code"
     },

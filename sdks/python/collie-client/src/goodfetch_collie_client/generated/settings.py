@@ -141,6 +141,12 @@ class ConnectionConsentSettings(TypedDict):
     `consent.domains`.
     """
 
+    gpc: NotRequired[Literal["auto", "on", "off"]]
+    """Whether a browser Session sends Global Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`): `auto` (the default) follows the presented browser identity (sent only for browsers that send GPC by default, such as Brave, DuckDuckGo and private Firefox, never for stock Chrome, Edge or Safari); `on` forces it (on a launched Chromium Session, in a browser process of its own with `GlobalPrivacyControlTest` and `Browser.setGlobalPrivacyControl`, warning when the presented browser does not send GPC; on a Borrowed browser, through the `Sec-GPC` header in interception alone, warning that `navigator.globalPrivacyControl` is absent); `off` sends neither.
+
+    `consent.gpc`.
+    """
+
     handling: NotRequired[Literal["answer", "detect", "off"]]
     """What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.
 
@@ -1228,6 +1234,12 @@ class RunConsentSettings(TypedDict):
     `consent.domains`.
     """
 
+    gpc: NotRequired[Literal["auto", "on", "off"]]
+    """Whether a browser Session sends Global Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`): `auto` (the default) follows the presented browser identity (sent only for browsers that send GPC by default, such as Brave, DuckDuckGo and private Firefox, never for stock Chrome, Edge or Safari); `on` forces it (on a launched Chromium Session, in a browser process of its own with `GlobalPrivacyControlTest` and `Browser.setGlobalPrivacyControl`, warning when the presented browser does not send GPC; on a Borrowed browser, through the `Sec-GPC` header in interception alone, warning that `navigator.globalPrivacyControl` is absent); `off` sends neither.
+
+    `consent.gpc`.
+    """
+
     handling: NotRequired[Literal["answer", "detect", "off"]]
     """What a browser Session does with Consent prompts: `answer` (the default, in every Access mode) refuses each prompt in every frame and hides one with no refusal that leaves the content readable; `detect` only looks: nothing is clicked or hidden, the wall test still runs, and a consent wall is still `consent_required`; `off` registers and starts no Consent prompt runner and lets no cosmetic rule act on the live page or in extracted content, so no consent wall is reported and the page's text is returned as served, while the Filter lists still block requests; the Run report lists `off` in `weakened`. A Recipe, and a Client acting for a model, never set `off` unless the layers below already give it: `setting_locked`; set it in the program's own code, in configuration or in an Operator policy.
 
@@ -2013,6 +2025,16 @@ class SessionBrowserSettings(TypedDict):
     """
 
 
+class SessionConsentSettings(TypedDict):
+    """The `consent` settings of `SessionSettings`."""
+
+    gpc: NotRequired[Literal["auto", "on", "off"]]
+    """Whether a browser Session sends Global Privacy Control (`Sec-GPC: 1` and `navigator.globalPrivacyControl`): `auto` (the default) follows the presented browser identity (sent only for browsers that send GPC by default, such as Brave, DuckDuckGo and private Firefox, never for stock Chrome, Edge or Safari); `on` forces it (on a launched Chromium Session, in a browser process of its own with `GlobalPrivacyControlTest` and `Browser.setGlobalPrivacyControl`, warning when the presented browser does not send GPC; on a Borrowed browser, through the `Sec-GPC` header in interception alone, warning that `navigator.globalPrivacyControl` is absent); `off` sends neither.
+
+    `consent.gpc`.
+    """
+
+
 class SessionContentSettings(TypedDict):
     """The `content` settings of `SessionSettings`."""
 
@@ -2209,6 +2231,8 @@ class SessionSettings(TypedDict):
     """
 
     browser: NotRequired[SessionBrowserSettings]
+
+    consent: NotRequired[SessionConsentSettings]
 
     content: NotRequired[SessionContentSettings]
 

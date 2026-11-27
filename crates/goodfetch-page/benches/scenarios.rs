@@ -357,7 +357,13 @@ pub(crate) fn intercept(count: usize, blocking: &steps::Blocking) -> usize {
                         source_url: source,
                         egress: RequestKind::Page,
                     };
-                    match steps::send_on(&request, &policy, blocking, None, false) {
+                    match steps::send_on(
+                        &request,
+                        &policy,
+                        blocking,
+                        steps::Additions::default(),
+                        false,
+                    ) {
                         Ok(steps::Sent::Continue(command)) => {
                             sent(&connection, &command.into_params()).await;
                             sent_on += 1;

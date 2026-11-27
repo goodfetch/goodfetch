@@ -9443,6 +9443,17 @@
       ]
     },
     {
+      "id": "setting:consent.gpc",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:consent.handling",
       "kind": "setting",
       "area": 5,

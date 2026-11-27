@@ -10,7 +10,7 @@ use goodfetch_engine::pinned_download::{CHROMIUM_BACKGROUND_TRAFFIC_OFF, Chromiu
 
 #[cfg(target_os = "linux")]
 use super::shared_memory_of;
-use super::{Arguments, Launch, Warning, arguments};
+use super::{Arguments, GlobalPrivacyControl, Launch, Warning, arguments};
 
 const MEBIBYTE: u64 = 1024 * 1024;
 
@@ -32,6 +32,7 @@ fn launch(headless: bool, shared_memory: Option<u64>) -> Launch<'static> {
         proxy_script: None,
         sandbox: true,
         relay_authority: None,
+        gpc: GlobalPrivacyControl::Off,
     }
 }
 
@@ -65,6 +66,27 @@ fn only_a_launch_with_the_sandbox_off_passes_no_sandbox() {
         (
             has(&sandboxed, "--no-sandbox"),
             has(&unsandboxed, "--no-sandbox")
+        ),
+        (false, true)
+    );
+}
+
+/// Chromium's `GlobalPrivacyControlTest` feature is passed only for a
+/// dedicated GPC browser launch, never for a stock browser (ADR 0048,
+/// issue 758).
+/// Covers: story:5-103, setting:consent.gpc
+#[test]
+fn only_a_gpc_launch_enables_global_privacy_control_test_feature() {
+    let stock = arguments(&launch(true, None));
+    let with_gpc = arguments(&Launch {
+        gpc: GlobalPrivacyControl::On,
+        ..launch(true, None)
+    });
+
+    assert_eq!(
+        (
+            has(&stock, "--enable-features=GlobalPrivacyControlTest"),
+            has(&with_gpc, "--enable-features=GlobalPrivacyControlTest"),
         ),
         (false, true)
     );

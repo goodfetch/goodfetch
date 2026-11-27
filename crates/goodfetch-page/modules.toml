@@ -135,6 +135,7 @@ preferences = []
 # Which of `consent`'s own modules may import which.
 [submodules.consent]
 frames = []
+gpc = []
 messages = []
 
 # Which of `guard`'s own modules may import which.

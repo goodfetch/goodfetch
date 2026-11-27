@@ -47,6 +47,7 @@
 //! page meanwhile. Firefox and `WebKit`'s route is A05-45's.
 
 mod frames;
+pub(crate) mod gpc;
 mod messages;
 
 use std::sync::Arc;

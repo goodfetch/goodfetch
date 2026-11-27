@@ -10,7 +10,8 @@ use crate::page::CONTENT_EXTRACTOR;
 use crate::page::access_mode::{BROWSER_ACCESS_MODE, IDENTIFIED_SIGNING_KEY, STEALTH_ITEMS};
 use crate::page::proxy::{PROXY_PROVIDERS, PROXY_SERVER};
 use crate::settings::{
-    FILTER_LISTS_ADS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_NAVIGATION, TIMEOUT_RUN,
+    CONSENT_GPC, FILTER_LISTS_ADS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_NAVIGATION,
+    TIMEOUT_RUN,
 };
 
 /// Every Setting the catalog declares.
@@ -21,6 +22,7 @@ fn every_setting() -> impl Iterator<Item = &'static Setting> {
 #[rstest]
 #[case::the_extractor_applies_to_one_page(&CONTENT_EXTRACTOR, &[Connection, Run, Label, Session, Page])]
 #[case::a_clean_up_choice_applies_to_a_session(&FILTER_LISTS_ADS, &[Connection, Run, Session])]
+#[case::gpc_applies_to_a_session(&CONSENT_GPC, &[Connection, Run, Session])]
 #[case::the_page_check_applies_to_a_session(&SESSION_PAGE_CHECK, &[Connection, Run, Label, Session])]
 #[case::the_access_mode_is_chosen_as_a_session_opens(&BROWSER_ACCESS_MODE, &[Connection, Run, Session])]
 #[case::an_identity_item_is_chosen_as_a_session_opens(STEALTH_ITEMS[0], &[Connection, Run, Session])]

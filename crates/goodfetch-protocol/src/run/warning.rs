@@ -42,6 +42,10 @@ pub const CLEAN_UP_RULES_STALE: &str = "clean_up_rules_stale";
 pub const CLEAN_UP_RULES_FALLBACK: &str = "clean_up_rules_fallback";
 /// A Session blocks resource kinds a site can see missing (ADRs 0047, 0117).
 pub const BLOCK_RESOURCES_VISIBLE: &str = "block_resources_visible";
+/// A Session forced Global Privacy Control (`consent.gpc: on`) on an
+/// identity that does not send it by default, or on a Borrowed browser
+/// where only the `Sec-GPC` header can be sent (ADR 0048, issue 758).
+pub const GPC_FORCED: &str = "gpc_forced";
 /// A file the Run writes at its end could not be written at its path (ADR
 /// 0116).
 pub const PATH_NOT_WRITABLE: &str = "path_not_writable";
@@ -68,7 +72,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 23] = [
+pub const WARNING_CODES: [SharedTypeValue; 24] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -124,6 +128,10 @@ pub const WARNING_CODES: [SharedTypeValue; 23] = [
     warning(
         BLOCK_RESOURCES_VISIBLE,
         "A Session's `browser.block_resources` blocks loads a site can see missing, which few people block.",
+    ),
+    warning(
+        GPC_FORCED,
+        "A Session's `consent.gpc: on` forces Global Privacy Control on a browser identity that does not send it by default, or on a Borrowed browser where only the `Sec-GPC` header is sent without `navigator.globalPrivacyControl`.",
     ),
     warning(
         PATH_NOT_WRITABLE,

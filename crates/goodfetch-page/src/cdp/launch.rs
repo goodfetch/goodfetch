@@ -342,7 +342,7 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 pub(crate) async fn launch(
     (run, on): (&BrowserRun, &RunIdentity),
     (launcher, home, pins): (&Launcher, &Home, &Pins),
-    (number, relay_authority): (u64, Option<&str>),
+    (number, relay_authority, gpc_feature): (u64, Option<&str>, bool),
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     if let Launcher::Scripted(scripted) = launcher {
@@ -386,7 +386,7 @@ pub(crate) async fn launch(
         settings,
         &data_folder,
         (headless, shell.is_some()),
-        sandbox,
+        (sandbox, gpc_feature),
         relay_authority,
     )
     .await;
@@ -565,7 +565,7 @@ async fn command_line(
     settings: Option<&Resolved>,
     data_folder: &Path,
     (headless, headless_shell): (bool, bool),
-    sandbox: bool,
+    (sandbox, gpc_feature): (bool, bool),
     relay_authority: Option<&str>,
 ) -> (Vec<String>, &'static [(&'static str, &'static str)]) {
     let resolve = settings.map(HostMapping::of).unwrap_or_default();
@@ -586,6 +586,11 @@ async fn command_line(
         proxy_script: proxy_script.as_deref(),
         sandbox,
         relay_authority,
+        gpc: if gpc_feature {
+            arguments::GlobalPrivacyControl::On
+        } else {
+            arguments::GlobalPrivacyControl::Off
+        },
     });
     for warning in &built.warnings {
         tracing::warn!(%warning, "the Run's browser launches degraded");

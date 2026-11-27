@@ -80,6 +80,30 @@ use crate::errors::browser_panicked;
 pub(crate) use rules::Placement;
 use rules::{Limits, Opens, Seats, Stage, Use};
 
+/// How a Session's seat is placed in its Run's browser pool: shared with
+/// other Sessions of the Run, or in a browser process of its own, which
+/// alone may enable browser-wide Global Privacy Control (`gpc`, ADR 0048).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BrowserPlacement {
+    /// Shares the first browser of the Run with room.
+    Shared,
+    /// A browser process of its own, never shared with another Session.
+    OwnProcess { gpc: bool },
+}
+
+impl BrowserPlacement {
+    const fn rule(self) -> Placement {
+        match self {
+            Self::Shared => Placement::Shared,
+            Self::OwnProcess { .. } => Placement::OwnProcess,
+        }
+    }
+
+    const fn gpc(self) -> bool {
+        matches!(self, Self::OwnProcess { gpc: true })
+    }
+}
+
 /// Why a Session's local addresses cannot be held.
 #[derive(Debug)]
 pub(crate) enum LocalFailure {
@@ -519,7 +543,7 @@ impl Pool {
     /// readers are tasks of `tasks`, its Session's owner.
     pub(crate) fn seat(
         &self,
-        placement: Placement,
+        placement: BrowserPlacement,
         egress: SessionEgress,
         tasks: TaskStarter,
     ) -> Seat {
@@ -535,7 +559,7 @@ impl Pool {
             .borrowed
             .push(Arc::clone(&browser));
         self.seat_of(
-            (Placement::Shared, SessionEgress::default()),
+            (BrowserPlacement::Shared, SessionEgress::default()),
             Some(browser),
             tasks,
         )
@@ -543,7 +567,7 @@ impl Pool {
 
     fn seat_of(
         &self,
-        (placement, egress): (Placement, SessionEgress),
+        (placement, egress): (BrowserPlacement, SessionEgress),
         borrowed: Option<Arc<BorrowedBrowser>>,
         tasks: TaskStarter,
     ) -> Seat {
@@ -586,7 +610,7 @@ impl Pool {
                     },
                 )
             }),
-            seat.placement,
+            seat.placement.rule(),
             &self.shared.limits,
         );
         let number = found.unwrap_or_else(|| {
@@ -601,8 +625,9 @@ impl Pool {
                         self.shared.pins.clone(),
                         number,
                         self.shared.authority.clone(),
+                        seat.placement.gpc(),
                     )),
-                    own: seat.placement == Placement::OwnProcess,
+                    own: seat.placement.rule() == Placement::OwnProcess,
                     seated: BTreeMap::new(),
                     served: 0,
                     open: BTreeMap::new(),
@@ -1028,7 +1053,7 @@ pub(crate) struct Seat {
 struct SeatShared {
     pool: Pool,
     number: u64,
-    placement: Placement,
+    placement: BrowserPlacement,
     /// The Session's one proxy and its egress relay, which it keeps in
     /// every browser (SA-22).
     egress: SessionEgress,

@@ -465,6 +465,24 @@ fn cookie_leftover() -> String {
     )
 }
 
+/// A page that reports `navigator.globalPrivacyControl` and whether the
+/// property exists on `navigator` to `/consent/gpc`, so the Proving ground's
+/// server-side observations confirm the `Sec-GPC` header and the JavaScript
+/// property agree (ADR 0048, issue 758).
+fn gpc() -> String {
+    page(
+        "gpc",
+        "Global Privacy Control observation",
+        "",
+        "<script>(function(){const params=new URLSearchParams(location.search);\
+const label=params.get('case')||'default';\
+const has='globalPrivacyControl' in navigator;\
+const val=String(navigator.globalPrivacyControl);\
+fetch('/consent/gpc?case='+encodeURIComponent(label)+'&has='+has+'&val='+encodeURIComponent(val))\
+.then(()=>{document.documentElement.dataset.gpcDone='true';});})();</script>",
+    )
+}
+
 /// Answers a request to the pages' hosts; `None` for any other host.
 pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
     if name != HOST && name != FRAME_HOST {
@@ -517,6 +535,7 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
         (false, "/hidden-wall") => Some(hidden_wall()),
         (false, "/pay-or-accept") => Some(pay_or_accept()),
         (false, "/cookie-leftover") => Some(cookie_leftover()),
+        (false, "/gpc") => Some(gpc()),
         _ => None,
     };
     Some(html.map_or_else(Reply::not_found, Reply::html))

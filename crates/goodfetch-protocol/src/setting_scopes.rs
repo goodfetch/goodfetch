@@ -19,7 +19,7 @@ use crate::page::{
 };
 use crate::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use crate::settings::{
-    FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
+    CONSENT_GPC, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
     FILTER_LISTS_TRACKERS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_HOOK, TIMEOUT_RUN,
 };
 
@@ -28,14 +28,16 @@ const PROXY_PREFIX: &str = "proxy.";
 
 /// The settings a Session's own `settings` set beside its Run's, besides
 /// what it keeps for its life ([`fixed_for_the_session`]): the Clean-up
-/// rules' choices, whether its sites' service workers run, whether its Live
+/// rules' choices, Global Privacy Control (`consent.gpc`, ADR 0048),
+/// whether its sites' service workers run, whether its Live
 /// view hides, its page check (ADR 0121) and its Secret placeholders'
 /// bindings, so that each Session logs in to its own account (ADR 0092).
-const SESSION_SETTINGS: [&Setting; 9] = [
+const SESSION_SETTINGS: [&Setting; 10] = [
     &FILTER_LISTS_ADS,
     &FILTER_LISTS_TRACKERS,
     &FILTER_LISTS_ANNOYANCES,
     &FILTER_LISTS_FIRST_PARTY_SCRIPTS,
+    &CONSENT_GPC,
     &BROWSER_BLOCK_RESOURCES,
     &BROWSER_SERVICE_WORKERS,
     &LIVE_VIEW_HIDING,

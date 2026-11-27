@@ -28,3 +28,12 @@ id = "scorecard"
 area = 1
 job = "nightly.yml#scorecard"
 run = "target/debug/xtask results scorecard --results target/scorecard/results.json"
+
+# Nightly provider shape check against committed Model recordings and models.toml
+# (ADRs 0065 and 0076, #417). Stays disabled (exits 0 with zero calls) until #425
+# sets GOODFETCH_LIVE_PROVIDER_CHECK.
+[[live-check]]
+id = "provider-check"
+area = 9
+job = "live.yml#provider"
+run = "node bench/src/cli.ts provider-check"

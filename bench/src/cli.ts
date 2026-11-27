@@ -16,12 +16,14 @@ import {
   loadCapsTable,
   type PlannedTrial,
 } from "./live-gate.ts";
+import { loadModelsManifest, runProviderCheck } from "./provider-check.ts";
 import { runCampaign } from "./runner.ts";
 
 const usage = [
   "usage:",
   "  node bench/src/cli.ts run <campaign.json> --proving-ground <address> --out <folder>",
   "  node bench/src/cli.ts live-gate --job <job> [--models <m1,m2>] [--trials <n>] [--max-input-tokens <n>] [--max-output-tokens <n>]",
+  "  node bench/src/cli.ts provider-check [--junit <path>]",
   "",
 ].join("\n");
 
@@ -118,12 +120,26 @@ async function main(argv: readonly string[]): Promise<number> {
       trials: { type: "string" },
       "max-input-tokens": { type: "string" },
       "max-output-tokens": { type: "string" },
+      junit: { type: "string" },
     },
   });
   const [command, campaignPath] = positionals;
   try {
     if (command === "live-gate") {
       return runLiveGateCommand(values);
+    }
+    if (command === "provider-check") {
+      const outcome = await runProviderCheck({
+        recordings: [],
+        manifestModels: loadModelsManifest(),
+        ...(values.junit !== undefined ? { junitPath: values.junit } : {}),
+        sendExchange: async () => {
+          throw new BenchError("oracle_refused", "live gateway HTTP transport requires M4 (#425)");
+        },
+        listModels: async () => [],
+      });
+      process.stdout.write(`${JSON.stringify(outcome)}\n`);
+      return outcome.exitCode;
     }
     const address = values["proving-ground"];
     const out = values.out;

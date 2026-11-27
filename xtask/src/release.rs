@@ -30,6 +30,7 @@
 mod assets;
 mod attest;
 mod changelog;
+mod channel_gate;
 mod chromium;
 mod digests;
 mod gates;
@@ -236,6 +237,10 @@ pub(crate) enum Command {
     /// Computes the deterministic reuse key for Platform-signed artifacts of a
     /// version so re-runs reuse already-signed bytes without re-signing.
     SigningReuseKey(signing::ReuseKeyArguments),
+    /// Verifies cross-channel executable digest equality, attestation validity,
+    /// and nightly channel exclusions before any publish step (ADRs 0030, 0032,
+    /// 0057 and 0094; issue 143).
+    ChannelGate(channel_gate::ChannelGateArguments),
 }
 
 #[expect(
@@ -258,6 +263,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::VerifyRehearsal(arguments) => attest::verify_rehearsal(root, &arguments),
         Command::SignatureGate(arguments) => signing::run_signature_gate(root, &arguments),
         Command::SigningReuseKey(arguments) => signing::run_reuse_key(root, &arguments),
+        Command::ChannelGate(arguments) => channel_gate::run(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

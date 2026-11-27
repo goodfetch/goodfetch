@@ -330,3 +330,56 @@ job = "release-build.yml#rehearse-windows"
 [[outside]]
 job = "release-build.yml#rehearse-macos"
 reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+# Nightly channel release pipeline (issue 143; ADRs 0030, 0032, 0043, 0061, 0094).
+[[outside]]
+job = "release-nightly.yml#release-suite"
+reason = "It dispatches release-suite.yml on main's head and waits for its result without running the product itself."
+
+[[outside]]
+job = "release-nightly.yml#nightly-version"
+reason = "It computes the nightly semver string and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#build"
+reason = "It calls the reusable release-build.yml workflow, whose own jobs declare their egress rules."
+
+[[outside]]
+job = "release-nightly.yml#attest-and-sign"
+reason = "It runs GitHub artifact attestations and keyless Sigstore signing over built release files without running the product."
+
+[[deny]]
+job = "release-nightly.yml#verify-bytes-linux"
+
+[[deny]]
+job = "release-nightly.yml#verify-bytes-windows"
+
+[[outside]]
+job = "release-nightly.yml#verify-bytes-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "release-nightly.yml#release-gate"
+reason = "It verifies cross-channel digests and GitHub artifact attestations without running the product."
+
+[[outside]]
+job = "release-nightly.yml#publish-npm"
+reason = "It publishes nightly npm packages with OIDC provenance and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#publish-oci"
+reason = "It pushes nightly OCI images and first-party Plugin OCI artifacts to GHCR and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#publish-github-prerelease"
+reason = "It creates the nightly GitHub pre-release with release assets and .devN wheels and runs none of the product."
+
+[[deny]]
+job = "release-nightly.yml#smoke-channels-linux"
+
+[[deny]]
+job = "release-nightly.yml#smoke-channels-windows"
+
+[[outside]]
+job = "release-nightly.yml#smoke-channels-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."

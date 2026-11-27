@@ -164,7 +164,23 @@ pub(super) fn verify_rehearsal(
     let signature = resolve(root, &arguments.signature);
     let attestation = resolve(root, &arguments.attestation);
     let public_key = resolve(root, &arguments.public_key);
+    let digest = verify_rehearsal_paths(&file, &signature, &attestation, &public_key)?;
+    let expected_name = file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .with_context(|| format!("non-UTF-8 file name {}", file.display()))?;
+    output::line(&format!("verified {expected_name} sha256:{digest}"));
+    Ok(ExitCode::SUCCESS)
+}
 
+/// Verifies a file's detached Ed25519 signature and signed in-toto DSSE
+/// attestation against `public_key`, returning the verified SHA-256 hex digest.
+pub(super) fn verify_rehearsal_paths(
+    file: &Path,
+    signature: &Path,
+    attestation: &Path,
+    public_key: &Path,
+) -> Result<String> {
     ensure!(file.is_file(), "missing artifact {}", file.display());
     ensure!(
         signature.is_file(),
@@ -182,10 +198,10 @@ pub(super) fn verify_rehearsal(
         public_key.display()
     );
 
-    openssl_verify_file(&public_key, &file, &signature)
+    openssl_verify_file(public_key, file, signature)
         .with_context(|| format!("verifying detached signature {}", signature.display()))?;
 
-    let attestation_text = std::fs::read_to_string(&attestation)
+    let attestation_text = std::fs::read_to_string(attestation)
         .with_context(|| format!("reading {}", attestation.display()))?;
     let line = attestation_text
         .lines()
@@ -212,7 +228,7 @@ pub(super) fn verify_rehearsal(
         let sig_bytes = BASE64
             .decode(entry.sig.as_bytes())
             .context("decoding base64 DSSE signature")?;
-        if openssl_verify_bytes(&public_key, &pae, &sig_bytes).is_ok() {
+        if openssl_verify_bytes(public_key, &pae, &sig_bytes).is_ok() {
             verified_any = true;
             break;
         }
@@ -239,7 +255,7 @@ pub(super) fn verify_rehearsal(
         .file_name()
         .and_then(|name| name.to_str())
         .with_context(|| format!("non-UTF-8 file name {}", file.display()))?;
-    let actual_sha256 = assets::sha256_file(&file)?;
+    let actual_sha256 = assets::sha256_file(file)?;
     let matches_subject = statement
         .subject
         .iter()
@@ -249,8 +265,7 @@ pub(super) fn verify_rehearsal(
         "attestation subject does not match `{expected_name}` sha256:{actual_sha256}"
     );
 
-    output::line(&format!("verified {expected_name} sha256:{actual_sha256}"));
-    Ok(ExitCode::SUCCESS)
+    Ok(actual_sha256)
 }
 
 fn resolve(root: &Path, path: &Path) -> PathBuf {

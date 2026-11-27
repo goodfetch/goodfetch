@@ -78,13 +78,14 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
+pub(crate) use self::gestures::GestureWatch;
 use self::hidden_pages::HiddenPages;
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::page_reader::PageReader;
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
-pub(crate) use self::targets::pointer_click;
+pub(crate) use self::targets::{mouse_event, pointer_click};
 use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
 use super::launch::{Launcher, Window, launch};

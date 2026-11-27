@@ -268,11 +268,10 @@ pub(crate) struct SessionIdentityPlan {
 impl SessionIdentityPlan {
     /// The plan, when this engine builds every effect it asks for from the
     /// Session's `settings` (ADR 0083): `standard` and `identified` open,
-    /// and so does `stealth`, but for the `engine` Fingerprint method,
-    /// human-like input and a chosen Chromium build, which open only once
-    /// their tickets land. A generated
-    /// identity keeps the machine's operating system under every method
-    /// but `engine` (#599's Q5 and its re-cut of #997), so a
+    /// and so does `stealth`, but for the `engine` Fingerprint method and
+    /// a chosen Chromium build, which open only once their tickets land. A
+    /// generated identity keeps the machine's operating system under every
+    /// method but `engine` (#599's Q5 and its re-cut of #997), so a
     /// `stealth.identity.os` that leaves it out is refused.
     pub(crate) fn built(self, settings: &SessionSettings<'_>) -> Result<Self, Refusal> {
         let Some(profile) = &self.profile else {
@@ -296,24 +295,14 @@ impl SessionIdentityPlan {
                 ),
             });
         }
-        let unbuilt = [
-            (&STEALTH_HUMAN_INPUT, Unbuilt::On, profile.human_input),
-            (
-                &STEALTH_CHROMIUM_BUILD,
-                Unbuilt::Set,
-                scope(&STEALTH_CHROMIUM_BUILD) != Scope::Default,
-            ),
-        ]
-        .into_iter()
-        .find(|&(_, _, asked)| asked);
-        match unbuilt {
-            Some((setting, item, _)) => Err(Refusal::UnbuiltItem {
-                key: setting.name,
-                layer: scope(setting).layer(),
-                item,
-            }),
-            None => Ok(self),
+        if scope(&STEALTH_CHROMIUM_BUILD) != Scope::Default {
+            return Err(Refusal::UnbuiltItem {
+                key: STEALTH_CHROMIUM_BUILD.name,
+                layer: scope(&STEALTH_CHROMIUM_BUILD).layer(),
+                item: Unbuilt::Set,
+            });
         }
+        Ok(self)
     }
 }
 
@@ -432,8 +421,6 @@ pub(crate) enum Refusal {
 /// yet, which says how it opens without it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Unbuilt {
-    /// A switch on: turned off, the Session opens.
-    On,
     /// A choice or a list set: left out, the Session opens.
     Set,
 }
@@ -552,17 +539,6 @@ fn engine_unavailable(layer: SettingsLayer) -> CallError {
 /// `layer` as `item` says, whose effect this engine does not build yet.
 fn unbuilt_item(key: &str, layer: SettingsLayer, item: Unbuilt) -> CallError {
     match item {
-        Unbuilt::On => unavailable(
-            (key, layer, key),
-            format!("`{key}: false`"),
-            format!(
-                "`{key}` is on, {}, and this engine does not build it yet: set it to `false`",
-                match layer {
-                    SettingsLayer::Default => "by `stealth`'s default".to_owned(),
-                    layer => format!("set in {}", layer.as_str()),
-                }
-            ),
-        ),
         Unbuilt::Set => unavailable(
             (key, layer, key),
             format!("leave `{key}` out"),

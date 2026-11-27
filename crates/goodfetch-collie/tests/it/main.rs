@@ -73,6 +73,8 @@ mod help;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod huge_pages;
+#[cfg(unix)]
+mod human_input;
 mod human_output;
 #[cfg(unix)]
 mod identified;

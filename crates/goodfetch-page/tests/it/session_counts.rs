@@ -574,3 +574,93 @@ fn a_planted_unit_adds_one_an_opening_command_a_command() {
         unplanted.work.read(Row::PageOpeningCommands) + planted.commands
     );
 }
+
+/// In a `stealth` Session with `stealth.human_input` off, `C3.commands`'
+/// standard click, fill and press figures are unchanged and human-like
+/// input counts zero commands (ADR 0140, #1018).
+///
+/// Covers: story:8-42, setting:stealth.human_input
+#[test]
+fn stealth_with_human_input_off_keeps_standard_c3_action_figures() {
+    let settings = Map::from_iter([
+        (
+            "browser".to_owned(),
+            json!({ "access_mode": "stealth", "headless": true }),
+        ),
+        (
+            "stealth".to_owned(),
+            json!({ "human_input": false, "generated_identity": false }),
+        ),
+        ("egress".to_owned(), json!({ "offline": true })),
+    ]);
+
+    let counted = run_in(Browsers::Pool, settings, None);
+
+    assert_eq!(
+        [
+            Row::ActionClickCommands,
+            Row::ActionFillCommands,
+            Row::ActionPressCommands,
+            Row::ActionHumanInputCommands,
+        ]
+        .map(|row| counted.count(row)),
+        [10, 4, 8, 0]
+    );
+}
+
+/// In a `stealth` Session with `stealth.human_input` on, the engine's
+/// gestures count on human-like input's own `C3.commands` action kind,
+/// bounded by `EVENTS_PER_GESTURE` per gesture, while standard action
+/// rows stay at zero (ADR 0140, #1018).
+///
+/// Covers: story:8-42, story:8-45, setting:stealth.human_input
+#[test]
+fn stealth_with_human_input_on_counts_on_its_own_c3_action_kind() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let settings = Map::from_iter([
+        (
+            "browser".to_owned(),
+            json!({ "access_mode": "stealth", "headless": true }),
+        ),
+        (
+            "stealth".to_owned(),
+            json!({ "human_input": true, "generated_identity": false }),
+        ),
+        ("egress".to_owned(), json!({ "offline": true })),
+    ]);
+
+    let counted = run_at(home.path(), Browsers::Pool, settings, None);
+
+    assert_eq!(
+        [
+            Row::ActionClickCommands,
+            Row::ActionFillCommands,
+            Row::ActionPressCommands,
+        ]
+        .map(|row| counted.count(row)),
+        [0, 0, 0]
+    );
+    let human = counted.count(Row::ActionHumanInputCommands);
+    // Two clicks (<= 100 moves + press/release + check + disarm each), two
+    // 5-char fills (<= 3 keystrokes * 2 events + check each) and two presses
+    // (4 commands each).
+    assert!(
+        human > 22 && human <= 2 * 105 + 2 * 35 + 2 * 4,
+        "unexpected human-like input C3.commands count: {human}"
+    );
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a Run trace file read once its engine ended"
+    )]
+    let provenance = std::fs::read_to_string(
+        HomeLayout::of(home.path()).run_trace(RUN, goodfetch_protocol::home::RUN_TRACE_PROVENANCE),
+    )
+    .unwrap_or_default();
+    let human_marks: Vec<Value> = provenance
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|entry| entry["action"] == json!("human_input"))
+        .collect();
+    assert_eq!(human_marks.len(), 1, "{human_marks:?}");
+    assert_eq!(human_marks[0]["scope"], json!("engine_actions_only"));
+}

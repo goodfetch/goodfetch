@@ -31,6 +31,7 @@ mod fingerprint_method;
 mod gesture_order;
 mod guard;
 mod hiding;
+mod human_input;
 mod init_scripts;
 mod interception;
 pub mod kept_tree;

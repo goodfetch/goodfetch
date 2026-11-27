@@ -218,12 +218,13 @@ const READ_FIELDS: &str = include_str!("../src/fields/read.js");
 /// The rows C3's actions count, read over the actions alone: each of the
 /// program's reads is a wait, whose checks count on these rows too, and are
 /// C2's outcome, not an action's.
-const ACTION_ROWS: [Row; 6] = [
+const ACTION_ROWS: [Row; 7] = [
     Row::ActionScriptSends,
     Row::ActionCheckCommands,
     Row::ActionClickCommands,
     Row::ActionFillCommands,
     Row::ActionPressCommands,
+    Row::ActionHumanInputCommands,
     Row::ActionOwnerRoundTrips,
 ];
 

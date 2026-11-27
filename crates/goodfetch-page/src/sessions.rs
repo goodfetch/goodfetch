@@ -120,6 +120,7 @@ pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::fingerprint_method::FingerprintPlan;
 use crate::hiding::SessionHiding;
+use crate::human_input;
 use crate::interception::{HeldBrowser, Interception, Lookups, RunPowers, SessionInterception};
 use crate::page_events;
 use crate::page_functions::Injections;
@@ -250,6 +251,9 @@ struct Session {
     /// How its pages mask their browser's fingerprint, when it is
     /// `stealth` (ADR 0035).
     fingerprint: Option<FingerprintPlan>,
+    /// How its pages shape the engine's own gestures when `stealth.human_input`
+    /// is on (ADR 0035).
+    human_input: Option<human_input::Plan>,
     /// The live hiding its pages share: the clicks' lifted rules and its
     /// pages under live hiding.
     hiding: Arc<SessionHiding>,
@@ -331,6 +335,9 @@ pub(crate) struct OpenPage {
     pub(crate) page_check: Arc<Checking>,
     /// Its Session's marks of main-world injections in Provenance.
     pub(crate) injections: Injections,
+    /// Its human-like input state when its Session is `stealth` with
+    /// `stealth.human_input` on (ADR 0035).
+    pub(crate) human_input: Option<human_input::PageHumanInput>,
     /// Its admission of the governor's `browser_page` kind, given back once
     /// the page leaves and no call holds it.
     _admission: Arc<Permit>,
@@ -593,6 +600,7 @@ impl Sessions {
         let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
         let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
+        let human_input = human_input_of(&run, &identity, context).await;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
@@ -652,6 +660,7 @@ impl Sessions {
                     .map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
                 fingerprint,
+                human_input,
                 hiding: Arc::default(),
                 interception,
                 page_listeners: session_pages::PageListeners::default(),
@@ -676,10 +685,7 @@ impl Sessions {
         let row = SessionRow::opened(position, seed);
         self.record(&run, row, &settings, borrowed.as_ref(), context)
             .await?;
-        mark_egress(&open, &session).await;
-        if let Some(fingerprint) = &open.fingerprint {
-            fingerprint.chosen(&run, &session).await;
-        }
+        mark_opened_session(&run, &open, &session).await;
         Ok(SessionOpened {
             session_id: session,
         })
@@ -741,6 +747,7 @@ impl Sessions {
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
         let fingerprint = fingerprint_of(run, &Values::default(), identity, seed, context).await?;
+        let human_input = human_input_of(run, identity, context).await;
         let (position, pool) = taken(&mut *self.state.lock().await, run)?;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
@@ -811,6 +818,7 @@ impl Sessions {
             held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
             fingerprint,
+            human_input,
             hiding: Arc::default(),
             interception,
             page_listeners: session_pages::PageListeners::default(),
@@ -824,6 +832,9 @@ impl Sessions {
         }
         if let Some(fingerprint) = &held.fingerprint {
             fingerprint.chosen(run, &session).await;
+        }
+        if let Some(human_input) = &held.human_input {
+            human_input.chosen(run, &session).await;
         }
         Ok(position)
     }
@@ -1837,10 +1848,10 @@ async fn reopened_session(
         context,
     )
     .await;
-    let ((signing, fingerprint), reopen_failed) =
+    let ((signing, fingerprint, human_input), reopen_failed) =
         match reopened_identity(run, &settings, borrowed.is_some(), seed, context).await {
             Ok(identity) => (identity, reopen_failed),
-            Err(error) => ((None, None), reopen_failed.or(Some(error))),
+            Err(error) => ((None, None, None), reopen_failed.or(Some(error))),
         };
     let session = session_id(run.identity.id(), position);
     let (seat, attributes) = match &borrowed {
@@ -1880,6 +1891,7 @@ async fn reopened_session(
             .map(|_| session_pages::HeldFrames::default()),
         injections: Injections::default(),
         fingerprint,
+        human_input,
         hiding: Arc::default(),
         interception,
         page_listeners: session_pages::PageListeners::default(),
@@ -2195,9 +2207,43 @@ async fn reopened_egress(
     }
 }
 
-/// The signer and the Fingerprint method of a Session of `run` reopened
-/// from run state with its own `settings`, as a Session opens with them:
-/// its key resolved again, once for the reopened Session, as
+/// Records egress, Fingerprint method and human-like input choices for an
+/// opened Session.
+async fn mark_opened_session(run: &BrowserRun, open: &Session, session: &SessionId) {
+    mark_egress(open, session).await;
+    if let Some(fingerprint) = &open.fingerprint {
+        fingerprint.chosen(run, session).await;
+    }
+    if let Some(human_input) = &open.human_input {
+        human_input.chosen(run, session).await;
+    }
+}
+
+/// The human-like input plan of a `stealth` Session whose
+/// `stealth.human_input` is on, loaded from the Browser cache or falling
+/// back to the ghost-cursor port (ADR 0035).
+async fn human_input_of(
+    run: &Arc<BrowserRun>,
+    plan: &SessionIdentityPlan,
+    context: &CallContext,
+) -> Option<human_input::Plan> {
+    if !plan
+        .profile
+        .as_ref()
+        .is_some_and(|profile| profile.human_input)
+    {
+        return None;
+    }
+    let pinned_by = PinnedBy {
+        product: context.identity().product,
+        product_version: context.identity().product_version.clone(),
+    };
+    Some(human_input::Plan::open(context.engine().home(), &run.identity, &pinned_by).await)
+}
+
+/// The signer, Fingerprint method and human-like input plan of a Session of
+/// `run` reopened from run state with its own `settings`, as a Session opens
+/// with them: its key resolved again, once for the reopened Session, as
 /// [`open_signing`] makes it, and its Identity profile drawn again from
 /// its recorded `seed`, the one it opened with. One on a Borrowed browser,
 /// when `borrowed`, neither signs nor masks (ADR 0021).
@@ -2212,14 +2258,22 @@ async fn reopened_identity(
     borrowed: bool,
     seed: IdentitySeed,
     context: &CallContext,
-) -> Result<(Option<Arc<RequestSigner>>, Option<FingerprintPlan>), CallError> {
+) -> Result<
+    (
+        Option<Arc<RequestSigner>>,
+        Option<FingerprintPlan>,
+        Option<human_input::Plan>,
+    ),
+    CallError,
+> {
     if borrowed {
-        return Ok((None, None));
+        return Ok((None, None, None));
     }
     let identity = access_mode_opens(settings, &run.identity, None, context)?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
     let fingerprint = fingerprint_of(run, settings, &identity, seed, context).await?;
-    Ok((signing, fingerprint))
+    let human_input = human_input_of(run, &identity, context).await;
+    Ok((signing, fingerprint, human_input))
 }
 
 /// Where a Session of `run` whose pages mask their fingerprint as

@@ -46,8 +46,14 @@ use crate::cdp::driver::PageDriver;
 use crate::cdp::{CdpPage, ExecutionContextId, KeyPress, TargetSession, keys};
 use crate::errors::Unanswered;
 use crate::hiding::Hidden;
+use crate::human_input::{KeyKind, PageHumanInput, Point, Viewport};
 use crate::page_owner::PageOwner;
 use crate::page_reads::Turn;
+
+/// The most time a human-like approach move or wheel scroll takes of an
+/// action's remaining deadline, keeping it well under the guard's 10 s arm
+/// expiry while remaining natural.
+const HUMAN_MOTION_CAP: Duration = Duration::from_secs(2);
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -72,6 +78,15 @@ pub(crate) enum Action {
     Fill(String),
     /// Sends this key press to it.
     Press(KeyPress),
+    /// Presses and holds its centre with the left button for this duration.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "wired for Challenge solvers in #1090; exercised through the guard's interface in tests"
+        )
+    )]
+    PressAndHold(Duration),
 }
 
 impl Action {
@@ -89,17 +104,20 @@ impl Action {
     /// The kind the check takes: which conditions apply.
     fn kind(&self) -> &'static str {
         match self {
-            Self::Click => "pointer",
+            Self::Click | Self::PressAndHold(_) => "pointer",
             Self::Fill(_) => "fill",
             Self::Press(_) => "text",
         }
     }
 
     /// The row its attempt's commands count on: `C3.commands` of its kind
-    /// (ADR 0140).
-    const fn commands(&self) -> Row {
+    /// (ADR 0140), with human-like input counted on its own action kind.
+    const fn commands(&self, human_input: bool) -> Row {
+        if human_input {
+            return Row::ActionHumanInputCommands;
+        }
         match self {
-            Self::Click => Row::ActionClickCommands,
+            Self::Click | Self::PressAndHold(_) => Row::ActionClickCommands,
             Self::Fill(_) => Row::ActionFillCommands,
             Self::Press(_) => Row::ActionPressCommands,
         }
@@ -145,6 +163,9 @@ pub(crate) struct Request<'a> {
     /// The page's send window, which the action's first input marks before
     /// it goes out (ADR 0106).
     pub(crate) sent: SentMark<'a>,
+    /// The page's human-like input model when the Session is `stealth` with
+    /// `stealth.human_input` on; `None` for direct input.
+    pub(crate) human_input: Option<PageHumanInput>,
 }
 
 /// ADR 0106's send window of one page's commands: its Run, and the lease
@@ -231,7 +252,7 @@ pub(crate) async fn act(
 async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Result<(), CallError> {
     // Every command the attempt sends counts on its kind's row: its checks,
     // its input, its disarm and its wait for a navigation it started alike.
-    let page = &page.counting(request.action.commands());
+    let page = &page.counting(request.action.commands(request.human_input.is_some()));
     let started = clock.now();
     let end = started + request.window.left();
     let mut turn = Turn::granted(
@@ -241,6 +262,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         request.owner.turn().await?,
     );
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
+    let mut human_scrolled = false;
     loop {
         // The pointer is the turn's from the check that arms the listener
         // to the disarm, and lent between two checks to the Consent prompt
@@ -260,6 +282,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             Target::Selector(request.selector),
             request.action.kind(),
             remaining.min(SLICE),
+            request.human_input.is_some() && !human_scrolled,
         );
         let seen = match turn.check(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
@@ -267,55 +290,50 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             Err(Unanswered::Failed(error)) => return Err(error),
         };
         match seen {
-            Seen::Armed { x, y } => match &request.action {
-                Action::Click => {
-                    request.sent.mark(request.operation).await?;
-                    let mut watch = page.watch_gesture();
-                    // The disarm is the round trip into the renderer after
-                    // the input that a key press makes with `settled`.
-                    // Boxed, as the wait below: the action's future stays small.
-                    let clicked = click(page, &mut turn, (x, y));
-                    let landed = Box::pin(watch.during(clicked)).await?;
-                    match landed {
-                        Landed::Landed => {
-                            drop(turn);
-                            Box::pin(page.settle_gesture(watch)).await;
-                            return Ok(());
-                        }
-                        Landed::Intercepted { observed } => {
-                            last = Seen::waiting(Step::ReceivesEvents, observed);
-                        }
+            Seen::Scroll {
+                dx,
+                dy,
+                width,
+                height,
+            } => {
+                human_scrolled = true;
+                if let Some(input) = &request.human_input {
+                    let viewport = Viewport { width, height };
+                    human_scroll(page, &turn, input, (dx, dy), viewport, (clock, end)).await?;
+                }
+            }
+            Seen::Armed {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let target = Point { x, y };
+                let viewport = Viewport { width, height };
+                match perform_pointer(page, &mut turn, &request, (target, viewport), (clock, end))
+                    .await?
+                {
+                    PointerOutcome::Landed(watch) => {
+                        drop(turn);
+                        Box::pin(page.settle_gesture(*watch)).await;
+                        return Ok(());
+                    }
+                    PointerOutcome::Intercepted(observed) => {
+                        last = Seen::waiting(Step::ReceivesEvents, observed);
                     }
                 }
-                Action::Fill(_) | Action::Press(_) => return Err(mismatched(&seen)),
-            },
-            Seen::Focused { set_value } => match &request.action {
-                Action::Fill(value) if set_value => {
-                    request.sent.mark(request.operation).await?;
-                    if set_picked(&mut turn, value).await? {
+            }
+            Seen::Focused { set_value } => {
+                match perform_focused(page, &mut turn, &request, set_value, (clock, end)).await? {
+                    FocusedOutcome::Done => return Ok(()),
+                    FocusedOutcome::Retry => {}
+                    FocusedOutcome::Settle(watch) => {
+                        drop(turn);
+                        Box::pin(page.settle_gesture(*watch)).await;
                         return Ok(());
                     }
                 }
-                Action::Fill(value) => {
-                    request.sent.mark(request.operation).await?;
-                    return fill(page, &mut turn, value).await;
-                }
-                Action::Press(events) => {
-                    request.sent.mark(request.operation).await?;
-                    let mut watch = page.watch_gesture();
-                    Box::pin(watch.during(async {
-                        CdpPage::of(page)
-                            .press_keys(events, turn.gesture_call())
-                            .await?;
-                        settled(&mut turn).await
-                    }))
-                    .await?;
-                    drop(turn);
-                    Box::pin(page.settle_gesture(watch)).await;
-                    return Ok(());
-                }
-                Action::Click => return Err(mismatched(&seen)),
-            },
+            }
             Seen::Ready { .. } => return Err(mismatched(&seen)),
             Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
             Seen::Waiting {
@@ -333,6 +351,108 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
+    }
+}
+
+/// What a focused keyboard/fill action produced before settling any navigation.
+enum FocusedOutcome {
+    Done,
+    Retry,
+    Settle(Box<crate::cdp::driver::GestureWatch>),
+}
+
+/// Runs a ready `Fill` or `Press` action on a focused field.
+async fn perform_focused(
+    page: &PageDriver,
+    turn: &mut Turn,
+    request: &Request<'_>,
+    set_value: bool,
+    timing: (&Clock, tokio::time::Instant),
+) -> Result<FocusedOutcome, CallError> {
+    match &request.action {
+        Action::Fill(value) if set_value => {
+            request.sent.mark(request.operation).await?;
+            if set_picked(turn, value).await? {
+                return Ok(FocusedOutcome::Done);
+            }
+            Ok(FocusedOutcome::Retry)
+        }
+        Action::Fill(value) => {
+            request.sent.mark(request.operation).await?;
+            match &request.human_input {
+                Some(input) if !value.is_empty() => {
+                    human_fill(page, turn, input, value, timing).await?;
+                }
+                _ => fill(page, turn, value).await?,
+            }
+            Ok(FocusedOutcome::Done)
+        }
+        Action::Press(events) => {
+            request.sent.mark(request.operation).await?;
+            let mut watch = page.watch_gesture();
+            Box::pin(watch.during(async {
+                CdpPage::of(page)
+                    .press_keys(events, turn.gesture_call())
+                    .await?;
+                settled(turn).await
+            }))
+            .await?;
+            Ok(FocusedOutcome::Settle(Box::new(watch)))
+        }
+        Action::Click | Action::PressAndHold(_) => Err(mismatched(&"focused")),
+    }
+}
+
+/// What a pointer action produced before settling any navigation it started.
+enum PointerOutcome {
+    Landed(Box<crate::cdp::driver::GestureWatch>),
+    Intercepted(String),
+}
+
+/// Runs a ready pointer action (`Click` or `PressAndHold`) inside a
+/// navigation watch. Returns `Landed(watch)` so the caller drops `turn`
+/// before settling the navigation (ADR 0085), or `Intercepted(observed)` so
+/// the guard retries.
+async fn perform_pointer(
+    page: &PageDriver,
+    turn: &mut Turn,
+    request: &Request<'_>,
+    (target, viewport): (Point, Viewport),
+    timing: (&Clock, tokio::time::Instant),
+) -> Result<PointerOutcome, CallError> {
+    match &request.action {
+        Action::Click => {
+            request.sent.mark(request.operation).await?;
+            let mut watch = page.watch_gesture();
+            let landed = if let Some(input) = &request.human_input {
+                let clicked = human_click(page, turn, input, (target, viewport), timing);
+                Box::pin(watch.during(clicked)).await?
+            } else {
+                let clicked = click(page, turn, (target.x, target.y));
+                Box::pin(watch.during(clicked)).await?
+            };
+            Ok(match landed {
+                Landed::Landed => PointerOutcome::Landed(Box::new(watch)),
+                Landed::Intercepted { observed } => PointerOutcome::Intercepted(observed),
+            })
+        }
+        Action::PressAndHold(hold) => {
+            request.sent.mark(request.operation).await?;
+            let mut watch = page.watch_gesture();
+            let action = press_and_hold(
+                page,
+                turn,
+                request.human_input.as_ref(),
+                (target, viewport, *hold),
+                timing,
+            );
+            let landed = Box::pin(watch.during(action)).await?;
+            Ok(match landed {
+                Landed::Landed => PointerOutcome::Landed(Box::new(watch)),
+                Landed::Intercepted { observed } => PointerOutcome::Intercepted(observed),
+            })
+        }
+        Action::Fill(_) | Action::Press(_) => Err(mismatched(&"armed")),
     }
 }
 
@@ -372,7 +492,7 @@ pub(crate) async fn check_element(
     element: &Element<'_>,
     slice: Duration,
 ) -> Readiness {
-    let argument = check::argument(Target::Handle(element.handle), "pointer", slice);
+    let argument = check::argument(Target::Handle(element.handle), "pointer", slice, false);
     page.work().count(Row::ActionScriptSends);
     let Ok(value) = page
         .counting(Row::ActionCheckCommands)
@@ -382,7 +502,7 @@ pub(crate) async fn check_element(
         return Readiness::Gone;
     };
     match Seen::read(&value) {
-        Ok(Seen::Armed { x, y }) => Readiness::Ready { x, y },
+        Ok(Seen::Armed { x, y, .. }) => Readiness::Ready { x, y },
         Ok(Seen::Waiting { .. }) => Readiness::Waiting,
         _ => Readiness::Gone,
     }
@@ -429,6 +549,151 @@ async fn click(
         .pointer_click(x, y, turn.gesture_call())
         .await?;
     landed(turn).await
+}
+
+/// Sleeps `delay` bounded by `end` on `clock`.
+async fn pace(clock: &Clock, end: tokio::time::Instant, delay: Duration) {
+    let wait = delay.min(end.saturating_duration_since(clock.now()));
+    if !wait.is_zero() {
+        clock.sleep(wait).await;
+    }
+}
+
+/// Moves the pointer along a human-like curve onto `target`, presses and
+/// releases as one atomic burst, then reads where the click landed.
+async fn human_click(
+    page: &PageDriver,
+    turn: &mut Turn,
+    input: &PageHumanInput,
+    (target, viewport): (Point, Viewport),
+    (clock, end): (&Clock, tokio::time::Instant),
+) -> Result<Landed, CallError> {
+    let budget = end
+        .saturating_duration_since(clock.now())
+        .min(HUMAN_MOTION_CAP);
+    let moves = input.path_to(target, viewport, budget).await;
+    let cdp = CdpPage::of(page);
+    for step in moves {
+        pace(clock, end, step.after).await;
+        cdp.pointer_move_to(step.to.x, step.to.y, turn.gesture_call())
+            .await?;
+    }
+    cdp.pointer_press_release(target.x, target.y, turn.gesture_call())
+        .await?;
+    landed(turn).await
+}
+
+/// Scrolls the viewport by `delta` using human-like wheel notches.
+async fn human_scroll(
+    page: &PageDriver,
+    turn: &Turn,
+    input: &PageHumanInput,
+    delta: (f64, f64),
+    viewport: Viewport,
+    (clock, end): (&Clock, tokio::time::Instant),
+) -> Result<(), CallError> {
+    let budget = end
+        .saturating_duration_since(clock.now())
+        .min(HUMAN_MOTION_CAP);
+    let notches = input.wheel(delta, budget).await;
+    let cdp = CdpPage::of(page);
+    let anchor = (viewport.width / 2.0, viewport.height / 2.0);
+    for notch in notches {
+        pace(clock, end, notch.after).await;
+        cdp.pointer_wheel(anchor, notch.delta, turn.gesture_call())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Presses and holds `target` for `hold`, using human-like approach and
+/// micro-tremors when `input` is present, then reads where it landed.
+async fn press_and_hold(
+    page: &PageDriver,
+    turn: &mut Turn,
+    input: Option<&PageHumanInput>,
+    (target, viewport, hold): (Point, Viewport, Duration),
+    (clock, end): (&Clock, tokio::time::Instant),
+) -> Result<Landed, CallError> {
+    let cdp = CdpPage::of(page);
+    let remaining = end.saturating_duration_since(clock.now());
+    if let Some(input) = input {
+        let plan = input
+            .press_and_hold(target, hold, viewport, remaining)
+            .await;
+        for step in plan.approach {
+            pace(clock, end, step.after).await;
+            cdp.pointer_move_to(step.to.x, step.to.y, turn.gesture_call())
+                .await?;
+        }
+        cdp.pointer_down(target.x, target.y, turn.gesture_call())
+            .await?;
+        for tremor in plan.hold_moves {
+            pace(clock, end, tremor.after).await;
+            cdp.pointer_drag_to(tremor.to.x, tremor.to.y, turn.gesture_call())
+                .await?;
+        }
+        pace(clock, end, plan.release_after).await;
+        cdp.pointer_up(target.x, target.y, turn.gesture_call())
+            .await?;
+    } else {
+        cdp.pointer_move_to(target.x, target.y, turn.gesture_call())
+            .await?;
+        cdp.pointer_down(target.x, target.y, turn.gesture_call())
+            .await?;
+        pace(clock, end, hold).await;
+        cdp.pointer_up(target.x, target.y, turn.gesture_call())
+            .await?;
+    }
+    landed(turn).await
+}
+
+/// Types `value` into the focused field key by key with human-like pacing
+/// and corrected neighbouring-key slips.
+async fn human_fill(
+    page: &PageDriver,
+    turn: &mut Turn,
+    input: &PageHumanInput,
+    value: &str,
+    (clock, end): (&Clock, tokio::time::Instant),
+) -> Result<(), CallError> {
+    let budget = end.saturating_duration_since(clock.now());
+    let strokes = input.typing(value, budget).await;
+    let cdp = CdpPage::of(page);
+    for stroke in strokes {
+        pace(clock, end, stroke.after).await;
+        match stroke.kind {
+            KeyKind::Backspace => {
+                let key = keys::events("Backspace").map_err(|unknown| {
+                    CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
+                })?;
+                cdp.press_keys(&key, turn.gesture_call()).await?;
+            }
+            KeyKind::Character('\n') => {
+                let key = keys::events("Enter").map_err(|unknown| {
+                    CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
+                })?;
+                cdp.press_keys(&key, turn.gesture_call()).await?;
+            }
+            KeyKind::Character('\t') => {
+                let key = keys::events("Tab").map_err(|unknown| {
+                    CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
+                })?;
+                cdp.press_keys(&key, turn.gesture_call()).await?;
+            }
+            KeyKind::Character(ch) if ch.is_ascii() && !ch.is_ascii_control() => {
+                let text = ch.to_string();
+                let key = keys::events(&text).map_err(|unknown| {
+                    CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
+                })?;
+                cdp.press_keys(&key, turn.gesture_call()).await?;
+            }
+            KeyKind::Character(ch) => {
+                turn.insert_text(&ch.to_string()).await?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Where the gesture just sent landed; a document gone with it means it
@@ -622,7 +887,9 @@ pub(crate) async fn wait(
                     )),
                 };
             }
-            Seen::Armed { .. } | Seen::Focused { .. } => return Err(mismatched(&value)),
+            Seen::Armed { .. } | Seen::Scroll { .. } | Seen::Focused { .. } => {
+                return Err(mismatched(&value));
+            }
             Seen::Invalid { message } => return Err(unparsed(wait.selector, &message)),
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
@@ -654,7 +921,11 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             observed,
             matches,
         } => (step, observed, matches),
-        Seen::Armed { .. } | Seen::Focused { .. } | Seen::Ready { .. } | Seen::Invalid { .. } => (
+        Seen::Armed { .. }
+        | Seen::Scroll { .. }
+        | Seen::Focused { .. }
+        | Seen::Ready { .. }
+        | Seen::Invalid { .. } => (
             Step::ReceivesEvents,
             "the target was ready".to_owned(),
             Vec::new(),

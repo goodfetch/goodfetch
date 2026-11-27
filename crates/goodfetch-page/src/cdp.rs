@@ -24,6 +24,7 @@
 //! | Primitive | CDP | `WebDriver BiDi` | Playwright's driver |
 //! |---|---|---|---|
 //! | [`CdpPage::pointer_click`]: a left click at a point of the page's viewport, as trusted input | `Input.dispatchMouseEvent` ×3: `mouseMoved`, `mousePressed` and `mouseReleased`, written as one burst | one `input.performActions` with a `pointer` source: `pointerMove`, `pointerDown` and `pointerUp` | `mouseClick` |
+//! | [`CdpPage::pointer_move_to`], [`CdpPage::pointer_press_release`], [`CdpPage::pointer_down`], [`CdpPage::pointer_drag_to`], [`CdpPage::pointer_up`] and [`CdpPage::pointer_wheel`]: step-by-step pointer motion, press-and-release burst, press-and-hold and wheel notches, as trusted input within the action's deadline | `Input.dispatchMouseEvent`: `mouseMoved`, `[mousePressed, mouseReleased]` burst, `mousePressed`, `mouseMoved` with left button mask, `mouseReleased` and `mouseWheel` | `input.performActions` with `pointer` or `wheel` sources | `mouseMove`, `mouseDown`, `mouseUp` and `mouseWheel` |
 //! | [`CdpPage::press_keys`]: a key or a combination pressed on the focused element, as trusted input | one `Input.dispatchKeyEvent` for each key down and key up, written as one burst | one `input.performActions` with a `key` source: a `keyDown` and a `keyUp` for each key | `keyboardDown` and `keyboardUp`, or `keyboardPress` for one key |
 //! | [`CdpPage::paused_events`]: what the interception follows of the page's events, each read once | `Fetch.requestPaused`, `Fetch.authRequired`, `Network.loadingFailed`, `Network.webSocketCreated`, `Page.loadEventFired`, `Page.frameStartedNavigating`, and `Page.frameScheduledNavigation` or `Page.frameRequestedNavigation` | `network.beforeRequestSent` and `network.responseStarted` while blocked, `network.authRequired`, `network.fetchError`, `browsingContext.load` and `browsingContext.navigationStarted`; a scheduled navigation and a WebSocket's opening are Chromium only | `route`, `requestFailed`, `webSocket`, and a frame's `navigated` and `loadstate`; a scheduled navigation is Chromium only |
 //! | [`CdpPage::pause_requests_opening`] and [`CdpPage::pause_requests`]: every request paused before it leaves, a document's response too, and the challenges the page answers | `Fetch.enable` with a request-stage pattern, a response-stage one for documents, and `handleAuthRequests` | `network.addIntercept` at `beforeRequestSent`, `responseStarted` and `authRequired` | `setNetworkInterceptionPatterns`; a paused response is Chromium only |
@@ -135,7 +136,7 @@ pub(crate) const CREATE_TARGET: &str = goodfetch_cdp::generated::target::CreateT
 pub(crate) use self::children::{AttachedChild, ChildEvent, ChildEvents, ChildKind};
 pub(crate) use self::consent::{ConsentEvent, ConsentEvents};
 pub(crate) use self::dialogs::{DialogEvent, DialogEvents, OpenedDialog};
-use self::driver::{PageDriver, pointer_click};
+use self::driver::{PageDriver, mouse_event, pointer_click};
 pub(crate) use self::followed::{
     FollowedEvent, FollowedEvents, FrameNavigated, RequestSent, SocketFrame,
 };
@@ -186,6 +187,89 @@ impl CdpPage {
     /// leaves no button down.
     pub(crate) async fn pointer_click(&self, x: f64, y: f64, call: &Call) -> Result<(), CallError> {
         self.page.burst(&pointer_click(x, y), call).await
+    }
+
+    /// Moves the pointer to (`x`, `y`) in the page's viewport, as trusted
+    /// input, within `call`'s deadline.
+    pub(crate) async fn pointer_move_to(
+        &self,
+        x: f64,
+        y: f64,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        let moved = mouse_event(
+            goodfetch_cdp::generated::input::DispatchMouseEventType::MouseMoved,
+            (x, y),
+            None,
+            None,
+            None,
+        );
+        self.page.command_for(&moved, call).await.map(drop)
+    }
+
+    /// Presses and releases the left mouse button at (`x`, `y`) as one
+    /// atomic burst, after the pointer has already moved there.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future sends both events or neither, leaving no button
+    /// down.
+    pub(crate) async fn pointer_press_release(
+        &self,
+        x: f64,
+        y: f64,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        let [_, pressed, released] = pointer_click(x, y);
+        self.page.burst(&[pressed, released], call).await
+    }
+
+    /// Presses the left mouse button at (`x`, `y`), within `call`'s deadline.
+    pub(crate) async fn pointer_down(&self, x: f64, y: f64, call: &Call) -> Result<(), CallError> {
+        let [_, pressed, _] = pointer_click(x, y);
+        self.page.command_for(&pressed, call).await.map(drop)
+    }
+
+    /// Moves the pointer to (`x`, `y`) while keeping the left button held,
+    /// within `call`'s deadline.
+    pub(crate) async fn pointer_drag_to(
+        &self,
+        x: f64,
+        y: f64,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        let moved = mouse_event(
+            goodfetch_cdp::generated::input::DispatchMouseEventType::MouseMoved,
+            (x, y),
+            None,
+            Some(1),
+            None,
+        );
+        self.page.command_for(&moved, call).await.map(drop)
+    }
+
+    /// Releases the left mouse button at (`x`, `y`), within `call`'s deadline.
+    pub(crate) async fn pointer_up(&self, x: f64, y: f64, call: &Call) -> Result<(), CallError> {
+        let [_, _, released] = pointer_click(x, y);
+        self.page.command_for(&released, call).await.map(drop)
+    }
+
+    /// Sends one wheel notch `(dx, dy)` at `(x, y)` in the page's viewport,
+    /// as trusted input, within `call`'s deadline.
+    pub(crate) async fn pointer_wheel(
+        &self,
+        (x, y): (f64, f64),
+        delta: (f64, f64),
+        call: &Call,
+    ) -> Result<(), CallError> {
+        let wheel = mouse_event(
+            goodfetch_cdp::generated::input::DispatchMouseEventType::MouseWheel,
+            (x, y),
+            None,
+            None,
+            Some(delta),
+        );
+        self.page.command_for(&wheel, call).await.map(drop)
     }
 
     /// Sends `press`, from its first key down to its last key up, to the

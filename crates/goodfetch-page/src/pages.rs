@@ -1407,6 +1407,7 @@ impl Pages {
                 window: &page.run.send_window,
                 lease: page.lease(),
             },
+            human_input: page.human_input.clone(),
         };
         let acted = page
             .life

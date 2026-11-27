@@ -370,6 +370,10 @@ impl Sessions {
         }
         let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
+        let human_input = match &open.human_input {
+            Some(plan) => Some(plan.for_page(run.entropy.fork().await)),
+            None => None,
+        };
         // Nothing awaits from here until the page is in the table.
         let (in_browser, parts) = taken_in.kept();
         // Its owner, under its Session's (ADR 0146).
@@ -393,6 +397,7 @@ impl Sessions {
             action_timeout,
             page_check,
             injections: open.injections.clone(),
+            human_input,
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };

@@ -696,7 +696,39 @@ test suite *packages:
     if [[ "{{ suite }}" == quick ]]; then
       unset GOODFETCH_TEST_TOOLS
     else
-      {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"}
+      # When narrowing a non-Quick run to explicit Collie-side packages (no
+      # engine override, Journey selection or `--shuffled-all`), build only the
+      # tools Collie-side tests use so they never rebuild and link
+      # `goodfetch-foxhound` (ADR 0094's note of 2026-11-27).
+      tool_args=()
+      if [[ -z "${GOODFETCH_TEST_ENGINE:-}" && -z "${GOODFETCH_TEST_SELECTION:-}" ]] && ! $shuffled_all && [[ -n "{{ packages }}" ]]; then
+        needs_all_tools=false
+        for package in {{ packages }}; do
+          pkg=${package%/}
+          case "$pkg" in
+            goodfetch-foxhound | goodfetch-foxhound-* | goodfetch-crawl | goodfetch-dataset | goodfetch-fetch-tier | goodfetch-frontier | goodfetch-memory-site | goodfetch-session-pool | goodfetch-sink | goodfetch-sink-* | goodfetch-sql-tab \
+            | crates/foxhound | crates/foxhound/* \
+            | sdks/*/foxhound | sdks/*/foxhound/* | sdks/*/foxhound-* \
+            | goodfetch-conformance | crates/goodfetch-conformance | crates/goodfetch-conformance/* | conformance | conformance/* \
+            | goodfetch-stub-gateway | crates/goodfetch-stub-gateway | crates/goodfetch-stub-gateway/* \
+            | goodfetch-test-support | crates/goodfetch-test-support | crates/goodfetch-test-support/* | test-support | test-support/* \
+            | xtask | xtask/*)
+              needs_all_tools=true
+              break
+              ;;
+            *)
+              if [[ -d "crates/foxhound/$pkg" ]] || [[ -f "$pkg" && "$pkg" != sdks/*/collie* ]]; then
+                needs_all_tools=true
+                break
+              fi
+              ;;
+          esac
+        done
+        if ! $needs_all_tools; then
+          tool_args=(--tool collie --tool proving_ground --tool test_env --tool scripted_engine --tool scripted_plugin)
+        fi
+      fi
+      {{ just_executable() }} _test-tools ${GOODFETCH_TEST_ENGINE:+--engine "$GOODFETCH_TEST_ENGINE"} ${tool_args[@]+"${tool_args[@]}"}
       export GOODFETCH_TEST_TOOLS="$PWD/target/test-tools.json"
       if [[ -n "${GOODFETCH_TEST_ENGINE:-}" ]]; then
         echo "Engine: $GOODFETCH_TEST_ENGINE, for both Products"

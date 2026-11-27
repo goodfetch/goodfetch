@@ -3,7 +3,8 @@
 //! attempt, so a write through it commits with the attempt's Records and
 //! enqueues or is discarded with them, while a write through the program's
 //! own Run value, captured by the handler, commits at once, on every
-//! attempt that runs it (ADRs 0093 and 0103; issue 1486). TypeScript's
+//! attempt that runs it (ADRs 0093 and 0103; issue 1486). Its reads of
+//! Records and rejections end at what had committed (issue 1487). TypeScript's
 //! `attempt-run.test.ts` and Python's `test_attempt_run_attached.py` are
 //! its twins.
 #![expect(
@@ -19,14 +20,17 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use goodfetch_foxhound::settings::crawl::{handler, retry};
+use goodfetch_foxhound::settings::run_state;
 use goodfetch_foxhound::{
     ConnectOptions, Crawl, CrawlContext, DatasetDeclaration, Error, Foxhound, KeyValueStore, RunId,
-    Seed, blocking,
+    Seed, blocking, error_code,
 };
 use goodfetch_protocol::result_document::OracleOutcome;
-use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
+use goodfetch_protocol::run::Lifecycle;
+use goodfetch_test_support::{ProvingGround, TestEnv, ToolStatus, real_time_runtime};
+use serde_json::{Value, json};
 
-use super::catalog::{Product, TASK, crawl_listing, judged};
+use super::catalog::{Product, TASK, crawl_listing, judged, products_json};
 use super::crawl::site_settings;
 
 /// The Proving ground's seed for these tests, TypeScript's.
@@ -106,7 +110,7 @@ fn a_retried_handlers_outputs_commit_once_and_its_failed_attempts_are_discarded(
             .unwrap();
         shop.serve(&run).await.unwrap();
         let mut records = Vec::new();
-        let mut read = run.records(&products);
+        let mut read = run.records(&products_json());
         while let Some(record) = read.next().await {
             records.push(record.unwrap().value);
         }
@@ -123,7 +127,7 @@ fn a_retried_handlers_outputs_commit_once_and_its_failed_attempts_are_discarded(
         (records, stored)
     });
 
-    let answer = judged(&site, &records);
+    let answer = judged(&site, ToolStatus::Success, &records);
     assert_eq!(answer.outcome, OracleOutcome::Verified, "{answer:?}");
     let attempts = attempts.lock().unwrap();
     assert!(attempts.len() > 1, "{attempts:?}");
@@ -311,4 +315,166 @@ fn a_blocking_handlers_run_stages_its_writes_with_its_attempt() {
         ]
     );
     assert_eq!(committed, Some(2));
+}
+
+/// What one handler read through its `ctx.run()`: each committed Record's
+/// value, then each rejection's number and Record.
+type Committed = (Vec<Value>, Vec<(u64, Value)>);
+
+/// What each request pushes before it reads: the first a Record the Run
+/// commits and one the engine rejects for its missing key, the second one
+/// more Record.
+fn pushed(first: bool) -> Vec<Value> {
+    if first {
+        vec![json!({ "id": "kept" }), json!({ "name": "keyless" })]
+    } else {
+        vec![json!({ "id": "own" })]
+    }
+}
+
+/// What the two requests read: the first nothing, its own pushes staged,
+/// the second the first's committed Record and rejection, not its own.
+fn committed_before_each() -> Vec<Committed> {
+    vec![
+        (vec![], vec![]),
+        (
+            vec![json!({ "id": "kept" })],
+            vec![(1, json!({ "name": "keyless" }))],
+        ),
+    ]
+}
+
+/// The settings of the reads' crawls: one handler call at a time, each
+/// attempt's outcome written as it ends, so the first request has committed
+/// before the second runs. At `batch` a reader sees it only once its batch
+/// is written (ADR 0142).
+fn one_at_a_time(env: &TestEnv, site: &ProvingGround) -> ConnectOptions {
+    let settings = site_settings(site)
+        .set(handler::CONCURRENCY, 1_u64)
+        .set(run_state::DURABILITY, run_state::Durability::Full);
+    super::options(env).settings(settings)
+}
+
+/// A handler's `ctx.run()` reads the Records and rejections its Run had
+/// committed, its own attempt's staged ones not among them, and each read
+/// ends though the Run is live, which the handler's own request keeps from
+/// ending (ADR 0103).
+///
+/// Covers: story:11-1060, story:11-1061
+#[test]
+fn a_handlers_run_reads_what_had_committed_and_ends_while_the_run_is_live() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SEED).unwrap();
+    let start = site.start_url(TASK).unwrap();
+    let read = Arc::new(Mutex::new(Vec::<Committed>::new()));
+    let mut crawl = Crawl::new();
+    let page = crawl.label::<()>("page").unwrap();
+    let notes = crawl
+        .dataset(DatasetDeclaration::<Value>::new("notes").key(&["id"]))
+        .unwrap();
+    let given = (page.clone(), notes, start.clone(), Arc::clone(&read));
+    crawl
+        .handle(&page, move |ctx: CrawlContext<()>| {
+            let (page, notes, start, read) = given.clone();
+            async move {
+                let first = read.lock().unwrap().is_empty();
+                for record in pushed(first) {
+                    match ctx.push(&notes, &record).await {
+                        Err(error) if error.code() != error_code::RECORD_INVALID => {
+                            return Err(error.into());
+                        }
+                        _ => {}
+                    }
+                }
+                let run = ctx.run();
+                let mut values = Vec::new();
+                let mut records = run.records(&notes);
+                while let Some(record) = records.next().await {
+                    values.push(record?.value);
+                }
+                let mut rejections = Vec::new();
+                let mut entries = run.rejected_records(&notes);
+                while let Some(entry) = entries.next().await {
+                    let entry = entry?;
+                    rejections.push((entry.number, entry.data));
+                }
+                read.lock().unwrap().push((values, rejections));
+                if first {
+                    ctx.enqueue(start, &page, ()).key("second").await?;
+                }
+                Ok(())
+            }
+        })
+        .unwrap();
+
+    let report = real_time_runtime().block_on(async {
+        let foxhound = Foxhound::connect(one_at_a_time(&env, &site)).await.unwrap();
+        let run = foxhound
+            .start_crawl(&crawl, [Seed::new(&start, &page, ())])
+            .await
+            .unwrap();
+        let report = crawl.serve(&run).await.unwrap();
+        foxhound.close().await.unwrap();
+        report
+    });
+
+    assert_eq!(report.report.lifecycle, Lifecycle::Finished, "{report:?}");
+    assert_eq!(*read.lock().unwrap(), committed_before_each());
+}
+
+/// A blocking handler's `ctx.run()` reads what had committed the same way,
+/// each read an iterator that ends.
+///
+/// Covers: story:11-1060, story:11-1061
+#[test]
+fn a_blocking_handlers_run_reads_what_had_committed_and_ends() {
+    let env = TestEnv::new();
+    let site = ProvingGround::start(&env, SEED).unwrap();
+    let start = site.start_url(TASK).unwrap();
+    let foxhound = blocking::Foxhound::connect(one_at_a_time(&env, &site)).unwrap();
+    let read = Arc::new(Mutex::new(Vec::<Committed>::new()));
+    let mut crawl = blocking::Crawl::new();
+    let page = crawl.label::<()>("page").unwrap();
+    let notes = crawl
+        .dataset(DatasetDeclaration::<Value>::new("notes").key(&["id"]))
+        .unwrap();
+    let given = (page.clone(), start.clone(), Arc::clone(&read));
+    crawl
+        .handle(&page, move |ctx: blocking::CrawlContext<()>| {
+            let (page, start, read) = &given;
+            let first = read.lock().unwrap().is_empty();
+            for record in pushed(first) {
+                match ctx.push(&notes, &record) {
+                    Err(error) if error.code() != error_code::RECORD_INVALID => {
+                        return Err(error.into());
+                    }
+                    _ => {}
+                }
+            }
+            let run = ctx.run();
+            let values = run
+                .records(&notes)
+                .map(|record| record.map(|record| record.value))
+                .collect::<Result<Vec<_>, _>>()?;
+            let rejections = run
+                .rejected_records(&notes)
+                .map(|entry| entry.map(|entry| (entry.number, entry.data)))
+                .collect::<Result<Vec<_>, _>>()?;
+            read.lock().unwrap().push((values, rejections));
+            if first {
+                ctx.enqueue(start.clone(), page, ()).key("second").send()?;
+            }
+            Ok(())
+        })
+        .unwrap();
+
+    let run = foxhound
+        .start_crawl(&crawl, [Seed::new(&start, &page, ())])
+        .send()
+        .unwrap();
+    let report = crawl.serve(&run).unwrap();
+    foxhound.close().unwrap();
+
+    assert_eq!(report.report.lifecycle, Lifecycle::Finished, "{report:?}");
+    assert_eq!(*read.lock().unwrap(), committed_before_each());
 }

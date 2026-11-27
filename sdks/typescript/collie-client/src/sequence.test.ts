@@ -7,8 +7,15 @@ import type { Stream } from "./client-connection.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import { Sequence } from "./sequence.ts";
 
+/** Each `$/item` notification's number, read as it comes. */
+const numberOf = (method: string, params: unknown): number | undefined =>
+  method === "$/item" && typeof params === "number" ? params : undefined;
+
 /** A sequence of numbers on a faked stream, and the engine's side of it. */
-function sequenced(signal?: AbortSignal) {
+function sequenced(
+  signal?: AbortSignal,
+  itemOf: (method: string, params: unknown) => number | Promise<number> | undefined = numberOf,
+) {
   const granted: number[] = [];
   let opened = 0;
   let given: ChannelOpenOptions | undefined;
@@ -25,8 +32,7 @@ function sequenced(signal?: AbortSignal) {
   };
   const sequence = new Sequence<number>({
     open,
-    itemOf: (method, params) =>
-      method === "$/item" && typeof params === "number" ? params : undefined,
+    itemOf,
     credits: 4,
     regrant: 2,
     signal,
@@ -171,6 +177,77 @@ describe("a sequence's iterator", () => {
 
       await expect(stream.sequence.next()).rejects.toThrow("read enough");
       expect(stream.cancelled()).toBe(true);
+    },
+  );
+
+  test(
+    "reads items made asynchronously in the order they came, and stops at the first that fails",
+    { tags: ["story:11-62"] },
+    async () => {
+      const refused = new Error("record_invalid");
+      // The first item is made last, so order cannot come from when each is ready.
+      const stream = sequenced(undefined, (method, params) => {
+        const item = numberOf(method, params);
+        if (item === undefined) return undefined;
+        if (item < 0) return Promise.reject(refused);
+        return new Promise<number>((resolve) => setTimeout(() => resolve(item * 10), 10 - item));
+      });
+      stream.send(1, 2, -1, 3);
+
+      expect(await stream.sequence.next()).toEqual({ done: false, value: 10 });
+      expect(await stream.sequence.next()).toEqual({ done: false, value: 20 });
+      await expect(stream.sequence.next()).rejects.toBe(refused);
+
+      expect(stream.cancelled()).toBe(true);
+      expect(await stream.sequence.next()).toEqual({ done: true, value: undefined });
+    },
+  );
+
+  test(
+    "fails with its signal's reason when the signal aborts while an item is being made",
+    { tags: ["story:11-62"] },
+    async () => {
+      const stop = new AbortController();
+      let made: ((item: number) => void) | undefined;
+      const stream = sequenced(stop.signal, (method, params) =>
+        numberOf(method, params) === undefined
+          ? undefined
+          : new Promise<number>((resolve) => {
+              made = resolve;
+            }),
+      );
+      stream.send(1);
+
+      const reading = stream.sequence.next();
+      await Promise.resolve();
+      stop.abort(new Error("read enough"));
+      made?.(10);
+
+      await expect(reading).rejects.toThrow("read enough");
+      expect(stream.cancelled()).toBe(true);
+    },
+  );
+
+  test(
+    "ends a read whose item fails after the program closed the sequence",
+    { tags: ["story:11-62"] },
+    async () => {
+      let refuse: ((error: unknown) => void) | undefined;
+      const stream = sequenced(undefined, (method, params) =>
+        numberOf(method, params) === undefined
+          ? undefined
+          : new Promise<number>((_, reject) => {
+              refuse = reject;
+            }),
+      );
+      stream.send(1);
+
+      const reading = stream.sequence.next();
+      await Promise.resolve();
+      stream.sequence.close();
+      refuse?.(new Error("record_invalid"));
+
+      expect(await reading).toEqual({ done: true, value: undefined });
     },
   );
 });

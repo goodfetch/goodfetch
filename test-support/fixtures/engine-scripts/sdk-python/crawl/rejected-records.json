@@ -1,0 +1,98 @@
+{
+  "description": "A Python Client starts the two-page-type crawl as `nightly`, which the engine answers as a Run that already finished, `ended`, and reads the rejection table of its Dataset `products` after the entry numbered 1: the engine answers a page holding the entry numbered 2, a Record its schema refused, that is not the table's end, then, asked after 2, a last page holding the entry numbered 3, a Record a Hook rejected. TypeScript's `run/foxhound-crawl-rejected-records.json` is its twin.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": { "listing": {}, "product": {} },
+          "datasets": [{ "name": "products", "key": ["id"] }],
+          "seeds": [{ "url": "https://shop.test/a", "label": "listing" }],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "finished",
+          "needs": "foxhound",
+          "started_as": "ended"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.rejected_records",
+        "params": { "run_id": "nightly", "dataset": "products", "after": 1 }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "records": [
+            {
+              "number": 2,
+              "data": { "id": "P-0002", "price": 23.45 },
+              "reason": "the Dataset products refuses the Record: /price: 23.45 is not of type \"string\"",
+              "issues": [{ "path": "/price", "message": "23.45 is not of type \"string\"" }],
+              "request_id": "2",
+              "url": "https://shop.test/products/P-0002"
+            }
+          ],
+          "next": 2,
+          "ended": false
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.rejected_records",
+        "params": { "run_id": "nightly", "dataset": "products", "after": 2 }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "records": [
+            {
+              "number": 3,
+              "data": { "id": "P-0003", "name": "Sample kettle", "price": "0.00" },
+              "reason": "a free sample",
+              "issues": [],
+              "hook": "no-samples",
+              "request_id": "3",
+              "url": "https://shop.test/products/P-0003"
+            }
+          ],
+          "next": 3,
+          "ended": true
+        }
+      }
+    }
+  ]
+}

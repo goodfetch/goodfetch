@@ -86,7 +86,7 @@ describe("a handler's push on an Attached engine", () => {
       });
       const report = await run.finish();
       const read = async <I extends object, O>(dataset: Dataset<I, O>): Promise<unknown[]> => {
-        const records: DatasetRecord[] = [];
+        const records: DatasetRecord<unknown>[] = [];
         for await (const record of run.records(dataset)) records.push(record);
         return records.map((record) => record.value);
       };
@@ -116,6 +116,94 @@ describe("a handler's push on an Attached engine", () => {
           count: 1,
           message: expect.stringContaining("(`record_invalid`: 1)"),
         }),
+      ]);
+    },
+  );
+
+  test(
+    "reads a crawl's Records as a reader's own type past `after`, stopping at one its schema refuses, and its rejected Records with their reason, request and URL",
+    {
+      tags: ["attached", "story:11-1060", "story:11-1061", "story:11-1070", "error:record_invalid"],
+    },
+    async ({ env, provingGround }) => {
+      const start = await taskStartUrl(provingGround, "catalog/1");
+      const shop = new Crawl();
+      const listing = shop.label("listing");
+      const products = shop.dataset<{
+        readonly id?: string;
+        readonly name: string;
+        readonly price: string | number;
+        readonly colour?: string;
+      }>("products", { key: ["id"] });
+      shop.handle(listing, async (context) => {
+        // The engine refuses the Record without its key into the rejection table.
+        await context
+          .push(products, [
+            { id: "P-1", name: "Blue kettle", price: "12.50" },
+            { id: "P-2", name: "Red kettle", price: 9.99 },
+            { id: "P-3", name: "Green kettle", price: "3.00", colour: "green" },
+            { name: "Nameless kettle", price: "1.00" },
+          ])
+          .catch(() => undefined);
+      });
+      // oxlint-disable-next-line no-restricted-properties -- `Foxhound.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      const foxhound = await Foxhound.connect({ env });
+      const run = await foxhound.startCrawl(shop, {
+        seeds: [seed(start, listing)],
+        settings: { fetch: { tier: "http" } },
+      });
+      const numbers = new Map<string | undefined, number>();
+      // The one crawl request that pushed every Record, kept or rejected.
+      const requests = new Set<string>();
+      // Read while the Run is live: the read follows it until it ends.
+      const following = (async () => {
+        for await (const record of run.records(products)) {
+          numbers.set(record.value.id, record.number);
+          requests.add(record.requestId);
+        }
+      })();
+      await run.finish();
+      await following;
+      // A reader's own declaration of the Dataset, whose schema wants a string price.
+      const typed = new Crawl().dataset("products", {
+        schema: z.object({ id: z.string(), name: z.string(), price: z.string() }),
+        key: ["id"],
+      });
+      const refusing = run.records(typed, { after: numbers.get("P-1") });
+      const stopped = await refusing.next().then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+      const resumed: unknown[] = [];
+      for await (const record of run.records(typed, { after: numbers.get("P-2") })) {
+        resumed.push(record.value);
+      }
+      const rejected = [];
+      for await (const entry of run.rejectedRecords(products)) rejected.push(entry);
+      await foxhound.close();
+
+      expect([...numbers]).toEqual([
+        ["P-1", 1],
+        ["P-2", 2],
+        ["P-3", 3],
+      ]);
+      expect(stopped).toBeInstanceOf(RecordInvalidError);
+      expect(stopped).toMatchObject({
+        typedDetails: { dataset: "products", number: numbers.get("P-2") },
+      });
+      expect(resumed).toEqual([
+        { id: "P-3", name: "Green kettle", price: "3.00", colour: "green" },
+      ]);
+      expect(requests.size).toBe(1);
+      expect(rejected).toEqual([
+        {
+          number: 1,
+          data: { name: "Nameless kettle", price: "1.00" },
+          reason: expect.stringMatching(/\S/),
+          issues: [expect.objectContaining({ path: "/id" })],
+          requestId: [...requests][0],
+          url: start,
+        },
       ]);
     },
   );

@@ -3153,6 +3153,12 @@ export interface RecordInvalidDetails {
    */
   dataset: string;
   /**
+   * The Record's number in its Dataset when an SDK reading it from
+   * `run.records` could not parse it, which `records` then holds at
+   * position 0; absent when a push or a handler's answer is refused.
+   */
+  number?: number | null;
+  /**
    * Each Record that does not hold, in position order, at least one.
    */
   records: InvalidRecord[];
@@ -3516,6 +3522,15 @@ export interface RunRejectedRecordsParams {
    * The crawl's Run.
    */
   runId: RunId;
+  /**
+   * The number of the last entry to read, such as the `rejected` count
+   * `dataset.list` answers: no entry past it is read, and the read never
+   * waits, a live Run's included. A page says `ended` once it reaches
+   * that number or has read every committed entry, as when an erase left
+   * fewer entries than the count. Absent, it follows a live Run until
+   * the Run ends.
+   */
+  through?: number | null;
 }
 /**
  * What `run.retry_failed` takes.

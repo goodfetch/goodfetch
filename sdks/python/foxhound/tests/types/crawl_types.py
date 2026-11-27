@@ -9,20 +9,26 @@ Label and a crawl started on the Connection of the other API are each
 refused. A seed, an `enqueue` and an `enqueue_links` take a Payload of
 their Label's type, and none for a Label without one. mypy's `--strict`
 reports an ignore that no longer silences an error. TypeScript's
-`payloads.test-d.ts` of Foxhound's package is its twin.
+`payloads.test-d.ts` of Foxhound's package is its twin. A crawl's Run
+answers a crawl's report and progress (ADR 0120), each a Run's too.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, assert_type
 
 from goodfetch_foxhound import CrawlRun, seed, sitemap
 
 if TYPE_CHECKING:
+    from goodfetch_collie_client.generated.models import RunProgress, RunReport
     from goodfetch_collie_client.json_values import JSONObject
+    from goodfetch_collie_client.run import AsyncRun
+    from goodfetch_collie_client.sequence import AsyncSequence, Sequence
     from goodfetch_foxhound import (
         AsyncCrawl,
         AsyncCrawlContext,
+        AsyncCrawlRun,
         AsyncFoxhound,
         Crawl,
         CrawlContext,
@@ -30,7 +36,12 @@ if TYPE_CHECKING:
         Foxhound,
         Label,
     )
-    from goodfetch_foxhound.generated.models import MatchedLink
+    from goodfetch_foxhound.generated.errors import ResponseUnavailableError
+    from goodfetch_foxhound.generated.models import (
+        CrawlRunProgress,
+        CrawlRunReport,
+        MatchedLink,
+    )
     from pydantic import BaseModel
 
     class Shelf(BaseModel):
@@ -145,14 +156,14 @@ def refuses_an_async_crawl_on_the_sync_api(
     """`Foxhound` starts a `Crawl`, whose Run is a `CrawlRun`, and no `AsyncCrawl`."""
     seeds = [seed("https://shop.test/", label)]
     assert_type(foxhound.start_crawl(crawl, seeds=seeds), CrawlRun)
-    foxhound.start_crawl(async_crawl, seeds=seeds)  # type: ignore[arg-type]
+    foxhound.start_crawl(async_crawl, seeds=seeds)  # type: ignore[call-overload]
 
 
 async def refuses_a_sync_crawl_on_the_async_api(
     foxhound: AsyncFoxhound, crawl: Crawl, label: Label[None]
 ) -> None:
     """`AsyncFoxhound` starts an `AsyncCrawl` alone."""
-    await foxhound.start_crawl(crawl, seeds=[seed("https://shop.test/", label)])  # type: ignore[arg-type]
+    await foxhound.start_crawl(crawl, seeds=[seed("https://shop.test/", label)])  # type: ignore[call-overload]
 
 
 def refuses_a_misspelled_or_string_label(crawl: AsyncCrawl) -> None:
@@ -289,3 +300,38 @@ def keeps_two_labels_payloads_apart(
     no_payload: Label[None] = shelf  # type: ignore[assignment]
     raw: Dataset[JSONObject] = products  # type: ignore[assignment]
     del no_payload, raw
+
+
+async def types_a_crawls_report_and_progress_as_its_own(
+    run: AsyncCrawlRun, sync_run: CrawlRun, any_run: AsyncRun
+) -> None:
+    """`finish`, `stop` and `report` answer a crawl's report, `progress` its progress.
+
+    A crawl's Run is still a Run: what a Run answers, it answers narrower.
+    """
+    assert_type(await run.finish(), "CrawlRunReport")
+    assert_type(await run.stop(), "CrawlRunReport")
+    assert_type(await run.report(), "CrawlRunReport")
+    assert_type(run.progress(), "AsyncSequence[CrawlRunProgress]")
+    assert_type(sync_run.finish(), "CrawlRunReport")
+    assert_type(sync_run.stop(), "CrawlRunReport")
+    assert_type(sync_run.report(), "CrawlRunReport")
+    assert_type(sync_run.progress(), "Sequence[CrawlRunProgress]")
+    report: RunReport = await run.finish()
+    progress: AsyncSequence[RunProgress] = run.progress()
+    crawl_progress: Sequence[CrawlRunProgress] = sync_run.progress()
+    narrowed: CrawlRunReport = await any_run.finish()  # type: ignore[assignment]
+    del report, progress, crawl_progress, narrowed
+
+
+def types_each_point_in_time_as_a_datetime(
+    report: CrawlRunReport,
+    progress: CrawlRunProgress,
+    unavailable: ResponseUnavailableError,
+) -> None:
+    """A report's, a progress value's and a refusal's instants read as datetimes."""
+    assert_type(report.started_at, datetime)
+    assert_type(report.ended_at, datetime)
+    assert_type(progress.at, datetime)
+    assert_type(progress.checkpoint_at, "datetime | None")
+    assert_type(unavailable.retry_after, "datetime | None")

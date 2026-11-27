@@ -160,40 +160,36 @@ fn check(root: &Path) -> Result<Outcome> {
     let mut entries: BTreeMap<String, Changes> = BTreeMap::new();
     let mut duplicates = BTreeSet::new();
 
+    for (product, path) in PROJECTIONS {
+        let previous = previous_json(root, commit, path)?;
+        let current = current_json(root, path)?;
+        compare_projection(product, &previous, &current, &mut entries, &mut duplicates)?;
+    }
+    let previous = previous_json(root, commit, BUNDLE)?;
+    let current = current_json(root, BUNDLE)?;
+    compare_outputs(&previous, &current, &mut entries);
+    connection::compare(&previous, &current, &mut entries);
+
     let published_path = root.join(PUBLISHED_CATALOG);
     let previous_published = previous_json_optional(root, commit, PUBLISHED_CATALOG)?;
-    if let Some(previous_published) = previous_published {
+    if published_path.exists() {
         let current_bytes = std::fs::read(&published_path)
             .with_context(|| format!("reading {PUBLISHED_CATALOG}"))?;
         let current_published: Value = serde_json::from_slice(&current_bytes)
             .with_context(|| format!("parsing {PUBLISHED_CATALOG}"))?;
         published_catalog::validate_current(&current_bytes, &current_published, &mut entries)?;
-        published_catalog::compare(
-            &previous_published,
-            &current_published,
-            &mut entries,
-            &mut duplicates,
-        )?;
-        let previous = previous_json(root, commit, BUNDLE)?;
-        let current = current_json(root, BUNDLE)?;
-        compare_outputs(&previous, &current, &mut entries);
-    } else {
-        if published_path.exists() {
-            let current_bytes = std::fs::read(&published_path)
-                .with_context(|| format!("reading {PUBLISHED_CATALOG}"))?;
-            let current_published: Value = serde_json::from_slice(&current_bytes)
-                .with_context(|| format!("parsing {PUBLISHED_CATALOG}"))?;
-            published_catalog::validate_current(&current_bytes, &current_published, &mut entries)?;
+        if let Some(previous_published) = previous_published {
+            let mut published_entries: BTreeMap<String, Changes> = BTreeMap::new();
+            published_catalog::compare(
+                &previous_published,
+                &current_published,
+                &mut published_entries,
+                &mut duplicates,
+            )?;
+            for (key, changes) in published_entries {
+                entries.entry(key).or_insert(changes);
+            }
         }
-        for (product, path) in PROJECTIONS {
-            let previous = previous_json(root, commit, path)?;
-            let current = current_json(root, path)?;
-            compare_projection(product, &previous, &current, &mut entries, &mut duplicates)?;
-        }
-        let previous = previous_json(root, commit, BUNDLE)?;
-        let current = current_json(root, BUNDLE)?;
-        compare_outputs(&previous, &current, &mut entries);
-        connection::compare(&previous, &current, &mut entries);
     }
 
     let mut outcome = baseline.verdict(|entry| !api_baseline::is_package_break(entry), &entries);

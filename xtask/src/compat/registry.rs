@@ -165,7 +165,14 @@ pub(super) fn resolve<'schema>(root: &'schema Value, reference: &str) -> Option<
 }
 
 /// Keywords that annotate a schema without changing what it accepts.
-const ANNOTATIONS: [&str; 5] = ["description", "title", "examples", "$comment", "deprecated"];
+const ANNOTATIONS: [&str; 6] = [
+    "description",
+    "title",
+    "examples",
+    "$comment",
+    "deprecated",
+    "x-goodfetch-personal",
+];
 
 /// Keywords whose value is a schema.
 const SCHEMA_KEYWORDS: [&str; 12] = [

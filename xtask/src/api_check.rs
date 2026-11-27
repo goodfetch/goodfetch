@@ -74,7 +74,7 @@ const UNCHECKED_FIELDS: [&str; 5] = [
 ];
 
 /// The schema keywords that describe and validate nothing.
-const UNCHECKED_KEYWORDS: [&str; 10] = [
+const UNCHECKED_KEYWORDS: [&str; 11] = [
     "$comment",
     "arrived_in",
     "default",
@@ -84,6 +84,7 @@ const UNCHECKED_KEYWORDS: [&str; 10] = [
     "readOnly",
     "title",
     "writeOnly",
+    "x-goodfetch-personal",
     "$schema",
 ];
 

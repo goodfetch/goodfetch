@@ -273,7 +273,7 @@ fn wrapped(
 /// The keywords that describe a value without restricting it: the JSON
 /// Schema annotations, and the bundle's `arrived_in`, the version that
 /// added it, and `deprecation`, the deprecation it marks (ADR 0099).
-const ANNOTATIONS: [&str; 8] = [
+const ANNOTATIONS: [&str; 9] = [
     "$comment",
     "arrived_in",
     "default",
@@ -282,6 +282,7 @@ const ANNOTATIONS: [&str; 8] = [
     "description",
     "examples",
     "title",
+    "x-goodfetch-personal",
 ];
 
 /// A parameter's annotation, read from its schema, or `None` for a schema

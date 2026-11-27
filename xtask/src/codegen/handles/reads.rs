@@ -115,6 +115,7 @@ fn typed(property: &Value) -> Value {
     if let Some(keywords) = typed.as_object_mut() {
         keywords.remove("description");
         keywords.remove("arrived_in");
+        keywords.remove("x-goodfetch-personal");
     }
     typed
 }

@@ -195,6 +195,7 @@ mod outcomes;
 mod pacing;
 mod path_budgets;
 mod payload;
+mod personal_data;
 mod plugin;
 mod politeness;
 mod politeness_records;

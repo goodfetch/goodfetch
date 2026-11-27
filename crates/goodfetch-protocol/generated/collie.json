@@ -28388,6 +28388,20 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A schema of the Run marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once, naming the fields, without blocking the Run (ADR 0016).",
+      "name": "personal_data_notice",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Run's schema marked one or more fields as personal (`\"x-goodfetch-personal\": true`): the advisory personal-data notice was shown once for the Run, naming the fields, without blocking it (ADR 0016).",
+      "name": "personal_data_notice",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
       "name": "plugin_calls",
       "product": "collie",

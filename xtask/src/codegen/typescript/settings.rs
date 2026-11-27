@@ -102,7 +102,7 @@ pub(super) fn foxhound_types() -> Vec<&'static str> {
 
 /// The JSON Schema keywords a setting's value schema may carry that type
 /// nothing TypeScript checks: the engine checks them (ADR 0083).
-const UNTYPED_KEYWORDS: [&str; 11] = [
+const UNTYPED_KEYWORDS: [&str; 12] = [
     "arrived_in",
     "description",
     "format",
@@ -114,6 +114,7 @@ const UNTYPED_KEYWORDS: [&str; 11] = [
     "minItems",
     "maxItems",
     "propertyNames",
+    "x-goodfetch-personal",
 ];
 
 /// The camelCase spelling of each of `level`'s segments, refusing two that

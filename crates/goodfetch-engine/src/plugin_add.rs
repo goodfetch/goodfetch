@@ -42,6 +42,7 @@ use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use serde_json::{Map, Value, json};
 
+use crate::browser_cache::{BrowserCache, CacheLocation};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::config;
@@ -50,6 +51,7 @@ use crate::pinned_download::Fetching;
 use crate::plugin_install::{self, InstallError, PullFailure};
 use crate::plugin_lockfile;
 use crate::plugin_oci::Reference;
+use crate::plugin_runtime::{self, RuntimeCatalog};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::run::settings_error;
 use crate::run_files::{os_code, reason_of};
@@ -93,7 +95,23 @@ async fn add_operation(
     let fetching = Fetching::of(settings.resolved(), engine.clock(), engine.owner()).await;
     let blocking = engine.owner().blocking_threads();
     let store = PluginStore::new(engine.home().plugins());
-    let mut added = add(&reference, &fetching, &blocking, &store, &lockfile).await?;
+    let location = CacheLocation::new(
+        engine.home().root(),
+        engine.home().browsers_path().map(Path::to_path_buf),
+    );
+    let cache = BrowserCache::new(&location, blocking.clone());
+    let catalog = RuntimeCatalog::built_in();
+    let mut added = add_with_runtime(
+        &reference,
+        &fetching,
+        &blocking,
+        &store,
+        &lockfile,
+        &cache,
+        &catalog,
+        engine.clock().timestamp(),
+    )
+    .await?;
     if params.approve {
         added.approval = Some(approve(&added, &context).await?);
     }
@@ -193,6 +211,46 @@ pub async fn add(
     store: &PluginStore,
     lockfile: &Path,
 ) -> Result<PluginAdded, CallError> {
+    let home = store.folder().parent().unwrap_or_else(|| store.folder());
+    let cache = BrowserCache::new(&CacheLocation::new(home, None), blocking.clone());
+    let catalog = RuntimeCatalog::built_in();
+    add_with_runtime(
+        reference,
+        fetching,
+        blocking,
+        store,
+        lockfile,
+        &cache,
+        &catalog,
+        fetching.clock.timestamp(),
+    )
+    .await
+}
+
+/// Installs the Plugin `reference` pins into `store`, fetches and verifies
+/// its declared language runtime into `cache` through `catalog` before
+/// committing the Plugin to `store`, and pins it in `lockfile`.
+///
+/// # Errors
+///
+/// As [`add`], plus `artifact_unavailable_offline`,
+/// `artifact_download_failed` and `plugin_artifact_refused` for the
+/// Plugin's declared language runtime; on any failure neither the store
+/// nor the lockfile is modified.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "each dependency (registry, runtime cache, catalog, lockfile, clock timestamp) is injected explicitly for testing (ADR 0059)"
+)]
+pub async fn add_with_runtime(
+    reference: &Reference,
+    fetching: &Fetching,
+    blocking: &BlockingThreads,
+    store: &PluginStore,
+    lockfile: &Path,
+    cache: &BrowserCache,
+    catalog: &RuntimeCatalog,
+    now: jiff::Timestamp,
+) -> Result<PluginAdded, CallError> {
     let name = reference.plugin().to_owned();
     let digest = reference.index().to_string();
     let mut pins = {
@@ -220,7 +278,26 @@ pub async fn add(
             ));
         }
     }
-    let held = plugin_install::install(reference, fetching, blocking, store)
+    let staged = plugin_install::stage(reference, fetching, blocking, store)
+        .await
+        .map_err(|error| refusal(error, reference, store))?;
+    let runtime = staged.manifest().runtime.clone();
+    let version = staged.manifest().version.clone();
+    let _held_runtime = plugin_runtime::ensure_installed(
+        &runtime,
+        (&name, &version),
+        store,
+        plugin_runtime::RuntimeTarget {
+            cache,
+            catalog,
+            now,
+        },
+        fetching,
+        blocking,
+    )
+    .await?;
+    let held = staged
+        .commit(blocking, store)
         .await
         .map_err(|error| refusal(error, reference, store))?;
     if !pinned {

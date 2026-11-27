@@ -26,10 +26,11 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use goodfetch_protocol::browser_cache::{ArtifactId, ArtifactKind, Pinner};
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::formats::{Compatibility, Rule};
 use goodfetch_protocol::plugin::{
-    FILE_NAME, MANIFEST_VERSION, ManifestError, PluginKindName, PluginManifest,
+    FILE_NAME, MANIFEST_VERSION, ManifestError, PluginKindName, PluginManifest, Runtime,
 };
 use goodfetch_protocol::settings::PluginSettingsSchema;
 
@@ -193,14 +194,14 @@ impl PluginStore {
         Ok(installed)
     }
 
-    /// Each installed Plugin whose manifest declares a `settings_schema`,
-    /// by name, with its version and that schema. A Plugin that does not
-    /// resolve is left out, why logged at `warn`; no store, none.
+    /// Every installed Plugin in the store that resolves cleanly, sorted by
+    /// name. A Plugin that does not resolve is skipped with a `warn`; no
+    /// store yields an empty list.
     ///
     /// # Errors
     ///
     /// The OS's error when the store's folder cannot be listed.
-    pub fn settings_schemas(&self) -> io::Result<Vec<PluginSettingsSchema>> {
+    pub fn installed_all(&self) -> io::Result<Vec<Installed>> {
         let entries = match fs::read_dir(&self.folder) {
             Ok(entries) => entries,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -213,19 +214,69 @@ impl PluginStore {
         Ok(names
             .into_iter()
             .filter_map(|name| match self.installed(&name) {
-                Ok(Installed { manifest, .. }) => {
-                    manifest.settings_schema.map(|schema| PluginSettingsSchema {
-                        name,
-                        version: manifest.version,
-                        schema,
-                    })
-                }
+                Ok(installed) => Some(installed),
                 Err(error) => {
-                    tracing::warn!(%error, "an installed Plugin's settings schema cannot be read");
+                    tracing::warn!(%error, "an installed Plugin cannot be read");
                     None
                 }
             })
             .collect())
+    }
+
+    /// Each installed Plugin whose manifest declares a `settings_schema`,
+    /// by name, with its version and that schema. A Plugin that does not
+    /// resolve is left out, why logged at `warn`; no store, none.
+    ///
+    /// # Errors
+    ///
+    /// The OS's error when the store's folder cannot be listed.
+    pub fn settings_schemas(&self) -> io::Result<Vec<PluginSettingsSchema>> {
+        Ok(self
+            .installed_all()?
+            .into_iter()
+            .filter_map(|Installed { manifest, .. }| {
+                manifest.settings_schema.map(|schema| PluginSettingsSchema {
+                    name: manifest.name,
+                    version: manifest.version,
+                    schema,
+                })
+            })
+            .collect())
+    }
+
+    /// Every Plugin runtime artifact declared by any installed Plugin in
+    /// the store for `platform`, for cache clean-up pinning (ADRs 0033 and
+    /// 0098).
+    ///
+    /// # Errors
+    ///
+    /// The OS's error when the store's folder cannot be listed.
+    pub fn declared_runtimes(&self, platform: &str) -> io::Result<Vec<ArtifactId>> {
+        let mut ids: Vec<ArtifactId> = self
+            .installed_all()?
+            .into_iter()
+            .filter_map(|installed| runtime_artifact_id(&installed.manifest.runtime, platform))
+            .collect();
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
+    }
+
+    /// Every installed Plugin whose manifest declares `runtime`, as
+    /// [`Pinner::Plugin`]s sorted by name and version.
+    pub fn pinners_for_runtime(&self, runtime: &Runtime) -> Vec<Pinner> {
+        if *runtime == Runtime::None {
+            return Vec::new();
+        }
+        self.installed_all()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|installed| installed.manifest.runtime == *runtime)
+            .map(|installed| Pinner::Plugin {
+                name: installed.manifest.name,
+                version: installed.manifest.version,
+            })
+            .collect()
     }
 
     /// A new, empty folder beside the store's, on its file system, for a
@@ -350,8 +401,23 @@ impl PluginStore {
     }
 }
 
+/// The [`ArtifactId`] for `runtime` on `platform`, or `None` for
+/// [`Runtime::None`].
+pub fn runtime_artifact_id(runtime: &Runtime, platform: &str) -> Option<ArtifactId> {
+    let (name, version) = match runtime {
+        Runtime::None => return None,
+        Runtime::Node { version } => ("node", version),
+        Runtime::Python { version } => ("python", version),
+    };
+    Some(ArtifactId {
+        kind: ArtifactKind::PluginRuntime,
+        name: name.to_owned(),
+        build: format!("{version}-{platform}"),
+    })
+}
+
 /// The manifest at the root of the Plugin `name`'s bundle `bundle`.
-fn read_manifest(name: &str, bundle: &Path) -> Result<PluginManifest, StoreError> {
+pub(crate) fn read_manifest(name: &str, bundle: &Path) -> Result<PluginManifest, StoreError> {
     let json = fs::read(bundle.join(FILE_NAME)).map_err(|source| StoreError::Unreadable {
         name: name.to_owned(),
         source,

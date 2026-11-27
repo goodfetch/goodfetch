@@ -20,6 +20,7 @@ mod clean_up;
 mod copy;
 mod extract;
 mod platform;
+mod runtime;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -49,6 +50,7 @@ pub use platform::{
     Arch, BrowserChoice, BrowserSource, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL, Os, Platform,
     PlatformNotice, browser_source,
 };
+pub use runtime::PinnedRuntime;
 
 use crate::call_error::CallError;
 use crate::pinned_download::{self, Digest, Failure, Fetching};
@@ -658,15 +660,26 @@ impl BrowserCache {
                 archive,
             ));
         }
+        self.commit_partial(partial, &artifact.id, artifact.digest.to_string(), now)
+            .await
+    }
+
+    pub(super) async fn commit_partial(
+        &self,
+        partial: tempfile::TempDir,
+        id: &ArtifactId,
+        digest: String,
+        now: jiff::Timestamp,
+    ) -> Result<Option<HeldArtifact>, CacheError> {
         let entry = BrowserCacheEntry {
             format_version: BROWSER_CACHE.version,
-            artifact: artifact.id.clone(),
-            digest: artifact.digest.to_string(),
+            artifact: id.clone(),
+            digest,
             installed_at: SystemTime::from(now),
             used_at: SystemTime::from(now),
         };
-        let folder = store::entry_folder(&self.root, &artifact.id);
-        let (root, id) = (self.root.clone(), artifact.id.clone());
+        let folder = store::entry_folder(&self.root, id);
+        let (root, id) = (self.root.clone(), id.clone());
         let placed = self
             .blocking
             .run(move || store::install(&root, partial, &id, &entry))

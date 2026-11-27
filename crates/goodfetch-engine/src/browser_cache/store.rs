@@ -31,13 +31,14 @@ const DELETING: &str = ".deleting";
 const CLEAN_UP_MARKER: &str = ".clean-up";
 
 /// Every kind this engine knows, whose folders it reads.
-pub(super) const KINDS: [ArtifactKind; 6] = [
+pub(super) const KINDS: [ArtifactKind; 7] = [
     ArtifactKind::Browser,
     ArtifactKind::Driver,
     ArtifactKind::ExecutableCopy,
     ArtifactKind::EngineExecutable,
     ArtifactKind::CleanUpRules,
     ArtifactKind::MouseMovements,
+    ArtifactKind::PluginRuntime,
 ];
 
 /// Whether `segment` may name a folder of the cache: a name or a build.

@@ -36,6 +36,8 @@ const ARTIFACT_KINDS: ReadonlySet<unknown> = new Set(
     engine_executable: true,
     clean_up_rules: true,
     mouse_movements: true,
+    plugin: true,
+    plugin_runtime: true,
   } satisfies Record<ArtifactKind, true>),
 );
 const U64_MAX = 2n ** 64n - 1n;

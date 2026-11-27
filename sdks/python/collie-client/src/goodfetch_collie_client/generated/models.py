@@ -151,6 +151,12 @@ class ArtifactKind(StrEnum):
     A Plugin's artifact (ADR 0033), which the Plugin store keeps rather
     than the Browser cache.
     """
+    plugin_runtime = "plugin_runtime"
+    """
+    A Plugin's language runtime (Node.js or Python, ADR 0033), kept in
+    the shared per-user cache and pinned by the installed Plugins that
+    declare it.
+    """
 
 
 class Asked(RootModel[Literal[True]]):

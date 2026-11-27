@@ -67,6 +67,7 @@ mod operator_endpoints;
 mod plugin_add;
 mod plugin_host;
 mod plugin_install;
+mod plugin_runtime;
 mod plugin_secrets;
 mod plugin_traffic;
 #[cfg(target_os = "linux")]

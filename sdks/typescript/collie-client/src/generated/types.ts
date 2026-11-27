@@ -147,7 +147,14 @@ export type ArtifactDownloadFailedDetails = {
  * via the `definition` "ArtifactKind".
  */
 export type ArtifactKind =
-  "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements" | "plugin";
+  | "browser"
+  | "driver"
+  | "executable_copy"
+  | "engine_executable"
+  | "clean_up_rules"
+  | "mouse_movements"
+  | "plugin"
+  | "plugin_runtime";
 /**
  * What pins an artifact, as an error's details name it, by its `kind`: a
  * Product version, or an installed Plugin that uses a Plugin runtime (ADRs

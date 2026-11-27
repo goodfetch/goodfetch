@@ -479,6 +479,11 @@
           "const": "plugin",
           "description": "A Plugin's artifact (ADR 0033), which the Plugin store keeps rather\nthan the Browser cache.",
           "type": "string"
+        },
+        {
+          "const": "plugin_runtime",
+          "description": "A Plugin's language runtime (Node.js or Python, ADR 0033), kept in\nthe shared per-user cache and pinned by the installed Plugins that\ndeclare it.",
+          "type": "string"
         }
       ]
     },

@@ -25,8 +25,10 @@
 
 use std::fs;
 use std::io::{self, BufReader};
+use std::path::PathBuf;
 
 use goodfetch_protocol::browser_cache::DownloadFailure;
+use goodfetch_protocol::plugin::PluginManifest;
 use goodfetch_protocol::settings::SettingsLayer;
 
 use crate::http_client;
@@ -35,7 +37,7 @@ use crate::plugin_bundle::{self, BundleError};
 use crate::plugin_oci::{
     self, DOCUMENT_LIMIT, DocumentError, INDEX_MEDIA_TYPE, MANIFEST_MEDIA_TYPE, Platform, Reference,
 };
-use crate::plugin_store::{Installed, PluginStore, StoreError};
+use crate::plugin_store::{self, Installed, PluginStore, StoreError};
 use crate::tasks::BlockingThreads;
 
 /// The most bytes of an answer's body an [`PullFailure::Unrecognized`]
@@ -154,30 +156,59 @@ impl From<PullFailure> for InstallError {
     }
 }
 
-/// Installs the Plugin `reference` pins into `store`, for the host's
-/// platform: pulls its index, its manifest and its bundle, each checked
-/// against its digest, unpacks the bundle into a staging folder beside the
-/// store and adds it, its files and links made inert on `blocking`.
+/// A pulled and unpacked Plugin bundle held in a staging folder beside the
+/// store until [`Self::commit`] moves it into place. Dropping it removes
+/// the staging folder and leaves the store untouched.
+pub struct StagedPlugin {
+    name: String,
+    digest: String,
+    manifest: PluginManifest,
+    bundle: PathBuf,
+    staging: tempfile::TempDir,
+}
+
+impl StagedPlugin {
+    /// The unpacked Plugin's validated manifest.
+    #[must_use]
+    pub fn manifest(&self) -> &PluginManifest {
+        &self.manifest
+    }
+
+    /// Moves the staged bundle into `store` on `blocking`.
+    ///
+    /// # Errors
+    ///
+    /// [`InstallError::Store`] if the store refuses the bundle.
+    pub async fn commit(
+        self,
+        blocking: &BlockingThreads,
+        store: &PluginStore,
+    ) -> Result<Installed, InstallError> {
+        let store = store.clone();
+        blocking
+            .run(move || {
+                let installed = store
+                    .add(&self.name, &self.bundle, &self.digest)
+                    .map_err(InstallError::Store);
+                drop(self.staging);
+                installed
+            })
+            .await
+    }
+}
+
+/// Pulls, verifies and unpacks the Plugin `reference` pins into a staging
+/// folder beside `store`, without moving it into `store` yet.
 ///
 /// # Errors
 ///
-/// [`InstallError`] when `egress.offline` is set, the registry does not
-/// serve the artifact, a document is refused, the bundle is refused, the
-/// store refuses it, or the staging folder cannot be written; the store is
-/// then left as it was and the staging folder removed.
-///
-/// # Cancel safety
-///
-/// Dropping the future before the bundle's unpack leaves the store as it
-/// was; an unpack already on `blocking` finishes, and adds the Plugin or
-/// not as if the future were kept. The staging folder is removed either
-/// way.
-pub async fn install(
+/// [`InstallError`] as [`install`] says; the store is untouched.
+pub async fn stage(
     reference: &Reference,
     fetching: &Fetching,
     blocking: &BlockingThreads,
     store: &PluginStore,
-) -> Result<Installed, InstallError> {
+) -> Result<StagedPlugin, InstallError> {
     if let Some(layer) = fetching.offline {
         return Err(InstallError::Offline(layer));
     }
@@ -233,7 +264,6 @@ pub async fn install(
     }
     let name = reference.plugin().to_owned();
     let digest = reference.index().to_string();
-    let store = store.clone();
     blocking
         .run(move || {
             let bundle = staging.path().join("bundle");
@@ -241,11 +271,51 @@ pub async fn install(
             let file = fs::File::open(&archive).map_err(InstallError::Staging)?;
             plugin_bundle::unpack(BufReader::new(file), layer.compression, &bundle)
                 .map_err(InstallError::Bundle)?;
-            store
-                .add(&name, &bundle, &digest)
-                .map_err(InstallError::Store)
+            let manifest =
+                plugin_store::read_manifest(&name, &bundle).map_err(InstallError::Store)?;
+            if manifest.name != name {
+                return Err(InstallError::Store(StoreError::Misnamed {
+                    name,
+                    named: manifest.name,
+                }));
+            }
+            Ok(StagedPlugin {
+                name,
+                digest,
+                manifest,
+                bundle,
+                staging,
+            })
         })
         .await
+}
+
+/// Installs the Plugin `reference` pins into `store`, for the host's
+/// platform: pulls its index, its manifest and its bundle, each checked
+/// against its digest, unpacks the bundle into a staging folder beside the
+/// store and adds it, its files and links made inert on `blocking`.
+///
+/// # Errors
+///
+/// [`InstallError`] when `egress.offline` is set, the registry does not
+/// serve the artifact, a document is refused, the bundle is refused, the
+/// store refuses it, or the staging folder cannot be written; the store is
+/// then left as it was and the staging folder removed.
+///
+/// # Cancel safety
+///
+/// Dropping the future before the bundle's unpack leaves the store as it
+/// was; an unpack already on `blocking` finishes, and adds the Plugin or
+/// not as if the future were kept. The staging folder is removed either
+/// way.
+pub async fn install(
+    reference: &Reference,
+    fetching: &Fetching,
+    blocking: &BlockingThreads,
+    store: &PluginStore,
+) -> Result<Installed, InstallError> {
+    let staged = stage(reference, fetching, blocking, store).await?;
+    staged.commit(blocking, store).await
 }
 
 /// The index or manifest of digest `digest`, asked for as `media_type`,

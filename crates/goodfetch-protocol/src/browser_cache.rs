@@ -45,11 +45,15 @@ pub enum ArtifactKind {
     /// A Plugin's artifact (ADR 0033), which the Plugin store keeps rather
     /// than the Browser cache.
     Plugin,
+    /// A Plugin's language runtime (Node.js or Python, ADR 0033), kept in
+    /// the shared per-user cache and pinned by the installed Plugins that
+    /// declare it.
+    PluginRuntime,
 }
 
 impl ArtifactKind {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Browser,
         Self::Driver,
         Self::ExecutableCopy,
@@ -57,6 +61,7 @@ impl ArtifactKind {
         Self::CleanUpRules,
         Self::MouseMovements,
         Self::Plugin,
+        Self::PluginRuntime,
     ];
 
     /// Its name on disk and on the wire.

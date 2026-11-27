@@ -9,8 +9,8 @@
 //! schema as it starts, and its environment holds only the variables its
 //! manifest declares, valued from them ([`plugin_settings`]). It starts
 //! only once the Operator policy lets it load and approves each Secret
-//! value its environment holds (issue 900). A Plugin on a runtime waits for the runtime cache
-//! (issue 895).
+//! value its environment holds (issue 900). A Plugin declaring a language
+//! runtime runs from the shared runtime cache (issue 895).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,6 +20,7 @@ use goodfetch_confinement::deny_list::Places;
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::plugin::approvals::{
     Origin, PLUGIN_NOT_ALLOWED, PluginNotAllowedDetails, PluginRefusal, admit, fix,
 };
@@ -29,12 +30,14 @@ use goodfetch_protocol::run::RunId;
 use serde_json::Value;
 
 use super::extractor::{ProcessExtractor, unavailable};
+use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
 use crate::plugin_gate::{Inserting, PluginFetch, permission_denied};
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
+use crate::plugin_runtime::{self, RuntimeCatalog};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::sandbox_probe::SandboxProbe;
 use crate::secrets::{RunSecrets, SecretError};
@@ -44,6 +47,7 @@ use crate::tasks::TaskOwner;
 /// One Run's process Plugins, started as its calls name them.
 pub struct RunPlugins {
     store: PluginStore,
+    cache: CacheLocation,
     instances: PathBuf,
     places: Option<Arc<Places>>,
     product: Product,
@@ -51,6 +55,9 @@ pub struct RunPlugins {
     owner: Arc<TaskOwner>,
     /// What its Plugins' `net.fetch` waits on.
     clock: Clock,
+    /// Shared cache locks held for each started Plugin's runtime until the
+    /// Run drops.
+    held_runtimes: tokio::sync::Mutex<Vec<HeldArtifact>>,
     /// The Extractors, by name, each set once its instance started: one
     /// whose start failed stays unset, so a Plugin installed after a failed
     /// start is found on the next call. The lock is held only to find a
@@ -81,12 +88,14 @@ impl RunPlugins {
     ) -> Self {
         Self {
             store: PluginStore::new(home.plugins()),
+            cache: CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
             instances: home.plugin_instances(),
             places,
             product,
             run_id,
             owner,
             clock,
+            held_runtimes: tokio::sync::Mutex::new(Vec::new()),
             extractors: tokio::sync::Mutex::new(BTreeMap::new()),
         }
     }
@@ -199,11 +208,22 @@ impl RunPlugins {
                 secrets.clone(),
                 self.run_id.clone(),
             ));
+        let resolved_runtime = self
+            .resolve_runtime(name, &installed.manifest.runtime, resolved)
+            .await?;
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let places = self.places.clone();
         let plugin = self
             .owner
-            .blocking(move || set_up(installed, environment, &folder, places.as_deref()))
+            .blocking(move || {
+                set_up(
+                    installed,
+                    environment,
+                    resolved_runtime,
+                    &folder,
+                    places.as_deref(),
+                )
+            })
             .await
             .map_err(|reason| cannot_start(&reason))?;
         let instance = PluginInstance::start(
@@ -219,6 +239,48 @@ impl RunPlugins {
             Scope::Run(self.run_id.clone()),
         );
         Ok(ProcessExtractor::new(name.to_owned(), instance))
+    }
+
+    /// Resolves and locks a Plugin's declared language runtime from the shared
+    /// cache, refusing with `artifact_unavailable_offline` under
+    /// `egress.offline` when absent without attempting a download.
+    async fn resolve_runtime(
+        &self,
+        name: &str,
+        runtime: &Runtime,
+        resolved: &Resolved,
+    ) -> Result<Option<(PathBuf, PathBuf)>, StartError> {
+        if *runtime == Runtime::None {
+            return Ok(None);
+        }
+        let offline = resolved
+            .effective(&EGRESS_OFFLINE)
+            .filter(|effective| effective.value == Value::Bool(true))
+            .map(|effective| effective.layer);
+        let cache = BrowserCache::new(&self.cache, self.owner.blocking_threads());
+        let catalog = RuntimeCatalog::built_in();
+        let resolved_rt = plugin_runtime::resolve_for_start(
+            runtime,
+            &self.store,
+            &cache,
+            &catalog,
+            offline,
+            &self.owner.blocking_threads(),
+            self.clock.timestamp(),
+        )
+        .await
+        .map_err(StartError::Refused)?;
+        if let Some((held, executable)) = resolved_rt {
+            let files = held.files();
+            self.held_runtimes.lock().await.push(held);
+            Ok(Some((files, executable)))
+        } else {
+            tracing::warn!(
+                extractor = name,
+                "a Plugin's declared language runtime is not in the runtime cache; run `plugin add` first",
+            );
+            Err(StartError::Refused(unavailable(name)))
+        }
     }
 
     /// Checks that a Plugin of the Extractor kind is installed under
@@ -314,21 +376,35 @@ struct SetUp {
 fn set_up(
     installed: Installed,
     environment: BTreeMap<String, String>,
+    resolved_runtime: Option<(PathBuf, PathBuf)>,
     folder: &Path,
     places: Option<&Places>,
 ) -> Result<SetUp, String> {
     let places =
         places.ok_or("the engine's environment names no home folder to confine it from")?;
-    if installed.manifest.runtime != Runtime::None {
-        return Err("its runtime is not yet installed by the runtime cache (issue 895)".to_owned());
-    }
     std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
     let canonical = |path: &Path| std::fs::canonicalize(path).map_err(|error| error.to_string());
     let bundle = canonical(&installed.bundle)?;
     let folder = canonical(folder)?;
+    let (runtime_folder, program, args) = match resolved_runtime {
+        Some((files, executable)) => {
+            let runtime_dir = canonical(&files)?;
+            let entrypoint = bundle.join(&installed.manifest.entrypoint);
+            (
+                Some(runtime_dir),
+                canonical(&executable)?,
+                vec![entrypoint.to_string_lossy().into_owned()],
+            )
+        }
+        None => (
+            None,
+            bundle.join(&installed.manifest.entrypoint),
+            Vec::new(),
+        ),
+    };
     let instance = Instance {
-        bundle: bundle.clone(),
-        runtime: None,
+        bundle,
+        runtime: runtime_folder,
         folders: vec![folder.clone()],
         env: environment,
     };
@@ -339,8 +415,8 @@ fn set_up(
         launcher,
         launch: Launch {
             policy,
-            program: bundle.join(&installed.manifest.entrypoint),
-            args: Vec::new(),
+            program,
+            args,
             folder,
         },
         manifest: installed.manifest,

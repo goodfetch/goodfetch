@@ -220,6 +220,12 @@ struct Probing {
 }
 
 impl SandboxProbe {
+    /// The probe of an engine started with `environment` on this host.
+    #[must_use]
+    pub fn for_this_host(environment: BTreeMap<OsString, OsString>) -> Self {
+        Self::of(this_host, environment)
+    }
+
     /// The probe of an engine started with `environment`, on the host
     /// `host` reads: [`this_host`], for a real engine.
     pub(crate) fn of(host: fn() -> HostFacts, environment: BTreeMap<OsString, OsString>) -> Self {

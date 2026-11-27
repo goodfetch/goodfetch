@@ -23,6 +23,8 @@ use goodfetch_engine::clock::Clock;
 use goodfetch_engine::home::Home;
 use goodfetch_engine::installed::{InstalledList, Seen, kept_inputs};
 use goodfetch_engine::pinned_download::Fetching;
+use goodfetch_engine::plugin_runtime::RuntimePlatform;
+use goodfetch_engine::plugin_store::PluginStore;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{
@@ -262,7 +264,18 @@ fn kept(
         .iter()
         .map(|entry| Seen::look(entry, cache))
         .collect();
-    let mut kept = kept_artifacts(&kept_inputs(&seen), &[], now, max_unused_age);
+    let declared_by_plugins = PluginStore::new(home.plugins())
+        .declared_runtimes(RuntimePlatform::host().as_str())
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "the Plugin store cannot be listed; declared Plugin runtimes are unknown");
+            Vec::new()
+        });
+    let mut kept = kept_artifacts(
+        &kept_inputs(&seen),
+        &declared_by_plugins,
+        now,
+        max_unused_age,
+    );
     kept.extend(pins.artifacts.iter().map(|artifact| artifact.id.clone()));
     kept
 }

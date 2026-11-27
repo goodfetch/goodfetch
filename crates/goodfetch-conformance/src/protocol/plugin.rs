@@ -42,6 +42,7 @@ use crate::proving_ground::{ProvingGround, ProvingGroundError};
 use crate::writer::{WriteError, write_document};
 
 mod extract;
+mod secret;
 
 /// The `sample_store` kind's suite, embedded so it runs wherever the harness
 /// does.
@@ -49,6 +50,9 @@ const SAMPLE_STORE_CASES: &str = include_str!("../../../../conformance/sample-st
 
 /// The Extractor's suite, embedded the same way.
 const EXTRACT_CASES: &str = include_str!("../../../../conformance/extract/cases.toml");
+
+/// The Secret provider's suite, embedded the same way.
+const SECRET_CASES: &str = include_str!("../../../../conformance/secret/cases.toml");
 
 /// The run ID the harness's `hello` names.
 const RUN_ID: &str = "conformance";
@@ -99,6 +103,11 @@ impl PluginSuite {
     /// `conformance/extract/cases.toml`: the Extractor's.
     pub fn extract() -> Self {
         Self::read(EXTRACT_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/secret/cases.toml`: the Secret provider's.
+    pub fn secret() -> Self {
+        Self::read(SECRET_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a Plugin kind's case list.
@@ -400,6 +409,11 @@ enum Case {
     /// `extract.content` with a field a newer engine adds is answered as
     /// without it.
     ExtractNewerField,
+    /// `secret.resolve` answers a reference in the kind's shape.
+    SecretResolve,
+    /// `secret.resolve` with a field a newer engine adds is answered as
+    /// without it.
+    SecretNewerField,
 }
 
 /// The ID of each kind's case of params from a newer engine.
@@ -416,6 +430,10 @@ impl Case {
                 Some(Self::ExtractArticle)
             }
             ("extract", NEWER_PARAMS) => Some(Self::ExtractNewerField),
+            ("secret", "a-secret-reference-is-resolved-in-the-kinds-shape") => {
+                Some(Self::SecretResolve)
+            }
+            ("secret", NEWER_PARAMS) => Some(Self::SecretNewerField),
             _ => None,
         }
     }
@@ -462,6 +480,11 @@ impl Case {
                 let newer = self == Self::ExtractNewerField;
                 let answer = calls.call(extract::METHOD, &extract::params(newer))?;
                 checks.extend(extract::checks(&answer));
+            }
+            Self::SecretResolve | Self::SecretNewerField => {
+                let newer = self == Self::SecretNewerField;
+                let answer = calls.call(secret::METHOD, &secret::params(newer))?;
+                checks.extend(secret::checks(&answer));
             }
         }
         Ok(())

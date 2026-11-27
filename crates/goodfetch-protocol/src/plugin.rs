@@ -40,6 +40,7 @@ pub mod manage;
 mod manifest;
 mod names;
 pub mod net;
+pub mod secret;
 pub mod settings;
 pub mod spend;
 pub mod update;

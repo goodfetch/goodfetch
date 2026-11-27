@@ -126,6 +126,7 @@ use self::folder::{
 };
 use self::keys::KeysParts;
 use self::lifecycle::{InvalidRunTransition, Next, RunEvent};
+use self::plugin_secret::PluginSecretResolver;
 use self::progress::Progressing;
 use self::reader::Following;
 use self::report::EndFacts;
@@ -4522,15 +4523,7 @@ impl Registry {
         let runs = self.handle(connection);
         let (let_finish, finish) = watch::channel(false);
         let warnings = ReportWarnings::new(state.clone(), keys.secrets.mask().clone());
-        let keys = RunKeys::new(KeysParts {
-            secrets: keys.secrets,
-            key: keys.key,
-            unsealed_open: keys.unsealed_open,
-            identity: identity.clone(),
-            state: state.clone(),
-            settings: self.setup.engine.settings().clone(),
-            engine_secrets: self.setup.secrets.clone(),
-        });
+        let keys = self.run_keys(keys, &identity, &state);
         let politeness = RunPoliteness::new(RunPolitenessParts {
             shared: Arc::clone(&self.politeness),
             run_id: run_id.to_string(),
@@ -4559,7 +4552,14 @@ impl Registry {
                     finish,
                     send_window.clone(),
                 ),
-                plugins: self.plugins(run_id, &owner, charging.clone(), warnings.clone()),
+                plugins: self.plugins(
+                    keys.secrets(),
+                    &identity,
+                    &owner,
+                    &charging,
+                    &warnings,
+                    &trace,
+                ),
                 charging,
                 keys,
                 warnings,
@@ -4593,26 +4593,51 @@ impl Registry {
             .collect()
     }
 
-    /// The process Plugins of the Run `run_id`, started as tasks of its
-    /// `owner` (ADR 0145).
+    /// The process Plugins of the Run `identity` names, started as tasks of
+    /// its `owner` (ADR 0145), wired with its spend accountant and attached as
+    /// its process-Plugin Secret provider.
     fn plugins(
         &self,
-        run_id: &RunId,
+        secrets: &RunSecrets,
+        identity: &RunIdentity,
         owner: &Arc<TaskOwner>,
-        charging: RunCharging,
-        warnings: ReportWarnings,
+        charging: &RunCharging,
+        warnings: &ReportWarnings,
+        trace: &run_trace::RunTrace,
     ) -> Arc<RunPlugins> {
-        Arc::new(
+        let plugins = Arc::new(
             RunPlugins::new(
                 self.setup.engine.home(),
                 self.setup.engine.places().cloned(),
                 self.setup.product,
-                run_id.clone(),
+                identity.id().clone(),
                 (Arc::clone(owner), self.setup.engine.clock()),
             )
             .with_audit(self.setup.engine.audit().clone())
-            .with_spend(RunSpendAccountant::new(charging, warnings)),
-        )
+            .with_spend(RunSpendAccountant::new(charging.clone(), warnings.clone())),
+        );
+        secrets.set_plugin_provider(Arc::new(PluginSecretResolver::new(
+            Arc::clone(&plugins),
+            identity.clone(),
+            charging.clone(),
+            trace.clone(),
+            secrets.without_plugin_provider(),
+            self.setup.engine.sandbox_probe().clone(),
+        )));
+        plugins
+    }
+
+    /// The live Run's Secrets and data key holder (ADR 0145).
+    fn run_keys(&self, keys: Keys, identity: &RunIdentity, state: &RunState) -> RunKeys {
+        RunKeys::new(KeysParts {
+            secrets: keys.secrets,
+            key: keys.key,
+            unsealed_open: keys.unsealed_open,
+            identity: identity.clone(),
+            state: state.clone(),
+            settings: self.setup.engine.settings().clone(),
+            engine_secrets: self.setup.secrets.clone(),
+        })
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every
@@ -5631,6 +5656,7 @@ pub mod lifecycle;
 mod list;
 mod opening;
 pub mod outcome;
+mod plugin_secret;
 mod plugin_spend;
 mod progress;
 mod reader;

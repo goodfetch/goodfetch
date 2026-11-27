@@ -33,6 +33,7 @@ use futures_util::future::BoxFuture;
 use goodfetch_protocol::catalog::{OperationClass, PluginKind, Setting};
 use goodfetch_protocol::entries;
 use goodfetch_protocol::plugin::extractor::{EXTRACT_CONTENT, EXTRACTOR};
+use goodfetch_protocol::plugin::secret::{SECRET_PROVIDER, SECRET_RESOLVE};
 use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED, PluginKindName};
 use goodfetch_protocol::settings::{TIMEOUT_HOOK, TIMEOUT_MODEL, TIMEOUT_PLUGIN};
 use serde::Serialize;
@@ -48,6 +49,7 @@ pub use crate::plugin_host::spend::{
 
 pub mod extractor;
 pub mod run_plugins;
+pub mod secret;
 
 /// The timeout setting governing a call to a Plugin of `kind` (ADRs 0033
 /// and 0080): `timeout.hook` for a Hook, `timeout.model` for a Model
@@ -168,16 +170,19 @@ fn class_name<S: serde::Serializer>(
 pub enum Primitive {
     /// The Extractor's `extract.content`.
     ExtractContent,
+    /// The Secret provider's `secret.resolve`.
+    SecretResolve,
 }
 
 impl Primitive {
     /// Every primitive of Collie's kinds.
-    pub const ALL: [Self; 1] = [Self::ExtractContent];
+    pub const ALL: [Self; 2] = [Self::ExtractContent, Self::SecretResolve];
 
     /// Its kind.
     pub fn kind(self) -> &'static PluginKind {
         match self {
             Self::ExtractContent => &EXTRACTOR,
+            Self::SecretResolve => &SECRET_PROVIDER,
         }
     }
 
@@ -185,14 +190,15 @@ impl Primitive {
     pub fn method(self) -> &'static str {
         match self {
             Self::ExtractContent => EXTRACT_CONTENT,
+            Self::SecretResolve => SECRET_RESOLVE,
         }
     }
 
     /// The class the engine gives each of its calls: reading a page's main
-    /// content changes nothing.
+    /// content or resolving a secret changes nothing.
     pub fn class(self) -> OperationClass {
         match self {
-            Self::ExtractContent => OperationClass::Read,
+            Self::ExtractContent | Self::SecretResolve => OperationClass::Read,
         }
     }
 }

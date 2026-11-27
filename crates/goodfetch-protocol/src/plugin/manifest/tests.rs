@@ -212,3 +212,56 @@ fn a_manifest_reads_back_as_it_was_written() {
 
     assert_eq!(serde_json::to_value(&read).unwrap(), written);
 }
+
+/// A third-party Secret provider cannot claim a built-in provider's scheme
+/// (ADRs 0015 and 0033).
+///
+/// Covers: story:7-51
+#[rstest]
+#[case::env("env")]
+#[case::keychain("keychain")]
+#[case::secretfile("secretfile")]
+#[case::caller("caller")]
+#[case::op("op")]
+#[case::bw("bw")]
+#[case::vault("vault")]
+#[case::aws_sm("aws-sm")]
+#[case::gcp_sm("gcp-sm")]
+#[case::azure_kv("azure-kv")]
+#[case::plugin("plugin")]
+fn a_manifest_cannot_claim_a_built_in_secret_scheme(#[case] scheme: &str) {
+    let mut manifest = least();
+    manifest["kinds"] = json!(["secret"]);
+    manifest["scheme"] = json!(scheme);
+
+    let refused = PluginManifest::read(manifest.to_string().as_bytes()).unwrap_err();
+
+    assert!(
+        matches!(&refused, ManifestError::SchemeReserved(named) if named == scheme),
+        "{refused:?}"
+    );
+}
+
+/// A Secret provider's scheme must follow the `plugin:<scheme>:<rest>` scheme
+/// syntax: a lowercase ASCII letter followed by lowercase ASCII letters, digits
+/// or hyphens.
+///
+/// Covers: story:7-51
+#[rstest]
+#[case::empty("")]
+#[case::uppercase("Vault")]
+#[case::leading_digit("1vault")]
+#[case::underscore("my_vault")]
+#[case::colon("my:vault")]
+fn a_manifest_refuses_an_invalid_secret_scheme(#[case] scheme: &str) {
+    let mut manifest = least();
+    manifest["kinds"] = json!(["secret"]);
+    manifest["scheme"] = json!(scheme);
+
+    let refused = PluginManifest::read(manifest.to_string().as_bytes()).unwrap_err();
+
+    assert!(
+        matches!(&refused, ManifestError::InvalidScheme(named) if named == scheme),
+        "{refused:?}"
+    );
+}

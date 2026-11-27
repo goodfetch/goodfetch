@@ -135,7 +135,7 @@ fn model_provider() -> PluginManifest {
             input_price: Some("3 USD".to_owned()),
             output_price: Some("15 USD".to_owned()),
         }],
-        scheme: Some("vault".to_owned()),
+        scheme: Some("example-vault".to_owned()),
         ..manifest(
             "example-models",
             &[PluginKindName::MODEL, PluginKindName::SECRET],

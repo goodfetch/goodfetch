@@ -5959,6 +5959,25 @@
       "name": "sample_store",
       "product": "collie",
       "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Resolves Secret references under its manifest's declared scheme from a vault Goodfetch does not ship.",
+      "methods": [
+        {
+          "description": "Resolves one Secret reference and returns its value.",
+          "name": "resolve",
+          "params": {
+            "$ref": "#/$defs/SecretResolveParams"
+          },
+          "result": {
+            "$ref": "#/$defs/SecretResolveResult"
+          }
+        }
+      ],
+      "name": "secret",
+      "product": "collie",
+      "stability": "experimental"
     }
   ],
   "protocol_failures": [

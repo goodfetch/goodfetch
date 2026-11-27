@@ -57,5 +57,5 @@
       "output_price": "15 USD"
     }
   ],
-  "scheme": "vault"
+  "scheme": "example-vault"
 }

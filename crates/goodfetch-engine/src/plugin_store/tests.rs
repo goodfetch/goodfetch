@@ -207,3 +207,69 @@ fn a_staged_bundle_the_store_cannot_vouch_for_is_not_added(
         .collect();
     assert_eq!(names, ["present"]);
 }
+
+/// A Secret provider manifest claiming `scheme`.
+fn secret_manifest(name: &str, scheme: &str) -> Value {
+    json!({
+        "manifest_version": "0.1",
+        "name": name,
+        "version": "1.0.0",
+        "kinds": ["secret"],
+        "protocol": { "min": "0.1", "max": "0.1" },
+        "entrypoint": "plugin",
+        "network_level": "none",
+        "scheme": scheme,
+    })
+}
+
+/// A Secret provider installed with a declared scheme resolves by that scheme;
+/// a second Secret provider claiming the same scheme is refused at install and
+/// on resolution (ADRs 0015 and 0033).
+///
+/// Covers: story:7-90, story:7-51
+#[test]
+fn a_secret_provider_resolves_by_scheme_and_a_second_claiming_it_is_refused() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("plugins");
+    let store = PluginStore::new(root.clone());
+
+    let first = staged(&store, &secret_manifest("vault-a", "corp-vault"));
+    store.add("vault-a", first.path(), DIGEST).unwrap();
+
+    let resolved = store.resolve_secret_scheme("corp-vault").unwrap();
+    assert_eq!(resolved.manifest.name, "vault-a");
+
+    let missing = store.resolve_secret_scheme("other-vault").unwrap_err();
+    assert!(
+        matches!(missing, super::StoreError::NoScheme(ref scheme) if scheme == "other-vault"),
+        "{missing:?}"
+    );
+
+    let duplicate = staged(&store, &secret_manifest("vault-b", "corp-vault"));
+    let conflict = store.add("vault-b", duplicate.path(), DIGEST).unwrap_err();
+    assert!(
+        matches!(
+            conflict,
+            super::StoreError::SchemeConflict { ref scheme, ref existing }
+                if scheme == "corp-vault" && existing == "vault-a"
+        ),
+        "{conflict:?}"
+    );
+    assert!(!root.join("vault-b").exists());
+
+    // Even if a second provider were placed on disk directly, resolution refuses the conflict.
+    installed(
+        &root,
+        "vault-b",
+        "1.0.0",
+        &secret_manifest("vault-b", "corp-vault"),
+    );
+    let resolve_conflict = store.resolve_secret_scheme("corp-vault").unwrap_err();
+    assert!(
+        matches!(
+            resolve_conflict,
+            super::StoreError::SchemeConflict { ref scheme, .. } if scheme == "corp-vault"
+        ),
+        "{resolve_conflict:?}"
+    );
+}

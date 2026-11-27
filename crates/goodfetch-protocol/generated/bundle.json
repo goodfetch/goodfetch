@@ -26195,6 +26195,39 @@
         }
       ]
     },
+    "SecretResolveParams": {
+      "description": "What `secret.resolve` asks a Secret provider Plugin for: the Secret\nreference to resolve, under the scheme its manifest declares.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Secret reference to resolve (`plugin:<scheme>:<rest>`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "type": "object"
+    },
+    "SecretResolveResult": {
+      "additionalProperties": false,
+      "description": "What a Secret provider Plugin answers to `secret.resolve`: the secret's\nvalue, and no other field. Its `Debug` hides the value so a decoded answer\nnever reaches a log or panic message.",
+      "properties": {
+        "value": {
+          "arrived_in": "0.1",
+          "description": "The resolved secret value, immediately wrapped in a zeroizing\n`SecretString` by the engine's driver.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "type": "object"
+    },
     "SecretUnavailableDetails": {
       "description": "What `secret_unavailable` details.",
       "properties": {

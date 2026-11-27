@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import ExtractContentParams, ExtractContentResult, SampleStorePutParams, SampleStorePutResult
+from .models import ExtractContentParams, ExtractContentResult, SampleStorePutParams, SampleStorePutResult, SecretResolveParams, SecretResolveResult
 
 
 class ExtractHandler(ABC):
@@ -30,3 +30,14 @@ class SampleStoreHandler(ABC):
     @abstractmethod
     async def put(self, params: SampleStorePutParams) -> SampleStorePutResult:
         """Keeps a value under a key."""
+
+
+class SecretHandler(ABC):
+    """Resolves Secret references under its manifest's declared scheme from a vault Goodfetch does not ship.
+
+    Experimental: outside semver until it is promoted (ADR 0030).
+    """
+
+    @abstractmethod
+    async def resolve(self, params: SecretResolveParams) -> SecretResolveResult:
+        """Resolves one Secret reference and returns its value."""

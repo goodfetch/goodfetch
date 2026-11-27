@@ -32,6 +32,7 @@ use goodfetch_protocol::run::RunId;
 use serde_json::Value;
 
 use super::extractor::{ProcessExtractor, unavailable};
+use super::secret::ProcessSecretProvider;
 use crate::audit::AuditLog;
 use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
@@ -82,6 +83,10 @@ pub struct RunPlugins {
     /// start is found on the next call. The lock is held only to find a
     /// name's cell, never across a start.
     extractors: tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessExtractor>>>>,
+    /// The Secret providers, by declared scheme, each set once its instance
+    /// started.
+    secret_providers:
+        tokio::sync::Mutex<BTreeMap<String, Arc<tokio::sync::OnceCell<ProcessSecretProvider>>>>,
 }
 
 impl std::fmt::Debug for RunPlugins {
@@ -120,6 +125,7 @@ impl RunPlugins {
             held_runtimes: tokio::sync::Mutex::new(Vec::new()),
             running: tokio::sync::Mutex::new(BTreeMap::new()),
             extractors: tokio::sync::Mutex::new(BTreeMap::new()),
+            secret_providers: tokio::sync::Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -247,6 +253,10 @@ impl RunPlugins {
         let now = self.clock.timestamp();
         for (name, record, revocation) in to_stop {
             self.extractors.lock().await.remove(&name);
+            self.secret_providers.lock().await.retain(|_, cell| {
+                cell.get()
+                    .is_none_or(|provider| provider.name() != name.as_str())
+            });
             let error = plugin_index::revoked_error(&name, record.digest.as_deref(), &revocation);
             record.instance.stop_with(error).await;
             if let Some(audit) = &self.audit {
@@ -364,6 +374,73 @@ impl RunPlugins {
         }
     }
 
+    /// The Secret provider of the installed Plugin claiming `scheme`, its
+    /// instance started on the first call for that scheme.
+    ///
+    /// # Errors
+    ///
+    /// [`SecretStartError::NoScheme`] when no installed Secret provider declares
+    /// `scheme`, [`SecretStartError::SchemeConflict`] when more than one does,
+    /// or [`SecretStartError::Start`] for any policy, confinement, settings,
+    /// secret or startup refusal.
+    pub async fn secret_provider(
+        &self,
+        scheme: &str,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessSecretProvider, SecretStartError> {
+        let started = Arc::clone(
+            self.secret_providers
+                .lock()
+                .await
+                .entry(scheme.to_owned())
+                .or_default(),
+        );
+        started
+            .get_or_try_init(|| self.start_secret_provider(scheme, settings, secrets, probe))
+            .await
+            .cloned()
+    }
+
+    /// Starts the Secret provider instance for `scheme`.
+    async fn start_secret_provider(
+        &self,
+        scheme: &str,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+    ) -> Result<ProcessSecretProvider, SecretStartError> {
+        let store = self.store.clone();
+        let wanted = scheme.to_owned();
+        let installed = self
+            .owner
+            .blocking(move || store.resolve_secret_scheme(&wanted))
+            .await
+            .map_err(|error| match error {
+                StoreError::NoScheme(scheme) => SecretStartError::NoScheme(scheme),
+                StoreError::SchemeConflict { scheme, existing } => {
+                    SecretStartError::SchemeConflict { scheme, existing }
+                }
+                other => {
+                    tracing::warn!(scheme, %other, "a Secret provider Plugin cannot be resolved");
+                    SecretStartError::Start(StartError::Refused(secret_plugin_unavailable(scheme)))
+                }
+            })?;
+        let name = installed.manifest.name.clone();
+        let instance = self
+            .start_instance(
+                installed,
+                settings,
+                secrets,
+                probe,
+                secret_plugin_unavailable,
+            )
+            .await
+            .map_err(SecretStartError::Start)?;
+        Ok(ProcessSecretProvider::new(name, instance))
+    }
+
     /// Starts the instance of the installed Plugin `name`, as
     /// [`Self::extractor`] tells: the host's confinement is checked before
     /// any setting is read, so a host that cannot confine the Plugin
@@ -375,11 +452,30 @@ impl RunPlugins {
         secrets: &RunSecrets,
         probe: &SandboxProbe,
     ) -> Result<ProcessExtractor, StartError> {
-        let cannot_start = |reason: &dyn std::fmt::Display| {
-            tracing::warn!(extractor = name, %reason, "an Extractor's Plugin cannot start");
-            StartError::Refused(unavailable(name))
-        };
         let installed = self.resolve_extractor(name).await?;
+        let instance = self
+            .start_instance(installed, settings, secrets, probe, unavailable)
+            .await?;
+        Ok(ProcessExtractor::new(name.to_owned(), instance))
+    }
+
+    /// Shared instance startup path for any installed process Plugin: checks
+    /// the index, admission policy, host confinement, settings/environment,
+    /// `net.fetch` gate, language runtime, confinement setup and spend
+    /// accounting, then launches and tracks the instance.
+    async fn start_instance(
+        &self,
+        installed: Installed,
+        settings: Option<&Resolved>,
+        secrets: &RunSecrets,
+        probe: &SandboxProbe,
+        unavailable_error: impl Fn(&str) -> CallError,
+    ) -> Result<PluginInstance, StartError> {
+        let name = installed.manifest.name.clone();
+        let cannot_start = |reason: &dyn std::fmt::Display| {
+            tracing::warn!(plugin = %name, %reason, "a Plugin cannot start");
+            StartError::Refused(unavailable_error(&name))
+        };
         let defaults;
         let resolved = if let Some(settings) = settings {
             settings
@@ -388,18 +484,18 @@ impl RunPlugins {
                 .expect("invariant: the built-in defaults resolve");
             &defaults
         };
-        let origin = self.check_index(name, installed.digest.as_deref()).await?;
-        let entry = admitted(origin, resolved, name, &installed)?;
+        let origin = self.check_index(&name, installed.digest.as_deref()).await?;
+        let entry = admitted(origin, resolved, &name, &installed, &unavailable_error)?;
         let probe = probe.clone();
         if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
-            tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
+            tracing::warn!(plugin = %name, %refusal, "this host cannot confine a Plugin");
             return Err(StartError::Refused(refusal));
         }
-        let (given, layer) = plugin_settings::given(settings, name);
-        let environment = PluginSettings::checked(name, &installed.manifest, given, layer)
+        let (given, layer) = plugin_settings::given(settings, &name);
+        let environment = PluginSettings::checked(&name, &installed.manifest, given, layer)
             .map_err(|invalid| StartError::Refused(invalid.into()))?
             .environment(
-                name,
+                &name,
                 (&installed.manifest, &entry.approved),
                 secrets,
                 (&self.run_id, layer),
@@ -408,21 +504,26 @@ impl RunPlugins {
             .map_err(|error| match error {
                 EnvironmentError::Secret(error) => StartError::Secret(error),
                 EnvironmentError::Denied(permission) => {
-                    StartError::Refused(permission_denied(name, permission))
+                    StartError::Refused(permission_denied(&name, permission))
                 }
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
-        let fetch = PluginFetch::of(resolved, name, self.clock, self.owner.blocking_threads())
+        let fetch = PluginFetch::of(resolved, &name, self.clock, self.owner.blocking_threads())
             .map_err(|invalid| cannot_start(&invalid))?
             .inserting(Inserting::new(
-                name,
+                &name,
                 (&installed.manifest, &entry.approved),
                 resolved,
                 secrets.clone(),
                 self.run_id.clone(),
             ));
         let resolved_runtime = self
-            .resolve_runtime(name, &installed.manifest.runtime, resolved)
+            .resolve_runtime(
+                &name,
+                &installed.manifest.runtime,
+                resolved,
+                &unavailable_error,
+            )
             .await?;
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let digest = installed.digest.clone();
@@ -457,9 +558,9 @@ impl RunPlugins {
             },
             Scope::Run(self.run_id.clone()),
         );
-        self.track_instance(name.to_owned(), digest, None, instance.clone())
+        self.track_instance(name, digest, None, instance.clone())
             .await;
-        Ok(ProcessExtractor::new(name.to_owned(), instance))
+        Ok(instance)
     }
 
     /// Checks the cached Plugin index for revocations and expiry, auditing
@@ -504,6 +605,7 @@ impl RunPlugins {
         name: &str,
         runtime: &Runtime,
         resolved: &Resolved,
+        unavailable_error: &impl Fn(&str) -> CallError,
     ) -> Result<Option<(PathBuf, PathBuf)>, StartError> {
         if *runtime == Runtime::None {
             return Ok(None);
@@ -531,10 +633,10 @@ impl RunPlugins {
             Ok(Some((files, executable)))
         } else {
             tracing::warn!(
-                extractor = name,
+                plugin = name,
                 "a Plugin's declared language runtime is not in the runtime cache; run `plugin add` first",
             );
-            Err(StartError::Refused(unavailable(name)))
+            Err(StartError::Refused(unavailable_error(name)))
         }
     }
 
@@ -553,7 +655,7 @@ impl RunPlugins {
     }
 }
 
-/// Why an Extractor's instance does not start.
+/// Why a Plugin's instance does not start.
 #[derive(Debug)]
 pub enum StartError {
     /// The call's failure: its settings refused, or the Plugin unavailable.
@@ -563,11 +665,38 @@ pub enum StartError {
     Secret(SecretError),
 }
 
+/// Why a Secret provider Plugin's instance does not start.
+#[derive(Debug)]
+pub enum SecretStartError {
+    /// No installed Secret provider Plugin declares the requested scheme.
+    NoScheme(String),
+    /// More than one installed Secret provider Plugin claims the scheme.
+    SchemeConflict {
+        /// The conflicting scheme.
+        scheme: String,
+        /// The installed Plugins claiming it.
+        existing: String,
+    },
+    /// Any other start refusal or secret-resolution failure.
+    Start(StartError),
+}
+
+/// Generic unavailable error for a Secret provider Plugin that could not
+/// start (translated to `secret_unavailable` by the Secret provider driver).
+fn secret_plugin_unavailable(name: &str) -> CallError {
+    CallError::new(
+        &goodfetch_protocol::secrets::SECRET_UNAVAILABLE,
+        format!(
+            "The Secret provider Plugin `{name}` could not start; why is in the log at `warn`."
+        ),
+        &(),
+    )
+}
+
 /// The Operator policy's entry for the Plugin `name` in `resolved`, a Run's
 /// settings, once it lets `installed` load: a Plugin from the store counts
 /// as third-party until its origin is recorded (issue 911), so it loads
-/// only when the entry allows it, at the digest the entry pins. An
-/// Extractor's network level is always `none`, so it never needs `direct`.
+/// only when the entry allows it, at the digest the entry pins.
 ///
 /// # Errors
 ///
@@ -577,12 +706,13 @@ fn admitted(
     resolved: &Resolved,
     name: &str,
     installed: &Installed,
+    unavailable_error: &impl Fn(&str) -> CallError,
 ) -> Result<PluginEntry, StartError> {
     let entry = match &resolved.value(&PLUGINS)[name] {
         Value::Null => PluginEntry::default(),
         entry => PluginEntry::read(entry).map_err(|reason| {
-            tracing::warn!(extractor = name, %reason, "an Extractor's Plugin entry does not read");
-            StartError::Refused(unavailable(name))
+            tracing::warn!(plugin = name, %reason, "a Plugin's entry does not read");
+            StartError::Refused(unavailable_error(name))
         })?,
     };
     let found = installed.digest.as_deref();

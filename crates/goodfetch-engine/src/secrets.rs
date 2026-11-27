@@ -798,6 +798,7 @@ impl Secrets {
             mask: self.0.masks.for_run(redaction),
             values: tokio::sync::Mutex::default(),
             each_use,
+            plugin_provider: std::sync::OnceLock::new(),
         }))
     }
 }
@@ -882,6 +883,9 @@ struct ForRun {
     /// The references resolved again at each use, its
     /// `secrets.resolve_each_use`.
     each_use: BTreeSet<String>,
+    /// The Run's process-Plugin Secret provider (`plugin:<scheme>:<rest>`),
+    /// set once when the Run opens (ADR 0033).
+    plugin_provider: std::sync::OnceLock<Arc<dyn SecretProvider>>,
 }
 
 /// A value a Run resolved once for a reference and placeholder, or the
@@ -916,6 +920,29 @@ impl RunSecrets {
     /// placeholder, or the setting's key where none names it.
     pub fn mask(&self) -> &Mask {
         &self.0.mask
+    }
+
+    /// Attaches the Run's process-Plugin Secret provider
+    /// (`plugin:<scheme>:<rest>`), set once when the Run opens (ADR 0033).
+    pub(crate) fn set_plugin_provider(&self, provider: Arc<dyn SecretProvider>) {
+        let _ = self.0.plugin_provider.set(provider);
+    }
+
+    /// A view of this Run's Secrets sharing its mask, exception hosts and
+    /// built-in providers, without the process-Plugin Secret provider, used
+    /// when resolving a Secret provider Plugin's own environment so it cannot
+    /// recurse into `plugin:` references.
+    pub(crate) fn without_plugin_provider(&self) -> Self {
+        Self(Arc::new(ForRun {
+            secrets: self.0.secrets.clone(),
+            timeout: self.0.timeout,
+            held: tokio::sync::Mutex::new(Vec::new()),
+            exception_hosts: self.0.exception_hosts.clone(),
+            mask: self.0.mask.clone(),
+            values: tokio::sync::Mutex::default(),
+            each_use: self.0.each_use.clone(),
+            plugin_provider: std::sync::OnceLock::new(),
+        }))
     }
 
     /// The value `reference` points to for `purpose`: refused for a domain
@@ -1008,12 +1035,26 @@ impl RunSecrets {
             fix,
         };
         let scheme = reference.provider().as_str();
-        let Some(Implementation(provider)) = self.0.secrets.0.providers.get(&reference.provider())
-        else {
-            return Err(unavailable(
-                SecretFailure::NotConfigured,
-                format!("This engine has no `{scheme}` provider; use another reference."),
-            ));
+        let provider: Arc<dyn SecretProvider> = if reference.provider() == Provider::Plugin {
+            match self.0.plugin_provider.get() {
+                Some(provider) => Arc::clone(provider),
+                None => {
+                    return Err(unavailable(
+                        SecretFailure::NotConfigured,
+                        "No process-Plugin Secret provider is available in this scope; use a built-in provider reference.".to_owned(),
+                    ));
+                }
+            }
+        } else {
+            let Some(Implementation(provider)) =
+                self.0.secrets.0.providers.get(&reference.provider())
+            else {
+                return Err(unavailable(
+                    SecretFailure::NotConfigured,
+                    format!("This engine has no `{scheme}` provider; use another reference."),
+                ));
+            };
+            Arc::clone(provider)
         };
         if let Err(problem) = provider.check_config() {
             return Err(unavailable(SecretFailure::NotConfigured, problem.fix));

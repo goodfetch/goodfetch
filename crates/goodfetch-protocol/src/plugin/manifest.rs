@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use super::PluginProtocolRange;
 use super::names::{HookStageName, PluginKindName};
 use crate::catalog::ProtocolVersion;
+use crate::secret_reference::{is_built_in_scheme, is_plugin_scheme};
 
 /// The manifest's file name at the root of a Plugin's bundle.
 pub const FILE_NAME: &str = "goodfetch-plugin.json";
@@ -405,6 +406,16 @@ pub enum ManifestError {
     /// It declares a loader variable in its environment.
     #[error("the Plugin manifest declares `{0}` in its environment, a variable that loads code")]
     LoaderVariable(String),
+    /// It declares a Secret provider scheme that is not a valid scheme name.
+    #[error(
+        "the Plugin manifest declares the Secret provider scheme `{0}`, which must start with a lowercase ASCII letter and hold only lowercase ASCII letters, digits and hyphens"
+    )]
+    InvalidScheme(String),
+    /// It declares a Secret provider scheme reserved by a built-in provider.
+    #[error(
+        "the Plugin manifest declares the Secret provider scheme `{0}`, which is reserved by a built-in provider"
+    )]
+    SchemeReserved(String),
 }
 
 /// The part of a manifest read before the rest: its version.
@@ -454,6 +465,14 @@ impl PluginManifest {
             .find(|variable| is_loader_variable(variable))
         {
             return Err(ManifestError::LoaderVariable(variable.clone()));
+        }
+        if let Some(scheme) = &self.scheme {
+            if !is_plugin_scheme(scheme) {
+                return Err(ManifestError::InvalidScheme(scheme.clone()));
+            }
+            if is_built_in_scheme(scheme) {
+                return Err(ManifestError::SchemeReserved(scheme.clone()));
+            }
         }
         Ok(())
     }

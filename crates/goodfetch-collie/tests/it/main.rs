@@ -127,6 +127,7 @@ mod run;
 mod rust_client;
 mod schedules;
 mod sdk;
+mod secret_suite;
 mod secrets;
 mod security_controls;
 mod service_manager;

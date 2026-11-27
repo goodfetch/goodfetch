@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 77] = [
+pub const MODULES: [&Entries; 78] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -71,6 +71,7 @@ pub const MODULES: [&Entries; 77] = [
     &plugin::index::ENTRIES,
     &plugin::manage::ENTRIES,
     &plugin::net::ENTRIES,
+    &plugin::secret::ENTRIES,
     &plugin::spend::ENTRIES,
     &plugin::update::ENTRIES,
     &recipe::ENTRIES,
@@ -384,7 +385,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 107] = [
+    const COLLIE: [&str; 108] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -492,6 +493,7 @@ mod tests {
         "plugin.index_import",
         "plugin.list",
         "plugin.remove",
+        "plugin.update",
     ];
 
     #[test]

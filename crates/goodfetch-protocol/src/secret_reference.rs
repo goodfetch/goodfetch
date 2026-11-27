@@ -109,15 +109,31 @@ impl Provider {
                 Some((name, key)) => !name.is_empty() && is_field(key),
                 None => !rest.is_empty(),
             },
-            Self::Plugin => rest.split_once(':').is_some_and(|(name, rest)| {
-                !rest.is_empty()
-                    && name.starts_with(|first: char| first.is_ascii_lowercase())
-                    && name.bytes().all(|byte| {
-                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-                    })
-            }),
+            Self::Plugin => rest
+                .split_once(':')
+                .is_some_and(|(name, rest)| !rest.is_empty() && is_plugin_scheme(name)),
         }
     }
+}
+
+/// Whether `scheme` is a valid Secret provider Plugin scheme: a lowercase ASCII
+/// letter followed by lowercase ASCII letters, digits or hyphens.
+#[must_use]
+pub fn is_plugin_scheme(scheme: &str) -> bool {
+    scheme.starts_with(|first: char| first.is_ascii_lowercase())
+        && scheme
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+/// Whether `scheme` is reserved by a built-in Secret provider (including
+/// `plugin` itself), which a third-party Secret provider Plugin may never claim
+/// (ADRs 0015 and 0033).
+#[must_use]
+pub fn is_built_in_scheme(scheme: &str) -> bool {
+    Provider::ALL
+        .iter()
+        .any(|provider| provider.as_str().eq_ignore_ascii_case(scheme))
 }
 
 /// An environment variable's name: a letter or `_`, then letters, digits
@@ -232,6 +248,16 @@ impl SecretReference {
     /// Its text.
     pub fn as_str(&self) -> &str {
         &self.text
+    }
+
+    /// For a [`Provider::Plugin`] reference (`plugin:<scheme>:<rest>`), the
+    /// `<scheme>` segment; `None` for any built-in provider.
+    #[must_use]
+    pub fn plugin_scheme(&self) -> Option<&str> {
+        if self.provider != Provider::Plugin {
+            return None;
+        }
+        self.rest().split_once(':').map(|(scheme, _)| scheme)
     }
 }
 

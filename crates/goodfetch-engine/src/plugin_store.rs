@@ -160,6 +160,20 @@ pub enum StoreError {
         /// The version installed.
         version: String,
     },
+    /// No installed Secret provider Plugin declares the requested scheme.
+    #[error("no installed Secret provider Plugin declares the scheme `{0}`")]
+    NoScheme(String),
+    /// Another installed Secret provider Plugin already claims the scheme
+    /// (ADRs 0015 and 0033).
+    #[error(
+        "the Secret provider scheme `{scheme}` is already claimed by the installed Plugin `{existing}`"
+    )]
+    SchemeConflict {
+        /// The conflicting scheme.
+        scheme: String,
+        /// The installed Plugin(s) already claiming it.
+        existing: String,
+    },
 }
 
 impl PluginStore {
@@ -192,6 +206,83 @@ impl PluginStore {
             });
         }
         Ok(installed)
+    }
+
+    /// The installed Secret provider Plugin claiming `scheme` (ADRs 0015 and
+    /// 0033).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::NoScheme`] when no installed Secret provider declares
+    /// `scheme`, [`StoreError::SchemeConflict`] when more than one does, or
+    /// [`StoreError::Unreadable`] when the store folder cannot be listed.
+    pub fn resolve_secret_scheme(&self, scheme: &str) -> Result<Installed, StoreError> {
+        let mut matches: Vec<Installed> = self
+            .installed_all()
+            .map_err(|source| StoreError::Unreadable {
+                name: format!("secret:{scheme}"),
+                source,
+            })?
+            .into_iter()
+            .filter(|installed| {
+                installed.manifest.kinds.contains(&PluginKindName::SECRET)
+                    && installed.manifest.scheme.as_deref() == Some(scheme)
+            })
+            .collect();
+        match matches.len() {
+            0 => Err(StoreError::NoScheme(scheme.to_owned())),
+            1 => Ok(matches.remove(0)),
+            _ => {
+                let existing = matches
+                    .iter()
+                    .map(|installed| installed.manifest.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Err(StoreError::SchemeConflict {
+                    scheme: scheme.to_owned(),
+                    existing,
+                })
+            }
+        }
+    }
+
+    /// Checks that installing or updating `plugin_name` with `manifest` does
+    /// not claim a Secret provider scheme already owned by another installed
+    /// Secret provider Plugin (ADRs 0015 and 0033).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::SchemeConflict`] when another installed Secret provider
+    /// already claims `manifest.scheme`, or [`StoreError::Unreadable`] when
+    /// the store folder cannot be listed.
+    pub fn check_scheme_conflict(
+        &self,
+        plugin_name: &str,
+        manifest: &PluginManifest,
+    ) -> Result<(), StoreError> {
+        if !manifest.kinds.contains(&PluginKindName::SECRET) {
+            return Ok(());
+        }
+        let Some(scheme) = manifest.scheme.as_deref() else {
+            return Ok(());
+        };
+        let installed = self
+            .installed_all()
+            .map_err(|source| StoreError::Unreadable {
+                name: plugin_name.to_owned(),
+                source,
+            })?;
+        if let Some(other) = installed.into_iter().find(|entry| {
+            entry.manifest.name != plugin_name
+                && entry.manifest.kinds.contains(&PluginKindName::SECRET)
+                && entry.manifest.scheme.as_deref() == Some(scheme)
+        }) {
+            return Err(StoreError::SchemeConflict {
+                scheme: scheme.to_owned(),
+                existing: other.manifest.name,
+            });
+        }
+        Ok(())
     }
 
     /// Every installed Plugin in the store that resolves cleanly, sorted by
@@ -310,6 +401,7 @@ impl PluginStore {
     /// folder cannot be moved.
     pub fn add(&self, name: &str, staged: &Path, digest: &str) -> Result<Installed, StoreError> {
         let manifest = validate_staged(name, staged)?;
+        self.check_scheme_conflict(name, &manifest)?;
         match self.installed(name) {
             Ok(installed) => {
                 return Err(StoreError::Installed {
@@ -358,6 +450,7 @@ impl PluginStore {
         digest: &str,
     ) -> Result<Installed, StoreError> {
         let manifest = validate_staged(name, staged)?;
+        self.check_scheme_conflict(name, &manifest)?;
         let previous = self.installed(name).ok();
         let unreadable = |source| StoreError::Unreadable {
             name: name.to_owned(),

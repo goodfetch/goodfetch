@@ -10957,6 +10957,34 @@ export interface SecretInputRefusedDetails {
   reference: string;
 }
 /**
+ * What `secret.resolve` asks a Secret provider Plugin for: the Secret
+ * reference to resolve, under the scheme its manifest declares.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretResolveParams".
+ */
+export interface SecretResolveParams {
+  /**
+   * The Secret reference to resolve (`plugin:<scheme>:<rest>`).
+   */
+  reference: string;
+}
+/**
+ * What a Secret provider Plugin answers to `secret.resolve`: the secret's
+ * value, and no other field. Its `Debug` hides the value so a decoded answer
+ * never reaches a log or panic message.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretResolveResult".
+ */
+export interface SecretResolveResult {
+  /**
+   * The resolved secret value, immediately wrapped in a zeroizing
+   * `SecretString` by the engine's driver.
+   */
+  value: string;
+}
+/**
  * What `secret_unavailable` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

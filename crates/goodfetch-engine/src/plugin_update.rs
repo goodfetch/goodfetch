@@ -168,6 +168,16 @@ pub async fn update_checked(
     let staged = plugin_install::stage(reference, fetching, blocking, store)
         .await
         .map_err(|error| plugin_add::refusal(error, reference, store))?;
+    {
+        let (store_clone, check_name, manifest) =
+            (store.clone(), name.clone(), staged.manifest().clone());
+        blocking
+            .run(move || store_clone.check_scheme_conflict(&check_name, &manifest))
+            .await
+            .map_err(|error| {
+                plugin_add::refusal(plugin_install::InstallError::Store(error), reference, store)
+            })?;
+    }
 
     let new_manifest = staged.manifest().clone();
     let diff = PermissionDiff::between(&installed.manifest, &new_manifest);

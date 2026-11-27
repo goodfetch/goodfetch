@@ -4864,6 +4864,36 @@ class SecretInputRefusedReason(StrEnum):
     """
 
 
+class SecretResolveParams(BaseModel):
+    """
+    What `secret.resolve` asks a Secret provider Plugin for: the Secret
+    reference to resolve, under the scheme its manifest declares.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reference: str
+    """The Secret reference to resolve (`plugin:<scheme>:<rest>`)."""
+
+
+class SecretResolveResult(BaseModel):
+    """
+    What a Secret provider Plugin answers to `secret.resolve`: the secret's
+    value, and no other field. Its `Debug` hides the value so a decoded answer
+    never reaches a log or panic message.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: str
+    """
+    The resolved secret value, immediately wrapped in a zeroizing
+    `SecretString` by the engine's driver.
+    """
+
+
 class SecretUnavailableDetails(BaseModel):
     """What `secret_unavailable` details."""
 

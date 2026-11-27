@@ -435,6 +435,14 @@ pub async fn add_checked(
     let staged = plugin_install::stage(reference, fetching, blocking, store)
         .await
         .map_err(|error| refusal(error, reference, store))?;
+    {
+        let (store_clone, check_name, manifest) =
+            (store.clone(), name.clone(), staged.manifest().clone());
+        blocking
+            .run(move || store_clone.check_scheme_conflict(&check_name, &manifest))
+            .await
+            .map_err(|error| refusal(InstallError::Store(error), reference, store))?;
+    }
     let runtime = staged.manifest().runtime.clone();
     let version = staged.manifest().version.clone();
     let _held_runtime = plugin_runtime::ensure_installed(

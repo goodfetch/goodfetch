@@ -214,6 +214,7 @@ impl RunPlugins {
                 manifest: plugin.manifest,
                 product: self.product,
                 fetch: Arc::new(fetch),
+                clock: self.clock,
             },
             Scope::Run(self.run_id.clone()),
         );

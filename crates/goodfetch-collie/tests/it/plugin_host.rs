@@ -20,21 +20,25 @@ use std::fs;
 use std::net::TcpListener;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::Layout;
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::plugin_gate::PluginFetch;
-use goodfetch_engine::plugin_host::instance::{self, CallFailure, PluginInstance, Scope};
+use goodfetch_engine::plugin_host::instance::{
+    self, CallFailure, CallOptions, PluginInstance, Scope, UncertainCall, UncertainReporter,
+};
 use goodfetch_engine::plugin_host::process::{Pipes, PluginProcess};
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::effect::UncertainReason;
 use goodfetch_protocol::plugin::{COOKIE, COOKIE_VARIABLE, PluginManifest};
 use goodfetch_protocol::run::RunId;
-use goodfetch_protocol::settings::SettingsLayer;
+use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_PLUGIN};
 use goodfetch_test_support::{Tool, capturing, tools};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -76,6 +80,12 @@ impl Plugin {
     /// The Plugin of `kind` as [`new`](Self::new) lays it out, which plays
     /// `script`.
     pub(crate) fn of_kind(kind: &str, script: &Value) -> Self {
+        Self::of_kind_with_concurrency(kind, 4, script)
+    }
+
+    /// The Plugin of `kind` with `manifest.limits.concurrency` set to
+    /// `concurrency`, which plays `script`.
+    fn of_kind_with_concurrency(kind: &str, concurrency: u32, script: &Value) -> Self {
         let root = tempfile::tempdir().unwrap();
         let layout = Layout::under(&fs::canonicalize(root.path()).unwrap());
         for folder in [&layout.bundle, &layout.instance] {
@@ -98,6 +108,7 @@ impl Plugin {
             "entrypoint": "plugin",
             "network_level": "none",
             "env": { "API_URL": "api_url" },
+            "limits": { "concurrency": concurrency },
         });
         let manifest = PluginManifest::read(manifest.to_string().as_bytes()).unwrap();
         let instance = Instance {
@@ -154,6 +165,7 @@ impl Plugin {
             manifest: self.manifest.clone(),
             product: Product::Collie,
             fetch: Arc::new(fetch),
+            clock: Clock::system(),
         }
     }
 }
@@ -545,6 +557,184 @@ async fn a_call_back_during_its_call_reaches_an_endpoint_and_no_other_loopback_a
         ),
         (json!(200), json!("aGVsbG8="), json!("egress_refused"), true),
         "{reached} {refused}"
+    );
+    instance.stop().await;
+    root.stop().await;
+}
+
+/// Records every uncertain Effect call reported by a confined Plugin
+/// instance.
+#[derive(Debug, Default)]
+struct RecordedUncertain(Mutex<Vec<UncertainCall>>);
+
+impl UncertainReporter for RecordedUncertain {
+    fn report(&self, call: UncertainCall) {
+        self.0.lock().unwrap().push(call);
+    }
+}
+
+/// Over Collie's executable with a confined scripted Plugin, calls beyond
+/// `manifest.limits.concurrency` wait in order with nothing dropped, and a
+/// Plugin at its concurrency limit can still call back `net.fetch` without
+/// deadlocking.
+///
+/// Covers: story:7-32
+#[tokio::test]
+async fn calls_beyond_concurrency_wait_in_order_and_call_back_at_limit_over_collie() {
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let endpoint = answering_once(&root).await;
+    let plugin = Plugin::of_kind_with_concurrency(
+        "proxy",
+        1,
+        &json!({
+            "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+            "answers": {
+                "work.callback": fetching(&format!("{endpoint}/status"), None),
+                "work.second": { "result": { "order": 2 } },
+                "work.third": { "result": { "order": 3 } },
+            },
+        }),
+    );
+    let user = json!({ "plugins": { "scripted": { "settings": { "api": endpoint } } } });
+    let instance = PluginInstance::start(&root, plugin.instance_with(&user), Scope::Task(None));
+
+    // Fire three calls against concurrency=1; call 1 calls back `net.fetch`
+    // while calls 2 and 3 wait for a credit.
+    let (r1, r2, r3) = tokio::join!(
+        answer(&instance, "work.callback"),
+        answer(&instance, "work.second"),
+        answer(&instance, "work.third"),
+    );
+    let calls = answer(&instance, "scripted.calls").await;
+    let methods: Vec<&str> = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|message| message["method"].as_str())
+        .collect();
+    assert_eq!(
+        (r1["result"]["status"].clone(), r2, r3, methods,),
+        (
+            json!(200),
+            json!({ "order": 2 }),
+            json!({ "order": 3 }),
+            vec!["hello", "work.callback", "work.second", "work.third"],
+        )
+    );
+    instance.stop().await;
+
+    // Also prove concurrency=2 holds call 3 until call 2 releases call 1.
+    let gated = Plugin::of_kind_with_concurrency(
+        "proxy",
+        2,
+        &json!({
+            "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+            "answers": {
+                "work.first": { "hold": "g", "then": { "result": { "order": 1 } } },
+                "work.second": { "release": "g", "then": { "result": { "order": 2 } } },
+                "work.third": { "result": { "order": 3 } },
+            },
+        }),
+    );
+    let gated_instance = PluginInstance::start(&root, gated.instance(), Scope::Task(None));
+    let (g1, g2, g3) = tokio::join!(
+        answer(&gated_instance, "work.first"),
+        answer(&gated_instance, "work.second"),
+        answer(&gated_instance, "work.third"),
+    );
+    let gated_calls = answer(&gated_instance, "scripted.calls").await;
+    let gated_methods: Vec<&str> = gated_calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|message| message["method"].as_str())
+        .collect();
+    assert_eq!(
+        (g1, g2, g3, gated_methods),
+        (
+            json!({ "order": 1 }),
+            json!({ "order": 2 }),
+            json!({ "order": 3 }),
+            vec!["hello", "work.first", "work.second", "work.third"],
+        )
+    );
+    gated_instance.stop().await;
+    root.stop().await;
+}
+
+/// Over Collie's executable with a confined scripted Plugin, an Effect-class
+/// call past `timeout.plugin` is abandoned with `$/cancel`, fails with
+/// `deadline_exceeded` naming `timeout.plugin`, is reported uncertain at
+/// once, releases its credit, and its late reply triggered by `$/cancel` is
+/// refused as `late_result`.
+///
+/// Covers: story:7-33
+#[tokio::test]
+async fn a_call_past_its_deadline_cancels_refuses_late_result_and_reports_uncertain_over_collie() {
+    let (subscriber, log) = capturing(&[("goodfetch_engine::plugin_host", Level::WARN)]);
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let plugin = Plugin::of_kind_with_concurrency(
+        "proxy",
+        1,
+        &json!({
+            "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+            "answers": {
+                "work.effect": { "answer_on_cancel": { "result": { "late": true } } },
+                "work.after": { "result": { "ok": true } },
+            },
+        }),
+    );
+    let instance = PluginInstance::start(&root, plugin.instance(), Scope::Task(None));
+    // Ensure `hello` completed so the short deadline measures only `work.effect`.
+    let _ = answer(&instance, "work.after").await;
+
+    let reporter = Arc::new(RecordedUncertain::default());
+    let failure = instance
+        .call_under(
+            "work.effect",
+            &json!({}),
+            CallOptions::effect(
+                Deadline::given(&TIMEOUT_PLUGIN, 200, SettingsLayer::Default),
+                Arc::clone(&reporter) as _,
+            ),
+        )
+        .await;
+    let Err(CallFailure::DeadlineExceeded(error)) = failure else {
+        panic!("expected DeadlineExceeded, got {failure:?}");
+    };
+    let uncertain = reporter.0.lock().unwrap().clone();
+    assert_eq!(uncertain.len(), 1, "{uncertain:?}");
+    assert_eq!(uncertain[0].method, "work.effect");
+    assert_eq!(uncertain[0].reason, UncertainReason::Interrupted);
+
+    // Follow-up call proves credit release and drains the Plugin's late reply.
+    let after = answer(&instance, "work.after").await;
+    let calls = answer(&instance, "scripted.calls").await;
+    let cancel = calls
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["method"] == json!("$/cancel"))
+        .unwrap_or_else(|| panic!("{calls} holds no $/cancel notification"));
+    let written = String::from_utf8(log.written()).unwrap();
+
+    assert_eq!(
+        (
+            error.code(),
+            error.message().contains("timeout.plugin"),
+            after,
+            cancel["params"]["deadline"].clone(),
+            written.contains("WARN") && written.contains("late_result"),
+        ),
+        (
+            "deadline_exceeded",
+            true,
+            json!({ "ok": true }),
+            json!(true),
+            true
+        ),
+        "{written}\n{calls}"
     );
     instance.stop().await;
     root.stop().await;

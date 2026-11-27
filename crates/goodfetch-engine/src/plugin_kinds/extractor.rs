@@ -20,7 +20,7 @@ use super::{Accounts, Failure, PluginCall, Primitive};
 use crate::call_error::{CallError, named};
 use crate::clock::Clock;
 use crate::deadline::Deadline;
-use crate::plugin_host::instance::{CallFailure, PluginInstance};
+use crate::plugin_host::instance::{CallFailure, CallOptions, PluginInstance};
 use crate::wire::Received;
 
 /// What every Extractor implementation fills: the one primitive of its
@@ -34,6 +34,19 @@ pub trait ExtractPrimitives: Send + Sync {
         &'call self,
         params: &'call ExtractContentParams,
     ) -> BoxFuture<'call, Result<Received, CallFailure>>;
+
+    /// Answers `extract.content` for `params` under `deadline` directly
+    /// when the implementation enforces deadlines itself (such as a process
+    /// Plugin sending `$/cancel`). Defaults to delegating to
+    /// [`Self::content`] while the driver enforces `deadline`.
+    fn content_under<'call>(
+        &'call self,
+        params: &'call ExtractContentParams,
+        deadline: &'call Deadline,
+    ) -> Option<BoxFuture<'call, Result<Received, CallFailure>>> {
+        let _ = (params, deadline);
+        None
+    }
 }
 
 /// An Extractor a process Plugin implements, through its instance.
@@ -61,6 +74,18 @@ impl ExtractPrimitives for ProcessExtractor {
         params: &'call ExtractContentParams,
     ) -> BoxFuture<'call, Result<Received, CallFailure>> {
         Box::pin(self.instance.call(EXTRACT_CONTENT, params))
+    }
+
+    fn content_under<'call>(
+        &'call self,
+        params: &'call ExtractContentParams,
+        deadline: &'call Deadline,
+    ) -> Option<BoxFuture<'call, Result<Received, CallFailure>>> {
+        Some(Box::pin(self.instance.call_under(
+            EXTRACT_CONTENT,
+            params,
+            CallOptions::read(deadline.clone()),
+        )))
     }
 }
 
@@ -132,16 +157,22 @@ impl<'a> ExtractorDriver<'a> {
             html,
         };
         let handler_failed = || self.handler_failed(url);
-        let received = self
-            .deadline
-            .within(
-                self.clock,
-                WaitedFor::PLUGIN_ANSWER,
-                self.implementation.content(&params),
-            )
-            .await
-            .map_err(Failure::DeadlineExceeded)?
-            .map_err(|failure| Failure::of(failure, handler_failed))?;
+        let received =
+            if let Some(under) = self.implementation.content_under(&params, self.deadline) {
+                under
+                    .await
+                    .map_err(|failure| Failure::of(failure, handler_failed))?
+            } else {
+                self.deadline
+                    .within(
+                        self.clock,
+                        WaitedFor::PLUGIN_ANSWER,
+                        self.implementation.content(&params),
+                    )
+                    .await
+                    .map_err(Failure::DeadlineExceeded)?
+                    .map_err(|failure| Failure::of(failure, handler_failed))?
+            };
         let result = received.read::<ExtractContentResult>().map_err(|error| {
             tracing::warn!(
                 extractor = self.implementation.name(),

@@ -37,7 +37,12 @@
 //!   whole reply to it as its `result` once that reply arrives; with
 //!   `"keep": "<path>"` beside `method`, that reply is written to the file
 //!   instead, as a Plugin keeps what it fetched, and with `"then":
-//!   {answer}`, the call is answered with that answer.
+//!   {answer}`, the call is answered with that answer. An answer
+//!   `{ "hold": "<gate>", "then": {answer} }` holds its reply until another
+//!   call with `{ "release": "<gate>", "then": {answer} }` arrives, which
+//!   answers the held calls in order and then itself; an answer
+//!   `{ "answer_on_cancel": {answer} }` stays silent until `$/cancel` names
+//!   its call id, then sends `{answer}` as a late reply.
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
@@ -113,6 +118,10 @@ fn play() -> Result<(), String> {
     // The calls it serves that wait on a call back, by the call back's id,
     // each with the call back it made.
     let mut calling_back: BTreeMap<String, (Value, Value)> = BTreeMap::new();
+    // Calls held under a named gate until a releasing call arrives.
+    let mut held: BTreeMap<String, Vec<(Value, Value)>> = BTreeMap::new();
+    // Calls that send a late reply once `$/cancel` names their call id.
+    let mut on_cancel: BTreeMap<String, (Value, Value)> = BTreeMap::new();
     let (stdin, mut stdout) = (io::stdin().lock(), io::stdout().lock());
     for line in stdin.lines() {
         let line = line.map_err(|error| error.to_string())?;
@@ -129,6 +138,13 @@ fn play() -> Result<(), String> {
         {
             sent.push(with_id(replied(&call_back, &message), &served));
         }
+        if message.get("id").is_none()
+            && message["method"].as_str() == Some("$/cancel")
+            && let Some(call_id) = message["params"].get("call_id")
+            && let Some((served_id, late_answer)) = on_cancel.remove(&call_id.to_string())
+        {
+            sent.push(with_id(late_answer, &served_id));
+        }
         if let (Some(id), Some(method)) = (message.get("id"), message["method"].as_str()) {
             let answer = answer(&script, method, &message["params"], &calls);
             if let Some(call_back) = answer.get("call_back") {
@@ -144,6 +160,19 @@ fn play() -> Result<(), String> {
                     "params": params,
                 }));
                 calling_back.insert(call_back_id, (id.clone(), call_back.clone()));
+            } else if let Some(gate) = answer["hold"].as_str() {
+                held.entry(gate.to_owned())
+                    .or_default()
+                    .push((id.clone(), answer["then"].clone()));
+            } else if let Some(gate) = answer["release"].as_str() {
+                if let Some(waiting) = held.remove(gate) {
+                    for (held_id, held_answer) in waiting {
+                        sent.push(with_id(held_answer, &held_id));
+                    }
+                }
+                sent.push(with_id(answer["then"].clone(), id));
+            } else if let Some(late_answer) = answer.get("answer_on_cancel") {
+                on_cancel.insert(id.to_string(), (id.clone(), late_answer.clone()));
             } else if answer["silent"] != json!(true) {
                 sent.push(with_id(answer, id));
             }

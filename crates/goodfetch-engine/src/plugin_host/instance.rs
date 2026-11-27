@@ -37,33 +37,38 @@
 //! then, a process that ends ends its instance: its calls fail with
 //! `plugin_crashed`, or with `confinement_unavailable` when its launcher
 //! found that the host cannot confine it.
+//!
+//! Size: one instance state machine and its actor loop — process and
+//! in-memory transports, FIFO concurrency credits, deadlines, `$/cancel`,
+//! late-result refusal, uncertain Effect reporting and `net.fetch` call
+//! backs all mutate the same [`Instance`] state in one loop.
 
 #![expect(
     clippy::disallowed_types,
     reason = "the next call's id is taken in one step, never across an `.await` or under a lock, so there is no lock order for loom to test (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
 use goodfetch_confinement::launch::Launch;
-use goodfetch_protocol::catalog::{ErrorCodeDefinition, Product};
-use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL};
+use goodfetch_protocol::catalog::{ErrorCodeDefinition, OperationClass, Product};
+use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL, WaitedFor};
+use goodfetch_protocol::effect::UncertainReason;
 use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
 use goodfetch_protocol::plugin::net::{NET_FETCH, NetFetchParams, NetFetchResult};
 use goodfetch_protocol::plugin::{
-    CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
-    PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginHelloParams,
-    PluginHelloResult, PluginManifest, check_hello,
+    CANCEL, CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
+    PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginCancelParams,
+    PluginHelloParams, PluginHelloResult, PluginManifest, check_hello,
 };
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::process::{ChildStdin, ChildStdout};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
@@ -73,7 +78,10 @@ use super::lifecycle::{
 };
 use super::process::{Ended, Pipes, PluginProcess};
 use crate::call_error::CallError;
+use crate::clock::Clock;
+use crate::deadline::{Deadline, Enclosing};
 use crate::framing::{self, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use crate::lease::LeaseCheck;
 use crate::plugin_gate::{CALL_BACKS, PluginFetch, admit_call_back};
 use crate::tasks::TaskOwner;
 use crate::transition::Refusal;
@@ -90,6 +98,10 @@ const MAILBOX: usize = 64;
 /// How many bytes it reads from the Plugin at once.
 const READ_BYTES: usize = 64 * 1024;
 
+/// The most abandoned call ids kept for late-result refusal so a long-lived
+/// instance never grows without bound.
+const MAX_ABANDONED: usize = 1024;
+
 /// What starts a process Plugin's instance.
 #[derive(Debug)]
 pub struct Plugin {
@@ -104,6 +116,138 @@ pub struct Plugin {
     pub product: Product,
     /// What its `net.fetch` reaches, and how.
     pub fetch: Arc<PluginFetch>,
+    /// The clock its calls' deadlines wait on.
+    pub clock: Clock,
+}
+
+/// What starts an in-memory Plugin instance, over duplex streams speaking
+/// the plugin protocol, for testing the host's rules on `Clock::paused`.
+#[derive(Debug)]
+pub struct InMemoryPlugin {
+    /// The approved manifest that its `hello` is held to.
+    pub manifest: PluginManifest,
+    /// The Product whose engine runs it, which `hello` names.
+    pub product: Product,
+    /// What its `net.fetch` reaches, and how.
+    pub fetch: Arc<PluginFetch>,
+    /// The clock its calls' deadlines wait on.
+    pub clock: Clock,
+}
+
+/// The Plugin's end of an in-memory instance's pipes: what the engine writes
+/// arrives on `from_engine`, and what the Plugin writes on `to_engine`
+/// arrives on the engine's reader.
+#[derive(Debug)]
+pub struct InMemoryPeer {
+    /// Bytes written by the engine (the Plugin's stdin).
+    pub from_engine: DuplexStream,
+    /// Bytes read by the engine (the Plugin's stdout).
+    pub to_engine: DuplexStream,
+}
+
+/// An Effect-class Plugin call that was abandoned once sent: it may still
+/// land, so it is reported uncertain at once for Reconciliation (ADRs 0029
+/// and 0033).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UncertainCall {
+    /// The Plugin's name.
+    pub plugin: String,
+    /// The JSON-RPC id of the abandoned call.
+    pub call_id: RequestId,
+    /// The method that was sent.
+    pub method: String,
+    /// Why it is uncertain.
+    pub reason: UncertainReason,
+}
+
+/// Receives each abandoned Effect-class call as soon as the instance
+/// abandons it (ADRs 0029 and 0033).
+pub trait UncertainReporter: fmt::Debug + Send + Sync {
+    /// Reports that the Effect-class call `call` was abandoned in flight
+    /// and is now uncertain.
+    fn report(&self, call: UncertainCall);
+}
+
+/// How a call into a [`PluginInstance`] is classed, timed and bounded
+/// (ADRs 0029, 0033 and 0080).
+#[derive(Clone, Debug)]
+pub struct CallOptions {
+    /// The class the engine gives the method: an abandoned `Effect` call
+    /// is reported uncertain at once.
+    pub class: OperationClass,
+    /// The call's own deadline (`timeout.plugin`, `timeout.hook`, or
+    /// `timeout.model`), if any.
+    pub deadline: Option<Deadline>,
+    /// The enclosing call's end (for example, a work item's lease), which
+    /// the call's deadline never outlives.
+    pub enclosing: Option<Enclosing>,
+    /// The work item's lease, checked before sending and supplying its
+    /// [`LeaseCheck::enclosing`] when `enclosing` is `None`.
+    pub lease: Option<Arc<dyn LeaseCheck>>,
+    /// Where an abandoned Effect-class call is reported at once.
+    pub uncertain: Option<Arc<dyn UncertainReporter>>,
+}
+
+impl Default for CallOptions {
+    fn default() -> Self {
+        Self {
+            class: OperationClass::Read,
+            deadline: None,
+            enclosing: None,
+            lease: None,
+            uncertain: None,
+        }
+    }
+}
+
+impl CallOptions {
+    /// A read-class call waiting under `deadline`.
+    #[must_use]
+    pub fn read(deadline: Deadline) -> Self {
+        Self {
+            class: OperationClass::Read,
+            deadline: Some(deadline),
+            ..Self::default()
+        }
+    }
+
+    /// An Effect-class call waiting under `deadline`, reported to
+    /// `uncertain` at once if abandoned in flight.
+    #[must_use]
+    pub fn effect(deadline: Deadline, uncertain: Arc<dyn UncertainReporter>) -> Self {
+        Self {
+            class: OperationClass::Effect,
+            deadline: Some(deadline),
+            uncertain: Some(uncertain),
+            ..Self::default()
+        }
+    }
+
+    /// Bounds the call by an enclosing call's end, such as a work item's
+    /// lease.
+    #[must_use]
+    pub fn with_enclosing(mut self, enclosing: Enclosing) -> Self {
+        self.enclosing = Some(enclosing);
+        self
+    }
+
+    /// Bounds the call by a work item's lease: refuses it if the lease has
+    /// already ended, and never outlives [`LeaseCheck::enclosing`].
+    #[must_use]
+    pub fn with_lease(mut self, lease: Arc<dyn LeaseCheck>) -> Self {
+        if self.enclosing.is_none() {
+            self.enclosing = lease.enclosing();
+        }
+        self.lease = Some(lease);
+        self
+    }
+
+    /// Reports an abandoned Effect-class call to `uncertain` at once.
+    #[must_use]
+    pub fn with_uncertain(mut self, uncertain: Arc<dyn UncertainReporter>) -> Self {
+        self.uncertain = Some(uncertain);
+        self
+    }
 }
 
 /// Whose work an instance serves, which its `hello` names.
@@ -156,6 +300,11 @@ pub enum CallFailure {
     /// driver turns into the kind's `<kind>_handler_failed` (ADR 0127).
     #[error("the Plugin's answer cannot be read")]
     Malformed(Malformed),
+    /// The call's deadline or enclosing lease passed before its answer
+    /// came: the call was abandoned with `$/cancel` and fails with
+    /// `deadline_exceeded` naming that setting (ADRs 0033 and 0080).
+    #[error(transparent)]
+    DeadlineExceeded(CallError),
     /// The instance did not carry the call out: refused at `hello`,
     /// crashed, quarantined, or stopped with its Run or its task.
     #[error(transparent)]
@@ -180,17 +329,55 @@ impl fmt::Display for Malformed {
 #[derive(Clone, Debug)]
 pub struct PluginInstance {
     calls: mpsc::Sender<Call>,
+    cancels: mpsc::UnboundedSender<Cancel>,
     next: Arc<AtomicI64>,
+    clock: Clock,
     stopping: CancellationToken,
     ended: watch::Receiver<Option<CallError>>,
 }
 
-/// A call on its way to the Plugin: its line, encoded once, and where its
-/// answer goes.
+/// A call on its way to the Plugin: its line, encoded once, its class and
+/// uncertain reporter, and where its answer goes.
 struct Call {
     id: RequestId,
+    method: String,
     line: Vec<u8>,
+    class: OperationClass,
+    uncertain: Option<Arc<dyn UncertainReporter>>,
     answer: oneshot::Sender<Result<Received, CallFailure>>,
+}
+
+/// A caller abandoning a call that was timed out or dropped.
+struct Cancel {
+    id: RequestId,
+    deadline: bool,
+    ack: Option<oneshot::Sender<()>>,
+}
+
+/// Cancels a call on drop if it neither completed nor was explicitly
+/// cancelled at its deadline.
+struct CancelGuard {
+    id: RequestId,
+    cancels: mpsc::UnboundedSender<Cancel>,
+    armed: bool,
+}
+
+impl CancelGuard {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CancelGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = self.cancels.send(Cancel {
+                id: self.id.clone(),
+                deadline: false,
+                ack: None,
+            });
+        }
+    }
 }
 
 impl PluginInstance {
@@ -200,33 +387,91 @@ impl PluginInstance {
     /// wait for it.
     #[must_use]
     pub fn start(owner: &TaskOwner, plugin: Plugin, scope: Scope) -> Self {
+        let start_process = ProcessStart {
+            launcher: plugin.launcher,
+            launch: plugin.launch,
+        };
+        let config = Config {
+            manifest: plugin.manifest,
+            product: plugin.product,
+            fetch: plugin.fetch,
+        };
+        let (handle, running, span) = Self::prepare(owner, config, scope, plugin.clock);
+        owner.spawn(running.run_process(start_process).instrument(span));
+        handle
+    }
+
+    /// Starts an in-memory instance of `plugin` for `scope` as a task of
+    /// `owner`, speaking the plugin protocol over duplex streams rather
+    /// than a child process, so the host's rules can run on `Clock::paused`.
+    #[must_use]
+    pub fn start_in_memory(
+        owner: &TaskOwner,
+        plugin: InMemoryPlugin,
+        scope: Scope,
+    ) -> (Self, InMemoryPeer) {
+        let (engine_write, from_engine) = tokio::io::duplex(READ_BYTES);
+        let (to_engine, engine_read) = tokio::io::duplex(READ_BYTES);
+        let config = Config {
+            manifest: plugin.manifest,
+            product: plugin.product,
+            fetch: plugin.fetch,
+        };
+        let (handle, running, span) = Self::prepare(owner, config, scope, plugin.clock);
+        owner.spawn(
+            running
+                .run_pipes(Backend::InMemory, engine_write, engine_read)
+                .instrument(span),
+        );
+        (
+            handle,
+            InMemoryPeer {
+                from_engine,
+                to_engine,
+            },
+        )
+    }
+
+    /// Builds the shared handle, actor task and tracing span for both
+    /// process and in-memory instances.
+    fn prepare(
+        owner: &TaskOwner,
+        config: Config,
+        scope: Scope,
+        clock: Clock,
+    ) -> (Self, Running, tracing::Span) {
         let (calls, mailbox) = mpsc::channel(MAILBOX);
+        let (cancels, cancelled_calls) = mpsc::unbounded_channel();
         let (ending, ended) = watch::channel(None);
         let own = owner.child();
         let stopping = own.token().child_token();
         let span = tracing::info_span!(
             "plugin_instance",
-            plugin_instance = %plugin.manifest.name,
+            plugin_instance = %config.manifest.name,
             scope = %scope,
         );
         let running = Running {
             owner: own,
             stopping: stopping.clone(),
-            plugin,
+            config,
             scope,
             mailbox,
+            cancels: cancelled_calls,
             ending,
         };
-        owner.spawn(running.run().instrument(span));
-        Self {
+        let handle = Self {
             calls,
+            cancels,
             next: Arc::new(AtomicI64::new(HELLO_ID + 1)),
+            clock,
             stopping,
             ended,
-        }
+        };
+        (handle, running, span)
     }
 
-    /// Calls `method` with `params` and waits for the Plugin's answer.
+    /// Calls `method` with `params` and waits for the Plugin's answer, with
+    /// no call-level deadline.
     ///
     /// # Errors
     ///
@@ -237,13 +482,47 @@ impl PluginInstance {
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future once the call was sent leaves its answer, when
-    /// it comes, to nobody.
+    /// Dropping the future once the call was sent cancels it with
+    /// `$/cancel`, releases its credit, and refuses any late result.
     pub async fn call(
         &self,
         method: &str,
         params: &impl Serialize,
     ) -> Result<Received, CallFailure> {
+        self.call_under(method, params, CallOptions::default())
+            .await
+    }
+
+    /// Calls `method` with `params` under `options`: holds the call to the
+    /// manifest's concurrency credits in FIFO order, bounds its wait by its
+    /// deadline and enclosing lease, abandons it with `$/cancel` if either
+    /// passes first, refuses any late result, and reports an abandoned
+    /// Effect-class call uncertain at once.
+    ///
+    /// # Errors
+    ///
+    /// [`CallFailure::Answered`] with the Plugin's error,
+    /// [`CallFailure::Malformed`] when its answer cannot be read,
+    /// [`CallFailure::DeadlineExceeded`] when the call's deadline or its
+    /// enclosing lease passed first, and [`CallFailure::Unavailable`] when
+    /// the lease already ended or the instance carried no call out.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future once the call was sent cancels it with
+    /// `$/cancel`, releases its credit, refuses any late result, and
+    /// reports an Effect-class call uncertain at once.
+    pub async fn call_under(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        options: CallOptions,
+    ) -> Result<Received, CallFailure> {
+        if let Some(lease) = &options.lease
+            && let Err(ended) = lease.check()
+        {
+            return Err(CallFailure::Unavailable(lease.withheld(ended, method)));
+        }
         let id = RequestId::Number(self.next.fetch_add(1, Ordering::Relaxed));
         let line = wire::request_line(&id, method, params).map_err(|error| {
             CallFailure::Unavailable(internal(&format!(
@@ -251,10 +530,54 @@ impl PluginInstance {
             )))
         })?;
         let (answer, answered) = oneshot::channel();
-        if self.calls.send(Call { id, line, answer }).await.is_err() {
-            return Err(self.end());
+        let call = Call {
+            id: id.clone(),
+            method: method.to_owned(),
+            line,
+            class: options.class,
+            uncertain: options.uncertain,
+            answer,
+        };
+        let mut guard = CancelGuard {
+            id: id.clone(),
+            cancels: self.cancels.clone(),
+            armed: true,
+        };
+        let enclosing = options
+            .enclosing
+            .or_else(|| options.lease.as_deref().and_then(LeaseCheck::enclosing));
+        let work = async {
+            if self.calls.send(call).await.is_err() {
+                return Err(self.end());
+            }
+            answered.await.unwrap_or_else(|_| Err(self.end()))
+        };
+        let timed = bounded(
+            &self.clock,
+            options.deadline.as_ref(),
+            enclosing.as_ref(),
+            work,
+        )
+        .await;
+        guard.disarm();
+        match timed {
+            Ok(result) => result,
+            Err(deadline_error) => {
+                let (ack_tx, ack_rx) = oneshot::channel();
+                if self
+                    .cancels
+                    .send(Cancel {
+                        id,
+                        deadline: true,
+                        ack: Some(ack_tx),
+                    })
+                    .is_ok()
+                {
+                    let _ = ack_rx.await;
+                }
+                Err(CallFailure::DeadlineExceeded(deadline_error))
+            }
         }
-        answered.await.unwrap_or_else(|_| Err(self.end()))
     }
 
     /// Stops the instance and waits until its process is gone and its
@@ -282,6 +605,61 @@ impl PluginInstance {
     }
 }
 
+/// Awaits `work` bounded by `deadline` and `enclosing` (whichever passes
+/// first), returning `Err(CallError)` on `deadline_exceeded`.
+async fn bounded(
+    clock: &Clock,
+    deadline: Option<&Deadline>,
+    enclosing: Option<&Enclosing>,
+    work: impl Future<Output = Result<Received, CallFailure>>,
+) -> Result<Result<Received, CallFailure>, CallError> {
+    let timed = async {
+        match deadline {
+            Some(deadline) => deadline.within(clock, WaitedFor::PLUGIN_ANSWER, work).await,
+            None => Ok(work.await),
+        }
+    };
+    match enclosing {
+        Some(enclosing) => enclosing.bound(clock, timed, || None).await,
+        None => timed.await,
+    }
+}
+
+/// The static configuration shared by process and in-memory instances.
+struct Config {
+    manifest: PluginManifest,
+    product: Product,
+    fetch: Arc<PluginFetch>,
+}
+
+/// What launches a confined child process for a process instance.
+struct ProcessStart {
+    launcher: PathBuf,
+    launch: Launch,
+}
+
+/// What runs the Plugin on the other end of the protocol pipes.
+enum Backend {
+    Process(Box<PluginProcess>),
+    InMemory,
+}
+
+impl Backend {
+    /// Waits for a process backend to end; an in-memory backend ends when
+    /// its stdout closes.
+    async fn ended(&mut self) -> std::io::Result<Ended> {
+        match self {
+            Self::Process(process) => process.ended().await,
+            Self::InMemory => std::future::pending().await,
+        }
+    }
+
+    /// Whether this backend ends immediately when stdout reaches EOF.
+    fn is_in_memory(&self) -> bool {
+        matches!(self, Self::InMemory)
+    }
+}
+
 /// The instance's task.
 struct Running {
     /// The instance's own owner, under the one it started on.
@@ -289,19 +667,27 @@ struct Running {
     /// Cancelled when its owner is stopped or [`PluginInstance::stop`] is
     /// called.
     stopping: CancellationToken,
-    plugin: Plugin,
+    config: Config,
     scope: Scope,
     mailbox: mpsc::Receiver<Call>,
+    cancels: mpsc::UnboundedReceiver<Cancel>,
     ending: watch::Sender<Option<CallError>>,
 }
 
 /// The instance's state and the data beside it.
 struct Instance {
     state: InstanceState,
-    /// Calls made before its `hello` was answered.
-    queued: Vec<Call>,
-    /// Calls sent, by id, until answered.
+    /// The maximum number of concurrent calls the Plugin may hold at once.
+    max_concurrency: usize,
+    /// Calls waiting for `hello` or for a free concurrency credit, in FIFO
+    /// order.
+    queued: VecDeque<Call>,
+    /// Calls sent, by id, until answered or abandoned.
     waiting: BTreeMap<RequestId, Call>,
+    /// Ids of calls abandoned in flight whose late results are refused
+    /// (`late_result`), bounded by [`MAX_ABANDONED`].
+    abandoned_set: BTreeSet<RequestId>,
+    abandoned_order: VecDeque<RequestId>,
     /// Whether its `hello` awaits its answer.
     hello_awaited: bool,
     /// The Plugin's call backs that run.
@@ -311,7 +697,7 @@ struct Instance {
 /// The Plugin's call backs that run, each a task of the instance's owner.
 struct CallBacks {
     /// What cancels those serving each call, by the call's id: cancelled
-    /// once the call is answered.
+    /// once the call is answered or abandoned.
     serving: BTreeMap<RequestId, CancellationToken>,
     /// How many run.
     running: usize,
@@ -320,7 +706,8 @@ struct CallBacks {
 }
 
 impl CallBacks {
-    /// Cancels the call backs that serve the call `id`, which is answered.
+    /// Cancels the call backs that serve the call `id`, which is answered
+    /// or abandoned.
     fn answered(&mut self, id: &RequestId) {
         if let Some(serving) = self.serving.remove(id) {
             serving.cancel();
@@ -329,9 +716,53 @@ impl CallBacks {
 }
 
 impl Instance {
+    /// A new instance in `Starting`, bounded to `max_concurrency` in-flight
+    /// calls.
+    fn new(max_concurrency: u32, answers: mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            state: InstanceState::Starting,
+            max_concurrency: usize::try_from(max_concurrency)
+                .unwrap_or(usize::MAX)
+                .max(1),
+            queued: VecDeque::new(),
+            waiting: BTreeMap::new(),
+            abandoned_set: BTreeSet::new(),
+            abandoned_order: VecDeque::new(),
+            hello_awaited: true,
+            call_backs: CallBacks {
+                serving: BTreeMap::new(),
+                running: 0,
+                answers,
+            },
+        }
+    }
+
     /// Whether an answer with `id` is awaited: its `hello`'s or a call's.
     fn awaits(&self, id: &RequestId) -> bool {
         (self.hello_awaited && *id == RequestId::Number(HELLO_ID)) || self.waiting.contains_key(id)
+    }
+
+    /// Records `id` as an abandoned in-flight call so its late result is
+    /// refused.
+    fn mark_abandoned(&mut self, id: RequestId) {
+        if self.abandoned_set.insert(id.clone()) {
+            self.abandoned_order.push_back(id);
+            while self.abandoned_order.len() > MAX_ABANDONED {
+                if let Some(oldest) = self.abandoned_order.pop_front() {
+                    self.abandoned_set.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    /// Whether `id` is an abandoned call.
+    fn is_abandoned(&self, id: &RequestId) -> bool {
+        self.abandoned_set.contains(id)
+    }
+
+    /// Removes `id` from the abandoned set if present.
+    fn take_abandoned(&mut self, id: &RequestId) -> bool {
+        self.abandoned_set.remove(id)
     }
 
     /// Applies `event` to its state through its transition table, a
@@ -354,34 +785,34 @@ enum Exit {
 }
 
 impl Running {
-    async fn run(mut self) {
-        let started = PluginProcess::start(&self.plugin.launcher, &self.plugin.launch);
-        let (mut process, Pipes { mut stdin, stdout }) = match started {
+    async fn run_process(self, start: ProcessStart) {
+        let started = PluginProcess::start(&start.launcher, &start.launch);
+        let (process, Pipes { stdin, stdout }) = match started {
             Ok(started) => started,
             Err(error) => {
                 let reason = internal(&format!("the Plugin's launcher did not start: {error}"));
-                self.forget_folder().await;
-                self.end(&reason, Vec::new(), BTreeMap::new());
+                self.forget_folder(start.launch.folder).await;
+                self.end(&reason, VecDeque::new(), BTreeMap::new());
                 return;
             }
         };
+        self.run_pipes(Backend::Process(Box::new(process)), stdin, stdout)
+            .await;
+    }
+
+    async fn run_pipes<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+        mut self,
+        mut backend: Backend,
+        mut stdin: W,
+        stdout: R,
+    ) {
         let (answers, call_backs_answered) = mpsc::channel(CALL_BACKS);
-        let mut instance = Instance {
-            state: InstanceState::Starting,
-            queued: Vec::new(),
-            waiting: BTreeMap::new(),
-            hello_awaited: true,
-            call_backs: CallBacks {
-                serving: BTreeMap::new(),
-                running: 0,
-                answers,
-            },
-        };
+        let mut instance = Instance::new(self.config.manifest.limits.concurrency, answers);
         let exit = match self.hello_line() {
             Ok(line) => {
                 write(&self.stopping, &mut stdin, &line).await;
                 let pipes = (&mut stdin, stdout, call_backs_answered);
-                self.serve(&mut instance, &mut process, pipes).await
+                self.serve(&mut instance, &mut backend, pipes).await
             }
             Err(reason) => Exit::Failed(reason),
         };
@@ -394,7 +825,9 @@ impl Running {
             Exit::Failed(reason) => reason,
         };
         drop(stdin);
-        if let Err(error) = process.stop(&self.owner).await {
+        if let Backend::Process(process) = backend
+            && let Err(error) = process.stop(&self.owner).await
+        {
             tracing::warn!(%error, "the instance's private temporary folder was not deleted");
         }
         self.end(&reason, instance.queued, instance.waiting);
@@ -404,26 +837,22 @@ impl Running {
     fn hello_line(&self) -> Result<Vec<u8>, CallError> {
         let params = PluginHelloParams {
             protocol: PLUGIN_PROTOCOL,
-            product: self.plugin.product,
+            product: self.config.product,
             run_id: self.scope.run_id().cloned(),
-            network_level: self.plugin.manifest.network_level,
+            network_level: self.config.manifest.network_level,
         };
         wire::request_line(&RequestId::Number(HELLO_ID), HELLO, &params)
             .map_err(|error| internal(&format!("`hello` encodes: {error}")))
     }
 
     /// Serves the instance until it ends: what the Plugin writes on
-    /// `stdout`, what its callers call, and the answers to its call backs,
-    /// from `call_backs_answered`, written on `stdin`.
-    async fn serve(
+    /// `stdout`, what its callers call or cancel, and the answers to its
+    /// call backs, from `call_backs_answered`, written on `stdin`.
+    async fn serve<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
         &mut self,
         instance: &mut Instance,
-        process: &mut PluginProcess,
-        (stdin, mut stdout, mut call_backs_answered): (
-            &mut ChildStdin,
-            ChildStdout,
-            mpsc::Receiver<Vec<u8>>,
-        ),
+        backend: &mut Backend,
+        (stdin, mut stdout, mut call_backs_answered): (&mut W, R, mpsc::Receiver<Vec<u8>>),
     ) -> Exit {
         let mut framer = Framer::new(MAX_MESSAGE_BYTES);
         let (mut buffer, mut parsed) = (vec![0; READ_BYTES], Vec::new());
@@ -438,6 +867,12 @@ impl Running {
                         InstanceEvent::Stop
                     };
                     return Exit::Stopped(event);
+                }
+                // Cancellations run ahead of unread stdout frames so a
+                // timed-out call is marked abandoned before any late result
+                // is delivered.
+                Some(cancel) = self.cancels.recv() => {
+                    self.cancel_call(instance, stdin, cancel).await;
                 }
                 // Before its end, so that what it said last is read.
                 read = stdout.read(&mut buffer), if reading => {
@@ -454,8 +889,15 @@ impl Running {
                             return exit;
                         }
                     }
+                    if !reading && backend.is_in_memory() {
+                        let _ = instance.apply(InstanceEvent::Crash(RecentCrashes::Fewer));
+                        return Exit::Failed(code(
+                            &PLUGIN_CRASHED,
+                            "the Plugin closed its stdout",
+                        ));
+                    }
                 }
-                ended = process.ended() => {
+                ended = backend.ended() => {
                     let reason = match ended {
                         Ok(Ended::ConfinementUnavailable) => code(
                             &CONFINEMENT_UNAVAILABLE,
@@ -490,13 +932,84 @@ impl Running {
         }
     }
 
+    /// Cancels a call whose deadline passed or whose caller dropped it:
+    /// removes it from the credit queue if unsent, or abandons it in flight
+    /// with `$/cancel`, cancels its call backs, reports an Effect-class
+    /// call uncertain at once, and releases its credit to the next waiter.
+    async fn cancel_call<W: AsyncWrite + Unpin>(
+        &self,
+        instance: &mut Instance,
+        stdin: &mut W,
+        cancel: Cancel,
+    ) {
+        if let Some(position) = instance.queued.iter().position(|call| call.id == cancel.id) {
+            instance.queued.remove(position);
+        } else if let Some(call) = instance.waiting.remove(&cancel.id) {
+            instance.call_backs.answered(&cancel.id);
+            instance.mark_abandoned(cancel.id.clone());
+            let line = wire::notification_line(
+                CANCEL,
+                &PluginCancelParams {
+                    call_id: cancel.id,
+                    deadline: cancel.deadline,
+                },
+            );
+            write(&self.stopping, stdin, &line).await;
+            self.report_if_effect(&call);
+            self.drain_queued(instance, stdin).await;
+        }
+        if let Some(ack) = cancel.ack {
+            let _ = ack.send(());
+        }
+    }
+
+    /// Reports `call` uncertain at once when its class is `Effect`.
+    fn report_if_effect(&self, call: &Call) {
+        if call.class != OperationClass::Effect {
+            return;
+        }
+        let uncertain = UncertainCall {
+            plugin: self.config.manifest.name.clone(),
+            call_id: call.id.clone(),
+            method: call.method.clone(),
+            reason: UncertainReason::Interrupted,
+        };
+        tracing::warn!(
+            plugin = %uncertain.plugin,
+            call_id = ?uncertain.call_id,
+            method = %uncertain.method,
+            reason = uncertain.reason.as_str(),
+            "an abandoned Effect-class Plugin call is uncertain"
+        );
+        if let Some(reporter) = &call.uncertain {
+            reporter.report(uncertain);
+        }
+    }
+
+    /// Sends queued calls in FIFO order while the instance is ready and
+    /// holds fewer than `max_concurrency` in-flight calls, skipping any
+    /// whose caller has already gone away.
+    async fn drain_queued<W: AsyncWrite + Unpin>(&self, instance: &mut Instance, stdin: &mut W) {
+        while instance.state == InstanceState::Ready
+            && instance.waiting.len() < instance.max_concurrency
+        {
+            let Some(call) = instance.queued.pop_front() else {
+                break;
+            };
+            if call.answer.is_closed() {
+                continue;
+            }
+            send(&self.stopping, instance, stdin, call).await;
+        }
+    }
+
     /// The Plugin's call back `call`, with the id `id`: refused, or run as
     /// a task of the instance's owner, whose answer comes back through
     /// [`CallBacks::answers`].
-    async fn called_back(
+    async fn called_back<W: AsyncWrite + Unpin>(
         &self,
         instance: &mut Instance,
-        stdin: &mut ChildStdin,
+        stdin: &mut W,
         id: RequestId,
         call: &framing::Call,
     ) {
@@ -522,7 +1035,7 @@ impl Running {
             .child_token();
         call_backs.running += 1;
         let answers = call_backs.answers.clone();
-        let fetch = Arc::clone(&self.plugin.fetch);
+        let fetch = Arc::clone(&self.config.fetch);
         self.owner.spawn(async move {
             let outcome = stopped.run_until_cancelled(fetch.fetch(params)).await;
             // An instance that ended reads no answer.
@@ -531,10 +1044,24 @@ impl Running {
     }
 
     /// A call its caller made.
-    async fn called(&self, instance: &mut Instance, stdin: &mut ChildStdin, call: Call) {
+    async fn called<W: AsyncWrite + Unpin>(
+        &self,
+        instance: &mut Instance,
+        stdin: &mut W,
+        call: Call,
+    ) {
+        if call.answer.is_closed() {
+            return;
+        }
         match instance.apply(InstanceEvent::Call) {
-            Ok(InstanceEffect::Queue) => instance.queued.push(call),
-            Ok(InstanceEffect::Send) => send(&self.stopping, instance, stdin, call).await,
+            Ok(InstanceEffect::Queue) => instance.queued.push_back(call),
+            Ok(InstanceEffect::Send) => {
+                if instance.waiting.len() < instance.max_concurrency && instance.queued.is_empty() {
+                    send(&self.stopping, instance, stdin, call).await;
+                } else {
+                    instance.queued.push_back(call);
+                }
+            }
             Ok(effect) => answer_internal(call, effect),
             Err(refused) => {
                 let reason = match refused.refusal {
@@ -550,10 +1077,10 @@ impl Running {
     }
 
     /// A frame the Plugin sent: the exit it leads to, if any.
-    async fn received(
+    async fn received<W: AsyncWrite + Unpin>(
         &self,
         instance: &mut Instance,
-        stdin: &mut ChildStdin,
+        stdin: &mut W,
         frame: Frame,
     ) -> Option<Exit> {
         let line = match frame {
@@ -585,6 +1112,12 @@ impl Running {
                         detail: error.detail,
                     })),
                 ),
+                Some(id) if instance.is_abandoned(&id) => {
+                    instance.take_abandoned(&id);
+                    let _ = instance.apply(InstanceEvent::LateResult);
+                    late_result(&id);
+                    return None;
+                }
                 _ => {
                     stray(&error.detail);
                     return None;
@@ -596,7 +1129,12 @@ impl Running {
             return self.hello_answered(instance, stdin, answer).await;
         }
         let Some(call) = instance.waiting.remove(&id) else {
-            stray(&format!("the Plugin answered {id:?}, which no call awaits"));
+            if instance.take_abandoned(&id) {
+                let _ = instance.apply(InstanceEvent::LateResult);
+                late_result(&id);
+            } else {
+                stray(&format!("the Plugin answered {id:?}, which no call awaits"));
+            }
             return None;
         };
         instance.call_backs.answered(&id);
@@ -612,15 +1150,16 @@ impl Running {
                 ))));
             }
         }
+        self.drain_queued(instance, stdin).await;
         None
     }
 
     /// The Plugin's answer to `hello`: ready, or stopped when it differs
     /// from the approved manifest.
-    async fn hello_answered(
+    async fn hello_answered<W: AsyncWrite + Unpin>(
         &self,
         instance: &mut Instance,
-        stdin: &mut ChildStdin,
+        stdin: &mut W,
         answer: Result<Received, CallFailure>,
     ) -> Option<Exit> {
         let checked = answer
@@ -630,7 +1169,7 @@ impl Running {
                     .read::<PluginHelloResult>()
                     .map_err(|error| format!("the answer to `hello` cannot be read: {error}"))
             })
-            .map(|result| check_hello(PLUGIN_PROTOCOL, &self.plugin.manifest, &result));
+            .map(|result| check_hello(PLUGIN_PROTOCOL, &self.config.manifest, &result));
         let (event, refusal) = match checked {
             Ok(Ok(())) => (InstanceEvent::HelloOk, None),
             Ok(Err(refusal)) => (InstanceEvent::HelloRefused, Some(refused(&refusal))),
@@ -644,9 +1183,7 @@ impl Running {
         };
         match instance.apply(event) {
             Ok(InstanceEffect::Open) => {
-                for call in std::mem::take(&mut instance.queued) {
-                    send(&self.stopping, instance, stdin, call).await;
-                }
+                self.drain_queued(instance, stdin).await;
                 None
             }
             Ok(InstanceEffect::Refuse) => {
@@ -662,8 +1199,7 @@ impl Running {
     }
 
     /// Deletes the instance's folder when its process never started.
-    async fn forget_folder(&self) {
-        let folder = self.plugin.launch.folder.clone();
+    async fn forget_folder(&self, folder: PathBuf) {
         let deleted = self
             .owner
             .blocking(move || {
@@ -682,10 +1218,19 @@ impl Running {
     }
 
     /// Ends the instance with `reason`: every call it holds, and each one
-    /// made later, fails with it.
-    fn end(mut self, reason: &CallError, queued: Vec<Call>, waiting: BTreeMap<RequestId, Call>) {
+    /// made later, fails with it, and every in-flight Effect-class call is
+    /// reported uncertain at once.
+    fn end(
+        mut self,
+        reason: &CallError,
+        queued: VecDeque<Call>,
+        waiting: BTreeMap<RequestId, Call>,
+    ) {
         self.ending.send_replace(Some(reason.clone()));
         self.mailbox.close();
+        for call in waiting.values() {
+            self.report_if_effect(call);
+        }
         let mut held: Vec<Call> = queued.into_iter().chain(waiting.into_values()).collect();
         while let Ok(call) = self.mailbox.try_recv() {
             held.push(call);
@@ -699,10 +1244,10 @@ impl Running {
 }
 
 /// Sends `call` to the Plugin and awaits its answer.
-async fn send(
+async fn send<W: AsyncWrite + Unpin>(
     stopping: &CancellationToken,
     instance: &mut Instance,
-    stdin: &mut ChildStdin,
+    stdin: &mut W,
     call: Call,
 ) {
     write(stopping, stdin, &call.line).await;
@@ -711,7 +1256,7 @@ async fn send(
 
 /// Writes `line` to the Plugin, unless the instance is stopping. A write
 /// the Plugin refuses fails its calls once its end shows.
-async fn write(stopping: &CancellationToken, stdin: &mut ChildStdin, line: &[u8]) {
+async fn write<W: AsyncWrite + Unpin>(stopping: &CancellationToken, stdin: &mut W, line: &[u8]) {
     let written = async {
         stdin.write_all(line).await?;
         stdin.flush().await
@@ -719,6 +1264,16 @@ async fn write(stopping: &CancellationToken, stdin: &mut ChildStdin, line: &[u8]
     if let Some(Err(error)) = stopping.run_until_cancelled(written).await {
         tracing::debug!(%error, "the Plugin refused a message");
     }
+}
+
+/// Logs and refuses an answer that arrived for a call already abandoned
+/// (`late_result`, ADR 0003).
+fn late_result(id: &RequestId) {
+    tracing::warn!(
+        code = "late_result",
+        call_id = ?id,
+        "refused a late result for an abandoned Plugin call"
+    );
 }
 
 /// The params of the Plugin's call back `call`, which the engine serves.

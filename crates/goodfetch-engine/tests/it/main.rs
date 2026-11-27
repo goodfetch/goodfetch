@@ -65,6 +65,7 @@ mod name_server;
 mod nothing_leaves;
 mod operator_endpoints;
 mod plugin_add;
+mod plugin_host;
 mod plugin_install;
 mod plugin_secrets;
 mod plugin_traffic;

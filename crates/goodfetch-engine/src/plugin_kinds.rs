@@ -30,17 +30,41 @@
 use std::time::Duration;
 
 use futures_util::future::BoxFuture;
-use goodfetch_protocol::catalog::{OperationClass, PluginKind};
+use goodfetch_protocol::catalog::{OperationClass, PluginKind, Setting};
 use goodfetch_protocol::entries;
 use goodfetch_protocol::plugin::extractor::{EXTRACT_CONTENT, EXTRACTOR};
-use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED};
+use goodfetch_protocol::plugin::{PLUGIN_CRASHED, PLUGIN_QUARANTINED, PluginKindName};
+use goodfetch_protocol::settings::{TIMEOUT_HOOK, TIMEOUT_MODEL, TIMEOUT_PLUGIN};
 use serde::Serialize;
 
 use crate::call_error::CallError;
+use crate::deadline::Deadline;
 use crate::plugin_host::instance::CallFailure;
+use crate::settings::Resolved;
 
 pub mod extractor;
 pub mod run_plugins;
+
+/// The timeout setting governing a call to a Plugin of `kind` (ADRs 0033
+/// and 0080): `timeout.hook` for a Hook, `timeout.model` for a Model
+/// provider, and `timeout.plugin` for every other kind.
+#[must_use]
+pub fn timeout_setting(kind: &PluginKindName) -> &'static Setting {
+    if *kind == PluginKindName::HOOK {
+        &TIMEOUT_HOOK
+    } else if *kind == PluginKindName::MODEL {
+        &TIMEOUT_MODEL
+    } else {
+        &TIMEOUT_PLUGIN
+    }
+}
+
+/// The deadline for a call to a Plugin of `kind` under `settings` (or the
+/// setting's declared default when `settings` is `None`).
+#[must_use]
+pub fn deadline_for(kind: &PluginKindName, settings: Option<&Resolved>) -> Deadline {
+    Deadline::of_resolved(settings, timeout_setting(kind))
+}
 
 /// The wire name of a crawl handler's failure, `handler_failed` (ADR 0093),
 /// which the decoder gives a failure that names no code. The protocol's
@@ -227,6 +251,7 @@ impl Failure {
                 tracing::warn!(%malformed, "a Plugin's answer cannot be read");
                 Self::Malformed(handler_failed())
             }
+            CallFailure::DeadlineExceeded(error) => Self::DeadlineExceeded(error),
             CallFailure::Unavailable(error) => {
                 if error.code() == PLUGIN_CRASHED.name {
                     Self::Crashed(error)

@@ -406,14 +406,22 @@ pub(super) async fn run_hand_over(
     (egress, hops): (&Arc<Policy>, Arc<dyn HopChecks>),
 ) -> Arc<RunHandOver> {
     let site_preferences = SitePreferences::of(settings);
+    let replaying = run
+        .browser
+        .engine
+        .recordings()
+        .is_replaying(run.identity.id());
     // The Run reads robots.txt from the copy its user's runs share in the
     // Politeness file (ADR 0086); a crawl whose Politeness paces nothing
-    // records no start, send or latency in it (ADR 0138).
-    let paces = goodfetch_frontier::paces(settings);
+    // records no start, send or latency in it (ADR 0138). A replaying Run
+    // takes no Politeness permit/delay/backoff and neither reads nor writes
+    // the shared robots.txt copy (ADR 0105).
+    let paces = !replaying && goodfetch_frontier::paces(settings);
     let robots_txt = RobotsTxtCopies::of(&run.identity, &run.own_robots_txt);
-    let shared = if paces
-        || site_preferences.reads_robots_txt(Request::CrawlRequest)
-        || site_preferences.reads_robots_txt(Request::Navigation)
+    let shared = if !replaying
+        && (paces
+            || site_preferences.reads_robots_txt(Request::CrawlRequest)
+            || site_preferences.reads_robots_txt(Request::Navigation))
     {
         share_robots_txt(run, &robots_txt, settings).await
     } else {
@@ -424,10 +432,14 @@ pub(super) async fn run_hand_over(
         keys: DomainKeys::of(settings),
         politeness: shared.clone().filter(|_| paces),
         crawl_delays: shared.map(goodfetch_frontier::CrawlDelays::new),
-        domain_delay: settings
-            .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
-            .unwrap_or_default(),
-        adaptive_delay: settings.get(&POLITENESS_DOMAIN_ADAPTIVE_DELAY),
+        domain_delay: if replaying {
+            Duration::ZERO
+        } else {
+            settings
+                .get::<Option<Duration>>(&POLITENESS_DOMAIN_DELAY)
+                .unwrap_or_default()
+        },
+        adaptive_delay: !replaying && settings.get(&POLITENESS_DOMAIN_ADAPTIVE_DELAY),
         pace: goodfetch_frontier::Pace::of(settings),
         site_preferences,
         robots_txt,
@@ -1943,6 +1955,9 @@ pub(super) fn run_page_check(run: &RunIdentity) -> Option<PageCheck> {
 /// the request `skipped` with `domain_policy`, the policy's refusal and no
 /// failure (spec #565).
 async fn address_check(run: &RunIdentity, http: &HttpTier, leased: &Leased) -> Result<(), Answer> {
+    if http.replaying() {
+        return Ok(());
+    }
     let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url) else {
         return Ok(());
     };

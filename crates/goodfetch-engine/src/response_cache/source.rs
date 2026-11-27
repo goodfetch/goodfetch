@@ -31,11 +31,37 @@ pub struct Served {
     pub body: Bytes,
 }
 
+/// A request a replaying Run's Response recording had no response for
+/// (ADR 0105): refused, never sent to the cache or the network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NotRecorded {
+    /// The request's method.
+    pub method: String,
+    /// The request's URL, without its fragment.
+    pub url: String,
+    /// The Response recording's path, as the start named it.
+    pub recording: String,
+    /// The recorded URLs of the same host and path, in the order recorded.
+    pub nearest: Vec<String>,
+}
+
+/// What a replaying Run's Response recording answers a request with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Recorded {
+    /// A recorded response, shared with the index.
+    Answered(Arc<Served>),
+    /// A recorded response whose body broke off: replays as
+    /// `response_truncated`.
+    Cut(Arc<Served>),
+    /// No recorded response: refused as `response_not_recorded`.
+    Missed(NotRecorded),
+}
+
 /// A boxed future a [`Recording`] answers, so it stays object-safe.
-pub type Replaying<'a> = Pin<Box<dyn Future<Output = Option<Served>> + Send + 'a>>;
+pub type Replaying<'a> = Pin<Box<dyn Future<Output = Recorded> + Send + 'a>>;
 
 /// A Run's Response recording as its source reads it (ADR 0105): the
-/// response it recorded for a request, if any.
+/// response it recorded for a request, or why it missed.
 pub trait Recording: Send + Sync + std::fmt::Debug {
     /// What it recorded for `request`.
     fn recorded<'a>(&'a self, request: &'a CacheRequest) -> Replaying<'a>;
@@ -47,7 +73,13 @@ pub enum Source {
     /// A route fulfilled it.
     Routed(Served),
     /// The Run's Response recording holds it.
-    Recorded(Served),
+    Recorded(Arc<Served>),
+    /// The Run's Response recording holds it, marked cut (`WARC-Truncated`):
+    /// replays as `response_truncated`.
+    RecordedCut(Arc<Served>),
+    /// The Run replays a Response recording that lacks it: refused, never
+    /// sent to the cache or the network.
+    NotRecorded(NotRecorded),
     /// The cache holds it fresh, or replays it: served with no request.
     Fresh(Hit),
     /// The cache holds it stale: the request is sent with its conditions,
@@ -136,6 +168,13 @@ impl ResponseSource {
         matches!(self.cache, Keeping::Off) && self.recording.is_none()
     }
 
+    /// Whether the Run replays a Response recording (ADR 0105): every
+    /// unrouted request is answered from the recording or refused as
+    /// `response_not_recorded`, and nothing reaches the cache or the site.
+    pub fn replaying(&self) -> bool {
+        self.recording.is_some()
+    }
+
     /// Whether a request sent with `method` may be answered or stored at
     /// all, so a transport reads what asking about it needs only then: the
     /// recording and `replay` take any method, `revalidate` a GET or a
@@ -150,11 +189,12 @@ impl ResponseSource {
     }
 
     /// Whether some response to `request` may be stored, before its head
-    /// is known, so a browser pauses only those responses: the cache
-    /// stores, `kept_out` names no reason, and under `revalidate` the
-    /// request is a GET or a HEAD.
+    /// is known, so a browser pauses only those responses: never while
+    /// replaying a recording, when the cache is off, when `kept_out` names
+    /// a reason, nor under `revalidate` for a method other than GET/HEAD.
     pub fn may_store(&self, request: &CacheRequest, kept_out: Option<KeptOut>) -> bool {
-        kept_out.is_none()
+        self.recording.is_none()
+            && kept_out.is_none()
             && match &self.cache {
                 Keeping::Off => false,
                 Keeping::Revalidate(cache) => cache.storing() && freshness::revalidates(request),
@@ -164,9 +204,10 @@ impl ResponseSource {
 
     /// Where the response to `request` in `partition` comes from at `now`:
     /// `routed`, the response a route fulfilled it with, if any, then the
-    /// recording, then the cache, then the network. An earlier source's
-    /// answer leaves the later ones unasked. The cache is not asked for a
-    /// request `kept_out` says it does not answer: a Paid fetch.
+    /// recording (whose miss is refused and never falls through to the
+    /// cache or the network), then the cache, then the network. An earlier
+    /// source's answer leaves the later ones unasked. The cache is not
+    /// asked for a request `kept_out` says it does not answer: a Paid fetch.
     pub async fn source(
         &self,
         routed: Option<Served>,
@@ -178,10 +219,12 @@ impl ResponseSource {
         if let Some(served) = routed {
             return Source::Routed(served);
         }
-        if let Some(recording) = &self.recording
-            && let Some(served) = recording.recorded(request).await
-        {
-            return Source::Recorded(served);
+        if let Some(recording) = &self.recording {
+            return match recording.recorded(request).await {
+                Recorded::Answered(served) => Source::Recorded(served),
+                Recorded::Cut(served) => Source::RecordedCut(served),
+                Recorded::Missed(miss) => Source::NotRecorded(miss),
+            };
         }
         if kept_out.is_some_and(KeptOut::bars_serving) {
             return Source::Network;
@@ -215,10 +258,10 @@ impl ResponseSource {
     }
 
     /// Whether a response with `head` to `request` in `partition` would be
-    /// stored, so its body is kept as it arrives: never with the cache off,
-    /// while the engine runs without it, while its filesystem is low on
-    /// space, when `kept_out` names a reason, nor when no partition keeps
-    /// it.
+    /// stored, so its body is kept as it arrives: never while replaying a
+    /// recording, with the cache off, while the engine runs without it,
+    /// while its filesystem is low on space, when `kept_out` names a
+    /// reason, nor when no partition keeps it.
     pub fn stores(
         &self,
         partition: &Partition,
@@ -226,6 +269,9 @@ impl ResponseSource {
         head: &ResponseHead,
         kept_out: Option<KeptOut>,
     ) -> bool {
+        if self.recording.is_some() {
+            return false;
+        }
         let variant = match &self.cache {
             Keeping::Off => return false,
             Keeping::Revalidate(cache) => {
@@ -239,8 +285,9 @@ impl ResponseSource {
     }
 
     /// [`ResponseCache::store`] under `revalidate`,
-    /// [`ResponseCache::store_replayed`] under `replay`; nothing with the
-    /// cache off, nor when `kept_out` names a reason.
+    /// [`ResponseCache::store_replayed`] under `replay`; nothing while
+    /// replaying a recording, with the cache off, nor when `kept_out` names
+    /// a reason.
     #[expect(
         clippy::too_many_arguments,
         reason = "the cache's own store arguments, with the outcome that keeps a response out"
@@ -255,7 +302,7 @@ impl ResponseSource {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
-        if kept_out.is_some() {
+        if self.recording.is_some() || kept_out.is_some() {
             return false;
         }
         match &self.cache {

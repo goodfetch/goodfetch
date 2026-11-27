@@ -93,12 +93,18 @@ impl CrawlRun {
         &self,
         settings: &Resolved,
     ) -> Result<Option<Admission>, AdmissionError> {
+        let replaying = self
+            .browser
+            .engine
+            .recordings()
+            .is_replaying(self.identity.id());
         admission::of_run(
             self.gates.as_ref(),
             (&self.state, self.identity.clock()),
             &self.entropy,
             &self.politeness,
             settings,
+            replaying,
         )
         .await
     }

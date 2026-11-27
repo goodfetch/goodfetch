@@ -540,6 +540,7 @@ fn start_params(seeds: Vec<SeedRequest>) -> Result<CrawlStartParams, Error> {
         settings: serde_json::Map::new(),
         project: None,
         limits: Vec::new(),
+        recording: None,
         detached: false,
     })
 }

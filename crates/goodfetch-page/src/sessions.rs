@@ -2430,7 +2430,8 @@ fn session_interception(
     // matches (ADR 0046).
     let caching = run.identity.settings().and_then(|settings| {
         Caching::of(
-            run.engine.response_source(settings.resolved()),
+            run.engine
+                .response_source_for(run.identity.id(), settings.resolved()),
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),

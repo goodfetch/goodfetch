@@ -30,7 +30,6 @@ use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::run::Recording;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
@@ -50,6 +49,7 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::run::{
     RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
 };
+use goodfetch_protocol::run::{Recording, RecordingMode};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
@@ -1119,6 +1119,11 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
                 .transpose()
         })
         .transpose()?;
+    let replay_path = params
+        .recording
+        .as_ref()
+        .filter(|recording| recording.mode == RecordingMode::Replay)
+        .map(|recording| recording.path.clone());
     let inputs = start_inputs(params.plan, params.recording);
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
@@ -1136,6 +1141,15 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    let replayed = match replay_path.as_deref() {
+        Some(path) => Some(
+            context
+                .engine()
+                .open_replay(path, settings.resolved())
+                .await?,
+        ),
+        None => None,
+    };
     let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()
@@ -1159,15 +1173,30 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .await
         .map_err(start_error)?;
     let started = match started {
-        Started::New(run) => RunStarted {
-            run_id: run.identity.id().clone(),
-            started_as: StartedAs::New,
-            lifecycle: goodfetch_protocol::run::Lifecycle::Running,
-            needs: Product::Collie,
-        },
+        Started::New(run) => {
+            if let Some(replayed) = replayed {
+                context
+                    .engine()
+                    .recordings()
+                    .attach(run.identity.id().clone(), replayed);
+            }
+            RunStarted {
+                run_id: run.identity.id().clone(),
+                started_as: StartedAs::New,
+                lifecycle: goodfetch_protocol::run::Lifecycle::Running,
+                needs: Product::Collie,
+            }
+        }
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
         Started::Interrupted(run_id) => {
-            resume_run(&context, run_id, None, settings, timeout, true).await?
+            let started = resume_run(&context, run_id, None, settings, timeout, true).await?;
+            if let Some(replayed) = replayed {
+                context
+                    .engine()
+                    .recordings()
+                    .attach(started.run_id.clone(), replayed);
+            }
+            started
         }
         Started::Ended(ended) => ended,
     };

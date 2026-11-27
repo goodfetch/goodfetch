@@ -28,14 +28,19 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use data_encoding::BASE64;
+use goodfetch_engine::CallError;
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::response_cache::{CacheRequest, KeptOut, ResponseHead, Source, Stale};
 use goodfetch_engine::response_limits::{Decoding, Limits};
+use goodfetch_engine::response_recording::not_recorded_error;
 use goodfetch_protocol::page::PageResponse;
+use goodfetch_protocol::page::route::{AbortReason, RouteFetched};
 
-use super::{COOKIE, Held, PageContext, Sender, lock};
+use super::super::answers::Reply;
+use super::{COOKIE, Held, PageContext, Routed, Sender, Stage, Taken, lock};
 use crate::cdp::driver::cdp_response;
 use crate::cdp::{ContinueRequest, Header, NetworkId, PausedId, PausedRequest};
+use crate::errors::{network_error, truncated};
 use crate::proxy::{self, PROXY_STATUS};
 
 /// The response header naming a body's content codings.
@@ -71,34 +76,91 @@ struct Asked {
 }
 
 impl PageContext {
+    /// Whether this Run replays a Response recording (ADR 0105).
+    pub(super) fn replaying(&self) -> bool {
+        self.state
+            .caching
+            .as_ref()
+            .is_some_and(|caching| caching.replaying())
+    }
+
     /// Answers `held`, which `command` sends on, from the Session's
     /// sources when one holds its response: whether it did. Else, when
     /// the cache holds it stale, `command` carries its conditions; and when
     /// its response may be stored, `command` pauses it on its way back.
+    ///
+    /// # Errors
+    ///
+    /// While replaying a Response recording: `response_not_recorded` for a
+    /// missing navigation, `response_truncated` for a recorded cut
+    /// navigation, or `navigation_failed` if a recorded body cannot be
+    /// decoded.
     pub(super) async fn served_from_cache(
         &self,
         held: &Held,
         command: &mut ContinueRequest,
-    ) -> bool {
-        if !self.consults_cache(held) {
-            return false;
-        }
+    ) -> Result<bool, CallError> {
         let Some(caching) = self.state.caching.clone() else {
-            return false;
+            return Ok(false);
         };
-        if !caching.takes(held.method()) {
-            return false;
+        let replaying = caching.replaying();
+        if !replaying && !self.consults_cache(held) {
+            return Ok(false);
         }
-        let Some(asked) = self.asked(held, command).await else {
-            return false;
+        if !caching.takes(held.method()) {
+            return Ok(false);
+        }
+        let Some(asked) = self.asked(held, Some(command), replaying).await else {
+            if replaying {
+                let error = network_error(held.url(), "net::ERR_FAILED");
+                if held.navigation {
+                    self.state.leave(error.clone());
+                }
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                return Err(error);
+            }
+            return Ok(false);
         };
         let stale = match caching.source(&asked.request, asked.kept_out).await {
-            Source::Routed(served) | Source::Recorded(served) => {
-                return self.serve(held, served.head, &served.body).await;
+            Source::Routed(served) => {
+                return Ok(self.serve(held, served.head, &served.body).await);
             }
-            Source::Fresh(hit) => return self.serve(held, hit.head, &hit.body).await,
+            Source::Recorded(served) => {
+                if self.serve(held, served.head.clone(), &served.body).await {
+                    return Ok(true);
+                }
+                let error = network_error(held.url(), "net::ERR_CONTENT_DECODING_FAILED");
+                if held.navigation {
+                    self.state.leave(error.clone());
+                }
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                return Err(error);
+            }
+            Source::RecordedCut(served) => {
+                let expected = header_content_length(&served.head.headers);
+                let received = u64::try_from(served.body.len()).unwrap_or(u64::MAX);
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                if held.navigation {
+                    let error = truncated(held.url(), received, expected);
+                    self.state.leave(error.clone());
+                    return Err(error);
+                }
+                return Ok(true);
+            }
+            Source::NotRecorded(miss) => {
+                if held.navigation {
+                    let error = not_recorded_error(&miss);
+                    self.state.leave(error.clone());
+                    self.fail(held.paused.id(), AbortReason::BlockedByClient)
+                        .await;
+                    return Err(error);
+                }
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                return Ok(true);
+            }
+            Source::Fresh(hit) => return Ok(self.serve(held, hit.head, &hit.body).await),
             Source::Network if caching.may_store(&asked.request, asked.kept_out) => None,
-            Source::Network => return false,
+            Source::Network => return Ok(false),
             Source::Stale(stale) => {
                 command.headers = Some(conditional(sent(held, command), &stale.conditions));
                 Some(stale)
@@ -115,7 +177,80 @@ impl PageContext {
                 navigation: held.navigation,
             },
         );
-        false
+        Ok(false)
+    }
+
+    /// Answers a route's `route.fetch()` from the Run's Response recording
+    /// when replaying, so even fetched routes never touch the network.
+    pub(super) async fn fetch_from_recording(
+        &self,
+        held: &Held,
+        stage: &mut Stage,
+    ) -> (Result<Reply, CallError>, Option<Routed>) {
+        let Some(caching) = self.state.caching.clone() else {
+            self.fail(held.paused.id(), AbortReason::Failed).await;
+            return (
+                Err(network_error(held.url(), "net::ERR_FAILED")),
+                Some(Routed::Ended),
+            );
+        };
+        let Some(asked) = self.asked(held, None, true).await else {
+            self.fail(held.paused.id(), AbortReason::Failed).await;
+            return (
+                Err(network_error(held.url(), "net::ERR_FAILED")),
+                Some(Routed::Ended),
+            );
+        };
+        match caching.source(&asked.request, asked.kept_out).await {
+            Source::Recorded(served) => {
+                let Some((status, headers, decoded)) =
+                    self.decoded(held.url(), served.head.clone(), &served.body)
+                else {
+                    self.fail(held.paused.id(), AbortReason::Failed).await;
+                    return (
+                        Err(network_error(
+                            held.url(),
+                            "net::ERR_CONTENT_DECODING_FAILED",
+                        )),
+                        Some(Routed::Ended),
+                    );
+                };
+                let map = header_map(&headers);
+                let reply = Reply::Fetched(RouteFetched {
+                    status,
+                    status_text: String::new(),
+                    headers: map,
+                    body: BASE64.encode(&decoded),
+                });
+                *stage = Stage::Fetched(Taken::Body {
+                    status,
+                    headers,
+                    body: decoded,
+                });
+                (Ok(reply), None)
+            }
+            Source::RecordedCut(served) => {
+                let expected = header_content_length(&served.head.headers);
+                let received = u64::try_from(served.body.len()).unwrap_or(u64::MAX);
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                (
+                    Err(truncated(held.url(), received, expected)),
+                    Some(Routed::Ended),
+                )
+            }
+            Source::NotRecorded(miss) => {
+                self.fail(held.paused.id(), AbortReason::BlockedByClient)
+                    .await;
+                (Err(not_recorded_error(&miss)), Some(Routed::Ended))
+            }
+            _ => {
+                self.fail(held.paused.id(), AbortReason::Failed).await;
+                (
+                    Err(network_error(held.url(), "net::ERR_FAILED")),
+                    Some(Routed::Ended),
+                )
+            }
+        }
     }
 
     /// Lets the response paused at `paused` go on, stored first when
@@ -145,39 +280,59 @@ impl PageContext {
 
     /// `held`, sent on with `command`, as the cache is asked about it, the
     /// cookies the browser adds for its URL included; none when its body
-    /// or the browser's cookies cannot be read.
-    async fn asked(&self, held: &Held, command: &ContinueRequest) -> Option<Asked> {
+    /// or (when not replaying) the browser's cookies cannot be read.
+    async fn asked(
+        &self,
+        held: &Held,
+        command: Option<&ContinueRequest>,
+        replaying: bool,
+    ) -> Option<Asked> {
         let url = url::Url::parse(held.url()).ok()?;
-        let body = match &command.post_data {
+        let body = match command.and_then(|command| command.post_data.as_ref()) {
             Some(encoded) => BASE64.decode(encoded.as_bytes()).ok()?,
-            None if held.paused.has_body() => held.paused.body()?,
-            None => Vec::new(),
+            None => match &held.overrides.post_data {
+                Some(encoded) => BASE64.decode(encoded.as_bytes()).ok()?,
+                None if held.paused.has_body() => held.paused.body()?,
+                None => Vec::new(),
+            },
         };
-        let cookies = match self.cdp.cookie_header(held.url()).await {
-            Ok(cookies) => cookies,
-            Err(failure) => {
-                tracing::debug!(
-                    ?failure,
-                    "the browser named no cookies, so the request goes on past the cache"
-                );
-                return None;
+        let cookies = if replaying {
+            String::new()
+        } else {
+            match self.cdp.cookie_header(held.url()).await {
+                Ok(cookies) => cookies,
+                Err(failure) => {
+                    tracing::debug!(
+                        ?failure,
+                        "the browser named no cookies, so the request goes on past the cache"
+                    );
+                    return None;
+                }
             }
         };
         let not_cookie = |name: &str| !name.eq_ignore_ascii_case(COOKIE);
-        let mut headers: Vec<(String, String)> = match &command.headers {
-            Some(sent) => sent
-                .iter()
-                .filter(|header| not_cookie(&header.name))
-                .map(|header| (header.name.clone(), header.value.clone()))
-                .collect(),
-            None => held
-                .paused
-                .headers()
-                .iter()
-                .filter(|(name, _)| not_cookie(name))
-                .map(|(name, value)| (name.to_owned(), value.to_owned()))
-                .collect(),
-        };
+        let mut headers: Vec<(String, String)> =
+            match command.and_then(|command| command.headers.as_ref()) {
+                Some(sent) => sent
+                    .iter()
+                    .filter(|header| not_cookie(&header.name))
+                    .map(|header| (header.name.clone(), header.value.clone()))
+                    .collect(),
+                None => match &held.overrides.headers {
+                    Some(sent) => sent
+                        .iter()
+                        .filter(|(name, _)| not_cookie(name))
+                        .map(|(name, value)| (name.clone(), value.clone()))
+                        .collect(),
+                    None => held
+                        .paused
+                        .headers()
+                        .iter()
+                        .filter(|(name, _)| not_cookie(name))
+                        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                        .collect(),
+                },
+            };
         if !cookies.is_empty() {
             headers.push((COOKIE.to_owned(), cookies));
         }
@@ -422,6 +577,29 @@ fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
         .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// The numeric `Content-Length` declared in `headers`, if any.
+fn header_content_length(headers: &[(String, String)]) -> Option<u64> {
+    headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+        .and_then(|(_, value)| value.trim().parse().ok())
+}
+
+/// Joins `headers` into a lowercase-keyed map, repeated values separated by
+/// `\n`, as `RouteFetched` and `PageResponse` represent them.
+fn header_map(headers: &[Header]) -> BTreeMap<String, String> {
+    let mut map: BTreeMap<String, String> = BTreeMap::new();
+    for header in headers {
+        map.entry(header.name.to_ascii_lowercase())
+            .and_modify(|existing| {
+                existing.push('\n');
+                existing.push_str(&header.value);
+            })
+            .or_insert_with(|| header.value.clone());
+    }
+    map
 }
 
 #[cfg(test)]

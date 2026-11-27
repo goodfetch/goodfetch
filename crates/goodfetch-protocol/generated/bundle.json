@@ -4792,6 +4792,18 @@
           "arrived_in": "0.1",
           "description": "The project configuration the Client found, layer 3 (ADR 0083)."
         },
+        "recording": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Recording"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Response recording the crawl replays or records (ADR 0105)."
+        },
         "run_id": {
           "arrived_in": "0.1",
           "description": "The Run's ID, as `run.start` takes it.",

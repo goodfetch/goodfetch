@@ -42,9 +42,14 @@
 //! of a body whose stream was taken (ADR 0067's #644 note).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
+use bytes::Bytes;
+use data_encoding::BASE64;
 use goodfetch_engine::net_error::NetError;
-use goodfetch_engine::response_limits::Limits;
+use goodfetch_engine::response_cache::{CacheRequest, Caching, ResponseHead, Source};
+use goodfetch_engine::response_limits::{BodyFailure, Decoding, Limits};
+use goodfetch_engine::response_recording::not_recorded_error;
 use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::connection::WaitedFor;
 use goodfetch_protocol::page::route::AbortReason;
@@ -66,6 +71,40 @@ use crate::interception::{EngineRequest, EngineRequests, Overrides, authenticati
 use crate::page_value::{Navigation, NavigationKind, Permit};
 use crate::paused_body::{declared_within_limits, streamed};
 use crate::placeholders::Placeholders;
+
+/// Next step after a 3xx redirect during recording replay.
+enum ReplayStep {
+    Redirect(url::Url),
+    Stop(Fetched),
+}
+
+fn replay_headers(paused: &PausedRequest, command: &ContinueRequest) -> Vec<(String, String)> {
+    match &command.headers {
+        Some(sent) => sent
+            .iter()
+            .map(|header| (header.name.clone(), header.value.clone()))
+            .collect(),
+        None => paused
+            .headers()
+            .iter()
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect(),
+    }
+}
+
+fn replay_body(
+    paused: &PausedRequest,
+    command: &ContinueRequest,
+    url: &str,
+) -> Result<Vec<u8>, CallError> {
+    match &command.post_data {
+        Some(encoded) => BASE64
+            .decode(encoded.as_bytes())
+            .map_err(|_| network_error(url, "net::ERR_FAILED")),
+        None if paused.has_body() => Ok(paused.body().unwrap_or_default()),
+        None => Ok(Vec::new()),
+    }
+}
 
 /// The headers the page's copy of the response loses, so that nothing
 /// renders it or turns it into a download.
@@ -374,6 +413,15 @@ impl<'a> Load<'a> {
         };
         match self.sender.send_on(&request, &overrides) {
             Ok(mut command) => {
+                // Step 5 (replay): answer from the Run's Response recording
+                // before the gate and before any request leaves the browser
+                // (ADR 0105).
+                if let Some(replayed) = self
+                    .try_replay(&paused, &url, carries_body, &mut command)
+                    .await
+                {
+                    return Some(replayed);
+                }
                 // Step 6: the page's navigation gate, for each hop.
                 let navigation = Navigation {
                     method: command
@@ -419,6 +467,196 @@ impl<'a> Load<'a> {
                 self.fail(paused.id(), AbortReason::BlockedByClient).await;
                 Some(Err(stopped))
             }
+        }
+    }
+
+    /// If the Run replays a Response recording, fills Secret placeholders
+    /// and answers the paused request directly from the recording.
+    async fn try_replay(
+        &mut self,
+        paused: &PausedRequest,
+        url: &str,
+        carries_body: bool,
+        command: &mut ContinueRequest,
+    ) -> Option<Result<Fetched, CallError>> {
+        let caching = self
+            .sender
+            .caching()
+            .filter(|caching| caching.replaying())
+            .cloned()?;
+        if let Some(placeholders) = self.request.placeholders
+            && let Err(refused) = placeholders
+                .fill(url, carries_body, paused.headers(), command)
+                .await
+        {
+            self.fail(paused.id(), AbortReason::BlockedByClient).await;
+            return Some(Err(refused));
+        }
+        Some(self.replay(paused, url, command, &caching).await)
+    }
+
+    /// Answers the request paused at `paused` directly from the Run's
+    /// Response recording `caching`, following recorded redirects up to
+    /// `max_redirects` so nothing reaches the network (ADR 0105).
+    async fn replay(
+        &mut self,
+        paused: &PausedRequest,
+        initial_url: &str,
+        command: &ContinueRequest,
+        caching: &Arc<Caching>,
+    ) -> Result<Fetched, CallError> {
+        let mut method = command
+            .method
+            .clone()
+            .unwrap_or_else(|| paused.method().to_owned());
+        let mut current_url = url::Url::parse(initial_url)
+            .map_err(|_| network_error(initial_url, "net::ERR_INVALID_URL"))?;
+        let mut headers = replay_headers(paused, command);
+        let mut body = replay_body(paused, command, initial_url)?;
+        loop {
+            let cache_request =
+                CacheRequest::new(&method, &current_url, &headers, Bytes::from(body.clone()));
+            match caching.source(&cache_request, None).await {
+                Source::NotRecorded(miss) => {
+                    self.fail(paused.id(), AbortReason::BlockedByClient).await;
+                    return Err(not_recorded_error(&miss));
+                }
+                Source::RecordedCut(served) => {
+                    let response = self.recorded_response(current_url.as_str(), &served.head);
+                    self.fail(paused.id(), AbortReason::Aborted).await;
+                    return Ok(cut(response, &served.body));
+                }
+                Source::Recorded(served) => {
+                    let response = self.recorded_response(current_url.as_str(), &served.head);
+                    if let Some(next_url) = self
+                        .replay_redirect(
+                            paused.id(),
+                            &response,
+                            &current_url,
+                            (&mut method, &mut headers, &mut body),
+                        )
+                        .await?
+                    {
+                        match next_url {
+                            ReplayStep::Redirect(url) => {
+                                current_url = url;
+                                continue;
+                            }
+                            ReplayStep::Stop(fetched) => return Ok(fetched),
+                        }
+                    }
+                    let fetched = self.decode_recorded(response, &served.head, &served.body);
+                    self.fail(paused.id(), AbortReason::Aborted).await;
+                    return fetched;
+                }
+                _ => {
+                    self.fail(paused.id(), AbortReason::Failed).await;
+                    return Err(network_error(current_url.as_str(), "net::ERR_FAILED"));
+                }
+            }
+        }
+    }
+
+    /// Handles a 3xx redirect response during replay, returning `None` when
+    /// `response` is not a redirect.
+    async fn replay_redirect(
+        &mut self,
+        id: &PausedId,
+        response: &PageResponse,
+        current_url: &url::Url,
+        (method, headers, body): (&mut String, &mut Vec<(String, String)>, &mut Vec<u8>),
+    ) -> Result<Option<ReplayStep>, CallError> {
+        let Some(location) = redirects(response.status)
+            .then(|| response.headers.get("location").cloned())
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let followed = u32::try_from(self.chain.len().saturating_sub(1)).unwrap_or(u32::MAX);
+        if self.request.max_redirects == 0 {
+            self.fail(id, AbortReason::Aborted).await;
+            return Ok(Some(ReplayStep::Stop(Fetched {
+                response: response.clone(),
+                body: Body::Whole(Vec::new()),
+            })));
+        }
+        if followed >= self.request.max_redirects {
+            self.fail(id, AbortReason::Aborted).await;
+            return Err(self.too_many_redirects());
+        }
+        let next_url = current_url
+            .join(&location)
+            .map_err(|_| network_error(current_url.as_str(), "net::ERR_INVALID_REDIRECT"))?;
+        if matches!(response.status, 301..=303) && method != "GET" && method != "HEAD" {
+            "GET".clone_into(method);
+            body.clear();
+            headers.retain(|(name, _)| {
+                !name.eq_ignore_ascii_case("content-type")
+                    && !name.eq_ignore_ascii_case("content-length")
+            });
+        }
+        self.chain.push(next_url.as_str().to_owned());
+        if let Some(placeholders) = self.request.placeholders
+            && let Err(refused) = placeholders.admit(next_url.as_str(), !body.is_empty())
+        {
+            self.fail(id, AbortReason::BlockedByClient).await;
+            return Err(refused);
+        }
+        Ok(Some(ReplayStep::Redirect(next_url)))
+    }
+
+    /// Judges limits and decodes content codings of a recorded response body.
+    fn decode_recorded(
+        &self,
+        response: PageResponse,
+        head: &ResponseHead,
+        raw: &[u8],
+    ) -> Result<Fetched, CallError> {
+        declared_within_limits(&response.url, &response.headers, &self.request.limits)?;
+        let codings = head
+            .headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("content-encoding"))
+            .map(|(_, value)| value.as_str());
+        let mut decoding = Decoding::new(&response.url, codings, self.request.limits);
+        match decoding.push(raw).and_then(|()| decoding.finish()) {
+            Ok(decoded) => Ok(Fetched {
+                response,
+                body: Body::Whole(decoded),
+            }),
+            Err(BodyFailure::Limit(exceeded)) => Err(exceeded.error()),
+            Err(BodyFailure::Corrupt) => Err(network_error(
+                &response.url,
+                "net::ERR_CONTENT_DECODING_FAILED",
+            )),
+            Err(BodyFailure::Cut) => Ok(cut(response, raw)),
+        }
+    }
+
+    /// A [`PageResponse`] shaped from a recorded [`ResponseHead`].
+    fn recorded_response(&self, url: &str, head: &ResponseHead) -> PageResponse {
+        let mut headers: BTreeMap<String, String> = BTreeMap::new();
+        for (name, value) in &head.headers {
+            headers
+                .entry(name.to_ascii_lowercase())
+                .and_modify(|existing| {
+                    existing.push('\n');
+                    existing.push_str(value);
+                })
+                .or_insert_with(|| value.clone());
+        }
+        PageResponse {
+            url: url.to_owned(),
+            status: head.status,
+            status_text: String::new(),
+            headers,
+            encoding: None,
+            request_id: self
+                .network_id
+                .as_ref()
+                .map(|id| id.as_str().to_owned())
+                .unwrap_or_default(),
+            from_service_worker: false,
         }
     }
 

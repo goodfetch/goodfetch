@@ -52,6 +52,12 @@ impl Caching {
         })
     }
 
+    /// Whether the Run replays a Response recording, as
+    /// [`ResponseSource::replaying`] says.
+    pub fn replaying(&self) -> bool {
+        self.source.replaying()
+    }
+
     /// Whether a request sent with `method` may be answered or stored, as
     /// [`ResponseSource::takes`] says.
     pub fn takes(&self, method: &str) -> bool {

@@ -86,9 +86,10 @@ const READ: Part = ("read", &["read"]);
 const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
 const RESPONSE_CACHE: Part = ("response-cache", &["response_cache"]);
+const RESPONSE_RECORDING: Part = ("response-recording", &["response_recording"]);
 
 /// Every part.
-const PARTS: [Part; 22] = [
+const PARTS: [Part; 23] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,
@@ -111,6 +112,7 @@ const PARTS: [Part; 22] = [
     WAITS,
     ROBOTS_TXT,
     RESPONSE_CACHE,
+    RESPONSE_RECORDING,
 ];
 
 #[test]
@@ -366,4 +368,10 @@ fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
     prove(RESPONSE_CACHE);
+}
+
+/// Covers: story:6-52, story:6-53, story:6-54, story:6-61, error:response_not_recorded, error:recording_invalid, setting:site_preferences.read_robots_txt_for_navigation, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:run.finish
+#[test]
+fn the_page_suite_proves_response_recordings_against_collies_attached_engine() {
+    prove(RESPONSE_RECORDING);
 }

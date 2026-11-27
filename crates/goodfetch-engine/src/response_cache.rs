@@ -84,7 +84,9 @@ pub(crate) use self::canonical::body_sha256;
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
 pub use self::partition::Keeper;
-pub use self::source::{KeptOut, Recording, Replaying, ResponseSource, Served, Source};
+pub use self::source::{
+    KeptOut, NotRecorded, Recorded, Recording, Replaying, ResponseSource, Served, Source,
+};
 pub use self::upkeep::Clearing;
 use crate::governor::{Held, StorageSample};
 use crate::sqlite_store::{

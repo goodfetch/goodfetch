@@ -18,7 +18,10 @@ use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_test_support::{Canaries, Output, SecretKind, TestEnv};
 use rstest::rstest;
 
-use super::{KeptOut, Recording, Replaying, ResponseSource, Served, Source};
+use super::{
+    KeptOut, NotRecorded, Recorded as RecordingAnswer, Recording, Replaying, ResponseSource,
+    Served, Source,
+};
 use crate::response_cache::{CacheRequest, Partition, ResponseCache, ResponseHead};
 use crate::sync::Mutex;
 use crate::tasks::{BlockingPolicy, TaskOwner};
@@ -110,15 +113,32 @@ impl Recording for Recorded {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.url.clone());
-        Box::pin(async { Some(served("recording")) })
+        Box::pin(async { RecordingAnswer::Answered(Arc::new(served("recording"))) })
+    }
+}
+
+/// A recording stand-in that misses every request.
+#[derive(Debug)]
+struct Missing;
+
+impl Recording for Missing {
+    fn recorded<'a>(&'a self, request: &'a CacheRequest) -> Replaying<'a> {
+        let miss = NotRecorded {
+            method: request.method.clone(),
+            url: request.url.clone(),
+            recording: "missing.warc".to_owned(),
+            nearest: vec!["https://cache.test/page?a=1".to_owned()],
+        };
+        Box::pin(async move { RecordingAnswer::Missed(miss) })
     }
 }
 
 fn body(source: &Source) -> Option<&[u8]> {
     match source {
-        Source::Routed(served) | Source::Recorded(served) => Some(&served.body),
+        Source::Routed(served) => Some(&served.body),
+        Source::Recorded(served) | Source::RecordedCut(served) => Some(&served.body),
         Source::Fresh(hit) => Some(&hit.body),
-        Source::Stale(_) | Source::Network => None,
+        Source::NotRecorded(_) | Source::Stale(_) | Source::Network => None,
     }
 }
 
@@ -521,4 +541,45 @@ fn a_request_is_asked_about_only_where_its_method_may_be_answered(
     };
 
     assert_eq!(source.takes(method), asked);
+}
+
+/// While replaying a Response recording, a miss returns `Source::NotRecorded`
+/// without consulting the cache or falling through to the network, and
+/// nothing is stored into the cache.
+#[tokio::test]
+async fn a_recording_miss_never_falls_through_to_the_cache_or_network() {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let cached = served("cache");
+    assert!(
+        cache
+            .store(
+                &ada(),
+                &page(),
+                &cached.head,
+                cached.body.clone(),
+                None,
+                start()
+            )
+            .await
+    );
+    let replaying = ResponseSource::of(&cache, CacheMode::Revalidate).recording(Arc::new(Missing));
+    let now = start() + Duration::from_secs(1);
+
+    let answer = replaying.source(None, &ada(), &page(), None, now).await;
+
+    assert!(replaying.replaying());
+    assert!(!replaying.may_store(&page(), None));
+    assert!(!replaying.stores(&ada(), &page(), &cached.head, None));
+    assert_eq!(work.read(Row::CacheLookups), 0);
+    assert_eq!(
+        answer,
+        Source::NotRecorded(NotRecorded {
+            method: "GET".to_owned(),
+            url: "https://cache.test/page".to_owned(),
+            recording: "missing.warc".to_owned(),
+            nearest: vec!["https://cache.test/page?a=1".to_owned()],
+        })
+    );
 }

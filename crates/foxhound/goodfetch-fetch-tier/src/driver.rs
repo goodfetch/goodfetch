@@ -289,6 +289,9 @@ pub enum TransportFailure {
     /// (ADR 0020): the browser resends and decodes itself, so it is never
     /// sent again.
     Browser(BrowserFailure),
+    /// A replaying Run's Response recording lacked the request: refused as
+    /// `response_not_recorded`, never retried and never sent (ADR 0105).
+    Recorded(CallFailure),
     /// Any other failure: the generic case (ADR 0118; `net::ERR_FAILED`).
     Other,
 }
@@ -381,7 +384,7 @@ impl TransportFailure {
     /// The network error Chrome names the same failure with.
     pub fn network_error(&self) -> &'static str {
         match self {
-            Self::Egress(_) => "net::ERR_BLOCKED_BY_CLIENT",
+            Self::Egress(_) | Self::Recorded(_) => "net::ERR_BLOCKED_BY_CLIENT",
             Self::NameNotResolved => "net::ERR_NAME_NOT_RESOLVED",
             Self::AddressFamily { .. } => "net::ERR_ADDRESS_UNREACHABLE",
             Self::ConnectionRefused => "net::ERR_CONNECTION_REFUSED",
@@ -416,7 +419,9 @@ impl TransportFailure {
         match self {
             Self::Egress(refused) => return refused.error(),
             Self::Browser(failure) => return failure.0.clone(),
-            Self::ClientCertificate(failure) | Self::Proxy(failure) => return failure.0.clone(),
+            Self::ClientCertificate(failure) | Self::Proxy(failure) | Self::Recorded(failure) => {
+                return failure.0.clone();
+            }
             Self::CertificateChanged(changed) => return changed.error(),
             Self::CertificateInvalid(failure) => {
                 let host = Url::parse(url)

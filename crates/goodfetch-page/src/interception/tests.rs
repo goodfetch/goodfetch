@@ -50,6 +50,7 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
                 work: goodfetch_counted_work::CountedWork::default(),
             },
             signing: None,
+            caching: None,
         },
         pending: Arc::clone(&session.pending),
         navigation: PendingNavigation::default(),

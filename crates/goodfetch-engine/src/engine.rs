@@ -51,6 +51,7 @@ use crate::needs_you::{NeedsYou, NeedsYouSource, SourceContext};
 use crate::ops::{self, Health, OpsOptions};
 use crate::politeness::{PolitenessOptions, PolitenessTables};
 use crate::product::Identity;
+use crate::response_recording::Recordings;
 use crate::rpc::{self, Access, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::run_state::{RunStateOptions, RunStateTables};
@@ -448,6 +449,8 @@ impl Engine {
             settings: settings.clone(),
         });
         let daemon = self.to_the_daemon(reached_at.as_ref(), &forwarder);
+        let mut report_parts = self.report_parts.clone();
+        report_parts.push(Arc::new(RecordingReportPart(stores.recordings().clone())));
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
@@ -473,7 +476,7 @@ impl Engine {
                 install: install.map(Arc::new),
                 tables: self.tables.clone(),
                 driving: self.driving.clone(),
-                report_parts: self.report_parts.clone(),
+                report_parts,
                 progress_parts: self.progress_parts.clone(),
                 clean_up: self.clean_up.clone(),
                 send_window: self.send_window.clone(),
@@ -562,6 +565,7 @@ impl Engine {
                 entropy: dependencies.entropy.stream(HANDLERS_STREAM),
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,
+                masks: self.dispatch.masks.clone(),
             },
         );
         let secrets = Secrets::new(
@@ -1061,6 +1065,23 @@ async fn accept_private_connections(
             }
             its_owner.stop().await;
         });
+    }
+}
+
+/// Adds the Run's Response recording summary to its report when it ends
+/// (ADR 0105).
+struct RecordingReportPart(Recordings);
+
+impl ReportPart for RecordingReportPart {
+    fn fill(
+        &self,
+        _connection: &rusqlite::Connection,
+        report: &mut goodfetch_protocol::run::RunReport,
+    ) -> rusqlite::Result<()> {
+        if let Some(recording) = self.0.take_report_of(&report.run_id) {
+            report.recording = Some(recording);
+        }
+        Ok(())
     }
 }
 

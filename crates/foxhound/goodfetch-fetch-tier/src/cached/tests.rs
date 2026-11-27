@@ -385,3 +385,119 @@ async fn a_run_with_the_cache_off_gets_no_cached_transport() {
 
     assert!(caching.is_none());
 }
+
+/// The HTTP tier answers from a WARC recording without calling its
+/// underlying transport, refuses a missing request with
+/// `response_not_recorded` (not retryable), and fails a truncated recorded
+/// response with `response_truncated` (ADR 0105).
+///
+/// Covers: story:6-52, story:6-53
+#[tokio::test(start_paused = true)]
+async fn a_replaying_http_tier_answers_recorded_fails_missing_and_truncates_cut() {
+    use goodfetch_engine::mask::Masks;
+    use goodfetch_engine::response_recording::Recordings;
+    use goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
+
+    let warc = concat!(
+        "WARC/1.1\r\n",
+        "WARC-Type: warcinfo\r\n",
+        "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\n",
+        "WARC-Date: 2026-01-05T09:00:00Z\r\n",
+        "Content-Type: application/warc-fields\r\n",
+        "Content-Length: 23\r\n\r\n",
+        "software: goodfetch/0.1\r\n\r\n",
+        "WARC/1.1\r\n",
+        "WARC-Type: response\r\n",
+        "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000002>\r\n",
+        "WARC-Date: 2026-01-05T09:00:01Z\r\n",
+        "WARC-Target-URI: https://cache.test/page\r\n",
+        "Content-Type: application/http; msgtype=response\r\n",
+        "Content-Length: 55\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>warc</p>\r\n\r\n",
+        "WARC/1.1\r\n",
+        "WARC-Type: response\r\n",
+        "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000003>\r\n",
+        "WARC-Date: 2026-01-05T09:00:02Z\r\n",
+        "WARC-Target-URI: https://cache.test/cut\r\n",
+        "WARC-Truncated: disconnect\r\n",
+        "Content-Type: application/http; msgtype=response\r\n",
+        "Content-Length: 50\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>cut\r\n\r\n",
+    );
+    let env = TestEnv::new();
+    let warc_file = env.folder().join("site.warc");
+    std::fs::write(&warc_file, warc.as_bytes()).unwrap();
+    let warc_path = warc_file.to_string_lossy().into_owned();
+    let owner = TaskOwner::root(BlockingPolicy::Inline);
+    let recordings = Recordings::default();
+    let replayed = recordings
+        .open_replay(
+            &warc_path,
+            Masks::new(),
+            DEFAULT_MAX_DECOMPRESSION_RATIO,
+            &owner,
+        )
+        .await
+        .unwrap();
+    let run_id = RunId::parse("replay-http").unwrap();
+    recordings.attach(run_id.clone(), replayed);
+
+    let site = Site::answering(vec![minute(b"<p>live</p>")]);
+    let caching = Caching::of(
+        ResponseSource::default().recording(recordings.get(&run_id).unwrap()),
+        "ada",
+        run_id.clone(),
+        Clock::paused(std::time::UNIX_EPOCH),
+    )
+    .unwrap();
+    let transport = super::over(&caching, Arc::clone(&site) as Arc<dyn Transport>);
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+    let clock = Clock::paused(std::time::UNIX_EPOCH);
+
+    let hit = crate::driver::fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/page".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(&hit.body[..], b"<p>warc</p>");
+
+    let missing = crate::driver::fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/page?extra=1".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(missing.error().code(), "response_not_recorded");
+    assert!(!missing.error().retryable());
+    assert_eq!(
+        missing.error().details().unwrap()["nearest"],
+        serde_json::json!(["https://cache.test/page"])
+    );
+
+    let truncated = crate::driver::fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/cut".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(truncated.error().code(), "response_truncated");
+
+    // The underlying live transport saw zero requests.
+    assert_eq!(site.received(), [] as [Vec<(String, String)>; 0]);
+
+    let report = recordings.take_report_of(&run_id).unwrap();
+    assert_eq!(report.mode, "replay");
+    assert_eq!(report.responses_used, 2);
+    assert_eq!(report.misses, vec!["GET https://cache.test/page?extra=1"]);
+}

@@ -1161,7 +1161,7 @@ impl FetchTiers {
             None => (Arc::new(reqwest), None),
         };
         let caching = Caching::of(
-            engine.response_source(settings),
+            engine.response_source_for(run.identity.id(), settings),
             CALLER,
             run.identity.id().clone(),
             run.identity.clock(),
@@ -2711,6 +2711,13 @@ impl HttpTier {
         }
     }
 
+    /// Whether this Run replays a Response recording (ADR 0105).
+    pub fn replaying(&self) -> bool {
+        self.caching
+            .as_ref()
+            .is_some_and(|caching| caching.replaying())
+    }
+
     /// The address check of the tier's connections, which judges a crawl
     /// request's URL, and the addresses its name resolves to, before
     /// anything is sent for it (ADR 0017).
@@ -2767,6 +2774,16 @@ impl HttpTier {
             {
                 Ok(fetched) => fetched,
                 Err(failure) => {
+                    if failure.error().code() == goodfetch_protocol::run::RESPONSE_NOT_RECORDED.name
+                    {
+                        // Under replay, a robots.txt the recording lacks is
+                        // already listed as a miss and reads as no rules
+                        // (ADR 0105).
+                        return Answer::Response {
+                            status: 404,
+                            body: Vec::new(),
+                        };
+                    }
                     return Answer::Unreachable(failure.error().message().to_owned());
                 }
             };

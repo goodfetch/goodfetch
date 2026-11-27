@@ -28,6 +28,7 @@ from goodfetch_collie_client.generated.models import (
     PluginRun,
     ProgressMessage,
     ProjectSettings,
+    Recording,
     RecordingReport,
     RunId,
     RunLimit,
@@ -3204,6 +3205,8 @@ class CrawlStartParams(BaseModel):
     """
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
+    recording: Recording | None = None
+    """The Response recording the crawl replays or records (ADR 0105)."""
     run_id: Annotated[
         str | None, Field(pattern="^[a-z0-9]([a-z0-9._-]{0,126}[a-z0-9])?$")
     ] = None

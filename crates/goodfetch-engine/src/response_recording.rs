@@ -20,15 +20,24 @@
 //! to.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::{Arc, PoisonError};
 use std::time::SystemTime;
 
 use bytes::Bytes;
+use goodfetch_protocol::run::{
+    RECORDING_INVALID, RESPONSE_NOT_RECORDED, RecordingInvalidDetails, RecordingReport,
+    ResponseNotRecordedDetails, RunId,
+};
 
+use crate::call_error::CallError;
 use crate::mask::{Masks, Scope};
 use crate::response_cache::freshness::{CREDENTIALS, first};
-use crate::response_cache::{CacheRequest, ResponseHead, Served, body_sha256};
+use crate::response_cache::{
+    CacheRequest, NotRecorded, Recorded, Recording, Replaying, ResponseHead, Served, body_sha256,
+};
 use crate::sync::Mutex;
+use crate::tasks::TaskOwner;
 use crate::warc::{self, HttpRequest, HttpResponse, Record, RecordType};
 
 #[cfg(test)]
@@ -335,6 +344,179 @@ impl Replay {
             written_by: self.written_by.clone(),
             misses: used.misses.clone(),
         }
+    }
+}
+
+/// What `response_not_recorded`'s `fix` advises (ADR 0105).
+const NOT_RECORDED_FIX: &str = "Record the Response recording again so it holds this request, or answer the request with a route.";
+
+/// `response_not_recorded` (`RefusedError`, not retryable) for a request
+/// `miss` that a replaying Run's Response recording had no response for
+/// (ADR 0105).
+pub fn not_recorded_error(miss: &NotRecorded) -> CallError {
+    CallError::new(
+        &RESPONSE_NOT_RECORDED,
+        format!(
+            "The Response recording `{}` has no response for {} {}; nothing was sent.",
+            miss.recording, miss.method, miss.url
+        ),
+        &ResponseNotRecordedDetails {
+            method: miss.method.clone(),
+            url: miss.url.clone(),
+            recording: miss.recording.clone(),
+            nearest: miss.nearest.clone(),
+            fix: NOT_RECORDED_FIX.to_owned(),
+        },
+    )
+}
+
+/// `recording_invalid` (`ProgramError`, not retryable) for a Response
+/// recording at `recording` that the engine cannot read or replay (ADR
+/// 0105).
+pub fn recording_invalid_error(recording: &str, reason: impl Into<String>) -> CallError {
+    let reason = reason.into();
+    CallError::new(
+        &RECORDING_INVALID,
+        format!("The Response recording `{recording}` cannot be replayed: {reason}."),
+        &RecordingInvalidDetails {
+            recording: recording.to_owned(),
+            reason,
+        },
+    )
+}
+
+/// A live Run's opened replay recording: its start path and its indexed
+/// WARC responses, shared across every tier and Session of the Run.
+#[derive(Clone, Debug)]
+pub struct Replayed {
+    path: String,
+    replay: Arc<Replay>,
+}
+
+impl Replayed {
+    /// Its path, as the Run's start named it.
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// What the replay did so far, in the Run report's wire shape.
+    pub fn report(&self) -> RecordingReport {
+        let report = self.replay.report();
+        RecordingReport {
+            mode: "replay".to_owned(),
+            file: self.path.clone(),
+            responses_used: report.responses_used,
+            recorded_from: report.recorded_from,
+            recorded_to: report.recorded_to,
+            written_by: report.written_by,
+            misses: report
+                .misses
+                .into_iter()
+                .map(|miss| miss.to_string())
+                .collect(),
+        }
+    }
+}
+
+impl Recording for Replayed {
+    fn recorded<'a>(&'a self, request: &'a CacheRequest) -> Replaying<'a> {
+        let answer = match self.replay.answer(request) {
+            Answer::Answered(served) => Recorded::Answered(served),
+            Answer::Cut(served) => Recorded::Cut(served),
+            Answer::Missed(miss) => Recorded::Missed(NotRecorded {
+                method: miss.method,
+                url: miss.url,
+                recording: self.path.clone(),
+                nearest: miss.nearest,
+            }),
+        };
+        Box::pin(async move { answer })
+    }
+}
+
+/// Each live Run's Response recording, keyed by its [`RunId`]: opened once
+/// when the Run starts so every request of every tier and Session shares
+/// the same index without reopening the file (ADRs 0105 and 0140).
+#[derive(Clone, Debug, Default)]
+pub struct Recordings {
+    runs: Arc<Mutex<HashMap<RunId, Replayed>>>,
+}
+
+impl Recordings {
+    /// Reads and indexes the WARC file at `path` on `owner`'s blocking
+    /// threads, failing with `recording_invalid` if the file cannot be
+    /// read or is not a WARC recording the engine replays.
+    ///
+    /// # Errors
+    ///
+    /// `recording_invalid` when reading, decoding or parsing the file fails.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves the blocking read to finish without
+    /// attaching anything to any Run.
+    pub async fn open_replay(
+        &self,
+        path: &str,
+        masks: Masks,
+        max_decompression_ratio: u64,
+        owner: &TaskOwner,
+    ) -> Result<Replayed, CallError> {
+        let display = path.to_owned();
+        let file = PathBuf::from(path);
+        let parsed = owner
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "runs inside the TaskOwner's blocking policy (STYLE.md)"
+                )]
+                let bytes = std::fs::read(&file).map_err(|error| error.to_string())?;
+                Replay::open(&Bytes::from(bytes), masks, max_decompression_ratio)
+                    .map_err(|error| error.to_string())
+            })
+            .await;
+        match parsed {
+            Ok(replay) => Ok(Replayed {
+                path: display,
+                replay: Arc::new(replay),
+            }),
+            Err(reason) => Err(recording_invalid_error(&display, reason)),
+        }
+    }
+
+    /// Attaches `replayed` to the live Run `run_id`.
+    pub fn attach(&self, run_id: RunId, replayed: Replayed) {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(run_id, replayed);
+    }
+
+    /// The Run's replay recording as a [`Recording`], if it replays one.
+    pub fn get(&self, run_id: &RunId) -> Option<Arc<dyn Recording>> {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(run_id)
+            .map(|replayed| Arc::new(replayed.clone()) as Arc<dyn Recording>)
+    }
+
+    /// Whether `run_id` replays a Response recording.
+    pub fn is_replaying(&self, run_id: &RunId) -> bool {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(run_id)
+    }
+
+    /// Removes `run_id`'s recording when the Run ends and returns its
+    /// [`RecordingReport`], if it had one.
+    pub fn take_report_of(&self, run_id: &RunId) -> Option<RecordingReport> {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(run_id)
+            .map(|replayed| replayed.report())
     }
 }
 

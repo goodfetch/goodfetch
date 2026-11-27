@@ -24,10 +24,11 @@ use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use goodfetch_engine::response_cache::{CacheRequest, Caching, KeptOut, ResponseHead, Source};
+use goodfetch_engine::response_recording::not_recorded_error;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use url::Url;
 
-use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport};
+use crate::driver::{Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 
 /// `transport` answering from `caching`'s sources first.
 pub(crate) fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
@@ -94,8 +95,19 @@ impl Transport for Cached {
                 hop.body.clone().unwrap_or_default(),
             );
             let stale = match caching.source(&request, None).await {
-                Source::Routed(served) | Source::Recorded(served) => {
+                Source::Routed(served) => {
                     return Ok(whole(served.head, served.body));
+                }
+                Source::Recorded(served) => {
+                    return Ok(whole(served.head.clone(), served.body.clone()));
+                }
+                Source::RecordedCut(served) => {
+                    return Ok(cut_body(served.head.clone(), served.body.clone()));
+                }
+                Source::NotRecorded(miss) => {
+                    return Err(TransportFailure::Recorded(CallFailure(not_recorded_error(
+                        &miss,
+                    ))));
                 }
                 Source::Fresh(hit) => return Ok(whole(hit.head, hit.body)),
                 Source::Network => {
@@ -147,6 +159,20 @@ fn whole(head: ResponseHead, body: Bytes) -> Sent {
     }
 }
 
+/// `head` and `body` as a hop's answer whose body broke off: yields its
+/// recorded bytes, then fails with `ConnectionClosed` so the driver reports
+/// `response_truncated` (ADR 0118).
+fn cut_body(head: ResponseHead, body: Bytes) -> Sent {
+    Sent {
+        status: head.status,
+        headers: head.headers,
+        body: Box::new(Cut(Some(body).filter(|body| !body.is_empty()))),
+        reused: false,
+        decoded: false,
+        certificate_exception: None,
+    }
+}
+
 /// A body served whole from a source.
 struct Whole(Option<Bytes>);
 
@@ -154,6 +180,22 @@ impl Body for Whole {
     fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
         let next = self.0.take();
         Box::pin(async move { Ok(next) })
+    }
+}
+
+/// A recorded body marked truncated: yields any partial bytes then reports
+/// a closed connection.
+struct Cut(Option<Bytes>);
+
+impl Body for Cut {
+    fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
+        let next = self.0.take();
+        Box::pin(async move {
+            match next {
+                Some(bytes) => Ok(Some(bytes)),
+                None => Err(TransportFailure::ConnectionClosed),
+            }
+        })
     }
 }
 

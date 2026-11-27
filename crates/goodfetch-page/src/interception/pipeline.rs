@@ -667,6 +667,9 @@ impl PageContext {
             }
             (Answer::Fetch(overrides), Stage::Unanswered) => {
                 held.apply(overrides);
+                if self.replaying() {
+                    return self.fetch_from_recording(held, stage).await;
+                }
                 let (response, responded) = oneshot::channel();
                 let network_id = held.paused.network_id().cloned();
                 lock(&self.responses).insert(
@@ -925,21 +928,16 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let signing = self.state.engine_requests.signing.as_deref();
-        let stepped = match steps::send_on(&paused, &self.policy, blocking, signing, fetch) {
-            Ok(steps::Sent::Continue(command)) => {
-                match self.judged_addresses(held.url(), paused.egress).await {
-                    Ok(()) => Ok(steps::Sent::Continue(command)),
-                    Err(refused) => Err(Stopped::Refused(refused)),
-                }
-            }
-            other => other,
-        };
+        let replaying = self.replaying();
+        let stepped = self
+            .step_request(held, &paused, blocking, fetch, replaying)
+            .await;
         // Step 7's guard of the Session's cookies: none goes to a host the
         // egress relay terminates for a certificate exception (ADR 0042).
         // The browser adds them itself as the request leaves, so a request
         // that would carry one is failed instead.
-        if matches!(stepped, Ok(steps::Sent::Continue(_)))
+        if !replaying
+            && matches!(stepped, Ok(steps::Sent::Continue(_)))
             && let Some(withheld) = self.withhold_cookies(held).await
         {
             return Err(withheld);
@@ -948,10 +946,15 @@ impl PageContext {
         let mut gated: Option<Arc<PageState>> = None;
         let command = match stepped {
             Ok(steps::Sent::Continue(mut command)) => {
-                // Step 5: the Response cache, before the gate and the
-                // proxy, since a response it serves sends no request.
-                if !fetch && self.served_from_cache(held, &mut command).await {
-                    return Ok(());
+                // Step 5: the Response cache and a replaying Run's Response
+                // recording, before the gate and the proxy, since a response
+                // served here sends no request.
+                if !fetch {
+                    match self.served_from_cache(held, &mut command).await {
+                        Ok(true) => return Ok(()),
+                        Ok(false) => {}
+                        Err(error) => return Err(error),
+                    }
                 }
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
@@ -1008,6 +1011,30 @@ impl PageContext {
             }
         };
         self.sent_on(held, command, fetch, gated.as_deref()).await
+    }
+
+    /// Runs steps 3 and 4 (and address lookup when not replaying) for `paused`.
+    async fn step_request(
+        &self,
+        held: &Held,
+        paused: &steps::Paused<'_>,
+        blocking: &steps::Blocking,
+        fetch: bool,
+        replaying: bool,
+    ) -> Result<steps::Sent, Stopped> {
+        let signing = self.state.engine_requests.signing.as_deref();
+        if replaying {
+            return steps::send_on_replaying(paused, &self.policy, blocking, signing, fetch);
+        }
+        match steps::send_on(paused, &self.policy, blocking, signing, fetch) {
+            Ok(steps::Sent::Continue(command)) => {
+                match self.judged_addresses(held.url(), paused.egress).await {
+                    Ok(()) => Ok(steps::Sent::Continue(command)),
+                    Err(refused) => Err(Stopped::Refused(refused)),
+                }
+            }
+            other => other,
+        }
     }
 
     /// Sends `held` on with `command`, a main-frame navigation's URL

@@ -510,6 +510,8 @@ pub(crate) struct EngineRequests {
     blocking: steps::Blocking,
     /// An `identified` Session's signer, step 7's last addition.
     signing: Option<Arc<RequestSigner>>,
+    /// The Session's Response cache and recording source, consulted at step 5.
+    caching: Option<Arc<Caching>>,
 }
 
 /// A request the engine sent itself, paused at `id`, as the browser sent
@@ -522,6 +524,18 @@ pub(crate) struct EngineRequest<'a> {
 }
 
 impl EngineRequests {
+    /// The Session's Response cache and recording source, if enabled.
+    pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
+        self.caching.as_ref()
+    }
+
+    /// Whether the Run replays a Response recording (ADR 0105).
+    pub(crate) fn replaying(&self) -> bool {
+        self.caching
+            .as_ref()
+            .is_some_and(|caching| caching.replaying())
+    }
+
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
     /// step 8's command, which pauses its response; its source is its own
     /// URL, since no document of the page sent it.
@@ -548,13 +562,24 @@ impl EngineRequests {
             source_url: url,
             egress: RequestKind::Page,
         };
-        match steps::send_on(
-            &request,
-            &self.policy,
-            &self.blocking,
-            self.signing.as_deref(),
-            true,
-        ) {
+        let stepped = if self.replaying() {
+            steps::send_on_replaying(
+                &request,
+                &self.policy,
+                &self.blocking,
+                self.signing.as_deref(),
+                true,
+            )
+        } else {
+            steps::send_on(
+                &request,
+                &self.policy,
+                &self.blocking,
+                self.signing.as_deref(),
+                true,
+            )
+        };
+        match stepped {
             Ok(steps::Sent::Continue(command)) => Ok(command),
             Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked { .. }) => {
                 Err(CallError::new(
@@ -846,6 +871,7 @@ impl Interception {
                 policy: policy.clone(),
                 blocking: blocking.clone(),
                 signing: session.signing.clone(),
+                caching: session.caching.clone(),
             },
             on_document,
             caching: session.caching.clone(),
@@ -994,6 +1020,7 @@ impl Interception {
                             policy: policy.clone(),
                             blocking: blocking.clone(),
                             signing: session.signing.clone(),
+                            caching: session.caching.clone(),
                         },
                         on_document: None,
                         caching: session.caching.clone(),
@@ -1164,6 +1191,7 @@ impl Interception {
             policy,
             blocking,
             signing: session.signing.clone(),
+            caching: session.caching.clone(),
         })
     }
 }

@@ -228,12 +228,22 @@ fn in_program(params: &CrawlStartParams) -> Option<InProgram> {
     })
 }
 
-/// A start's inputs: its `seeds`.
-fn seed_inputs(seeds: &[Seed]) -> BTreeMap<StartInput, serde_json::Value> {
-    BTreeMap::from([(
+/// A start's inputs: its `seeds`, and its `recording` when given.
+fn seed_inputs(
+    seeds: &[Seed],
+    recording: Option<&goodfetch_protocol::run::Recording>,
+) -> BTreeMap<StartInput, serde_json::Value> {
+    let mut inputs = BTreeMap::from([(
         StartInput::Seeds,
         serde_json::to_value(seeds).expect("invariant: seeds encode as JSON"),
-    )])
+    )]);
+    if let Some(recording) = recording {
+        inputs.insert(
+            StartInput::Recording,
+            serde_json::to_value(recording).expect("invariant: a recording encodes as JSON"),
+        );
+    }
+    inputs
 }
 
 async fn start(
@@ -266,7 +276,8 @@ async fn start(
     // it, so the crawl opens with no work item to key (#2168).
     let keys = context.runs().keys(settings.resolved());
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
-    let inputs = seed_inputs(&seeds);
+    let inputs = seed_inputs(&seeds, params.recording.as_ref());
+    let replayed = open_replay(params.recording.as_ref(), settings.resolved(), &context).await?;
     // A Run that exists goes on with its seeds admitted once (ADR 0102).
     let checked = if found {
         Vec::new()
@@ -305,8 +316,70 @@ async fn start(
         })
         .await
         .map_err(start_error)?;
+    finish_started(
+        started,
+        replayed,
+        context,
+        crawls,
+        tiers,
+        redeclared,
+        limits,
+        settings,
+        egress,
+        (opening, declared, serving, crawl, labels, hooks),
+    )
+    .await
+}
+
+async fn open_replay(
+    recording: Option<&goodfetch_protocol::run::Recording>,
+    settings: &goodfetch_engine::settings::Resolved,
+    context: &CallContext,
+) -> Result<Option<goodfetch_engine::response_recording::Replayed>, CallError> {
+    let Some(recording) =
+        recording.filter(|r| r.mode == goodfetch_protocol::run::RecordingMode::Replay)
+    else {
+        return Ok(None);
+    };
+    context
+        .engine()
+        .open_replay(&recording.path, settings)
+        .await
+        .map(Some)
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal helper splitting start's post-RunStarted branch"
+)]
+async fn finish_started(
+    started: Started,
+    replayed: Option<goodfetch_engine::response_recording::Replayed>,
+    context: CallContext,
+    crawls: Crawls,
+    tiers: FetchTiers,
+    redeclared: Redeclared,
+    limits: StartLimits,
+    settings: RunSettings,
+    egress: Policy,
+    declarations: (
+        Datasets,
+        BTreeMap<String, LabelDeclaration>,
+        Invariants,
+        Option<CodeFreeCrawl>,
+        labels::Declared,
+        Vec<CrawlHookDeclaration>,
+    ),
+) -> Result<RunStarted, CallError> {
+    let (opening, declared, serving, crawl, labels, hooks) = declarations;
     match started {
         Started::New(run) => {
+            if let Some(replayed) = replayed {
+                context
+                    .engine()
+                    .recordings()
+                    .attach(run.identity.id().clone(), replayed);
+            }
             let run = CrawlRun::of(&run, &context);
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
@@ -334,12 +407,25 @@ async fn start(
         // An interrupted Run resumes under the declarations this start
         // checked (ADR 0102), its driver recording them.
         Started::Interrupted(run_id) => {
+            if let Some(replayed) = replayed {
+                context
+                    .engine()
+                    .recordings()
+                    .attach(run_id.clone(), replayed);
+            }
             let kept = (opening, declared, serving.payloads().clone(), crawl);
             // A crawl still ending the Run keeps nothing: the reopen is then
             // checked as no start's (ADR 0104's note of #2912).
             let kept = redeclared.keep(&run_id, kept, hooks, &crawls).await;
             let timeout = settings.resolved().get(&TIMEOUT_RUN);
-            let resumed = resume_run(&context, run_id, None, settings, timeout, kept).await?;
+            let resumed =
+                match resume_run(&context, run_id.clone(), None, settings, timeout, kept).await {
+                    Ok(resumed) => resumed,
+                    Err(error) => {
+                        let _ = context.engine().recordings().take_report_of(&run_id);
+                        return Err(error);
+                    }
+                };
             limits.give(&resumed, &context).await?;
             Ok(resumed)
         }

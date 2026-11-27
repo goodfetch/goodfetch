@@ -1557,13 +1557,22 @@ fn scored(
             servers[attempt.server].gone = true;
         }
         let waiting = attempt.leased.waiting.clone();
-        let domain = domain_ending(
-            &attempt.answer,
-            attempt.document.as_ref(),
-            read.proxied,
-            run.identity.clock().now(),
-            run.identity.clock().wall(),
-        );
+        let replaying = run
+            .browser
+            .engine
+            .recordings()
+            .is_replaying(run.identity.id());
+        let domain = if replaying {
+            goodfetch_engine::admission::Ended::Done
+        } else {
+            domain_ending(
+                &attempt.answer,
+                attempt.document.as_ref(),
+                read.proxied,
+                run.identity.clock().now(),
+                run.identity.clock().wall(),
+            )
+        };
         if attempt.moved {
             pool.moved_to_browser(&waiting.key);
         }
@@ -1599,13 +1608,17 @@ fn scored(
         if let Some(reader) = &attempt.site_files {
             pool.settle(reader, &waiting.key, Effect::Neutral, &read.pool);
         }
-        let held = held_past_bound(
-            &attempt.answer,
-            attempt
-                .handed_at
-                .unwrap_or_else(|| run.identity.clock().wall()),
-            read.longest_wait,
-        );
+        let held = if replaying {
+            None
+        } else {
+            held_past_bound(
+                &attempt.answer,
+                attempt
+                    .handed_at
+                    .unwrap_or_else(|| run.identity.clock().wall()),
+                read.longest_wait,
+            )
+        };
         settlings.push(Settling {
             server: attempt.server,
             waiting,

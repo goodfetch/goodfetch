@@ -9,7 +9,8 @@ set = "clean-up-rules"
 # EasyList, EasyPrivacy and Fanboy Annoyance are `rules/easylist.txt`,
 # `rules/easyprivacy.txt` and `rules/fanboy-annoyance.txt`, each assembled
 # from its template at the pinned commit by expanding every `%include%`
-# line, Fanboy Annoyance's `easylist_cookie/` includes left out (ADR 0047). Their licence is GPLv3+ or CC BY-SA 3.0+, credited to "The
+# line; Fanboy Annoyance's `easylist_cookie/` sections are split out at
+# compile time as removal-only cosmetic rules (ADR 0047, issue 2379). Their licence is GPLv3+ or CC BY-SA 3.0+, credited to "The
 # EasyList authors" (https://easylist.to/pages/licence.html); the compiled
 # form is an adaptation under CC BY-SA.
 

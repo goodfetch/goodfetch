@@ -574,6 +574,10 @@ covers = ["story:5-100", "setting:consent.handling"]
 id = "consent-handling-off-registers-no-runner-and-no-cosmetic-rule-acts"
 covers = ["story:5-100", "setting:consent.handling"]
 
+[[capability.case]]
+id = "cookie-section-rules-remove-leftover-notices-from-extraction-without-blocking-or-live-hiding"
+covers = ["story:5-98", "story:5-100", "operation:page.formats"]
+
 [[capability]]
 name = "clean_up.consent_walls"
 

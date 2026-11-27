@@ -36,8 +36,16 @@ impl Generic {
     /// The generic set of a version's `engines`, each list's: its hiding
     /// selectors for [`GENERIC_PROBE`].
     pub(crate) fn of(engines: [(List, &Engine); 3]) -> Self {
+        Self::of_optional(engines.map(|(list, engine)| (list, Some(engine))))
+    }
+
+    /// The generic set of optional engines, one per list.
+    pub(crate) fn of_optional(engines: [(List, Option<&Engine>); 3]) -> Self {
         let mut by_selector: BTreeMap<String, ListSet> = BTreeMap::new();
         for (list, engine) in engines {
+            let Some(engine) = engine else {
+                continue;
+            };
             #[expect(
                 clippy::iter_over_hash_type,
                 reason = "each selector goes into an ordered map, so the order read is not the order kept"

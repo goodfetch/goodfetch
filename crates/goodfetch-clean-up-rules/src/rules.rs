@@ -4,6 +4,8 @@
 //! [`FilterLists`] is `Send + Sync` (`adblock` without its `single-thread`
 //! feature), so every Session shares one behind an `Arc` with no lock.
 
+use std::sync::OnceLock;
+
 use adblock::Engine;
 
 use crate::filter_set;
@@ -28,12 +30,70 @@ include!(concat!(env!("OUT_DIR"), "/embedded.rs"));
 /// exceptions alone, which answer whether a page's URL turns the list's
 /// generic rules off; and the generic set removal reads every page with is
 /// built with them, once per version, off every page's path (issue 2191).
+/// The removal-only cookie-section engines of a version, together with
+/// their generic set, loaded on first extraction-side removal for the
+/// embedded part so Runs that never extract pay neither its memory nor its
+/// load time (ADR 0047, issue 2379).
+pub(crate) struct RemovalOnly {
+    engines: [Option<Engine>; 3],
+    generic: Generic,
+}
+
+impl RemovalOnly {
+    fn of(engines: [Option<Engine>; 3]) -> Self {
+        let generic = Generic::of_optional([
+            (List::Ads, engines[0].as_ref()),
+            (List::Trackers, engines[1].as_ref()),
+            (List::Annoyances, engines[2].as_ref()),
+        ]);
+        Self { engines, generic }
+    }
+
+    fn load_embedded() -> Self {
+        let largest = LISTS
+            .into_iter()
+            .filter_map(removal_compressed)
+            .map(|extra| extra.size)
+            .max()
+            .unwrap_or_default();
+        let mut buffer = Vec::with_capacity(largest);
+        let engines = LISTS.map(|list| {
+            removal_compressed(list).map(|extra| {
+                load_cosmetic(list.name(), extra, &mut buffer).expect(
+                    "invariant: the build compiled the embedded removal-only cookie engine with this binary",
+                )
+            })
+        });
+        drop(buffer);
+        Self::of(engines)
+    }
+
+    /// The removal-only engine of `list`, when it has one.
+    pub(crate) fn engine(&self, list: List) -> Option<&Engine> {
+        self.engines[at(list)].as_ref()
+    }
+
+    /// The generic set of the removal-only cookie-section engines.
+    pub(crate) fn generic(&self) -> &Generic {
+        &self.generic
+    }
+}
+
 pub struct FilterLists {
     ads: Engine,
     trackers: Engine,
     annoyances: Engine,
+    /// Removal-only engines compiled from the cosmetic rules of each list's
+    /// EasyList Cookie sections (ADR 0047, issue 2379), in [`List`] order:
+    /// read only by extraction-side removal, never by network blocking or
+    /// live hiding. Pre-filled by [`FilterLists::compile`]; loaded on first
+    /// removal for the embedded part.
+    removal_only: OnceLock<RemovalOnly>,
     /// The `$generichide` exceptions of each list, in [`List`] order.
     generic_hide: [Engine; 3],
+    /// The `$generichide` exceptions of each list's cookie sections, in
+    /// [`List`] order, when any exist.
+    removal_generic_hide: [Option<Engine>; 3],
     generic: Generic,
 }
 
@@ -151,38 +211,61 @@ impl FilterLists {
                 present(trackers, List::Trackers)?,
                 present(annoyances, List::Annoyances)?,
             ],
+            OnceLock::new(),
             [
                 ADS_GENERIC_HIDE,
                 TRACKERS_GENERIC_HIDE,
                 ANNOYANCES_GENERIC_HIDE,
             ]
             .map(|lines| generic_hide(lines.to_owned(), UNBREAK_GENERIC_HIDE.to_owned())),
+            [
+                ADS_REMOVAL_GENERIC_HIDE,
+                TRACKERS_REMOVAL_GENERIC_HIDE,
+                ANNOYANCES_REMOVAL_GENERIC_HIDE,
+            ]
+            .map(optional_generic_hide),
         ))
     }
 
     /// Compiles a downloaded version's Filter lists from their texts, each
     /// with the version's unbreak list, as the build compiles the embedded
     /// ones: on the engine's own machine, with its own `adblock` (ADR 0047).
+    /// Cookie sections are split into removal-only cosmetic engines so they
+    /// never block requests or hide elements on the live page (issue 2379).
     /// It blocks for as long as the lists are long, so the engine runs it
     /// on a blocking task (ADR 0060).
     pub fn compile(texts: &ListTexts<'_>) -> Self {
-        let compiled = |list: &str| {
-            let set = filter_set::of(list.to_owned(), texts.unbreak.to_owned());
+        let unbreak = filter_set::generic_hide_lines(texts.unbreak);
+        let splits =
+            [texts.ads, texts.trackers, texts.annoyances].map(filter_set::split_cookie_sections);
+        let live_generic = splits.each_ref().map(|split| {
+            generic_hide(filter_set::generic_hide_lines(&split.live), unbreak.clone())
+        });
+        let removal_generic = splits.each_ref().map(|split| {
+            let lines = filter_set::generic_hide_lines(&split.cookies);
+            optional_generic_hide(&lines)
+        });
+        let removal_only = OnceLock::from(RemovalOnly::of(splits.each_ref().map(|split| {
+            filter_set::removal_only(&split.cookies, texts.unbreak).map(Engine::new_with_filter_set)
+        })));
+        let live = splits.map(|split| {
+            let set = filter_set::of(split.live, texts.unbreak.to_owned());
             let mut engine = Engine::new_with_filter_set(set);
             engine.use_resources(stand_ins::resources());
             engine
-        };
-        let unbreak = filter_set::generic_hide_lines(texts.unbreak);
-        Self::of(
-            [texts.ads, texts.trackers, texts.annoyances].map(compiled),
-            [texts.ads, texts.trackers, texts.annoyances]
-                .map(|list| generic_hide(filter_set::generic_hide_lines(list), unbreak.clone())),
-        )
+        });
+        Self::of(live, removal_only, live_generic, removal_generic)
     }
 
-    /// The lists of the engines `[ads, trackers, annoyances]` and their
-    /// `$generichide` engines, in [`List`] order, with their generic set.
-    fn of([ads, trackers, annoyances]: [Engine; 3], generic_hide: [Engine; 3]) -> Self {
+    /// The lists of the engines `[ads, trackers, annoyances]`, their
+    /// removal-only cookie-section engines, and their `$generichide`
+    /// engines, in [`List`] order, with their generic set.
+    fn of(
+        [ads, trackers, annoyances]: [Engine; 3],
+        removal_only: OnceLock<RemovalOnly>,
+        generic_hide: [Engine; 3],
+        removal_generic_hide: [Option<Engine>; 3],
+    ) -> Self {
         let generic = Generic::of([
             (List::Ads, &ads),
             (List::Trackers, &trackers),
@@ -192,7 +275,9 @@ impl FilterLists {
             ads,
             trackers,
             annoyances,
+            removal_only,
             generic_hide,
+            removal_generic_hide,
             generic,
         }
     }
@@ -222,6 +307,17 @@ impl FilterLists {
         }
     }
 
+    /// The removal-only cookie-section engines and their generic set, loaded
+    /// on first call for the embedded part.
+    pub(crate) fn removal(&self) -> &RemovalOnly {
+        self.removal_only.get_or_init(RemovalOnly::load_embedded)
+    }
+
+    /// The removal-only cookie-section engine of `list`, when it has one.
+    pub(crate) fn removal_only(&self, list: List) -> Option<&Engine> {
+        self.removal().engine(list)
+    }
+
     /// Whether a `$generichide` exception of `list`, or of the unbreak
     /// list, turns the list's generic rules off for the page at `url`, as
     /// the list's engine answers it.
@@ -229,6 +325,16 @@ impl FilterLists {
         self.generic_hide[at(list)]
             .url_cosmetic_resources(url)
             .generichide
+    }
+
+    /// Whether a `$generichide` exception of `list`, its cookie sections,
+    /// or the unbreak list turns the list's removal-only generic rules off
+    /// for the page at `url`.
+    pub(crate) fn removal_generic_hide(&self, list: List, url: &str) -> bool {
+        self.generic_hide(list, url)
+            || self.removal_generic_hide[at(list)]
+                .as_ref()
+                .is_some_and(|engine| engine.url_cosmetic_resources(url).generichide)
     }
 
     /// The generic set removal reads every page with.
@@ -252,6 +358,11 @@ fn generic_hide(lines: String, unbreak: String) -> Engine {
     Engine::new_with_filter_set(filter_set::of(lines, unbreak))
 }
 
+/// A small `$generichide` engine when `lines` is non-empty.
+fn optional_generic_hide(lines: &str) -> Option<Engine> {
+    (!lines.is_empty()).then(|| generic_hide(lines.to_owned(), String::new()))
+}
+
 /// The texts of one version's Filter lists.
 #[derive(Clone, Copy, Debug)]
 pub struct ListTexts<'a> {
@@ -266,36 +377,12 @@ pub struct ListTexts<'a> {
 }
 
 /// `text`, a Filter list Goodfetch did not build, without its cookie
-/// sections, which the Consent prompt runner handles instead (ADR 0047): a
-/// section begins at its marker, `! *** easylist:easylist_cookie/… ***` in
-/// easylist.to's builds or `! easylist_cookie_….txt` in fanboy.co.nz's, and
-/// runs to the next marker of either form.
+/// sections: a section begins at its marker,
+/// `! *** easylist:easylist_cookie/… ***` in easylist.to's builds or
+/// `! easylist_cookie_….txt` in fanboy.co.nz's, and runs to the next marker
+/// of either form.
 pub fn without_cookie_sections(text: &str) -> String {
-    let mut kept = String::with_capacity(text.len());
-    let mut dropping = false;
-    for line in text.split_inclusive('\n') {
-        if let Some(section) = section_marker(line.trim_end()) {
-            dropping = section.contains("easylist_cookie");
-        }
-        if !dropping {
-            kept.push_str(line);
-        }
-    }
-    kept
-}
-
-/// The section a marker line names: `easylist:<path>` in `! *** … ***`, or
-/// the `<name>.txt` of `! <name>.txt`; none for any other line.
-fn section_marker(line: &str) -> Option<&str> {
-    let comment = line.strip_prefix('!')?.trim();
-    if let Some(inner) = comment
-        .strip_prefix("***")
-        .and_then(|rest| rest.strip_suffix("***"))
-    {
-        return Some(inner.trim());
-    }
-    let name = comment.strip_suffix(".txt")?;
-    (!name.is_empty() && !name.contains(char::is_whitespace)).then_some(comment)
+    filter_set::split_cookie_sections(text).live
 }
 
 /// The digest of the embedded part's files, its `manifest.json` among them,
@@ -315,9 +402,31 @@ fn compressed(list: List) -> &'static Compressed {
     }
 }
 
+/// The compressed removal-only cookie-section engine of `list`, when it
+/// carries any.
+fn removal_compressed(list: List) -> Option<&'static Compressed> {
+    match list {
+        List::Ads => ADS_REMOVAL_ONLY.as_ref(),
+        List::Trackers => TRACKERS_REMOVAL_ONLY.as_ref(),
+        List::Annoyances => ANNOYANCES_REMOVAL_ONLY.as_ref(),
+    }
+}
+
 /// Loads the engine of `list` from `compressed`, decompressed into
 /// `buffer`, with the stand-ins.
 fn load(
+    list: &'static str,
+    compressed: &Compressed,
+    buffer: &mut Vec<u8>,
+) -> Result<Engine, LoadError> {
+    let mut engine = load_cosmetic(list, compressed, buffer)?;
+    engine.use_resources(stand_ins::resources());
+    Ok(engine)
+}
+
+/// Loads a cosmetic-only engine from `compressed`, decompressed into
+/// `buffer`, without loading redirect stand-ins.
+fn load_cosmetic(
     list: &'static str,
     compressed: &Compressed,
     buffer: &mut Vec<u8>,
@@ -333,6 +442,5 @@ fn load(
             list,
             reason: error.to_string(),
         })?;
-    engine.use_resources(stand_ins::resources());
     Ok(engine)
 }

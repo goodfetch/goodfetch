@@ -3,17 +3,19 @@
 //! and EasyPrivacy, fanboy.co.nz's Fanboy Annoyance and Brave's unbreak
 //! list by default, each fetched again once the shortest expiry
 //! they declare (`! Expires: 4 days`) has passed; the cookie sections of
-//! the three lists dropped before they are kept, since the Consent prompt
-//! runner handles those. The version they make is cached by the digest the
-//! engine computes of its files, and that digest is what a Run holds to.
-//! Runs that start together share one fetch, and a fetch that fails or
-//! outlasts `clean_up.fetch_timeout` leaves a Run the last version fetched.
+//! the three lists stay in their texts with their markers so compilation
+//! keeps them as removal-only rules (ADR 0047, issue 2379), never blocking
+//! requests or hiding elements on the live page. The version they make is
+//! cached by the digest the engine computes of its files, and that digest is
+//! what a Run holds to. Runs that start together share one fetch, and a
+//! fetch that fails or outlasts `clean_up.fetch_timeout` leaves a Run the
+//! last version fetched.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use goodfetch_clean_up_rules::rules::{EMBEDDED_MANIFEST, without_cookie_sections};
+use goodfetch_clean_up_rules::rules::EMBEDDED_MANIFEST;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::rule_sources;
 use goodfetch_protocol::clean_up_rules::{
@@ -191,12 +193,7 @@ async fn fetched(sources: &Sources, now: jiff::Timestamp) -> Result<Version, Uno
         })?;
         let declared = expires_in(&text).unwrap_or(DEFAULT_EXPIRY);
         expiry = Some(expiry.map_or(declared, |shortest| shortest.min(declared)));
-        let kept = if list == "unbreak" {
-            text
-        } else {
-            without_cookie_sections(&text)
-        };
-        files.push((file.to_owned(), kept.into_bytes()));
+        files.push((file.to_owned(), text.into_bytes()));
     }
     let manifest = CleanUpRulesManifest {
         format_version: CLEAN_UP_RULES.version,

@@ -449,6 +449,22 @@ fn pay_or_accept() -> String {
     )
 }
 
+/// An inline cookie notice from an unknown vendor that the Consent prompt
+/// runner leaves alone, carrying an EasyList Cookie cosmetic selector
+/// (`.gdpr-cookie-notice`) and loading a script matching an EasyList Cookie
+/// network rule (`-cookie-banner-$script`): the script must load and the
+/// notice must stay visible on the live page, while extraction-side removal
+/// removes the notice from `page.formats` (ADR 0047, issue 2379).
+fn cookie_leftover() -> String {
+    page(
+        "cookie-leftover",
+        "A cookie notice left by the runner",
+        "<script src=\"/js/site-cookie-banner-notice.js\"></script>",
+        "<div class=\"gdpr-cookie-notice\" style=\"padding:12px;border:1px solid #333;margin-top:16px\">\
+<p>Unknown vendor cookie notice left by the runner.</p></div>",
+    )
+}
+
 /// Answers a request to the pages' hosts; `None` for any other host.
 pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
     if name != HOST && name != FRAME_HOST {
@@ -465,6 +481,16 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
                 content_type: "application/javascript",
                 headers: Vec::new(),
                 body: COMMON.as_bytes().into(),
+            });
+        }
+        (false, "/js/site-cookie-banner-notice.js") => {
+            return Some(Reply {
+                status: StatusCode::OK,
+                content_type: "application/javascript",
+                headers: Vec::new(),
+                body: b"window.__cookieBannerScriptLoaded = true;\n"
+                    .as_slice()
+                    .into(),
             });
         }
         // The beacons: their record is the answer.
@@ -490,6 +516,7 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
         (false, "/wall") => Some(wall()),
         (false, "/hidden-wall") => Some(hidden_wall()),
         (false, "/pay-or-accept") => Some(pay_or_accept()),
+        (false, "/cookie-leftover") => Some(cookie_leftover()),
         _ => None,
     };
     Some(html.map_or_else(Reply::not_found, Reply::html))

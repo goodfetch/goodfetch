@@ -57,15 +57,16 @@ fn main() {
     .expect("invariant: writing to a String cannot fail");
     for (name, file) in lists.engines() {
         let text = read(&manifest, &format!("rules/{file}"));
+        let split = filter_set::split_cookie_sections(&text);
+        let upper = name.to_ascii_uppercase();
         writeln!(
             embedded,
             "/// The `{name}` list's `$generichide` exceptions.\n\
-             pub(crate) const {}_GENERIC_HIDE: &str = {:?};",
-            name.to_ascii_uppercase(),
-            filter_set::generic_hide_lines(&text)
+             pub(crate) const {upper}_GENERIC_HIDE: &str = {:?};",
+            filter_set::generic_hide_lines(&split.live)
         )
         .expect("invariant: writing to a String cannot fail");
-        let set = filter_set::of(text, unbreak.clone());
+        let set = filter_set::of(split.live, unbreak.clone());
         let serialized = Engine::new_with_filter_set(set).serialize();
         let compressed = zstd::bulk::compress(&serialized, LEVEL)
             .expect("invariant: zstd compresses a buffer in memory");
@@ -76,10 +77,36 @@ fn main() {
         writeln!(
             embedded,
             "/// The `{name}` engine, serialized and compressed.\n\
-             pub(crate) const {}: Compressed = Compressed {{ bytes: include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{file}\")), size: {size} }};",
-            name.to_ascii_uppercase(),
+             pub(crate) const {upper}: Compressed = Compressed {{ bytes: include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{file}\")), size: {size} }};",
         )
         .expect("invariant: writing to a String cannot fail");
+        if let Some(removal_set) = filter_set::removal_only(&split.cookies, &unbreak) {
+            let serialized = Engine::new_with_filter_set(removal_set).serialize();
+            let compressed = zstd::bulk::compress(&serialized, LEVEL)
+                .expect("invariant: zstd compresses a buffer in memory");
+            let removal_file = format!("{name}_removal.dat.zst");
+            std::fs::write(out.join(&removal_file), &compressed)
+                .expect("invariant: a build script can write its OUT_DIR");
+            let removal_size = separated(serialized.len());
+            writeln!(
+                embedded,
+                "/// The `{name}` list's removal-only cookie-section engine, serialized and compressed.\n\
+                 pub(crate) const {upper}_REMOVAL_ONLY: Option<Compressed> = Some(Compressed {{ bytes: include_bytes!(concat!(env!(\"OUT_DIR\"), \"/{removal_file}\")), size: {removal_size} }});\n\
+                 /// The `{name}` list's cookie-section `$generichide` exceptions.\n\
+                 pub(crate) const {upper}_REMOVAL_GENERIC_HIDE: &str = {:?};",
+                filter_set::generic_hide_lines(&split.cookies)
+            )
+            .expect("invariant: writing to a String cannot fail");
+        } else {
+            writeln!(
+                embedded,
+                "/// The `{name}` list carries no removal-only cookie-section rules.\n\
+                 pub(crate) const {upper}_REMOVAL_ONLY: Option<Compressed> = None;\n\
+                 /// The `{name}` list carries no cookie-section `$generichide` exceptions.\n\
+                 pub(crate) const {upper}_REMOVAL_GENERIC_HIDE: &str = \"\";",
+            )
+            .expect("invariant: writing to a String cannot fail");
+        }
     }
     writeln!(
         embedded,

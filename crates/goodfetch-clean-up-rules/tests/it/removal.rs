@@ -10,8 +10,10 @@
 
 use std::sync::LazyLock;
 
+use goodfetch_clean_up_rules::cosmetic::PageRules;
 use goodfetch_clean_up_rules::list::List;
-use goodfetch_clean_up_rules::matching::Choices;
+use goodfetch_clean_up_rules::matching::{Choices, Request, ResourceKind, Verdict, judge};
+use goodfetch_clean_up_rules::never_block::NeverBlock;
 use goodfetch_clean_up_rules::removal::{self, HostCache, Removal, Rules, Share};
 use goodfetch_clean_up_rules::rules::{FilterLists, ListTexts};
 use goodfetch_counted_work::{CountedWork, Row};
@@ -353,6 +355,74 @@ fn the_prompts_the_runner_hid_go_from_extracted_content_with_no_list() {
         (
             [true, false, false],
             vec![("#cookie-notice", None, false), (".banner", None, true)],
+        )
+    );
+}
+
+/// The embedded EasyList Cookie sections remove cookie notices from extracted
+/// content (respecting cookie-section cosmetic exceptions) while never
+/// hiding elements on the live page or blocking network requests (ADR 0047,
+/// issue 2379).
+/// Covers: story:5-98, story:5-100
+#[test]
+fn embedded_cookie_sections_remove_from_extraction_without_live_hiding_or_blocking() {
+    let page = r#"<!DOCTYPE html>
+<html><head><title>Article</title></head><body>
+<main><h1>Article</h1><p>The article's own text.</p></main>
+<div class="gdpr-cookie-notice"><p>Cookie leftover notice.</p></div>
+</body></html>"#;
+
+    let (removed_news, html_news) = removed(
+        page,
+        "https://news.example/article",
+        &defaults(),
+        &CountedWork::default(),
+    );
+    let (removed_excepted, html_excepted) = removed(
+        page,
+        "https://weareethos.com/article",
+        &defaults(),
+        &CountedWork::default(),
+    );
+    let live_rules = PageRules::of(&LISTS, &defaults(), "https://news.example/article")
+        .css_rules(&["gdpr-cookie-notice"], &[]);
+    let live_hides = live_rules
+        .iter()
+        .any(|rule| rule.selector == ".gdpr-cookie-notice");
+    let verdict = judge(
+        &Request {
+            url: "https://news.example/js/site-cookie-banner-notice.js",
+            source_url: "https://news.example/article",
+            kind: ResourceKind::Script,
+            method: "GET",
+        },
+        &NeverBlock::new(),
+        Some(&LISTS),
+        &defaults(),
+    );
+
+    assert_eq!(
+        (
+            html_news.contains("The article's own text."),
+            html_news.contains("Cookie leftover notice."),
+            removed_news
+                .removed
+                .iter()
+                .map(|element| (element.rule.as_str(), element.list))
+                .collect::<Vec<_>>(),
+            html_excepted.contains("Cookie leftover notice."),
+            removed_excepted.removed.len(),
+            live_hides,
+            verdict,
+        ),
+        (
+            true,
+            false,
+            vec![(".gdpr-cookie-notice", Some(List::Annoyances))],
+            true,
+            0,
+            false,
+            Verdict::Allowed,
         )
     );
 }

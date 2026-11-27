@@ -145,15 +145,17 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
     let selector =
         |text: &str| work.rules_selector(Row::PageSelectorCompilations, rules.version, text);
     let generic = rules.lists.generic();
+    let removal_generic = rules.lists.removal().generic();
     let host = rules
         .hosts
         .host(&HostKey::of(rules.lists, rules.version, url, on), |key| {
             work.count(Row::PageRuleListBuilds);
-            Host::build(rules.lists, generic, url, key, &selector)
+            Host::build(rules.lists, generic, removal_generic, url, key, &selector)
         });
     let roots = roots(document, work);
     let page = class_and_id_rules(rules.lists, &host, &roots, &selector);
     if host.generic.is_empty()
+        && host.removal_generic.is_empty()
         && host.rules.is_empty()
         && page.rules.is_empty()
         && host.procedural.is_empty()
@@ -162,6 +164,7 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
     }
     let sources = Sources {
         generic,
+        removal_generic,
         host: &host,
         page: &page,
     };
@@ -192,6 +195,7 @@ pub fn remove(document: &ParsedHtml, url: &str, rules: Rules<'_>, work: &Counted
                         .find_map(|(at, list, _)| {
                             let matcher = match *at {
                                 At::Generic(at) => generic.matcher(at, selector),
+                                At::RemovalGeneric(at) => removal_generic.matcher(at, selector),
                                 At::Host(at) => host.rules[at].matcher.as_ref(),
                                 At::Page(at) => page.rules[at].kind.as_ref(),
                             }?;
@@ -251,14 +255,24 @@ fn class_and_id_rules(
     let mut rules: Vec<(String, List)> = Vec::new();
     if !host.exceptions.is_empty() {
         let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
-        for (list, exceptions) in &host.exceptions {
-            let engine = lists.engine(*list);
-            rules.extend(
-                engine
-                    .hidden_class_id_selectors(classes.iter(), ids.iter(), exceptions)
-                    .into_iter()
-                    .map(|selector| (selector, *list)),
-            );
+        for (list, live_cid, rem_cid, exceptions) in &host.exceptions {
+            if *live_cid {
+                let engine = lists.engine(*list);
+                rules.extend(
+                    engine
+                        .hidden_class_id_selectors(classes.iter(), ids.iter(), exceptions)
+                        .into_iter()
+                        .map(|selector| (selector, *list)),
+                );
+            }
+            if *rem_cid && let Some(extra) = lists.removal_only(*list) {
+                rules.extend(
+                    extra
+                        .hidden_class_id_selectors(classes.iter(), ids.iter(), exceptions)
+                        .into_iter()
+                        .map(|selector| (selector, *list)),
+                );
+            }
         }
     }
     rules.sort_unstable();
@@ -279,15 +293,17 @@ fn class_and_id_rules(
 #[derive(Clone, Copy)]
 enum At {
     Generic(usize),
+    RemovalGeneric(usize),
     Host(usize),
     Page(usize),
 }
 
-/// The rules one page is read with: the generic set, its host's and its
-/// own class and ID rules.
+/// The rules one page is read with: the generic sets (live and
+/// removal-only), its host's and its own class and ID rules.
 #[derive(Clone, Copy)]
 struct Sources<'r> {
     generic: &'r Generic,
+    removal_generic: &'r Generic,
     host: &'r Host,
     page: &'r ClassAndIdRules,
 }
@@ -297,6 +313,7 @@ impl<'r> Sources<'r> {
     fn selector(self, at: At) -> &'r str {
         match at {
             At::Generic(at) => self.generic.rule(at).0,
+            At::RemovalGeneric(at) => self.removal_generic.rule(at).0,
             At::Host(at) => &self.host.rules[at].selector,
             At::Page(at) => &self.page.rules[at].name,
         }
@@ -308,6 +325,7 @@ impl<'r> Sources<'r> {
 #[derive(Default)]
 struct Candidates {
     generic: Vec<usize>,
+    removal_generic: Vec<usize>,
     host: Vec<usize>,
     page: Vec<usize>,
     /// Each candidate rule, with the list and rank its selector is applied
@@ -321,6 +339,7 @@ impl Candidates {
     fn of(&mut self, node: &NodeRef<'_>, sources: Sources<'_>) -> &[(At, List, u8)] {
         let Sources {
             generic,
+            removal_generic,
             host,
             page,
         } = sources;
@@ -331,6 +350,16 @@ impl Candidates {
                 let list = host.generic_list(*at, generic.rule(*at).1)?;
                 Some((At::Generic(*at), list, 0))
             }));
+        }
+        if !host.removal_generic.is_empty() {
+            removal_generic
+                .index()
+                .candidates(node, &mut self.removal_generic);
+            self.all
+                .extend(self.removal_generic.iter().filter_map(|at| {
+                    let list = host.removal_generic_list(*at, removal_generic.rule(*at).1)?;
+                    Some((At::RemovalGeneric(*at), list, 0))
+                }));
         }
         host.index.candidates(node, &mut self.host);
         self.all.extend(self.host.iter().map(|at| {

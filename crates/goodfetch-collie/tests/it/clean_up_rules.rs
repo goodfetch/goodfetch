@@ -544,6 +544,86 @@ fn upstream_lists_are_fetched_from_their_urls_without_their_cookie_sections() {
     );
 }
 
+/// `clean_up.update = upstream` keeps each list's cookie sections as
+/// removal-only rules: their network rules never block, their cosmetic
+/// rules never hide on the live page, and `page.formats` removes what they
+/// match and names the rule in Provenance (ADR 0047, issue 2379).
+/// Covers: story:5-97, story:5-98, story:5-100, setting:clean_up.update, setting:clean_up.lists
+#[cfg(unix)]
+#[test]
+fn upstream_lists_keep_cookie_sections_as_removal_only_rules() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    configure(&env, &stand_in, &lists_configuration(&stand_in));
+    stand_in.serve(
+        "/fanboy-annoyance.txt",
+        b"[Adblock Plus 2.0]\n! Expires: 4 days\n! *** easylist:easylist_cookie/easylist_cookie_general_block.txt ***\n-cookie-banner-$script\n! *** easylist:easylist_cookie/easylist_cookie_general_hide.txt ***\n##.gdpr-cookie-notice\n"
+            .to_vec(),
+    );
+    for list in ["/easylist.txt", "/easyprivacy.txt", "/brave-unbreak.txt"] {
+        stand_in.serve(list, b"[Adblock Plus 2.0]\n! Expires: 4 days\n".to_vec());
+    }
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = engine_with_browser(&env, &cache);
+    let mut run_settings = settings(Some(&proving_ground), json!({ "update": "upstream" }));
+    run_settings["network"]["resolve"]["consent.test"] =
+        run_settings["network"]["resolve"]["clean-up.test"].clone();
+
+    result(engine.ask(
+        1,
+        "run.start",
+        &json!({ "run_id": "upstream-cookies", "settings": run_settings }),
+    ));
+    let page: PageOpened =
+        opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "upstream-cookies" })));
+    let page_id = page.page_id;
+    result(engine.ask(
+        4,
+        "page.goto",
+        &json!({ "page_id": page_id, "url": proving_ground.url("consent.test", "/cookie-leftover") }),
+    ));
+    let live = result(engine.ask(
+        5,
+        "page.evaluate",
+        &json!({
+            "page_id": page_id,
+            "function": "() => ({ display: getComputedStyle(document.querySelector('.gdpr-cookie-notice')).display, script: window.__cookieBannerScriptLoaded === true })",
+        }),
+    ));
+    let formats = result(engine.ask(
+        6,
+        "page.formats",
+        &json!({ "page_id": page_id, "formats": { "markdown": true, "html": { "kind": "cleaned" } } }),
+    ));
+    result(engine.ask(7, "run.finish", &json!({ "run_id": "upstream-cookies" })));
+    let _ = engine.finish();
+
+    let markdown = formats["markdown"].as_str().unwrap_or_default();
+    let cleaned = formats["html"].as_str().unwrap_or_default();
+    let removed_named = crate::egress_relay::provenance(&env, "upstream-cookies", "formats")
+        .iter()
+        .any(|line| {
+            line["removed"].as_array().is_some_and(|removed| {
+                removed.iter().any(|entry| {
+                    entry["rule"] == json!(".gdpr-cookie-notice")
+                        && entry["list"] == json!("annoyances")
+                })
+            })
+        });
+    assert_eq!(
+        (
+            live["value"]["display"].as_str() != Some("none"),
+            live["value"]["script"] == json!(true),
+            markdown.contains("The article's text"),
+            markdown.contains("Unknown vendor cookie notice left by the runner"),
+            cleaned.contains("gdpr-cookie-notice"),
+            removed_named,
+        ),
+        (true, true, true, false, false, true)
+    );
+}
+
 /// A Run that `clean_up.version` pins to a daily version older than 14
 /// days, and past its expiry, holds to it, and its Run report warns that
 /// its rules are stale.

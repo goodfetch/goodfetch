@@ -72,6 +72,7 @@ pub(crate) enum Case {
     Worlds,
     Detect,
     Off,
+    CookieLeftover,
     Walls,
     WallsAtOnce,
     WallsDetect,
@@ -100,6 +101,9 @@ impl Case {
             }
             "consent-handling-detect-leaves-prompts-alone" => Self::Detect,
             "consent-handling-off-registers-no-runner-and-no-cosmetic-rule-acts" => Self::Off,
+            "cookie-section-rules-remove-leftover-notices-from-extraction-without-blocking-or-live-hiding" => {
+                Self::CookieLeftover
+            }
             "a-notice-is-hidden-and-a-wall-raises-blocked-with-consent-required-and-is-never-answered" => {
                 Self::Walls
             }
@@ -138,6 +142,7 @@ impl Case {
             Self::Worlds => worlds(connection, home, site, checks),
             Self::Detect => detect(connection, home, site, checks),
             Self::Off => off(connection, home, site, checks),
+            Self::CookieLeftover => cookie_leftover(connection, home, site, checks),
             Self::Walls => walls::walls(connection, home, site, checks),
             Self::WallsAtOnce => walls::walls_at_once(connection, site, checks),
             Self::WallsDetect => walls::walls_detect(connection, home, site, checks),
@@ -691,6 +696,77 @@ fn off_wall(
     checks.check(
         format!("under `off`, no Provenance entry records a Consent prompt ({prompts})"),
         prompts == 0,
+    );
+    Ok(())
+}
+
+/// On a page whose cookie notice the Consent prompt runner leaves alone
+/// (`/cookie-leftover`), EasyList Cookie's network rule (`-cookie-banner-$script`)
+/// never blocks its script, its cosmetic rule (`.gdpr-cookie-notice`) never
+/// hides the notice on the live page, and `page.formats` removes the notice
+/// from extracted content and names `.gdpr-cookie-notice` in Provenance
+/// (ADR 0047, issue 2379).
+fn cookie_leftover(
+    connection: &mut Connection,
+    home: Option<&str>,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let run_id = "conformance-consent-cookie-leftover";
+    let Some(page) = open(connection, site, run_id, &json!({}), checks)? else {
+        return finish(connection, run_id);
+    };
+    visit(connection, site, &page, "/cookie-leftover", checks)?;
+    let observed = call(
+        connection,
+        PAGE_EVALUATE.name,
+        &json!(page.page_id),
+        &json!({
+            "function": "() => ({ display: getComputedStyle(document.querySelector('.gdpr-cookie-notice')).display, script: window.__cookieBannerScriptLoaded === true })",
+        }),
+    )?;
+    checks.check(
+        "no cookie-section rule hides the notice on the live page",
+        observed["result"]["value"]["display"]
+            .as_str()
+            .is_some_and(|display| display != "none"),
+    );
+    let script_loaded = observed["result"]["value"]["script"] == json!(true)
+        && site.received_requests().of_the_case().any(|request| {
+            request.host == HOST && request.target == "/js/site-cookie-banner-notice.js"
+        });
+    checks.check(
+        "no cookie-section network rule blocks the page's cookie-banner script",
+        script_loaded,
+    );
+    let formats = call(
+        connection,
+        PAGE_FORMATS.name,
+        &json!(page.page_id),
+        &json!({ "formats": { "markdown": true, "html": { "kind": "cleaned" } } }),
+    )?;
+    let markdown = formats["result"]["markdown"].as_str().unwrap_or_default();
+    let cleaned = formats["result"]["html"].as_str().unwrap_or_default();
+    checks.check(
+        "the cookie notice is removed from `page.formats` output while the article stays",
+        markdown.contains("The article's text")
+            && !markdown.contains("Unknown vendor cookie notice left by the runner")
+            && !cleaned.contains("gdpr-cookie-notice"),
+    );
+    finish(connection, run_id)?;
+    let provenance = checks.run_trace(run_trace::lines(home, run_id, RUN_TRACE_PROVENANCE));
+    let removed_named = provenance.iter().any(|line| {
+        line["action"] == json!("formats")
+            && line["removed"].as_array().is_some_and(|removed| {
+                removed.iter().any(|entry| {
+                    entry["rule"] == json!(".gdpr-cookie-notice")
+                        && entry["list"] == json!("annoyances")
+                })
+            })
+    });
+    checks.check(
+        "Provenance names `.gdpr-cookie-notice` under `annoyances` in the `formats` entry",
+        removed_named,
     );
     Ok(())
 }

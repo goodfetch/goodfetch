@@ -21,6 +21,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use adblock::cosmetic_filter_cache::UrlSpecificResources;
 use adblock::request::Request;
 use dom_query::Matcher;
 
@@ -47,9 +48,12 @@ pub(super) struct HostKey {
     host: Option<String>,
     /// The lists that are on.
     on: ListSet,
-    /// The lists among them a `$generichide` exception turns the generic
-    /// rules off for, on the page's URL.
+    /// The lists among them a `$generichide` exception turns the live
+    /// generic rules off for, on the page's URL.
     generic_hide: ListSet,
+    /// The lists among them a `$generichide` exception turns the
+    /// removal-only cookie-section generic rules off for, on the page's URL.
+    removal_generic_hide: ListSet,
 }
 
 impl HostKey {
@@ -63,24 +67,43 @@ impl HostKey {
             .lists()
             .filter(|list| host.is_some() && lists.generic_hide(*list, url))
             .fold(ListSet::default(), ListSet::with);
+        let removal_generic_hide = on
+            .lists()
+            .filter(|list| host.is_some() && lists.removal_generic_hide(*list, url))
+            .fold(ListSet::default(), ListSet::with);
         Self {
             version: version.to_owned(),
             host,
             on,
             generic_hide,
+            removal_generic_hide,
         }
     }
 
-    /// The lists whose generic rules a class or ID keys apply.
+    /// The lists whose live generic rules a class or ID keys apply.
     fn class_and_id(&self) -> ListSet {
         self.on.without(self.generic_hide)
     }
 
-    /// The lists whose generic rules no class or ID keys apply: none for a
-    /// URL `adblock` does not read, which it gives no rules.
+    /// The lists whose removal-only generic rules a class or ID keys apply.
+    fn removal_class_and_id(&self) -> ListSet {
+        self.on.without(self.removal_generic_hide)
+    }
+
+    /// The lists whose live generic rules no class or ID keys apply: none
+    /// for a URL `adblock` does not read, which it gives no rules.
     fn generic(&self) -> ListSet {
         if self.host.is_some() {
             self.class_and_id()
+        } else {
+            ListSet::default()
+        }
+    }
+
+    /// The lists whose removal-only generic rules no class or ID keys apply.
+    fn removal_generic(&self) -> ListSet {
+        if self.host.is_some() {
+            self.removal_class_and_id()
         } else {
             ListSet::default()
         }
@@ -89,16 +112,23 @@ impl HostKey {
 
 /// What one host adds to the generic set, for one key.
 pub(super) struct Host {
-    /// The lists whose generic set applies.
+    /// The lists whose live generic set applies.
     pub(super) generic: ListSet,
+    /// The lists whose removal-only cookie-section generic set applies.
+    pub(super) removal_generic: ListSet,
     /// The host's own plain rules, in rule order, filed in `index`.
     pub(super) rules: Vec<HostRule>,
     pub(super) index: Index,
     /// The lists among `generic` that take each generic selector back, by
-    /// its position in the set.
+    /// its position in the live generic set.
     pub(super) excepted: HashMap<usize, ListSet>,
-    /// The exceptions of each list whose class and ID rules apply.
-    pub(super) exceptions: Vec<(List, HashSet<String>)>,
+    /// The lists among `removal_generic` that take each removal-only
+    /// generic selector back, by its position in the removal-only generic
+    /// set.
+    pub(super) removal_excepted: HashMap<usize, ListSet>,
+    /// The merged exceptions of each list whose class and ID rules apply,
+    /// paired with whether live and removal-only class/ID rules apply.
+    pub(super) exceptions: Vec<(List, bool, bool, HashSet<String>)>,
     /// The procedural rules that are no plain CSS, in list order.
     pub(super) procedural: Vec<Rule<Procedural>>,
     /// The bytes it holds, about.
@@ -176,63 +206,72 @@ impl Host {
     pub(super) fn build(
         lists: &FilterLists,
         generic: &Generic,
+        removal_generic: &Generic,
         url: &str,
         key: &HostKey,
         compile: &impl Fn(&str) -> Option<Matcher>,
     ) -> Self {
         let generic_lists = key.generic();
-        let mut rules = Vec::new();
+        let removal_generic_lists = key.removal_generic();
+        let mut collected = Collected::default();
         let mut excepted: HashMap<usize, ListSet> = HashMap::new();
+        let mut removal_excepted: HashMap<usize, ListSet> = HashMap::new();
         let mut exceptions = Vec::new();
-        let mut procedurals = Vec::new();
         for (list, engine) in lists.engines() {
             if !key.on.contains(list) {
                 continue;
             }
             let resources = engine.url_cosmetic_resources(url);
-            let applies = generic_lists.contains(list);
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "the rules are sorted once read, so the order read is not the order kept"
-            )]
-            for selector in &resources.hide_selectors {
-                let generic_rule = generic
-                    .position(selector)
-                    .is_some_and(|at| generic.rule(at).1.contains(list));
-                if !(applies && generic_rule) {
-                    rules.push((selector.clone(), list, 0, true));
-                }
+            let removal_resources = lists
+                .removal_only(list)
+                .map(|extra| extra.url_cosmetic_resources(url));
+            let mut merged_exceptions = resources.exceptions.clone();
+            if let Some(extra) = &removal_resources {
+                merged_exceptions.extend(extra.exceptions.iter().cloned());
             }
-            for filter in cosmetic::procedural(&resources) {
-                match filter.as_css() {
-                    Some((selector, style)) => {
-                        let hidden = style == HIDDEN;
-                        rules.push((selector, list, 2, hidden));
-                    }
-                    None => procedurals.extend(procedural(&filter, list, compile)),
-                }
+            let live_applies = generic_lists.contains(list);
+            let rem_applies = removal_generic_lists.contains(list);
+            collected.add(
+                &resources,
+                list,
+                generic,
+                live_applies,
+                &merged_exceptions,
+                compile,
+            );
+            if let Some(extra) = &removal_resources {
+                collected.add(
+                    extra,
+                    list,
+                    removal_generic,
+                    rem_applies,
+                    &merged_exceptions,
+                    compile,
+                );
             }
-            if applies {
-                #[expect(
-                    clippy::iter_over_hash_type,
-                    reason = "each exception goes into a map by position, so the order read is not the order kept"
-                )]
-                for exception in &resources.exceptions {
-                    if let Some(at) = generic.position(exception)
-                        && generic.rule(at).1.contains(list)
-                    {
-                        let lists = excepted.entry(at).or_default();
-                        *lists = lists.with(list);
-                    }
-                }
+            if live_applies {
+                record_excepted(&merged_exceptions, generic, list, &mut excepted);
             }
-            if key.class_and_id().contains(list) {
-                exceptions.push((list, resources.exceptions));
+            if rem_applies {
+                record_excepted(
+                    &merged_exceptions,
+                    removal_generic,
+                    list,
+                    &mut removal_excepted,
+                );
+            }
+            let live_cid = key.class_and_id().contains(list);
+            let rem_cid = removal_resources.is_some() && key.removal_class_and_id().contains(list);
+            if live_cid || rem_cid {
+                exceptions.push((list, live_cid, rem_cid, merged_exceptions));
             }
         }
-        rules.sort_unstable_by(|a, b| (&a.0, a.1, a.2).cmp(&(&b.0, b.1, b.2)));
+        collected
+            .rules
+            .sort_unstable_by(|a, b| (&a.0, a.1, a.2).cmp(&(&b.0, b.1, b.2)));
         let mut previous: Option<String> = None;
-        let rules: Vec<HostRule> = rules
+        let rules: Vec<HostRule> = collected
+            .rules
             .into_iter()
             .map(|(selector, list, rank, hidden)| {
                 // Only the first rule of a selector is ever applied.
@@ -249,11 +288,13 @@ impl Host {
         let index = Index::of(rules.iter().map(|rule| rule.selector.as_str()));
         let mut host = Self {
             generic: generic_lists,
+            removal_generic: removal_generic_lists,
             rules,
             index,
             excepted,
+            removal_excepted,
             exceptions,
-            procedural: procedurals,
+            procedural: collected.procedurals,
             bytes: 0,
         };
         host.bytes = host.held();
@@ -273,6 +314,15 @@ impl Host {
         self.generic_lists(at, lists).first()
     }
 
+    /// The first list a removal-only generic selector held by `lists` is
+    /// credited to here, when any applies.
+    pub(super) fn removal_generic_list(&self, at: usize, lists: ListSet) -> Option<List> {
+        lists
+            .and(self.removal_generic)
+            .without(self.removal_excepted.get(&at).copied().unwrap_or_default())
+            .first()
+    }
+
     /// About how many bytes it holds.
     fn held(&self) -> u64 {
         let rules: usize = self
@@ -280,12 +330,13 @@ impl Host {
             .iter()
             .map(|rule| size_of::<HostRule>() + rule.selector.capacity())
             .sum();
-        let excepted = self.excepted.capacity() * size_of::<(usize, ListSet)>();
+        let excepted = (self.excepted.capacity() + self.removal_excepted.capacity())
+            * size_of::<(usize, ListSet)>();
         let exceptions: usize = self
             .exceptions
             .iter()
-            .map(|(_, exceptions)| {
-                size_of::<(List, HashSet<String>)>()
+            .map(|(_, _, _, exceptions)| {
+                size_of::<(List, bool, bool, HashSet<String>)>()
                     + exceptions.capacity() * size_of::<String>()
                     + exceptions.iter().map(String::capacity).sum::<usize>()
             })
@@ -296,5 +347,74 @@ impl Host {
             .map(|rule| size_of::<Rule<Procedural>>() + rule.name.capacity() + rule.kind.bytes())
             .sum();
         (size_of::<Self>() + rules + self.index.bytes() + excepted + exceptions + procedural) as u64
+    }
+}
+
+/// Non-generic plain rules and procedural rules collected while building a
+/// [`Host`].
+#[derive(Default)]
+struct Collected {
+    rules: Vec<(String, List, u8, bool)>,
+    procedurals: Vec<Rule<Procedural>>,
+}
+
+impl Collected {
+    /// Collects the host's non-generic plain rules and procedural rules from
+    /// `resources` for `list`, skipping any selector listed in `exceptions`.
+    fn add(
+        &mut self,
+        resources: &UrlSpecificResources,
+        list: List,
+        generic: &Generic,
+        applies: bool,
+        exceptions: &HashSet<String>,
+        compile: &impl Fn(&str) -> Option<Matcher>,
+    ) {
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "the rules are sorted once read, so the order read is not the order kept"
+        )]
+        for selector in &resources.hide_selectors {
+            if exceptions.contains(selector) {
+                continue;
+            }
+            let generic_rule = generic
+                .position(selector)
+                .is_some_and(|at| generic.rule(at).1.contains(list));
+            if !(applies && generic_rule) {
+                self.rules.push((selector.clone(), list, 0, true));
+            }
+        }
+        for filter in cosmetic::procedural(resources) {
+            match filter.as_css() {
+                Some((selector, style)) => {
+                    let hidden = style == HIDDEN;
+                    self.rules.push((selector, list, 2, hidden));
+                }
+                None => self.procedurals.extend(procedural(&filter, list, compile)),
+            }
+        }
+    }
+}
+
+/// Records every generic selector in `generic` that `exceptions` takes back
+/// for `list`.
+fn record_excepted(
+    exceptions: &HashSet<String>,
+    generic: &Generic,
+    list: List,
+    excepted: &mut HashMap<usize, ListSet>,
+) {
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "each exception goes into a map by position, so the order read is not the order kept"
+    )]
+    for exception in exceptions {
+        if let Some(at) = generic.position(exception)
+            && generic.rule(at).1.contains(list)
+        {
+            let lists = excepted.entry(at).or_default();
+            *lists = lists.with(list);
+        }
     }
 }

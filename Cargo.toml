@@ -146,6 +146,11 @@ pulldown-cmark = { version = "0.13.4", default-features = false }
 # The CSV reader the CSV Exports are read back with in tests (spec #582,
 # pitfall D07).
 csv = { version = "1.4.0", default-features = false }
+# Cron expression parsing, DST evaluation and English descriptions for
+# Schedules (ADR 0036; spec #589; #864). Without its default `chrono`
+# feature: `goodfetch-schedule` connects our workspace's `jiff` through
+# `CronDateTime`.
+croner = { version = "5.0.1", default-features = false, features = ["std"] }
 # The Arrow IPC and Parquet Exports' columns, batches and writers (spec #582,
 # ADR 0026). Parquet without its default features: they turn on flate2's
 # zlib-rs backend, which changes the Proving ground's compressed bodies in a

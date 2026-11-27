@@ -15,7 +15,7 @@ product = "collie"
 
 [suite]
 name = "schedule"
-version = "1"
+version = "2"
 
 [[capability]]
 name = "schedule"
@@ -35,3 +35,7 @@ covers = ["story:10-1", "story:10-13", "operation:schedule.create", "operation:s
 [[capability.case]]
 id = "a-delete-answers-whether-it-deleted-the-schedule"
 covers = ["story:10-1", "story:10-13", "operation:schedule.create", "operation:schedule.delete", "operation:schedule.get"]
+
+[[capability.case]]
+id = "a-preview-reads-both-dst-transitions-and-refuses-a-bad-trigger"
+covers = ["story:10-9", "story:10-15", "story:10-16", "story:10-17", "operation:schedule.preview", "error:schedule_trigger_invalid"]

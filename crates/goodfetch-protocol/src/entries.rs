@@ -381,7 +381,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 103] = [
+    const COLLIE: [&str; 104] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -476,6 +476,7 @@ mod tests {
         "schedule.create",
         "schedule.list",
         "schedule.get",
+        "schedule.preview",
         "schedule.info",
         "schedule.delete",
         "config.explain",

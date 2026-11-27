@@ -264,6 +264,26 @@ redaction = true
 [settings.sample]
 echo_repeats = 4
 
+[settings.schedule]
+overlap = "skip"
+catch_up = "until_next"
+jitter = 30000
+pause_timeout = "next_occurrence"
+tick = 30000
+wake_threshold = 30000
+max_count = 4
+min_interval = 30000
+limits_max = { day = [{ amount = 500, usage_kind = "pages" }, { amount = 5000000, currency = "USD", usage_kind = "ai_tokens" }], month = [{ amount = 10000, usage_kind = "pages" }, { amount = 50000000, currency = "USD", usage_kind = "ai_tokens" }], week = [{ amount = 2500, usage_kind = "pages" }, { amount = 20000000, currency = "USD", usage_kind = "ai_tokens" }] }
+
+[settings.schedule.auto_pause]
+failures = 4
+
+[settings.schedule.retention]
+runs = 4
+watch_runs = 4
+changed_watches = 4
+history = 30000
+
 [settings.consent]
 handling = "answer"
 domains = ["example"]
@@ -720,6 +740,26 @@ redaction = true
 [lock.sample]
 echo_repeats = 4
 
+[lock.schedule]
+overlap = "skip"
+catch_up = "until_next"
+jitter = 30000
+pause_timeout = "next_occurrence"
+tick = 30000
+wake_threshold = 30000
+max_count = 4
+min_interval = 30000
+limits_max = { day = [{ amount = 500, usage_kind = "pages" }, { amount = 5000000, currency = "USD", usage_kind = "ai_tokens" }], month = [{ amount = 10000, usage_kind = "pages" }, { amount = 50000000, currency = "USD", usage_kind = "ai_tokens" }], week = [{ amount = 2500, usage_kind = "pages" }, { amount = 20000000, currency = "USD", usage_kind = "ai_tokens" }] }
+
+[lock.schedule.auto_pause]
+failures = 4
+
+[lock.schedule.retention]
+runs = 4
+watch_runs = 4
+changed_watches = 4
+history = 30000
+
 [lock.consent]
 handling = "answer"
 domains = ["example"]
@@ -1011,6 +1051,22 @@ refusals_per_minute = 4
 
 [cap.sample]
 echo_repeats = 4
+
+[cap.schedule]
+jitter = 30000
+tick = 30000
+wake_threshold = 30000
+max_count = 4
+min_interval = 30000
+
+[cap.schedule.auto_pause]
+failures = 4
+
+[cap.schedule.retention]
+runs = 4
+watch_runs = 4
+changed_watches = 4
+history = 30000
 
 [cap.filter_lists]
 host_cache = 4

@@ -34,6 +34,7 @@ use goodfetch_protocol::page::emulation::{
     DEVICE_SCALE_FACTOR_SHAPE, GEOLOCATION_SHAPE, NETWORK_THROTTLE_SHAPE, VIEWPORT_SHAPE,
 };
 use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
+use goodfetch_protocol::schedule::{SCHEDULE_CATCH_UP_SHAPE, SCHEDULE_PAUSE_TIMEOUT_SHAPE};
 use goodfetch_protocol::secrets::placeholders::BOUND_PLACEHOLDER_SHAPE;
 use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
 use goodfetch_protocol::settings::session_source::SESSION_SOURCE_SHAPE;
@@ -51,7 +52,7 @@ use super::{HEADER, Setter, comment};
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
 /// builds, and the shape's own `check` reads that type. A new shape a key
 /// takes fails the generation until it is listed here.
-const SHAPES: [(&ValueShape, &str); 14] = [
+const SHAPES: [(&ValueShape, &str); 16] = [
     (
         &EXTRACTOR_NAME_SHAPE,
         "::goodfetch_protocol::page::ExtractorName",
@@ -107,6 +108,14 @@ const SHAPES: [(&ValueShape, &str); 14] = [
     (
         &BOUND_PLACEHOLDER_SHAPE,
         "::goodfetch_protocol::secrets::placeholders::BoundPlaceholder",
+    ),
+    (
+        &SCHEDULE_CATCH_UP_SHAPE,
+        "::goodfetch_protocol::schedule::ScheduleCatchUp",
+    ),
+    (
+        &SCHEDULE_PAUSE_TIMEOUT_SHAPE,
+        "::goodfetch_protocol::schedule::SchedulePauseTimeout",
     ),
 ];
 

@@ -2427,6 +2427,21 @@
       ],
       "type": "object"
     },
+    "CronTrigger": {
+      "additionalProperties": false,
+      "description": "A cron expression: five fields (minute, hour, day of month, month, day\nof week) plus optional seconds first, `L`, `W`, `#` and the\n`@daily`-style macros (ADR 0036).",
+      "properties": {
+        "cron": {
+          "arrived_in": "0.1",
+          "description": "The cron expression, such as `0 9 * * MON-FRI` or `@daily`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cron"
+      ],
+      "type": "object"
+    },
     "DaemonDrainingDetails": {
       "description": "What `daemon_draining` details.",
       "properties": {
@@ -9411,6 +9426,26 @@
         }
       ]
     },
+    "PreviewOccurrence": {
+      "description": "One previewed Occurrence of a trigger: its UTC instant and its local\ncivil date-time with offset in the preview's IANA time zone.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Occurrence falls, as a UTC instant."
+        },
+        "local": {
+          "arrived_in": "0.1",
+          "description": "The same instant written in the preview's IANA time zone with its\noffset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "local"
+      ],
+      "type": "object"
+    },
     "PrivateEndpoint": {
       "additionalProperties": false,
       "description": "An Attached engine's private endpoint (ADRs 0024 and 0031): where it\nlistens, a `0600` Unix socket on macOS and Linux or loopback TCP on\nWindows, and the `0600` file holding the token that each Connection's\n`hello` there carries, as a Daemon's does.",
@@ -12740,6 +12775,55 @@
         }
       ]
     },
+    "ScheduleCapExceededDetails": {
+      "description": "What `schedule_cap_exceeded` details: which Operator policy cap was\nexceeded and which Operator policy setting (and version, when present)\nimposed it.",
+      "properties": {
+        "cap": {
+          "$ref": "#/$defs/ScheduleCapKind",
+          "arrived_in": "0.1",
+          "description": "Which cap was exceeded: `count`, `min_interval` or `period_limit`."
+        },
+        "policy": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy key that set the cap (`schedule.max_count`,\n`schedule.min_interval` or `schedule.limits_max`).",
+          "type": "string"
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy's version, when the policy carries one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cap",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "ScheduleCapKind": {
+      "description": "Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).",
+      "oneOf": [
+        {
+          "const": "count",
+          "description": "`schedule.max_count`: maximum number of Schedules held by the Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "min_interval",
+          "description": "`schedule.min_interval`: minimum interval between consecutive occurrences.",
+          "type": "string"
+        },
+        {
+          "const": "period_limit",
+          "description": "`schedule.limits_max`: maximum period Limit on a Schedule.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ScheduleCreateParams": {
       "additionalProperties": false,
       "description": "What `schedule.create` takes.",
@@ -12808,6 +12892,27 @@
           ],
           "arrived_in": "0.1",
           "description": "Its ID; one is made when absent: `s` and a lowercase ULID."
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePeriodLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Schedule's period Limits (`day`, `week`, `month`), counted in\nits time zone and bounded by Operator policy's `schedule.limits_max`."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Schedule's own `schedule.*` settings, nested by key, layered\nabove user configuration and held to Operator policy locks and caps.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "target": {
           "$ref": "#/$defs/ScheduleTarget",
@@ -12910,10 +13015,31 @@
           "description": "The person who created it, for whom its occurrences fire.",
           "type": "string"
         },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePeriodLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Schedule's period Limits, when the definition set any."
+        },
         "schedule_id": {
           "$ref": "#/$defs/ScheduleId",
           "arrived_in": "0.1",
           "description": "Its ID."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Schedule's own `schedule.*` settings, when the definition set any.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "state": {
           "$ref": "#/$defs/ScheduleState",
@@ -13038,6 +13164,135 @@
       ],
       "type": "object"
     },
+    "SchedulePeriodLimits": {
+      "additionalProperties": false,
+      "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+      "properties": {
+        "day": {
+          "arrived_in": "0.1",
+          "description": "Limits per day, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "month": {
+          "arrived_in": "0.1",
+          "description": "Limits per month, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "week": {
+          "arrived_in": "0.1",
+          "description": "Limits per week, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SchedulePreview": {
+      "description": "What `schedule.preview` answers.",
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/TriggerDescription",
+          "arrived_in": "0.1",
+          "description": "The plain-words description of the trigger."
+        },
+        "occurrences": {
+          "arrived_in": "0.1",
+          "description": "The next occurrences strictly after `after` (or now), in order.",
+          "items": {
+            "$ref": "#/$defs/PreviewOccurrence"
+          },
+          "type": "array"
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone used.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "time_zone",
+        "occurrences"
+      ],
+      "type": "object"
+    },
+    "SchedulePreviewParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.preview` takes: a trigger, an optional IANA time zone\n(the Daemon host's when absent), an optional instant after which\noccurrences are listed (now when absent) and how many to list (5 when\nabsent, at most 100).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The instant strictly after which occurrences are listed; now when\nabsent."
+        },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many occurrences to list; 5 when absent, at most 100.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone, such as `Europe/Paris`; the Daemon host's when\nabsent, never \"local\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "The trigger to preview."
+        }
+      },
+      "required": [
+        "trigger"
+      ],
+      "type": "object"
+    },
     "ScheduleState": {
       "description": "Whether a Schedule fires.",
       "oneOf": [
@@ -13064,6 +13319,10 @@
     },
     "ScheduleTrigger": {
       "anyOf": [
+        {
+          "$ref": "#/$defs/CronTrigger",
+          "description": "A cron expression."
+        },
         {
           "$ref": "#/$defs/EveryTrigger",
           "description": "At a fixed interval."
@@ -14809,6 +15068,107 @@
         }
       ]
     },
+    "StructuredTriggerDescription": {
+      "description": "The structured form of a trigger's plain-words description, which a\nClient translates into its own locale (ADR 0073).",
+      "oneOf": [
+        {
+          "description": "A fixed-interval trigger: every `every` milliseconds from `anchor`.",
+          "properties": {
+            "anchor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PointInTime"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The anchor instant, when the trigger names one."
+            },
+            "every": {
+              "arrived_in": "0.1",
+              "description": "The interval, in milliseconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "every",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "every"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A cron expression, split into its normalized fields and DST class.",
+          "properties": {
+            "day_of_month": {
+              "arrived_in": "0.1",
+              "description": "The day-of-month field.",
+              "type": "string"
+            },
+            "day_of_week": {
+              "arrived_in": "0.1",
+              "description": "The day-of-week field.",
+              "type": "string"
+            },
+            "expression": {
+              "arrived_in": "0.1",
+              "description": "The expression as given.",
+              "type": "string"
+            },
+            "fixed_time": {
+              "arrived_in": "0.1",
+              "description": "Whether DST treats this expression as fixed-time (runs once\nafter a spring gap and once in an autumn overlap) rather than\nwildcard or step (skips a gap and runs on both passes of an\noverlap).",
+              "type": "boolean"
+            },
+            "hours": {
+              "arrived_in": "0.1",
+              "description": "The hours field.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "cron",
+              "type": "string"
+            },
+            "minutes": {
+              "arrived_in": "0.1",
+              "description": "The minutes field.",
+              "type": "string"
+            },
+            "month": {
+              "arrived_in": "0.1",
+              "description": "The month field.",
+              "type": "string"
+            },
+            "seconds": {
+              "arrived_in": "0.1",
+              "description": "The seconds field, when the expression named one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "expression",
+            "minutes",
+            "hours",
+            "day_of_month",
+            "month",
+            "day_of_week",
+            "fixed_time"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SubscriptionEnded": {
       "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
       "type": "object"
@@ -15146,6 +15506,26 @@
         "url",
         "hops",
         "limit"
+      ],
+      "type": "object"
+    },
+    "TriggerDescription": {
+      "description": "The plain-words description of a trigger (ADR 0073): a structured form\na Client can render in its own locale, and the engine's English\nrendering.",
+      "properties": {
+        "english": {
+          "arrived_in": "0.1",
+          "description": "The trigger in plain English, such as `Every 15 minutes` or\n`At 09:00, Monday through Friday`.",
+          "type": "string"
+        },
+        "structured": {
+          "$ref": "#/$defs/StructuredTriggerDescription",
+          "arrived_in": "0.1",
+          "description": "The structured form of the trigger, for a Client's own translation."
+        }
+      },
+      "required": [
+        "structured",
+        "english"
       ],
       "type": "object"
     },
@@ -17678,6 +18058,19 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "sample_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Schedule creation or edit exceeds an Operator policy cap (`schedule.max_count`, `schedule.min_interval` or `schedule.limits_max`). The details name the `cap` and its `policy`.",
+      "details": {
+        "$ref": "#/$defs/ScheduleCapExceededDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "schedule_cap_exceeded",
       "product": "collie",
       "retryable": false
     },
@@ -20825,6 +21218,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/ScheduleList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.preview",
+      "params": {
+        "$ref": "#/$defs/SchedulePreviewParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SchedulePreview"
       },
       "stability": "experimental"
     },
@@ -25239,6 +25651,488 @@
         "run"
       ],
       "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 3,
+      "deprecated": null,
+      "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+      "fixed_for_run": false,
+      "name": "schedule.auto_pause.failures",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "until_next",
+      "deprecated": null,
+      "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+      "fixed_for_run": false,
+      "name": "schedule.catch_up",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "const": "until_next",
+            "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+          }
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 0,
+      "deprecated": null,
+      "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+      "fixed_for_run": false,
+      "name": "schedule.jitter",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy_alone",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`.",
+      "fixed_for_run": false,
+      "name": "schedule.limits_max",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "additionalProperties": false,
+        "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+        "properties": {
+          "day": {
+            "arrived_in": "0.1",
+            "description": "Limits per day, counted in the Schedule's time zone.",
+            "items": {
+              "additionalProperties": false,
+              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+              "properties": {
+                "amount": {
+                  "arrived_in": "0.1",
+                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "currency": {
+                  "arrived_in": "0.1",
+                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usage_kind": {
+                  "arrived_in": "0.1",
+                  "description": "The Usage kind it caps.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "usage_kind",
+                "amount"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "month": {
+            "arrived_in": "0.1",
+            "description": "Limits per month, counted in the Schedule's time zone.",
+            "items": {
+              "additionalProperties": false,
+              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+              "properties": {
+                "amount": {
+                  "arrived_in": "0.1",
+                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "currency": {
+                  "arrived_in": "0.1",
+                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usage_kind": {
+                  "arrived_in": "0.1",
+                  "description": "The Usage kind it caps.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "usage_kind",
+                "amount"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "week": {
+            "arrived_in": "0.1",
+            "description": "Limits per week, counted in the Schedule's time zone.",
+            "items": {
+              "additionalProperties": false,
+              "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
+              "properties": {
+                "amount": {
+                  "arrived_in": "0.1",
+                  "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "currency": {
+                  "arrived_in": "0.1",
+                  "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "usage_kind": {
+                  "arrived_in": "0.1",
+                  "description": "The Usage kind it caps.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "usage_kind",
+                "amount"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy_alone",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`.",
+      "fixed_for_run": false,
+      "name": "schedule.max_count",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "operator_policy_alone",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`.",
+      "fixed_for_run": false,
+      "name": "schedule.min_interval",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "skip",
+      "deprecated": null,
+      "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+      "fixed_for_run": false,
+      "name": "schedule.overlap",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "skip",
+          "queue_one",
+          "allow",
+          "replace"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": true,
+      "default": "next_occurrence",
+      "deprecated": null,
+      "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.",
+      "fixed_for_run": false,
+      "name": "schedule.pause_timeout",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "oneOf": [
+          {
+            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+            "minimum": 1,
+            "type": "integer"
+          },
+          {
+            "const": "next_occurrence",
+            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+          }
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 10,
+      "deprecated": null,
+      "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+      "fixed_for_run": false,
+      "name": "schedule.retention.changed_watches",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 7776000000,
+      "deprecated": null,
+      "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+      "fixed_for_run": false,
+      "name": "schedule.retention.history",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 10,
+      "deprecated": null,
+      "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+      "fixed_for_run": false,
+      "name": "schedule.retention.runs",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 10,
+      "deprecated": null,
+      "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+      "fixed_for_run": false,
+      "name": "schedule.retention.watch_runs",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 60000,
+      "deprecated": null,
+      "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "schedule.tick",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 120000,
+      "deprecated": null,
+      "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
+      "fixed_for_run": false,
+      "name": "schedule.wake_threshold",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "A duration in milliseconds.",
         "minimum": 0,
         "type": "integer"
       },

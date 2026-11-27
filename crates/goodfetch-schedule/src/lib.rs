@@ -12,3 +12,5 @@ mod store;
 mod trigger;
 
 pub use operations::contribution;
+#[doc(hidden)]
+pub use trigger::fuzz_cron_expression;

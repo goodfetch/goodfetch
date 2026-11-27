@@ -690,6 +690,76 @@ class ConnectionSampleSettings(TypedDict):
     """
 
 
+class ConnectionScheduleAutoPauseSettings(TypedDict):
+    """The `schedule.auto_pause` settings of `Settings`."""
+
+    failures: NotRequired[int]
+    """How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+
+    `schedule.auto_pause.failures`.
+    """
+
+
+class ConnectionScheduleRetentionSettings(TypedDict):
+    """The `schedule.retention` settings of `Settings`."""
+
+    changed_watches: NotRequired[int]
+    """How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+
+    `schedule.retention.changed_watches`.
+    """
+
+    history: NotRequired[timedelta]
+    """How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+
+    `schedule.retention.history`.
+    """
+
+    runs: NotRequired[int]
+    """How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.runs`.
+    """
+
+    watch_runs: NotRequired[int]
+    """How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.watch_runs`.
+    """
+
+
+class ConnectionScheduleSettings(TypedDict):
+    """The `schedule` settings of `Settings`."""
+
+    auto_pause: NotRequired[ConnectionScheduleAutoPauseSettings]
+
+    catch_up: NotRequired[int | Literal["until_next"]]
+    """How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+
+    `schedule.catch_up`.
+    """
+
+    jitter: NotRequired[timedelta]
+    """Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+
+    `schedule.jitter`.
+    """
+
+    overlap: NotRequired[Literal["skip", "queue_one", "allow", "replace"]]
+    """How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+
+    `schedule.overlap`.
+    """
+
+    pause_timeout: NotRequired[int | Literal["next_occurrence"] | None]
+    """A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+
+    `schedule.pause_timeout`.
+    """
+
+    retention: NotRequired[ConnectionScheduleRetentionSettings]
+
+
 class SecretsPlaceholdersEntry1(TypedDict):
     """A value of `SecretsPlaceholdersEntry1`."""
 
@@ -1223,6 +1293,8 @@ class Settings(TypedDict):
     run_state: NotRequired[ConnectionRunStateSettings]
 
     sample: NotRequired[ConnectionSampleSettings]
+
+    schedule: NotRequired[ConnectionScheduleSettings]
 
     secrets: NotRequired[ConnectionSecretsSettings]
 
@@ -1855,6 +1927,76 @@ class RunSampleSettings(TypedDict):
     """
 
 
+class RunScheduleAutoPauseSettings(TypedDict):
+    """The `schedule.auto_pause` settings of `RunSettings`."""
+
+    failures: NotRequired[int]
+    """How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+
+    `schedule.auto_pause.failures`.
+    """
+
+
+class RunScheduleRetentionSettings(TypedDict):
+    """The `schedule.retention` settings of `RunSettings`."""
+
+    changed_watches: NotRequired[int]
+    """How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+
+    `schedule.retention.changed_watches`.
+    """
+
+    history: NotRequired[timedelta]
+    """How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+
+    `schedule.retention.history`.
+    """
+
+    runs: NotRequired[int]
+    """How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.runs`.
+    """
+
+    watch_runs: NotRequired[int]
+    """How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+
+    `schedule.retention.watch_runs`.
+    """
+
+
+class RunScheduleSettings(TypedDict):
+    """The `schedule` settings of `RunSettings`."""
+
+    auto_pause: NotRequired[RunScheduleAutoPauseSettings]
+
+    catch_up: NotRequired[int | Literal["until_next"]]
+    """How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+
+    `schedule.catch_up`.
+    """
+
+    jitter: NotRequired[timedelta]
+    """Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+
+    `schedule.jitter`.
+    """
+
+    overlap: NotRequired[Literal["skip", "queue_one", "allow", "replace"]]
+    """How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+
+    `schedule.overlap`.
+    """
+
+    pause_timeout: NotRequired[int | Literal["next_occurrence"] | None]
+    """A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+
+    `schedule.pause_timeout`.
+    """
+
+    retention: NotRequired[RunScheduleRetentionSettings]
+
+
 class RunSecretsSettings(TypedDict):
     """The `secrets` settings of `RunSettings`."""
 
@@ -2175,6 +2317,8 @@ class RunSettings(TypedDict):
     run_state: NotRequired[RunRunStateSettings]
 
     sample: NotRequired[RunSampleSettings]
+
+    schedule: NotRequired[RunScheduleSettings]
 
     secrets: NotRequired[RunSecretsSettings]
 

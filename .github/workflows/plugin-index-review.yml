@@ -1,0 +1,62 @@
+# Validates added or changed Plugin index entries on pull requests (ADRs 0033
+# and 0052; issue 1534). Runs with read-only permissions and zero secrets:
+# every submitted Plugin is fetched by pinned digest only, verified for
+# provenance attestation, checked against ADR 0052's description policy, and
+# executed only inside the confinement of `plugins test`.
+name: plugin index review
+
+on:
+  pull_request:
+    paths:
+      - plugin-index/**
+
+permissions: {}
+
+concurrency:
+  group: plugin-index-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Validate changed Plugin index entries by digest and confined plugins test
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p target/plugin-index-review/entries
+          git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" -- 'plugin-index/entries/*.json' \
+            > target/plugin-index-review/changed.txt
+          while IFS= read -r entry; do
+            [[ -n "$entry" ]] || continue
+            cargo run --quiet --locked --bin xtask -- release plugin-index validate \
+              --entry "$entry" | tee -a target/plugin-index-review/validation.log
+            cp "$entry" "target/plugin-index-review/entries/$(basename "$entry")"
+          done < target/plugin-index-review/changed.txt
+      - name: Scan review outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/plugin-index-review
+      - name: Upload validation results
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-index-review-${{ github.event.pull_request.number }}
+          path: target/plugin-index-review
+          if-no-files-found: ignore

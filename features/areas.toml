@@ -1706,6 +1706,13 @@ number = 11
 kind = "format"
 prefix = "recipe-manifest"
 
+# The published Operation catalog format attached to every GitHub Release
+# (issue 1662).
+[[area]]
+number = 1
+kind = "format"
+prefix = "published-catalog"
+
 [[area]]
 number = 11
 kind = "error"

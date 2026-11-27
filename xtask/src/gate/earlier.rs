@@ -12,10 +12,11 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 use super::plan::{GateRun, Head, Layer, unit};
+use super::runs::{self, Key};
 use super::steps::Step;
-use super::{plan_list, plan_value, runs};
+use super::{plan_list, plan_value};
 use crate::affected::{self, Range, WorkspaceMembers};
-use crate::git;
+use crate::{git, output};
 
 /// The nearest run a plan reads, and the nearer records it passed over.
 struct Nearest {
@@ -32,11 +33,19 @@ struct Nearest {
 /// a nearer record of another host would leave the plan nothing to reuse.
 /// With no record of this host, the nearest record of any, whose plan then
 /// says the host changed since it.
-fn nearest(root: &Path, records: &Path, head: &str, host: &str) -> Result<Nearest> {
+fn nearest(root: &Path, records: &Path, head: &str, host: &str, key: &Key) -> Result<Nearest> {
     let mut other_hosts = Vec::new();
     let mut nearest_of_any = None;
     for candidate in recorded_ancestors(root, records, head)? {
-        let record = runs::read(records, &candidate)?;
+        let record = match runs::read(records, &candidate, key) {
+            Ok(record) => record,
+            Err(error) => {
+                output::error(&format!(
+                    "Gate: ignoring the record of {candidate}: {error:#}"
+                ));
+                continue;
+            }
+        };
         if record.host == host {
             return Ok(Nearest {
                 record: Some(record),
@@ -77,6 +86,7 @@ pub(super) fn previous(
     records: &Path,
     head: &str,
     gated: &Head<'_>,
+    key: &Key,
     full: bool,
     assumed: Option<&str>,
 ) -> Result<Previous> {
@@ -98,7 +108,7 @@ pub(super) fn previous(
     let Nearest {
         record,
         other_hosts,
-    } = nearest(root, records, head, gated.host)?;
+    } = nearest(root, records, head, gated.host, key)?;
     Ok(Previous {
         why_none: if record.is_some() {
             String::new()
@@ -140,7 +150,7 @@ pub(super) fn every_hosted(folder: &Path) -> Result<Vec<GateRun>> {
 fn hosted_run(head: &str, path: &Path) -> Result<GateRun> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    runs::parse(head, &text).with_context(|| format!("reading {}", path.display()))
+    runs::parse_unsigned(head, &text).with_context(|| format!("reading {}", path.display()))
 }
 
 /// Each `<head>.tsv` under `folder` and its subfolders, with its head, in
@@ -257,13 +267,14 @@ pub(super) fn stress_base(
     records: &Path,
     head: &str,
     base: &str,
+    key: &Key,
 ) -> Result<StressBase> {
     if head == base {
         return Ok(StressBase::RunOnTheBase);
     }
     let Some(last_full_gate) = recorded_ancestors(root, records, base)?
         .into_iter()
-        .find(|candidate| stress_passed(records, candidate))
+        .find(|candidate| stress_passed(records, candidate, key))
     else {
         return Ok(StressBase::NoFullGateRecorded);
     };
@@ -284,11 +295,12 @@ pub(super) fn stress_base(
 /// A run stopped before its stress run ended has none for the members it was
 /// rerunning, and a plan or record that is missing or cannot be read shows
 /// nothing.
-fn stress_passed(records: &Path, head: &str) -> bool {
+fn stress_passed(records: &Path, head: &str, key: &Key) -> bool {
     let Ok(plan) = std::fs::read_to_string(runs::plan_file(records, head)) else {
         return false;
     };
-    let (Ok(members), Ok(run)) = (plan_value(&plan, "members"), runs::read(records, head)) else {
+    let (Ok(members), Ok(run)) = (plan_value(&plan, "members"), runs::read(records, head, key))
+    else {
         return false;
     };
     let members = plan_list(members);

@@ -417,6 +417,8 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
+    let published = projection::published_catalog(&catalog, &bundle)?;
+    files.insert(tree::PUBLISHED_CATALOG.to_owned(), json_text(&published)?);
     let command_lines = executables.command_lines()?;
     let foxhound_names = names::table(&catalog, command_lines.as_ref());
     files.insert(

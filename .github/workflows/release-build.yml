@@ -1,0 +1,1174 @@
+# Release build and local rehearsal workflow (spec #130, issue 141; ADRs 0024,
+# 0032, 0033, 0039, 0049, 0069, 0074, 0090, 0094 and 0095).
+#
+# Fixed order:
+#   1. `proving-ground` builds `goodfetch-proving-ground` for all eight targets.
+#   2. `sign-proving-ground` reserves Platform signing (#142) and fixes
+#      `proving-ground-digests.json` before the executables build.
+#   3. `fetch-chromium` verifies the committed Goodfetch Chromium manifest's
+#      input tree hashes and attestations and fetches by digest (never builds).
+#   4. `build-targets` builds both Products' executables in one job per target
+#      (Collie first, then Foxhound) plus shared helpers and first-party
+#      Plugins once; Linux musl uses static-PIE + DT_RELR + PGO via
+#      `ci/musl/cargo`.
+#   5. `sign-artifacts` reserves the Platform signing place (#142) between
+#      build and digests.
+#   6. `package-and-digests` packages archives, split debug symbols, SBOMs,
+#      npm root and platform packages, `py3-none` platform wheels, shared
+#      default OCI images, first-party Plugin multi-platform OCI layouts,
+#      `SHA256SUMS` and crate digest tables.
+#   7. `rehearse-{linux,windows,macos}` publishes to local stand-ins and runs
+#      ADR 0069's installed-package checks for both Products.
+name: release-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Product version to package for rehearsal (semver)"
+        required: false
+        default: "0.0.0-dev.0"
+        type: string
+      accounts_open:
+        description: "Whether Apple Developer ID and Azure Artifact Signing accounts are open (ADR 0039)"
+        required: false
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      version:
+        description: "Product version to build and package (semver)"
+        required: true
+        type: string
+      accounts_open:
+        description: "Whether Apple Developer ID and Azure Artifact Signing accounts are open (ADR 0039)"
+        required: false
+        default: false
+        type: boolean
+  push:
+    branches:
+      - "release/*"
+
+permissions: {}
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  proving-ground:
+    name: "proving-ground (${{ matrix.target }})"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: ${{ matrix.target }}
+      - name: Install musl static-PIE toolchain
+        if: endsWith(matrix.target, '-linux-musl')
+        run: ci/musl/install.sh
+      - name: Build the Proving ground binary
+        env:
+          TARGET: ${{ matrix.target }}
+        run: ci/release/build-proving-ground.sh "$TARGET" target/proving-ground-out
+      - name: Scan Proving ground artifact for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/proving-ground-out
+      - name: Upload Proving ground binary
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-${{ matrix.target }}
+          path: target/proving-ground-out
+          if-no-files-found: error
+
+  sign-proving-ground-macos:
+    name: sign-proving-ground-macos
+    needs: [proving-ground]
+    if: inputs.accounts_open == true
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download built macOS Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: proving-ground-*-apple-darwin
+          merge-multiple: true
+          path: target/proving-ground-macos
+      - name: Platform-sign and notarize macOS Proving ground binaries
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: ci/release/sign-macos.sh proving-ground target/proving-ground-macos
+      - name: Scan signed macOS Proving ground binaries for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/proving-ground-macos
+      - name: Upload signed macOS Proving ground binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-signed-macos
+          path: target/proving-ground-macos
+          if-no-files-found: error
+
+  sign-proving-ground-windows:
+    name: sign-proving-ground-windows
+    needs: [proving-ground]
+    if: inputs.accounts_open == true
+    runs-on: windows-2025
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gitleaks
+        shell: bash
+        run: ci/host/gitleaks.sh
+      - name: Download built Windows Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: proving-ground-*-windows-msvc
+          merge-multiple: true
+          path: target/proving-ground-windows
+      - name: Install Azure Artifact Signing client dlib
+        shell: pwsh
+        run: |
+          $dlibDir = Join-Path $env:RUNNER_TEMP "azure-signing-client"
+          New-Item -ItemType Directory -Force -Path $dlibDir | Out-Null
+          nuget install Microsoft.Trusted.Signing.Client -Version 1.0.60 -OutputDirectory $dlibDir
+          $dlib = Get-ChildItem -Path $dlibDir -Recurse -Filter "Azure.CodeSigning.Dlib.dll" | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found" }
+          "AZURE_SIGNING_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Platform-sign Windows Proving ground binaries through Azure Artifact Signing OIDC
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          $token = (Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange").value
+          az login --service-principal -u $env:AZURE_CLIENT_ID -t $env:AZURE_TENANT_ID --federated-token $token --allow-no-subscriptions
+          ci/release/sign-windows.ps1 -Mode proving-ground -Dir target/proving-ground-windows
+      - name: Scan signed Windows Proving ground binaries for secrets
+        id: leaks
+        if: always()
+        shell: bash
+        run: ci/leaks.sh target/proving-ground-windows
+      - name: Upload signed Windows Proving ground binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-signed-windows
+          path: target/proving-ground-windows
+          if-no-files-found: error
+
+  sign-proving-ground:
+    name: sign-proving-ground
+    needs: [proving-ground, sign-proving-ground-macos, sign-proving-ground-windows]
+    if: >-
+      !cancelled()
+      && needs.proving-ground.result == 'success'
+      && (needs.sign-proving-ground-macos.result == 'success' || needs.sign-proving-ground-macos.result == 'skipped')
+      && (needs.sign-proving-ground-windows.result == 'success' || needs.sign-proving-ground-windows.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download built Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: proving-ground-*
+          merge-multiple: true
+          path: target/proving-ground-signed
+      - name: Overlay signed macOS Proving ground binaries when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-signed-macos
+          path: target/proving-ground-signed
+      - name: Overlay signed Windows Proving ground binaries when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-signed-windows
+          path: target/proving-ground-signed
+      - name: Fix Proving ground digests before executables build
+        run: |
+          cargo run --quiet --locked --bin xtask -- release proving-ground-digests \
+            --binaries target/proving-ground-signed \
+            --out target/proving-ground-signed/proving-ground-digests.json
+      - name: Scan signed Proving ground artifacts for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/proving-ground-signed
+      - name: Upload signed Proving ground binaries and digest table
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-digests
+          path: target/proving-ground-signed
+          if-no-files-found: error
+
+  fetch-chromium:
+    name: fetch-chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Fetch verified Goodfetch Chromium bundles and chromedriver by digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p target/chromium-fetched
+          cargo run --quiet --locked --bin xtask -- release fetch-chromium \
+            --out target/chromium-fetched
+      - name: Scan fetched Chromium directory for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/chromium-fetched
+      - name: Upload fetched Goodfetch Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chromium-fetched
+          path: target/chromium-fetched
+          if-no-files-found: ignore
+
+  build-targets:
+    name: "build (${{ matrix.target }})"
+    needs: [sign-proving-ground]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: ${{ matrix.target }}
+      - name: Install musl static-PIE toolchain
+        if: endsWith(matrix.target, '-linux-musl')
+        run: ci/musl/install.sh
+      - name: Download fixed Proving ground digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/proving-ground-digests
+      - name: Build both Products' executables and shared helpers once
+        env:
+          TARGET: ${{ matrix.target }}
+          GOODFETCH_PROVING_GROUND_DIGESTS: target/proving-ground-digests/proving-ground-digests.json
+        run: ci/release/build-target.sh "$TARGET" target/built-binaries
+      - name: Scan built target artifacts for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/built-binaries
+      - name: Upload built target binaries and split debug symbols
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: built-${{ matrix.target }}
+          path: target/built-binaries
+          if-no-files-found: error
+
+  signing-reuse-check:
+    name: signing-reuse-check
+    needs: [build-targets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.reuse.outputs.version }}
+      reuse_key: ${{ steps.reuse.outputs.reuse_key }}
+      reused: ${{ steps.reuse.outputs.reused }}
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Download built target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*
+          merge-multiple: true
+          path: target/unsigned-binaries
+      - name: Compute deterministic signing reuse key over unsigned binaries
+        id: compute
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
+          cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
+            --version "$version" \
+            --binaries target/unsigned-binaries \
+            --out target/unsigned-signing-reuse.json
+          key=$(jq -er '.reuse_key' target/unsigned-signing-reuse.json)
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "reuse_key=$key" >>"$GITHUB_OUTPUT"
+      - name: Look up prior signed artifacts for this version and unsigned digests
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/reused-signed
+          key: signed-artifacts-${{ steps.compute.outputs.version }}-${{ steps.compute.outputs.reuse_key }}
+      - name: Verify cached reuse manifest matches unsigned digests
+        id: reuse
+        env:
+          COMPUTED_VERSION: ${{ steps.compute.outputs.version }}
+          COMPUTED_KEY: ${{ steps.compute.outputs.reuse_key }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        run: |
+          reused=false
+          if [[ "$CACHE_HIT" == "true" && -f target/reused-signed/signing-reuse.json ]]; then
+            status=$(cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
+              --version "$COMPUTED_VERSION" \
+              --binaries target/unsigned-binaries \
+              --existing target/reused-signed/signing-reuse.json \
+              --out target/reused-signed/signing-reuse.verified.json)
+            if [[ "$status" == reuse* ]]; then
+              reused=true
+            fi
+          fi
+          {
+            echo "version=$COMPUTED_VERSION"
+            echo "reuse_key=$COMPUTED_KEY"
+            echo "reused=$reused"
+          } >>"$GITHUB_OUTPUT"
+
+  sign-macos:
+    name: sign-macos
+    needs: [build-targets, fetch-chromium, signing-reuse-check]
+    if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download built macOS target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*-apple-darwin
+          merge-multiple: true
+          path: target/signed-macos
+      - name: Download fetched Goodfetch Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chromium-fetched
+          path: target/signed-chromium-macos
+      - name: Platform-sign and notarize macOS executables and Goodfetch Chromium
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: ci/release/sign-macos.sh artifacts target/signed-macos target/signed-chromium-macos
+      - name: Scan signed macOS artifacts for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/signed-macos target/signed-chromium-macos
+      - name: Upload signed macOS binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-macos-binaries
+          path: target/signed-macos
+          if-no-files-found: error
+      - name: Upload signed macOS Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-macos-chromium
+          path: target/signed-chromium-macos
+          if-no-files-found: ignore
+
+  sign-windows:
+    name: sign-windows
+    needs: [build-targets, fetch-chromium, signing-reuse-check]
+    if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+    runs-on: windows-2025
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gitleaks
+        shell: bash
+        run: ci/host/gitleaks.sh
+      - name: Download built Windows target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*-windows-msvc
+          merge-multiple: true
+          path: target/signed-windows
+      - name: Download fetched Goodfetch Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chromium-fetched
+          path: target/signed-chromium-windows
+      - name: Install Azure Artifact Signing client dlib
+        shell: pwsh
+        run: |
+          $dlibDir = Join-Path $env:RUNNER_TEMP "azure-signing-client"
+          New-Item -ItemType Directory -Force -Path $dlibDir | Out-Null
+          nuget install Microsoft.Trusted.Signing.Client -Version 1.0.60 -OutputDirectory $dlibDir
+          $dlib = Get-ChildItem -Path $dlibDir -Recurse -Filter "Azure.CodeSigning.Dlib.dll" | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found" }
+          "AZURE_SIGNING_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Platform-sign Windows x64 and arm64 files through Azure Artifact Signing OIDC
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          $token = (Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange").value
+          az login --service-principal -u $env:AZURE_CLIENT_ID -t $env:AZURE_TENANT_ID --federated-token $token --allow-no-subscriptions
+          ci/release/sign-windows.ps1 -Mode artifacts -Dir target/signed-windows -ChromiumDir target/signed-chromium-windows
+      - name: Scan signed Windows artifacts for secrets
+        id: leaks
+        if: always()
+        shell: bash
+        run: ci/leaks.sh target/signed-windows target/signed-chromium-windows
+      - name: Upload signed Windows binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-windows-binaries
+          path: target/signed-windows
+          if-no-files-found: error
+      - name: Upload signed Windows Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-windows-chromium
+          path: target/signed-chromium-windows
+          if-no-files-found: ignore
+
+  sign-artifacts:
+    name: sign-artifacts
+    needs: [build-targets, fetch-chromium, signing-reuse-check, sign-macos, sign-windows]
+    if: >-
+      !cancelled()
+      && needs.build-targets.result == 'success'
+      && needs.fetch-chromium.result == 'success'
+      && needs.signing-reuse-check.result == 'success'
+      && (needs.sign-macos.result == 'success' || needs.sign-macos.result == 'skipped')
+      && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download built target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*
+          merge-multiple: true
+          path: target/signed-binaries
+      - name: Download fetched Goodfetch Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chromium-fetched
+          path: target/signed-chromium
+      - name: Record unsigned reuse manifest before overlaying signed bytes
+        env:
+          RELEASE_VERSION: ${{ needs.signing-reuse-check.outputs.version }}
+        run: |
+          cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
+            --version "$RELEASE_VERSION" \
+            --binaries target/signed-binaries \
+            --out target/signed-binaries/signing-reuse.json
+      - name: Restore reused signed artifacts when unsigned digests match
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/reused-signed
+          key: signed-artifacts-${{ needs.signing-reuse-check.outputs.version }}-${{ needs.signing-reuse-check.outputs.reuse_key }}
+      - name: Apply reused signed artifacts when cache hit
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused == 'true'
+        run: |
+          cp -R target/reused-signed/binaries/. target/signed-binaries/
+          if [[ -d target/reused-signed/chromium ]]; then
+            cp -R target/reused-signed/chromium/. target/signed-chromium/
+          fi
+      - name: Overlay signed macOS binaries when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-macos-binaries
+          path: target/signed-binaries
+      - name: Overlay signed macOS Chromium when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-macos-chromium
+          path: target/signed-chromium
+      - name: Overlay signed Windows binaries when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-windows-binaries
+          path: target/signed-binaries
+      - name: Overlay signed Windows Chromium when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-windows-chromium
+          path: target/signed-chromium
+      - name: Stage signed artifacts for cache reuse on re-runs
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        run: |
+          mkdir -p target/reused-signed/binaries target/reused-signed/chromium
+          cp target/signed-binaries/signing-reuse.json target/reused-signed/signing-reuse.json
+          cp -R target/signed-binaries/. target/reused-signed/binaries/
+          cp -R target/signed-chromium/. target/reused-signed/chromium/ 2>/dev/null || true
+      - name: Save signed artifacts in cache for deterministic re-runs
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/reused-signed
+          key: signed-artifacts-${{ needs.signing-reuse-check.outputs.version }}-${{ needs.signing-reuse-check.outputs.reuse_key }}
+      - name: Scan signed staging directory for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/signed-binaries target/signed-chromium
+      - name: Upload signed binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-binaries
+          path: target/signed-binaries
+          if-no-files-found: error
+      - name: Upload signed Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-chromium
+          path: target/signed-chromium
+          if-no-files-found: ignore
+
+  verify-macos-signatures:
+    name: verify-macos-signatures
+    needs: [sign-proving-ground, sign-artifacts]
+    if: inputs.accounts_open == true
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/verify-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/verify-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/verify-chromium
+      - name: Verify macOS Developer ID signatures, notarization and entitlements
+        run: ci/release/verify-platform-signatures.sh target/verify-binaries target/verify-chromium target/sig-reports/macos.json
+      - name: Scan macOS signature report for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/sig-reports
+      - name: Upload macOS signature verification report
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sig-report-macos
+          path: target/sig-reports/macos.json
+          if-no-files-found: error
+
+  verify-windows-signatures:
+    name: verify-windows-signatures
+    needs: [sign-proving-ground, sign-artifacts]
+    if: inputs.accounts_open == true
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gitleaks
+        shell: bash
+        run: ci/host/gitleaks.sh
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/verify-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/verify-binaries
+      - name: Verify Windows Authenticode signatures and RFC 3161 timestamps
+        shell: pwsh
+        run: ci/release/verify-platform-signatures.ps1 -BinariesDir target/verify-binaries -OutJson target/sig-reports/windows.json
+      - name: Scan Windows signature report for secrets
+        id: leaks
+        if: always()
+        shell: bash
+        run: ci/leaks.sh target/sig-reports
+      - name: Upload Windows signature verification report
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sig-report-windows
+          path: target/sig-reports/windows.json
+          if-no-files-found: error
+
+  platform-signature-gate:
+    name: platform-signature-gate
+    needs: [signing-reuse-check, sign-artifacts, verify-macos-signatures, verify-windows-signatures]
+    if: >-
+      !cancelled()
+      && needs.signing-reuse-check.result == 'success'
+      && needs.sign-artifacts.result == 'success'
+      && (needs.verify-macos-signatures.result == 'success' || needs.verify-macos-signatures.result == 'skipped')
+      && (needs.verify-windows-signatures.result == 'success' || needs.verify-windows-signatures.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download macOS signature verification report
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-report-macos
+          path: target/sig-reports
+      - name: Download Windows signature verification report
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-report-windows
+          path: target/sig-reports
+      - name: Run Platform signature gate
+        env:
+          RELEASE_VERSION: ${{ needs.signing-reuse-check.outputs.version }}
+          ACCOUNTS_OPEN: ${{ inputs.accounts_open == true }}
+        run: |
+          mkdir -p target/sig-reports
+          args=(--version "$RELEASE_VERSION" --pr-comment target/sig-reports/gate-status.txt)
+          if [[ "$ACCOUNTS_OPEN" == "true" ]]; then
+            jq -s '{macos: (.[0].macos // []), macos_apps: (.[0].macos_apps // []), windows: (.[1].windows // [])}' \
+              target/sig-reports/macos.json target/sig-reports/windows.json >target/sig-reports/combined.json
+            args+=(--accounts-open --report target/sig-reports/combined.json)
+          fi
+          cargo run --quiet --locked --bin xtask -- release signature-gate "${args[@]}"
+      - name: Report Platform signature gate status on release pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -f target/sig-reports/gate-status.txt ]]; then
+            pr_number=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+            if [[ -n "$pr_number" ]]; then
+              gh pr comment "$pr_number" --body-file target/sig-reports/gate-status.txt
+            fi
+          fi
+      - name: Scan Platform signature gate status for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/sig-reports
+      - name: Upload Platform signature gate status
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-signature-gate-status
+          path: target/sig-reports/gate-status.txt
+          if-no-files-found: ignore
+
+  signed-bundle-smoke-linux:
+    name: signed-bundle-smoke-linux
+    needs: [sign-proving-ground, sign-artifacts, platform-signature-gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/smoke-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/smoke-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/smoke-chromium
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: signed-bundle smoke on Linux"
+        run: >-
+          ci/egress/under-deny.sh ci/release/smoke-signed-chromium.sh
+          target/smoke-chromium
+          target/smoke-binaries/x86_64-unknown-linux-gnu/goodfetch-collie
+          target/smoke-binaries/x86_64-unknown-linux-gnu/goodfetch-proving-ground
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  signed-bundle-smoke-windows:
+    name: signed-bundle-smoke-windows
+    needs: [sign-proving-ground, sign-artifacts, platform-signature-gate]
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/smoke-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/smoke-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/smoke-chromium
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: signed-bundle smoke on Windows"
+        run: >-
+          ci/egress/under-deny.sh ci/release/smoke-signed-chromium.sh
+          target/smoke-chromium
+          target/smoke-binaries/x86_64-pc-windows-msvc/goodfetch-collie.exe
+          target/smoke-binaries/x86_64-pc-windows-msvc/goodfetch-proving-ground.exe
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  signed-bundle-smoke-macos:
+    name: signed-bundle-smoke-macos
+    needs: [sign-proving-ground, sign-artifacts, platform-signature-gate]
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/smoke-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/smoke-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/smoke-chromium
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: signed-bundle smoke on macOS"
+        run: >-
+          ci/release/smoke-signed-chromium.sh
+          target/smoke-chromium
+          target/smoke-binaries/aarch64-apple-darwin/goodfetch-collie
+          target/smoke-binaries/aarch64-apple-darwin/goodfetch-proving-ground
+
+  package-and-digests:
+    name: package-and-digests
+    needs:
+      - sign-proving-ground
+      - sign-artifacts
+      - platform-signature-gate
+      - signed-bundle-smoke-linux
+      - signed-bundle-smoke-windows
+      - signed-bundle-smoke-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/release-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/release-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/release-chromium
+      - name: Package archives, npm, py3-none wheels, Plugin OCI layouts and SHA256SUMS
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          RELEASE_VERSION="${INPUT_VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
+          cargo run --quiet --locked --bin xtask -- release package \
+            --version "$RELEASE_VERSION" \
+            --binaries target/release-binaries \
+            --out target/release-packaged
+          if compgen -G "target/release-chromium/*" >/dev/null; then
+            cp target/release-chromium/* target/release-packaged/assets/
+          fi
+          cargo run --quiet --locked --bin xtask -- release assets \
+            --folder target/release-packaged/assets
+          cargo run --quiet --locked --bin xtask -- release digests \
+            --assets target/release-packaged/assets \
+            --version "$RELEASE_VERSION"
+      - name: Build all five OCI image tags for both Products from one shared recipe
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          RELEASE_VERSION="${INPUT_VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static
+          docker buildx create --name goodfetch-multiarch --driver docker-container --use --bootstrap
+          mkdir -p target/oci-ctx/bin/amd64 target/oci-ctx/bin/arm64 \
+            target/oci-ctx/clean-up-rules target/oci-ctx/browsers/default target/oci-ctx/browsers/full \
+            target/oci-ctx/sdk/npm/collie target/oci-ctx/sdk/npm/foxhound \
+            target/oci-ctx/sdk/wheels/collie target/oci-ctx/sdk/wheels/foxhound \
+            target/release-packaged/oci/images
+          cp -R crates/goodfetch-clean-up-rules/rules/. target/oci-ctx/clean-up-rules/
+          cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/amd64/goodfetch-collie
+          cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/amd64/goodfetch-foxhound
+          cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/arm64/goodfetch-collie
+          cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/arm64/goodfetch-foxhound
+          cp -R target/release-packaged/npm/collie/* target/oci-ctx/sdk/npm/collie/
+          cp -R target/release-packaged/npm/foxhound/* target/oci-ctx/sdk/npm/foxhound/
+          cp target/release-packaged/wheels/goodfetch_collie_client-*.whl target/oci-ctx/sdk/wheels/collie/
+          cp target/release-packaged/wheels/goodfetch_collie-*.whl target/oci-ctx/sdk/wheels/collie/
+          cp target/release-packaged/wheels/goodfetch_collie_client-*.whl target/oci-ctx/sdk/wheels/foxhound/
+          cp target/release-packaged/wheels/goodfetch_foxhound-*.whl target/oci-ctx/sdk/wheels/foxhound/
+          if compgen -G "target/release-chromium/*" >/dev/null; then
+            cp -R target/release-chromium/* target/oci-ctx/browsers/default/
+            cp -R target/release-chromium/* target/oci-ctx/browsers/full/
+          fi
+          for product in collie foxhound; do
+            for variant in default slim full node python; do
+              suffix=""
+              [[ "$variant" != "default" ]] && suffix="-${variant}"
+              docker buildx build \
+                --file packaging/oci/Containerfile \
+                --target "$variant" \
+                --platform linux/amd64,linux/arm64 \
+                --build-arg "PRODUCT_EXECUTABLE=goodfetch-${product}" \
+                --build-arg "PRODUCT_KEY=${product}" \
+                --sbom=true \
+                --output "type=oci,dest=target/release-packaged/oci/images/${product}-${RELEASE_VERSION}${suffix}.oci.tar" \
+                target/oci-ctx
+              cp "target/release-packaged/assets/goodfetch-${product}.cdx.json" \
+                "target/release-packaged/oci/images/${product}-${RELEASE_VERSION}${suffix}.cdx.json"
+            done
+          done
+      - name: Scan packaged release outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/release-packaged
+      - name: Upload packaged release outputs
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-packaged
+          path: target/release-packaged
+          if-no-files-found: error
+
+  rehearse-linux:
+    name: rehearse-linux
+    needs: [package-and-digests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: release-linux
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: rehearse publishing and installed-package runs on Linux"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ci/egress/under-deny.sh ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  rehearse-windows:
+    name: rehearse-windows
+    needs: [package-and-digests]
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-pc-windows-msvc
+          runtimes: release-other
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: rehearse publishing and installed-package runs on Windows"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ci/egress/under-deny.sh ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  rehearse-macos:
+    name: rehearse-macos
+    needs: [package-and-digests]
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: aarch64-apple-darwin
+          runtimes: release-other
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: rehearse publishing and installed-package runs on macOS"
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"

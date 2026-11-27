@@ -47,6 +47,8 @@ mod block_detection;
 pub mod blocking;
 mod collie;
 mod composition;
+#[cfg(feature = "executable")]
+mod deploy_templates;
 mod engine_choice;
 #[cfg(feature = "executable")]
 pub mod executable;

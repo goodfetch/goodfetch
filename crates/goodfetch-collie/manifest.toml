@@ -521,6 +521,69 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "executable"
+member = "DeployFile"
+entry = "none"
+reason = "One zstd-compressed deployment template file an executable embeds for `init --deploy`."
+words = ["deploy", "file"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "DeployTemplateError"
+entry = "none"
+reason = "Why decompressing or rendering an embedded deployment template failed."
+words = ["deploy", "template", "error"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
+member = "DeployTemplates"
+entry = "none"
+reason = "The zstd-compressed deployment templates an executable embeds, which `init --deploy` renders offline."
+words = ["deploy", "templates"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::DeployTemplates"
+member = "COLLIE"
+entry = "none"
+reason = "Collie's executable's embedded deployment templates."
+words = ["collie"]
+form = "constant"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::DeployTemplates"
+member = "new"
+entry = "none"
+reason = "Builds a Product's embedded deployment template set."
+words = ["new"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::DeployTemplates"
+member = "files"
+entry = "none"
+reason = "The embedded deployment template files carried by this bundle."
+words = ["files"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable::DeployTemplates"
+member = "render"
+entry = "none"
+reason = "Renders a deployment target offline for the executable's own Product and version."
+words = ["render"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "executable"
 member = "StarterFile"
 entry = "none"
 reason = "One file of a starter an executable embeds, which `init` writes: its path from the starters folder and its bytes."

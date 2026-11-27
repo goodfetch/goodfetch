@@ -28,9 +28,12 @@ use goodfetch_engine::{CallError, Identity};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::checkpoint::{FILE_WRITE_FAILED, FileWriteFailedDetails, WriteSide};
 use goodfetch_protocol::cli;
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::deploy::{DeployTarget, InitDeployResult};
 use goodfetch_protocol::starters::{FOXHOUND_STARTERS, InitResult, StarterLanguage};
 
 use super::output::{self, ColourFlag, Human};
+use crate::deploy_templates::DeployTemplates;
 
 /// The project's name when its folder's name holds no ASCII letter or
 /// digit.
@@ -122,8 +125,8 @@ impl Starters {
 }
 
 /// Writes a starter project this executable carries, which runs and tests
-/// itself, in TypeScript, Python or Rust, never replacing a file already
-/// there.
+/// itself, in TypeScript, Python or Rust, or deployment files for a Supported
+/// target with `--deploy`, never replacing a file already there.
 #[derive(Clone, Debug, clap::Args)]
 pub(super) struct Arguments {
     /// The project's folder, created when missing; the working folder
@@ -136,6 +139,9 @@ pub(super) struct Arguments {
     /// Its language; asked on a terminal when not given.
     #[arg(long = "lang", value_enum, value_name = "LANGUAGE")]
     language: Option<LanguageFlag>,
+    /// Adds deployment files for a Supported target, such as `compose`.
+    #[arg(long, value_name = "TARGET")]
+    deploy: Option<String>,
     /// Prints the result as JSON.
     #[arg(long)]
     json: bool,
@@ -307,15 +313,53 @@ fn write_new(target: &Path, contents: &[u8]) -> Result<bool, Refused> {
     }
 }
 
-/// Runs `init` for the executable `identity` names, with the `starters` it
-/// embeds, asking `human` for what the command line leaves out, and prints
-/// the result.
+/// Writes deployment files for `target_name` into `folder`, never overwriting
+/// an existing path or following a link.
+pub(crate) fn write_deploy(
+    templates: DeployTemplates,
+    folder: &Path,
+    target_name: &str,
+    language: Option<StarterLanguage>,
+    version: &ProductVersion,
+) -> Result<InitDeployResult, Refused> {
+    let offered = DeployTarget::ALL.map(DeployTarget::as_str).join(", ");
+    let Some(target) = DeployTarget::named(target_name) else {
+        let closest = DeployTarget::closest(target_name).as_str();
+        return Err(Refused::Usage(format!(
+            "`{target_name}` is no deployment target `init --deploy` knows: did you mean `{closest}`? Supported targets: {offered}"
+        )));
+    };
+    let rendered = templates
+        .render(target, language, version)
+        .map_err(|error| Refused::Usage(error.to_string()))?;
+    let mut written = Vec::new();
+    let mut skipped = Vec::new();
+    for file in rendered {
+        let destination = folder.join(&file.path);
+        if write_new(&destination, &file.contents)? {
+            written.push(file.path);
+        } else {
+            skipped.push(file.path);
+        }
+    }
+    Ok(InitDeployResult {
+        target,
+        written,
+        skipped,
+    })
+}
+
+/// Runs `init` for the executable `identity` names, with the `starters` and
+/// `deploy_templates` it embeds, asking `human` for what the command line
+/// leaves out, and prints the result.
 pub(super) fn init(
     starters: Starters,
+    deploy_templates: DeployTemplates,
     Arguments {
         directory,
         starter,
         language,
+        deploy,
         json,
         ..
     }: Arguments,
@@ -326,20 +370,82 @@ pub(super) fn init(
         tracing::error!("the working folder cannot be read");
         return ExitCode::FAILURE;
     };
+    let folder = directory.map_or_else(|| working.clone(), |directory| working.join(directory));
+    let language = language.map(StarterLanguage::from);
+
+    if let Some(target_name) = deploy.as_deref()
+        && starter.is_none()
+    {
+        return match write_deploy(
+            deploy_templates,
+            &folder,
+            target_name,
+            language,
+            &identity.product_version,
+        ) {
+            Ok(result) => {
+                if json {
+                    output::json(&result);
+                    return ExitCode::SUCCESS;
+                }
+                for path in &result.written {
+                    human.field("wrote", path);
+                }
+                for path in &result.skipped {
+                    human.field("skipped", &format!("{path}, already there"));
+                }
+                ExitCode::SUCCESS
+            }
+            Err(refused) => report_refused(refused, json, human),
+        };
+    }
+
     let request = Request {
-        folder: directory.map_or_else(|| working.clone(), |directory| working.join(directory)),
+        folder: folder.clone(),
         starter,
-        language: language.map(StarterLanguage::from),
+        language,
         product: identity.product,
         version: identity.product_version.to_string(),
     };
-    let result = match write(starters, request, &mut |question| human.ask(question)) {
+    let mut result = match write(starters, request, &mut |question| human.ask(question)) {
         Ok(result) => result,
-        Err(Refused::Usage(message)) => {
-            human.failure(&message, &[]);
-            return ExitCode::from(cli::USAGE.code);
+        Err(refused) => return report_refused(refused, json, human),
+    };
+    if let Some(target_name) = deploy.as_deref() {
+        match write_deploy(
+            deploy_templates,
+            &folder,
+            target_name,
+            Some(result.language),
+            &identity.product_version,
+        ) {
+            Ok(deployed) => {
+                result.written.extend(deployed.written);
+                result.skipped.extend(deployed.skipped);
+            }
+            Err(refused) => return report_refused(refused, json, human),
         }
-        Err(Refused::Io { path, error }) => {
+    }
+    if json {
+        output::json(&result);
+        return ExitCode::SUCCESS;
+    }
+    for path in &result.written {
+        human.field("wrote", path);
+    }
+    for path in &result.skipped {
+        human.field("skipped", &format!("{path}, already there"));
+    }
+    ExitCode::SUCCESS
+}
+
+fn report_refused(refused: Refused, json: bool, human: &Human) -> ExitCode {
+    match refused {
+        Refused::Usage(message) => {
+            human.failure(&message, &[]);
+            ExitCode::from(cli::USAGE.code)
+        }
+        Refused::Io { path, error } => {
             let failure = CallError::new(
                 &FILE_WRITE_FAILED,
                 format!(
@@ -353,20 +459,9 @@ pub(super) fn init(
                     side: WriteSide::Engine,
                 },
             );
-            return output::fail(failure.to_error_object(), None, json, human);
+            output::fail(failure.to_error_object(), None, json, human)
         }
-    };
-    if json {
-        output::json(&result);
-        return ExitCode::SUCCESS;
     }
-    for path in &result.written {
-        human.field("wrote", path);
-    }
-    for path in &result.skipped {
-        human.field("skipped", &format!("{path}, already there"));
-    }
-    ExitCode::SUCCESS
 }
 
 #[cfg(test)]

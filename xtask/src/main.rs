@@ -32,6 +32,7 @@ mod containment;
 mod counts;
 mod dco;
 mod dependency_direction;
+mod deploy_templates;
 mod docs_samples;
 mod docs_site;
 mod egress;
@@ -243,6 +244,13 @@ enum Command {
     },
     /// Fails on a dependency against the workspace's enforced directions.
     DependencyDirection,
+    /// Renders deployment templates from `packaging/deploy/` through the same
+    /// function `init --deploy` calls, for docs guides and smoke runs
+    /// (spec #583, issue 1262; ADR 0049).
+    DeployTemplates {
+        #[command(subcommand)]
+        command: deploy_templates::Command,
+    },
     /// The docs code samples (ADRs 0068 and 0097): `extract` writes each
     /// sample of each Product's rendering of the docs pages, and of each
     /// package's README, under `target/docs-samples/`, with a manifest, and
@@ -695,6 +703,10 @@ impl AttemptArguments {
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "top-level dispatch table across every xtask subcommand"
+)]
 fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> {
     let root = environment.root.as_path();
     let cargo = environment.cargo.as_os_str();
@@ -733,6 +745,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::DependencyDirection => {
             Ok(check::report(&dependency_direction::check(cargo, root)?))
         }
+        Command::DeployTemplates { command } => deploy_templates::run(command, root),
         Command::DocsSamples { command } => docs_samples::run(&command, environment),
         Command::DocsSite { command } => docs_site::run(&command, environment),
         Command::Egress { command } => egress::run(command, environment),

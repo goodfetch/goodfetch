@@ -41,6 +41,7 @@
 mod cdp;
 mod counted_work;
 mod deny;
+mod deploy;
 mod deprecated_settings;
 mod digest;
 mod emit;
@@ -362,6 +363,7 @@ impl Plan {
             PROTOCOL_GENERATED,
             special_purpose::OUTPUT_FOLDER,
             executables::COLLIE_FOLDER,
+            deploy::FOXHOUND_FOLDER,
             skills::FOXHOUND_FOLDER,
             cdp::FOLDER,
             rust::FOLDER,
@@ -429,6 +431,7 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(special_purpose::generate(root)?);
     files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
+    files.extend(deploy::files(root)?);
     files.extend(skills::files(root, &catalog, command_lines.as_ref())?);
     let sources = features::Sources {
         root,

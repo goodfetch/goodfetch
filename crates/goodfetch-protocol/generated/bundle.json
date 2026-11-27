@@ -5982,6 +5982,16 @@
       ],
       "type": "object"
     },
+    "DeployTarget": {
+      "description": "A Supported deployment target accepted by `init --deploy <target>`\n(ADR 0049; spelled on the CLI by ADR 0099's rule).",
+      "oneOf": [
+        {
+          "const": "compose",
+          "description": "Docker Compose (`compose.yaml`, `operator-policy.toml`, `seccomp-profile.json`).",
+          "type": "string"
+        }
+      ]
+    },
     "DetachUnsupportedDetails": {
       "description": "What `detach_unsupported`'s details hold.",
       "properties": {
@@ -9889,6 +9899,38 @@
         "phase",
         "attempt",
         "started_at"
+      ],
+      "type": "object"
+    },
+    "InitDeployResult": {
+      "description": "What `init --deploy <target> --json` prints (ADR 0069): the rendered\ntarget and each file path written or left untouched.",
+      "properties": {
+        "skipped": {
+          "arrived_in": "0.1",
+          "description": "The files it left untouched because a file, folder or link already\nexisted at that path.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/DeployTarget",
+          "arrived_in": "0.1",
+          "description": "The deployment target rendered, such as `compose`."
+        },
+        "written": {
+          "arrived_in": "0.1",
+          "description": "The files it wrote, `/`-separated relative to the output folder.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "target",
+        "written",
+        "skipped"
       ],
       "type": "object"
     },
@@ -45481,6 +45523,9 @@
     },
     "init": {
       "$ref": "#/$defs/InitResult"
+    },
+    "init.deploy": {
+      "$ref": "#/$defs/InitDeployResult"
     },
     "recipe.digest": {
       "$ref": "#/$defs/RecipeDigestOutput"

@@ -8,6 +8,30 @@
 # with `status = "retired"` and a `reason`.
 
 [[story]]
+id = 9
+title = "As a developer, I want `init --deploy` to write only paths that do not exist yet (a dangling link counts as existing and is never followed), list the ones it left, and refuse an unknown target naming the closest one, so that it never overwrites my edits (ADRs 0067, 0077's G3)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 10
+title = "As a developer working offline, I want `init --deploy` to render from templates embedded in my executable at its own version, so that it works with no network and matches my installed version (ADRs 0043, 0049, 0057)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
+id = 11
+title = "As a developer, I want the files `init --deploy` writes to name my Product's image, executable and version, with the image pinned by digest, so that a Collie project deploys exactly the Collie I installed (ADRs 0030, 0090)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+
+[[story]]
 id = 44
 title = "As an operator, I want `/livez` and `/readyz` on the ops listener without a token and `/metrics` behind a scoped read-only token, wired into every Supported target's health checks, so that platforms probe the Daemon with no secret in the pod spec (ADR 0050; pain 19)."
 milestone = "M1 Core"
@@ -37,6 +61,14 @@ title = "As an operator, I want the operations guide to name the Daemon's log fo
 milestone = "M1 Core"
 journey = false
 not_journey = "reach"
+status = "active"
+
+[[story]]
+id = 53
+title = "As a contributor, I want one change to a deployment template to update `init --deploy`, the guides and the smoke runs together, so that they never drift."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "actor"
 status = "active"
 
 [[story]]

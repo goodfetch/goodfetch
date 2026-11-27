@@ -184,6 +184,13 @@ async fn read(
         }
     }
     handing.end(events.ended().unwrap_or(SubscriptionEnd::Disconnected));
+    asked.close();
+    while let Some(answer) = asked.recv().await {
+        let _ = answer.send(());
+    }
+    if let Some(mut watcher) = origins {
+        watcher.close().await;
+    }
 }
 
 /// A capture's ask of `origins`, answered; never without a watcher.

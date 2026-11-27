@@ -209,6 +209,77 @@ fn stopping_an_owner_ends_its_actor_after_its_tasks_though_a_sender_remains(
     assert_eq!((stopped, handled, refused), (true, vec![1, 2], true));
 }
 
+/// Issue 2594: a send permit reserved before an actor breaks out of its loop
+/// still resolves its caller's answer with the ended error once sent, even
+/// while other senders remain alive.
+#[rstest]
+#[case::on_a_dedicated_thread(BlockingPolicy::Threads)]
+#[case::as_a_task(BlockingPolicy::Inline)]
+fn an_actor_drains_a_permit_reserved_before_it_breaks(#[case] policy: BlockingPolicy) {
+    let resolved = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(policy);
+        let (sender, mailbox) = mpsc::channel::<(bool, oneshot::Sender<()>)>(4);
+        let (broke_tx, broke_rx) = oneshot::channel::<()>();
+        let mut broke_tx = Some(broke_tx);
+        owner
+            .actor_until(
+                "break-actor",
+                mailbox,
+                move |group: Vec<(bool, oneshot::Sender<()>)>| {
+                    let mut should_break = false;
+                    for (stop, answer) in group {
+                        if stop {
+                            should_break = true;
+                        }
+                        let _ = answer.send(());
+                    }
+                    if should_break {
+                        if let Some(tx) = broke_tx.take() {
+                            let _ = tx.send(());
+                        }
+                        std::ops::ControlFlow::Break(())
+                    } else {
+                        std::ops::ControlFlow::Continue(())
+                    }
+                },
+            )
+            .unwrap();
+
+        // Reserve a permit BEFORE the actor exits.
+        let permit = sender.reserve().await.unwrap();
+        // Trigger the actor to break out of its loop.
+        let (stop_tx, stop_rx) = oneshot::channel();
+        sender.send((true, stop_tx)).await.unwrap();
+        stop_rx.await.unwrap();
+        broke_rx.await.unwrap();
+        // Yield so the actor reaches its exit path while `permit` is still held.
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        // Now send through the previously reserved permit while `sender` still lives.
+        let (late_tx, late_rx) = oneshot::channel();
+        permit.send((false, late_tx));
+
+        // On `Inline`, the paused runtime advances immediately if `late_rx`
+        // were ever left hanging; on `Threads`, the actor runs on its own OS
+        // thread so we await `late_rx` directly without racing paused time.
+        let outcome = match policy {
+            BlockingPolicy::Inline => tokio::time::timeout(Duration::from_secs(1), late_rx)
+                .await
+                .map_err(|_| ()),
+            BlockingPolicy::Threads => Ok(late_rx.await),
+        };
+        drop(sender);
+        owner.stop().await;
+        outcome
+    });
+
+    assert!(
+        matches!(resolved, Ok(Err(_))),
+        "reserved permit sent after actor break must resolve with closed error, got {resolved:?}"
+    );
+}
+
 /// What an analysis on the CPU pool told the test.
 #[derive(Debug)]
 enum Analysed {

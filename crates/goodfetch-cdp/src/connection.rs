@@ -546,8 +546,18 @@ where
     /// # Cancel safety
     ///
     /// Dropping the future closes the client's end: the commands in flight,
-    /// and any queued as it drops, get no answer while a handle lives.
-    pub async fn run(mut self) -> Ended {
+    /// and any queued as it drops, get no answer while a handle lives. Use
+    /// [`Self::run_until`] when a supervisor needs to stop the driver early
+    /// without skipping its close-and-drain cleanup (issue 2594).
+    pub async fn run(self) -> Ended {
+        self.run_until(std::future::pending::<()>()).await
+    }
+
+    /// Runs the connection as [`Self::run`] does, stopping cleanly once `stop`
+    /// resolves so its requests channel is always closed and drained before
+    /// the driver drops (issue 2594).
+    pub async fn run_until<F: Future>(mut self, stop: F) -> Ended {
+        tokio::pin!(stop);
         let mut framer = Framer::with_limit(self.frame_limit);
         let mut pending: BTreeMap<u64, Pending> = BTreeMap::new();
         let mut readers = Readers::new(self.event_bytes);
@@ -555,6 +565,7 @@ where
         let mut buffer = vec![0; READ];
         let ended = loop {
             tokio::select! {
+                _ = &mut stop => break Ended::Closed,
                 request = self.requests.recv() => {
                     let Some(Request { method, session, params, answer }) = request else {
                         break Ended::Dropped;

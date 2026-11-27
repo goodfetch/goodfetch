@@ -747,6 +747,7 @@ async fn serve_carried(
     let ended = session.run(&mut reading).await;
     logging.cancel();
     session.cancel_in_flight();
+    session.close_requests().await;
     drop(session);
     owner.wait().await;
     // Every task of its owner ended, so a panic among them was told, even
@@ -1074,6 +1075,13 @@ impl Session<'_> {
                 call.token.cancel();
             }
         }
+    }
+
+    /// Closes and drains `requests` so any `Client` send that already reserved
+    /// a permit resolves its reply oneshot as `Gone` (issue 2594).
+    async fn close_requests(&mut self) {
+        self.requests.close();
+        while self.requests.recv().await.is_some() {}
     }
 
     async fn handle(&mut self, frame: Frame) -> Flow {
@@ -1812,4 +1820,167 @@ fn engine_panicked(metrics: &Metrics) -> CallError {
         PanicEnded::Call,
         "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use goodfetch_protocol::catalog::{
+        Operation, OperationClass, OperationKind, Product, Reach, Stability, schema_of,
+    };
+    use goodfetch_protocol::connection::ProductVersion;
+    use goodfetch_protocol::jsonrpc::RequestId;
+    use goodfetch_test_support::TestEnv;
+    use serde_json::{Value, json};
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+    use tokio::sync::oneshot;
+
+    use crate::client::{Client, Outgoing};
+    use crate::clock::Clock;
+    use crate::composition::{CallContext, Composition, Contribution, Handler};
+    use crate::engine::{Dependencies, Engine};
+    use crate::entropy::Entropy;
+    use crate::home::{Home, RunStateLocation};
+    use crate::politeness::PolitenessOptions;
+    use crate::product::{Channel, Identity};
+    use crate::run_state::RunStateOptions;
+    use crate::secrets::Keychain;
+    use crate::sync::Mutex;
+    use crate::tasks::BlockingPolicy;
+    use crate::transport::{self, Network};
+
+    const GRAB_CLIENT: Operation = Operation {
+        name: "test.grab_client",
+        description: "Hands out the Connection's Client handle.",
+        class: OperationClass::Read,
+        kind: OperationKind::RoundTrip,
+        reach: Reach::AllSurfaces,
+        params: schema_of::<Value>,
+        result: schema_of::<Value>,
+        events: &[],
+        cancellable: false,
+        input: None,
+        bound: None,
+        stability: Stability::Experimental,
+        deprecated: None,
+        arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+    };
+
+    /// Issue 2594: a send permit reserved on `Client`'s outgoing requests
+    /// channel before `serve_carried` drops `Session` still resolves its reply
+    /// oneshot when sent while a `Client` handle remains alive.
+    #[test]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test runs on the paused Clock and seeded Entropy (ADR 0059)"
+    )]
+    fn serve_carried_drains_a_client_request_permit_reserved_before_end() {
+        let env = TestEnv::new();
+        let resolved = goodfetch_test_support::runtime().block_on(async {
+            let slot: Arc<Mutex<Option<oneshot::Sender<Client>>>> = Arc::new(Mutex::new(None));
+            let (tx, rx) = oneshot::channel();
+            *slot.lock().unwrap() = Some(tx);
+            let slot_handler = Arc::clone(&slot);
+            let composition = Composition::default().with(crate::contribution()).with(
+                Contribution::new("test").with_handler(Handler::new(
+                    &GRAB_CLIENT,
+                    move |_: Value, context: CallContext| {
+                        let slot = Arc::clone(&slot_handler);
+                        async move {
+                            if let Some(tx) = slot.lock().unwrap().take() {
+                                let _ = tx.send(context.client().clone());
+                            }
+                            Ok(json!({}))
+                        }
+                    },
+                )),
+            );
+            let identity = Identity {
+                product: Product::Collie,
+                product_version: ProductVersion::parse("0.1.0").unwrap(),
+                channel: Channel::CratesIo,
+            };
+            let engine = Engine::new(identity, &composition).unwrap();
+            let deps = Dependencies {
+                home: Home::new(env.home().to_owned()),
+                clock: Clock::paused(env.start_time()),
+                entropy: Entropy::seeded(env.seed()),
+                blocking: BlockingPolicy::Inline,
+                run_state_location: RunStateLocation::PerMajor,
+                run_state: RunStateOptions::default(),
+                politeness: PolitenessOptions::default(),
+                environment: BTreeMap::new(),
+                keychain: Keychain::absent(),
+            };
+            let (network, dialer) = transport::in_memory();
+            let owner = crate::tasks::TaskOwner::root(BlockingPolicy::Inline);
+            owner.spawn(async move {
+                let _ = engine.run_attached(Network::InMemory(network), deps).await;
+            });
+
+            let conn = dialer.connect().await.unwrap();
+            let (reader, mut writer) = conn.split();
+            let mut lines = BufReader::new(reader).lines();
+            let hello = json!({
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "hello",
+                "params": {
+                    "protocol_version": "0.1",
+                    "surface": "cli",
+                    "needs": "collie",
+                    "product_version": "0.1.0",
+                }
+            });
+            writer
+                .write_all(format!("{hello}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            let _ = lines.next_line().await.unwrap();
+
+            let grab = json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "test.grab_client",
+                "params": {}
+            });
+            writer
+                .write_all(format!("{grab}\n").as_bytes())
+                .await
+                .unwrap();
+            writer.flush().await.unwrap();
+            let _ = lines.next_line().await.unwrap();
+            let client = rx.await.unwrap();
+
+            // Reserve a permit BEFORE closing the connection.
+            let permit = client.requests_sender().reserve().await.unwrap();
+            drop(lines);
+            drop(writer);
+            // Yield so `session.run` sees EOF and enters `serve_carried`'s teardown.
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+
+            let (reply, replied) = oneshot::channel();
+            permit.send(Outgoing::Request {
+                id: RequestId::Number(99),
+                method: "test.late",
+                line: b"{}".to_vec(),
+                reply,
+            });
+            let outcome = tokio::time::timeout(Duration::from_secs(1), replied).await;
+            drop(client);
+            owner.wait().await;
+            outcome
+        });
+
+        assert!(
+            matches!(resolved, Ok(Err(_))),
+            "reserved client permit sent after Session ended must resolve with Gone, got {resolved:?}"
+        );
+    }
 }

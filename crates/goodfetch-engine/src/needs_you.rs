@@ -252,12 +252,7 @@ impl NeedsYou {
             context,
             events,
         };
-        owner.spawn(async move {
-            tokio::select! {
-                () = driver.run(mailbox) => {}
-                () = token.cancelled() => {}
-            }
-        });
+        owner.spawn(driver.run(mailbox, token));
         Self { commands }
     }
 
@@ -389,27 +384,36 @@ struct Driver {
 }
 
 impl Driver {
-    async fn run(mut self, mut mailbox: mpsc::Receiver<Command>) {
-        self.dismissed = self.read_dismissed().await;
-        while let Some(command) = mailbox.recv().await {
-            match command {
-                Command::Refreshed { source, items } => {
-                    self.tried[source] = true;
-                    if let Some(items) = items {
-                        self.refresh(source, items).await;
-                    }
-                    if self.tried.iter().all(|tried| *tried) {
-                        for call in std::mem::take(&mut self.waiting) {
-                            self.answer(call).await;
+    async fn run(
+        mut self,
+        mut mailbox: mpsc::Receiver<Command>,
+        token: tokio_util::sync::CancellationToken,
+    ) {
+        if let Some(dismissed) = token.run_until_cancelled(self.read_dismissed()).await {
+            self.dismissed = dismissed;
+            while let Some(Some(command)) = token.run_until_cancelled(mailbox.recv()).await {
+                match command {
+                    Command::Refreshed { source, items } => {
+                        self.tried[source] = true;
+                        if let Some(items) = items {
+                            self.refresh(source, items).await;
+                        }
+                        if self.tried.iter().all(|tried| *tried) {
+                            for call in std::mem::take(&mut self.waiting) {
+                                self.answer(call).await;
+                            }
                         }
                     }
+                    // A call answers once every source has tried its first
+                    // read, so the first one after a start misses no item.
+                    call if !self.tried.iter().all(|tried| *tried) => self.waiting.push(call),
+                    call => self.answer(call).await,
                 }
-                // A call answers once every source has tried its first
-                // read, so the first one after a start misses no item.
-                call if !self.tried.iter().all(|tried| *tried) => self.waiting.push(call),
-                call => self.answer(call).await,
             }
         }
+        self.waiting.clear();
+        mailbox.close();
+        while mailbox.recv().await.is_some() {}
     }
 
     async fn answer(&mut self, call: Command) {

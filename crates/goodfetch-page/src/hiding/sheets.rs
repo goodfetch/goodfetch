@@ -90,16 +90,18 @@ impl Sheets {
         identity.spawn(async move {
             loop {
                 let Queued { change, sent } = tokio::select! {
-                    () = live.cancelled() => return,
+                    () = live.cancelled() => break,
                     queued = queued.recv() => match queued {
                         Some(queued) => queued,
-                        None => return,
+                        None => break,
                     },
                 };
                 let outcome = sender.apply(change).await;
                 // A caller that went waits for no outcome.
                 let _ = sent.send(outcome);
             }
+            queued.close();
+            while queued.recv().await.is_some() {}
         });
         Self {
             page,
@@ -326,5 +328,53 @@ impl Sender {
             .set_style_sheet((session, &sheet), write.text.clone())
             .await?;
         Ok(sheet)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use goodfetch_test_support::{TestEnv, runtime};
+    use tokio::sync::oneshot;
+
+    use super::{Change, Queued, Sheets};
+    use crate::live_run::{LiveRun, played_page};
+
+    /// Issue 2594: a send permit reserved on `Sheets`'s mailbox before the Run
+    /// cancels still resolves its caller's oneshot once sent while `Sheets`
+    /// lives.
+    #[test]
+    fn a_permit_reserved_before_sheets_stops_still_resolves() {
+        let env = TestEnv::new();
+        let resolved = runtime().block_on(async {
+            let (live, served) = LiveRun::start(&env).await;
+            let (driver, played, page_served) = played_page();
+
+            let ((), (), result) = tokio::join!(served, page_served, async move {
+                let sheets = Sheets::new(&driver, &live.run.identity);
+                let permit = sheets.changes.reserve().await.unwrap();
+                // Dropping `live` releases the Run, cancelling its owner token.
+                drop(live);
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+                tokio::task::yield_now().await;
+
+                let (sent, outcome) = oneshot::channel();
+                permit.send(Queued {
+                    change: Change::Restore,
+                    sent,
+                });
+                let result = tokio::time::timeout(Duration::from_secs(1), outcome).await;
+                drop((sheets, driver, played));
+                result
+            });
+            result
+        });
+
+        assert!(
+            matches!(resolved, Ok(Err(_))),
+            "reserved permit sent after Sheets stopped must resolve, got {resolved:?}"
+        );
     }
 }

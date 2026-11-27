@@ -2163,3 +2163,49 @@ prop_state_machine! {
         sequential 8..32 => Subject
     );
 }
+
+/// Issue 2594: send permits reserved on both `PageReader`'s `asks` channel and
+/// its `Origins` watcher before the page's events end still resolve once sent
+/// while handles live.
+#[test]
+fn a_permit_reserved_on_page_reader_and_origins_watcher_resolves_when_events_end() {
+    let (ask_resolved, origin_resolved) = runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let ((connection, driver), played) = replay::connected();
+        let reader = super::PageReader::new(&connection, &TargetSession(SESSION.to_owned()));
+        let origins = crate::cdp::driver::carry::Origins::default();
+        let watcher = origins.clone().watcher();
+        let watcher_tx = origins.test_watchers().pop().unwrap();
+
+        owner.spawn(async move {
+            let _ = driver.run().await;
+        });
+        owner.spawn(reader.reading(Some(watcher)));
+
+        // Reserve permits BEFORE the page's events end.
+        let ask_permit = reader.0.asks.reserve().await.unwrap();
+        let origin_permit = watcher_tx.reserve().await.unwrap();
+
+        // End the browser connection so `events` ends and `page_reader::read` exits.
+        drop(played);
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+        tokio::task::yield_now().await;
+
+        let (ask_tx, ask_rx) = oneshot::channel();
+        ask_permit.send(ask_tx);
+        let (origin_tx, origin_rx) = oneshot::channel();
+        origin_permit.send(origin_tx);
+
+        let ask_res = tokio::time::timeout(Duration::from_secs(1), ask_rx).await;
+        let origin_res = tokio::time::timeout(Duration::from_secs(1), origin_rx).await;
+        drop((reader, watcher_tx, origins, connection));
+        owner.stop().await;
+        (ask_res, origin_res)
+    });
+
+    assert!(
+        ask_resolved.is_ok() && origin_resolved.is_ok(),
+        "reserved permits must resolve when page_reader ends: ask={ask_resolved:?}, origin={origin_resolved:?}"
+    );
+}

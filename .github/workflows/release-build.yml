@@ -29,12 +29,22 @@ on:
         required: false
         default: "0.0.0-dev.0"
         type: string
+      accounts_open:
+        description: "Whether Apple Developer ID and Azure Artifact Signing accounts are open (ADR 0039)"
+        required: false
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       version:
         description: "Product version to build and package (semver)"
         required: true
         type: string
+      accounts_open:
+        description: "Whether Apple Developer ID and Azure Artifact Signing accounts are open (ADR 0039)"
+        required: false
+        default: false
+        type: boolean
   push:
     branches:
       - "release/*"
@@ -103,9 +113,101 @@ jobs:
           path: target/proving-ground-out
           if-no-files-found: error
 
+  sign-proving-ground-macos:
+    name: sign-proving-ground-macos
+    needs: [proving-ground]
+    if: inputs.accounts_open == true
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download built macOS Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: proving-ground-*-apple-darwin
+          merge-multiple: true
+          path: target/proving-ground-macos
+      - name: Platform-sign and notarize macOS Proving ground binaries
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: ci/release/sign-macos.sh proving-ground target/proving-ground-macos
+      - name: Scan signed macOS Proving ground binaries for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/proving-ground-macos
+      - name: Upload signed macOS Proving ground binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-signed-macos
+          path: target/proving-ground-macos
+          if-no-files-found: error
+
+  sign-proving-ground-windows:
+    name: sign-proving-ground-windows
+    needs: [proving-ground]
+    if: inputs.accounts_open == true
+    runs-on: windows-2025
+    environment: release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download built Windows Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: proving-ground-*-windows-msvc
+          merge-multiple: true
+          path: target/proving-ground-windows
+      - name: Platform-sign Windows Proving ground binaries through Azure Artifact Signing OIDC
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          $token = (Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange").value
+          az login --service-principal -u $env:AZURE_CLIENT_ID -t $env:AZURE_TENANT_ID --federated-token $token --allow-no-subscriptions
+          ci/release/sign-windows.ps1 -Mode proving-ground -Dir target/proving-ground-windows
+      - name: Scan signed Windows Proving ground binaries for secrets
+        id: leaks
+        if: always()
+        shell: bash
+        run: ci/leaks.sh target/proving-ground-windows
+      - name: Upload signed Windows Proving ground binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-signed-windows
+          path: target/proving-ground-windows
+          if-no-files-found: error
+
   sign-proving-ground:
     name: sign-proving-ground
-    needs: [proving-ground]
+    needs: [proving-ground, sign-proving-ground-macos, sign-proving-ground-windows]
+    if: >-
+      !cancelled()
+      && needs.proving-ground.result == 'success'
+      && (needs.sign-proving-ground-macos.result == 'success' || needs.sign-proving-ground-macos.result == 'skipped')
+      && (needs.sign-proving-ground-windows.result == 'success' || needs.sign-proving-ground-windows.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -123,8 +225,18 @@ jobs:
           pattern: proving-ground-*
           merge-multiple: true
           path: target/proving-ground-signed
-      # Platform signing of macOS and Windows Proving ground binaries plugs in
-      # right before `proving-ground-digests` in issue 142.
+      - name: Overlay signed macOS Proving ground binaries when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-signed-macos
+          path: target/proving-ground-signed
+      - name: Overlay signed Windows Proving ground binaries when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-signed-windows
+          path: target/proving-ground-signed
       - name: Fix Proving ground digests before executables build
         run: |
           cargo run --quiet --locked --bin xtask -- release proving-ground-digests \
@@ -239,9 +351,126 @@ jobs:
           path: target/built-binaries
           if-no-files-found: error
 
+  sign-macos:
+    name: sign-macos
+    needs: [build-targets, fetch-chromium]
+    if: inputs.accounts_open == true
+    runs-on: macos-15
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download built macOS target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*-apple-darwin
+          merge-multiple: true
+          path: target/signed-macos
+      - name: Download fetched Goodfetch Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chromium-fetched
+          path: target/signed-chromium-macos
+      - name: Platform-sign and notarize macOS executables and Goodfetch Chromium
+        env:
+          APPLE_DEVELOPER_ID_P12: ${{ secrets.APPLE_DEVELOPER_ID_P12 }}
+          APPLE_DEVELOPER_ID_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_NOTARY_KEY: ${{ secrets.APPLE_NOTARY_KEY }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: ci/release/sign-macos.sh artifacts target/signed-macos target/signed-chromium-macos
+      - name: Scan signed macOS artifacts for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/signed-macos target/signed-chromium-macos
+      - name: Upload signed macOS binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-macos-binaries
+          path: target/signed-macos
+          if-no-files-found: error
+      - name: Upload signed macOS Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-macos-chromium
+          path: target/signed-chromium-macos
+          if-no-files-found: ignore
+
+  sign-windows:
+    name: sign-windows
+    needs: [build-targets, fetch-chromium]
+    if: inputs.accounts_open == true
+    runs-on: windows-2025
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download built Windows target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*-windows-msvc
+          merge-multiple: true
+          path: target/signed-windows
+      - name: Download fetched Goodfetch Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chromium-fetched
+          path: target/signed-chromium-windows
+      - name: Platform-sign Windows x64 and arm64 files through Azure Artifact Signing OIDC
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          $token = (Invoke-RestMethod -Headers @{ Authorization = "Bearer $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN" } -Uri "$env:ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange").value
+          az login --service-principal -u $env:AZURE_CLIENT_ID -t $env:AZURE_TENANT_ID --federated-token $token --allow-no-subscriptions
+          ci/release/sign-windows.ps1 -Mode artifacts -Dir target/signed-windows -ChromiumDir target/signed-chromium-windows
+      - name: Scan signed Windows artifacts for secrets
+        id: leaks
+        if: always()
+        shell: bash
+        run: ci/leaks.sh target/signed-windows target/signed-chromium-windows
+      - name: Upload signed Windows binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-windows-binaries
+          path: target/signed-windows
+          if-no-files-found: error
+      - name: Upload signed Windows Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-windows-chromium
+          path: target/signed-chromium-windows
+          if-no-files-found: ignore
+
   sign-artifacts:
     name: sign-artifacts
-    needs: [build-targets, fetch-chromium]
+    needs: [build-targets, fetch-chromium, sign-macos, sign-windows]
+    if: >-
+      !cancelled()
+      && needs.build-targets.result == 'success'
+      && needs.fetch-chromium.result == 'success'
+      && (needs.sign-macos.result == 'success' || needs.sign-macos.result == 'skipped')
+      && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -251,6 +480,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
       - name: Download built target binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -262,9 +493,38 @@ jobs:
         with:
           name: chromium-fetched
           path: target/signed-chromium
-      # Clear place between build and digests for issue 142's Platform signing
-      # jobs (macOS Developer ID + notarytool, Windows Azure Artifact Signing)
-      # and signed-bundle smoke. Rehearsal hands unsigned bytes straight through.
+      - name: Overlay signed macOS binaries when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-macos-binaries
+          path: target/signed-binaries
+      - name: Overlay signed macOS Chromium when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-macos-chromium
+          path: target/signed-chromium
+      - name: Overlay signed Windows binaries when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-windows-binaries
+          path: target/signed-binaries
+      - name: Overlay signed Windows Chromium when accounts are open
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-windows-chromium
+          path: target/signed-chromium
+      - name: Compute deterministic signing reuse manifest for this version
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+        run: |
+          cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
+            --version "$RELEASE_VERSION" \
+            --binaries target/signed-binaries \
+            --out target/signed-binaries/signing-reuse.json
       - name: Scan signed staging directory for secrets
         id: leaks
         if: always()
@@ -284,9 +544,267 @@ jobs:
           path: target/signed-chromium
           if-no-files-found: ignore
 
+  verify-macos-signatures:
+    name: verify-macos-signatures
+    needs: [sign-proving-ground, sign-artifacts]
+    if: inputs.accounts_open == true
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/verify-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/verify-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/verify-chromium
+      - name: Verify macOS Developer ID signatures, notarization and entitlements
+        run: ci/release/verify-platform-signatures.sh target/verify-binaries target/verify-chromium target/sig-reports/macos.json
+      - name: Scan macOS signature report for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/sig-reports
+      - name: Upload macOS signature verification report
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sig-report-macos
+          path: target/sig-reports/macos.json
+          if-no-files-found: error
+
+  verify-windows-signatures:
+    name: verify-windows-signatures
+    needs: [sign-proving-ground, sign-artifacts]
+    if: inputs.accounts_open == true
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/verify-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/verify-binaries
+      - name: Verify Windows Authenticode signatures and RFC 3161 timestamps
+        shell: pwsh
+        run: ci/release/verify-platform-signatures.ps1 -BinariesDir target/verify-binaries -OutJson target/sig-reports/windows.json
+      - name: Scan Windows signature report for secrets
+        id: leaks
+        if: always()
+        shell: bash
+        run: ci/leaks.sh target/sig-reports
+      - name: Upload Windows signature verification report
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sig-report-windows
+          path: target/sig-reports/windows.json
+          if-no-files-found: error
+
+  platform-signature-gate:
+    name: platform-signature-gate
+    needs: [sign-artifacts, verify-macos-signatures, verify-windows-signatures]
+    if: >-
+      !cancelled()
+      && needs.sign-artifacts.result == 'success'
+      && (needs.verify-macos-signatures.result == 'success' || needs.verify-macos-signatures.result == 'skipped')
+      && (needs.verify-windows-signatures.result == 'success' || needs.verify-windows-signatures.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Download macOS signature verification report
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-report-macos
+          path: target/sig-reports
+      - name: Download Windows signature verification report
+        if: inputs.accounts_open == true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sig-report-windows
+          path: target/sig-reports
+      - name: Run Platform signature gate
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          ACCOUNTS_OPEN: ${{ inputs.accounts_open == true }}
+        run: |
+          args=(--version "$RELEASE_VERSION" --pr-comment target/sig-reports/gate-status.txt)
+          if [[ "$ACCOUNTS_OPEN" == "true" ]]; then
+            jq -s '{macos: (.[0].macos // []), macos_apps: (.[0].macos_apps // []), windows: (.[1].windows // [])}' \
+              target/sig-reports/macos.json target/sig-reports/windows.json >target/sig-reports/combined.json
+            args+=(--accounts-open --report target/sig-reports/combined.json)
+          fi
+          cargo run --quiet --locked --bin xtask -- release signature-gate "${args[@]}"
+
+  signed-bundle-smoke-linux:
+    name: signed-bundle-smoke-linux
+    needs: [sign-proving-ground, sign-artifacts, platform-signature-gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/smoke-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/smoke-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/smoke-chromium
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: signed-bundle smoke on Linux"
+        run: >-
+          ci/egress/under-deny.sh ci/release/smoke-signed-chromium.sh
+          target/smoke-chromium
+          target/smoke-binaries/x86_64-unknown-linux-gnu/goodfetch-collie
+          target/smoke-binaries/x86_64-unknown-linux-gnu/goodfetch-proving-ground
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  signed-bundle-smoke-windows:
+    name: signed-bundle-smoke-windows
+    needs: [sign-proving-ground, sign-artifacts, platform-signature-gate]
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/smoke-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/smoke-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/smoke-chromium
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: signed-bundle smoke on Windows"
+        run: >-
+          ci/egress/under-deny.sh ci/release/smoke-signed-chromium.sh
+          target/smoke-chromium
+          target/smoke-binaries/x86_64-pc-windows-msvc/goodfetch-collie.exe
+          target/smoke-binaries/x86_64-pc-windows-msvc/goodfetch-proving-ground.exe
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  signed-bundle-smoke-macos:
+    name: signed-bundle-smoke-macos
+    needs: [sign-proving-ground, sign-artifacts, platform-signature-gate]
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/smoke-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/smoke-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/smoke-chromium
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: signed-bundle smoke on macOS"
+        run: >-
+          ci/release/smoke-signed-chromium.sh
+          target/smoke-chromium
+          target/smoke-binaries/aarch64-apple-darwin/goodfetch-collie
+          target/smoke-binaries/aarch64-apple-darwin/goodfetch-proving-ground
+
   package-and-digests:
     name: package-and-digests
-    needs: [sign-proving-ground, sign-artifacts]
+    needs:
+      - sign-proving-ground
+      - sign-artifacts
+      - platform-signature-gate
+      - signed-bundle-smoke-linux
+      - signed-bundle-smoke-windows
+      - signed-bundle-smoke-macos
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

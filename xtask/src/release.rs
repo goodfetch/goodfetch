@@ -37,6 +37,7 @@ mod line;
 mod package;
 mod proving_ground;
 mod pull_request;
+mod signing;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
@@ -226,6 +227,15 @@ pub(crate) enum Command {
     /// Verifies a rehearsal artifact's detached signature and in-toto DSSE
     /// attestation before reading it.
     VerifyRehearsal(attest::VerifyRehearsalArguments),
+    /// Evaluates the Platform signature gate (ADR 0039, grilling G-18 Q11):
+    /// reports `not run: accounts not open` for `0.y` previews while accounts
+    /// are closed, blocks `1.0.0`+ and candidates, and verifies every target's
+    /// signatures, timestamps, notarization and entitlements when accounts are
+    /// open.
+    SignatureGate(signing::SignatureGateArguments),
+    /// Computes the deterministic reuse key for Platform-signed artifacts of a
+    /// version so re-runs reuse already-signed bytes without re-signing.
+    SigningReuseKey(signing::ReuseKeyArguments),
 }
 
 #[expect(
@@ -246,6 +256,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         }
         Command::SignRehearsal(arguments) => attest::sign_rehearsal(root, &arguments),
         Command::VerifyRehearsal(arguments) => attest::verify_rehearsal(root, &arguments),
+        Command::SignatureGate(arguments) => signing::run_signature_gate(root, &arguments),
+        Command::SigningReuseKey(arguments) => signing::run_reuse_key(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

@@ -177,6 +177,7 @@ package = ["assets"]
 proving_ground = ["assets"]
 publish = ["assets", "digests"]
 pull_request = ["changelog"]
+signing = ["assets"]
 
 # Which of `release_suite`'s own modules may import which.
 [submodules.release_suite]

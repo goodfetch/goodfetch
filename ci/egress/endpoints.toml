@@ -264,8 +264,16 @@ job = "release-build.yml#proving-ground"
 reason = "It compiles the Proving ground release binary and runs none of the product."
 
 [[outside]]
+job = "release-build.yml#sign-proving-ground-macos"
+reason = "It signs and notarizes macOS Proving ground binaries with Apple Developer ID and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-proving-ground-windows"
+reason = "It signs Windows Proving ground binaries through Azure Artifact Signing OIDC and runs none of the product (ADR 0039)."
+
+[[outside]]
 job = "release-build.yml#sign-proving-ground"
-reason = "It reserves Platform signing and hashes the Proving ground binaries without running the product."
+reason = "It combines signed Proving ground binaries and hashes them without running the product."
 
 [[outside]]
 job = "release-build.yml#fetch-chromium"
@@ -276,8 +284,38 @@ job = "release-build.yml#build-targets"
 reason = "It compiles both Products' executables and shared helpers for each target and runs none of the product."
 
 [[outside]]
+job = "release-build.yml#sign-macos"
+reason = "It signs and notarizes macOS executables and Goodfetch Chromium bundles with Apple Developer ID and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-windows"
+reason = "It signs Windows x64 and arm64 executables and Goodfetch Chromium files through Azure Artifact Signing OIDC and runs none of the product (ADR 0039)."
+
+[[outside]]
 job = "release-build.yml#sign-artifacts"
-reason = "It reserves Platform signing between build and digests and runs none of the product (ADR 0039)."
+reason = "It combines signed target binaries and computes their signing reuse manifest without running the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#verify-macos-signatures"
+reason = "It runs codesign, spctl and stapler verification on macOS signed artifacts and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#verify-windows-signatures"
+reason = "It runs signtool verification on Windows signed artifacts and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#platform-signature-gate"
+reason = "It evaluates the Platform signature gate report without running the product (ADR 0039)."
+
+[[deny]]
+job = "release-build.yml#signed-bundle-smoke-linux"
+
+[[deny]]
+job = "release-build.yml#signed-bundle-smoke-windows"
+
+[[outside]]
+job = "release-build.yml#signed-bundle-smoke-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
 
 [[outside]]
 job = "release-build.yml#package-and-digests"

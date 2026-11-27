@@ -467,22 +467,32 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.formats")
         return result_of(models.PageFormats, await self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
-    async def go_back(self) -> AsyncResponse | None:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
+    async def go_back(self, *, timeout: timedelta | None | NotGiven = not_given) -> AsyncResponse | None:
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
+
+        Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_back")
-        response = result_of(models.Navigated, await self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        params = models.PageParams(page_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.navigation")
+        response = result_of(models.Navigated, await self._host.call("page.go_back", params, timeout_setting="timeout.navigation")).response
         return None if response is None else AsyncResponse(self._host, response)
 
-    async def go_forward(self) -> AsyncResponse | None:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
+    async def go_forward(self, *, timeout: timedelta | None | NotGiven = not_given) -> AsyncResponse | None:
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
+
+        Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_forward")
-        response = result_of(models.Navigated, await self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        params = models.PageParams(page_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.navigation")
+        response = result_of(models.Navigated, await self._host.call("page.go_forward", params, timeout_setting="timeout.navigation")).response
         return None if response is None else AsyncResponse(self._host, response)
 
     async def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> AsyncResponse | None:
@@ -509,13 +519,18 @@ class AsyncPage(AsyncHandle):
         warn_experimental("page.read")
         return result_of(models.PageRead, await self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
-    async def reload(self) -> AsyncResponse | None:
-        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+    async def reload(self, *, timeout: timedelta | None | NotGiven = not_given) -> AsyncResponse | None:
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
+
+        Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.reload")
-        response = result_of(models.Navigated, await self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        params = models.PageParams(page_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.navigation")
+        response = result_of(models.Navigated, await self._host.call("page.reload", params, timeout_setting="timeout.navigation")).response
         return None if response is None else AsyncResponse(self._host, response)
 
     async def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, json_secrets: list[models.JsonSecret] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given, secret_headers: dict[str, models.SecretHeader] | None | NotGiven = not_given) -> AsyncResponse:
@@ -1255,22 +1270,32 @@ class Page(Handle):
         warn_experimental("page.formats")
         return result_of(models.PageFormats, self._host.call("page.formats", models.FormatsParams(page_id=self._host.id, formats=formats)))
 
-    def go_back(self) -> Response | None:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
+    def go_back(self, *, timeout: timedelta | None | NotGiven = not_given) -> Response | None:
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
+
+        Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_back")
-        response = result_of(models.Navigated, self._host.call("page.go_back", models.PageParams(page_id=self._host.id))).response
+        params = models.PageParams(page_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.navigation")
+        response = result_of(models.Navigated, self._host.call("page.go_back", params, timeout_setting="timeout.navigation")).response
         return None if response is None else Response(self._host, response)
 
-    def go_forward(self) -> Response | None:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
+    def go_forward(self, *, timeout: timedelta | None | NotGiven = not_given) -> Response | None:
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
+
+        Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.go_forward")
-        response = result_of(models.Navigated, self._host.call("page.go_forward", models.PageParams(page_id=self._host.id))).response
+        params = models.PageParams(page_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.navigation")
+        response = result_of(models.Navigated, self._host.call("page.go_forward", params, timeout_setting="timeout.navigation")).response
         return None if response is None else Response(self._host, response)
 
     def goto(self, url: str, *, timeout: timedelta | None | NotGiven = not_given, wait_until: Literal["commit", "domcontentloaded", "load"] | None | NotGiven = not_given) -> Response | None:
@@ -1297,13 +1322,18 @@ class Page(Handle):
         warn_experimental("page.read")
         return result_of(models.PageRead, self._host.call("page.read", models.PageReadParams(page_id=self._host.id, fields=fields)))
 
-    def reload(self) -> Response | None:
-        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+    def reload(self, *, timeout: timedelta | None | NotGiven = not_given) -> Response | None:
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
+
+        Left out, `timeout` takes the Run's `timeout.navigation`, by default `timedelta(seconds=30)`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("page.reload")
-        response = result_of(models.Navigated, self._host.call("page.reload", models.PageParams(page_id=self._host.id))).response
+        params = models.PageParams(page_id=self._host.id)
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.navigation")
+        response = result_of(models.Navigated, self._host.call("page.reload", params, timeout_setting="timeout.navigation")).response
         return None if response is None else Response(self._host, response)
 
     def request(self, url: str, *, headers: dict[str, str] | None | NotGiven = not_given, json_secrets: list[models.JsonSecret] | None | NotGiven = not_given, max_redirects: int | None | NotGiven = not_given, method: str | None | NotGiven = not_given, post_data: str | None | NotGiven = not_given, secret_headers: dict[str, models.SecretHeader] | None | NotGiven = not_given) -> Response:

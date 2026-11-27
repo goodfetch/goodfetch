@@ -829,7 +829,7 @@ export class CollieOperations {
   }
 
   /**
-   * Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
+   * Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
    *
    * @experimental
    */
@@ -839,7 +839,7 @@ export class CollieOperations {
   }
 
   /**
-   * Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
+   * Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
    *
    * @experimental
    */
@@ -999,7 +999,7 @@ export class CollieOperations {
   }
 
   /**
-   * Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+   * Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
    *
    * @experimental
    */

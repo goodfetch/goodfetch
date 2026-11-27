@@ -319,7 +319,7 @@ class AsyncCollieOperations:
         return result_of(PageFormats, await self._caller.call("page.formats", params))
 
     async def page_go_back(self, params: PageParams) -> Navigated:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -327,7 +327,7 @@ class AsyncCollieOperations:
         return result_of(Navigated, await self._caller.call("page.go_back", params))
 
     async def page_go_forward(self, params: PageParams) -> Navigated:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -455,7 +455,7 @@ class AsyncCollieOperations:
         return result_of(PageRead, await self._caller.call("page.read", params))
 
     async def page_reload(self, params: PageParams) -> Navigated:
-        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1151,7 +1151,7 @@ class CollieOperations:
         return result_of(PageFormats, self._caller.call("page.formats", params))
 
     def page_go_back(self, params: PageParams) -> Navigated:
-        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).
+        """Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1159,7 +1159,7 @@ class CollieOperations:
         return result_of(Navigated, self._caller.call("page.go_back", params))
 
     def page_go_forward(self, params: PageParams) -> Navigated:
-        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).
+        """Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
@@ -1287,7 +1287,7 @@ class CollieOperations:
         return result_of(PageRead, self._caller.call("page.read", params))
 
     def page_reload(self, params: PageParams) -> Navigated:
-        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.
+        """Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """

@@ -392,8 +392,13 @@ impl Plan {
 }
 
 /// Everything `xtask codegen` writes at `root`, with the executables' files
-/// `executables` gives.
-fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<Plan> {
+/// `resolve_executables` supplies once the catalog, projections and Rust
+/// client files are ready.
+fn plan(
+    cargo: &OsStr,
+    root: &Path,
+    resolve_executables: impl FnOnce(&BTreeMap<String, Vec<u8>>) -> Result<executables::Files>,
+) -> Result<Plan> {
     let version = product_version::read(root)?;
     let emitted = emitter::emit(cargo, root)?;
     let bundle: Value =
@@ -417,15 +422,18 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
         format!("{PROTOCOL_GENERATED}/foxhound.json"),
         json_text(&foxhound)?,
     );
+    files.extend(error_codes::files(&catalog)?);
+    files.extend(special_purpose::generate(root)?);
+    files.extend(counted_work::generate(root)?);
+    files.extend(rust_files(root, &bundle, &collie, &foxhound, &version)?);
+
+    let executables = resolve_executables(&files)?;
     let command_lines = executables.command_lines()?;
     let foxhound_names = names::table(&catalog, command_lines.as_ref());
     files.insert(
         format!("{PROTOCOL_GENERATED}/foxhound_names.rs"),
         names::render(&foxhound_names).into_bytes(),
     );
-    files.extend(error_codes::files(&catalog)?);
-    files.extend(special_purpose::generate(root)?);
-    files.extend(counted_work::generate(root)?);
     files.extend(executables.into_files());
     files.extend(skills::files(root, &catalog, command_lines.as_ref())?);
     let sources = features::Sources {
@@ -459,7 +467,6 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     files.extend(facts::files(cargo, root)?);
     files.extend(cdp::generate(root)?);
 
-    files.extend(rust_files(root, &bundle, &collie, &foxhound, &version)?);
     let mut externals = Vec::new();
     let mut python_fields = Vec::new();
     for package in &PACKAGES {
@@ -573,7 +580,15 @@ fn json_text(value: &Value) -> Result<Vec<u8>> {
 /// Writes every generated file, removing any other file from the folders
 /// `xtask codegen` owns.
 pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Result<()> {
-    let plan = plan(cargo, root, executables::Files::printed(cargo, root)?)?;
+    let plan = plan(cargo, root, |preliminary| {
+        // Flush the catalog projections and Rust client files before running
+        // `goodfetch-foxhound`'s `command-lines` example, so it compiles
+        // against new params fields and prints the new catalog in one pass.
+        for (path, contents) in preliminary {
+            write_file(&root.join(path), contents)?;
+        }
+        executables::Files::printed(cargo, root)
+    })?;
     let written = plan.written();
     for folder in Plan::owned_folders() {
         for file in files_under(root, folder)? {
@@ -600,7 +615,7 @@ pub(crate) fn write(cargo: &OsStr, generators: &Generators, root: &Path) -> Resu
 
 /// What `--check` finds: files that differ from what the types generate.
 pub(crate) fn check(cargo: &OsStr, root: &Path) -> Result<Vec<Finding>> {
-    let plan = plan(cargo, root, executables::Files::committed(root))?;
+    let plan = plan(cargo, root, |_| Ok(executables::Files::committed(root)))?;
     let mut findings = Vec::new();
     for (path, expected) in &plan.files {
         if std::fs::read(root.join(path)).ok().as_ref() != Some(expected) {

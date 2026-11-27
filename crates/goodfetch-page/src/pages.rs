@@ -780,7 +780,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             (Destination::Reload, Navigating::Program),
                             WaitUntil::Load,
-                            None,
+                            params.timeout,
                             Charge::Nothing,
                             &context,
                         )
@@ -798,7 +798,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             (Destination::Back, Navigating::Program),
                             WaitUntil::Load,
-                            None,
+                            params.timeout,
                             Charge::Nothing,
                             &context,
                         )
@@ -816,7 +816,7 @@ fn with_page_handlers(contribution: Contribution, pages: &Pages) -> Contribution
                             &params.page_id,
                             (Destination::Forward, Navigating::Program),
                             WaitUntil::Load,
-                            None,
+                            params.timeout,
                             Charge::Nothing,
                             &context,
                         )

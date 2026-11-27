@@ -297,3 +297,17 @@ fn metadata_and_contacts_are_asked_for_with_true_alone(#[case] value: Value) {
 
     assert!(parsed.is_err(), "{parsed:?}");
 }
+
+#[test]
+fn page_navigation_params_carry_the_three_timeout_states() {
+    let absent: super::PageParams = serde_json::from_value(json!({ "page_id": "page_1" })).unwrap();
+    let none: super::PageParams =
+        serde_json::from_value(json!({ "page_id": "page_1", "timeout": null })).unwrap();
+    let millis: super::PageParams =
+        serde_json::from_value(json!({ "page_id": "page_1", "timeout": 500 })).unwrap();
+
+    assert_eq!(
+        (absent.timeout, none.timeout, millis.timeout),
+        (None, Some(None), Some(Some(500)))
+    );
+}

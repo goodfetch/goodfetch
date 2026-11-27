@@ -282,13 +282,25 @@ pub enum WaitUntil {
     Load,
 }
 
-/// What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
+/// What `page.reload`, `page.go_back` and `page.go_forward` take: the page
+/// and when the navigation times out.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PageParams {
     /// The page.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub page_id: PageId,
+    /// How long the navigation may take, in milliseconds, at least 1:
+    /// absent for `timeout.navigation`, `null` for none, though an
+    /// enclosing timeout still applies (ADR 0080). Its waits for permits
+    /// count against it no more than against the setting.
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.navigation"))]
+    pub timeout: Option<Option<u64>>,
 }
 
 /// The response to a request of a page, such as a navigation's document.
@@ -991,7 +1003,7 @@ pub const PAGE_GOTO: Operation = Operation {
 /// `page.reload`.
 pub const PAGE_RELOAD: Operation = Operation {
     name: "page.reload",
-    description: "Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, and one another navigation supersedes before it committed `navigation_interrupted`.",
+    description: "Loads the page's document again and waits for its `load` event, answering the document's response: a 404 or a 500 is a response, a value. A navigation that reaches no document raises `navigation_failed`, one another navigation supersedes before it committed `navigation_interrupted`, and one past its `timeout`, or `timeout.navigation` without one, `deadline_exceeded`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -1009,7 +1021,7 @@ pub const PAGE_RELOAD: Operation = Operation {
 /// `page.go_back`.
 pub const PAGE_GO_BACK: Operation = Operation {
     name: "page.go_back",
-    description: "Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121).",
+    description: "Goes back one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go back to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,
@@ -1027,7 +1039,7 @@ pub const PAGE_GO_BACK: Operation = Operation {
 /// `page.go_forward`.
 pub const PAGE_GO_FORWARD: Operation = Operation {
     name: "page.go_forward",
-    description: "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121).",
+    description: "Goes forward one entry in the page's history and waits for its `load` event, answering the document's response. It answers none only when no document loads: for a same-document entry, or when there is no entry to go forward to. The back/forward cache is off, so a document always loads again (ADR 0121). A navigation past its `timeout`, or `timeout.navigation` without one, raises `deadline_exceeded`.",
     class: OperationClass::Effect,
     kind: OperationKind::RoundTrip,
     reach: Reach::AllSurfaces,

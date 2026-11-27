@@ -474,23 +474,158 @@ pub(super) fn past_its_deadline(
 ) -> Result<(), Gone> {
     let run_id = "conformance-navigation-deadline";
     let held = site.start_url("pacing/1").map(ToOwned::to_owned);
-    checks.check("the Proving ground serves the case's pages", held.is_some());
-    let Some(held) = held else {
+    let article = url_on(site, "pacing/1", "/articles/1");
+    checks.check(
+        "the Proving ground serves the case's pages",
+        held.is_some() && article.is_some(),
+    );
+    let (Some(held), Some(article)) = (held, article) else {
         return Ok(());
     };
     start_run(connection, site, run_id, &json!({}), checks)?;
+    if let Some(page) = new_page(connection, run_id, checks)? {
+        let page = json!(page.page_id);
+        check_zero_timeout(
+            connection,
+            PAGE_GOTO.name,
+            &page,
+            &json!({ "url": held }),
+            checks,
+        )?;
+        check_held_deadline(
+            connection,
+            site,
+            PAGE_GOTO.name,
+            &page,
+            &json!({ "url": held, "wait_until": "load" }),
+            checks,
+        )?;
+    }
+    check_reload_deadline(connection, site, run_id, &held, checks)?;
+    check_history_deadlines(connection, site, run_id, (&held, &article), checks)?;
+    finish_run(connection, run_id)
+}
+
+fn check_reload_deadline(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    held: &str,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
     let Some(page) = new_page(connection, run_id, checks)? else {
-        return finish_run(connection, run_id);
+        return Ok(());
     };
-    let refused = call(
+    let page = json!(page.page_id);
+    let loaded = call(connection, PAGE_GOTO.name, &page, &json!({ "url": held }))?;
+    answered(&loaded, "`page.goto` before reload", held, 200, checks);
+    check_zero_timeout(connection, PAGE_RELOAD.name, &page, &json!({}), checks)?;
+    check_held_deadline(
         connection,
-        PAGE_GOTO.name,
-        &json!(page.page_id),
-        &json!({ "url": held, "timeout": 0 }),
-    )?;
+        site,
+        PAGE_RELOAD.name,
+        &page,
+        &json!({}),
+        checks,
+    )
+}
+
+fn check_history_deadlines(
+    connection: &mut Connection,
+    site: &Site,
+    run_id: &str,
+    (held, article): (&str, &str),
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    if let Some(page) = new_page(connection, run_id, checks)? {
+        let page = json!(page.page_id);
+        let first = call(connection, PAGE_GOTO.name, &page, &json!({ "url": held }))?;
+        answered(&first, "`page.goto` first history entry", held, 200, checks);
+        let second = call(
+            connection,
+            PAGE_GOTO.name,
+            &page,
+            &json!({ "url": article }),
+        )?;
+        answered(
+            &second,
+            "`page.goto` second history entry",
+            article,
+            200,
+            checks,
+        );
+        check_zero_timeout(connection, PAGE_GO_BACK.name, &page, &json!({}), checks)?;
+        check_held_deadline(
+            connection,
+            site,
+            PAGE_GO_BACK.name,
+            &page,
+            &json!({}),
+            checks,
+        )?;
+    }
+    if let Some(page) = new_page(connection, run_id, checks)? {
+        let page = json!(page.page_id);
+        let first = call(
+            connection,
+            PAGE_GOTO.name,
+            &page,
+            &json!({ "url": article }),
+        )?;
+        answered(
+            &first,
+            "`page.goto` before forward check",
+            article,
+            200,
+            checks,
+        );
+        let second = call(connection, PAGE_GOTO.name, &page, &json!({ "url": held }))?;
+        answered(
+            &second,
+            "`page.goto` forward target before going back",
+            held,
+            200,
+            checks,
+        );
+        let back = call(
+            connection,
+            PAGE_GO_BACK.name,
+            &page,
+            &json!({ "timeout": Value::Null }),
+        )?;
+        answered(
+            &back,
+            "`page.go_back` with `timeout: null`",
+            article,
+            200,
+            checks,
+        );
+        check_zero_timeout(connection, PAGE_GO_FORWARD.name, &page, &json!({}), checks)?;
+        check_held_deadline(
+            connection,
+            site,
+            PAGE_GO_FORWARD.name,
+            &page,
+            &json!({}),
+            checks,
+        )?;
+    }
+    Ok(())
+}
+
+fn check_zero_timeout(
+    connection: &mut Connection,
+    method: &str,
+    page: &Value,
+    extra: &Value,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut params = extra.clone();
+    params["timeout"] = json!(0);
+    let refused = call(connection, method, page, &params)?;
     checks.check(
         format!(
-            "a `timeout` of 0 is refused with `{}` naming its setting at the run layer from the argument, and the null form as its fix",
+            "`{method}` with `timeout` of 0 is refused with `{}` naming its setting at the run layer from the argument, and the null form as its fix",
             SETTING_INVALID.name
         ),
         refused["error"]["data"]["code"] == json!(SETTING_INVALID.name)
@@ -500,41 +635,58 @@ pub(super) fn past_its_deadline(
                 .as_str()
                 .is_some_and(|fix| fix.contains("`timeout: null`")),
     );
+    Ok(())
+}
+
+fn check_held_deadline(
+    connection: &mut Connection,
+    site: &Site,
+    method: &str,
+    page: &Value,
+    extra: &Value,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let mut params = extra.clone();
+    params["timeout"] = json!(SHORT_NAVIGATION_TIMEOUT);
     let slowed = site.proving_ground.set_time_step(SLOW_STEP).is_ok();
-    checks.check("the Proving ground holds its pacing pages' answers", slowed);
-    let answer = call(
-        connection,
-        PAGE_GOTO.name,
-        &json!(page.page_id),
-        &json!({ "url": held, "wait_until": "load", "timeout": SHORT_NAVIGATION_TIMEOUT }),
+    checks.check(
+        format!("the Proving ground holds its pacing pages' answers for `{method}`"),
+        slowed,
     );
+    let answer = call(connection, method, page, &params);
     let restored = site.proving_ground.set_time_step(0).is_ok();
-    checks.check("the Proving ground's time step is set back", restored);
+    checks.check(
+        format!("the Proving ground's time step is set back after `{method}`"),
+        restored,
+    );
     let data = &answer?["error"]["data"];
     checks.check(
         format!(
-            "`page.goto` past `timeout.navigation` fails with `{}`",
+            "`{method}` past `timeout.navigation` fails with `{}`",
             DEADLINE_EXCEEDED.name
         ),
         data["code"] == json!(DEADLINE_EXCEEDED.name),
     );
-    checks.check("a retry may succeed", data["retryable"] == json!(true));
     checks.check(
-        "its limit names `timeout.navigation`, the call's value and the run layer",
+        format!("`{method}` timeout is retryable"),
+        data["retryable"] == json!(true),
+    );
+    checks.check(
+        format!("`{method}` limit names `timeout.navigation`, the call's value and the run layer"),
         data["limit"]
             == json!({ "key": "timeout.navigation", "value": SHORT_NAVIGATION_TIMEOUT, "layer": "run", "origin": "argument" }),
     );
     checks.check(
-        "it waited for the `load` the call named",
+        format!("`{method}` waited for `load`"),
         data["waited_for"] == json!("load"),
     );
     checks.check(
-        "it waited at least as long as its limit",
+        format!("`{method}` waited at least as long as its limit"),
         data["elapsed"]
             .as_u64()
             .is_some_and(|elapsed| elapsed >= SHORT_NAVIGATION_TIMEOUT),
     );
-    finish_run(connection, run_id)
+    Ok(())
 }
 
 /// Waits `duration` on the harness's own thread.

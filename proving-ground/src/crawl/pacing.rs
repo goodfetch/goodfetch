@@ -71,7 +71,9 @@ fn page_at(seed: u64, step: u64, path: &str) -> Page {
     let hold = hold_ms(seed, step);
     Page {
         held: Some(Held::after(Duration::from_millis(hold))),
-        ..page.header("server-timing", format!("hold;dur={hold}"))
+        ..page
+            .header("cache-control", "no-store".to_owned())
+            .header("server-timing", format!("hold;dur={hold}"))
     }
 }
 

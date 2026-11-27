@@ -16434,7 +16434,7 @@
     },
     "PageParams": {
       "additionalProperties": false,
-      "description": "What `page.reload`, `page.go_back` and `page.go_forward` take: the page.",
+      "description": "What `page.reload`, `page.go_back` and `page.go_forward` take: the page\nand when the navigation times out.",
       "properties": {
         "_meta": {
           "$ref": "#/$defs/RequestMeta",
@@ -16444,6 +16444,17 @@
           "$ref": "#/$defs/PageId",
           "arrived_in": "0.1",
           "description": "The page."
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the navigation may take, in milliseconds, at least 1:\nabsent for `timeout.navigation`, `null` for none, though an\nenclosing timeout still applies (ADR 0080). Its waits for permits\ncount against it no more than against the setting.",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.navigation",
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

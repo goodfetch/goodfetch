@@ -7413,7 +7413,8 @@ export interface PageOpened {
   sessionId: SessionId;
 }
 /**
- * What `page.reload`, `page.go_back` and `page.go_forward` take: the page.
+ * What `page.reload`, `page.go_back` and `page.go_forward` take: the page
+ * and when the navigation times out.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PageParams".
@@ -7423,6 +7424,13 @@ export interface PageParams {
    * The page.
    */
   pageId: PageId;
+  /**
+   * How long the navigation may take, in milliseconds, at least 1:
+   * absent for `timeout.navigation`, `null` for none, though an
+   * enclosing timeout still applies (ADR 0080). Its waits for permits
+   * count against it no more than against the setting.
+   */
+  timeout?: number | null;
 }
 /**
  * What `page.popup` reports: the page that opened a popup, and the

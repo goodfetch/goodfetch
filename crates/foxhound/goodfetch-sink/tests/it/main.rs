@@ -15,5 +15,9 @@ mod outlive;
 mod retries;
 mod run_files;
 mod schema_drift;
+// The Simulation's scenarios (ADR 0060), built only under `--cfg
+// tokio_unstable` by `just simulate` and `just simulation`.
+#[cfg(tokio_unstable)]
+mod simulation;
 mod throughput;
 mod write_modes;

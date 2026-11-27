@@ -539,3 +539,135 @@ fn an_older_foxhound_reads_the_current_foxhounds_crawl() {
         }
     }
 }
+
+/// Reads `(dataset, record_number)` pairs landed in `sink_db` for `run_id`.
+fn landed_sink_records(sink_db: &Path, run_id: &str) -> Vec<(String, i64)> {
+    let connection = Connection::open(sink_db).unwrap();
+    let mut query = connection
+        .prepare(
+            "SELECT _goodfetch_dataset, _goodfetch_record_number
+             FROM records
+             WHERE _goodfetch_run_id = ?1
+             ORDER BY _goodfetch_record_number",
+        )
+        .unwrap();
+    query
+        .query_map([run_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}
+
+/// Rolling-upgrade guarantee for Sinks (ADRs 0026 and 0094; issue 1173):
+/// across an older Foxhound executable and the current Foxhound delivering to
+/// the same Fenced SQLite Sink (including replay/resume across executables),
+/// no committed Record is lost or duplicated beyond the Sink's Guarantee
+/// class.
+///
+/// Covers: story:6-285
+#[test]
+fn a_rolling_upgrade_preserves_every_record_within_the_sinks_guarantee_class() {
+    const ROLLING_DB_ENV: &str = "SINK_ROLLING_DB";
+
+    let older = Older::foxhound();
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let url = proving_ground.start_url("extraction/7").unwrap();
+    let sink_db = env.folder().join("rolling-sink.sqlite");
+    let settings_path = env.folder().join("rolling-settings.json");
+    let more = json!({
+        "fetch": { "tier": "http" },
+        "politeness": { "domain": { "delay": 0 } },
+        "sinks": {
+            "warehouse": {
+                "type": "sqlite",
+                "destination": format!("env:{ROLLING_DB_ENV}"),
+                "datasets": ["pages"],
+            }
+        },
+    });
+    std::fs::write(&settings_path, settings(&proving_ground, &more).to_string()).unwrap();
+
+    // 1. Current Foxhound crawls and delivers every Record to the Fenced SQLite Sink.
+    let crawled = cli(&env, FOXHOUND)
+        .env(ROLLING_DB_ENV, &sink_db)
+        .args([
+            "crawl",
+            "start",
+            &url,
+            "--run-id",
+            "rolling-sink",
+            "--links",
+            "scope",
+            "--format",
+            "markdown",
+            "--settings",
+            settings_path.to_str().unwrap(),
+            "--follow",
+            "--json",
+        ])
+        .mode(Mode::Attached)
+        .run()
+        .unwrap();
+    assert_eq!(crawled.exit, Some(0), "{crawled:?}");
+
+    let run_file = HomeLayout::of(env.home()).run_file("rolling-sink");
+    let verdict = older.run_file_verdict(&run_file);
+    let report = foxhound(&env, &["run", "report", "rolling-sink", "--json"]);
+    assert_eq!(
+        report["sinks"][0]["guarantee_class"],
+        json!("fenced"),
+        "{report}"
+    );
+    let expected_count = report["records"][0]["committed"].as_u64().unwrap();
+    assert!(expected_count >= 1, "{report}");
+
+    // 2. Older Foxhound reads the crawl's report and (when run-file compatible)
+    //    re-probes the same SQLite Sink; current Foxhound re-runs `sink.deliver`
+    //    replay to prove idempotency across the upgrade boundary.
+    let older_report = cli(&env, &older.executable)
+        .env(ROLLING_DB_ENV, &sink_db)
+        .args(["run", "report", "rolling-sink", "--json"])
+        .mode(Mode::Attached)
+        .run()
+        .unwrap();
+    match verdict {
+        Compatibility::Compatible => {
+            assert_eq!(older_report.exit, Some(0), "{older_report:?}");
+            let probe = cli(&env, &older.executable)
+                .env(ROLLING_DB_ENV, &sink_db)
+                .args([
+                    "sink",
+                    "probe",
+                    "--sink",
+                    "warehouse",
+                    "--settings",
+                    settings_path.to_str().unwrap(),
+                    "--json",
+                ])
+                .mode(Mode::Attached)
+                .run()
+                .unwrap();
+            assert_eq!(probe.exit, Some(0), "{probe:?}");
+            assert_eq!(
+                answered(&probe)["outcome"]["class"],
+                json!("fenced"),
+                "{probe:?}"
+            );
+        }
+        _ => {
+            assert!(
+                older_report.stdout.contains("format_version_unsupported"),
+                "{older_report:?}"
+            );
+        }
+    }
+
+    // 3. Verify the Fenced SQLite destination holds every committed Record
+    //    exactly once, in order, with zero loss and zero duplication.
+    let landed = landed_sink_records(&sink_db, "rolling-sink");
+    let expected: Vec<(String, i64)> = (1..=i64::try_from(expected_count).unwrap())
+        .map(|n| ("pages".to_owned(), n))
+        .collect();
+    assert_eq!(landed, expected);
+}

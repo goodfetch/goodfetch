@@ -30,9 +30,12 @@ tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
+goodfetch-simulation.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
+proptest-state-machine.workspace = true
 rstest.workspace = true
+serde.workspace = true
 tempfile.workspace = true
 
 [lints]

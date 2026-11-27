@@ -459,6 +459,7 @@ pub mod egress {
         &[
             ::goodfetch_protocol::catalog::SettingScope::Connection,
             ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
         ],
     );
 

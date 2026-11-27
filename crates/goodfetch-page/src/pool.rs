@@ -55,12 +55,13 @@ use goodfetch_engine::dns::{Dns, HostMapping, ResolverConfiguration};
 use goodfetch_engine::governor::{BrowserUse, GovernedBrowser, PageHold, footprint_of};
 use goodfetch_engine::home::Home;
 use goodfetch_engine::host_name;
-use goodfetch_engine::local_addresses::{self, Rotation, Unavailable};
+use goodfetch_engine::local_addresses::{self, BlockSizes, LocalAddresses, Rotation, Unavailable};
 use goodfetch_engine::runs::outcome::record_panicked;
-use goodfetch_engine::settings::RunSettings;
+use goodfetch_engine::settings::{RunSettings, Values};
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::tls::{CertificateExceptions, PinBook, Trust};
 use goodfetch_protocol::connection::PanicEnded;
+use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_TRUSTED_CAS};
 use tokio::sync::{OnceCell, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -468,34 +469,68 @@ impl Pool {
         }
     }
 
-    /// The local addresses of the `ordinal`-th position of the Run's
-    /// rotation, which the Session binding it holds for its life, and the
-    /// engine's resolution its relay resolves through from them; none when
-    /// the Run sets no `egress.local_addresses`. The same position draws
-    /// the same addresses again, as a Session reopened from run state does.
+    /// The local addresses of a Session whose own settings are `own`, at the
+    /// `ordinal`-th position of the Run's rotation when `own` does not set
+    /// `egress.local_addresses`, which the Session binding it holds for its
+    /// life, and the engine's resolution its relay resolves through from them;
+    /// none when neither sets `egress.local_addresses` (or `own` clears it
+    /// with `null`). A Session's own `egress.local_addresses` is checked as
+    /// at Run start (`Rotation::check`) before picking its address. The same
+    /// position draws the same addresses again, as a Session reopened from
+    /// run state does.
     ///
     /// # Errors
     ///
-    /// [`LocalFailure`]: the addresses give none now, such as an interface
-    /// that lost its addresses, or the system's resolver configuration
-    /// cannot be read.
+    /// [`LocalFailure`]: the addresses give none now, such as an address the
+    /// host does not hold or an interface that lost its addresses, or the
+    /// system's resolver configuration cannot be read.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future leaves a started read of the host to finish.
-    pub(crate) async fn local(&self, ordinal: u64) -> Result<Option<Local>, LocalFailure> {
+    pub(crate) async fn local(
+        &self,
+        own: &Values,
+        ordinal: u64,
+    ) -> Result<Option<Local>, LocalFailure> {
         let shared = &self.shared;
-        let Some(rotation) = &shared.rotation else {
-            return Ok(None);
+        let addresses = match own.get(EGRESS_LOCAL_ADDRESSES.name) {
+            Some(serde_json::Value::Null) => return Ok(None),
+            Some(value) => {
+                let parsed = LocalAddresses::parse(value)
+                    .expect("invariant: `egress.local_addresses` was validated by `Values::read`");
+                let blocks = shared
+                    .run
+                    .identity
+                    .settings()
+                    .map(|settings| BlockSizes::of(settings.resolved()))
+                    .unwrap_or_default();
+                let rotation = Rotation::new(parsed, blocks);
+                shared
+                    .run
+                    .identity
+                    .owner()
+                    .blocking(move || {
+                        rotation.check(&local_addresses::System)?;
+                        rotation.session(&local_addresses::System, 0)
+                    })
+                    .await
+                    .map_err(LocalFailure::Unavailable)?
+            }
+            None => {
+                let Some(rotation) = &shared.rotation else {
+                    return Ok(None);
+                };
+                let rotation = Arc::clone(rotation);
+                shared
+                    .run
+                    .identity
+                    .owner()
+                    .blocking(move || rotation.session(&local_addresses::System, ordinal))
+                    .await
+                    .map_err(LocalFailure::Unavailable)?
+            }
         };
-        let rotation = Arc::clone(rotation);
-        let addresses = shared
-            .run
-            .identity
-            .owner()
-            .blocking(move || rotation.session(&local_addresses::System, ordinal))
-            .await
-            .map_err(LocalFailure::Unavailable)?;
         let clock = shared.run.identity.clock();
         let dns = shared
             .dns

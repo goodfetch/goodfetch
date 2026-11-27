@@ -7528,7 +7528,8 @@
       ],
       "scopes": [
         "connection",
-        "run"
+        "run",
+        "session"
       ],
       "value": {
         "oneOf": [

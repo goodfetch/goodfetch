@@ -1678,6 +1678,14 @@ export interface SessionSettings {
      */
     readonly extractor?: string;
   };
+  readonly egress?: {
+    /**
+     * The addresses a Session's connections and DNS queries leave from (ADR 0044): a list of the host's IP addresses, such as `["192.0.2.10", "2001:db8::10"]`, a network interface's name, such as `eth0`, whose addresses are read when each Session starts, or an IPv6 prefix, such as `2001:db8:1::/48`. Each Session binds one address of each IP family for its life, new Sessions spread round-robin across the blocks `egress.rotation_block.ipv4` and `.ipv6` size. A prefix covers the host's addresses inside it, and on Linux any address of it once `net.ipv6.ip_nonlocal_bind` is 1 and the prefix is routed locally. A value that yields no address the host can use refuses the run with `local_address_unavailable`, and a site with no address in a family the Session holds fails with `address_family_unavailable`. None by default: the address the OS chooses. A Recipe may expose it but never sets it, since its addresses are the machine's own.
+     *
+     * `egress.local_addresses`.
+     */
+    readonly localAddresses?: readonly string[] | string | null;
+  };
   readonly filterLists?: {
     /**
      * Whether a browser Session blocks ads by EasyList, as a blocker does: on by default in every Access mode. A blocked request fails as `BlockedByClient`; the never-block list keeps challenge, anti-bot, anti-fraud and payment scripts loading.

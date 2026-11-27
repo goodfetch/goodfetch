@@ -3594,24 +3594,33 @@
                 "anyOf": [
                   {
                     "additionalProperties": false,
+                    "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
                     "properties": {
                       "day": {
+                        "arrived_in": "0.1",
+                        "description": "Limits per day, counted in the Schedule's time zone.",
                         "items": {
                           "additionalProperties": false,
+                          "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
                           "properties": {
                             "amount": {
-                              "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                              "arrived_in": "0.1",
+                              "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                              "format": "uint64",
                               "minimum": 0,
                               "type": "integer"
                             },
                             "currency": {
-                              "description": "Optional ISO 4217 currency code for a price Limit.",
-                              "pattern": "^[A-Z]{3}$",
-                              "type": "string"
+                              "arrived_in": "0.1",
+                              "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "usage_kind": {
-                              "description": "The Usage kind capped.",
-                              "minLength": 1,
+                              "arrived_in": "0.1",
+                              "description": "The Usage kind it caps.",
                               "type": "string"
                             }
                           },
@@ -3621,25 +3630,36 @@
                           ],
                           "type": "object"
                         },
-                        "type": "array"
+                        "type": [
+                          "array",
+                          "null"
+                        ]
                       },
                       "month": {
+                        "arrived_in": "0.1",
+                        "description": "Limits per month, counted in the Schedule's time zone.",
                         "items": {
                           "additionalProperties": false,
+                          "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
                           "properties": {
                             "amount": {
-                              "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                              "arrived_in": "0.1",
+                              "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                              "format": "uint64",
                               "minimum": 0,
                               "type": "integer"
                             },
                             "currency": {
-                              "description": "Optional ISO 4217 currency code for a price Limit.",
-                              "pattern": "^[A-Z]{3}$",
-                              "type": "string"
+                              "arrived_in": "0.1",
+                              "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "usage_kind": {
-                              "description": "The Usage kind capped.",
-                              "minLength": 1,
+                              "arrived_in": "0.1",
+                              "description": "The Usage kind it caps.",
                               "type": "string"
                             }
                           },
@@ -3649,25 +3669,36 @@
                           ],
                           "type": "object"
                         },
-                        "type": "array"
+                        "type": [
+                          "array",
+                          "null"
+                        ]
                       },
                       "week": {
+                        "arrived_in": "0.1",
+                        "description": "Limits per week, counted in the Schedule's time zone.",
                         "items": {
                           "additionalProperties": false,
+                          "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
                           "properties": {
                             "amount": {
-                              "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                              "arrived_in": "0.1",
+                              "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                              "format": "uint64",
                               "minimum": 0,
                               "type": "integer"
                             },
                             "currency": {
-                              "description": "Optional ISO 4217 currency code for a price Limit.",
-                              "pattern": "^[A-Z]{3}$",
-                              "type": "string"
+                              "arrived_in": "0.1",
+                              "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "usage_kind": {
-                              "description": "The Usage kind capped.",
-                              "minLength": 1,
+                              "arrived_in": "0.1",
+                              "description": "The Usage kind it caps.",
                               "type": "string"
                             }
                           },
@@ -3677,7 +3708,10 @@
                           ],
                           "type": "object"
                         },
-                        "type": "array"
+                        "type": [
+                          "array",
+                          "null"
+                        ]
                       }
                     },
                     "type": "object"
@@ -8315,24 +8349,33 @@
                 "anyOf": [
                   {
                     "additionalProperties": false,
+                    "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
                     "properties": {
                       "day": {
+                        "arrived_in": "0.1",
+                        "description": "Limits per day, counted in the Schedule's time zone.",
                         "items": {
                           "additionalProperties": false,
+                          "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
                           "properties": {
                             "amount": {
-                              "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                              "arrived_in": "0.1",
+                              "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                              "format": "uint64",
                               "minimum": 0,
                               "type": "integer"
                             },
                             "currency": {
-                              "description": "Optional ISO 4217 currency code for a price Limit.",
-                              "pattern": "^[A-Z]{3}$",
-                              "type": "string"
+                              "arrived_in": "0.1",
+                              "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "usage_kind": {
-                              "description": "The Usage kind capped.",
-                              "minLength": 1,
+                              "arrived_in": "0.1",
+                              "description": "The Usage kind it caps.",
                               "type": "string"
                             }
                           },
@@ -8342,25 +8385,36 @@
                           ],
                           "type": "object"
                         },
-                        "type": "array"
+                        "type": [
+                          "array",
+                          "null"
+                        ]
                       },
                       "month": {
+                        "arrived_in": "0.1",
+                        "description": "Limits per month, counted in the Schedule's time zone.",
                         "items": {
                           "additionalProperties": false,
+                          "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
                           "properties": {
                             "amount": {
-                              "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                              "arrived_in": "0.1",
+                              "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                              "format": "uint64",
                               "minimum": 0,
                               "type": "integer"
                             },
                             "currency": {
-                              "description": "Optional ISO 4217 currency code for a price Limit.",
-                              "pattern": "^[A-Z]{3}$",
-                              "type": "string"
+                              "arrived_in": "0.1",
+                              "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "usage_kind": {
-                              "description": "The Usage kind capped.",
-                              "minLength": 1,
+                              "arrived_in": "0.1",
+                              "description": "The Usage kind it caps.",
                               "type": "string"
                             }
                           },
@@ -8370,25 +8424,36 @@
                           ],
                           "type": "object"
                         },
-                        "type": "array"
+                        "type": [
+                          "array",
+                          "null"
+                        ]
                       },
                       "week": {
+                        "arrived_in": "0.1",
+                        "description": "Limits per week, counted in the Schedule's time zone.",
                         "items": {
                           "additionalProperties": false,
+                          "description": "A Limit a program gives a Run at its start (`run.start`'s `limits`):\nthe Run's own, with no period, set by its Client. A start that names\nthe Run again lowers it and never raises it (ADR 0102).",
                           "properties": {
                             "amount": {
-                              "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                              "arrived_in": "0.1",
+                              "description": "How much the Run may use: a count of the Usage kind, or millionths\nof the currency.",
+                              "format": "uint64",
                               "minimum": 0,
                               "type": "integer"
                             },
                             "currency": {
-                              "description": "Optional ISO 4217 currency code for a price Limit.",
-                              "pattern": "^[A-Z]{3}$",
-                              "type": "string"
+                              "arrived_in": "0.1",
+                              "description": "The currency it caps the price in, an ISO 4217 code; none for a\ncount of the Usage kind.",
+                              "type": [
+                                "string",
+                                "null"
+                              ]
                             },
                             "usage_kind": {
-                              "description": "The Usage kind capped.",
-                              "minLength": 1,
+                              "arrived_in": "0.1",
+                              "description": "The Usage kind it caps.",
                               "type": "string"
                             }
                           },
@@ -8398,7 +8463,10 @@
                           ],
                           "type": "object"
                         },
-                        "type": "array"
+                        "type": [
+                          "array",
+                          "null"
+                        ]
                       }
                     },
                     "type": "object"

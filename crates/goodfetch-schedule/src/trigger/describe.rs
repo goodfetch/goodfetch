@@ -54,24 +54,31 @@ fn normalized_fields(expression: &str) -> (Option<String>, String, String, Strin
         );
     }
     let spans = field_spans(expression);
-    if spans.len() == 6 {
-        (
-            Some(spans[0].1.to_owned()),
-            spans[1].1.to_owned(),
-            spans[2].1.to_owned(),
-            spans[3].1.to_owned(),
-            spans[4].1.to_owned(),
-            spans[5].1.to_owned(),
-        )
-    } else {
-        (
+    match spans.as_slice() {
+        [(_, sec), (_, min), (_, hour), (_, dom), (_, mon), (_, dow)] => (
+            Some((*sec).to_owned()),
+            (*min).to_owned(),
+            (*hour).to_owned(),
+            (*dom).to_owned(),
+            (*mon).to_owned(),
+            (*dow).to_owned(),
+        ),
+        [(_, min), (_, hour), (_, dom), (_, mon), (_, dow)] => (
             None,
-            spans[0].1.to_owned(),
-            spans[1].1.to_owned(),
-            spans[2].1.to_owned(),
-            spans[3].1.to_owned(),
-            spans[4].1.to_owned(),
-        )
+            (*min).to_owned(),
+            (*hour).to_owned(),
+            (*dom).to_owned(),
+            (*mon).to_owned(),
+            (*dow).to_owned(),
+        ),
+        _ => (
+            None,
+            "*".to_owned(),
+            "*".to_owned(),
+            "*".to_owned(),
+            "*".to_owned(),
+            "*".to_owned(),
+        ),
     }
 }
 

@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime};
 
 use croner::errors::CronError;
 use goodfetch_protocol::schedule::{
-    CronTrigger, EveryTrigger, ScheduleTrigger, StructuredTriggerDescription, TriggerInvalidReason,
+    CronTrigger, EveryTrigger, SCHEDULE_TRIGGER_INVALID, ScheduleTrigger,
+    ScheduleTriggerInvalidDetails, StructuredTriggerDescription, TriggerInvalidReason,
 };
 use goodfetch_test_support::time_zones;
 use jiff::civil::Date;
@@ -15,9 +16,24 @@ use jiff::tz::{AmbiguousOffset, TimeZone};
 use jiff::{SignedDuration, Timestamp};
 use proptest::prelude::*;
 use rstest::rstest;
+use serde_json::Value;
 
-use super::translate::{translate_cron_error, translate_unrecognized};
-use super::{check, describe, draw_jitter, occurrences, parse};
+use super::translate::{TriggerInvalid, translate_cron_error};
+use super::{describe, draw_jitter, min_interval_ms, occurrences, parse};
+
+fn decode_refusal(refused: TriggerInvalid) -> (String, ScheduleTriggerInvalidDetails) {
+    let call_error = refused.into_call_error();
+    assert_eq!(call_error.code(), SCHEDULE_TRIGGER_INVALID.name);
+    assert!(!call_error.retryable());
+    let details: ScheduleTriggerInvalidDetails = serde_json::from_value(Value::Object(
+        call_error
+            .details()
+            .expect("schedule_trigger_invalid carries details")
+            .clone(),
+    ))
+    .expect("valid ScheduleTriggerInvalidDetails");
+    (call_error.message().to_owned(), details)
+}
 
 fn every(every: u64) -> ScheduleTrigger {
     ScheduleTrigger::Every(EveryTrigger {
@@ -47,15 +63,16 @@ fn zoned(zone: &TimeZone, date: Date, hour: i8, minute: i8, second: i8) -> Syste
 #[case::fifteen_minutes(900_000)]
 #[case::the_largest(u64::MAX)]
 fn an_interval_of_at_least_one_millisecond_is_accepted(#[case] interval: u64) {
-    assert_eq!(check(&every(interval)), Ok(()));
+    assert!(parse(&every(interval)).is_ok());
 }
 
 #[test]
 fn an_interval_of_zero_is_out_of_range() {
-    let refused = check(&every(0)).unwrap_err();
+    let refused = parse(&every(0)).unwrap_err();
+    let (_, details) = decode_refusal(refused);
 
-    assert_eq!(refused.details().reason, TriggerInvalidReason::OutOfRange);
-    assert_eq!(refused.details().expression, "0");
+    assert_eq!(details.reason, TriggerInvalidReason::OutOfRange);
+    assert_eq!(details.expression, "0");
 }
 
 /// Five fields, optional seconds, `L`, `W`, `#` and the `@daily`-style macros
@@ -108,111 +125,208 @@ fn cron_forms_parse_and_describe(
 ///
 /// Covers: story:10-15, error:schedule_trigger_invalid
 #[rstest]
-#[case::empty_pattern(
-    "",
-    Some(CronError::EmptyPattern),
-    TriggerInvalidReason::FieldCount,
-    0,
-    None
-)]
+#[case::empty_pattern("", CronError::EmptyPattern, TriggerInvalidReason::FieldCount, 0, None)]
 #[case::invalid_date(
     "0 0 31 2 *",
-    Some(CronError::InvalidDate),
+    CronError::InvalidDate,
     TriggerInvalidReason::OutOfRange,
     4,
     None
 )]
 #[case::invalid_time(
     "0 25 * * *",
-    Some(CronError::InvalidTime),
+    CronError::InvalidTime,
     TriggerInvalidReason::OutOfRange,
     0,
     None
 )]
 #[case::time_search_limit_exceeded(
     "0 0 31 2 *",
-    Some(CronError::TimeSearchLimitExceeded),
+    CronError::TimeSearchLimitExceeded,
     TriggerInvalidReason::Other,
     0,
     None
 )]
 #[case::invalid_pattern_field_count(
     "0 9 * *",
-    Some(CronError::InvalidPattern("CRONER_SENTINEL_FIELDS".to_owned())),
+    CronError::InvalidPattern("CRONER_SENTINEL_FIELDS".to_owned()),
     TriggerInvalidReason::FieldCount,
     7,
     Some("CRONER_SENTINEL_FIELDS")
 )]
 #[case::invalid_pattern_too_many_fields(
     "0 0 9 * * * 2026",
-    Some(CronError::InvalidPattern("CRONER_SENTINEL_YEARS".to_owned())),
+    CronError::InvalidPattern("CRONER_SENTINEL_YEARS".to_owned()),
     TriggerInvalidReason::FieldCount,
     12,
     Some("CRONER_SENTINEL_YEARS")
 )]
 #[case::invalid_pattern_bad_macro(
     "@bogus",
-    Some(CronError::InvalidPattern("CRONER_SENTINEL_MACRO".to_owned())),
+    CronError::InvalidPattern("CRONER_SENTINEL_MACRO".to_owned()),
     TriggerInvalidReason::BadMacro,
     0,
     Some("CRONER_SENTINEL_MACRO")
 )]
+#[case::invalid_pattern_unknown(
+    "0 9 * * *",
+    CronError::InvalidPattern("CRONER_SENTINEL_UNKNOWN_PATTERN".to_owned()),
+    TriggerInvalidReason::Other,
+    0,
+    Some("CRONER_SENTINEL_UNKNOWN_PATTERN")
+)]
 #[case::illegal_characters(
     "0 9 * * FOO",
-    Some(CronError::IllegalCharacters("CRONER_SENTINEL_ILLEGAL".to_owned())),
+    CronError::IllegalCharacters("CRONER_SENTINEL_ILLEGAL".to_owned()),
     TriggerInvalidReason::UnknownField,
     8,
     Some("CRONER_SENTINEL_ILLEGAL")
 )]
-#[case::component_error_out_of_range(
-    "0 25 * * *",
-    Some(CronError::ComponentError("Number out of bounds. CRONER_SENTINEL_RANGE".to_owned())),
-    TriggerInvalidReason::OutOfRange,
-    2,
-    Some("CRONER_SENTINEL_RANGE")
-)]
-#[case::component_error_bad_step(
+#[case::component_step_zero(
     "*/0 * * * *",
-    Some(CronError::ComponentError("Step cannot be zero. CRONER_SENTINEL_STEP".to_owned())),
+    CronError::ComponentError("Step cannot be zero. CRONER_SENTINEL_STEP0".to_owned()),
+    TriggerInvalidReason::BadStep,
+    1,
+    Some("CRONER_SENTINEL_STEP0")
+)]
+#[case::component_invalid_step(
+    "*/abc * * * *",
+    CronError::ComponentError("Invalid step. CRONER_SENTINEL_STEP".to_owned()),
     TriggerInvalidReason::BadStep,
     1,
     Some("CRONER_SENTINEL_STEP")
 )]
-#[case::component_error_unknown_syntax(
+#[case::component_stepped_range(
+    "1-2/3/4 * * * *",
+    CronError::ComponentError("Invalid stepped range syntax. CRONER_SENTINEL_SRANGE".to_owned()),
+    TriggerInvalidReason::BadStep,
+    3,
+    Some("CRONER_SENTINEL_SRANGE")
+)]
+#[case::component_range_syntax_in_stepping(
+    "1-2-3/2 * * * *",
+    CronError::ComponentError("Invalid range syntax in stepping. CRONER_SENTINEL_RS".to_owned()),
+    TriggerInvalidReason::BadStep,
+    5,
+    Some("CRONER_SENTINEL_RS")
+)]
+#[case::component_after_stepping(
+    "0-59/99 * * * *",
+    CronError::ComponentError("Value exceeded max after stepping. CRONER_SENTINEL_MAXS".to_owned()),
+    TriggerInvalidReason::BadStep,
+    4,
+    Some("CRONER_SENTINEL_MAXS")
+)]
+#[case::component_out_of_bounds(
+    "0 25 * * *",
+    CronError::ComponentError("Number out of bounds. CRONER_SENTINEL_RANGE".to_owned()),
+    TriggerInvalidReason::OutOfRange,
+    2,
+    Some("CRONER_SENTINEL_RANGE")
+)]
+#[case::component_bitfields_bounds(
+    "0 25 * * *",
+    CronError::ComponentError("Position 25 is out of the bitfields vector's bounds. CRONER_SENTINEL_BF".to_owned()),
+    TriggerInvalidReason::OutOfRange,
+    2,
+    Some("CRONER_SENTINEL_BF")
+)]
+#[case::component_less_than_input_offset(
+    "0 0 0 * *",
+    CronError::ComponentError("Position 0 is less than the input offset 1. CRONER_SENTINEL_OFF".to_owned()),
+    TriggerInvalidReason::OutOfRange,
+    4,
+    Some("CRONER_SENTINEL_OFF")
+)]
+#[case::component_invalid_number(
+    "0 9 * * *",
+    CronError::ComponentError("Invalid number. CRONER_SENTINEL_NUM".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    0,
+    Some("CRONER_SENTINEL_NUM")
+)]
+#[case::component_invalid_range(
+    "1-2-3 * * * *",
+    CronError::ComponentError("Invalid range syntax. CRONER_SENTINEL_RNG".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    0,
+    Some("CRONER_SENTINEL_RNG")
+)]
+#[case::component_invalid_start(
+    "-5 * * * *",
+    CronError::ComponentError("Invalid start of range. CRONER_SENTINEL_START".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    0,
+    Some("CRONER_SENTINEL_START")
+)]
+#[case::component_invalid_end_of_range(
+    "5- * * * *",
+    CronError::ComponentError("Invalid end of range. CRONER_SENTINEL_END".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    0,
+    Some("CRONER_SENTINEL_END")
+)]
+#[case::component_invalid_nth_specifier(
     "0 9 * * 1#bad",
-    Some(CronError::ComponentError("Invalid nth specifier. CRONER_SENTINEL_NTH".to_owned())),
+    CronError::ComponentError("Invalid nth specifier. CRONER_SENTINEL_NTH".to_owned()),
     TriggerInvalidReason::UnknownField,
     8,
     Some("CRONER_SENTINEL_NTH")
 )]
-#[case::unknown_party_error(
+#[case::component_invalid_closest_weekday(
+    "0 9 badW * *",
+    CronError::ComponentError("Invalid day for closest weekday. CRONER_SENTINEL_W".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    4,
+    Some("CRONER_SENTINEL_W")
+)]
+#[case::component_not_allowed_in_field(
+    "0 9 L * *",
+    CronError::ComponentError("L not allowed in the current field. CRONER_SENTINEL_FIELD".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    0,
+    Some("CRONER_SENTINEL_FIELD")
+)]
+#[case::component_dow_l_must_follow_weekday(
+    "0 9 * * L",
+    CronError::ComponentError("L in the day-of-week field must follow a weekday, like 5L or 5#L. CRONER_SENTINEL_DOWL".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    8,
+    Some("CRONER_SENTINEL_DOWL")
+)]
+#[case::component_not_supported_by_features(
     "0 9 * * *",
-    None,
+    CronError::ComponentError("Feature 0b00000010 is not supported by the current features 0b00000001. CRONER_SENTINEL_FEAT".to_owned()),
+    TriggerInvalidReason::UnknownField,
+    0,
+    Some("CRONER_SENTINEL_FEAT")
+)]
+#[case::unknown_component_error(
+    "0 9 * * *",
+    CronError::ComponentError("CRONER_SENTINEL_FUTURE_VARIANT".to_owned()),
     TriggerInvalidReason::Other,
     0,
     Some("CRONER_SENTINEL_FUTURE_VARIANT")
 )]
 fn croner_errors_translate_without_leaking_party_text(
     #[case] expression: &str,
-    #[case] cron_error: Option<CronError>,
+    #[case] cron_error: CronError,
     #[case] expected_reason: TriggerInvalidReason,
     #[case] expected_position: u64,
     #[case] sentinel: Option<&str>,
 ) {
-    let translated = match cron_error {
-        Some(error) => translate_cron_error(expression, error),
-        None => translate_unrecognized(expression, "CRONER_SENTINEL_FUTURE_VARIANT".to_owned()),
-    };
+    let translated = translate_cron_error(expression, cron_error);
+    let display = translated.to_string();
+    let debug = format!("{translated:?}");
+    let (message, details) = decode_refusal(translated);
 
-    let details = translated.details();
     assert_eq!(details.expression, expression);
     assert_eq!(details.reason, expected_reason);
     assert_eq!(details.position, expected_position);
+    assert_eq!(message, display);
 
     if let Some(sentinel) = sentinel {
-        let message = translated.to_string();
-        let debug = format!("{translated:?}");
-        let wire = serde_json::to_string(details).unwrap();
+        let wire = serde_json::to_string(&details).unwrap();
         assert!(
             !message.contains(sentinel),
             "party text leaked into message: {message}"
@@ -238,18 +352,21 @@ fn croner_errors_translate_without_leaking_party_text(
 #[case::too_many("0 0 9 * * * 2026", TriggerInvalidReason::FieldCount, 12)]
 #[case::bad_macro("@every_tuesday", TriggerInvalidReason::BadMacro, 0)]
 #[case::macro_with_trailing("@daily extra", TriggerInvalidReason::BadMacro, 7)]
+#[case::unicode_macro_dotless_i("@da\u{0131}ly", TriggerInvalidReason::BadMacro, 3)]
+#[case::unicode_macro_kelvin("@wee\u{212A}ly", TriggerInvalidReason::BadMacro, 4)]
 #[case::out_of_range_minute("60 9 * * *", TriggerInvalidReason::OutOfRange, 0)]
 #[case::out_of_range_hour("0 24 * * *", TriggerInvalidReason::OutOfRange, 2)]
 #[case::bad_step_zero("*/0 * * * *", TriggerInvalidReason::BadStep, 1)]
 #[case::illegal_token("0 9 * * FOO", TriggerInvalidReason::UnknownField, 8)]
 #[case::illegal_char_mid_field("0 9,1$ * * *", TriggerInvalidReason::UnknownField, 5)]
+#[case::plus_mid_dow_field("0 9 * * MON+TUE", TriggerInvalidReason::UnknownField, 11)]
 fn malformed_cron_expressions_pinpoint_position_and_reason(
     #[case] expression: &str,
     #[case] expected_reason: TriggerInvalidReason,
     #[case] expected_position: u64,
 ) {
     let refused = parse(&cron(expression)).unwrap_err();
-    let details = refused.details();
+    let (_, details) = decode_refusal(refused);
 
     assert_eq!(details.expression, expression);
     assert_eq!(details.reason, expected_reason);
@@ -552,6 +669,27 @@ proptest! {
             prop_assert_eq!(with_j.at.duration_since(without_j.at).unwrap(), jitter);
         }
     }
+}
+
+/// Minimum interval calculation finds the true shortest UTC gap across
+/// intra-day times and across Gregorian calendar alignments, including OR
+/// day-of-month/day-of-week patterns whose shortest gap occurs well past the
+/// first 64 occurrences.
+#[rstest]
+#[case::every_second("* * * * * *", Some(1_000))]
+#[case::every_15_minutes("*/15 * * * *", Some(900_000))]
+#[case::or_dom_dow_one_hour_midnight_wrap("0 0,23 1 * 3", Some(3_600_000))]
+#[case::or_dom_dow_one_second_midnight_wrap("0,59 0,59 0,23 1 * 3", Some(1_000))]
+#[case::or_feb_29_and_wednesday("0 0 29 2 WED", Some(86_400_000))]
+#[case::feb_29_only_four_years("0 0 29 2 *", Some(1_461 * 86_400_000))]
+#[case::feb_29_and_friday_28_years("0 0 29 2 +FRI", Some(10_227 * 86_400_000))]
+#[case::feb_31_unreachable("0 0 31 2 *", None)]
+fn min_interval_finds_true_shortest_gap_for_cron(
+    #[case] expression: &str,
+    #[case] expected_ms: Option<u64>,
+) {
+    let parsed = parse(&cron(expression)).unwrap();
+    assert_eq!(min_interval_ms(&parsed), expected_ms);
 }
 
 mod cron_expression_parser {

@@ -8,10 +8,12 @@
 use std::time::{Duration, SystemTime};
 
 use croner::Cron;
+use croner::time::Weekday;
 use goodfetch_protocol::schedule::{
     CronTrigger, EveryTrigger, PreviewOccurrence, ScheduleTrigger, TriggerDescription,
     TriggerInvalidReason,
 };
+use jiff::civil::Date;
 use jiff::tz::TimeZone;
 use jiff::{SignedDuration, Timestamp};
 
@@ -34,17 +36,6 @@ pub(crate) enum ParsedTrigger {
         every_ms: u64,
         anchor: Option<SystemTime>,
     },
-}
-
-/// Checks `trigger`.
-///
-/// # Errors
-///
-/// [`TriggerInvalid`] when an `every` interval is 0 or a cron expression
-/// fails to parse.
-#[cfg(test)]
-pub(crate) fn check(trigger: &ScheduleTrigger) -> Result<(), TriggerInvalid> {
-    parse(trigger).map(|_| ())
 }
 
 /// Parses and validates `trigger`.
@@ -95,37 +86,117 @@ pub(crate) fn draw_jitter(upper_bound_ms: u64, mut draw: impl FnMut() -> u64) ->
 /// milliseconds, used to enforce Operator policy's `schedule.min_interval`
 /// cap (ADR 0036).
 ///
-/// For `every`, returns `Some(every_ms)`. For `cron`, inspects consecutive
-/// Occurrences in UTC over a bounded window and returns the minimum gap in
-/// milliseconds (`None` if fewer than two Occurrences exist).
+/// For `every`, returns `Some(every_ms)`. For `cron`, computes the exact
+/// minimum gap in UTC across intra-day firing times and across the Gregorian
+/// calendar cycle (two 28-year cycles, `2024..=2080`, so every month, leap
+/// day and weekday combination repeats), returning `None` if fewer than two
+/// Occurrences exist.
 pub(crate) fn min_interval_ms(trigger: &ParsedTrigger) -> Option<u64> {
-    const CRON_PROBE_COUNT: usize = 64;
-
     match trigger {
         ParsedTrigger::Every { every_ms, .. } => Some(*every_ms),
-        ParsedTrigger::Cron { cron, .. } => {
-            // Fixed UTC anchor so the interval check is independent of wall
-            // clock and DST transitions (ADR 0059).
-            let start =
-                Timestamp::from_second(1_767_225_600).expect("invariant: 2026-01-01T00:00:00Z");
-            let mut cursor = ZonedInstant(start.to_zoned(TimeZone::UTC));
-            let mut previous: Option<Timestamp> = None;
-            let mut shortest: Option<u64> = None;
-            for _ in 0..CRON_PROBE_COUNT {
-                let Ok(next) = cron.find_next_occurrence(&cursor, false) else {
-                    break;
-                };
-                let next_ts = next.0.timestamp();
-                if let Some(prev_ts) = previous {
-                    let gap_ms = u64::try_from(prev_ts.duration_until(next_ts).as_millis().max(0))
-                        .unwrap_or(u64::MAX);
-                    shortest = Some(shortest.map_or(gap_ms, |best| best.min(gap_ms)));
-                }
-                previous = Some(next_ts);
-                cursor = next;
+        ParsedTrigger::Cron { cron, .. } => cron_min_interval_ms(cron),
+    }
+}
+
+fn cron_min_interval_ms(cron: &Cron) -> Option<u64> {
+    const SECONDS_PER_DAY: u64 = 86_400;
+    const START_YEAR: i32 = 2024;
+    // Two full 28-year leap cycles plus one wrap year so even rare AND-mode
+    // patterns such as Feb 29 on a specific weekday match at least twice.
+    const END_YEAR: i32 = 2080;
+
+    let seconds = cron.pattern.seconds.values();
+    let minutes = cron.pattern.minutes.values();
+    let hours = cron.pattern.hours.values();
+    let (&first_s, &last_s) = (seconds.first()?, seconds.last()?);
+    let (&first_m, &last_m) = (minutes.first()?, minutes.last()?);
+    let (&first_h, &last_h) = (hours.first()?, hours.last()?);
+
+    let first_tod_s = u64::from(first_h) * 3_600 + u64::from(first_m) * 60 + u64::from(first_s);
+    let last_tod_s = u64::from(last_h) * 3_600 + u64::from(last_m) * 60 + u64::from(last_s);
+
+    let mut min_intra_day_s: Option<u64> = None;
+    let mut record = |gap: u64| {
+        min_intra_day_s = Some(min_intra_day_s.map_or(gap, |best| best.min(gap)));
+    };
+    for pair in seconds.windows(2) {
+        record(u64::from(pair[1] - pair[0]));
+    }
+    for pair in minutes.windows(2) {
+        let gap = u64::from(pair[1] - pair[0]) * 60 + u64::from(first_s) - u64::from(last_s);
+        record(gap);
+    }
+    for pair in hours.windows(2) {
+        let gap = u64::from(pair[1] - pair[0]) * 3_600
+            + (u64::from(first_m) * 60 + u64::from(first_s))
+            - (u64::from(last_m) * 60 + u64::from(last_s));
+        record(gap);
+    }
+
+    let mut day_index: u64 = 0;
+    let mut weekday = u32::try_from(Date::constant(2024, 1, 1).weekday().to_sunday_zero_offset())
+        .expect("invariant: weekday offset is 0..=6");
+    let mut matched_any_day = false;
+    let mut prev_day: Option<u64> = None;
+    let mut min_day_gap: Option<u64> = None;
+
+    'years: for year in START_YEAR..=END_YEAR {
+        for month in 1_u32..=12 {
+            let month_len = days_in_month(year, month);
+            if !cron.pattern.month_match(month).unwrap_or(false) {
+                day_index += u64::from(month_len);
+                weekday = (weekday + month_len) % 7;
+                continue;
             }
-            shortest
+            for day in 1..=month_len {
+                let cron_weekday = Weekday::from_days_from_sunday(weekday);
+                if cron
+                    .pattern
+                    .day_match(year, month, day, cron_weekday)
+                    .unwrap_or(false)
+                {
+                    matched_any_day = true;
+                    if let Some(prev) = prev_day {
+                        let gap = day_index - prev;
+                        min_day_gap = Some(min_day_gap.map_or(gap, |best| best.min(gap)));
+                        if min_day_gap == Some(1) {
+                            break 'years;
+                        }
+                    }
+                    prev_day = Some(day_index);
+                }
+                day_index += 1;
+                weekday = (weekday + 1) % 7;
+            }
         }
+    }
+
+    if !matched_any_day {
+        return None;
+    }
+
+    let min_inter_day_s = min_day_gap.map(|days| days * SECONDS_PER_DAY + first_tod_s - last_tod_s);
+    let shortest_s = match (min_intra_day_s, min_inter_day_s) {
+        (Some(intra), Some(inter)) => Some(intra.min(inter)),
+        (Some(intra), None) => Some(intra),
+        (None, Some(inter)) => Some(inter),
+        (None, None) => None,
+    }?;
+    Some(shortest_s.saturating_mul(1_000))
+}
+
+const fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 {
+                29
+            } else {
+                28
+            }
+        }
+        _ => 0,
     }
 }
 

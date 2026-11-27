@@ -11,7 +11,7 @@ use goodfetch_protocol::schedule::{
 use goodfetch_test_support::{TestEnv, runtime};
 use rusqlite::{Connection, OptionalExtension};
 
-use super::{CreateOutcome, STORE, count, create, delete, get, jitter_ms, list, made_store_id};
+use super::{CreateOutcome, STORE, create, delete, get, list, made_store_id};
 
 mod model;
 
@@ -56,6 +56,31 @@ async fn store_id(store: &UserStore) -> Result<Option<String>, UserStoreError> {
         .await
 }
 
+/// The stored fixed jitter offset of `id`, in milliseconds, if the store
+/// holds it.
+async fn jitter_ms(store: &UserStore, id: &ScheduleId) -> Result<Option<u64>, UserStoreError> {
+    let id = id.as_str().to_owned();
+    store
+        .read(None, move |connection| {
+            let stored: Option<i64> = connection
+                .prepare_cached("SELECT jitter_ms FROM schedules WHERE id = ?1")?
+                .query_row([id], |row| row.get(0))
+                .optional()?;
+            stored
+                .map(|value| {
+                    u64::try_from(value).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Integer,
+                            Box::new(error),
+                        )
+                    })
+                })
+                .transpose()
+        })
+        .await
+}
+
 fn path(env: &TestEnv) -> PathBuf {
     env.home().join("0.1").join(STORE.file())
 }
@@ -87,7 +112,6 @@ fn a_created_schedule_is_read_and_listed_as_recorded() {
             CreateOutcome::Created
         );
 
-        assert_eq!(count(&store).await.unwrap(), 2);
         assert_eq!(
             get(&store, &ScheduleId::parse("prices").unwrap())
                 .await
@@ -158,7 +182,7 @@ fn atomic_max_count_cap_is_enforced_inside_the_write_transaction() {
                 .unwrap(),
             CreateOutcome::CapExceeded { existing_count: 1 }
         );
-        assert_eq!(count(&store).await.unwrap(), 1);
+        assert_eq!(list(&store).await.unwrap().len(), 1);
     });
 }
 

@@ -12,6 +12,7 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::{Attached, Hello};
 use goodfetch_test_support::{CliOutput, TestEnv, cli};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, short_idle};
@@ -344,14 +345,9 @@ fn assert_create_refused(env: &TestEnv, definition: &str, exit: i32, code: &str)
     err
 }
 
-/// Schedule settings honour layer restrictions (`setting_not_applicable`),
-/// accept the nine per-Schedule keys in a Schedule's own `settings` with
-/// Operator policy lock/cap precedence (`setting_locked`), and `config
-/// explain` names the layer that decided each.
-///
-/// Covers: story:10-10, story:10-18, command:config.explain, command:schedule.create, error:setting_not_applicable, error:setting_locked
-#[test]
-fn schedule_settings_layers_locks_and_config_explain_work_through_the_binary() {
+/// Shared Operator policy and user configuration for the `schedule.*` layer
+/// tests below.
+fn env_with_schedule_policy_and_user_config() -> TestEnv {
     let env = TestEnv::new();
     short_idle(&env, 60_000);
     write_home_file(
@@ -364,9 +360,18 @@ fn schedule_settings_layers_locks_and_config_explain_work_through_the_binary() {
         "configuration.toml",
         "version = \"0.1\"\n\n[settings.schedule]\ntick = 30000\nwake_threshold = 90000\n",
     );
+    env
+}
+
+/// `config explain schedule --json` names the layer deciding each setting
+/// across Operator policy, user configuration and defaults.
+///
+/// Covers: story:10-10, command:config.explain
+#[test]
+fn config_explain_names_the_layer_deciding_each_schedule_setting() {
+    let env = env_with_schedule_policy_and_user_config();
     let _stops = StopsTheDaemon::of(&env, COLLIE);
 
-    // 1. `config explain schedule --json` names each deciding layer.
     let explained = cli(&env, COLLIE)
         .args(["config", "explain", "schedule", "--json"])
         .json("SettingsExplanation")
@@ -406,8 +411,17 @@ fn schedule_settings_layers_locks_and_config_explain_work_through_the_binary() {
         by_key("schedule.auto_pause.failures")["layer"],
         json!("default")
     );
+}
 
-    // 2. Schedule's own `settings` accept per-Schedule keys within cap/lock.
+/// A Schedule's own `settings` accept per-Schedule keys within Operator
+/// policy's lock and cap.
+///
+/// Covers: story:10-10, story:10-18, command:schedule.create
+#[test]
+fn schedule_create_accepts_per_schedule_settings_within_policy_caps() {
+    let env = env_with_schedule_policy_and_user_config();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
     let ok = cli(&env, COLLIE)
         .args([
             "schedule",
@@ -419,43 +433,84 @@ fn schedule_settings_layers_locks_and_config_explain_work_through_the_binary() {
         .json("ScheduleCreated")
         .unwrap();
     assert_eq!(ok.output.exit, Some(0), "{}", ok.output);
+}
 
-    // 3. Operator policy lock and cap win (`setting_locked`, exit 4).
-    assert_create_refused(
-        &env,
-        r#"{"id":"locked-overlap","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"overlap":"allow"}}}"#,
-        4,
-        "setting_locked",
+/// Operator policy locks and caps beat a Schedule's own `settings` with
+/// `setting_locked` (exit 4).
+///
+/// Covers: story:10-10, command:schedule.create, error:setting_locked
+#[rstest]
+#[case::locked_overlap(
+    r#"{"id":"locked-overlap","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"overlap":"allow"}}}"#
+)]
+#[case::capped_jitter(
+    r#"{"id":"capped-jitter","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"jitter":60000}}}"#
+)]
+fn schedule_create_refuses_settings_past_operator_policy_lock_or_cap(#[case] definition: &str) {
+    let env = env_with_schedule_policy_and_user_config();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    assert_create_refused(&env, definition, 4, "setting_locked");
+}
+
+/// Machine-only and Operator-policy-only keys in a Schedule's own `settings`
+/// answer `setting_not_applicable` (exit 3).
+///
+/// Covers: story:10-10, command:schedule.create, error:setting_not_applicable
+#[rstest]
+#[case::tick(r#"{"schedule":{"tick":15000}}"#)]
+#[case::wake_threshold(r#"{"schedule":{"wake_threshold":30000}}"#)]
+#[case::max_count(r#"{"schedule":{"max_count":5}}"#)]
+#[case::min_interval(r#"{"schedule":{"min_interval":1000}}"#)]
+#[case::limits_max(r#"{"schedule":{"limits_max":{"day":[{"usage_kind":"pages","amount":10}]}}}"#)]
+fn schedule_create_refuses_restricted_keys_in_schedule_settings(#[case] settings_json: &str) {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let definition = format!(
+        r#"{{"id":"bad-layer","target":{{"recipe":"shop-prices"}},"trigger":{{"every":3600000}},"time_zone":"Europe/Paris","settings":{settings_json}}}"#
     );
-    assert_create_refused(
-        &env,
-        r#"{"id":"capped-jitter","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"jitter":60000}}}"#,
-        4,
-        "setting_locked",
-    );
 
-    // 4. Machine-only and Operator-policy-only keys in Schedule's `settings`
-    //    answer `setting_not_applicable` (exit 3).
-    for restricted in [
-        r#"{"schedule":{"tick":15000}}"#,
-        r#"{"schedule":{"wake_threshold":30000}}"#,
-        r#"{"schedule":{"max_count":5}}"#,
-        r#"{"schedule":{"min_interval":1000}}"#,
-    ] {
-        let def = format!(
-            r#"{{"id":"bad-layer","target":{{"recipe":"shop-prices"}},"trigger":{{"every":3600000}},"time_zone":"Europe/Paris","settings":{restricted}}}"#
-        );
-        assert_create_refused(&env, &def, 3, "setting_not_applicable");
-    }
+    assert_create_refused(&env, &definition, 3, "setting_not_applicable");
+}
 
-    // 5. Operator-policy-only key in user configuration answers `setting_not_applicable`.
-    let env_bad_user = TestEnv::new();
-    short_idle(&env_bad_user, 60_000);
+/// An Operator-policy-only key in user configuration answers
+/// `setting_not_applicable` (exit 3).
+///
+/// Covers: story:10-10, command:schedule.create, error:setting_not_applicable
+#[test]
+fn schedule_create_refuses_operator_policy_only_key_in_user_configuration() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
     write_home_file(
-        &env_bad_user,
+        &env,
         "configuration.toml",
         "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 5\n",
     );
-    let _stops2 = StopsTheDaemon::of(&env_bad_user, COLLIE);
-    assert_create_refused(&env_bad_user, DEFINITION, 3, "setting_not_applicable");
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    assert_create_refused(&env, DEFINITION, 3, "setting_not_applicable");
+}
+
+/// Creating a Schedule with an ID already held answers `schedule_exists`
+/// even when the Daemon is already at Operator policy's `schedule.max_count`.
+///
+/// Covers: story:10-10, command:schedule.create, error:schedule_exists
+#[test]
+fn schedule_create_of_duplicate_id_at_max_count_answers_schedule_exists() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 1\n",
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let first = cli(&env, COLLIE)
+        .args(["schedule", "create", "--definition", DEFINITION, "--json"])
+        .json("ScheduleCreated")
+        .unwrap();
+    assert_eq!(first.output.exit, Some(0), "{}", first.output);
+
+    assert_create_refused(&env, DEFINITION, 3, "schedule_exists");
 }

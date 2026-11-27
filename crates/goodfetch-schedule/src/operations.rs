@@ -55,16 +55,13 @@ async fn create(
         .await
         .map_err(|error| settings_refusal(&error, &context))?;
     let store = store_of(&context);
-    let existing_count = within(deadline.as_ref(), &clock, store::count(&store))
-        .await?
-        .map_err(|error| store_failed(&error))?;
     let checked = definition::check(
         params.definition,
         definition::CheckContext {
             machine: &machine,
             engine_product: engine.settings().product(),
             host_zone: engine.host_zone(),
-            existing_count,
+            existing_count: None,
             wall: clock.wall(),
         },
         || engine.draw_u64(),

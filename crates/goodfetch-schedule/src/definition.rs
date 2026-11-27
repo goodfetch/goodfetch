@@ -19,10 +19,9 @@ use goodfetch_protocol::schedule::{
     SCHEDULE_AUTO_PAUSE_FAILURES, SCHEDULE_CATCH_UP, SCHEDULE_JITTER, SCHEDULE_LIMITS_MAX,
     SCHEDULE_MAX_COUNT, SCHEDULE_MIN_INTERVAL, SCHEDULE_OVERLAP, SCHEDULE_PAUSE_TIMEOUT,
     SCHEDULE_RETENTION_CHANGED_WATCHES, SCHEDULE_RETENTION_HISTORY, SCHEDULE_RETENTION_RUNS,
-    SCHEDULE_RETENTION_WATCH_RUNS, SCHEDULE_TICK, SCHEDULE_WAKE_THRESHOLD,
-    ScheduleCapExceededDetails, ScheduleCapKind, ScheduleCatchUp, ScheduleDefinition, ScheduleId,
-    ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits, ScheduleTarget, ScheduleTrigger,
-    ScheduleWarning,
+    SCHEDULE_RETENTION_WATCH_RUNS, ScheduleCapExceededDetails, ScheduleCapKind, ScheduleCatchUp,
+    ScheduleDefinition, ScheduleId, ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits,
+    ScheduleTarget, ScheduleTrigger, ScheduleWarning,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::tz::TimeZone;
@@ -80,15 +79,6 @@ pub(crate) struct ScheduleSettings {
     pub(crate) retention_history: Duration,
 }
 
-/// The two machine-level scheduler timing settings (`schedule.tick`,
-/// `schedule.wake_threshold`), read from Operator policy and user
-/// configuration only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SchedulerTiming {
-    pub(crate) tick: Duration,
-    pub(crate) wake_threshold: Duration,
-}
-
 impl ScheduleSettings {
     /// Reads the nine per-Schedule settings from `resolved`.
     pub(crate) fn from_resolved(resolved: &Resolved) -> Self {
@@ -127,16 +117,6 @@ impl ScheduleSettings {
     }
 }
 
-impl SchedulerTiming {
-    /// Reads the two machine-level scheduler timing settings from `resolved`.
-    pub(crate) fn from_resolved(resolved: &Resolved) -> Self {
-        Self {
-            tick: resolved.get(&SCHEDULE_TICK),
-            wake_threshold: resolved.get(&SCHEDULE_WAKE_THRESHOLD),
-        }
-    }
-}
-
 /// An Operator policy cap refusal (`schedule_cap_exceeded`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CapExceeded {
@@ -160,7 +140,11 @@ pub(crate) struct CheckContext<'a> {
     pub(crate) machine: &'a MachineLayers,
     pub(crate) engine_product: Product,
     pub(crate) host_zone: &'a str,
-    pub(crate) existing_count: u64,
+    /// When `Some(n)`, [`check`] enforces `schedule.max_count` against `n`.
+    /// Callers that enforce count atomically inside `store::create` (so an
+    /// existing ID reports `schedule_exists` first with no extra read) pass
+    /// `None` and pass `checked.max_count` to the store.
+    pub(crate) existing_count: Option<u64>,
     pub(crate) wall: SystemTime,
 }
 
@@ -174,14 +158,6 @@ pub(crate) struct CheckedDefinition {
     pub(crate) settings: Option<Map<String, Value>>,
     pub(crate) limits: Option<SchedulePeriodLimits>,
     pub(crate) resolved_settings: ScheduleSettings,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "surfaced alongside resolved settings for the scheduler loop (#876+)"
-        )
-    )]
-    pub(crate) timing: SchedulerTiming,
     pub(crate) max_count: Option<u64>,
     pub(crate) policy_version: Option<String>,
     pub(crate) warnings: Vec<ScheduleWarning>,
@@ -223,14 +199,13 @@ pub(crate) fn check(
     let policy_version = resolved.policy_version().map(str::to_owned);
 
     let resolved_settings = ScheduleSettings::from_resolved(&resolved);
-    let timing = SchedulerTiming::from_resolved(&resolved);
 
     let max_count: Option<u64> = resolved.get(&SCHEDULE_MAX_COUNT);
-    if let Some(cap) = max_count
-        && context.existing_count >= cap
+    if let (Some(cap), Some(existing_count)) = (max_count, context.existing_count)
+        && existing_count >= cap
     {
         return Err(DefinitionError::CapExceeded(count_cap_exceeded(
-            context.existing_count,
+            existing_count,
             cap,
             policy_version,
         )));
@@ -283,7 +258,6 @@ pub(crate) fn check(
         settings,
         limits,
         resolved_settings,
-        timing,
         max_count,
         policy_version,
         warnings: Vec::new(),

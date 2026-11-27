@@ -26,16 +26,43 @@ pub(super) const KNOWN_MACROS: [(&str, &str); 6] = [
     ("@hourly", "0 * * * *"),
 ];
 
+/// Private wrapper for `croner`'s own error text (ADR 0127): never exposes
+/// `&str` or `String` and never renders into `Display`, `Debug` or wire
+/// output.
+#[derive(Clone)]
+struct PartyMessage(
+    #[expect(
+        dead_code,
+        reason = "ADR 0127: private party text retained off the wire, Display and Debug"
+    )]
+    String,
+);
+
+impl fmt::Debug for PartyMessage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("<redacted>")
+    }
+}
+
 /// Why a trigger is refused, as `schedule_trigger_invalid` carries it.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, thiserror::Error)]
+#[error("{message}")]
 pub(crate) struct TriggerInvalid {
     /// What the call answers.
     details: ScheduleTriggerInvalidDetails,
     /// What it says, in the engine's English (never carries `croner`'s text).
     message: String,
     /// `croner`'s own message, kept private so it reaches logs only (ADR 0127).
-    party_message: Option<String>,
+    party_message: Option<PartyMessage>,
 }
+
+impl PartialEq for TriggerInvalid {
+    fn eq(&self, other: &Self) -> bool {
+        self.details == other.details && self.message == other.message
+    }
+}
+
+impl Eq for TriggerInvalid {}
 
 impl fmt::Debug for TriggerInvalid {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -44,12 +71,6 @@ impl fmt::Debug for TriggerInvalid {
             .field("details", &self.details)
             .field("message", &self.message)
             .finish_non_exhaustive()
-    }
-}
-
-impl fmt::Display for TriggerInvalid {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
     }
 }
 
@@ -86,14 +107,8 @@ impl TriggerInvalid {
                 reason,
             },
             message: message.into(),
-            party_message,
+            party_message: party_message.map(PartyMessage),
         }
-    }
-
-    /// The structured refusal details carried on the wire.
-    #[cfg(test)]
-    pub(super) const fn details(&self) -> &ScheduleTriggerInvalidDetails {
-        &self.details
     }
 
     /// Asserts that this refusal's stored expression and character position
@@ -134,7 +149,34 @@ pub(super) fn cron_parser() -> CronParser {
 
 /// Parses `expression` with `croner`, translating any failure at this
 /// boundary.
+///
+/// Non-ASCII characters are refused before `croner` runs so Unicode case
+/// folding (such as `ı` → `I` in `"@daıly"` or `K` → `K` in `"@weeKly"`)
+/// cannot turn a malformed token into a valid macro or field name.
 pub(super) fn parse_cron(expression: &str) -> Result<Cron, TriggerInvalid> {
+    if let Some((pos, _)) = expression
+        .chars()
+        .enumerate()
+        .find(|(_, ch)| !ch.is_ascii())
+    {
+        let position = u64::try_from(pos).unwrap_or(u64::MAX);
+        if expression.trim_start().starts_with('@') {
+            return Err(TriggerInvalid::own(
+                expression,
+                position,
+                TriggerInvalidReason::BadMacro,
+                "The cron expression names an unknown or malformed macro; use `@yearly`, `@annually`, `@monthly`, `@weekly`, `@daily` or `@hourly`.",
+            ));
+        }
+        return Err(TriggerInvalid::own(
+            expression,
+            position,
+            TriggerInvalidReason::UnknownField,
+            format!(
+                "The cron expression has an unrecognized character or token at position {position}."
+            ),
+        ));
+    }
     cron_parser()
         .parse(expression)
         .map_err(|error| translate_cron_error(expression, error))
@@ -190,7 +232,7 @@ pub(super) fn translate_cron_error(expression: &str, error: CronError) -> Trigge
 
 /// Translates an unrecognized third-party failure that no known variant
 /// covers, logging it at `warn` (ADR 0127).
-pub(super) fn translate_unrecognized(expression: &str, party_text: String) -> TriggerInvalid {
+fn translate_unrecognized(expression: &str, party_text: String) -> TriggerInvalid {
     tracing::warn!(
         expression,
         party_error = %party_text,
@@ -333,20 +375,23 @@ fn classify_component_error(party: &str) -> Option<TriggerInvalidReason> {
     if party.contains("Step cannot be zero")
         || party.contains("Invalid step")
         || party.contains("stepped range")
+        || party.contains("Invalid range syntax in stepping")
         || party.contains("after stepping")
     {
         Some(TriggerInvalidReason::BadStep)
     } else if party.contains("out of bounds")
+        || party.contains("bitfields vector's bounds")
         || party.contains("less than the input offset")
-        || party.contains("Nth occurrence must be between")
     {
         Some(TriggerInvalidReason::OutOfRange)
     } else if party.contains("Invalid number")
         || party.contains("Invalid range")
-        || party.contains("Invalid start of range")
+        || party.contains("Invalid start")
         || party.contains("Invalid end of range")
         || party.contains("Invalid nth specifier")
         || party.contains("Invalid day for closest weekday")
+        || party.contains("not allowed in the current field")
+        || party.contains("L in the day-of-week field must follow a weekday")
         || party.contains("not supported by the current features")
     {
         Some(TriggerInvalidReason::UnknownField)
@@ -427,9 +472,13 @@ fn refine_field_position(
                     .enumerate()
                     .find_map(|(pos, (_, ch))| (ch == '/').then_some(item_char_offset + pos))
                     .unwrap_or(item_char_offset),
-                FailureHint::IllegalChar => {
-                    first_illegal_char_offset(field_count, index, item_char_offset, item)
-                }
+                FailureHint::IllegalChar => first_illegal_char_offset(
+                    field_count,
+                    index,
+                    field_offset,
+                    item_char_offset,
+                    item,
+                ),
                 FailureHint::Item => item_char_offset,
             };
         }
@@ -441,6 +490,7 @@ fn refine_field_position(
 fn first_illegal_char_offset(
     field_count: usize,
     index: usize,
+    field_offset: usize,
     item_offset: usize,
     item: &str,
 ) -> usize {
@@ -462,7 +512,13 @@ fn first_illegal_char_offset(
         let base = matches!(ch, '*' | '/' | '0'..='9' | ',' | '-');
         let allowed = match canonical {
             3 => base || matches!(ch, 'L' | 'W' | '?'),
-            5 => base || matches!(ch, '#' | 'L' | '?' | '+'),
+            // `croner` only strips a leading `+` at the start of the whole
+            // day-of-week field (AND mode with day-of-month); `+` anywhere
+            // else is rejected as an illegal character.
+            5 => {
+                base || matches!(ch, '#' | 'L' | '?')
+                    || (ch == '+' && pos == 0 && item_offset == field_offset)
+            }
             _ => base,
         };
         if !allowed {

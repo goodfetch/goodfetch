@@ -162,54 +162,6 @@ pub(crate) async fn create(
         .await
 }
 
-/// How many Schedules the store currently holds (0 when the store does not
-/// exist yet).
-///
-/// # Errors
-///
-/// The store's, or a negative count from SQLite.
-pub(crate) async fn count(store: &UserStore) -> Result<u64, UserStoreError> {
-    store
-        .read(0, |connection| {
-            let total: i64 = connection
-                .prepare_cached("SELECT COUNT(*) FROM schedules")?
-                .query_row([], |row| row.get(0))?;
-            u64::try_from(total).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
-            })
-        })
-        .await
-}
-
-/// The stored fixed jitter offset of `id`, in milliseconds, if the store
-/// holds it.
-///
-/// # Errors
-///
-/// The store's, or a negative value in the row.
-#[cfg(test)]
-pub(crate) async fn jitter_ms(
-    store: &UserStore,
-    id: &ScheduleId,
-) -> Result<Option<u64>, UserStoreError> {
-    let id = id.as_str().to_owned();
-    store
-        .read(None, move |connection| {
-            let stored: Option<i64> = connection
-                .prepare_cached("SELECT jitter_ms FROM schedules WHERE id = ?1")?
-                .query_row([id], |row| row.get(0))
-                .optional()?;
-            stored
-                .map(|value| {
-                    u64::try_from(value).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
-                    })
-                })
-                .transpose()
-        })
-        .await
-}
-
 /// Every Schedule the store holds, by ID.
 ///
 /// # Errors

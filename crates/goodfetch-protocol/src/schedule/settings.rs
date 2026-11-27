@@ -13,6 +13,7 @@
 use std::collections::BTreeSet;
 use std::num::NonZeroU64;
 
+use schemars::generate::SchemaSettings;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -21,6 +22,19 @@ use crate::catalog::{
     Authority, ProtocolVersion, Setting, SettingJson, ValueKind, ValueShape, shape_json,
 };
 use crate::run::RunLimit;
+
+fn inline_schema_for<T: JsonSchema>() -> Value {
+    let schema = SchemaSettings::draft2020_12()
+        .with(|settings| settings.inline_subschemas = true)
+        .into_generator()
+        .into_root_schema_for::<T>();
+    let mut schema = serde_json::to_value(schema).expect("invariant: a JSON Schema is JSON");
+    if let Some(object) = schema.as_object_mut() {
+        object.remove("$schema");
+        object.remove("title");
+    }
+    schema
+}
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -168,21 +182,7 @@ impl SettingJson for ScheduleCatchUp {
 pub const SCHEDULE_CATCH_UP_SHAPE: ValueShape = ValueShape {
     name: "ScheduleCatchUp",
     check: |value| ScheduleCatchUp::read(value).map(drop),
-    schema: || {
-        json!({
-            "oneOf": [
-                {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
-                },
-                {
-                    "const": CATCH_UP_UNTIL_NEXT,
-                    "description": "Catch up the latest missed occurrence until the occurrence after it is due.",
-                },
-            ],
-        })
-    },
+    schema: inline_schema_for::<ScheduleCatchUp>,
     examples: || vec![json!(CATCH_UP_UNTIL_NEXT), json!(300_000)],
 };
 
@@ -271,21 +271,7 @@ impl SettingJson for SchedulePauseTimeout {
 pub const SCHEDULE_PAUSE_TIMEOUT_SHAPE: ValueShape = ValueShape {
     name: "SchedulePauseTimeout",
     check: |value| SchedulePauseTimeout::read(value).map(drop),
-    schema: || {
-        json!({
-            "oneOf": [
-                {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
-                },
-                {
-                    "const": PAUSE_TIMEOUT_NEXT_OCCURRENCE,
-                    "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger).",
-                },
-            ],
-        })
-    },
+    schema: inline_schema_for::<SchedulePauseTimeout>,
     examples: || vec![json!(PAUSE_TIMEOUT_NEXT_OCCURRENCE), json!(ONE_DAY_MS)],
 };
 
@@ -377,57 +363,11 @@ impl SchedulePeriodLimits {
     }
 }
 
-/// Inline JSON Schema for one [`RunLimit`] item inside `SCHEDULE_PERIOD_LIMITS_SHAPE`.
-fn run_limit_inline_schema() -> Value {
-    json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["usage_kind", "amount"],
-        "properties": {
-            "usage_kind": {
-                "type": "string",
-                "minLength": 1,
-                "description": "The Usage kind capped.",
-            },
-            "currency": {
-                "type": "string",
-                "pattern": "^[A-Z]{3}$",
-                "description": "Optional ISO 4217 currency code for a price Limit.",
-            },
-            "amount": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "Maximum count of the Usage kind, or millionths of the currency.",
-            },
-        },
-    })
-}
-
 /// The shape of `schedule.limits_max`.
 pub const SCHEDULE_PERIOD_LIMITS_SHAPE: ValueShape = ValueShape {
     name: "SchedulePeriodLimits",
     check: |value| SchedulePeriodLimits::read(value).map(drop),
-    schema: || {
-        let period = json!({
-            "type": "array",
-            "items": run_limit_inline_schema(),
-        });
-        json!({
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "day": period,
-                "week": {
-                    "type": "array",
-                    "items": run_limit_inline_schema(),
-                },
-                "month": {
-                    "type": "array",
-                    "items": run_limit_inline_schema(),
-                },
-            },
-        })
-    },
+    schema: inline_schema_for::<SchedulePeriodLimits>,
     examples: || {
         vec![json!({
             "day": [

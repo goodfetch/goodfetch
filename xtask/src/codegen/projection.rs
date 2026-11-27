@@ -1,8 +1,10 @@
 //! Each Product's projection of the catalog (ADR 0095): the entries it
 //! carries, Collie's own for Collie and every entry for Foxhound, which
-//! contains Collie, with the bundle's types they reach. Every section of the
-//! catalog is projected the same way, so a contract that joins the catalog
-//! joins each projection and the containment check with no change here.
+//! contains Collie, with the bundle's types they reach and those of the
+//! formats Collie's client package reads itself, which every Product's SDK
+//! hands out. Every section of the catalog is projected the same way, so a
+//! contract that joins the catalog joins each projection and the containment
+//! check with no change here.
 
 use anyhow::{Context as _, Result};
 use serde::Deserialize as _;
@@ -33,7 +35,10 @@ pub(super) fn project(catalog: &Value, bundle: &Value, product: Product) -> Resu
         .get("$defs")
         .and_then(Value::as_object)
         .context("the bundle has no `$defs`")?;
-    let reached = compat::reached(&Value::Object(projection.clone()), definitions)?;
+    let mut reached = compat::reached(&Value::Object(projection.clone()), definitions)?;
+    for schema in client_read_formats(bundle) {
+        reached.extend(compat::reached(schema, definitions)?);
+    }
     projection.insert(
         "$defs".to_owned(),
         Value::Object(
@@ -45,6 +50,29 @@ pub(super) fn project(catalog: &Value, bundle: &Value, product: Product) -> Resu
         ),
     );
     Ok(Value::Object(projection))
+}
+
+/// The formats a Collie client package reads itself, such as the delivery
+/// its webhook verification helper parses (issue 1391), whose types each
+/// projection holds though no entry names them, so that every Product's SDK
+/// may hand them out.
+const CLIENT_READ_FORMATS: &[&str] = &["notification-payload"];
+
+/// The schemas of the bundle's [`CLIENT_READ_FORMATS`]; a bundle without
+/// one, such as a test fixture's, gives none.
+fn client_read_formats(bundle: &Value) -> impl Iterator<Item = &Value> {
+    bundle
+        .get("formats")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|format| {
+            format
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| CLIENT_READ_FORMATS.contains(&name))
+        })
+        .filter_map(|format| format.get("schema"))
 }
 
 /// Whether `product`'s catalog holds `entry`: Collie's holds Collie's entries,

@@ -11,6 +11,7 @@ mod conformance;
 mod dead_letters;
 mod faults;
 mod model;
+mod retries;
 mod run_files;
 mod schema_drift;
 mod write_modes;

@@ -31,6 +31,7 @@ goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-test-support.workspace = true
+proptest.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
 

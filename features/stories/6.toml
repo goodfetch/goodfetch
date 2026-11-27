@@ -1249,6 +1249,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 290
+title = "As an operator, I want retries on the Standard Webhooks schedule for 408, 429 and 5xx with `Retry-After` honoured, a 410 pausing the Sink, three days of failure pausing it with a Notification, and its status `complete`, `complete_with_rejections`, `behind` or `failed` in the Run report, so that delivery problems are visible and bounded (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 299
 title = "As a user of both Products, I want `sinks.*` on a Collie engine refused with `not_in_product`, inactive for a Collie Run on a Foxhound engine, and listed as Foxhound's by `config explain`, so that one project file serves both Products (ADRs 0087, 0103)."
 milestone = "M4 Everything else"

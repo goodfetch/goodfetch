@@ -15,7 +15,9 @@ mod contract;
 pub mod dead_letters;
 mod driver;
 mod guarantee;
+pub mod report;
 mod run;
+pub mod schedule;
 pub mod schema;
 mod sqlite;
 mod sync;
@@ -26,5 +28,10 @@ pub use contract::{
 };
 pub use driver::{Driver, RetryOutcome, Status};
 pub use guarantee::{meets, require};
+pub use report::{SinkReportPart, SinkStateRow};
 pub use run::{Delivery, Sinks, contribution};
+pub use schedule::{
+    PAUSE_AFTER, PauseReason, RetryDecision, RetryState, SCHEDULE, SinkNotification,
+    SinkNotificationEvent, next_retry,
+};
 pub use sqlite::{SqliteError, SqliteSink};

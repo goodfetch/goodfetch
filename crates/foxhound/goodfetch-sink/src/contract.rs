@@ -4,9 +4,10 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::mask::{Masks, Scope};
+use goodfetch_engine::retry_after::{self, RetryAfter};
 use serde_json::Value;
 
 /// One copy of a Run: the Run, and the run epoch its lease gave this copy
@@ -143,22 +144,27 @@ pub enum FailureKind {
     RejectedRecords,
     /// The destination refused the engine's credentials or access.
     Auth,
-    /// The destination no longer exists.
+    /// The destination no longer exists (e.g. HTTP 410): pauses the Sink.
     Gone,
+    /// A non-retried permanent failure (e.g. HTTP 404, 405): fails the Sink
+    /// without retrying.
+    Permanent,
     /// The Sink's translation point did not recognize it: counted as
     /// transient and logged at `warn` (ADR 0127).
     Unrecognized,
 }
 
 /// A Sink's failure, as its translation point (ADR 0127) turned its
-/// destination's own: the kind the driver acts on, and the destination's
-/// text, kept for diagnosis. Two failures are equal when their kinds are:
-/// no code compares the text.
+/// destination's own: the kind the driver acts on, an optional `Retry-After`
+/// wait the destination asked for, and the destination's text, kept for
+/// diagnosis. Two failures are equal when their kinds are: no code compares
+/// the text.
 #[derive(Clone, Debug, thiserror::Error)]
 #[error("a Sink's write failed: {kind:?}")]
 #[non_exhaustive]
 pub struct Failure {
     kind: FailureKind,
+    retry_after: Option<Duration>,
     text: PartyText,
 }
 
@@ -188,14 +194,75 @@ impl Failure {
     pub fn new(kind: FailureKind, text: impl Into<String>) -> Self {
         Self {
             kind,
+            retry_after: None,
             text: PartyText(text.into()),
         }
+    }
+
+    /// Attaches a `Retry-After` wait asked by the destination (ADR 0026).
+    #[must_use]
+    pub fn with_retry_after(mut self, wait: Duration) -> Self {
+        self.retry_after = Some(wait);
+        self
+    }
+
+    /// Classifies an HTTP status code from a destination (ADR 0026): only
+    /// 408, 429 and 5xx are retried (`Transient`, honouring `retry_after`);
+    /// 410 pauses (`Gone`); 401/403 fail with `Auth`; 400/422 split and
+    /// dead-letter (`RejectedRecords`); other 4xx fail as `Permanent`.
+    #[must_use]
+    pub fn from_http_status(
+        status: u16,
+        retry_after: Option<Duration>,
+        detail: impl Into<String>,
+    ) -> Self {
+        let kind = match status {
+            408 | 429 | 500..=599 => FailureKind::Transient,
+            410 => FailureKind::Gone,
+            401 | 403 => FailureKind::Auth,
+            400 | 422 => FailureKind::RejectedRecords,
+            _ => FailureKind::Permanent,
+        };
+        let failure = Self::new(kind, detail);
+        match (kind, retry_after) {
+            (FailureKind::Transient, Some(wait)) => failure.with_retry_after(wait),
+            _ => failure,
+        }
+    }
+
+    /// Classifies an HTTP status code along with its raw `Retry-After` and
+    /// `Date` headers, parsed through [`goodfetch_engine::retry_after::read`]
+    /// relative to `received` (ADRs 0026 and 0118).
+    #[must_use]
+    pub fn from_http_response(
+        status: u16,
+        retry_after_header: Option<&str>,
+        date_header: Option<&str>,
+        received: SystemTime,
+        detail: impl Into<String>,
+    ) -> Self {
+        let wait = retry_after_header.and_then(|value| {
+            match retry_after::read(value, date_header, received) {
+                RetryAfter::Until(until) => {
+                    Some(until.duration_since(received).unwrap_or_default())
+                }
+                RetryAfter::NoWait => Some(Duration::ZERO),
+                RetryAfter::Unparsable => None,
+            }
+        });
+        Self::from_http_status(status, wait, detail)
     }
 
     /// Its kind.
     #[must_use]
     pub fn kind(&self) -> FailureKind {
         self.kind
+    }
+
+    /// The `Retry-After` wait asked by the destination, when it sent one.
+    #[must_use]
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after
     }
 
     /// The destination's text, masked at [`Scope::Kept`] for a dead-letter

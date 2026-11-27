@@ -10,10 +10,12 @@
 //! (ADR 0103).
 
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use goodfetch_dataset::{Declarations, Query};
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::{Masks, Scope};
+use goodfetch_protocol::foxhound::report::SinkStatus;
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -22,21 +24,9 @@ use crate::contract::{
     Written,
 };
 use crate::dead_letters::DeadLetter;
-
-/// How long after each failed attempt the next one waits: the Standard
-/// Webhooks schedule, whose first attempt is immediate. A Sink still
-/// failing after the last is failed.
-const SCHEDULE: [Duration; 9] = [
-    Duration::from_secs(5),
-    Duration::from_mins(5),
-    Duration::from_mins(30),
-    Duration::from_hours(2),
-    Duration::from_hours(5),
-    Duration::from_hours(10),
-    Duration::from_hours(14),
-    Duration::from_hours(20),
-    Duration::from_hours(24),
-];
+use crate::schedule::{
+    self, PauseReason, RetryDecision, RetryState, SinkNotification, SinkNotificationEvent,
+};
 
 /// The most Records one write carries, unless set otherwise.
 const BATCH_RECORDS: usize = 256;
@@ -49,12 +39,22 @@ pub enum Status {
     /// Every good Record committed when it ran is at the destination, and
     /// one or more bad Records were isolated and dead-lettered (ADR 0026).
     CompleteWithRejections,
-    /// An attempt failed and will be retried.
+    /// An attempt failed and will be retried on the schedule.
     Behind {
         /// Why it failed.
         failure: Failure,
         /// How long until the next attempt.
         retry_in: Duration,
+        /// Wall-clock time of the next attempt.
+        next_at: SystemTime,
+    },
+    /// The Sink was paused: either the destination answered HTTP 410 Gone,
+    /// or three days of total failure elapsed (ADR 0026).
+    Paused {
+        /// Why it was paused.
+        reason: PauseReason,
+        /// The failure that triggered the pause.
+        failure: Failure,
     },
     /// The Sink failed: no retry would deliver.
     Failed(Failure),
@@ -85,13 +85,23 @@ pub struct Driver<S> {
     run: RunCopy,
     datasets: Vec<String>,
     batch_records: usize,
+    clock: Clock,
     class: Option<GuaranteeClass>,
     /// How far the destination holds each Dataset, once probed; none until
     /// the probe, and again after a failure, when the destination may hold
     /// more than was answered.
     delivered: Option<BTreeMap<String, u64>>,
-    /// Attempts failed in a row.
-    failures: usize,
+    /// The current failure streak for the Standard Webhooks schedule.
+    retry_state: RetryState,
+    /// Set when the Sink is paused (HTTP 410 or 3 days of total failure).
+    paused: Option<(PauseReason, Failure)>,
+    /// Whether the Sink was resumed after a pause so its next successful
+    /// delivery queues a `sink_recovered` Notification.
+    was_paused: bool,
+    /// Whether any Record was dead-lettered during this Run.
+    had_rejections: bool,
+    /// Latest Run-report status of this Sink.
+    report_status: SinkStatus,
     /// How it keys its Records; none under `append`.
     keying: Option<Keying>,
     /// Each Dataset's declared JSON Schema from the run file, read once.
@@ -101,6 +111,8 @@ pub struct Driver<S> {
     /// Records isolated and dead-lettered during delivery, drained by the
     /// caller to write into `sink_dead_letters`.
     dead_letters: Vec<DeadLetter>,
+    /// Notifications queued on pause/recovery, drained by the caller.
+    notifications: Vec<SinkNotification>,
 }
 
 /// How a driver keys its Records under a keyed write mode.
@@ -162,14 +174,27 @@ impl<S: Primitives> Driver<S> {
             run,
             datasets,
             batch_records: BATCH_RECORDS,
+            clock: Clock::system(),
             class: None,
             delivered: None,
-            failures: 0,
+            retry_state: RetryState::default(),
+            paused: None,
+            was_paused: false,
+            had_rejections: false,
+            report_status: SinkStatus::Complete,
             keying: None,
             declared_schemas: None,
             masks: Masks::new(),
             dead_letters: Vec::new(),
+            notifications: Vec::new(),
         }
+    }
+
+    /// Reads wall time through `clock` (ADR 0059).
+    #[must_use]
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// Masks dead-letter Records and reasons with `masks` (ADR 0067).
@@ -206,10 +231,38 @@ impl<S: Primitives> Driver<S> {
         self.class
     }
 
+    /// Why this Sink is currently paused, if paused.
+    #[must_use]
+    pub fn paused_reason(&self) -> Option<PauseReason> {
+        self.paused.as_ref().map(|(reason, _)| *reason)
+    }
+
+    /// The Run-report status of this Sink (`complete`,
+    /// `complete_with_rejections`, `behind`, or `failed`).
+    #[must_use]
+    pub fn report_status(&self) -> SinkStatus {
+        self.report_status
+    }
+
+    /// Resumes a paused Sink so subsequent [`Self::deliver`] calls attempt
+    /// delivery again; the next successful delivery queues a
+    /// `sink_recovered` Notification (ADR 0026).
+    pub fn resume(&mut self) {
+        if self.paused.take().is_some() {
+            self.was_paused = true;
+            self.retry_state.clear();
+        }
+    }
+
     /// Drains the dead letters isolated since the last call, for the caller
     /// to persist in `sink_dead_letters`.
     pub fn take_dead_letters(&mut self) -> Vec<DeadLetter> {
         std::mem::take(&mut self.dead_letters)
+    }
+
+    /// Drains the Sink Notifications queued since the last call.
+    pub fn take_notifications(&mut self) -> Vec<SinkNotification> {
+        std::mem::take(&mut self.notifications)
     }
 
     /// Consumes the driver and returns its underlying Sink.
@@ -251,6 +304,12 @@ impl<S: Primitives> Driver<S> {
     ///
     /// The run file's, when its Records cannot be read.
     pub fn deliver(&mut self, run_file: &Connection) -> rusqlite::Result<Status> {
+        if let Some((reason, failure)) = &self.paused {
+            return Ok(Status::Paused {
+                reason: *reason,
+                failure: failure.clone(),
+            });
+        }
         let mut delivered = match self.delivered.take() {
             Some(delivered) => delivered,
             None => match self.sink.probe(&self.run) {
@@ -280,8 +339,25 @@ impl<S: Primitives> Driver<S> {
             }
         }
         self.delivered = Some(delivered);
-        self.failures = 0;
-        Ok(if self.dead_letters.len() > rejected_before {
+        self.retry_state.clear();
+        if self.was_paused {
+            self.was_paused = false;
+            self.notifications.push(SinkNotification {
+                sink: self.sink_name.clone(),
+                run_id: self.run.run_id.clone(),
+                event: SinkNotificationEvent::Recovered,
+                reason: "Sink delivery recovered".to_owned(),
+                occurred_at: self.clock.wall(),
+            });
+        }
+        let had_rejections_now = self.dead_letters.len() > rejected_before;
+        self.had_rejections |= had_rejections_now;
+        self.report_status = if self.had_rejections {
+            SinkStatus::CompleteWithRejections
+        } else {
+            SinkStatus::Complete
+        };
+        Ok(if had_rejections_now {
             Status::CompleteWithRejections
         } else {
             Status::Complete
@@ -501,6 +577,16 @@ impl<S: Primitives> Driver<S> {
         run_file: &Connection,
         entries: &[DeadLetter],
     ) -> rusqlite::Result<RetryOutcome> {
+        if let Some((reason, failure)) = &self.paused {
+            return Ok(RetryOutcome {
+                delivered: Vec::new(),
+                still_rejected: Vec::new(),
+                status: Status::Paused {
+                    reason: *reason,
+                    failure: failure.clone(),
+                },
+            });
+        }
         if entries.is_empty() {
             return Ok(RetryOutcome {
                 delivered: Vec::new(),
@@ -617,14 +703,43 @@ impl<S: Primitives> Driver<S> {
                 if failure.kind() == FailureKind::Unrecognized {
                     tracing::warn!(sink = %self.sink_name, ?failure, "a Sink's failure was not recognized");
                 }
-                let retry_in = SCHEDULE.get(self.failures).copied();
-                self.failures += 1;
-                match retry_in {
-                    Some(retry_in) => Status::Behind { failure, retry_in },
-                    None => Status::Failed(failure),
+                let now = self.clock.wall();
+                let (next_state, decision) =
+                    schedule::next_retry(&self.retry_state, now, failure.retry_after());
+                self.retry_state = next_state;
+                match decision {
+                    RetryDecision::Retry { wait, next_at } => {
+                        self.report_status = SinkStatus::Behind;
+                        Status::Behind {
+                            failure,
+                            retry_in: wait,
+                            next_at,
+                        }
+                    }
+                    RetryDecision::Pause { reason } => {
+                        self.paused = Some((reason, failure.clone()));
+                        self.report_status = SinkStatus::Failed;
+                        self.notifications.push(SinkNotification {
+                            sink: self.sink_name.clone(),
+                            run_id: self.run.run_id.clone(),
+                            event: SinkNotificationEvent::Paused,
+                            reason: failure.masked_reason(&self.masks),
+                            occurred_at: now,
+                        });
+                        Status::Paused { reason, failure }
+                    }
                 }
             }
-            FailureKind::RejectedRecords | FailureKind::Auth | FailureKind::Gone => {
+            FailureKind::Gone => {
+                self.paused = Some((PauseReason::Gone, failure.clone()));
+                self.report_status = SinkStatus::Failed;
+                Status::Paused {
+                    reason: PauseReason::Gone,
+                    failure,
+                }
+            }
+            FailureKind::RejectedRecords | FailureKind::Auth | FailureKind::Permanent => {
+                self.report_status = SinkStatus::Failed;
                 Status::Failed(failure)
             }
         }

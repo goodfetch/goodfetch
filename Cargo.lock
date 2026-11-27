@@ -3353,6 +3353,7 @@ dependencies = [
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
  "jiff",
+ "proptest",
  "rstest",
  "rusqlite",
  "secrecy",

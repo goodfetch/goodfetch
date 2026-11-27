@@ -544,3 +544,94 @@ fn a_bad_record_is_dead_lettered_and_retried_on_a_later_run() {
                 && row.record.to_string().contains("/headings/levels"))
     );
 }
+
+/// The crawl's Run report carries each Sink's delivery status: `complete`,
+/// `complete_with_rejections` and `failed` (ADR 0026).
+///
+/// Covers: story:6-290
+#[test]
+fn the_run_report_reports_each_sinks_delivery_status() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let ok_db = env.folder().join("ok.sqlite");
+    let rejected_db = env.folder().join("rejected.sqlite");
+    let missing_db = env.folder().join("no-such-dir").join("broken.sqlite");
+    set_headings_constraint(&rejected_db, true);
+
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let second = format!("{index}/headings/levels");
+    let settings = json!({
+        "fetch": { "tier": "http" },
+        "sinks": {
+            "ok": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": "env:SINK_TEST_OK",
+            },
+            "rejected": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": "env:SINK_TEST_REJ",
+            },
+            "broken": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": "env:SINK_TEST_BAD",
+            },
+        },
+    });
+    let extraction = json!({ "formats": { "markdown": true }, "follow": "none" });
+    let mut engine = crate::attached_with(&env, None, |command| {
+        command
+            .env("SINK_TEST_OK", &ok_db)
+            .env("SINK_TEST_REJ", &rejected_db)
+            .env("SINK_TEST_BAD", &missing_db);
+    });
+    let (started, _) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        (
+            "report-sinks",
+            &[
+                json!({ "url": index, "label": "page" }),
+                json!({ "url": second, "label": "page" }),
+            ],
+        ),
+        &extraction,
+        &settings,
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let report = engine.ask("report", "run.report", &json!({ "run_id": "report-sinks" }));
+    assert!(engine.finished());
+
+    let sinks = report["result"]["sinks"]
+        .as_array()
+        .unwrap_or_else(|| panic!("Run report must include `sinks`: {report}"));
+    let status_of = |name: &str| {
+        let entry = sinks
+            .iter()
+            .find(|s| s["name"] == name)
+            .unwrap_or_else(|| panic!("missing sink `{name}` in {sinks:?}"));
+        (
+            entry["status"].as_str().unwrap().to_owned(),
+            entry["dead_letters"].as_u64().unwrap(),
+            entry["guarantee_class"].as_str().unwrap().to_owned(),
+        )
+    };
+    assert_eq!(
+        status_of("ok"),
+        ("complete".to_owned(), 0, "fenced".to_owned())
+    );
+    assert_eq!(
+        status_of("rejected"),
+        (
+            "complete_with_rejections".to_owned(),
+            1,
+            "fenced".to_owned()
+        )
+    );
+    assert_eq!(
+        status_of("broken"),
+        ("failed".to_owned(), 0, "at_least_once".to_owned())
+    );
+}

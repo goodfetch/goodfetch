@@ -1107,7 +1107,7 @@
     {
       "id": "command:sink.probe",
       "kind": "command",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -2837,7 +2837,7 @@
     {
       "id": "error:sink_guarantee_unmet",
       "kind": "error",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -5021,7 +5021,7 @@
     {
       "id": "operation:sink.probe",
       "kind": "operation",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -9351,7 +9351,7 @@
     {
       "id": "setting:crawl.min_sink_guarantee",
       "kind": "setting",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [
@@ -25615,6 +25615,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-290",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

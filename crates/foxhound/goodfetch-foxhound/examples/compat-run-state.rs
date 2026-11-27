@@ -505,9 +505,12 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
     Ok(json!({ "learned": true }))
 }
 
-/// Records one dead-letter row on `crawl` so `compat/run-state` covers every
-/// column of `sink_dead_letters` (ADRs 0026 and 0066).
+/// Records one dead-letter row, one Sink state row, and one Sink Notification
+/// row on `crawl` so `compat/run-state` covers every column of
+/// `sink_dead_letters`, `sink_state`, and `sink_notifications` (ADRs 0026 and
+/// 0066).
 fn record_dead_letter(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    let masks = goodfetch_engine::mask::Masks::new();
     goodfetch_sink::dead_letters::record(
         connection,
         &goodfetch_sink::dead_letters::DeadLetter {
@@ -524,7 +527,29 @@ fn record_dead_letter(connection: &rusqlite::Connection) -> rusqlite::Result<()>
             reason: "check constraint failed".to_owned(),
             attempts: 1,
         },
-        &goodfetch_engine::mask::Masks::new(),
+        &masks,
+    )?;
+    goodfetch_sink::report::record_state(
+        connection,
+        &goodfetch_sink::SinkStateRow {
+            sink: "warehouse".to_owned(),
+            guarantee_class: goodfetch_sink::GuaranteeClass::Fenced,
+            status: goodfetch_protocol::foxhound::report::SinkStatus::CompleteWithRejections,
+            paused_reason: Some(goodfetch_sink::PauseReason::ThreeDaysFailing),
+            outside_dedup_window: 0,
+            undeclared_datasets: Vec::new(),
+        },
+    )?;
+    goodfetch_sink::report::record_notification(
+        connection,
+        &goodfetch_sink::SinkNotification {
+            sink: "warehouse".to_owned(),
+            run_id: "crawl".to_owned(),
+            event: goodfetch_sink::SinkNotificationEvent::Paused,
+            reason: "three days failing".to_owned(),
+            occurred_at: std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_767_603_601),
+        },
+        &masks,
     )
 }
 

@@ -470,6 +470,19 @@
               "attached"
             ],
             "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A Group member of a Daemon group, named by its Group member name (ADR 0055).",
+            "properties": {
+              "group_member": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "group_member"
+            ],
+            "type": "object"
           }
         ]
       },

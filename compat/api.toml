@@ -391,3 +391,11 @@ reason = "A Run report's durations are each language's duration type (ADR 0080, 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
 reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunOwner"
+reason = "The group Run index names a run's owning Group member (ADR 0055, issue 242): `RunOwner` gains the `{ groupMember: string }` variant beside `daemon` and `attached`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types RunOwner"
+reason = "The group Run index names a run's owning Group member (ADR 0055, issue 242): `RunOwner` gains the `{ groupMember: string }` variant beside `daemon` and `attached`."

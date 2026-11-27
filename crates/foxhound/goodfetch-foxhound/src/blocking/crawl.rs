@@ -9,16 +9,20 @@ use std::fmt;
 use std::future::IntoFuture as _;
 use std::sync::Arc;
 
-use goodfetch_collie_client::{BoxError, Error};
-use goodfetch_protocol::foxhound::dataset::{DatasetRecord, RECORD, RUN_RECORDS, RecordRead};
+use goodfetch_collie_client::{Answer, BoxError, Error, Limits};
 use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, HttpMethod};
+use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
+use goodfetch_protocol::foxhound::rejections::RejectedRecord;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{RunFinishParams, RunId, RunParams, RunStopParams, Tags};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::{Foxhound, Run, blocking};
-use crate::{Dataset, DatasetDeclaration, Label, LabelDeclaration, LinkPayload, Seed};
+use super::{Call, EventIter, Foxhound, Run, blocking};
+use crate::settings::Settings;
+use crate::{
+    Dataset, DatasetDeclaration, DatasetRecord, Label, LabelDeclaration, LinkPayload, Seed,
+};
 
 /// A crawl the program declares, as [`crate::Crawl`], whose handlers are
 /// plain functions and whose [`Crawl::serve`] blocks. It holds no
@@ -147,19 +151,54 @@ impl Crawl {
 /// A crawl's Run bound to one attempt of its handler, as
 /// [`crate::AttemptRun`].
 #[derive(Clone, Debug)]
-pub struct AttemptRun(crate::AttemptRun);
+pub struct AttemptRun {
+    inner: crate::AttemptRun,
+    connection: blocking::ClientConnection,
+}
 
 impl AttemptRun {
     /// The Run's ID, read without a round trip.
     pub fn id(&self) -> &RunId {
-        self.0.id()
+        self.inner.id()
     }
 
     /// The Run's Key-value store, its writes staged with the attempt, as
     /// [`crate::AttemptRun::key_value_store`].
     #[must_use]
     pub fn key_value_store(&self) -> blocking::KeyValueStore {
-        blocking::KeyValueStore::from(self.0.key_value_store())
+        blocking::KeyValueStore::from(self.inner.key_value_store())
+    }
+
+    /// The Records of `dataset` committed when the read is first iterated,
+    /// as [`crate::AttemptRun::records`], as an iterator that blocks the
+    /// calling thread until the next one, and ends once it read them.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::records`]'s does, after which
+    /// the iterator ends.
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> ReadRecords<I> {
+        ReadRecords::new(self.inner.records(dataset), self.connection.clone())
+    }
+
+    /// The entries of `dataset`'s rejection table committed when the read
+    /// is first iterated, as [`crate::AttemptRun::rejected_records`], as an
+    /// iterator that blocks the calling thread until the next one, and
+    /// ends once it read them.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::rejected_records`]'s does,
+    /// after which the iterator ends.
+    pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.inner.rejected_records(dataset),
+            self.connection.clone(),
+        )
     }
 }
 
@@ -206,7 +245,10 @@ impl<P> CrawlContext<P> {
     /// [`crate::CrawlContext::run`].
     #[must_use]
     pub fn run(&self) -> AttemptRun {
-        AttemptRun(self.inner.run().clone())
+        AttemptRun {
+            inner: self.inner.run().clone(),
+            connection: self.blocking_connection(),
+        }
     }
 
     /// Already navigated. The handler runs once the request's navigation
@@ -361,18 +403,34 @@ impl Foxhound {
     ///
     /// The start of `crawl`'s Run from `seeds`, as
     /// [`crate::Foxhound::start_crawl`], which `send()` sends.
-    pub fn start_crawl(&self, crawl: &Crawl, seeds: impl IntoIterator<Item = Seed>) -> StartCrawl {
+    ///
+    /// A code-free crawl, a [`crate::CrawlDeclaration`] or a
+    /// [`crate::CrawlExtraction`], starts the same way with no handler, as
+    /// it does there.
+    pub fn start_crawl(
+        &self,
+        crawl: impl crate::CrawlTarget,
+        seeds: impl IntoIterator<Item = Seed>,
+    ) -> StartCrawl {
         StartCrawl {
             start: crate::StartCrawl::new(
                 self.linked.connection(),
                 &self.crawl_requests,
-                &crawl.inner,
+                crawl,
                 seeds,
             ),
             connection: self.connection.clone(),
         }
     }
 }
+
+impl crate::crawl::target::Parts for &Crawl {
+    fn parts(self, seeds: Vec<Seed>) -> crate::crawl::target::Started {
+        crate::crawl::target::Parts::parts(&self.inner, seeds)
+    }
+}
+
+impl crate::CrawlTarget for &Crawl {}
 
 /// The start of a crawl's Run, as [`crate::StartCrawl`]. Nothing is sent
 /// until [`StartCrawl::send`].
@@ -388,6 +446,40 @@ impl StartCrawl {
     pub fn run_id(self, run_id: &RunId) -> Self {
         Self {
             start: self.start.run_id(run_id),
+            ..self
+        }
+    }
+
+    /// Tags the Run, as [`crate::StartCrawl::tags`] does.
+    pub fn tags(self, tags: Tags) -> Self {
+        Self {
+            start: self.start.tags(tags),
+            ..self
+        }
+    }
+
+    /// Sets the Run's own `limits`, as [`crate::StartCrawl::limits`] does.
+    pub fn limits(self, limits: Limits) -> Self {
+        Self {
+            start: self.start.limits(limits),
+            ..self
+        }
+    }
+
+    /// Sets the Run's own settings, as [`crate::StartCrawl::settings`]
+    /// does.
+    pub fn settings(self, settings: Settings) -> Self {
+        Self {
+            start: self.start.settings(settings),
+            ..self
+        }
+    }
+
+    /// Lets the Run outlive the Connection, as
+    /// [`crate::StartCrawl::detached`] does.
+    pub fn detached(self) -> Self {
+        Self {
+            start: self.start.detached(),
             ..self
         }
     }
@@ -547,6 +639,91 @@ impl CrawlRun {
         &self.run
     }
 
+    /// Lets a Run finish and answers its Run report: a Run its program drives
+    /// ends at once, `finished` and `complete`; a crawl ends once its work
+    /// items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits
+    /// for new work while nothing is left, ends once this call lets it and its
+    /// work items are done. A Run something stopped first answers its report
+    /// saying `stopped`. A Run that ended `failed` fails the call with the
+    /// error that failed it, and a write at its end that failed, such as its
+    /// Plan file's, with that write's error. Cancelling the call, or its
+    /// `timeout` passing, which fails it with `deadline_exceeded`, ends only
+    /// the wait.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The report typed as a crawl's, as [`crate::CrawlRun::finish`] answers
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::finish`].
+    pub fn finish(&self) -> Call<Answer<CrawlRunReport>, RunFinishParams> {
+        self.run.finish().typed()
+    }
+
+    /// Stops a Run at its next safe point with a Checkpoint, `stopped` and
+    /// `incomplete` as an abort by its program, resumable by its Run ID, and
+    /// answers its Run report; an ended Run's report is answered as it is. The
+    /// wait is bounded by `timeout.close`, or the call's `timeout`: past it,
+    /// the call fails with `deadline_exceeded` and the Run still stops at its
+    /// next safe point. A Run that ended `failed` fails the call as
+    /// `run.finish` does.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The report typed as a crawl's, as [`crate::CrawlRun::stop`] answers
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::stop`].
+    pub fn stop(&self) -> Call<Answer<CrawlRunReport>, RunStopParams> {
+        self.run.stop().typed()
+    }
+
+    /// Reads a Run's report: at once for a Run that ended, and at its end for a
+    /// live one, which the read never ends. A Run another engine works is read
+    /// through that engine, and one no engine works from its committed state,
+    /// never taking its writer lock. A Run that has no live writer and has not
+    /// ended fails with `run_interrupted`, whose `fix` names a start with its
+    /// Run ID, and a Run ID the Run index does not list with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The report typed as a crawl's, as [`crate::CrawlRun::report`] answers
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::report`].
+    pub fn report(&self) -> Call<Answer<CrawlRunReport>, RunParams> {
+        self.run.report().typed()
+    }
+
+    /// Reads a Run's progress: what it does and why it waits. Without `after`,
+    /// it answers at once; given `after`, the position of the value the reader
+    /// last read, it waits for a change and answers the latest value, so values
+    /// in between are coalesced. The value whose `last` is true ends the
+    /// sequence: the Run ended, and its `lifecycle` and `stop_reason` say how,
+    /// or no engine works it (`writer: none`) until a start with its Run ID
+    /// resumes it. A Run another engine works is read through that engine, the
+    /// owner the Run index names, and one no engine works from its committed
+    /// state; a read never takes the Run's writer lock. A Run ID the Run index
+    /// does not list fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The crawl's progress, as [`crate::CrawlRun::progress`] follows it, as
+    /// an iterator that blocks the calling thread until the next value.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::progress`]'s does.
+    pub fn progress(&self) -> EventIter<Answer<CrawlRunProgress>> {
+        self.run.progress().typed()
+    }
+
     /// Reads the committed Records of one Dataset of a crawl's Run in
     /// number order, from the first, or after the number `after`, which
     /// resumes a reader from the last Record it handled. Each Record goes
@@ -575,17 +752,129 @@ impl CrawlRun {
     ///
     /// An item fails as [`crate::CrawlRun::records`]'s does, after which
     /// the iterator ends.
-    pub fn records<I>(
-        &self,
-        dataset: &Dataset<I>,
-    ) -> impl Iterator<Item = Result<DatasetRecord, Error>> + Send + 'static {
-        self.connection
-            .stream::<RecordRead>(
-                RUN_RECORDS.name,
-                &self.inner.records_params(dataset),
-                RECORD,
-            )
-            .map(|read| read.map(|read| read.record))
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> ReadRecords<I> {
+        ReadRecords::new(self.inner.records(dataset), self.connection.clone())
+    }
+
+    /// Reads one Dataset's rejection table from a crawl's committed state:
+    /// each Record rejected rather than committed, numbered from 1 in
+    /// commit order, with the Record as JSON, the reason, each issue's
+    /// path, the Hook when one rejected it, and the request's ID and URL.
+    /// It starts at the first entry, or after `after`, the number a reader
+    /// last handled. While the Run is live and nothing follows, it waits
+    /// for the next commit; a page says `ended` once the Run has ended, or
+    /// has no live writer, and no entry follows. With `through`, such as
+    /// the `rejected` count `dataset.list` answers, it reads no entry
+    /// numbered past it and never waits, a live Run's included: a page says
+    /// `ended` once it reaches that number or has read every committed
+    /// entry. A reader never slows the Run. A
+    /// Dataset the crawl does not declare fails with `dataset_unknown`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The entries of `dataset`'s rejection table, as
+    /// [`crate::CrawlRun::rejected_records`], as an iterator that blocks
+    /// the calling thread until the next one. Dropping it cancels the page
+    /// being read.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::CrawlRun::rejected_records`]'s does,
+    /// after which the iterator ends.
+    pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.inner.rejected_records(dataset),
+            self.connection.clone(),
+        )
+    }
+}
+
+/// The read of one Dataset's Records, as [`crate::ReadRecords`], as an
+/// iterator that blocks the calling thread until the next one. It is sent
+/// when first iterated; dropping it cancels the read.
+#[must_use = "a read sends nothing until it is iterated"]
+#[derive(Debug)]
+pub struct ReadRecords<I> {
+    /// The read, until first iterated.
+    unsent: Option<crate::ReadRecords<I>>,
+    /// The read, once sent.
+    sent: Option<EventIter<DatasetRecord<I>>>,
+    connection: blocking::ClientConnection,
+}
+
+impl<I> ReadRecords<I> {
+    fn new(read: crate::ReadRecords<I>, connection: blocking::ClientConnection) -> Self {
+        Self {
+            unsent: Some(read),
+            sent: None,
+            connection,
+        }
+    }
+
+    /// Reads the Records numbered past `after`, as
+    /// [`crate::ReadRecords::after`]. Set before the read is first
+    /// iterated.
+    pub fn after(mut self, after: u64) -> Self {
+        self.unsent = self.unsent.map(|read| read.after(after));
+        self
+    }
+}
+
+impl<I: DeserializeOwned + Send + Sync + 'static> Iterator for ReadRecords<I> {
+    type Item = Result<DatasetRecord<I>, Error>;
+
+    /// The next Record, blocking until it comes, or `None` once the read
+    /// ended.
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(read) = self.unsent.take() {
+            self.sent = Some(self.connection.iter(read.sent()));
+        }
+        self.sent.as_mut()?.next()
+    }
+}
+
+/// The read of one Dataset's rejection table, as
+/// [`crate::ReadRejectedRecords`], as an iterator that blocks the calling
+/// thread until the next entry. It is sent when first iterated; dropping
+/// it cancels the page being read.
+#[must_use = "a read sends nothing until it is iterated"]
+#[derive(Debug)]
+pub struct ReadRejectedRecords {
+    /// The read, until first iterated.
+    unsent: Option<crate::ReadRejectedRecords>,
+    /// The read, once sent.
+    sent: Option<EventIter<RejectedRecord>>,
+    connection: blocking::ClientConnection,
+}
+
+impl ReadRejectedRecords {
+    fn new(read: crate::ReadRejectedRecords, connection: blocking::ClientConnection) -> Self {
+        Self {
+            unsent: Some(read),
+            sent: None,
+            connection,
+        }
+    }
+
+    /// Reads the entries numbered past `after`, as
+    /// [`crate::ReadRejectedRecords::after`]. Set before the read is first
+    /// iterated.
+    pub fn after(mut self, after: u64) -> Self {
+        self.unsent = self.unsent.map(|read| read.after(after));
+        self
+    }
+}
+
+impl Iterator for ReadRejectedRecords {
+    type Item = Result<RejectedRecord, Error>;
+
+    /// The next entry, blocking until it comes, or `None` once the read
+    /// ended.
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(read) = self.unsent.take() {
+            self.sent = Some(self.connection.iter(read.sent()));
+        }
+        self.sent.as_mut()?.next()
     }
 }
 
@@ -600,4 +889,6 @@ const _: () = {
     send_static::<StartCrawl>();
     send_static::<Enqueue>();
     send_static::<EnqueueLinks>();
+    send_sync_static::<ReadRecords<()>>();
+    send_sync_static::<ReadRejectedRecords>();
 };

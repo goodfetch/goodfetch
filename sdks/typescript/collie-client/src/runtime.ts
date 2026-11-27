@@ -15,6 +15,7 @@
 export type { ClientConnection, Served, Stream } from "./client-connection.ts";
 export type { ErrorClasses } from "./errors.ts";
 export { refuseHandlersOnEdge } from "./edge-runtime.ts";
+export { limitList } from "./limits.ts";
 export {
   FileSaving,
   saveFile,
@@ -30,6 +31,7 @@ export { thrownException } from "./thrown.ts";
 export { alsoInNamespace } from "./raw-call.ts";
 export { type EntryMarkers, warnDeprecated, warnEntry, warnExperimental } from "./markers.ts";
 export { attemptStoreOf, ensureRunOpen, pageOf, type RunHost } from "./run.ts";
+export { FOLLOWED_VALUE, paged } from "./followed.ts";
 export { resumable } from "./resumed-stream.ts";
 export { Sequence, type SequenceOptions } from "./sequence.ts";
 export {

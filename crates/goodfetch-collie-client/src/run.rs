@@ -16,14 +16,15 @@ use std::time::Duration;
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::{
-    RUN_PROGRESS_READ, RUN_START, Recording, RunId, RunProgress, RunStartParams, RunStarted,
-    StartedAs, Tags,
+    RUN_PROGRESS_READ, RUN_START, Recording, RunId, RunProgress, RunReport, RunStartParams,
+    RunStarted, StartedAs, Tags,
 };
 use goodfetch_protocol::settings::{CONFIG_EXPLAIN, ConfigExplainParams, SettingsExplanation};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::answer::Answer;
-use crate::call::Query;
+use crate::call::{Call, Query};
 use crate::connection::ClientConnection;
 use crate::error::Error;
 use crate::event_stream::EventStream;
@@ -225,7 +226,19 @@ impl ClientConnection {
     /// Starts a Run with `opener` as [`ClientConnection::start_with`]
     /// does, held `detached` when it outlives the program: closing or
     /// dropping its value then sends no `run.abort` (ADR 0102).
-    pub(crate) fn start_held(
+    ///
+    /// # Errors
+    ///
+    /// What `opener` fails with, such as `invalid_params` or, on an engine
+    /// that is no Daemon, `detach_unsupported`, and `closed` once the
+    /// Connection has ended.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future before `opener` is answered may leave the Run
+    /// started or not; a start under a Run ID of the program's own then
+    /// resumes it (ADR 0102).
+    pub fn start_held(
         &self,
         opener: &'static str,
         params: impl Serialize + Send + 'static,
@@ -392,6 +405,40 @@ impl Run {
             },
         )
     }
+}
+
+impl<P> Call<Answer<RunReport>, P> {
+    /// The call whose Run report is read into `R`, a Product's own report
+    /// that holds every Run's and adds what its kind reports, such as
+    /// Foxhound's `CrawlRunReport` (ADR 0102); its raw value stays as the
+    /// engine sent it.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `internal` when the report does not fit `R`, and the
+    /// errors of the call.
+    pub fn typed<R: DeserializeOwned + Send + 'static>(self) -> Call<Answer<R>, P> {
+        self.try_map(retyped)
+    }
+}
+
+impl EventStream<Answer<RunProgress>> {
+    /// The stream whose progress values are read into `R`, a Product's own
+    /// progress that holds every Run's and adds what its kind reports, such
+    /// as Foxhound's `CrawlRunProgress` (ADR 0102).
+    ///
+    /// # Errors
+    ///
+    /// An item is `internal` when its value does not fit `R`, and the
+    /// stream's own errors.
+    pub fn typed<R: DeserializeOwned + Send + Sync + 'static>(self) -> EventStream<Answer<R>> {
+        self.and_then(retyped)
+    }
+}
+
+/// `answer`'s raw value read into `R`, kept as its raw value.
+fn retyped<T, R: DeserializeOwned>(answer: Answer<T>) -> Result<Answer<R>, Error> {
+    serde_json::from_value(answer.into_parts().1).map_err(Error::shape)
 }
 
 impl<T> Query<T, ConfigExplainParams> {

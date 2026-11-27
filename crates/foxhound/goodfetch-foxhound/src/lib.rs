@@ -54,8 +54,9 @@ pub mod testing;
 
 pub use composition::{composition, composition_with};
 pub use crawl::{
-    AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Enqueue,
-    EnqueueLinks, Label, LabelDeclaration, LinkPayload, Seed, StartCrawl,
+    AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, CrawlTarget, Dataset, DatasetDeclaration,
+    DatasetRecord, Enqueue, EnqueueLinks, Label, LabelDeclaration, LinkPayload, ReadRecords,
+    ReadRejectedRecords, Seed, StartCrawl,
 };
 pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
@@ -66,7 +67,8 @@ pub use goodfetch_collie_client::{
     SchemaError, Session, Start, StoredBytes, UsageKind, VerifyWebhookOptions, events, schemars,
     verify_webhook, verify_webhook_with,
 };
-pub use goodfetch_protocol::foxhound::dataset::DatasetRecord;
+pub use goodfetch_protocol::foxhound::crawl::CrawlExtraction;
+pub use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;
 /// Foxhound's Error codes, each a value of [`ErrorCode`] (ADR 0099):
 /// `error_code::HANDLER_FAILED` equals the code of an error read from the
 /// engine.
@@ -74,6 +76,9 @@ pub use goodfetch_protocol::foxhound::error_code;
 pub use goodfetch_protocol::foxhound::frontier::{
     Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, MatchedLink, NotAddedReason,
 };
+pub use goodfetch_protocol::foxhound::progress::{CrawlRunProgress, RequestProgress};
+pub use goodfetch_protocol::foxhound::provenance::RecordProvenance;
+pub use goodfetch_protocol::foxhound::rejections::RejectedRecord;
 pub use goodfetch_protocol::foxhound::report::{CrawlRunReport, RequestCounts};
 pub use goodfetch_protocol::notifications::{
     FullNotification, NotificationData, NotificationEvent, NotificationPayload, ThinNotification,
@@ -85,7 +90,7 @@ pub use goodfetch_protocol::page::read::{
     UnreadField, UnreadReason, ValueField,
 };
 pub use goodfetch_protocol::run::{
-    CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs,
+    CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs, Tags,
 };
 pub use goodfetch_protocol::schedule::{
     EveryTrigger, RecipeTarget, RunTarget, ScheduleDefinition, ScheduleId, ScheduleInfo,

@@ -13824,6 +13824,16 @@
           "description": "The Dataset's name.",
           "type": "string"
         },
+        "number": {
+          "arrived_in": "0.1",
+          "description": "The Record's number in its Dataset when an SDK reading it from\n`run.records` could not parse it, which `records` then holds at\nposition 0; absent when a push or a handler's answer is refused.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "records": {
           "arrived_in": "0.1",
           "description": "Each Record that does not hold, in position order, at least one.",
@@ -16710,6 +16720,16 @@
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
           "description": "The crawl's Run."
+        },
+        "through": {
+          "arrived_in": "0.1",
+          "description": "The number of the last entry to read, such as the `rejected` count\n`dataset.list` answers: no entry past it is read, and the read never\nwaits, a live Run's included. A page says `ended` once it reaches\nthat number or has read every committed entry, as when an erase left\nfewer entries than the count. Absent, it follows a live Run until\nthe Run ends.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
@@ -23511,7 +23531,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
+      "description": "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. An SDK reading `run.records` raises it too when its native parser rejects a Record the engine committed, naming that Record by its `number` and ending the read. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
       "details": {
         "$ref": "#/$defs/RecordInvalidDetails"
       },
@@ -27233,7 +27253,7 @@
       "cancellable": true,
       "class": "read",
       "deprecated": null,
-      "description": "Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.",
+      "description": "Reads one Dataset's rejection table from a crawl's committed state: each Record rejected rather than committed, numbered from 1 in commit order, with the Record as JSON, the reason, each issue's path, the Hook when one rejected it, and the request's ID and URL. It starts at the first entry, or after `after`, the number a reader last handled. While the Run is live and nothing follows, it waits for the next commit; a page says `ended` once the Run has ended, or has no live writer, and no entry follows. With `through`, such as the `rejected` count `dataset.list` answers, it reads no entry numbered past it and never waits, a live Run's included: a page says `ended` once it reaches that number or has read every committed entry. A reader never slows the Run. A Dataset the crawl does not declare fails with `dataset_unknown`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.rejected_records",

@@ -1130,6 +1130,12 @@ export interface FoxhoundSettings {
   };
   readonly stealth?: {
     /**
+     * Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+     *
+     * `stealth.allow_runtime`.
+     */
+    readonly allowRuntime?: boolean;
+    /**
      * The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
      *
      * `stealth.chromium_build`.
@@ -2410,6 +2416,12 @@ export interface CrawlSettings {
   };
   readonly stealth?: {
     /**
+     * Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+     *
+     * `stealth.allow_runtime`.
+     */
+    readonly allowRuntime?: boolean;
+    /**
      * The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
      *
      * `stealth.chromium_build`.
@@ -3075,6 +3087,7 @@ const SPELLING: Spelling = {
     robotsTxtUserAgent: "robots_txt_user_agent",
   }],
   stealth: ["stealth", {
+    allowRuntime: "allow_runtime",
     allowedBuilds: "allowed_builds",
     chromiumBuild: "chromium_build",
     fingerprintMethod: "fingerprint_method",

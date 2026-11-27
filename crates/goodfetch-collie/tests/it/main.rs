@@ -74,6 +74,8 @@ mod http_listener;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod huge_pages;
+#[cfg(unix)]
+mod human_input;
 mod human_output;
 #[cfg(unix)]
 mod identified;
@@ -140,6 +142,7 @@ mod skill_examples;
 mod skill_install;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 mod source_build;
+mod stealth_methods;
 #[cfg(target_os = "linux")]
 mod storage;
 #[cfg(target_os = "linux")]

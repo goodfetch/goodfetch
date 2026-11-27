@@ -89,11 +89,11 @@ use goodfetch_engine::{
     CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Handler,
     Identity,
 };
-use goodfetch_page::Launcher;
 use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_page::page_value::{
     BrowserPages, HandlerPages, HeldPlace, Observer, OwnFetch, PageValue, PooledSession,
 };
+use goodfetch_page::{Launcher, Party};
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
     schema_of,
@@ -264,12 +264,13 @@ const READ_FIELDS: &str = include_str!("../src/fields/read.js");
 /// The rows C3's actions count, read over the actions alone: each of the
 /// program's reads is a wait, whose checks count on these rows too, and are
 /// C2's outcome, not an action's.
-const ACTION_ROWS: [Row; 6] = [
+const ACTION_ROWS: [Row; 7] = [
     Row::ActionScriptSends,
     Row::ActionCheckCommands,
     Row::ActionClickCommands,
     Row::ActionFillCommands,
     Row::ActionPressCommands,
+    Row::ActionHumanInputCommands,
     Row::ActionOwnerRoundTrips,
 ];
 
@@ -650,7 +651,7 @@ impl Requests {
 struct ReadsMarkers;
 
 impl BlockClassifier for ReadsMarkers {
-    fn classify(&self, _response: &PageResponse, _markup: &str) -> Option<Block> {
+    fn classify(&self, _response: &PageResponse, _party: Party, _markup: &str) -> Option<Block> {
         None
     }
 

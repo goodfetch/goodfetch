@@ -181,6 +181,7 @@ fingerprint_method = "none"
 generated_identity = true
 human_input = true
 chromium_build = "goodfetch"
+allow_runtime = true
 allowed_builds = ["example"]
 
 [settings.stealth.identity]
@@ -630,6 +631,7 @@ fingerprint_method = "none"
 generated_identity = true
 human_input = true
 chromium_build = "goodfetch"
+allow_runtime = true
 allowed_builds = ["example"]
 
 [lock.stealth.identity]

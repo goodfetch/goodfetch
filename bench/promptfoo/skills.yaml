@@ -1,0 +1,89 @@
+# Skill Evaluations promptfoo configuration (ADRs 0065, 0076, 0090 and 0094; issue 423).
+#
+# Called from `bench/src/skill-evals.ts` under `#413`'s shared live-gate
+# (`GOODFETCH_LIVE_SKILLS`, disabled until M4). Compares each Product's
+# generated skills (`goodfetch-collie` and `goodfetch-foxhound`) with and
+# without skills across 3 trials per model tier (`small`, `mid`, `large`)
+# against the local Proving ground, graded solely by the Proving ground oracle
+# with `skill-used` recorded as a triggering signal.
+description: "Goodfetch Skill Evaluations (Collie and Foxhound, with vs without skills)"
+
+prompts:
+  - "{{task_prompt}}"
+
+providers:
+  - id: anthropic:claude-agent-sdk
+    label: claude-code-with-skills
+    config:
+      model: "{{model}}"
+      maxBudgetUsd: 2
+      env:
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        DISABLE_AUTOUPDATER: "1"
+        DISABLE_BUG_COMMAND: "1"
+        DISABLE_ERROR_REPORTING: "1"
+        DISABLE_TELEMETRY: "1"
+        ANTHROPIC_BASE_URL: "https://ai-gateway.vercel.sh"
+      skillsDir: "{{skills_dir}}"
+
+  - id: anthropic:claude-agent-sdk
+    label: claude-code-without-skills
+    config:
+      model: "{{model}}"
+      maxBudgetUsd: 2
+      env:
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+        DISABLE_AUTOUPDATER: "1"
+        DISABLE_BUG_COMMAND: "1"
+        DISABLE_ERROR_REPORTING: "1"
+        DISABLE_TELEMETRY: "1"
+        ANTHROPIC_BASE_URL: "https://ai-gateway.vercel.sh"
+
+  - id: openai:codex
+    label: codex-with-skills
+    config:
+      model: "{{model}}"
+      baseUrl: "https://ai-gateway.vercel.sh/v1"
+      apiKeyEnvar: AI_GATEWAY_API_KEY
+      checkForUpdateOnStartup: false
+      analyticsEnabled: false
+      skillsDir: "{{skills_dir}}"
+
+  - id: openai:codex
+    label: codex-without-skills
+    config:
+      model: "{{model}}"
+      baseUrl: "https://ai-gateway.vercel.sh/v1"
+      apiKeyEnvar: AI_GATEWAY_API_KEY
+      checkForUpdateOnStartup: false
+      analyticsEnabled: false
+
+defaultTest:
+  vars:
+    model: "openai/gpt-5.4-nano"
+    oracle_url: "http://127.0.0.1:0/oracle/judge"
+  options:
+    repeat: 3
+
+tests:
+  - description: "collie CLI task against local Proving ground"
+    vars:
+      product: collie
+      executable: goodfetch-collie
+      skills_dir: crates/goodfetch-collie/generated/skills
+      task_prompt: "Use goodfetch-collie to start a Run, read the title from the local Proving ground page, and finish the Run."
+    assert:
+      - type: javascript
+        value: "async (output, context) => { const res = await fetch(context.vars.oracle_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ product: context.vars.product, output }) }); const verdict = await res.json(); return verdict.status === 'verified'; }"
+      - type: skill-used
+
+  - description: "foxhound CLI task against local Proving ground"
+    vars:
+      product: foxhound
+      executable: goodfetch-foxhound
+      skills_dir: crates/foxhound/goodfetch-foxhound/generated/skills
+      task_prompt: "Use goodfetch-foxhound to start a Run, crawl the local Proving ground article links, and finish the Run."
+    assert:
+      - type: javascript
+        value: "async (output, context) => { const res = await fetch(context.vars.oracle_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ product: context.vars.product, output }) }); const verdict = await res.json(); return verdict.status === 'verified'; }"
+      - type: skill-used

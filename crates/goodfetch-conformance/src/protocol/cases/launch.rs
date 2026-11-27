@@ -13,6 +13,37 @@ use super::{Checks, Site, finish_run, new_page, poll, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::proving_ground::{ProvingGroundError, ReceivedRequests};
 
+/// A launch case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Case {
+    HeadlessIdentity,
+    BackgroundTimer,
+}
+
+impl Case {
+    /// The case a suite's case ID names.
+    pub(crate) fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
+            "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
+            _ => return None,
+        })
+    }
+
+    /// Runs the case on the open Connection against `site`.
+    pub(crate) fn run(
+        self,
+        connection: &mut Connection,
+        site: &Site,
+        checks: &mut Checks,
+    ) -> Result<(), Gone> {
+        match self {
+            Self::HeadlessIdentity => headless_identity(connection, site, checks),
+            Self::BackgroundTimer => background_timer(connection, site, checks),
+        }
+    }
+}
+
 /// What the identity page reports, beside that it ran.
 const IDENTITY_CHECKS: [&str; 11] = [
     "user_agent",
@@ -93,7 +124,7 @@ fn header_values(requests: &ReceivedRequests, host: &str, name: &str) -> Vec<Str
 
 /// Opens a page of the Run `run_id` and takes it to `url`; whether the
 /// document answered 200.
-fn open_at(
+pub(super) fn open_at(
     connection: &mut Connection,
     run_id: &str,
     url: &str,
@@ -113,7 +144,7 @@ fn open_at(
 /// `Chrome/` identity: its requests and its script read the same user
 /// agent, the high-entropy client hints reach the site, and nothing names
 /// `HeadlessChrome` (ADRs 0021 and 0092).
-pub(super) fn headless_identity(
+fn headless_identity(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
@@ -205,7 +236,7 @@ fn rate_from(reported: &[(String, String)], from: usize) -> (f64, usize) {
 
 /// A page behind another page of its Session keeps firing its 100 ms timer
 /// and reports that it has focus (ADR 0085's question).
-pub(super) fn background_timer(
+fn background_timer(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,

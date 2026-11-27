@@ -204,3 +204,182 @@ fn a_cell_left_out_of_the_matrix_fails() {
     assert_eq!(outcome.findings(), vec![finding("matrix", MATRIX)]);
     assert_eq!(outcome.code, 1);
 }
+
+#[test]
+fn scrub_removes_forbidden_headers_key_params_and_provider_ids_so_check_passes() {
+    let workspace = workspace();
+    let raw = serde_json::json!({
+        "exchanges": [{
+            "request": {
+                "method": "POST",
+                "path": "/v1/chat/completions?alt=json&api_key=not-real",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer placeholder",
+                    "x-api-key": "placeholder",
+                    "anthropic-version": "2023-06-01"
+                },
+                "body": {
+                    "model": "openai/gpt-5.4-nano",
+                    "messages": [{"role": "user", "content": "Say hello."}]
+                }
+            },
+            "response": {
+                "status": 200,
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Retry-After": "10",
+                    "openai-organization": "org-a1B2c3D4e5F6g7H8i9J0k1L2",
+                    "set-cookie": "session=secret",
+                    "x-request-id": "req_011CSHoEeqs5C35K2UUqR7Fy"
+                },
+                "body": {
+                    "id": "chatcmpl-1",
+                    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+                    "organization_id": "org-a1B2c3D4e5F6g7H8i9J0k1L2",
+                    "note": "served for org-a1B2c3D4e5F6g7H8i9J0k1L2 on req_011CSHoEeqs5C35K2UUqR7Fy"
+                }
+            }
+        }]
+    });
+    workspace.write("raw-exchange.json", raw.to_string().as_bytes());
+
+    let scrub = workspace.xtask(&[
+        "recordings",
+        "scrub",
+        "--in",
+        "raw-exchange.json",
+        "--out",
+        RECORDING,
+    ]);
+    assert_eq!(scrub.code, 0, "{}{}", scrub.stdout, scrub.stderr);
+
+    let scrubbed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(workspace.path().join(RECORDING)).unwrap())
+            .unwrap();
+    let req = &scrubbed["exchanges"][0]["request"];
+    assert_eq!(req["path"], "/v1/chat/completions?alt=json");
+    assert!(req["headers"].get("content-type").is_some());
+    assert!(req["headers"].get("anthropic-version").is_some());
+    assert!(req["headers"].get("Authorization").is_none());
+    assert!(req["headers"].get("authorization").is_none());
+    assert!(req["headers"].get("x-api-key").is_none());
+
+    let resp = &scrubbed["exchanges"][0]["response"];
+    assert!(resp["headers"].get("content-type").is_some());
+    assert!(resp["headers"].get("retry-after").is_some());
+    assert!(resp["headers"].get("openai-organization").is_none());
+    assert!(resp["headers"].get("set-cookie").is_none());
+    assert!(resp["headers"].get("x-request-id").is_none());
+    assert_eq!(resp["body"]["request_id"], "<request-id>");
+    assert_eq!(resp["body"]["organization_id"], "<organization-id>");
+
+    let checked = workspace.xtask(&["recordings", "check"]);
+    assert_eq!(checked.findings(), vec![], "{}", checked.stderr);
+    assert_eq!(checked.code, 0);
+}
+
+#[test]
+fn scrub_refuses_when_provider_key_remains_in_body() {
+    let workspace = workspace();
+    workspace.remove(RECORDING);
+    let key = &key_shaped()[0];
+    let raw = serde_json::json!({
+        "exchanges": [{
+            "request": {
+                "method": "POST",
+                "path": "/v1/chat/completions",
+                "headers": { "content-type": "application/json" },
+                "body": { "prompt": format!("leaked {key}") }
+            },
+            "response": {
+                "status": 200,
+                "headers": { "content-type": "application/json" },
+                "body": { "ok": true }
+            }
+        }]
+    });
+    workspace.write("raw-leaked.json", raw.to_string().as_bytes());
+
+    let scrub = workspace.xtask(&[
+        "recordings",
+        "scrub",
+        "--in",
+        "raw-leaked.json",
+        "--out",
+        RECORDING,
+    ]);
+    assert_eq!(scrub.code, 1, "{}{}", scrub.stdout, scrub.stderr);
+    assert_eq!(scrub.findings(), vec![finding("key-shaped", RECORDING)]);
+    assert!(!workspace.path().join(RECORDING).exists());
+}
+
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "loopback stand-in for the Vercel AI Gateway in integration test"
+)]
+fn record_captures_gateway_exchange_scrubs_at_write_time_and_updates_matrix() {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    let workspace = workspace();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 4096];
+        let _ = stream.read(&mut buf);
+        let body = serde_json::json!({
+            "id": "chatcmpl-live",
+            "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+            "organization_id": "org-a1B2c3D4e5F6g7H8i9J0k1L2",
+            "choices": [{ "index": 0, "message": { "role": "assistant", "content": "ok" } }]
+        })
+        .to_string();
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nRetry-After: 5\r\nSet-Cookie: secret=1\r\nX-Request-Id: req_011CSHoEeqs5C35K2UUqR7Fy\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(resp.as_bytes()).unwrap();
+    });
+
+    let fake_key = ["vck", "test", "0000000000000000"].join("_");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(workspace.path())
+        .env("AI_GATEWAY_API_KEY", fake_key)
+        .args([
+            "recordings",
+            "record",
+            "--models",
+            "openai/gpt-5.4-nano",
+            "--cells",
+            "openai-compatible.direct.text",
+            "--gateway-url",
+            &format!("http://{addr}"),
+            "--out-dir",
+            "crates/adapter/tests/recordings",
+        ])
+        .output()
+        .unwrap();
+    server.join().unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let recorded_path = "crates/adapter/tests/recordings/openai-compatible-text.json";
+    let text = std::fs::read_to_string(workspace.path().join(recorded_path)).unwrap();
+    assert!(!text.contains("set-cookie"));
+    assert!(!text.contains("authorization"));
+    assert!(text.contains("<request-id>"));
+    assert!(text.contains("<organization-id>"));
+
+    let matrix = std::fs::read_to_string(workspace.path().join(MATRIX)).unwrap();
+    assert!(matrix.contains("via = \"vercel-ai-gateway\""), "{matrix}");
+    assert!(matrix.contains(recorded_path), "{matrix}");
+}

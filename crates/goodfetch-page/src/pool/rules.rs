@@ -15,6 +15,8 @@ use goodfetch_protocol::governor::{
     BROWSER_CONTEXTS_PER_PROCESS, BROWSER_MEMORY_CAP, BROWSER_RECYCLE_IDLE, BROWSER_RECYCLE_PAGES,
 };
 
+use crate::cdp::launch::Window;
+
 /// What bounds a Run's browsers, from its settings.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Limits {
@@ -151,13 +153,16 @@ pub(crate) struct Seats {
     pub(crate) retiring: bool,
     /// Whether it is a Session's own process.
     pub(crate) own: bool,
+    /// How it shows its pages.
+    pub(crate) window: Window,
 }
 
 /// The browser, among `browsers` by their number in order, a Session goes
-/// to under `placement`; `None` when it needs a new one.
+/// to under `placement`, showing its pages as `window` says: one of that
+/// window; `None` when it needs a new one.
 pub(crate) fn place(
     browsers: impl IntoIterator<Item = (u64, Seats)>,
-    placement: Placement,
+    (placement, window): (Placement, Window),
     limits: &Limits,
 ) -> Option<u64> {
     if placement == Placement::OwnProcess {
@@ -166,7 +171,9 @@ pub(crate) fn place(
     let room = limits.contexts_per_process.max(1);
     browsers
         .into_iter()
-        .find(|(_, seats)| !seats.retiring && !seats.own && seats.contexts < room)
+        .find(|(_, seats)| {
+            !seats.retiring && !seats.own && seats.window == window && seats.contexts < room
+        })
         .map(|(number, _)| number)
 }
 

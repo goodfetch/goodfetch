@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use goodfetch_page::Party;
 use goodfetch_protocol::block::BlockCause;
 use rstest::rstest;
 
@@ -41,7 +42,55 @@ fn a_captured_page_classifies_to_its_block_cause(
     #[case] markup: &str,
     #[case] expected: Option<(BlockCause, &str)>,
 ) {
-    let classification = classify(&Response { status, headers }, &Document { markup });
+    let classification = classify(
+        &Response {
+            status,
+            headers,
+            party: Party::Site,
+        },
+        &Document { markup },
+    );
+
+    assert_eq!(
+        classification.map(|classification| (classification.cause, classification.evidence.rule)),
+        expected
+    );
+}
+
+/// The `Proxy-Status` field the Proving ground's forward proxy answers its
+/// own 429 with, naming its error (RFC 9209).
+const PROXY_REFUSAL: &[(&str, &str)] =
+    &[("proxy-status", "proving-ground; error=http_request_error")];
+
+/// The field of its 502 for a name its zone does not resolve.
+const PROXY_DNS_ERROR: &[(&str, &str)] = &[("proxy-status", "proving-ground; error=dns_error")];
+
+/// A proxy's own 429 or 502 is never a Block cause, even on a document a
+/// rule would read, while the same status from the site, on the same page,
+/// is the site's: its 429 is a rate limit, its 502 no block (ADRs 0053 and
+/// 0127; ticket #871). Story 8-64 is declared where a Session meets the
+/// proxy's answer, since a unit test proves no story.
+#[rstest]
+#[case::proxy_429(429, PROXY_REFUSAL, Party::Proxy, None)]
+#[case::proxy_502(502, PROXY_DNS_ERROR, Party::Proxy, None)]
+#[case::site_429(429, &[], Party::Site, Some((BlockCause::RateLimit, "too_many_requests")))]
+#[case::site_502(502, &[], Party::Site, None)]
+fn the_proxy_refusing_on_its_own_is_never_a_block_cause(
+    #[case] status: u16,
+    #[case] headers: &[(&str, &str)],
+    #[case] party: Party,
+    #[case] expected: Option<(BlockCause, &str)>,
+) {
+    let markup = include_str!("fixtures/rate-limit.html");
+
+    let classification = classify(
+        &Response {
+            status,
+            headers,
+            party,
+        },
+        &Document { markup },
+    );
 
     assert_eq!(
         classification.map(|classification| (classification.cause, classification.evidence.rule)),
@@ -78,8 +127,15 @@ fn a_classification_names_the_rule_its_source_and_license_and_what_it_matched(
     #[case] markup: &str,
     #[case] expected: (&str, &str, &str, u16, Vec<HeaderMarker>, Vec<&str>),
 ) {
-    let classification =
-        classify(&Response { status, headers }, &Document { markup }).expect("the page is a block");
+    let classification = classify(
+        &Response {
+            status,
+            headers,
+            party: Party::Site,
+        },
+        &Document { markup },
+    )
+    .expect("the page is a block");
 
     let evidence = classification.evidence;
     assert_eq!(

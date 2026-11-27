@@ -552,6 +552,27 @@ impl CdpPage {
             .collect())
     }
 
+    /// The names of the cookies of the page's browser context the browser
+    /// would send with a request to `url`, matched by [`sent_to`]: how a
+    /// shared or service worker's are asked, as its target answers no
+    /// `Network.getCookies`. Neither `SameSite` nor a cookie's partition
+    /// is judged, so every cookie the request could carry is named.
+    ///
+    /// # Errors
+    ///
+    /// [`NotTaken`] when the browser went first.
+    pub(crate) async fn context_cookie_names(
+        &self,
+        url: &url::Url,
+    ) -> Result<Vec<String>, NotTaken> {
+        let cookies = self.page.context_cookies().await.map_err(NotTaken)?;
+        Ok(cookies
+            .into_iter()
+            .filter(|cookie| sent_to(cookie, url))
+            .map(|cookie| cookie.name)
+            .collect())
+    }
+
     /// The `Cookie` header the browser would send with a request to `url`,
     /// which a paused request does not show: each cookie's `name=value`,
     /// joined by `; `; empty for none.
@@ -583,6 +604,32 @@ impl CdpPage {
     ) -> Result<(), NotTaken> {
         self.page.command(command).await.map(drop).map_err(NotTaken)
     }
+}
+
+/// Whether a request to `url` carries `cookie` by its domain, path and
+/// `Secure` flag (RFC 6265, section 5.4): a cookie of `.site.test` goes to
+/// that host and its subdomains, any other to its one host, and its path
+/// is the request's or a folder of it.
+fn sent_to(cookie: &network::Cookie, url: &url::Url) -> bool {
+    let Some(host) = url.host_str().map(str::to_ascii_lowercase) else {
+        return false;
+    };
+    let domain = cookie.domain.to_ascii_lowercase();
+    let by_domain = match domain.strip_prefix('.') {
+        Some(parent) => {
+            host == parent
+                || host
+                    .strip_suffix(parent)
+                    .is_some_and(|sub| sub.ends_with('.'))
+        }
+        None => host == domain,
+    };
+    let by_path = url
+        .path()
+        .strip_prefix(cookie.path.as_str())
+        .is_some_and(|rest| rest.is_empty() || cookie.path.ends_with('/') || rest.starts_with('/'));
+    let by_scheme = !cookie.secure || matches!(url.scheme(), "https" | "wss");
+    by_domain && by_path && by_scheme
 }
 
 /// What a page's requests pause at: every request before it leaves, and
@@ -661,3 +708,6 @@ pub(crate) fn resource_type(resource_type: network::ResourceType) -> String {
 pub(crate) fn is_navigation(resource_type: Option<network::ResourceType>) -> bool {
     resource_type == Some(network::ResourceType::Document)
 }
+
+#[cfg(test)]
+mod tests;

@@ -22,6 +22,8 @@
 //! A host that allows none of these is refused rather than confined less
 //! ([`ConfineError::Unavailable`]).
 
+pub mod host;
+pub mod limits;
 mod mounts;
 mod namespaces;
 pub mod probe;
@@ -41,15 +43,13 @@ use seccompiler::{
 };
 use serde::{Deserialize, Serialize};
 
+pub use crate::host::SIGNAL_SCOPE_ABI;
 use crate::policy::Policy;
 use crate::seccomp::{self, Call, Condition, Rule, Verdict};
 
 /// The newest Landlock ABI whose rights this applier handles: what a newer
 /// kernel adds is left alone until a probe tests it.
 const HANDLED_ABI: ABI = ABI::V6;
-
-/// The Landlock ABI that scopes signals (kernel 6.12).
-pub const SIGNAL_SCOPE_ABI: u8 = 6;
 
 /// What confines a process, which a runner asserts so that a silent fallback
 /// fails (ADR 0067).

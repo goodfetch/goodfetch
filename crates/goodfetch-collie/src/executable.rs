@@ -122,6 +122,7 @@ pub mod operation;
 mod other_product;
 mod otlp;
 pub mod output;
+mod plugin;
 pub mod prompts;
 mod recipe;
 mod runs;
@@ -192,6 +193,14 @@ enum Command {
     Certs {
         #[command(subcommand)]
         command: certs::CertsCommand,
+        #[command(flatten)]
+        _colour: ColourFlag,
+    },
+    /// Installs Plugins into the Plugin store and pins them in the Plugin
+    /// lockfile.
+    Plugin {
+        #[command(subcommand)]
+        command: plugin::PluginCommand,
         #[command(flatten)]
         _colour: ColourFlag,
     },
@@ -863,6 +872,9 @@ fn run(
         }
         Command::Certs { command, .. } => {
             certs::run(command, engine, dependencies, &machine, human)
+        }
+        Command::Plugin { command, .. } => {
+            plugin::run(command, engine, dependencies, &machine, human)
         }
         Command::NeedsYou { command, .. } => needs_you::run(
             command,

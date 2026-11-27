@@ -10,7 +10,7 @@
 //! one over another, so a key's authority, caps and bounds read side by
 //! side.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
 use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
+use goodfetch_protocol::plugin::settings::PLUGINS;
 use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
@@ -36,7 +37,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::values::{Given, Values, over};
+use super::values::{Given, Values, by_entry, check_plugin_entries, over};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -198,6 +199,12 @@ pub struct Effective {
     pub value: Value,
     /// The layer that set it.
     pub layer: SettingsLayer,
+    /// For a setting whose layers set each entry on its own, as `plugins`
+    /// does, the layer that set each entry of its value.
+    pub entries: BTreeMap<String, SettingsLayer>,
+    /// Of those entries, the ones a Client acting for a model gave (ADR
+    /// 0092).
+    pub entries_for_model: BTreeSet<String>,
     /// For the run layer, where it came from.
     pub origin: Option<RunOrigin>,
     /// When a level's preset gave it, at `layer`, that level (ADR 0142).
@@ -246,6 +253,20 @@ impl Resolved {
     /// Run's Product honours it.
     pub fn effective(&self, setting: &Setting) -> Option<&Effective> {
         self.settings.get(setting.name)
+    }
+
+    /// The layer that set the entry `entry` of `setting`, one whose layers
+    /// set each entry on its own, as `plugins` does; none for an entry no
+    /// layer set.
+    pub fn entry_layer(&self, setting: &Setting, entry: &str) -> Option<SettingsLayer> {
+        self.effective(setting)?.entries.get(entry).copied()
+    }
+
+    /// Whether a Client acting for a model gave the entry `entry` of
+    /// `setting`, as [`Self::entry_layer`] reads it (ADR 0092).
+    pub fn entry_for_model(&self, setting: &Setting, entry: &str) -> bool {
+        self.effective(setting)
+            .is_some_and(|effective| effective.entries_for_model.contains(entry))
     }
 
     /// Each `timeout.*` Duration setting the Product honours that resolves a
@@ -504,6 +525,7 @@ impl Resolved {
             policy_version: self.policy_version.clone(),
             files,
             settings,
+            plugins: Vec::new(),
         }
     }
 
@@ -1013,6 +1035,8 @@ impl State {
             effective: Effective {
                 value: default.clone(),
                 layer: SettingsLayer::Default,
+                entries: BTreeMap::new(),
+                entries_for_model: BTreeSet::new(),
                 origin: None,
                 preset,
                 for_model: false,
@@ -1181,6 +1205,23 @@ fn take(
             format!("give `{name}` a value within the Recipe's bounds"),
         ));
     }
+    let effective = &mut state.effective;
+    if !(by_entry(key.setting) && effective.value.is_object()) {
+        effective.entries.clear();
+        effective.entries_for_model.clear();
+    }
+    if by_entry(key.setting)
+        && let Value::Object(nearer) = value
+    {
+        for entry in nearer.keys() {
+            effective.entries.insert(entry.clone(), layer);
+            if given.for_model {
+                effective.entries_for_model.insert(entry.clone());
+            } else {
+                effective.entries_for_model.remove(entry);
+            }
+        }
+    }
     state.effective.value = over(key.setting, &state.effective.value, value);
     state.effective.layer = layer;
     state.effective.origin = given.origin;
@@ -1269,6 +1310,9 @@ fn authority(
     refused: &dyn Fn(SettingLimit, String) -> SettingsError,
 ) -> Result<(), SettingsError> {
     let name = key.setting.name;
+    if name == PLUGINS.name && layer != SettingsLayer::OperatorPolicy {
+        check_plugin_entries(value, layer)?;
+    }
     let for_model = given.for_model;
     let above_configuration =
         given.run_authority || matches!(layer, SettingsLayer::Recipe | SettingsLayer::Run);

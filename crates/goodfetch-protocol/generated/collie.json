@@ -445,6 +445,11 @@
           "const": "mouse_movements",
           "description": "Recorded mouse movements (ADR 0035).",
           "type": "string"
+        },
+        {
+          "const": "plugin",
+          "description": "A Plugin's artifact (ADR 0033), which the Plugin store keeps rather\nthan the Browser cache.",
+          "type": "string"
         }
       ]
     },
@@ -2198,6 +2203,26 @@
           "type": "object"
         }
       },
+      "type": "object"
+    },
+    "ConfinementUnavailableDetails": {
+      "description": "What `confinement_unavailable` details, where the engine's startup\nprobe found the host cannot confine a Plugin (ADRs 0033 and 0049).",
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/SandboxEnvironment",
+          "arrived_in": "0.1",
+          "description": "What keeps the host from confining it: the same environment that\nexplains the browser's sandbox."
+        },
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "The fix for that environment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "environment",
+        "fix"
+      ],
       "type": "object"
     },
     "ConnectionOverloadedDetails": {
@@ -7030,6 +7055,26 @@
       ],
       "type": "object"
     },
+    "NotAllowedReason": {
+      "description": "Why `plugin_not_allowed` refused a Plugin.",
+      "oneOf": [
+        {
+          "const": "not_allowed",
+          "description": "The Operator policy does not allow it.",
+          "type": "string"
+        },
+        {
+          "const": "denied",
+          "description": "The Operator policy denies it.",
+          "type": "string"
+        },
+        {
+          "const": "digest",
+          "description": "The Operator policy pins it to another digest.",
+          "type": "string"
+        }
+      ]
+    },
     "NotInProductDetails": {
       "description": "What `not_in_product` details.",
       "properties": {
@@ -8625,6 +8670,157 @@
         }
       ]
     },
+    "Permission": {
+      "description": "One permission a Plugin's manifest asks for, which the Operator policy\napproves on its own.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Causing Effects on one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "The domain.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "effects",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Running script in the pages of one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "The domain.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "page_script",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The logged-in Session's credentials for one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "The domain.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "session_credentials",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One Secret reference, whose value the engine inserts on the way out.",
+          "properties": {
+            "permission": {
+              "const": "secret",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, such as `env:TOKEN`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One Secret reference's value itself, released to the Plugin.",
+          "properties": {
+            "permission": {
+              "const": "secret_value",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A browser the Plugin adds, for one platform, by its digest.",
+          "properties": {
+            "digest": {
+              "arrived_in": "0.1",
+              "description": "The download's digest, `sha256:<hex>`.",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The browser's name.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "browser",
+              "type": "string"
+            },
+            "platform": {
+              "arrived_in": "0.1",
+              "description": "The platform, such as `linux-x64`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "name",
+            "platform",
+            "digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The network directly, at the `direct` level.",
+          "properties": {
+            "permission": {
+              "const": "direct",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "PersonRequiredDetails": {
       "description": "What `person_required` details.",
       "properties": {
@@ -8788,6 +8984,245 @@
         }
       ]
     },
+    "PluginAddParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.add` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "approve": {
+          "arrived_in": "0.1",
+          "description": "Whether the person approved the Plugin and each permission its\nmanifest declares, as they were shown before the call (ADR 0033):\nthe engine then allows it, pins it to its digest and approves those\npermissions in the Operator policy, or answers the entry to put in\na policy managed elsewhere.",
+          "type": "boolean"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083): the\nlockfile goes beside it, else in the Goodfetch home's configuration\nfolder."
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's OCI reference,\n`<registry>/<repository>@sha256:<hex>`: the repository's last\nsegment is `goodfetch-plugin-<name>`, and the digest is its image\nindex's. No tag names one, since a tag moves.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "type": "object"
+    },
+    "PluginAdded": {
+      "description": "What `plugin.add` answers once the Plugin is installed and pinned.",
+      "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where the person's approval went, when they gave one."
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest of its multi-platform image index, `sha256:<hex>`, which\nthe lockfile pins.",
+          "type": "string"
+        },
+        "lockfile": {
+          "arrived_in": "0.1",
+          "description": "The lockfile that pins it.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "permissions": {
+          "arrived_in": "0.1",
+          "description": "Each permission its manifest declares, with what it lets the Plugin\ndo and what the engine cannot check.",
+          "items": {
+            "$ref": "#/$defs/StatedPermission"
+          },
+          "type": "array"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its version, as its manifest names it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest",
+        "lockfile"
+      ],
+      "type": "object"
+    },
+    "PluginApproval": {
+      "description": "Where a person's approval of a Plugin went.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Written into the Operator policy, and recorded in the Audit log.",
+          "properties": {
+            "outcome": {
+              "const": "written",
+              "type": "string"
+            },
+            "policy": {
+              "arrived_in": "0.1",
+              "description": "The Operator policy file.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "policy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Not written: the Operator policy is managed elsewhere, by a device\nmanager or a configuration tool, so the person adds this entry\nthere.",
+          "properties": {
+            "entry": {
+              "arrived_in": "0.1",
+              "description": "The policy's `plugins.<name>` entry, as TOML.",
+              "type": "string"
+            },
+            "outcome": {
+              "const": "managed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "entry"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PluginDigestMismatchDetails": {
+      "description": "What `plugin_digest_mismatch` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What to do about it.",
+          "type": "string"
+        },
+        "found": {
+          "arrived_in": "0.1",
+          "description": "The digest the reference gives.",
+          "type": "string"
+        },
+        "locked": {
+          "arrived_in": "0.1",
+          "description": "The digest the lockfile pins.",
+          "type": "string"
+        },
+        "lockfile": {
+          "arrived_in": "0.1",
+          "description": "The lockfile.",
+          "type": "string"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "locked",
+        "found",
+        "lockfile",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "PluginNotAllowedDetails": {
+      "description": "What `plugin_not_allowed` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What lifts the refusal.",
+          "type": "string"
+        },
+        "found": {
+          "arrived_in": "0.1",
+          "description": "The digest installed, for a pin, when the store records one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pinned": {
+          "arrived_in": "0.1",
+          "description": "The digest the Operator policy pins it to, for a pin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotAllowedReason",
+          "arrived_in": "0.1",
+          "description": "Why it is refused."
+        }
+      },
+      "required": [
+        "plugin",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "PluginPermissionDeniedDetails": {
+      "description": "What `plugin_permission_denied` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What lifts the refusal.",
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "#/$defs/Permission",
+          "arrived_in": "0.1",
+          "description": "The permission it needs."
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "permission",
+        "fix"
+      ],
+      "type": "object"
+    },
     "PluginRun": {
       "description": "A Plugin that ran in a Run (ADRs 0016 and 0033).",
       "properties": {
@@ -8813,6 +9248,32 @@
       "required": [
         "name",
         "network_level"
+      ],
+      "type": "object"
+    },
+    "PluginSettingsSchema": {
+      "additionalProperties": false,
+      "description": "An installed Plugin's settings schema, as `config.explain` answers it:\nwhat its entry's `settings` in `plugins` takes (ADR 0033).",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name, its key in `plugins`.",
+          "type": "string"
+        },
+        "schema": {
+          "arrived_in": "0.1",
+          "description": "Its manifest's `settings_schema`, a JSON Schema, in which a field\nmarked `\"secret\": true` takes only a Secret reference."
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The version installed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "schema"
       ],
       "type": "object"
     },
@@ -12390,8 +12851,13 @@
       "type": "object"
     },
     "SandboxEnvironment": {
-      "description": "What refuses the user namespace Chromium's sandbox starts in, on a host\nwhere a fix exists or the probe does not recognise the refusal (ADR\n0049).",
+      "description": "What refuses the user namespace Chromium's sandbox starts in, and a\nprocess Plugin's confinement, on a host where a fix exists or the probe\ndoes not recognise the refusal (ADRs 0033 and 0049): the engine's one\nstartup probe names it for both.",
       "oneOf": [
+        {
+          "const": "wsl1",
+          "description": "WSL1, which offers neither seccomp nor user namespaces.",
+          "type": "string"
+        },
         {
           "const": "docker_default_seccomp",
           "description": "Docker's or containerd's default seccomp profile, which refuses\n`CLONE_NEWUSER`.",
@@ -12404,7 +12870,7 @@
         },
         {
           "const": "apparmor_userns",
-          "description": "Ubuntu's AppArmor restriction on unprivileged user namespaces, with\nno profile that gives the browser one.",
+          "description": "Ubuntu's AppArmor restriction on unprivileged user namespaces, with\nno profile that gives the browser, or Goodfetch's executable, one.",
           "type": "string"
         },
         {
@@ -13802,6 +14268,14 @@
           },
           "type": "array"
         },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Each installed Plugin whose manifest declares a `settings_schema`,\nby name, with that schema: what `plugins.<name>.settings` takes\n(ADR 0033). Explaining keys that leave `plugins` out lists none.",
+          "items": {
+            "$ref": "#/$defs/PluginSettingsSchema"
+          },
+          "type": "array"
+        },
         "policy_version": {
           "arrived_in": "0.1",
           "description": "The Operator policy's version, `sha256:` and the first 16 hex digits\nof its file's digest, which the run report names; `None` without a\npolicy.",
@@ -14238,6 +14712,32 @@
           "type": "string"
         }
       ]
+    },
+    "StatedPermission": {
+      "description": "A permission with what it lets the Plugin do and what the engine cannot\ncheck, in plain words, as an approval states them.",
+      "properties": {
+        "cannot_check": {
+          "arrived_in": "0.1",
+          "description": "What the engine cannot check once it is approved.",
+          "type": "string"
+        },
+        "lets": {
+          "arrived_in": "0.1",
+          "description": "What it lets the Plugin do.",
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "#/$defs/Permission",
+          "arrived_in": "0.1",
+          "description": "The permission."
+        }
+      },
+      "required": [
+        "permission",
+        "lets",
+        "cannot_check"
+      ],
+      "type": "object"
     },
     "StopReason": {
       "description": "Why a Run stopped (ADRs 0029, 0080 and 0102).",
@@ -16025,7 +16525,7 @@
     },
     {
       "arrived_in": "0.1",
-      "description": "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+      "description": "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (WSL1, Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
       "details": {
         "$ref": "#/$defs/BrowserSandboxUnavailableDetails"
       },
@@ -16176,6 +16676,9 @@
     {
       "arrived_in": "0.1",
       "description": "The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.",
+      "details": {
+        "$ref": "#/$defs/ConfinementUnavailableDetails"
+      },
       "exit_code": null,
       "group": "refused",
       "json_rpc_class": -32002,
@@ -16867,6 +17370,26 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin's registry served an artifact the engine refuses to install: an image index or manifest it does not read, no artifact for the host's platform, or a bundle with an entry whose path leaves it, a link whose target leaves it, a device file, or more entries or bytes than a bundle may hold. The message names the reason; nothing is left in the Plugin store.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_artifact_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine refused a Plugin's call back: it came while the Plugin served no call the engine made to it, it named another call's `call_id`, or it asked for what the Plugin may not do, such as a `net.fetch` other than `GET` or `HEAD` toward a destination checked as a page's, which is an Effect, or a request that sets a header the engine sets itself. Call back only while serving a call, with that call's `call_id`.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_call_back_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.",
       "exit_code": null,
       "group": "unavailable",
@@ -16877,11 +17400,80 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin lockfile pins the Plugin's name to another image index digest than the one its reference gives, so nothing is installed and the lockfile is left as it was. Give the reference with the pinned digest, or remove the Plugin's entry from the lockfile to accept the new one.",
+      "details": {
+        "$ref": "#/$defs/PluginDigestMismatchDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_digest_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine sent a Plugin's `net.fetch` and got no response: its host had no address, no connection to it could be opened, or the connection broke before the whole response arrived. Nothing about the destination's egress check failed; ask again later, or check that the host is up and reachable from the engine's machine.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_fetch_failed",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin store holds a version of the Plugin already, and the Plugin lockfile does not pin its name to the reference's digest, so nothing is pulled and the lockfile is left as it was. `plugin update` replaces an installed Plugin.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_installed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin lockfile, `goodfetch-plugins.lock`, is not TOML, holds a field a lockfile has not, or pins one Plugin name twice, so the engine leaves it as it is and installs nothing. The message names the fault; correct the file, or restore it from version control. A lockfile of a version this engine does not read fails with `format_version_unsupported` instead.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_lockfile_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved.",
       "exit_code": null,
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "plugin_manifest_mismatch",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Operator policy does not let the Plugin load: it is not first-party and `plugins.<name>.allow` is not `true`, `plugins.<name>.allow` is `false`, or `plugins.<name>.digest` pins it to another digest than the one installed. A Private component is never first-party. The details name the Plugin, the reason and, for a pin, both digests; the `fix` names the Operator policy entry to set, or `goodfetch plugin add <reference>`, which writes it after a person approves it.",
+      "details": {
+        "$ref": "#/$defs/PluginNotAllowedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_not_allowed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin needs a permission the Operator policy has not approved for it: `effects`, `page_script` or `session_credentials` for a domain, a Secret reference, a Secret reference's value, a browser's digest, or `direct`. Each is approved on its own, under `plugins.<name>.approved`. The details name the Plugin and the permission; the `fix` names the Operator policy entry to set, or `goodfetch plugin add <reference>`, which writes it after a person approves it.",
+      "details": {
+        "$ref": "#/$defs/PluginPermissionDeniedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_permission_denied",
       "product": "collie",
       "retryable": false
     },
@@ -19808,6 +20400,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/Reached"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. The answer states each permission the Plugin's manifest declares, with what it lets the Plugin do and what the engine cannot check. With `approve`, given once the person saw those, the engine allows the Plugin, pins it to the index's digest and approves each of those permissions in the Operator policy's `plugins.<name>` entry, recorded in the Audit log as `plugin_approved`; an Operator policy managed elsewhere is left as it is and the answer carries the entry to add there. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.add",
+      "params": {
+        "$ref": "#/$defs/PluginAddParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PluginAdded"
       },
       "stability": "experimental"
     },
@@ -23471,6 +24082,101 @@
       "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
+      "default": {},
+      "deprecated": null,
+      "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.",
+      "fixed_for_run": true,
+      "name": "plugins",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "additionalProperties": {
+          "additionalProperties": false,
+          "properties": {
+            "allow": {
+              "description": "Whether the Operator policy allows the Plugin to load (`true`) or denies it (`false`); left out, only a first-party Plugin loads. Only an Operator policy sets it.",
+              "type": "boolean"
+            },
+            "approved": {
+              "additionalProperties": false,
+              "description": "The permissions the Operator policy approved for the Plugin, each on its own. Only an Operator policy sets it.",
+              "properties": {
+                "browsers": {
+                  "description": "The digests of the browser downloads it may add.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "direct": {
+                  "description": "Whether it may reach the network directly.",
+                  "type": "boolean"
+                },
+                "effects": {
+                  "description": "The domains it may cause Effects on.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "page_script": {
+                  "description": "The domains whose pages it may run script in.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "secret_values": {
+                  "description": "The Secret references whose value it may receive.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "secrets": {
+                  "description": "The Secret references it may use.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "session_credentials": {
+                  "description": "The domains whose logged-in Session's credentials it may use.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
+            "digest": {
+              "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
+              "type": "string"
+            },
+            "settings": {
+              "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
+              "type": "object"
+            }
+          },
+          "type": "object"
+        },
+        "type": "object"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
       "default": true,
       "deprecated": null,
       "description": "Whether a Run sharing Politeness takes each key's Delegation: while no other engine of the user uses a key, its engine keeps the key's Permits and state in memory, each Permit with no transaction on the Politeness file, and writes to the file at once what a site asked (a 429, a `Retry-After`, a backoff, a halved ceiling, a new Crawl-delay). Another engine that needs the key recalls it, and one whose holder is gone reclaims it, its delay counted from the reclaim. `false` takes and gives back each Permit in transactions of the file, unless the Run's engine already holds the key's Delegation for another Run: the Permit then comes from memory too, so the key's limits hold across both Runs. Ignored at `politeness.sharing: run`.",
@@ -26955,6 +27661,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person approved a Plugin through `plugin.add`, which wrote `plugins.<name>` into the Operator policy: its name, its digest and each permission approved, with what it lets the Plugin do and what the engine cannot check.",
+      "name": "plugin_approved",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Calls a run made into Plugins, of every form, per implementation (ADR 0033).",
       "name": "plugin_calls",
       "product": "collie",
@@ -26973,6 +27686,13 @@
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The engine released a Secret reference's value to a Plugin, as the Operator policy's `plugins.<name>.approved.secret_values` allows: the Plugin, the reference and the Run, never the value.",
+      "name": "plugin_secret_value_released",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

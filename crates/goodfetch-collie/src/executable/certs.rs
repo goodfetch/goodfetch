@@ -233,7 +233,7 @@ pub(super) fn forget_question(host: &str, pinned: Option<&str>) -> String {
 
 /// What a second call on an Attached engine runs on: `dependencies`' own,
 /// with entropy forked from theirs, since each call starts its engine.
-fn forked(dependencies: &mut Dependencies) -> Dependencies {
+pub(super) fn forked(dependencies: &mut Dependencies) -> Dependencies {
     Dependencies {
         home: dependencies.home.clone(),
         clock: dependencies.clock,

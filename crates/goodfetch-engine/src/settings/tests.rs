@@ -1988,6 +1988,7 @@ proptest! {
 
 mod operator_policy;
 mod placeholders;
+mod plugin_approvals;
 mod presets;
 mod scopes;
 mod unbuilt;
@@ -2718,5 +2719,49 @@ fn an_effective_value_names_whether_a_model_gave_it(
     assert_eq!(
         (effective.layer, &effective.value, effective.for_model),
         (layer, &source, for_model)
+    );
+}
+
+/// Each entry of `plugins` keeps who gave it across the layers: an entry
+/// the project configuration a Client acting for a model sent stays the
+/// model's, and the same entry set again by the program's own run layer is
+/// no longer, while the layer that set each one is the nearest.
+/// Covers: story:7-57, setting:plugins
+#[test]
+fn each_plugin_entry_names_whether_a_model_gave_it_across_the_layers() {
+    let plugins = catalog_key("plugins");
+    let layers = Layers {
+        project_configuration: Values::read(
+            SettingsLayer::ProjectConfiguration,
+            &nested(json!({ "plugins": {
+                "kettle": { "settings": { "api": "https://model.example/" } },
+                "teapot": { "settings": { "api": "https://model.example/" } },
+            } })),
+            Product::Collie,
+        )
+        .unwrap()
+        .from_model(),
+        run: Values::read(
+            SettingsLayer::Run,
+            &nested(json!({ "plugins": {
+                "kettle": { "settings": { "api": "https://program.example/" } },
+            } })),
+            Product::Collie,
+        )
+        .unwrap(),
+        ..Layers::default()
+    };
+
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+
+    assert_eq!(
+        ["kettle", "teapot"].map(|entry| (
+            resolved.entry_layer(plugins, entry),
+            resolved.entry_for_model(plugins, entry)
+        )),
+        [
+            (Some(SettingsLayer::Run), false),
+            (Some(SettingsLayer::ProjectConfiguration), true),
+        ]
     );
 }

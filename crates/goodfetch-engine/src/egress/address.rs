@@ -72,6 +72,40 @@ pub fn classify_socket(address: SocketAddr) -> AddressClass {
     }
 }
 
+/// Whether a connection to `address` reaches a link or the cloud's
+/// metadata service rather than a host: an IPv6 address with a zone ID, a
+/// cloud-metadata address, or a link-local one (`169.254.0.0/16`,
+/// `fe80::/10`), in any form that embeds an IPv4 address, each of its
+/// readings judged. No setting opens one to a Plugin (ADR 0033).
+pub(super) fn reaches_a_link(address: SocketAddr) -> bool {
+    if matches!(
+        classify_socket(address),
+        AddressClass::ZoneId | AddressClass::Metadata
+    ) {
+        return true;
+    }
+    let link_local = |address: IpAddr| {
+        METADATA.contains(&address)
+            || match address {
+                IpAddr::V4(address) => address.is_link_local(),
+                IpAddr::V6(address) => address.is_unicast_link_local(),
+            }
+    };
+    match address.ip() {
+        IpAddr::V6(ipv6) => {
+            let embedded = embedded_ipv4(ipv6);
+            if embedded.is_empty() {
+                link_local(IpAddr::V6(ipv6))
+            } else {
+                embedded
+                    .into_iter()
+                    .any(|ipv4| link_local(IpAddr::V4(ipv4)))
+            }
+        }
+        ipv4 @ IpAddr::V4(_) => link_local(ipv4),
+    }
+}
+
 fn classify_ipv4(address: Ipv4Addr) -> AddressClass {
     if let Some(class) = by_registry(IpAddr::V4(address)) {
         return class;

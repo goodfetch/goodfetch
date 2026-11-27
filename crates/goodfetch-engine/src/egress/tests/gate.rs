@@ -163,6 +163,123 @@ fn an_endpoint_reaches_a_private_address_unless_no_private_endpoints_refuses_it(
     );
 }
 
+/// A Plugin's request checked as a page's (ADR 0033) keeps the run's
+/// domain policy but none of what opens private addresses to its pages.
+#[test]
+fn a_plugins_page_class_ignores_the_runs_private_ranges_and_a_switched_off_address_check() {
+    let run = policy(&["*"], &["blocked.test"])
+        .with_private_ranges(&["10.0.0.0/8", "intranet.test"])
+        .unwrap();
+    let mut unchecked = policy(&["*"], &[]);
+    unchecked.resolved_ip_check = false;
+
+    let ranged = passed(
+        session(&run.for_plugin()),
+        "http://intranet.test/",
+        &["10.0.0.1"],
+    )
+    .0;
+    let switched_off = passed(
+        session(&unchecked.for_plugin()),
+        "http://example.test/",
+        &["127.0.0.1"],
+    )
+    .0;
+    let blocked = passed(
+        session(&run.for_plugin()),
+        "http://blocked.test/",
+        &["93.184.215.14"],
+    )
+    .0;
+
+    assert!(
+        matches!(&ranged, Err(Stopped::AddressRefused(refused)) if refused.address == Some("10.0.0.1".parse().unwrap())),
+        "{ranged:?}"
+    );
+    assert!(
+        matches!(&switched_off, Err(Stopped::AddressRefused(_))),
+        "{switched_off:?}"
+    );
+    assert!(
+        matches!(&blocked, Err(Stopped::Refused(refused)) if refused.setting == Some("egress.blocked_domains")),
+        "{blocked:?}"
+    );
+}
+
+/// A Plugin's Operator-configured endpoint reaches private addresses as
+/// any endpoint does, but never a link-local or metadata one, whatever
+/// `egress.no_private_endpoints` says (ADR 0033).
+#[rstest::rstest]
+#[case::cloud_metadata("169.254.169.254")]
+#[case::alibaba_metadata("100.100.100.200")]
+#[case::ipv6_metadata("fd00:ec2::254")]
+#[case::ipv4_link_local("169.254.1.1")]
+#[case::ipv4_link_local_mapped("::ffff:169.254.1.1")]
+#[case::ipv4_link_local_behind_nat64("64:ff9b::a9fe:101")]
+#[case::ipv4_link_local_in_a_later_local_use_nat64_reading("64:ff9b:1:0:a9:fe01:a00:1")]
+#[case::ipv6_link_local("fe80::1")]
+fn a_plugin_endpoint_never_reaches_a_link_local_or_metadata_address(#[case] address: &str) {
+    let (passed, _) = passed(
+        Gate::PluginEndpoint(EndpointPolicy::new(false)),
+        "http://model.test:11434/",
+        &["127.0.0.1", address],
+    );
+
+    let Err(Stopped::AddressRefused(refused)) = passed else {
+        panic!("a link-scoped answer is refused: {passed:?}");
+    };
+    assert_eq!(
+        (refused.rule, refused.address, refused.setting),
+        (
+            EgressRule::PrivateAddress,
+            Some(address.parse().unwrap()),
+            None
+        )
+    );
+}
+
+#[test]
+fn a_plugin_endpoint_never_reaches_an_address_with_a_zone_id() {
+    let scoped = SocketAddr::V6(std::net::SocketAddrV6::new(
+        "fe80::1".parse().unwrap(),
+        80,
+        0,
+        2,
+    ));
+
+    let judged = Gate::PluginEndpoint(EndpointPolicy::new(false))
+        .judge("http://model.test/")
+        .unwrap()
+        .addresses(&[scoped]);
+
+    assert_eq!(
+        judged.map_err(|refused| (refused.rule, refused.setting)),
+        Err((EgressRule::PrivateAddress, None))
+    );
+}
+
+#[test]
+fn a_plugin_endpoint_reaches_loopback_unless_no_private_endpoints_refuses_it() {
+    let open = passed(
+        Gate::PluginEndpoint(EndpointPolicy::new(false)),
+        "http://model.test:11434/",
+        &["127.0.0.1", "10.0.0.1"],
+    )
+    .0;
+    let closed = passed(
+        Gate::PluginEndpoint(EndpointPolicy::new(true)),
+        "http://model.test:11434/",
+        &["127.0.0.1"],
+    )
+    .0;
+
+    assert_eq!(open.unwrap(), sockets(&["127.0.0.1", "10.0.0.1"]));
+    assert!(
+        matches!(&closed, Err(Stopped::AddressRefused(refused)) if refused.setting == Some("egress.no_private_endpoints")),
+        "{closed:?}"
+    );
+}
+
 #[test]
 fn a_resolver_that_finds_nothing_stops_the_connection_with_its_failure() {
     let session_policy = policy(&["*"], &[]);

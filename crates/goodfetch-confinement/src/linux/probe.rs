@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use super::limits::Resource;
 use super::{ConfineError, Mechanism, MechanismKind, SIGNAL_SCOPE_ABI};
 use crate::policy::Policy;
 use crate::probes::{Access, Arg, Errno, Outcome};
@@ -45,6 +46,10 @@ pub enum Probe {
     /// and never confined: the runner's oracle for the PID-namespace
     /// mechanism. It reports the outcome.
     UserNamespace,
+    /// Set `resource`'s soft and hard limit to `to` with `prlimit64`, which
+    /// an unprivileged process may only where `to` is not past its hard
+    /// limit: the oracle for the limits its launcher set.
+    Raise { resource: Resource, to: u64 },
 }
 
 /// What a probe reports through its exit status.

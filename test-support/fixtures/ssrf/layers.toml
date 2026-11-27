@@ -203,8 +203,19 @@ summary = "A Lent page's client (ADR 0089): a browser context with its own proxy
 pending = { joins = "#661 (A04-50)", families = ["lent_page_client"] }
 
 [layers.plugin_traffic]
-summary = "A Plugin's own requests (ADR 0017), which meet the run's egress policy."
-pending = { joins = "area 7's Plugin network ticket", families = ["plugin_traffic"] }
+summary = "A Plugin's own requests, its `net.fetch` (ADRs 0017 and 0033), through `plugin_gate::PluginFetch` against the Proving ground: each case's URL, or a redirect's location, as the Plugin's request, its lookups as user configuration's `network.resolve` mapping, under a run that sets `egress.private_ranges` to every address and `security.resolved_ip_check` off, neither of which reaches a Plugin; the positive control is the same loopback target as the Plugin's own endpoint."
+runners = [
+    { test = "crates/goodfetch-engine/tests/it/plugin_traffic.rs::every_plugin_traffic_case_of_the_ssrf_table_is_refused_before_it_connects", families = [
+        "plugin_traffic",
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+    ] },
+]
+not_run.redirect = "`net.fetch` follows no redirect: it answers the Plugin the redirect itself, and the location is a new `net.fetch` the Plugin asks for, judged as any other (`plugin_traffic.rs::a_redirect_reaches_the_plugin_unfollowed_and_its_location_is_judged_anew`); the `plugin_traffic` family's redirect case is run that way."
+not_run.rebinding = "A Plugin's request looks its host up and judges each answer before it connects, with the resolved-IP check forced on (`egress::Policy::for_plugin`), as the `classification` layer's rebinding runner does."
+not_run.upstream_proxy = "`net.fetch` goes straight to its destination, never through a Session's upstream proxy."
 
 [layers.notification_webhooks]
 summary = "Notification webhooks under `egress.no_private_endpoints`, as rows of the `operator_endpoint` family with their own `kind`."

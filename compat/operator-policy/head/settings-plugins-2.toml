@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings]
+plugins = { "example.test" = { allow = true, approved = { browsers = ["sha256:0000000000000000000000000000000000000000000000000000000000000000"], direct = true, effects = ["shop.example"], page_script = ["shop.example"], secret_values = ["env:SHOP_TOKEN"], secrets = ["env:SHOP_TOKEN"], session_credentials = ["shop.example"] }, digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000" } }

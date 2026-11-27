@@ -3,8 +3,10 @@
 //! answers its calls and is gone once its run or task ends. An instance's
 //! state changes only through its transition table, [`lifecycle`] (ADR
 //! 0128). Its process starts through its launcher, confined ([`process`]),
-//! and [`instance`] runs it: `hello`, then its calls.
+//! and [`instance`] runs it: `hello`, then its calls, its environment
+//! valued from its [`settings`].
 
 pub mod instance;
 pub mod lifecycle;
 pub mod process;
+pub mod settings;

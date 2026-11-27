@@ -16,6 +16,7 @@ use std::fs;
 use std::process::{Command, Stdio};
 
 use goodfetch_confinement::deny_list::Host;
+use goodfetch_confinement::host::SIGNAL_SCOPE_ABI;
 use goodfetch_confinement::linux::probe::{Fault, Probe, Report, Request};
 use goodfetch_confinement::linux::{Mechanism, MechanismKind};
 use goodfetch_confinement::policy::{Instance, Policy};
@@ -25,10 +26,6 @@ use serde_json::json;
 use tempfile::TempDir;
 
 const PROBE: &str = env!("CARGO_BIN_EXE_goodfetch-confinement-probe");
-
-/// The Landlock ABI from which Landlock scopes signals: below it, a PID
-/// namespace does.
-const SIGNAL_SCOPE_ABI: u8 = 6;
 
 /// The mechanism a runner declares it must confine with by default, so that
 /// a host that refuses it fails rather than passing on the refusal (ADR
@@ -136,6 +133,34 @@ fn every_probe_at_the_none_level_gives_its_refusal_under_the_pid_namespace_mecha
 #[test]
 fn every_probe_at_the_none_level_gives_its_refusal_under_the_mount_namespace_mechanism_too() {
     assert_every_probe_at_none(Some(MechanismKind::MountNamespace));
+}
+
+/// The engine's startup probe reads this host as the launcher finds it: it
+/// says a Plugin can be confined exactly where the kernel's mechanism
+/// confines one, and refuses it where the launcher would answer
+/// `Unavailable` (ADR 0049).
+/// Covers: story:7-27
+#[test]
+fn the_startup_probe_says_a_plugin_is_confined_exactly_where_the_launcher_confines_one() {
+    let table =
+        ProbeTable::read(probes::committed(Host::Linux, NetworkLevel::None).unwrap()).unwrap();
+    let plugin = Plugin::new(&table, NetworkLevel::None);
+    let host = goodfetch_confinement::linux::host::read();
+
+    let mechanism = run(
+        Probe::Mechanism,
+        Some(Confined {
+            policy: &plugin.policy,
+            kind: None,
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(
+        host.confines(),
+        matches!(mechanism, Report::Mechanism(_)),
+        "the probe read {host:?}, and the launcher answered {mechanism:?}"
+    );
 }
 
 /// Makes every case of the `none` table unconfined, then confined with

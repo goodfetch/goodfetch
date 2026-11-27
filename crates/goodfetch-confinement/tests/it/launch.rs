@@ -17,6 +17,7 @@ use std::process::{Command, Stdio};
 
 use goodfetch_confinement::launch::{LAUNCH_VARIABLE, Launch, SHIM_COMMAND};
 use goodfetch_confinement::linux::MechanismKind;
+use goodfetch_confinement::linux::limits::Resource;
 use goodfetch_confinement::linux::probe::{Probe, Report, Request};
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::{Access, Errno, Layout, Outcome};
@@ -37,6 +38,11 @@ struct Plugin {
 
 impl Plugin {
     fn new() -> Self {
+        Self::limited(&json!({}))
+    }
+
+    /// A Plugin whose manifest sets `limits`.
+    fn limited(limits: &serde_json::Value) -> Self {
         let root = tempfile::tempdir().unwrap();
         let layout = Layout::under(&fs::canonicalize(root.path()).unwrap());
         for folder in [&layout.bundle, &layout.runtime, &layout.instance] {
@@ -53,6 +59,7 @@ impl Plugin {
             "protocol": { "min": "0.1", "max": "0.1" },
             "entrypoint": "probe",
             "network_level": "none",
+            "limits": limits,
         });
         let manifest = PluginManifest::read(manifest.to_string().as_bytes()).unwrap();
         let instance = Instance {
@@ -95,6 +102,22 @@ impl Plugin {
             .unwrap_or_else(|| panic!("the launcher started no probe: status {code}"))
     }
 
+    /// What the probe reports when it makes `probe` unconfined, with no
+    /// launcher: the positive control.
+    fn unconfined(probe: Probe) -> Report {
+        let request = Request {
+            probe,
+            policy: None,
+            mechanism: None,
+        };
+        let status = Command::new(PROBE)
+            .arg(serde_json::to_string(&request).unwrap())
+            .stdin(Stdio::null())
+            .status()
+            .unwrap();
+        Report::of_status(u8::try_from(status.code().unwrap()).unwrap()).unwrap()
+    }
+
     /// A file beside the Plugin's folders, which its policy grants nothing
     /// of.
     fn elsewhere(&self) -> PathBuf {
@@ -134,4 +157,34 @@ fn a_launched_plugin_runs_confined_from_its_temporary_folder(
     let report = plugin.launched(probe(&plugin));
 
     assert_eq!(report, Report::Outcome(expected));
+}
+
+/// Each limit its manifest sets holds a launched Plugin: it may set the
+/// limit to its hard value, and not one past it, which the probe
+/// unconfined may.
+#[rstest]
+#[case::memory(Resource::Memory, 64 * 1024 * 1024)]
+// One second past its `cpu_time`, so that `SIGXCPU` comes first.
+#[case::cpu_time(Resource::CpuTime, 61)]
+#[case::open_files(Resource::OpenFiles, 32)]
+fn a_launched_plugin_runs_under_each_limit_its_manifest_sets(
+    #[case] resource: Resource,
+    #[case] hard: u64,
+) {
+    let plugin = Plugin::limited(&json!({
+        "memory": 64 * 1024 * 1024,
+        "cpu_time": 60,
+        "open_files": 32,
+    }));
+    let raise = |to| Probe::Raise { resource, to };
+
+    let unconfined = Plugin::unconfined(raise(hard + 1));
+    let up_to = plugin.launched(raise(hard));
+    let past = plugin.launched(raise(hard + 1));
+
+    let ok = Report::Outcome(Outcome::Ok);
+    assert_eq!(
+        (unconfined, up_to, past),
+        (ok, ok, Report::Outcome(Outcome::Errno(Errno::Eperm)))
+    );
 }

@@ -139,6 +139,7 @@ export type CollieWireType =
   | "PaymentMark"
   | "Period"
   | "PlanReport"
+  | "PluginAdded"
   | "PluginRun"
   | "PressParams"
   | "PrivateEndpoint"
@@ -211,6 +212,7 @@ export type CollieWireType =
   | "SigningKeyCreated"
   | "SigningKeyDirectory"
   | "SigningKeyDirectoryParams"
+  | "StatedPermission"
   | "StopReason"
   | "SystemInfo"
   | "Table"
@@ -369,6 +371,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "Period": { fields: { "time_zone": "timeZone" } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
+    "PluginAdded": { fields: { "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
@@ -441,6 +444,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SigningKeyCreated": { fields: { "key_id": "keyId", "public_key": "publicKey", "signing_key": "signingKey" } },
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
     "SigningKeyDirectoryParams": { fields: { "signing_keys": "signingKeys", "valid_for": "validFor" } },
+    "StatedPermission": { fields: { "cannot_check": "cannotCheck" } },
     "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },
     "Table": { fields: { "body_rows": "bodyRows", "header_rows": "headerRows" } },

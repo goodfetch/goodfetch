@@ -32,6 +32,7 @@ fn the_cases_are_every_key_the_settings_schema_fixes_for_a_runs_life() {
             "crawl.scope.exclude",
             "crawl.scope.include",
             "crawl.scope.strategy",
+            "plugins",
         ]
     );
 }
@@ -56,7 +57,7 @@ fn outcome(answer: &Value) -> Value {
 /// default and the start sets it, or began with another value and the
 /// start leaves it out.
 ///
-/// Covers: story:3-172, error:setting_not_applicable, operation:crawl.start, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment
+/// Covers: story:3-172, error:setting_not_applicable, operation:crawl.start, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment, setting:plugins
 #[rstest::rstest]
 #[case::strategy("crawl.scope.strategy", json!({ "crawl": { "scope": { "strategy": "same_domain" } } }))]
 #[case::include("crawl.scope.include", json!({ "crawl": { "scope": { "include": ["https://shop.test/page/**"] } } }))]
@@ -66,6 +67,7 @@ fn outcome(answer: &Value) -> Value {
     // Fragments are kept only on a tier that serves them (ADR 0120).
     json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "auto" } })
 )]
+#[case::plugins("plugins", json!({ "plugins": { "kettle": { "settings": { "depth": 1 } } } }))]
 fn a_start_under_a_runs_id_that_changes_a_key_fixed_for_its_life_is_refused(
     #[case] key: &str,
     #[case] changed: Value,
@@ -106,7 +108,7 @@ fn a_start_under_a_runs_id_that_changes_a_key_fixed_for_its_life_is_refused(
 /// refused, and one that gives none of them resumes it: a key a resume
 /// leaves out is no change.
 ///
-/// Covers: story:3-172, error:setting_not_applicable, operation:run.resume, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment
+/// Covers: story:3-172, error:setting_not_applicable, operation:run.resume, setting:crawl.scope.strategy, setting:crawl.scope.include, setting:crawl.scope.exclude, setting:crawl.keep_url_fragment, setting:plugins
 #[rstest::rstest]
 #[case::strategy("crawl.scope.strategy", json!({ "crawl": { "scope": { "strategy": "same_domain" } } }))]
 #[case::include("crawl.scope.include", json!({ "crawl": { "scope": { "include": ["https://shop.test/page/**"] } } }))]
@@ -115,6 +117,7 @@ fn a_start_under_a_runs_id_that_changes_a_key_fixed_for_its_life_is_refused(
     "crawl.keep_url_fragment",
     json!({ "crawl": { "keep_url_fragment": true }, "fetch": { "tier": "auto" } })
 )]
+#[case::plugins("plugins", json!({ "plugins": { "kettle": { "settings": { "depth": 1 } } } }))]
 fn a_resume_that_changes_a_key_fixed_for_the_runs_life_is_refused(
     #[case] key: &str,
     #[case] changed: Value,

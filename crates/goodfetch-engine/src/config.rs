@@ -1,7 +1,8 @@
 //! The `config.*` operations every Product carries (ADRs 0028, 0031 and
 //! 0083): `config.explain` answers each setting's effective value, the
 //! layer that set it and the layer that locked it, from the engine's own
-//! layers and the project configuration and run values a Client gives.
+//! layers and the project configuration and run values a Client gives,
+//! with the settings schema of each installed Plugin that declares one.
 //! The person's entries change the machine's own layers, never project
 //! configuration or a Recipe's manifest: `config.policy_read` reads the
 //! Operator policy with its digest, `config.policy_write` writes it only if
@@ -17,6 +18,7 @@ use std::io;
 use std::sync::Arc;
 
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use goodfetch_protocol::plugin::settings::PLUGINS;
 use goodfetch_protocol::settings::edit::{
     CONFIG_POLICY_READ, CONFIG_POLICY_WRITE, CONFIG_USER_WRITE, OPERATOR_POLICY_WRITTEN,
     OperatorPolicyRead, POLICY_CONFLICT, PolicyConflictDetails, PolicyEntry, PolicyReadParams,
@@ -24,13 +26,15 @@ use goodfetch_protocol::settings::edit::{
     UserConfigurationWritten, UserWriteParams,
 };
 use goodfetch_protocol::settings::{
-    CONFIG_EXPLAIN, ConfigExplainParams, RunOrigin, SettingsExplanation, SettingsLayer,
+    CONFIG_EXPLAIN, ConfigExplainParams, PluginSettingsSchema, RunOrigin, SettingsExplanation,
+    SettingsLayer,
 };
 use serde_json::{Value, json};
 
 use crate::audit::AuditError;
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
+use crate::plugin_store::PluginStore;
 use crate::run::{run_error, run_id, settings_error};
 use crate::settings::{
     Opening, Policy, SettingsError, Values, beneath_connection, operator_policy, policy_version,
@@ -115,7 +119,31 @@ async fn explain(
             found,
         });
     }
-    Ok(resolved.explain(&params.keys, files))
+    let mut explanation = resolved.explain(&params.keys, files);
+    if explanation
+        .settings
+        .iter()
+        .any(|setting| setting.key == PLUGINS.name)
+    {
+        explanation.plugins = settings_schemas(&context).await?;
+    }
+    Ok(explanation)
+}
+
+/// The settings schema of each installed Plugin that declares one, read
+/// from the Plugin store on the engine's blocking policy.
+async fn settings_schemas(context: &CallContext) -> Result<Vec<PluginSettingsSchema>, CallError> {
+    let engine = context.engine();
+    let store = PluginStore::new(engine.home().plugins());
+    Arc::clone(engine.owner())
+        .blocking(move || store.settings_schemas())
+        .await
+        .map_err(|error| {
+            CallError::protocol(
+                ProtocolFailure::InternalError,
+                format!("the Plugin store cannot be listed: {error}"),
+            )
+        })
 }
 
 /// Why a person's entry failed: each but `Unrecorded` wrote nothing.
@@ -164,6 +192,12 @@ async fn blocking<T: Send + 'static>(
         .blocking(work)
         .await
         .map_err(|refused| call_error(refused, context))
+}
+
+/// The call's error for the settings editor's `refused`, as another
+/// operation that edits the machine's settings files answers it.
+pub(crate) fn edit_error(refused: settings_editor::Refused, context: &CallContext) -> CallError {
+    call_error(refused.into(), context)
 }
 
 /// The call's error for `refused`.

@@ -1,0 +1,81 @@
+{
+  "name": "plugin-lockfile",
+  "schema": {
+    "$defs": {
+      "LockedPlugin": {
+        "additionalProperties": false,
+        "description": "One Plugin the lockfile pins.",
+        "properties": {
+          "approvals": {
+            "arrived_in": "0.1",
+            "description": "The digest of the approvals given to its manifest, once given.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "digest": {
+            "arrived_in": "0.1",
+            "description": "The digest of its multi-platform image index, `sha256:<hex>`.",
+            "type": "string"
+          },
+          "name": {
+            "arrived_in": "0.1",
+            "description": "The Plugin's name.",
+            "type": "string"
+          },
+          "signer": {
+            "arrived_in": "0.1",
+            "description": "The identity that signed it, once the Plugin index records one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "arrived_in": "0.1",
+            "description": "Its version, as its manifest names it.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "PluginLockfile": {
+        "additionalProperties": false,
+        "description": "A Plugin lockfile: its version, then one `[[plugin]]` table for each\nPlugin it pins, by name.",
+        "properties": {
+          "plugin": {
+            "arrived_in": "0.1",
+            "description": "The Plugins it pins, one entry for each name, in name order.",
+            "items": {
+              "$ref": "#/$defs/LockedPlugin"
+            },
+            "type": "array"
+          },
+          "version": {
+            "$ref": "#/$defs/ProtocolVersion",
+            "arrived_in": "0.1",
+            "description": "The version of the lockfile format it is written in."
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "ProtocolVersion": {
+        "description": "A version `major.minor` (ADR 0030).",
+        "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+        "type": "string"
+      }
+    },
+    "$ref": "#/$defs/PluginLockfile"
+  },
+  "storage": "toml",
+  "version": "0.1"
+}

@@ -7,11 +7,13 @@
 //! <home>/plugins/<name>/<version>/goodfetch-plugin.json
 //! ```
 //!
-//! This is the store's reader: it resolves a Plugin's name to its bundle
-//! and its manifest, read as any decoded input (ADR 0127). Adding, updating
-//! and removing a Plugin (issues 889 and 928), the lockfile's digest and
-//! the approvals in Operator policy (issue 900) are theirs; until then a
-//! Plugin in the store is one the user put there.
+//! It resolves a Plugin's name to its bundle and its manifest, read as any
+//! decoded input (ADR 0127), lists the settings schemas the installed
+//! Plugins declare, which `config.explain` answers, and adds a Plugin
+//! `plugin add` unpacked into a staging folder beside it, moved into place
+//! whole (issue 889). Updating and removing a Plugin (issue 928), the
+//! lockfile's digest and the approvals in Operator policy (issue 900) are
+//! theirs.
 //!
 //! It reads the file system, so it blocks: call it from the tasks module's
 //! blocking policy, never on an async worker.
@@ -29,6 +31,7 @@ use goodfetch_protocol::formats::{Compatibility, Rule};
 use goodfetch_protocol::plugin::{
     FILE_NAME, MANIFEST_VERSION, ManifestError, PluginKindName, PluginManifest,
 };
+use goodfetch_protocol::settings::PluginSettingsSchema;
 
 /// The Plugin store at one folder.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +46,37 @@ pub struct Installed {
     pub bundle: PathBuf,
     /// Its manifest, read and held to what its kinds allow.
     pub manifest: PluginManifest,
+    /// The digest of the image index `plugin add` added it from,
+    /// `sha256:<hex>`, recorded beside the bundle as
+    /// `<name>/<version>.digest`; none for a Plugin placed in the store
+    /// otherwise, which an Operator policy's pin refuses.
+    pub digest: Option<String>,
+}
+
+/// The file beside the bundle `bundle` that records its digest.
+fn digest_file(bundle: &Path) -> PathBuf {
+    let mut file = bundle.as_os_str().to_owned();
+    file.push(".digest");
+    PathBuf::from(file)
+}
+
+/// Whether `entry`, of a Plugin's folder, records a bundle's digest rather
+/// than holding a version.
+fn is_digest_file(entry: &fs::DirEntry) -> bool {
+    entry.file_type().is_ok_and(|kind| kind.is_file())
+        && entry.path().extension().is_some_and(|it| it == "digest")
+}
+
+/// The digest recorded beside `bundle`, none when nothing records it.
+fn recorded_digest(name: &str, bundle: &Path) -> Result<Option<String>, StoreError> {
+    match fs::read_to_string(digest_file(bundle)) {
+        Ok(digest) => Ok(Some(digest.trim().to_owned())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(source) => Err(StoreError::Unreadable {
+            name: name.to_owned(),
+            source,
+        }),
+    }
 }
 
 /// Why a name resolves to no Plugin of the store. Its text names the
@@ -107,6 +141,24 @@ pub enum StoreError {
         /// The kind asked for.
         kind: PluginKindName,
     },
+    /// Its manifest's version would name another folder than one of the
+    /// Plugin's.
+    #[error("the Plugin `{name}`'s version `{version}` holds a path")]
+    Version {
+        /// The Plugin's name.
+        name: String,
+        /// The version its manifest gives.
+        version: String,
+    },
+    /// A version of the Plugin is installed already, which `plugin update`
+    /// replaces (issue 928).
+    #[error("the Plugin `{name}` is installed already, at version {version}")]
+    Installed {
+        /// The Plugin's name.
+        name: String,
+        /// The version installed.
+        version: String,
+    },
 }
 
 impl PluginStore {
@@ -114,6 +166,12 @@ impl PluginStore {
     #[must_use]
     pub fn new(folder: PathBuf) -> Self {
         Self { folder }
+    }
+
+    /// Its folder.
+    #[must_use]
+    pub fn folder(&self) -> &Path {
+        &self.folder
     }
 
     /// The installed Plugin `name` of the kind `kind`.
@@ -125,6 +183,131 @@ impl PluginStore {
     /// cannot be read, is of a version this engine does not read or names
     /// another Plugin, or the Plugin is not of the kind `kind`.
     pub fn resolve(&self, name: &str, kind: &PluginKindName) -> Result<Installed, StoreError> {
+        let installed = self.installed(name)?;
+        if !installed.manifest.kinds.contains(kind) {
+            return Err(StoreError::Kind {
+                name: name.to_owned(),
+                kind: *kind,
+            });
+        }
+        Ok(installed)
+    }
+
+    /// Each installed Plugin whose manifest declares a `settings_schema`,
+    /// by name, with its version and that schema. A Plugin that does not
+    /// resolve is left out, why logged at `warn`; no store, none.
+    ///
+    /// # Errors
+    ///
+    /// The OS's error when the store's folder cannot be listed.
+    pub fn settings_schemas(&self) -> io::Result<Vec<PluginSettingsSchema>> {
+        let entries = match fs::read_dir(&self.folder) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error),
+        };
+        let mut names = entries
+            .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+            .collect::<io::Result<Vec<_>>>()?;
+        names.sort();
+        Ok(names
+            .into_iter()
+            .filter_map(|name| match self.installed(&name) {
+                Ok(Installed { manifest, .. }) => {
+                    manifest.settings_schema.map(|schema| PluginSettingsSchema {
+                        name,
+                        version: manifest.version,
+                        schema,
+                    })
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "an installed Plugin's settings schema cannot be read");
+                    None
+                }
+            })
+            .collect())
+    }
+
+    /// A new, empty folder beside the store's, on its file system, for a
+    /// bundle to be unpacked into and then [`add`](Self::add)ed; it is
+    /// removed with all it still holds when dropped. Being outside the
+    /// store's folder, it is never read as a Plugin.
+    ///
+    /// # Errors
+    ///
+    /// The OS's error when the folder cannot be made.
+    pub fn staging(&self) -> io::Result<tempfile::TempDir> {
+        let beside = self.folder.parent().unwrap_or(&self.folder);
+        fs::create_dir_all(beside)?;
+        tempfile::Builder::new()
+            .prefix(".plugin-staging-")
+            .tempdir_in(beside)
+    }
+
+    /// Adds the Plugin `name` whose bundle is unpacked at `staged`, a
+    /// folder of [`staging`](Self::staging), from the image index of
+    /// `digest`: its manifest is read, must name `name` and a version that
+    /// names one folder, the digest is recorded beside where the bundle
+    /// goes, and the folder is moved whole to `<name>/<version>`, so the
+    /// store never holds part of a bundle.
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError`] when `name` or the version holds a path, the manifest
+    /// cannot be read, is of a version this engine does not read or names
+    /// another Plugin, a version of the Plugin is installed already, or the
+    /// folder cannot be moved.
+    pub fn add(&self, name: &str, staged: &Path, digest: &str) -> Result<Installed, StoreError> {
+        if !is_one_folder(name) {
+            return Err(StoreError::Name(name.to_owned()));
+        }
+        let manifest = read_manifest(name, staged)?;
+        if manifest.name != name {
+            return Err(StoreError::Misnamed {
+                name: name.to_owned(),
+                named: manifest.name,
+            });
+        }
+        if !is_one_folder(&manifest.version) {
+            return Err(StoreError::Version {
+                name: name.to_owned(),
+                version: manifest.version,
+            });
+        }
+        match self.installed(name) {
+            Ok(installed) => {
+                return Err(StoreError::Installed {
+                    name: name.to_owned(),
+                    version: installed.manifest.version,
+                });
+            }
+            Err(StoreError::NotInstalled(_) | StoreError::Versions { versions: 0, .. }) => {}
+            Err(error) => return Err(error),
+        }
+        let unreadable = |source| StoreError::Unreadable {
+            name: name.to_owned(),
+            source,
+        };
+        let folder = self.folder.join(name);
+        fs::create_dir_all(&folder).map_err(unreadable)?;
+        let bundle = folder.join(&manifest.version);
+        let recorded = digest_file(&bundle);
+        fs::write(&recorded, digest).map_err(unreadable)?;
+        if let Err(error) = fs::rename(staged, &bundle) {
+            if let Err(left) = fs::remove_file(&recorded) {
+                tracing::warn!(error = %left, "a Plugin's digest record outlived its failed add");
+            }
+            return Err(unreadable(error));
+        }
+        Ok(Installed {
+            bundle,
+            manifest,
+            digest: Some(digest.to_owned()),
+        })
+    }
+
+    /// The installed Plugin `name`, of any kind.
+    pub(crate) fn installed(&self, name: &str) -> Result<Installed, StoreError> {
         let unreadable = |source| StoreError::Unreadable {
             name: name.to_owned(),
             source,
@@ -135,7 +318,10 @@ impl PluginStore {
         let folder = self.folder.join(name);
         let versions = match fs::read_dir(&folder) {
             Ok(entries) => entries
-                .map(|entry| entry.map(|entry| entry.path()))
+                .filter_map(|entry| match entry {
+                    Ok(entry) if is_digest_file(&entry) => None,
+                    entry => Some(entry.map(|entry| entry.path())),
+                })
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(unreadable)?,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -155,13 +341,12 @@ impl PluginStore {
                 named: manifest.name,
             });
         }
-        if !manifest.kinds.contains(kind) {
-            return Err(StoreError::Kind {
-                name: name.to_owned(),
-                kind: *kind,
-            });
-        }
-        Ok(Installed { bundle, manifest })
+        let digest = recorded_digest(name, &bundle)?;
+        Ok(Installed {
+            bundle,
+            manifest,
+            digest,
+        })
     }
 }
 

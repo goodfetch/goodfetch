@@ -13,11 +13,21 @@
 //! shares no process with a Run. Stopping it, or dropping every handle,
 //! kills it too.
 //!
+//! The Plugin calls back only while it serves a call the instance sent it,
+//! naming that call's id as its `call_id` (ADR 0033, story 7-53): its
+//! `net.fetch` runs as a task of the instance's owner, under the checks of
+//! [`plugin_gate`](crate::plugin_gate), and its answer goes back on the
+//! Plugin's stdin. A call back that names no call the instance awaits is
+//! refused with `plugin_call_back_refused`, and one still running when its
+//! call is answered or the instance stops is cancelled, answered with
+//! `call_cancelled`. At most [`CALL_BACKS`](crate::plugin_gate::CALL_BACKS)
+//! run at once; a method the
+//! engine does not serve is answered `method_not_found`.
+//!
 //! A message from the Plugin that answers nothing the instance awaits (a
-//! second answer to `hello`, an answer to no call, a call of its own, which
-//! the host does not serve yet) is decoded before the transition function
-//! and handled as a malformed answer, logged at `warn` with
-//! `plugin_instance`: never an event.
+//! second answer to `hello`, an answer to no call, a notification) is
+//! decoded before the transition function and handled as a malformed
+//! answer, logged at `warn` with `plugin_instance`: never an event.
 //!
 //! Each call is encoded once, by its caller, into its line. Each answer is
 //! decoded once by `rpc`'s framing, and its caller reads the result from
@@ -43,7 +53,8 @@ use goodfetch_confinement::launch::Launch;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, Product};
 use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL};
 use goodfetch_protocol::error_code::ErrorCode;
-use goodfetch_protocol::jsonrpc::{ErrorObject, RequestId};
+use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::plugin::net::{NET_FETCH, NetFetchParams, NetFetchResult};
 use goodfetch_protocol::plugin::{
     CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
     PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginHelloParams,
@@ -62,7 +73,8 @@ use super::lifecycle::{
 };
 use super::process::{Ended, Pipes, PluginProcess};
 use crate::call_error::CallError;
-use crate::framing::{Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use crate::framing::{self, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
+use crate::plugin_gate::{CALL_BACKS, PluginFetch, admit_call_back};
 use crate::tasks::TaskOwner;
 use crate::transition::Refusal;
 use crate::wire::{self, Received};
@@ -90,6 +102,8 @@ pub struct Plugin {
     pub manifest: PluginManifest,
     /// The Product whose executable runs it, which `hello` names.
     pub product: Product,
+    /// What its `net.fetch` reaches, and how.
+    pub fetch: Arc<PluginFetch>,
 }
 
 /// Whose work an instance serves, which its `hello` names.
@@ -290,6 +304,28 @@ struct Instance {
     waiting: BTreeMap<RequestId, Call>,
     /// Whether its `hello` awaits its answer.
     hello_awaited: bool,
+    /// The Plugin's call backs that run.
+    call_backs: CallBacks,
+}
+
+/// The Plugin's call backs that run, each a task of the instance's owner.
+struct CallBacks {
+    /// What cancels those serving each call, by the call's id: cancelled
+    /// once the call is answered.
+    serving: BTreeMap<RequestId, CancellationToken>,
+    /// How many run.
+    running: usize,
+    /// Where each sends the line that answers it.
+    answers: mpsc::Sender<Vec<u8>>,
+}
+
+impl CallBacks {
+    /// Cancels the call backs that serve the call `id`, which is answered.
+    fn answered(&mut self, id: &RequestId) {
+        if let Some(serving) = self.serving.remove(id) {
+            serving.cancel();
+        }
+    }
 }
 
 impl Instance {
@@ -329,17 +365,23 @@ impl Running {
                 return;
             }
         };
+        let (answers, call_backs_answered) = mpsc::channel(CALL_BACKS);
         let mut instance = Instance {
             state: InstanceState::Starting,
             queued: Vec::new(),
             waiting: BTreeMap::new(),
             hello_awaited: true,
+            call_backs: CallBacks {
+                serving: BTreeMap::new(),
+                running: 0,
+                answers,
+            },
         };
         let exit = match self.hello_line() {
             Ok(line) => {
                 write(&self.stopping, &mut stdin, &line).await;
-                self.serve(&mut instance, &mut process, &mut stdin, stdout)
-                    .await
+                let pipes = (&mut stdin, stdout, call_backs_answered);
+                self.serve(&mut instance, &mut process, pipes).await
             }
             Err(reason) => Exit::Failed(reason),
         };
@@ -370,13 +412,18 @@ impl Running {
             .map_err(|error| internal(&format!("`hello` encodes: {error}")))
     }
 
-    /// Serves the instance until it ends.
+    /// Serves the instance until it ends: what the Plugin writes on
+    /// `stdout`, what its callers call, and the answers to its call backs,
+    /// from `call_backs_answered`, written on `stdin`.
     async fn serve(
         &mut self,
         instance: &mut Instance,
         process: &mut PluginProcess,
-        stdin: &mut ChildStdin,
-        mut stdout: ChildStdout,
+        (stdin, mut stdout, mut call_backs_answered): (
+            &mut ChildStdin,
+            ChildStdout,
+            mpsc::Receiver<Vec<u8>>,
+        ),
     ) -> Exit {
         let mut framer = Framer::new(MAX_MESSAGE_BYTES);
         let (mut buffer, mut parsed) = (vec![0; READ_BYTES], Vec::new());
@@ -428,6 +475,11 @@ impl Running {
                     let _ = instance.apply(InstanceEvent::Crash(RecentCrashes::Fewer));
                     return Exit::Failed(reason);
                 }
+                // The instance holds a sender, so this never ends.
+                Some(line) = call_backs_answered.recv() => {
+                    instance.call_backs.running = instance.call_backs.running.saturating_sub(1);
+                    write(&self.stopping, stdin, &line).await;
+                }
                 call = self.mailbox.recv() => {
                     let Some(call) = call else {
                         return Exit::Stopped(InstanceEvent::Stop);
@@ -436,6 +488,46 @@ impl Running {
                 }
             }
         }
+    }
+
+    /// The Plugin's call back `call`, with the id `id`: refused, or run as
+    /// a task of the instance's owner, whose answer comes back through
+    /// [`CallBacks::answers`].
+    async fn called_back(
+        &self,
+        instance: &mut Instance,
+        stdin: &mut ChildStdin,
+        id: RequestId,
+        call: &framing::Call,
+    ) {
+        let admitted = served(call).and_then(|params| {
+            admit_call_back(
+                &instance.waiting,
+                instance.call_backs.running,
+                &params.call_id,
+            )
+            .map(|()| params)
+        });
+        let params = match admitted {
+            Ok(params) => params,
+            Err(error) => {
+                return write(&self.stopping, stdin, &call_back_line(id, Some(Err(error)))).await;
+            }
+        };
+        let call_backs = &mut instance.call_backs;
+        let stopped = call_backs
+            .serving
+            .entry(params.call_id.clone())
+            .or_insert_with(|| self.stopping.child_token())
+            .child_token();
+        call_backs.running += 1;
+        let answers = call_backs.answers.clone();
+        let fetch = Arc::clone(&self.plugin.fetch);
+        self.owner.spawn(async move {
+            let outcome = stopped.run_until_cancelled(fetch.fetch(params)).await;
+            // An instance that ended reads no answer.
+            let _ = answers.send(call_back_line(id, outcome)).await;
+        });
     }
 
     /// A call its caller made.
@@ -475,9 +567,13 @@ impl Running {
         };
         let (id, answer) = match decode(line) {
             Ok(Incoming::Reply { id, answer }) => (id, answer.map_err(CallFailure::Answered)),
-            Ok(Incoming::Request { call, .. } | Incoming::Notification(call)) => {
+            Ok(Incoming::Request { id, call }) => {
+                self.called_back(instance, stdin, id, &call).await;
+                return None;
+            }
+            Ok(Incoming::Notification(call)) => {
                 stray(&format!(
-                    "the Plugin called `{}`, which the host does not serve",
+                    "the Plugin sent the notification `{}`, which the host does not serve",
                     call.method()
                 ));
                 return None;
@@ -503,6 +599,7 @@ impl Running {
             stray(&format!("the Plugin answered {id:?}, which no call awaits"));
             return None;
         };
+        instance.call_backs.answered(&id);
         match instance.apply(InstanceEvent::Result) {
             Ok(InstanceEffect::Deliver) => {
                 // A caller that went away leaves the answer to nobody.
@@ -624,6 +721,47 @@ async fn write(stopping: &CancellationToken, stdin: &mut ChildStdin, line: &[u8]
     }
 }
 
+/// The params of the Plugin's call back `call`, which the engine serves.
+///
+/// # Errors
+///
+/// `method_not_found` for a method the engine does not serve, and
+/// `invalid_params` for params that are not the method's.
+fn served(call: &framing::Call) -> Result<NetFetchParams, CallError> {
+    if call.method() != NET_FETCH {
+        return Err(CallError::protocol(
+            ProtocolFailure::MethodNotFound,
+            format!(
+                "the engine serves a Plugin `{NET_FETCH}`, not `{}`",
+                call.method()
+            ),
+        ));
+    }
+    serde_json::from_str(call.params().unwrap_or("null")).map_err(|error| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("the params of `{NET_FETCH}` cannot be read: {error}"),
+        )
+    })
+}
+
+/// The line that answers the Plugin's call back `id` with `outcome`: its
+/// result, its failure, or none when it was cancelled before it ended.
+fn call_back_line(id: RequestId, outcome: Option<Result<NetFetchResult, CallError>>) -> Vec<u8> {
+    let failure = match outcome {
+        Some(Ok(result)) => match wire::success_line(&id, &result) {
+            Ok(line) => return line,
+            Err(error) => internal(&format!("a `net.fetch` result encodes: {error}")),
+        },
+        Some(Err(error)) => error,
+        None => code(
+            &CALL_CANCELLED,
+            "the call the Plugin's `net.fetch` served was answered, or the instance stopped",
+        ),
+    };
+    wire::failure_line(Some(id), failure.to_error_object())
+}
+
 /// Logs one of the Plugin's stray messages, handled as a malformed answer.
 fn stray(detail: &str) {
     tracing::warn!(
@@ -665,3 +803,6 @@ fn cancelled() -> CallError {
         "the Plugin's instance stopped with its run or its task",
     )
 }
+
+#[cfg(test)]
+mod tests;

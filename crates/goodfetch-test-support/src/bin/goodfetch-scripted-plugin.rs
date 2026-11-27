@@ -24,7 +24,17 @@
 //! - `answers` answer each other call by its method with the `result` or
 //!   the `error` given, or leave it unanswered on `{ "silent": true }`; a
 //!   method it has no answer for is answered JSON-RPC's method-not-found
-//!   error.
+//!   error. On `"with_environment": true`, each `${NAME}` in the answer's
+//!   strings is replaced with its environment variable `NAME`'s value, or
+//!   with nothing when it has none, as a Plugin reads its settings. An
+//!   answer's `"writes": { "<path>": "<text>" }` are written, relative to
+//!   its working folder or not, before it is sent, as a Plugin keeps what
+//!   it read; a write the OS refuses answers its error instead. An
+//!   answer `{ "call_back": { "method": …, "params": {…} } }` calls back
+//!   into the engine first: it sends that request, its `params` given the
+//!   served call's id as `call_id` unless they name one, and answers the
+//!   call with the engine's
+//!   whole reply to it as its `result` once that reply arrives.
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
@@ -97,6 +107,8 @@ fn play() -> Result<(), String> {
     let script: Value = serde_json::from_str(&text)
         .map_err(|error| format!("{} is no JSON: {error}", path.display()))?;
     let mut calls: Vec<Value> = Vec::new();
+    // The calls it serves that wait on a call back, by the call back's id.
+    let mut calling_back: BTreeMap<String, Value> = BTreeMap::new();
     let (stdin, mut stdout) = (io::stdin().lock(), io::stdout().lock());
     for line in stdin.lines() {
         let line = line.map_err(|error| error.to_string())?;
@@ -106,9 +118,29 @@ fn play() -> Result<(), String> {
         let message: Value =
             serde_json::from_str(&line).map_err(|error| format!("{line:?} is no JSON: {error}"))?;
         let mut sent = Vec::new();
+        if message.get("method").is_none()
+            && let Some(served) = message["id"]
+                .as_str()
+                .and_then(|id| calling_back.remove(id))
+        {
+            sent.push(with_id(json!({ "result": message }), &served));
+        }
         if let (Some(id), Some(method)) = (message.get("id"), message["method"].as_str()) {
             let answer = answer(&script, method, &message["params"], &calls);
-            if answer["silent"] != json!(true) {
+            if let Some(call_back) = answer.get("call_back") {
+                let call_back_id = format!("call-back-{}", calls.len());
+                let mut params = call_back["params"].clone();
+                if params.get("call_id").is_none() {
+                    params["call_id"] = id.clone();
+                }
+                sent.push(json!({
+                    "jsonrpc": "2.0",
+                    "id": call_back_id,
+                    "method": call_back["method"],
+                    "params": params,
+                }));
+                calling_back.insert(call_back_id, id.clone());
+            } else if answer["silent"] != json!(true) {
                 sent.push(with_id(answer, id));
             }
             if method == "hello" {
@@ -151,11 +183,70 @@ fn answer(script: &Value, method: &str, params: &Value, calls: &[Value]) -> Valu
                 Err(reason) => error(INTERNAL_ERROR, &reason),
             }
         }
-        _ => script["answers"]
-            .get(method)
-            .cloned()
-            .unwrap_or_else(|| error(METHOD_NOT_FOUND, &format!("no answer to `{method}`"))),
+        _ => match script["answers"].get(method).cloned() {
+            Some(Value::Object(mut scripted)) => {
+                let scripted = if scripted.remove("with_environment") == Some(json!(true)) {
+                    expanded(Value::Object(scripted))
+                } else {
+                    Value::Object(scripted)
+                };
+                written(scripted)
+            }
+            Some(scripted) => scripted,
+            None => error(METHOD_NOT_FOUND, &format!("no answer to `{method}`")),
+        },
     }
+}
+
+/// `answer` without its `writes`, once each of its texts is written to
+/// the file its path names, or the OS's refusal as an error.
+fn written(mut answer: Value) -> Value {
+    let Some(Value::Object(writes)) = answer
+        .as_object_mut()
+        .and_then(|answer| answer.remove("writes"))
+    else {
+        return answer;
+    };
+    for (path, text) in writes {
+        if let Err(refusal) = fs::write(&path, text.as_str().unwrap_or_default()) {
+            return error(INTERNAL_ERROR, &format!("cannot write {path}: {refusal}"));
+        }
+    }
+    answer
+}
+
+/// `value` with each `${NAME}` in its strings replaced with the
+/// environment variable `NAME`'s value, or with nothing.
+fn expanded(value: Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(expanded_text(&text)),
+        Value::Array(items) => Value::Array(items.into_iter().map(expanded).collect()),
+        Value::Object(members) => Value::Object(
+            members
+                .into_iter()
+                .map(|(key, value)| (key, expanded(value)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
+/// `text` with each `${NAME}` replaced with the variable `NAME`'s value.
+fn expanded_text(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("${") {
+        out.push_str(&rest[..start]);
+        let Some(length) = rest[start + 2..].find('}') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let name = &rest[start + 2..start + 2 + length];
+        out.push_str(&std::env::var(name).unwrap_or_default());
+        rest = &rest[start + 3 + length..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn error(code: i64, message: &str) -> Value {

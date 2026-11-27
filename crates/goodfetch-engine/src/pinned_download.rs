@@ -28,7 +28,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::clock::Clock;
 use crate::dns::HostMapping;
-use crate::egress::{ConfiguredKind, EndpointPolicy, Refused};
+use crate::egress::{ConfiguredKind, EndpointPolicy, Gate, Refused};
 use crate::happy_eyeballs::Delays;
 use crate::http_client::{self, ConfiguredEndpoint, EndpointFailure, Server};
 use crate::settings::Resolved;
@@ -289,7 +289,7 @@ impl Fetching {
     pub(crate) fn endpoint(&self, kind: ConfiguredKind) -> ConfiguredEndpoint<'_> {
         ConfiguredEndpoint {
             kind,
-            policy: self.endpoints,
+            gate: Gate::Endpoint(self.endpoints),
             resolve: &self.resolve,
             trust: &self.trust,
             presenting: None,
@@ -393,6 +393,47 @@ pub(crate) async fn download(
     if response.status != StatusCode::OK {
         return Err(Failure::Status(response.status.as_u16()));
     }
+    let received = receive(&mut response, into, blocking, u64::MAX, progress)
+        .await
+        .map_err(|failure| match failure {
+            Receiving::Network => Failure::Network,
+            Receiving::TooLong => Failure::DigestMismatch,
+            Receiving::File(error) => Failure::File(error),
+        })?;
+    if received != pinned {
+        return Err(Failure::DigestMismatch);
+    }
+    Ok(())
+}
+
+/// Why a body could not be received into its file.
+#[derive(Debug)]
+pub(crate) enum Receiving {
+    /// The connection broke, or the body ended short of its
+    /// `Content-Length`.
+    Network,
+    /// The body holds more bytes than the caller allows.
+    TooLong,
+    /// The file could not be written.
+    File(std::io::Error),
+}
+
+/// Streams the body of `response` into a new file at `into`, at most
+/// `limit` bytes, reporting `(received, total)` as bytes arrive, and
+/// answers the digest of what it received; the file is created, written and
+/// synced on `blocking` (issue 2106).
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves `into` partly written, for its caller to
+/// remove.
+pub(crate) async fn receive(
+    response: &mut http_client::Response,
+    into: &Path,
+    blocking: &BlockingThreads,
+    limit: u64,
+    progress: &mut (dyn FnMut(u64, Option<u64>) + Send),
+) -> Result<Digest, Receiving> {
     let total = response.content_length;
     let created = into.to_owned();
     let mut file = blocking
@@ -404,14 +445,18 @@ pub(crate) async fn download(
             std::fs::File::create(created)
         })
         .await
-        .map_err(Failure::File)?;
+        .map_err(Receiving::File)?;
     let mut hasher = Sha256::new();
     let mut received = 0_u64;
     let mut reported = 0_u64;
     progress(0, total);
-    while let Some(bytes) = response.chunk().await.map_err(|_| Failure::Network)? {
+    while let Some(bytes) = response.chunk().await.map_err(|_| Receiving::Network)? {
         hasher.update(&bytes);
         let length = bytes.len();
+        received += u64::try_from(length).expect("invariant: a frame fits in u64");
+        if received > limit {
+            return Err(Receiving::TooLong);
+        }
         let written;
         (file, written) = blocking
             .run(move || {
@@ -419,27 +464,23 @@ pub(crate) async fn download(
                 (file, written)
             })
             .await;
-        written.map_err(Failure::File)?;
-        received += u64::try_from(length).expect("invariant: a frame fits in u64");
+        written.map_err(Receiving::File)?;
         if received - reported >= PROGRESS_STEP {
             reported = received;
             progress(received, total);
         }
     }
     if total.is_some_and(|total| total != received) {
-        return Err(Failure::Network);
+        return Err(Receiving::Network);
     }
     blocking
         .run(move || file.sync_all())
         .await
-        .map_err(Failure::File)?;
+        .map_err(Receiving::File)?;
     if reported != received {
         progress(received, total);
     }
-    if Digest::from_hasher(hasher) != pinned {
-        return Err(Failure::DigestMismatch);
-    }
-    Ok(())
+    Ok(Digest::from_hasher(hasher))
 }
 
 /// Sends the GET of `url`, a pinned URL itself, which no endpoint policy
@@ -448,6 +489,23 @@ async fn send_pinned(
     url: &PinnedUrl,
     fetching: &Fetching,
 ) -> Result<http_client::Response, Failure> {
+    send_get(url, None, fetching)
+        .await
+        .map_err(|_| Failure::Network)
+}
+
+/// Sends the GET of `url`, a pinned URL itself, which no endpoint policy
+/// judges (ADR 0043), with an `Accept` of `accept` when given, and answers
+/// its head, or why none came. `egress.offline` is its caller's to check.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes any connection it opened.
+pub(crate) async fn send_get(
+    url: &PinnedUrl,
+    accept: Option<&str>,
+    fetching: &Fetching,
+) -> Result<http_client::Response, http_client::Failure> {
     let authority = url.uri.authority().map_or_else(
         || url.host.clone(),
         |authority| authority.as_str().to_owned(),
@@ -457,11 +515,15 @@ async fn send_pinned(
         .path_and_query()
         .map_or("/", |path| path.as_str())
         .to_owned();
-    let request = Request::get(path)
+    let mut request = Request::get(path)
         .header(hyper::header::HOST, authority)
-        .header(hyper::header::USER_AGENT, USER_AGENT)
+        .header(hyper::header::USER_AGENT, USER_AGENT);
+    if let Some(accept) = accept {
+        request = request.header(hyper::header::ACCEPT, accept);
+    }
+    let request = request
         .body(Empty::<Bytes>::new())
-        .map_err(|_| Failure::Network)?;
+        .map_err(|_| http_client::Failure::Network)?;
     let network = http_client::Network {
         resolve: &fetching.resolve,
         trust: &fetching.trust,
@@ -474,9 +536,7 @@ async fn send_pinned(
         port: url.port,
         plain: false,
     };
-    http_client::send(&server, request, &network)
-        .await
-        .map_err(|_| Failure::Network)
+    http_client::send(&server, request, &network).await
 }
 
 /// Sends the GET of `url`, below `browser.mirror`, an Operator-configured

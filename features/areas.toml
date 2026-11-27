@@ -231,6 +231,12 @@ number = 7
 kind = "error"
 prefix = "confinement_unavailable"
 
+# Each Plugin's settings, by its name (ADR 0033, issue 861).
+[[area]]
+number = 7
+kind = "setting"
+prefix = "plugins"
+
 # The plugin protocol and the Plugin manifest (ADRs 0033 and 0066, spec #596).
 [[area]]
 number = 7

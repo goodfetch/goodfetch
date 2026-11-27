@@ -11,7 +11,9 @@
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::plugin_kinds::Failure;
 use goodfetch_engine::plugin_kinds::extractor::ExtractorDriver;
+use goodfetch_engine::plugin_kinds::run_plugins::StartError;
 use goodfetch_engine::run::accounts::RunAccounts;
+use goodfetch_engine::run::secret_error;
 use goodfetch_engine::settings::{Resolved, RunSettings, Values};
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
@@ -101,7 +103,8 @@ pub(super) fn cleaned_request(
 /// # Errors
 ///
 /// `extractor_unavailable` when no installed Extractor Plugin has the name
-/// or it cannot start, and the call's failure, as the Extractor's driver
+/// or it cannot start, `setting_invalid` naming the field of its settings
+/// its schema refuses, and the call's failure, as the Extractor's driver
 /// reads it, when the Plugin fails it or the Run's Usage refuses it.
 pub(super) async fn answered(
     run: &BrowserRun,
@@ -125,12 +128,22 @@ pub(super) async fn answered(
             format!("the page's URL does not parse: {error}"),
         )
     })?;
-    let extractor = run.plugins.extractor(name).await?;
+    let settings = run.identity.settings().map(RunSettings::resolved);
+    let extractor = run
+        .plugins
+        .extractor(
+            name,
+            settings,
+            run.keys.secrets(),
+            run.engine.sandbox_probe(),
+        )
+        .await
+        .map_err(|error| match error {
+            StartError::Refused(error) => error,
+            StartError::Secret(error) => secret_error(&error),
+        })?;
     let clock = run.identity.clock();
-    let deadline = Deadline::of_resolved(
-        run.identity.settings().map(RunSettings::resolved),
-        &TIMEOUT_PLUGIN,
-    );
+    let deadline = Deadline::of_resolved(settings, &TIMEOUT_PLUGIN);
     let accounts = RunAccounts {
         identity: &run.identity,
         charging: &run.charging,

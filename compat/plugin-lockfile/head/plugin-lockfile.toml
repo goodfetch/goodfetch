@@ -1,0 +1,13 @@
+version = "0.1"
+
+[[plugin]]
+name = "archive"
+version = "0.3.1"
+digest = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+
+[[plugin]]
+name = "kettle"
+version = "1.2.0"
+digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+signer = "https://github.com/example/goodfetch-plugin-kettle/.github/workflows/release.yml@refs/tags/v1.2.0"
+approvals = "sha256:2222222222222222222222222222222222222222222222222222222222222222"

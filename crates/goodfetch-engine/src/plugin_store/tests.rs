@@ -96,3 +96,114 @@ fn a_name_the_store_cannot_vouch_for_resolves_to_nothing(
         "{text}"
     );
 }
+
+/// The manifest of the Extractor `name` with `field` set to `value`.
+fn manifest_with(name: &str, field: &str, value: Value) -> Value {
+    let mut manifest = manifest(name);
+    manifest[field] = value;
+    manifest
+}
+
+/// Writes `manifest` at the root of a new staging folder of `store`.
+fn staged(store: &PluginStore, manifest: &Value) -> tempfile::TempDir {
+    let staging = store.staging().unwrap();
+    fs::write(
+        staging.path().join("goodfetch-plugin.json"),
+        manifest.to_string(),
+    )
+    .unwrap();
+    staging
+}
+
+/// An added Plugin's staged bundle moves whole to `<name>/<version>` and
+/// resolves; its staging folder sat beside the store, never in it.
+///
+/// Covers: story:7-5
+#[test]
+fn an_added_plugin_moves_into_the_store_whole() {
+    let home = tempfile::tempdir().unwrap();
+    let store = PluginStore::new(home.path().join("plugins"));
+    let staging = staged(&store, &manifest("kettle"));
+    fs::write(staging.path().join("data.txt"), "kept").unwrap();
+    assert_eq!(staging.path().parent(), Some(home.path()));
+
+    let added = store.add("kettle", staging.path(), DIGEST).unwrap();
+
+    let bundle = home.path().join("plugins").join("kettle").join("1.0.0");
+    assert_eq!(added.bundle, bundle);
+    assert_eq!(fs::read_to_string(bundle.join("data.txt")).unwrap(), "kept");
+    assert!(!staging.path().exists());
+    let resolved = store.resolve("kettle", &PluginKindName::EXTRACT).unwrap();
+    assert_eq!(resolved.bundle, bundle);
+}
+
+/// A visibly fake image index digest.
+const DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
+/// An added Plugin resolves with the image index digest it was added at,
+/// which an Operator policy's pin is held to; a Plugin the store holds
+/// that `plugin add` did not add has none.
+///
+/// Covers: story:7-17
+#[test]
+fn an_added_plugin_resolves_with_its_digest() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("plugins");
+    installed(&root, "placed", "1.0.0", &manifest("placed"));
+    let store = PluginStore::new(root);
+    let staging = staged(&store, &manifest("kettle"));
+    store.add("kettle", staging.path(), DIGEST).unwrap();
+
+    let digest = |name| {
+        store
+            .resolve(name, &PluginKindName::EXTRACT)
+            .unwrap()
+            .digest
+    };
+    assert_eq!(
+        (digest("kettle"), digest("placed")),
+        (Some(DIGEST.to_owned()), None)
+    );
+}
+
+/// A staged bundle the store cannot vouch for is not added, and the store
+/// is left as it was.
+#[rstest]
+#[case::misnamed("kettle", manifest("teapot"), "names the Plugin `teapot`")]
+#[case::path_name("../kettle", manifest("../kettle"), "is no Plugin's name")]
+#[case::path_version(
+    "kettle",
+    manifest_with("kettle", "version", json!("../1.0.0")),
+    "version `../1.0.0` holds a path"
+)]
+#[case::installed(
+    "present",
+    manifest("present"),
+    "`present` is installed already, at version 1.0.0"
+)]
+#[case::newer_major(
+    "kettle",
+    manifest_with("kettle", "manifest_version", json!("1.0")),
+    "is of version 1.0"
+)]
+fn a_staged_bundle_the_store_cannot_vouch_for_is_not_added(
+    #[case] name: &str,
+    #[case] staged_manifest: Value,
+    #[case] refused: &str,
+) {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("plugins");
+    installed(&root, "present", "1.0.0", &manifest("present"));
+    let store = PluginStore::new(root.clone());
+    let staging = staged(&store, &staged_manifest);
+
+    let error = store.add(name, staging.path(), DIGEST).unwrap_err();
+
+    assert!(error.to_string().contains(refused), "{error}");
+    assert!(staging.path().join("goodfetch-plugin.json").exists());
+    let names: Vec<_> = fs::read_dir(&root)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["present"]);
+}

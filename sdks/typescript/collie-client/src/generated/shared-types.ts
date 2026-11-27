@@ -18,6 +18,8 @@
  * - `fingerprint_method_chosen`: A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).
  * - `lent_page_attached`: A page was lent to the program's own Playwright client (ADR 0089).
  * - `operator_policy_written`: A person wrote the Operator policy through `config.policy_write`, with its digest before and after and each key's values before and after.
+ * - `plugin_approved`: A person approved a Plugin through `plugin.add`, which wrote `plugins.<name>` into the Operator policy: its name, its digest and each permission approved, with what it lets the Plugin do and what the engine cannot check.
+ * - `plugin_secret_value_released`: The engine released a Secret reference's value to a Plugin, as the Operator policy's `plugins.<name>.approved.secret_values` allows: the Plugin, the reference and the Run, never the value.
  * - `pressing_harder_value_set`: A run set a value that presses a site harder than its default, with the setting and its value (ADR 0086).
  * - `private_addresses_allowed`: A run allowed private addresses through `egress.private_ranges`, with the ranges it listed.
  * - `raw_cdp_attached`: A raw CDP client attached to a Session's browser.
@@ -31,7 +33,7 @@
  * - `user_configuration_written`: A person wrote user-level values through `config.user_write`, with each key's values before and after.
  * - `wall_domain_denied`: A person added a domain to `wall.denied_domains` in the Operator policy, so no run reads past its Walls or refetches its pages (ADR 0052); `details` give the `domain` and the `reason`.
  */
-export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "effect_reconciled" | "endpoint_authentication_failed" | "endpoint_refusals_folded" | "exposed_daemon_set_up" | "fingerprint_method_chosen" | "lent_page_attached" | "operator_policy_written" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "run_rolled_back" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "tls_terminated_upstream" | "user_configuration_written" | "wall_domain_denied" | (string & {});
+export type AuditKind = "audit_log_anchor" | "audit_log_pruned" | "certificate_any_used" | "certificate_change_accepted" | "certificate_exceptions_used" | "certificate_pin_forgotten" | "certificate_pinned" | "consent_domain_allowed" | "effect_reconciled" | "endpoint_authentication_failed" | "endpoint_refusals_folded" | "exposed_daemon_set_up" | "fingerprint_method_chosen" | "lent_page_attached" | "operator_policy_written" | "plugin_approved" | "plugin_secret_value_released" | "pressing_harder_value_set" | "private_addresses_allowed" | "raw_cdp_attached" | "refetch_domain_removed" | "run_rolled_back" | "secret_reference_used" | "security_switch_turned_off" | "session_exported" | "session_imported" | "tls_terminated_upstream" | "user_configuration_written" | "wall_domain_denied" | (string & {});
 
 /**
  * A `block_cause`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).

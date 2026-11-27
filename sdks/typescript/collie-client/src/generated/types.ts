@@ -147,7 +147,7 @@ export type ArtifactDownloadFailedDetails = {
  * via the `definition` "ArtifactKind".
  */
 export type ArtifactKind =
-  "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements";
+  "browser" | "driver" | "executable_copy" | "engine_executable" | "clean_up_rules" | "mouse_movements" | "plugin";
 /**
  * What pins an artifact, as an error's details name it, by its `kind`: a
  * Product version, or an installed Plugin that uses a Plugin runtime (ADRs
@@ -289,15 +289,16 @@ export type MissingBrowser =
  */
 export type ChromeChannel = "stable" | "beta" | "dev" | "canary";
 /**
- * What refuses the user namespace Chromium's sandbox starts in, on a host
- * where a fix exists or the probe does not recognise the refusal (ADR
- * 0049).
+ * What refuses the user namespace Chromium's sandbox starts in, and a
+ * process Plugin's confinement, on a host where a fix exists or the probe
+ * does not recognise the refusal (ADRs 0033 and 0049): the engine's one
+ * startup probe names it for both.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SandboxEnvironment".
  */
 export type SandboxEnvironment =
-  "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
+  "wsl1" | "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
 /**
  * What `cache.verify` found wrong with a body file.
  *
@@ -1398,6 +1399,13 @@ export type SessionSource =
  */
 export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
 /**
+ * Why `plugin_not_allowed` refused a Plugin.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotAllowedReason".
+ */
+export type NotAllowedReason = "not_allowed" | "denied" | "digest";
+/**
  * Whether a Run's own checks prove what it committed (ADR 0029).
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -1598,12 +1606,94 @@ export type PathHazard =
  */
 export type PatternConstruct = "look_around" | "backreference" | "nested_braces" | "unmatched_brace" | "other";
 /**
+ * One permission a Plugin's manifest asks for, which the Operator policy
+ * approves on its own.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Permission".
+ */
+export type Permission =
+  | {
+      /**
+       * The domain.
+       */
+      domain: string;
+      permission: "effects";
+    }
+  | {
+      /**
+       * The domain.
+       */
+      domain: string;
+      permission: "page_script";
+    }
+  | {
+      /**
+       * The domain.
+       */
+      domain: string;
+      permission: "session_credentials";
+    }
+  | {
+      permission: "secret";
+      /**
+       * The Secret reference, such as `env:TOKEN`.
+       */
+      reference: string;
+    }
+  | {
+      permission: "secret_value";
+      /**
+       * The Secret reference.
+       */
+      reference: string;
+    }
+  | {
+      /**
+       * The download's digest, `sha256:<hex>`.
+       */
+      digest: string;
+      /**
+       * The browser's name.
+       */
+      name: string;
+      permission: "browser";
+      /**
+       * The platform, such as `linux-x64`.
+       */
+      platform: string;
+    }
+  | {
+      permission: "direct";
+    };
+/**
  * What became of a Run's new Plan versions (ADR 0091).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PlanStatus".
  */
 export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
+/**
+ * Where a person's approval of a Plugin went.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginApproval".
+ */
+export type PluginApproval =
+  | {
+      outcome: "written";
+      /**
+       * The Operator policy file.
+       */
+      policy: string;
+    }
+  | {
+      /**
+       * The policy's `plugins.<name>` entry, as TOML.
+       */
+      entry: string;
+      outcome: "managed";
+    };
 /**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
@@ -3210,6 +3300,20 @@ export interface ConfigExplainParams {
   settings?: {
     [k: string]: unknown;
   };
+}
+/**
+ * What `confinement_unavailable` details, where the engine's startup
+ * probe found the host cannot confine a Plugin (ADRs 0033 and 0049).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConfinementUnavailableDetails".
+ */
+export interface ConfinementUnavailableDetails {
+  /**
+   * What keeps the host from confining it: the same environment that
+   * explains the browser's sandbox.
+   */
+  environment: SandboxEnvironment;
 }
 /**
  * What `connection_overloaded` names: the Connection's own bound the call
@@ -7466,6 +7570,154 @@ export interface PlanReport {
   version?: number | null;
 }
 /**
+ * What `plugin.add` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginAddParams".
+ */
+export interface PluginAddParams {
+  /**
+   * Whether the person approved the Plugin and each permission its
+   * manifest declares, as they were shown before the call (ADR 0033):
+   * the engine then allows it, pins it to its digest and approves those
+   * permissions in the Operator policy, or answers the entry to put in
+   * a policy managed elsewhere.
+   */
+  approve?: boolean;
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083): the
+   * lockfile goes beside it, else in the Goodfetch home's configuration
+   * folder.
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The Plugin's OCI reference,
+   * `<registry>/<repository>@sha256:<hex>`: the repository's last
+   * segment is `goodfetch-plugin-<name>`, and the digest is its image
+   * index's. No tag names one, since a tag moves.
+   */
+  reference: string;
+}
+/**
+ * What `plugin.add` answers once the Plugin is installed and pinned.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginAdded".
+ */
+export interface PluginAdded {
+  /**
+   * Where the person's approval went, when they gave one.
+   */
+  approval?: PluginApproval | null;
+  /**
+   * The digest of its multi-platform image index, `sha256:<hex>`, which
+   * the lockfile pins.
+   */
+  digest: string;
+  /**
+   * The lockfile that pins it.
+   */
+  lockfile: string;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * Each permission its manifest declares, with what it lets the Plugin
+   * do and what the engine cannot check.
+   */
+  permissions?: StatedPermission[];
+  /**
+   * Its version, as its manifest names it.
+   */
+  version: string;
+}
+/**
+ * A permission with what it lets the Plugin do and what the engine cannot
+ * check, in plain words, as an approval states them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StatedPermission".
+ */
+export interface StatedPermission {
+  /**
+   * What the engine cannot check once it is approved.
+   */
+  cannotCheck: string;
+  /**
+   * What it lets the Plugin do.
+   */
+  lets: string;
+  /**
+   * The permission.
+   */
+  permission: Permission;
+}
+/**
+ * What `plugin_digest_mismatch` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginDigestMismatchDetails".
+ */
+export interface PluginDigestMismatchDetails {
+  /**
+   * The digest the reference gives.
+   */
+  found: string;
+  /**
+   * The digest the lockfile pins.
+   */
+  locked: string;
+  /**
+   * The lockfile.
+   */
+  lockfile: string;
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+}
+/**
+ * What `plugin_not_allowed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginNotAllowedDetails".
+ */
+export interface PluginNotAllowedDetails {
+  /**
+   * The digest installed, for a pin, when the store records one.
+   */
+  found?: string | null;
+  /**
+   * The digest the Operator policy pins it to, for a pin.
+   */
+  pinned?: string | null;
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+  /**
+   * Why it is refused.
+   */
+  reason: NotAllowedReason;
+}
+/**
+ * What `plugin_permission_denied` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginPermissionDeniedDetails".
+ */
+export interface PluginPermissionDeniedDetails {
+  /**
+   * The permission it needs.
+   */
+  permission: Permission;
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+}
+/**
  * A Plugin that ran in a Run (ADRs 0016 and 0033).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7485,6 +7737,30 @@ export interface PluginRun {
    * The network level it ran at.
    */
   networkLevel: string;
+}
+/**
+ * An installed Plugin's settings schema, as `config.explain` answers it:
+ * what its entry's `settings` in `plugins` takes (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSettingsSchema".
+ */
+export interface PluginSettingsSchema {
+  /**
+   * The Plugin's name, its key in `plugins`.
+   */
+  name: string;
+  /**
+   * Its manifest's `settings_schema`, a JSON Schema, in which a field
+   * marked `"secret": true` takes only a Secret reference.
+   */
+  schema: {
+    [k: string]: unknown;
+  };
+  /**
+   * The version installed.
+   */
+  version: string;
 }
 /**
  * What a Run's calls into one implementation of a Plugin kind used: its
@@ -10031,6 +10307,12 @@ export interface SettingsExplanation {
    * The files of the configuration layers, lowest first.
    */
   files: SettingsFile[];
+  /**
+   * Each installed Plugin whose manifest declares a `settings_schema`,
+   * by name, with that schema: what `plugins.<name>.settings` takes
+   * (ADR 0033). Explaining keys that leave `plugins` out lists none.
+   */
+  plugins?: PluginSettingsSchema[];
   /**
    * The Operator policy's version, `sha256:` and the first 16 hex digits
    * of its file's digest, which the run report names; `None` without a

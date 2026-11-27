@@ -84,19 +84,22 @@ pub const SECURITY_BROWSER_SANDBOX: Setting = Setting {
 /// 0049).
 pub const BROWSER_SANDBOX_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "browser_sandbox_unavailable",
-    description: "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
+    description: "Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (WSL1, Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.",
     group: ErrorGroup::Unavailable,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
 };
 
-/// What refuses the user namespace Chromium's sandbox starts in, on a host
-/// where a fix exists or the probe does not recognise the refusal (ADR
-/// 0049).
+/// What refuses the user namespace Chromium's sandbox starts in, and a
+/// process Plugin's confinement, on a host where a fix exists or the probe
+/// does not recognise the refusal (ADRs 0033 and 0049): the engine's one
+/// startup probe names it for both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SandboxEnvironment {
+    /// WSL1, which offers neither seccomp nor user namespaces.
+    Wsl1,
     /// Docker's or containerd's default seccomp profile, which refuses
     /// `CLONE_NEWUSER`.
     DockerDefaultSeccomp,
@@ -104,7 +107,7 @@ pub enum SandboxEnvironment {
     /// runtime's default.
     KubernetesRuntimeDefault,
     /// Ubuntu's AppArmor restriction on unprivileged user namespaces, with
-    /// no profile that gives the browser one.
+    /// no profile that gives the browser, or Goodfetch's executable, one.
     ApparmorUserns,
     /// A refusal the probe does not recognise, such as
     /// `user.max_user_namespaces` at 0; the message names what it met.

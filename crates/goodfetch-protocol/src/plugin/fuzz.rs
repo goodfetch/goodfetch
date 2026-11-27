@@ -7,6 +7,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::net::{NET_FETCH, NetFetchParams};
 use super::{
     CANCEL, HELLO, PING, PLUGIN_PROTOCOL, PluginCancelParams, PluginHelloParams, PluginHelloResult,
     PluginManifest, PluginPingParams, check_hello,
@@ -49,8 +50,8 @@ pub fn fuzz_plugin_manifest(data: &[u8]) {
 
 /// Reads each line of `data` as a plugin protocol message, as a Plugin's
 /// stdout carries them: one that reads writes a line that reads back as
-/// the same kind of message; the params of `hello`, `$/ping` and
-/// `$/cancel`, their `_meta` included, decode or are refused; and a result
+/// the same kind of message; the params of `hello`, `$/ping`, `net.fetch`
+/// and `$/cancel`, their `_meta` included, decode or are refused; and a result
 /// that decodes as a `hello` result is held to an approved manifest, which
 /// accepts it only in a version both sides speak.
 pub fn fuzz_plugin_messages(data: &[u8]) {
@@ -78,6 +79,8 @@ pub fn fuzz_plugin_messages(data: &[u8]) {
                     let _ = PluginHelloParams::deserialize(&params);
                 } else if method == PING {
                     let _ = PluginPingParams::deserialize(&params);
+                } else if method == NET_FETCH {
+                    let _ = NetFetchParams::deserialize(&params);
                 }
             }
             Message::Notification(Notification { method, params, .. }) if method == CANCEL => {

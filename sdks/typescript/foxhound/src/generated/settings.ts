@@ -738,6 +738,12 @@ export interface FoxhoundSettings {
      */
     readonly maxPricePerPage?: string | null;
   };
+  /**
+   * Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.
+   *
+   * `plugins`.
+   */
+  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly settings?: { readonly [key: string]: unknown } } };
   readonly politeness?: {
     readonly backoff?: {
       /**
@@ -2012,6 +2018,12 @@ export interface CrawlSettings {
      */
     readonly maxPricePerPage?: string | null;
   };
+  /**
+   * Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.
+   *
+   * `plugins`.
+   */
+  readonly plugins?: { readonly [key: string]: { readonly allow?: boolean; readonly approved?: { readonly browsers?: readonly string[]; readonly direct?: boolean; readonly effects?: readonly string[]; readonly pageScript?: readonly string[]; readonly secretValues?: readonly string[]; readonly secrets?: readonly string[]; readonly sessionCredentials?: readonly string[] }; readonly digest?: string; readonly settings?: { readonly [key: string]: unknown } } };
   readonly politeness?: {
     readonly backoff?: {
       /**
@@ -2936,6 +2948,7 @@ const SPELLING: Spelling = {
     exchangeRates: "exchange_rates",
     maxPricePerPage: "max_price_per_page",
   }],
+  plugins: { setting: "plugins", value: { values: { fields: { "approved": ["approved", { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } }] } } } },
   politeness: ["politeness", {
     backoff: ["backoff", {
       enabled: "enabled",

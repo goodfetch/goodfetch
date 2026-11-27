@@ -145,6 +145,11 @@ class ArtifactKind(StrEnum):
     """A full Clean-up rules set (ADR 0047)."""
     mouse_movements = "mouse_movements"
     """Recorded mouse movements (ADR 0035)."""
+    plugin = "plugin"
+    """
+    A Plugin's artifact (ADR 0033), which the Plugin store keeps rather
+    than the Browser cache.
+    """
 
 
 class Asked(RootModel[Literal[True]]):
@@ -2263,6 +2268,17 @@ class NotADaemonDetails(BaseModel):
     )
 
 
+class NotAllowedReason(StrEnum):
+    """Why `plugin_not_allowed` refused a Plugin."""
+
+    not_allowed = "not_allowed"
+    """The Operator policy does not allow it."""
+    denied = "denied"
+    """The Operator policy denies it."""
+    digest = "digest"
+    """The Operator policy pins it to another digest."""
+
+
 class NothingDone1(BaseModel):
     """The start found the Run ended."""
 
@@ -2812,6 +2828,111 @@ class PeriodLength(StrEnum):
     """From the first day's midnight to the next month's."""
 
 
+class Permission1(BaseModel):
+    """Causing Effects on one domain."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The domain."""
+    permission: Literal["effects"]
+
+
+class Permission2(BaseModel):
+    """Running script in the pages of one domain."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The domain."""
+    permission: Literal["page_script"]
+
+
+class Permission3(BaseModel):
+    """The logged-in Session's credentials for one domain."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    domain: str
+    """The domain."""
+    permission: Literal["session_credentials"]
+
+
+class Permission4(BaseModel):
+    """One Secret reference, whose value the engine inserts on the way out."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    permission: Literal["secret"]
+    reference: str
+    """The Secret reference, such as `env:TOKEN`."""
+
+
+class Permission5(BaseModel):
+    """One Secret reference's value itself, released to the Plugin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    permission: Literal["secret_value"]
+    reference: str
+    """The Secret reference."""
+
+
+class Permission6(BaseModel):
+    """A browser the Plugin adds, for one platform, by its digest."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    digest: str
+    """The download's digest, `sha256:<hex>`."""
+    name: str
+    """The browser's name."""
+    permission: Literal["browser"]
+    platform: str
+    """The platform, such as `linux-x64`."""
+
+
+class Permission7(BaseModel):
+    """The network directly, at the `direct` level."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    permission: Literal["direct"]
+
+
+class Permission(
+    RootModel[
+        Permission1
+        | Permission2
+        | Permission3
+        | Permission4
+        | Permission5
+        | Permission6
+        | Permission7
+    ]
+):
+    root: (
+        Permission1
+        | Permission2
+        | Permission3
+        | Permission4
+        | Permission5
+        | Permission6
+        | Permission7
+    )
+    """
+    One permission a Plugin's manifest asks for, which the Operator policy
+    approves on its own.
+    """
+
+
 class PersonRequiredDetails(BaseModel):
     """What `person_required` details."""
 
@@ -2868,6 +2989,81 @@ class PlanStatus(StrEnum):
     """The Plan file is frozen."""
 
 
+class PluginApproval1(BaseModel):
+    """Written into the Operator policy, and recorded in the Audit log."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    outcome: Literal["written"]
+    policy: str
+    """The Operator policy file."""
+
+
+class PluginApproval2(BaseModel):
+    """
+    Not written: the Operator policy is managed elsewhere, by a device
+    manager or a configuration tool, so the person adds this entry
+    there.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entry: str
+    """The policy's `plugins.<name>` entry, as TOML."""
+    outcome: Literal["managed"]
+
+
+class PluginApproval(RootModel[PluginApproval1 | PluginApproval2]):
+    root: PluginApproval1 | PluginApproval2
+    """Where a person's approval of a Plugin went."""
+
+
+class PluginDigestMismatchDetails(BaseModel):
+    """What `plugin_digest_mismatch` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    found: str
+    """The digest the reference gives."""
+    locked: str
+    """The digest the lockfile pins."""
+    lockfile: str
+    """The lockfile."""
+    name: str
+    """The Plugin's name."""
+
+
+class PluginNotAllowedDetails(BaseModel):
+    """What `plugin_not_allowed` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    found: str | None = None
+    """The digest installed, for a pin, when the store records one."""
+    pinned: str | None = None
+    """The digest the Operator policy pins it to, for a pin."""
+    plugin: str
+    """The Plugin's name."""
+    reason: NotAllowedReason
+    """Why it is refused."""
+
+
+class PluginPermissionDeniedDetails(BaseModel):
+    """What `plugin_permission_denied` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    permission: Permission
+    """The permission it needs."""
+    plugin: str
+    """The Plugin's name."""
+
+
 class PluginRun(BaseModel):
     """A Plugin that ran in a Run (ADRs 0016 and 0033)."""
 
@@ -2883,6 +3079,26 @@ class PluginRun(BaseModel):
     """Its name."""
     network_level: str
     """The network level it ran at."""
+
+
+class PluginSettingsSchema(BaseModel):
+    """
+    An installed Plugin's settings schema, as `config.explain` answers it:
+    what its entry's `settings` in `plugins` takes (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Plugin's name, its key in `plugins`."""
+    schema_: Annotated[Any, Field(alias="schema")]
+    """
+    Its manifest's `settings_schema`, a JSON Schema, in which a field
+    marked `"secret": true` takes only a Secret reference.
+    """
+    version: str
+    """The version installed."""
 
 
 class PluginUsage(BaseModel):
@@ -4094,11 +4310,14 @@ class SampleStorePutResult(BaseModel):
 
 class SandboxEnvironment(StrEnum):
     """
-    What refuses the user namespace Chromium's sandbox starts in, on a host
-    where a fix exists or the probe does not recognise the refusal (ADR
-    0049).
+    What refuses the user namespace Chromium's sandbox starts in, and a
+    process Plugin's confinement, on a host where a fix exists or the probe
+    does not recognise the refusal (ADRs 0033 and 0049): the engine's one
+    startup probe names it for both.
     """
 
+    wsl1 = "wsl1"
+    """WSL1, which offers neither seccomp nor user namespaces."""
     docker_default_seccomp = "docker_default_seccomp"
     """
     Docker's or containerd's default seccomp profile, which refuses
@@ -4112,7 +4331,7 @@ class SandboxEnvironment(StrEnum):
     apparmor_userns = "apparmor_userns"
     """
     Ubuntu's AppArmor restriction on unprivileged user namespaces, with
-    no profile that gives the browser one.
+    no profile that gives the browser, or Goodfetch's executable, one.
     """
     unknown = "unknown"
     """
@@ -4929,6 +5148,23 @@ class StateFileFormat(StrEnum):
     """A CDP `Network.Cookie` array."""
     session_export = "session_export"
     """A session export bundle, opened with `key` (ADR 0015)."""
+
+
+class StatedPermission(BaseModel):
+    """
+    A permission with what it lets the Plugin do and what the engine cannot
+    check, in plain words, as an approval states them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cannot_check: str
+    """What the engine cannot check once it is approved."""
+    lets: str
+    """What it lets the Plugin do."""
+    permission: Permission
+    """The permission."""
 
 
 class StopReason2(BaseModel):
@@ -6214,6 +6450,22 @@ class ConfigExplainParams(BaseModel):
     """
     Run-layer values to explain with, as a Run's `settings` would give
     them.
+    """
+
+
+class ConfinementUnavailableDetails(BaseModel):
+    """
+    What `confinement_unavailable` details, where the engine's startup
+    probe found the host cannot confine a Plugin (ADRs 0033 and 0049).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    environment: SandboxEnvironment
+    """
+    What keeps the host from confining it: the same environment that
+    explains the browser's sandbox.
     """
 
 
@@ -7797,6 +8049,61 @@ class PlanReport(BaseModel):
     """The steps that changed, each Agent task one entry (ADR 0100)."""
     version: Annotated[int | None, Field(ge=0)] = None
     """The version it used."""
+
+
+class PluginAddParams(BaseModel):
+    """What `plugin.add` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    approve: bool | None = None
+    """
+    Whether the person approved the Plugin and each permission its
+    manifest declares, as they were shown before the call (ADR 0033):
+    the engine then allows it, pins it to its digest and approves those
+    permissions in the Operator policy, or answers the entry to put in
+    a policy managed elsewhere.
+    """
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083): the
+    lockfile goes beside it, else in the Goodfetch home's configuration
+    folder.
+    """
+    reference: str
+    """
+    The Plugin's OCI reference,
+    `<registry>/<repository>@sha256:<hex>`: the repository's last
+    segment is `goodfetch-plugin-<name>`, and the digest is its image
+    index's. No tag names one, since a tag moves.
+    """
+
+
+class PluginAdded(BaseModel):
+    """What `plugin.add` answers once the Plugin is installed and pinned."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    approval: PluginApproval | None = None
+    """Where the person's approval went, when they gave one."""
+    digest: str
+    """
+    The digest of its multi-platform image index, `sha256:<hex>`, which
+    the lockfile pins.
+    """
+    lockfile: str
+    """The lockfile that pins it."""
+    name: str
+    """The Plugin's name."""
+    permissions: list[StatedPermission] | None = None
+    """
+    Each permission its manifest declares, with what it lets the Plugin
+    do and what the engine cannot check.
+    """
+    version: str
+    """Its version, as its manifest names it."""
 
 
 class PolicyChange(BaseModel):
@@ -9909,6 +10216,12 @@ class SettingsExplanation(BaseModel):
     )
     files: list[SettingsFile]
     """The files of the configuration layers, lowest first."""
+    plugins: list[PluginSettingsSchema] | None = None
+    """
+    Each installed Plugin whose manifest declares a `settings_schema`,
+    by name, with that schema: what `plugins.<name>.settings` takes
+    (ADR 0033). Explaining keys that leave `plugins` out lists none.
+    """
     policy_version: str | None = None
     """
     The Operator policy's version, `sha256:` and the first 16 hex digits

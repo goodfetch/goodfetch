@@ -309,12 +309,15 @@ pub(crate) struct Server<'a> {
 /// An Operator-configured endpoint the engine connects to on its own
 /// behalf, the second egress class (ADR 0017): no run's domain policy,
 /// private ranges or certificate exception applies to it. Its kind is a row
-/// of `egress`'s `CONFIGURED_KINDS`.
+/// of `egress`'s `CONFIGURED_KINDS`. A Plugin's `net.fetch` goes the same
+/// way to a destination checked as a page's, under the run's domain policy
+/// (ADR 0033), and takes no certificate exception either.
 pub(crate) struct ConfiguredEndpoint<'a> {
     /// Its kind.
     pub(crate) kind: ConfiguredKind,
-    /// What the Operator policy lets it reach.
-    pub(crate) policy: EndpointPolicy,
+    /// The egress class it is judged under: [`Gate::Endpoint`] with what
+    /// the Operator policy lets it reach, but for a Plugin's destination.
+    pub(crate) gate: Gate<'a>,
     /// The `resolve` setting.
     pub(crate) resolve: &'a HostMapping,
     /// What its certificate may chain to beside Mozilla's roots: the
@@ -354,12 +357,29 @@ impl ConfiguredEndpoint<'_> {
     /// Dropping the future closes any connection it opened.
     pub(crate) async fn send<B: RequestBody>(
         &self,
+        request: Request<B>,
+    ) -> Result<Response, EndpointFailure> {
+        let url = request.uri().to_string();
+        self.send_at(&url, request).await
+    }
+
+    /// Sends `request` to `url`, an absolute URL as it was given, which
+    /// its gate parses and judges: the request's own URI is replaced by
+    /// the path and query of the URL as the parser leaves it. As
+    /// [`Self::send`] otherwise.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes any connection it opened.
+    pub(crate) async fn send_at<B: RequestBody>(
+        &self,
+        url: &str,
         mut request: Request<B>,
     ) -> Result<Response, EndpointFailure> {
         let failed = |failure| EndpointFailure::Failed(failure);
-        let url = request.uri().to_string();
-        let passed = Gate::Endpoint(self.policy)
-            .pass(&url, async |host, port| {
+        let passed = self
+            .gate
+            .pass(url, async |host, port| {
                 let server = Server {
                     host,
                     port,
@@ -403,7 +423,7 @@ impl ConfiguredEndpoint<'_> {
         };
         tracing::debug!(
             kind = self.kind.classed().name,
-            "connecting to an Operator-configured endpoint"
+            "connecting to a configured destination"
         );
         let network = Network {
             resolve: self.resolve,
@@ -533,18 +553,63 @@ impl EndpointSettings {
         request: Request<Bytes>,
         limit: usize,
     ) -> Result<hyper::Response<Bytes>, WholeFailure> {
+        let url = request.uri().to_string();
         let trust = self.trust().await;
+        self.send_whole_through(
+            kind,
+            Gate::Endpoint(self.policy),
+            &trust,
+            &url,
+            request,
+            limit,
+        )
+        .await
+    }
+
+    /// What the machine's settings let every Operator-configured endpoint
+    /// reach.
+    pub(crate) fn policy(&self) -> EndpointPolicy {
+        self.policy
+    }
+
+    /// Sends `request` to `url`, as it was given, through `gate`, trusting
+    /// `trust`, which [`Self::trust`] read, and answers as
+    /// [`Self::send_whole`]: a Plugin's `net.fetch` (ADR 0033), whose
+    /// destination [`Gate::Session`] judges as a page's, to which no client
+    /// certificate is presented, or [`Gate::PluginEndpoint`] as an
+    /// Operator-configured endpoint's.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::send_whole`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes the connection it opened.
+    pub(crate) async fn send_whole_through(
+        &self,
+        kind: ConfiguredKind,
+        gate: Gate<'_>,
+        trust: &Trust,
+        url: &str,
+        request: Request<Bytes>,
+        limit: usize,
+    ) -> Result<hyper::Response<Bytes>, WholeFailure> {
+        let presenting = match gate {
+            Gate::Session { .. } => None,
+            Gate::Endpoint(_) | Gate::PluginEndpoint(_) => Some(&self.client_certificates),
+        };
         let endpoint = ConfiguredEndpoint {
             kind,
-            policy: self.policy,
+            gate,
             resolve: &self.resolve,
-            trust: &trust,
-            presenting: Some(&self.client_certificates),
+            trust,
+            presenting,
             clock: self.clock,
             delays: self.delays,
         };
         let mut answer = endpoint
-            .send(request.map(Full::new))
+            .send_at(url, request.map(Full::new))
             .await
             .map_err(|failure| match failure {
                 EndpointFailure::Refused(refused) => WholeFailure::Refused(refused),
@@ -647,7 +712,7 @@ impl EndpointSettings {
     /// `tls.trusted_cas` lists for each domain, read now on its blocking
     /// threads, as [`Trust::of`] reads them for a site; a file that cannot
     /// be read is logged and trusts nothing.
-    async fn trust(&self) -> Trust {
+    pub(crate) async fn trust(&self) -> Trust {
         let listed = self.trusted_cas.clone();
         self.blocking
             .run(move || {

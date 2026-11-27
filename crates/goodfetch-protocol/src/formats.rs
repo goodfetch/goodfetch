@@ -20,6 +20,7 @@ use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
 use crate::notifications::{NOTIFICATION_PAYLOAD_VERSION, NotificationPayload};
+use crate::plugin::lockfile::{LOCKFILE_VERSION, PluginLockfile};
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
@@ -485,6 +486,18 @@ pub const PLUGIN_MANIFEST: Format = Format {
     schema: schema_of::<PluginManifest>,
 };
 
+/// The Plugin lockfile (ADR 0033), `goodfetch-plugins.lock`: its reader
+/// takes the version first, reads its own major up to its own minor, and
+/// refuses any other before the rest.
+pub const PLUGIN_LOCKFILE: Format = Format {
+    name: "plugin-lockfile",
+    version: LOCKFILE_VERSION,
+    storage: Storage::Toml,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<PluginLockfile>,
+};
+
 /// The body of a `webhook` channel's delivery (ADRs 0027 and 0030), which
 /// a receiver's verification helper reads: programs of every SDK version
 /// receive it, so it is of the Usage ledger's family, its major never
@@ -519,6 +532,7 @@ pub const FORMATS: &[&Format] = &[
     &RECIPE_MANIFEST,
     &PLUGIN_PROTOCOL,
     &PLUGIN_MANIFEST,
+    &PLUGIN_LOCKFILE,
     &NOTIFICATION_PAYLOAD,
 ];
 

@@ -89,6 +89,35 @@ fn only_a_duration_setting_reads_a_suffix(#[case] flag: &str, #[case] expected: 
     assert_eq!(set(flag), expected);
 }
 
+/// A key below a setting that maps names to values, as a Plugin's field
+/// below `plugins`, sets that field alone: it nests into the setting's
+/// value, beating `--settings`' value of that field and keeping its others.
+///
+/// Covers: story:7-79
+#[test]
+fn set_takes_a_field_below_a_setting_that_maps_names_to_values() {
+    let run_layer = from_file(
+        r#"{ "plugins": { "kettle": { "settings": { "depth": 2, "language": "fr" } } } }"#,
+        &[
+            "--set",
+            "plugins.kettle.settings.depth=3",
+            "--set",
+            "plugins.kettle.settings.token=env:TOKEN",
+            "--set",
+            "plugins.scripted.settings.depth=1",
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(
+        run_layer,
+        json!({ "plugins": {
+            "kettle": { "settings": { "depth": 3, "language": "fr", "token": "env:TOKEN" } },
+            "scripted": { "settings": { "depth": 1 } },
+        } })
+    );
+}
+
 /// The run layer of `--settings` naming a file that holds `text`, then
 /// `more` arguments.
 fn from_file(text: &str, more: &[&str]) -> Result<Value, clap::Error> {

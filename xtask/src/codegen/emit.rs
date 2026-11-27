@@ -75,6 +75,7 @@ use goodfetch_protocol::live_view::{CHANNEL_PATH, LiveViewEngineMessage, LiveVie
 use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
+use goodfetch_protocol::plugin::net::{NetFetchParams, NetFetchResult};
 use goodfetch_protocol::plugin::{
     PluginCancelParams, PluginHelloParams, PluginHelloResult, PluginManifest, PluginPingParams,
     PluginPingResult,
@@ -128,18 +129,7 @@ pub(super) fn emit() -> Emitted {
         "record": { "params": generator.subschema_for::<RecordRead>() },
         "meta": generator.subschema_for::<RequestMeta>(),
     });
-    let plugin = json!({
-        "hello": {
-            "params": generator.subschema_for::<PluginHelloParams>(),
-            "result": generator.subschema_for::<PluginHelloResult>(),
-        },
-        "cancel": { "params": generator.subschema_for::<PluginCancelParams>() },
-        "ping": {
-            "params": generator.subschema_for::<PluginPingParams>(),
-            "result": generator.subschema_for::<PluginPingResult>(),
-        },
-        "manifest": generator.subschema_for::<PluginManifest>(),
-    });
+    let plugin = plugin_protocol(&mut generator);
     let outputs = outputs(&mut generator);
     let command_failed = generator.subschema_for::<CommandFailed>();
     let shared_types = json!({ "block_cause": generator.subschema_for::<BlockCause>() });
@@ -193,6 +183,27 @@ pub(super) fn emit() -> Emitted {
         }),
         catalog: sections.into_catalog(&exit_codes, &protocol_failures),
     }
+}
+
+/// The Plugin protocol's calls (ADR 0033): each call's params and result,
+/// and the Plugin's manifest.
+fn plugin_protocol(generator: &mut SchemaGenerator) -> Value {
+    json!({
+        "hello": {
+            "params": generator.subschema_for::<PluginHelloParams>(),
+            "result": generator.subschema_for::<PluginHelloResult>(),
+        },
+        "cancel": { "params": generator.subschema_for::<PluginCancelParams>() },
+        "ping": {
+            "params": generator.subschema_for::<PluginPingParams>(),
+            "result": generator.subschema_for::<PluginPingResult>(),
+        },
+        "net_fetch": {
+            "params": generator.subschema_for::<NetFetchParams>(),
+            "result": generator.subschema_for::<NetFetchResult>(),
+        },
+        "manifest": generator.subschema_for::<PluginManifest>(),
+    })
 }
 
 /// Each registered format's name, version, storage, rule and schema.

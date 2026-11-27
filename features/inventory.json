@@ -676,6 +676,17 @@
       ]
     },
     {
+      "id": "command:plugin.add",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:recipe.digest",
       "kind": "command",
       "area": 11,
@@ -2219,6 +2230,28 @@
       ]
     },
     {
+      "id": "error:plugin_artifact_refused",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_call_back_refused",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_crashed",
       "kind": "error",
       "area": 7,
@@ -2230,7 +2263,73 @@
       ]
     },
     {
+      "id": "error:plugin_digest_mismatch",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_fetch_failed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_installed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_lockfile_invalid",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_manifest_mismatch",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_not_allowed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_permission_denied",
       "kind": "error",
       "area": 7,
       "milestone": null,
@@ -3582,6 +3681,17 @@
       ]
     },
     {
+      "id": "format:plugin-lockfile",
+      "kind": "format",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:plugin-manifest",
       "kind": "format",
       "area": 7,
@@ -4507,6 +4617,17 @@
       "id": "operation:page.wait_for_url",
       "kind": "operation",
       "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.add",
+      "kind": "operation",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [
@@ -10567,6 +10688,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:plugins",
+      "kind": "setting",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

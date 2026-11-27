@@ -11,7 +11,7 @@ import {
   type ErrorIdentity,
   type ErrorLimit,
 } from "../goodfetch-error.ts";
-import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails, WebhookInvalidDetails } from "./types.ts";
+import type { AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConfinementUnavailableDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PluginDigestMismatchDetails, PluginNotAllowedDetails, PluginPermissionDeniedDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails, WebhookInvalidDetails } from "./types.ts";
 import { collieWire } from "./wire.ts";
 
 export {
@@ -330,7 +330,7 @@ export class BrowserNotInstalledError extends UnavailableError<"browser_not_inst
 }
 
 /**
- * Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
+ * Chromium's sandbox cannot start on this host, so the engine launches no browser. `environment` names what refuses it (WSL1, Docker's or containerd's default seccomp profile, Kubernetes' `RuntimeDefault`, Ubuntu's AppArmor restriction on unprivileged user namespaces, or `unknown` for a refusal the probe does not recognise, which the message names), and `fix` the fix; an Operator policy may instead switch `security.browser_sandbox` off, which the run reports.
  */
 export class BrowserSandboxUnavailableError extends UnavailableError<"browser_sandbox_unavailable"> {
   /**
@@ -511,8 +511,15 @@ export class ClosedError extends ProgramError<"closed"> {
  * The host cannot confine the Plugin as it must run: it has no seccomp at all (WSL1), or neither user namespaces nor Landlock ABI 6 (a container under Docker's default seccomp profile on a kernel before 6.12), or it cannot provide the network level the Plugin's manifest declares, which is never silently weakened. A third-party Plugin is always refused; a first-party one, shipped in the engine's own release, too, unless the Operator policy's `plugins.<name>.reduced_confinement` lets it run with the confinement the host offers. A Bridge Sink is refused with it under a container runtime that runs as root.
  */
 export class ConfinementUnavailableError extends RefusedError<"confinement_unavailable"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<ConfinementUnavailableDetails> | undefined;
+
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "ConfinementUnavailableError", code: "confinement_unavailable", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<ConfinementUnavailableDetails>(fields.details, ["environment"]);
   }
 }
 
@@ -1296,6 +1303,24 @@ export class PersonRequiredError extends RefusedError<"person_required"> {
 }
 
 /**
+ * The Plugin's registry served an artifact the engine refuses to install: an image index or manifest it does not read, no artifact for the host's platform, or a bundle with an entry whose path leaves it, a link whose target leaves it, a device file, or more entries or bytes than a bundle may hold. The message names the reason; nothing is left in the Plugin store.
+ */
+export class PluginArtifactRefusedError extends RefusedError<"plugin_artifact_refused"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginArtifactRefusedError", code: "plugin_artifact_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The engine refused a Plugin's call back: it came while the Plugin served no call the engine made to it, it named another call's `call_id`, or it asked for what the Plugin may not do, such as a `net.fetch` other than `GET` or `HEAD` toward a destination checked as a page's, which is an Effect, or a request that sets a header the engine sets itself. Call back only while serving a call, with that call's `call_id`.
+ */
+export class PluginCallBackRefusedError extends RefusedError<"plugin_call_back_refused"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginCallBackRefusedError", code: "plugin_call_back_refused", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The process Plugin crashed while it held the call, and restarts with backoff. A read or an idempotent write fails with it and is retried under its lease; an Effect with no check is never retried blindly, but reported uncertain for Reconciliation instead. Repeated crashes quarantine the Plugin.
  */
 export class PluginCrashedError extends UnavailableError<"plugin_crashed"> {
@@ -1305,11 +1330,86 @@ export class PluginCrashedError extends UnavailableError<"plugin_crashed"> {
 }
 
 /**
+ * The Plugin lockfile pins the Plugin's name to another image index digest than the one its reference gives, so nothing is installed and the lockfile is left as it was. Give the reference with the pinned digest, or remove the Plugin's entry from the lockfile to accept the new one.
+ */
+export class PluginDigestMismatchError extends RefusedError<"plugin_digest_mismatch"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PluginDigestMismatchDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginDigestMismatchError", code: "plugin_digest_mismatch", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<PluginDigestMismatchDetails>(fields.details, ["name", "locked", "found", "lockfile"]);
+  }
+}
+
+/**
+ * The engine sent a Plugin's `net.fetch` and got no response: its host had no address, no connection to it could be opened, or the connection broke before the whole response arrived. Nothing about the destination's egress check failed; ask again later, or check that the host is up and reachable from the engine's machine.
+ */
+export class PluginFetchFailedError extends UnavailableError<"plugin_fetch_failed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginFetchFailedError", code: "plugin_fetch_failed", group: "unavailable", retryable: true });
+  }
+}
+
+/**
+ * The Plugin store holds a version of the Plugin already, and the Plugin lockfile does not pin its name to the reference's digest, so nothing is pulled and the lockfile is left as it was. `plugin update` replaces an installed Plugin.
+ */
+export class PluginInstalledError extends RefusedError<"plugin_installed"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginInstalledError", code: "plugin_installed", group: "refused", retryable: false });
+  }
+}
+
+/**
+ * The Plugin lockfile, `goodfetch-plugins.lock`, is not TOML, holds a field a lockfile has not, or pins one Plugin name twice, so the engine leaves it as it is and installs nothing. The message names the fault; correct the file, or restore it from version control. A lockfile of a version this engine does not read fails with `format_version_unsupported` instead.
+ */
+export class PluginLockfileInvalidError extends RefusedError<"plugin_lockfile_invalid"> {
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginLockfileInvalidError", code: "plugin_lockfile_invalid", group: "refused", retryable: false });
+  }
+}
+
+/**
  * The Plugin's answer to `hello` differs from its approved manifest in its kinds, its Hook stages, its plugin protocol range or its network level, so the engine stops the instance before any call. Approve the Plugin's current manifest again, or install the version that was approved.
  */
 export class PluginManifestMismatchError extends UnavailableError<"plugin_manifest_mismatch"> {
   constructor(message: string, fields: ErrorFields = {}) {
     super(message, { ...fields, name: "PluginManifestMismatchError", code: "plugin_manifest_mismatch", group: "unavailable", retryable: false });
+  }
+}
+
+/**
+ * The Operator policy does not let the Plugin load: it is not first-party and `plugins.<name>.allow` is not `true`, `plugins.<name>.allow` is `false`, or `plugins.<name>.digest` pins it to another digest than the one installed. A Private component is never first-party. The details name the Plugin, the reason and, for a pin, both digests; the `fix` names the Operator policy entry to set, or `goodfetch plugin add <reference>`, which writes it after a person approves it.
+ */
+export class PluginNotAllowedError extends RefusedError<"plugin_not_allowed"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PluginNotAllowedDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginNotAllowedError", code: "plugin_not_allowed", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<PluginNotAllowedDetails>(fields.details, ["plugin", "reason"]);
+  }
+}
+
+/**
+ * The Plugin needs a permission the Operator policy has not approved for it: `effects`, `page_script` or `session_credentials` for a domain, a Secret reference, a Secret reference's value, a browser's digest, or `direct`. Each is approved on its own, under `plugins.<name>.approved`. The details name the Plugin and the permission; the `fix` names the Operator policy entry to set, or `goodfetch plugin add <reference>`, which writes it after a person approves it.
+ */
+export class PluginPermissionDeniedError extends RefusedError<"plugin_permission_denied"> {
+  /**
+   * The code's details, typed; `undefined` when they lack a field the type
+   * requires, as those of an error a program builds without details do.
+   */
+  readonly typedDetails: Readonly<PluginPermissionDeniedDetails> | undefined;
+
+  constructor(message: string, fields: ErrorFields = {}) {
+    super(message, { ...fields, name: "PluginPermissionDeniedError", code: "plugin_permission_denied", group: "refused", retryable: false });
+    this.typedDetails = detailsOf<PluginPermissionDeniedDetails>(fields.details, ["plugin", "permission"]);
   }
 }
 
@@ -2191,8 +2291,16 @@ export const collieErrorClasses: Readonly<Record<string, ErrorClass>> = {
   path_unsafe: PathUnsafeError,
   pattern_unsupported: PatternUnsupportedError,
   person_required: PersonRequiredError,
+  plugin_artifact_refused: PluginArtifactRefusedError,
+  plugin_call_back_refused: PluginCallBackRefusedError,
   plugin_crashed: PluginCrashedError,
+  plugin_digest_mismatch: PluginDigestMismatchError,
+  plugin_fetch_failed: PluginFetchFailedError,
+  plugin_installed: PluginInstalledError,
+  plugin_lockfile_invalid: PluginLockfileInvalidError,
   plugin_manifest_mismatch: PluginManifestMismatchError,
+  plugin_not_allowed: PluginNotAllowedError,
+  plugin_permission_denied: PluginPermissionDeniedError,
   plugin_protocol_unsupported: PluginProtocolUnsupportedError,
   plugin_quarantined: PluginQuarantinedError,
   policy_conflict: PolicyConflictError,
@@ -2329,8 +2437,16 @@ export type CollieErrorCode =
   | "path_unsafe"
   | "pattern_unsupported"
   | "person_required"
+  | "plugin_artifact_refused"
+  | "plugin_call_back_refused"
   | "plugin_crashed"
+  | "plugin_digest_mismatch"
+  | "plugin_fetch_failed"
+  | "plugin_installed"
+  | "plugin_lockfile_invalid"
   | "plugin_manifest_mismatch"
+  | "plugin_not_allowed"
+  | "plugin_permission_denied"
   | "plugin_protocol_unsupported"
   | "plugin_quarantined"
   | "policy_conflict"
@@ -2385,7 +2501,7 @@ export type CollieErrorCode =
   | "value_invalid"
   | "webhook_invalid";
 
-const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "live_view_viewer_limit", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_crashed", "plugin_manifest_mismatch", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "recording_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_not_recorded", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid", "webhook_invalid"]);
+const collieErrorCodes: ReadonlySet<string> = new Set<CollieErrorCode>(["address_family_unavailable", "artifact_download_failed", "artifact_unavailable_offline", "blocked", "body_not_found", "body_unavailable", "browser_host_outdated", "browser_host_unreachable", "browser_launch_failed", "browser_needs_gui_session", "browser_not_installed", "browser_sandbox_unavailable", "call_cancelled", "capability_unavailable", "cdp_url_not_allowed", "cdp_url_not_browser", "cdp_url_unauthorized", "cdp_url_unreachable", "certificate_changed", "certificate_invalid", "challenge_unsolved", "checkpoint_behind", "closed", "confinement_unavailable", "connection_forked", "connection_lost", "connection_overloaded", "daemon_draining", "daemon_unreachable", "deadline_exceeded", "detach_unsupported", "dialog_already_handled", "edge_handlers_unsupported", "effect_key_invalid", "effect_key_reused", "effect_output_invalid", "effect_uncertain", "egress_refused", "engine_exited", "engine_not_found", "engine_output_invalid", "engine_panicked", "event_loop_mismatch", "executable_blocked_by_smart_app_control", "extract_handler_failed", "extractor_unavailable", "file_write_failed", "format_version_unsupported", "header_value_invalid", "hook_failed", "internal", "limit_not_understood", "limit_raise_refused", "limit_reached", "listener_events_lost", "listener_failed", "live_view_viewer_limit", "local_address_unavailable", "logged_out", "model_unavailable", "name_lookup_failed", "name_not_resolved", "navigation_failed", "navigation_interrupted", "not_a_daemon", "not_in_product", "not_verified", "page_check_failed", "page_crashed", "page_events_lost", "page_function_failed", "page_handler_failed", "page_memory_exceeded", "page_navigated_during_call", "page_value_invalid", "path_not_writable", "path_unsafe", "pattern_unsupported", "person_required", "plugin_artifact_refused", "plugin_call_back_refused", "plugin_crashed", "plugin_digest_mismatch", "plugin_fetch_failed", "plugin_installed", "plugin_lockfile_invalid", "plugin_manifest_mismatch", "plugin_not_allowed", "plugin_permission_denied", "plugin_protocol_unsupported", "plugin_quarantined", "policy_conflict", "protocol_version_unsupported", "proxy_auth_failed", "proxy_provider_unavailable", "proxy_relay_unavailable", "proxy_unavailable", "recipe_invalid", "recording_invalid", "replay_not_allowed", "resources_exhausted", "response_limit_exceeded", "response_not_json", "response_not_recorded", "response_truncated", "route_already_handled", "run_busy", "run_conflict", "run_ended", "run_id_invalid", "run_in_use", "run_interrupted", "run_key_mismatch", "run_live", "run_not_found", "run_not_owned", "run_state_filesystem_unsupported", "run_state_unavailable", "run_target_unbuilt", "sample_refused", "schedule_exists", "schedule_not_found", "schedule_trigger_invalid", "schema_validator_failed", "secret_domain_not_allowed", "secret_input_refused", "secret_unavailable", "secret_unbound", "session_bound_to_machine", "session_export_open_failed", "setting_invalid", "setting_locked", "setting_not_applicable", "setting_unknown", "site_preferences_refused", "skill_install_refused", "target_not_unique", "too_many_calls", "too_many_redirects", "upgrade_source_unsupported", "value_invalid", "webhook_invalid"]);
 
 /** An error with one of the Error codes Collie raises, which its `code` narrows to the code's class. */
 export type CollieError =
@@ -2468,8 +2584,16 @@ export type CollieError =
   | PathUnsafeError
   | PatternUnsupportedError
   | PersonRequiredError
+  | PluginArtifactRefusedError
+  | PluginCallBackRefusedError
   | PluginCrashedError
+  | PluginDigestMismatchError
+  | PluginFetchFailedError
+  | PluginInstalledError
+  | PluginLockfileInvalidError
   | PluginManifestMismatchError
+  | PluginNotAllowedError
+  | PluginPermissionDeniedError
   | PluginProtocolUnsupportedError
   | PluginQuarantinedError
   | PolicyConflictError

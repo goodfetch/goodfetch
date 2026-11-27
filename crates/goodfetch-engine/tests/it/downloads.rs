@@ -33,29 +33,48 @@ use hyper_util::rt::TokioIo;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::sync::mpsc;
 
-const HOST: &str = "builds.goodfetch.test";
+pub(crate) const HOST: &str = "builds.goodfetch.test";
 
 /// A request the stand-in received: its path and the names of its headers.
 #[derive(Debug, PartialEq, Eq)]
-struct Received {
-    path: String,
-    headers: Vec<String>,
+pub(crate) struct Received {
+    pub(crate) path: String,
+    pub(crate) headers: Vec<String>,
 }
+
+/// How a stand-in answers a request: from its path and headers, a status
+/// and a body.
+pub(crate) type Answer =
+    dyn Fn(&str, &hyper::HeaderMap) -> (StatusCode, Vec<u8>) + Send + Sync + 'static;
 
 /// An HTTPS server on loopback that serves fixed files and records what it
 /// was asked.
-struct StandIn {
+pub(crate) struct StandIn {
     port: u16,
     authority: CertificateDer<'static>,
     received: mpsc::Receiver<Received>,
 }
 
 impl StandIn {
+    /// Serves `files` by path, and `404 Not Found` for any other.
+    pub(crate) async fn serve(files: BTreeMap<&'static str, Vec<u8>>) -> Self {
+        Self::serve_with(move |path, _| {
+            files.get(path).map_or_else(
+                || (StatusCode::NOT_FOUND, Vec::new()),
+                |bytes| (StatusCode::OK, bytes.clone()),
+            )
+        })
+        .await
+    }
+
+    /// Answers each request with `answer`.
     #[expect(
         clippy::disallowed_methods,
         reason = "the stand-in server, outside the engine, runs its accept loop and connections on the test's runtime (ADR 0062)"
     )]
-    async fn serve(files: BTreeMap<&'static str, Vec<u8>>) -> Self {
+    pub(crate) async fn serve_with(
+        answer: impl Fn(&str, &hyper::HeaderMap) -> (StatusCode, Vec<u8>) + Send + Sync + 'static,
+    ) -> Self {
         let authority_key =
             rcgen::KeyPair::generate().expect("invariant: the stand-in and its fixtures set up");
         let mut authority_params = rcgen::CertificateParams::new(Vec::<String>::new())
@@ -91,7 +110,7 @@ impl StandIn {
             .expect("invariant: the stand-in and its fixtures set up")
             .port();
         let (record, received) = mpsc::channel(16);
-        let files = Arc::new(files);
+        let answer: Arc<Answer> = Arc::new(answer);
         tokio::spawn(async move {
             loop {
                 let (tcp, _) = listener
@@ -101,10 +120,10 @@ impl StandIn {
                 let Ok(tls) = acceptor.accept(tcp).await else {
                     continue;
                 };
-                let (files, record) = (Arc::clone(&files), record.clone());
+                let (answer, record) = (Arc::clone(&answer), record.clone());
                 let service =
                     hyper::service::service_fn(move |request: Request<hyper::body::Incoming>| {
-                        let (files, record) = (Arc::clone(&files), record.clone());
+                        let (answer, record) = (Arc::clone(&answer), record.clone());
                         async move {
                             let path = request.uri().path().to_owned();
                             let headers = request
@@ -118,13 +137,9 @@ impl StandIn {
                                     headers,
                                 })
                                 .await;
-                            let response = if let Some(bytes) = files.get(path.as_str()) {
-                                Response::new(Full::new(Bytes::from(bytes.clone())))
-                            } else {
-                                let mut missing = Response::new(Full::new(Bytes::new()));
-                                *missing.status_mut() = StatusCode::NOT_FOUND;
-                                missing
-                            };
+                            let (status, body) = answer(&path, request.headers());
+                            let mut response = Response::new(Full::new(Bytes::from(body)));
+                            *response.status_mut() = status;
                             Ok::<_, std::convert::Infallible>(response)
                         }
                     });
@@ -145,7 +160,12 @@ impl StandIn {
         format!("https://{HOST}:{}{path}", self.port)
     }
 
-    fn fetching(&self) -> Fetching {
+    /// Its host and port.
+    pub(crate) fn authority(&self) -> String {
+        format!("{HOST}:{}", self.port)
+    }
+
+    pub(crate) fn fetching(&self) -> Fetching {
         Fetching {
             offline: None,
             resolve: HostMapping::default().with(HOST, vec![IpAddr::V4(Ipv4Addr::LOCALHOST)]),
@@ -156,7 +176,7 @@ impl StandIn {
         }
     }
 
-    fn requests(&mut self) -> Vec<Received> {
+    pub(crate) fn requests(&mut self) -> Vec<Received> {
         let mut requests = Vec::new();
         while let Ok(request) = self.received.try_recv() {
             requests.push(request);

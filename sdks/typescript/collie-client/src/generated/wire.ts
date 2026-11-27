@@ -79,6 +79,10 @@ export type CollieWireType =
   | "KeyValueStoreKeysParams"
   | "KeyValueStoreSetBytesParams"
   | "KeyValueStoreSetParams"
+  | "KeyboardInsertTextParams"
+  | "KeyboardKeyParams"
+  | "KeyboardPressParams"
+  | "KeyboardTypeParams"
   | "KindConcurrency"
   | "KindUsage"
   | "LastRead"
@@ -99,6 +103,11 @@ export type CollieWireType =
   | "ModelCounts"
   | "ModelUnavailableDetails"
   | "ModelUsage"
+  | "MouseButtonParams"
+  | "MouseClickParams"
+  | "MouseDblclickParams"
+  | "MouseMoveParams"
+  | "MouseWheelParams"
   | "NameNotResolvedDetails"
   | "Navigated"
   | "NeedsYouChange"
@@ -217,6 +226,7 @@ export type CollieWireType =
   | "ThinNotification"
   | "TierProvenance"
   | "TimeRange"
+  | "TouchscreenTapParams"
   | "TransformProvenance"
   | "UncertainEffect"
   | "UsageListResult"
@@ -309,6 +319,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "KeyValueStoreKeysParams": { fields: { "run_id": "runId" } },
     "KeyValueStoreSetBytesParams": { fields: { "attempt": ["attempt", { type: "KeyValueStoreAttempt" }], "content_type": "contentType", "run_id": "runId" } },
     "KeyValueStoreSetParams": { fields: { "attempt": ["attempt", { type: "KeyValueStoreAttempt" }], "run_id": "runId" } },
+    "KeyboardInsertTextParams": { fields: { "page_id": "pageId" } },
+    "KeyboardKeyParams": { fields: { "page_id": "pageId" } },
+    "KeyboardPressParams": { fields: { "page_id": "pageId" } },
+    "KeyboardTypeParams": { fields: { "page_id": "pageId" } },
     "KindConcurrency": { fields: { "in_use": "inUse" } },
     "KindUsage": { fields: { "usage_kind": "usageKind" } },
     "LastRead": { fields: { "engine_instance": "engineInstance" } },
@@ -329,6 +343,11 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ModelCounts": { fields: { "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "input_tokens": "inputTokens", "output_tokens": "outputTokens", "reasoning_tokens": "reasoningTokens" } },
     "ModelUnavailableDetails": { fields: { "retry_after": "retryAfter" } },
     "ModelUsage": { fields: { "by_model": ["byModel", { values: { type: "ModelCounts" } }], "cache_read_tokens": "cacheReadTokens", "cache_write_tokens": "cacheWriteTokens", "input_tokens": "inputTokens", "output_tokens": "outputTokens", "reasoning_tokens": "reasoningTokens" } },
+    "MouseButtonParams": { fields: { "click_count": "clickCount", "page_id": "pageId" } },
+    "MouseClickParams": { fields: { "click_count": "clickCount", "page_id": "pageId" } },
+    "MouseDblclickParams": { fields: { "page_id": "pageId" } },
+    "MouseMoveParams": { fields: { "page_id": "pageId" } },
+    "MouseWheelParams": { fields: { "delta_x": "deltaX", "delta_y": "deltaY", "page_id": "pageId" } },
     "NameNotResolvedDetails": { fields: { "multicast_dns_name": "multicastDnsName" } },
     "Navigated": { fields: { "response": ["response", { type: "PageResponse" }] } },
     "NeedsYouChange": { fields: { "item": ["item", { type: "NeedsYouItem" }] } },
@@ -447,6 +466,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TimeRange": { fields: { "from": ["from", "time"], "until": ["until", "time"] } },
+    "TouchscreenTapParams": { fields: { "page_id": "pageId" } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
     "UncertainEffect": { fields: { "crawl_request": "crawlRequest", "first_command": "firstCommand", "since": ["since", "time"] } },
     "UsageListResult": { fields: { "limits": ["limits", { items: { type: "LimitUsage" } }] } },
@@ -495,12 +515,24 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.go_back": { type: "PageParams" },
     "page.go_forward": { type: "PageParams" },
     "page.goto": { type: "GotoParams" },
+    "page.keyboard.down": { type: "KeyboardKeyParams" },
+    "page.keyboard.insert_text": { type: "KeyboardInsertTextParams" },
+    "page.keyboard.press": { type: "KeyboardPressParams" },
+    "page.keyboard.type": { type: "KeyboardTypeParams" },
+    "page.keyboard.up": { type: "KeyboardKeyParams" },
+    "page.mouse.click": { type: "MouseClickParams" },
+    "page.mouse.dblclick": { type: "MouseDblclickParams" },
+    "page.mouse.down": { type: "MouseButtonParams" },
+    "page.mouse.move": { type: "MouseMoveParams" },
+    "page.mouse.up": { type: "MouseButtonParams" },
+    "page.mouse.wheel": { type: "MouseWheelParams" },
     "page.on": { type: "PageOnParams" },
     "page.on_dialog": { type: "PageOnDialogParams" },
     "page.read": { type: "PageReadParams" },
     "page.reload": { type: "PageParams" },
     "page.request": { type: "PageRequestParams" },
     "page.route": { type: "PageRouteParams" },
+    "page.touchscreen.tap": { type: "TouchscreenTapParams" },
     "page.wait_for_function": { type: "WaitForFunctionParams" },
     "page.wait_for_load_state": { type: "WaitForLoadStateParams" },
     "page.wait_for_request": { type: "WaitForExchangeParams" },

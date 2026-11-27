@@ -32,6 +32,7 @@ mod gesture_order;
 mod guard;
 mod hiding;
 mod init_scripts;
+mod input;
 mod interception;
 pub mod kept_tree;
 #[cfg(test)]

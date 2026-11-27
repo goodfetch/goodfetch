@@ -10726,6 +10726,126 @@
       ],
       "type": "object"
     },
+    "KeyboardInsertTextParams": {
+      "additionalProperties": false,
+      "description": "What `page.keyboard.insert_text` takes: the page and the text.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The text, inserted whole.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "text"
+      ],
+      "type": "object"
+    },
+    "KeyboardKeyParams": {
+      "additionalProperties": false,
+      "description": "What `page.keyboard.down` and `page.keyboard.up` take: the page, and one\nkey.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "One key, by Playwright's key names, such as `Shift`, `ArrowLeft` or\n`a`.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyboardPressParams": {
+      "additionalProperties": false,
+      "description": "What `page.keyboard.press` takes: the page, a key or a combination, and\nhow long each key stays down.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "delay": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds between its keys going down and coming up; none\nfor no wait.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by\nPlaywright's key names.",
+          "type": "string"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "key"
+      ],
+      "type": "object"
+    },
+    "KeyboardTypeParams": {
+      "additionalProperties": false,
+      "description": "What `page.keyboard.type` takes: the page, the text, and how long each\nkey stays down.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "delay": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds each key stays down, or a character with no key\nwaits before it is inserted; none for no wait.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "text": {
+          "arrived_in": "0.1",
+          "description": "The text, typed one character at a time.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page_id",
+        "text"
+      ],
+      "type": "object"
+    },
     "KindConcurrency": {
       "description": "One kind's concurrency.",
       "properties": {
@@ -14280,6 +14400,265 @@
         "cache_write_tokens",
         "output_tokens",
         "reasoning_tokens"
+      ],
+      "type": "object"
+    },
+    "MouseButton": {
+      "description": "A mouse button.",
+      "oneOf": [
+        {
+          "const": "left",
+          "description": "The left button, the default.",
+          "type": "string"
+        },
+        {
+          "const": "right",
+          "description": "The right button.",
+          "type": "string"
+        },
+        {
+          "const": "middle",
+          "description": "The middle button.",
+          "type": "string"
+        }
+      ]
+    },
+    "MouseButtonParams": {
+      "additionalProperties": false,
+      "description": "What `page.mouse.down` and `page.mouse.up` take: the page, the button,\nand which of a run of clicks it is.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "button": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MouseButton"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The button; none for the left one."
+        },
+        "click_count": {
+          "arrived_in": "0.1",
+          "description": "Which of a run of clicks it is, from 1, as `UIEvent.detail`; none\nfor 1.",
+          "format": "uint32",
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id"
+      ],
+      "type": "object"
+    },
+    "MouseClickParams": {
+      "additionalProperties": false,
+      "description": "What `page.mouse.click` takes: the page, the point, the button, how many\nclicks, and how long the button stays down.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "button": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MouseButton"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The button; none for the left one."
+        },
+        "click_count": {
+          "arrived_in": "0.1",
+          "description": "How many clicks, one after the other; none for 1. At most 10.",
+          "format": "uint32",
+          "maximum": 10,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "delay": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds the button stays down at each click, and between\ntwo clicks; none for no wait.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "x": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's left edge.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's top edge.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "page_id",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "MouseDblclickParams": {
+      "additionalProperties": false,
+      "description": "What `page.mouse.dblclick` takes: the page, the point, the button, and\nhow long the button stays down.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "button": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MouseButton"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The button; none for the left one."
+        },
+        "delay": {
+          "arrived_in": "0.1",
+          "description": "The milliseconds the button stays down at each click, and between\nthe two; none for no wait.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "x": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's left edge.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's top edge.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "page_id",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "MouseMoveParams": {
+      "additionalProperties": false,
+      "description": "What `page.mouse.move` takes: the page, the point, and how many moves\nthe mouse makes to it.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "steps": {
+          "arrived_in": "0.1",
+          "description": "The moves, evenly spaced from where the mouse is to the point, the\nlast on the point; none for one, as `0` is. At most 1000.",
+          "format": "uint32",
+          "maximum": 1000,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "x": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's left edge.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's top edge.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "page_id",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "MouseWheelParams": {
+      "additionalProperties": false,
+      "description": "What `page.mouse.wheel` takes: the page, and how far the wheel scrolls.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "delta_x": {
+          "arrived_in": "0.1",
+          "description": "How far it scrolls right, in CSS pixels; a negative value scrolls\nleft.",
+          "format": "double",
+          "type": "number"
+        },
+        "delta_y": {
+          "arrived_in": "0.1",
+          "description": "How far it scrolls down, in CSS pixels; a negative value scrolls\nup.",
+          "format": "double",
+          "type": "number"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        }
+      },
+      "required": [
+        "page_id",
+        "delta_x",
+        "delta_y"
       ],
       "type": "object"
     },
@@ -27169,6 +27548,39 @@
         "url",
         "hops",
         "limit"
+      ],
+      "type": "object"
+    },
+    "TouchscreenTapParams": {
+      "additionalProperties": false,
+      "description": "What `page.touchscreen.tap` takes: the page and the point.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "page_id": {
+          "$ref": "#/$defs/PageId",
+          "arrived_in": "0.1",
+          "description": "The page."
+        },
+        "x": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's left edge.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "arrived_in": "0.1",
+          "description": "The point's distance from the viewport's top edge.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "page_id",
+        "x",
+        "y"
       ],
       "type": "object"
     },

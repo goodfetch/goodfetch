@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -51,12 +51,24 @@ export interface CollieOperationTypes {
   "page.go_back": { params: PageParams; result: Navigated };
   "page.go_forward": { params: PageParams; result: Navigated };
   "page.goto": { params: GotoParams; result: Navigated };
+  "page.keyboard.down": { params: KeyboardKeyParams; result: Acted };
+  "page.keyboard.insert_text": { params: KeyboardInsertTextParams; result: Acted };
+  "page.keyboard.press": { params: KeyboardPressParams; result: Acted };
+  "page.keyboard.type": { params: KeyboardTypeParams; result: Acted };
+  "page.keyboard.up": { params: KeyboardKeyParams; result: Acted };
+  "page.mouse.click": { params: MouseClickParams; result: Acted };
+  "page.mouse.dblclick": { params: MouseDblclickParams; result: Acted };
+  "page.mouse.down": { params: MouseButtonParams; result: Acted };
+  "page.mouse.move": { params: MouseMoveParams; result: Acted };
+  "page.mouse.up": { params: MouseButtonParams; result: Acted };
+  "page.mouse.wheel": { params: MouseWheelParams; result: Acted };
   "page.on": { params: PageOnParams; result: PageOnEnded };
   "page.on_dialog": { params: PageOnDialogParams; result: DialogsEnded };
   "page.read": { params: PageReadParams; result: PageRead };
   "page.reload": { params: PageParams; result: Navigated };
   "page.request": { params: PageRequestParams; result: PageResponse };
   "page.route": { params: PageRouteParams; result: RouteEnded };
+  "page.touchscreen.tap": { params: TouchscreenTapParams; result: Acted };
   "page.wait_for_function": { params: WaitForFunctionParams; result: Evaluated };
   "page.wait_for_load_state": { params: WaitForLoadStateParams; result: Reached };
   "page.wait_for_request": { params: WaitForExchangeParams; result: PageRequest };
@@ -148,12 +160,24 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "page.go_back": { experimental: true, deprecated: undefined },
   "page.go_forward": { experimental: true, deprecated: undefined },
   "page.goto": { experimental: true, deprecated: undefined },
+  "page.keyboard.down": { experimental: true, deprecated: undefined },
+  "page.keyboard.insert_text": { experimental: true, deprecated: undefined },
+  "page.keyboard.press": { experimental: true, deprecated: undefined },
+  "page.keyboard.type": { experimental: true, deprecated: undefined },
+  "page.keyboard.up": { experimental: true, deprecated: undefined },
+  "page.mouse.click": { experimental: true, deprecated: undefined },
+  "page.mouse.dblclick": { experimental: true, deprecated: undefined },
+  "page.mouse.down": { experimental: true, deprecated: undefined },
+  "page.mouse.move": { experimental: true, deprecated: undefined },
+  "page.mouse.up": { experimental: true, deprecated: undefined },
+  "page.mouse.wheel": { experimental: true, deprecated: undefined },
   "page.on": { experimental: true, deprecated: undefined },
   "page.on_dialog": { experimental: true, deprecated: undefined },
   "page.read": { experimental: true, deprecated: undefined },
   "page.reload": { experimental: true, deprecated: undefined },
   "page.request": { experimental: true, deprecated: undefined },
   "page.route": { experimental: true, deprecated: undefined },
+  "page.touchscreen.tap": { experimental: true, deprecated: undefined },
   "page.wait_for_function": { experimental: true, deprecated: undefined },
   "page.wait_for_load_state": { experimental: true, deprecated: undefined },
   "page.wait_for_request": { experimental: true, deprecated: undefined },
@@ -245,12 +269,24 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "page.go_back": "page.goBack",
   "page.go_forward": "page.goForward",
   "page.goto": "page.goto",
+  "page.keyboard.down": "page.keyboard.down",
+  "page.keyboard.insert_text": "page.keyboard.insertText",
+  "page.keyboard.press": "page.keyboard.press",
+  "page.keyboard.type": "page.keyboard.type",
+  "page.keyboard.up": "page.keyboard.up",
+  "page.mouse.click": "page.mouse.click",
+  "page.mouse.dblclick": "page.mouse.dblclick",
+  "page.mouse.down": "page.mouse.down",
+  "page.mouse.move": "page.mouse.move",
+  "page.mouse.up": "page.mouse.up",
+  "page.mouse.wheel": "page.mouse.wheel",
   "page.on": "page.on",
   "page.on_dialog": "page.onDialog",
   "page.read": "page.read",
   "page.reload": "page.reload",
   "page.request": "page.request",
   "page.route": "page.route",
+  "page.touchscreen.tap": "page.touchscreen.tap",
   "page.wait_for_function": "page.waitForFunction",
   "page.wait_for_load_state": "page.waitForLoadState",
   "page.wait_for_request": "page.waitForRequest",
@@ -342,12 +378,24 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "page.go_back": "effect",
   "page.go_forward": "effect",
   "page.goto": "effect",
+  "page.keyboard.down": "effect",
+  "page.keyboard.insert_text": "effect",
+  "page.keyboard.press": "effect",
+  "page.keyboard.type": "effect",
+  "page.keyboard.up": "effect",
+  "page.mouse.click": "effect",
+  "page.mouse.dblclick": "effect",
+  "page.mouse.down": "effect",
+  "page.mouse.move": "effect",
+  "page.mouse.up": "effect",
+  "page.mouse.wheel": "effect",
   "page.on": "read",
   "page.on_dialog": "idempotent_write",
   "page.read": "read",
   "page.reload": "effect",
   "page.request": "effect",
   "page.route": "idempotent_write",
+  "page.touchscreen.tap": "effect",
   "page.wait_for_function": "effect",
   "page.wait_for_load_state": "read",
   "page.wait_for_request": "read",
@@ -811,6 +859,116 @@ export class CollieOperations {
   }
 
   /**
+   * Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageKeyboardDown(params: KeyboardKeyParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.keyboard.down");
+    return this.#caller.call("page.keyboard.down", params, options);
+  }
+
+  /**
+   * Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageKeyboardInsertText(params: KeyboardInsertTextParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.keyboard.insert_text");
+    return this.#caller.call("page.keyboard.insert_text", params, options);
+  }
+
+  /**
+   * Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageKeyboardPress(params: KeyboardPressParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.keyboard.press");
+    return this.#caller.call("page.keyboard.press", params, options);
+  }
+
+  /**
+   * Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageKeyboardType(params: KeyboardTypeParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.keyboard.type");
+    return this.#caller.call("page.keyboard.type", params, options);
+  }
+
+  /**
+   * Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageKeyboardUp(params: KeyboardKeyParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.keyboard.up");
+    return this.#caller.call("page.keyboard.up", params, options);
+  }
+
+  /**
+   * Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageMouseClick(params: MouseClickParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.mouse.click");
+    return this.#caller.call("page.mouse.click", params, options);
+  }
+
+  /**
+   * Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageMouseDblclick(params: MouseDblclickParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.mouse.dblclick");
+    return this.#caller.call("page.mouse.dblclick", params, options);
+  }
+
+  /**
+   * Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageMouseDown(params: MouseButtonParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.mouse.down");
+    return this.#caller.call("page.mouse.down", params, options);
+  }
+
+  /**
+   * Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageMouseMove(params: MouseMoveParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.mouse.move");
+    return this.#caller.call("page.mouse.move", params, options);
+  }
+
+  /**
+   * Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageMouseUp(params: MouseButtonParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.mouse.up");
+    return this.#caller.call("page.mouse.up", params, options);
+  }
+
+  /**
+   * Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageMouseWheel(params: MouseWheelParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.mouse.wheel");
+    return this.#caller.call("page.mouse.wheel", params, options);
+  }
+
+  /**
    * Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
    *
    * @experimental
@@ -868,6 +1026,16 @@ export class CollieOperations {
   pageRoute(params: PageRouteParams, options: CallOptions = {}): Promise<RouteEnded> {
     warnExperimental("page.route");
     return this.#caller.call("page.route", params, options);
+  }
+
+  /**
+   * Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  pageTouchscreenTap(params: TouchscreenTapParams, options: CallOptions = {}): Promise<Acted> {
+    warnExperimental("page.touchscreen.tap");
+    return this.#caller.call("page.touchscreen.tap", params, options);
   }
 
   /**

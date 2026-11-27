@@ -2135,6 +2135,17 @@ class ModelUnavailableDetails(BaseModel):
     """
 
 
+class MouseButton(StrEnum):
+    """A mouse button."""
+
+    left = "left"
+    """The left button, the default."""
+    right = "right"
+    """The right button."""
+    middle = "middle"
+    """The middle button."""
+
+
 class NameResolver(StrEnum):
     """Which resolver the engine asked for a name."""
 
@@ -5284,6 +5295,20 @@ class TooManyRedirectsDetails(BaseModel):
     """The count it went past, and what set it."""
 
 
+class TouchscreenTapParams(BaseModel):
+    """What `page.touchscreen.tap` takes: the page and the point."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    x: float
+    """The point's distance from the viewport's left edge."""
+    y: float
+    """The point's distance from the viewport's top edge."""
+
+
 class UncertainEffect(BaseModel):
     """An Effect a Run left uncertain (ADR 0106), until a person reconciles it."""
 
@@ -7034,6 +7059,79 @@ class KeyValueStoreSetParams(BaseModel):
     """
 
 
+class KeyboardInsertTextParams(BaseModel):
+    """What `page.keyboard.insert_text` takes: the page and the text."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    text: str
+    """The text, inserted whole."""
+
+
+class KeyboardKeyParams(BaseModel):
+    """
+    What `page.keyboard.down` and `page.keyboard.up` take: the page, and one
+    key.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """
+    One key, by Playwright's key names, such as `Shift`, `ArrowLeft` or
+    `a`.
+    """
+    page_id: PageId
+    """The page."""
+
+
+class KeyboardPressParams(BaseModel):
+    """
+    What `page.keyboard.press` takes: the page, a key or a combination, and
+    how long each key stays down.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    delay: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds between its keys going down and coming up; none
+    for no wait.
+    """
+    key: str
+    """
+    A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+    Playwright's key names.
+    """
+    page_id: PageId
+    """The page."""
+
+
+class KeyboardTypeParams(BaseModel):
+    """
+    What `page.keyboard.type` takes: the page, the text, and how long each
+    key stays down.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    delay: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds each key stays down, or a character with no key
+    waits before it is inserted; none for no wait.
+    """
+    page_id: PageId
+    """The page."""
+    text: str
+    """The text, typed one character at a time."""
+
+
 class LastRead(BaseModel):
     """
     The last event a Client read: its position, and the engine instance
@@ -7293,6 +7391,118 @@ class ModelUsage(BaseModel):
     The tokens, input and output, what the `model_tokens` Usage kind
     counts.
     """
+
+
+class MouseButtonParams(BaseModel):
+    """
+    What `page.mouse.down` and `page.mouse.up` take: the page, the button,
+    and which of a run of clicks it is.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    button: MouseButton | None = None
+    """The button; none for the left one."""
+    click_count: Annotated[int | None, Field(ge=1)] = None
+    """
+    Which of a run of clicks it is, from 1, as `UIEvent.detail`; none
+    for 1.
+    """
+    page_id: PageId
+    """The page."""
+
+
+class MouseClickParams(BaseModel):
+    """
+    What `page.mouse.click` takes: the page, the point, the button, how many
+    clicks, and how long the button stays down.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    button: MouseButton | None = None
+    """The button; none for the left one."""
+    click_count: Annotated[int | None, Field(ge=1, le=10)] = None
+    """How many clicks, one after the other; none for 1. At most 10."""
+    delay: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds the button stays down at each click, and between
+    two clicks; none for no wait.
+    """
+    page_id: PageId
+    """The page."""
+    x: float
+    """The point's distance from the viewport's left edge."""
+    y: float
+    """The point's distance from the viewport's top edge."""
+
+
+class MouseDblclickParams(BaseModel):
+    """
+    What `page.mouse.dblclick` takes: the page, the point, the button, and
+    how long the button stays down.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    button: MouseButton | None = None
+    """The button; none for the left one."""
+    delay: Annotated[int | None, Field(ge=0)] = None
+    """
+    The milliseconds the button stays down at each click, and between
+    the two; none for no wait.
+    """
+    page_id: PageId
+    """The page."""
+    x: float
+    """The point's distance from the viewport's left edge."""
+    y: float
+    """The point's distance from the viewport's top edge."""
+
+
+class MouseMoveParams(BaseModel):
+    """
+    What `page.mouse.move` takes: the page, the point, and how many moves
+    the mouse makes to it.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    page_id: PageId
+    """The page."""
+    steps: Annotated[int | None, Field(ge=0, le=1000)] = None
+    """
+    The moves, evenly spaced from where the mouse is to the point, the
+    last on the point; none for one, as `0` is. At most 1000.
+    """
+    x: float
+    """The point's distance from the viewport's left edge."""
+    y: float
+    """The point's distance from the viewport's top edge."""
+
+
+class MouseWheelParams(BaseModel):
+    """What `page.mouse.wheel` takes: the page, and how far the wheel scrolls."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    delta_x: float
+    """
+    How far it scrolls right, in CSS pixels; a negative value scrolls
+    left.
+    """
+    delta_y: float
+    """
+    How far it scrolls down, in CSS pixels; a negative value scrolls
+    up.
+    """
+    page_id: PageId
+    """The page."""
 
 
 class NameLookupFailedDetails(BaseModel):

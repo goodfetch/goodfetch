@@ -4,7 +4,9 @@
 //! `page.go_forward` navigate a page and answer the document's `Response`,
 //! or none for a file the browser downloads, which `page.download` reports;
 //! `locator.click`, `locator.fill` and `locator.press` act on the one
-//! element a locator matches, through the guard (ADR 0019); and the Error
+//! element a locator matches, through the guard (ADR 0019); its `input`
+//! module `page.keyboard`, `page.mouse` and `page.touchscreen`, input with
+//! no target, each call marked unguarded; and the Error
 //! codes a page's browser, its navigations, its locators and the URL
 //! patterns its calls pass fail with. Its `route` module holds the page's
 //! and the Session's routes, its `session` module a Run's own Sessions,
@@ -56,6 +58,7 @@ pub mod cdp_url;
 pub mod dialog;
 pub mod events;
 pub mod functions;
+pub mod input;
 pub mod proxy;
 pub mod read;
 pub mod request;
@@ -1972,6 +1975,18 @@ pub const ENTRIES: Entries = Entries {
         LOCATOR_CLICK,
         LOCATOR_FILL,
         LOCATOR_PRESS,
+        input::PAGE_KEYBOARD_DOWN,
+        input::PAGE_KEYBOARD_UP,
+        input::PAGE_KEYBOARD_PRESS,
+        input::PAGE_KEYBOARD_TYPE,
+        input::PAGE_KEYBOARD_INSERT_TEXT,
+        input::PAGE_MOUSE_MOVE,
+        input::PAGE_MOUSE_DOWN,
+        input::PAGE_MOUSE_UP,
+        input::PAGE_MOUSE_CLICK,
+        input::PAGE_MOUSE_DBLCLICK,
+        input::PAGE_MOUSE_WHEEL,
+        input::PAGE_TOUCHSCREEN_TAP,
         PAGE_ROUTE,
         SESSION_ROUTE,
         ROUTE_CONTINUE,

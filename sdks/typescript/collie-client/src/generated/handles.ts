@@ -274,6 +274,156 @@ export class Session extends Handle implements AsyncDisposable {
   }
 }
 
+/** The `keyboard` of a `Page` (ADR 0099). */
+export class PageKeyboard {
+  readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
+
+  /** @internal A `Page` holds its own; a program never constructs one. */
+  constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
+    this.#host = host;
+  }
+
+  /**
+   * Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async down(key: types.KeyboardKeyParams["key"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.keyboard.down");
+    return this.#host.call("page.keyboard.down", { pageId: this.#host.id, key }, { signal: options.signal });
+  }
+
+  /**
+   * Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async insertText(text: types.KeyboardInsertTextParams["text"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.keyboard.insert_text");
+    return this.#host.call("page.keyboard.insert_text", { pageId: this.#host.id, text }, { signal: options.signal });
+  }
+
+  /**
+   * Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async press(key: types.KeyboardPressParams["key"], options: { readonly delay?: types.KeyboardPressParams["delay"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.keyboard.press");
+    return this.#host.call("page.keyboard.press", defined({ pageId: this.#host.id, key, delay: options.delay }), { signal: options.signal });
+  }
+
+  /**
+   * Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async type(text: types.KeyboardTypeParams["text"], options: { readonly delay?: types.KeyboardTypeParams["delay"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.keyboard.type");
+    return this.#host.call("page.keyboard.type", defined({ pageId: this.#host.id, text, delay: options.delay }), { signal: options.signal });
+  }
+
+  /**
+   * Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async up(key: types.KeyboardKeyParams["key"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.keyboard.up");
+    return this.#host.call("page.keyboard.up", { pageId: this.#host.id, key }, { signal: options.signal });
+  }
+}
+
+/** The `mouse` of a `Page` (ADR 0099). */
+export class PageMouse {
+  readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
+
+  /** @internal A `Page` holds its own; a program never constructs one. */
+  constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
+    this.#host = host;
+  }
+
+  /**
+   * Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async click(x: types.MouseClickParams["x"], y: types.MouseClickParams["y"], options: { readonly button?: types.MouseClickParams["button"] | undefined; readonly clickCount?: types.MouseClickParams["clickCount"] | undefined; readonly delay?: types.MouseClickParams["delay"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.mouse.click");
+    return this.#host.call("page.mouse.click", defined({ pageId: this.#host.id, x, y, button: options.button, clickCount: options.clickCount, delay: options.delay }), { signal: options.signal });
+  }
+
+  /**
+   * Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async dblclick(x: types.MouseDblclickParams["x"], y: types.MouseDblclickParams["y"], options: { readonly button?: types.MouseDblclickParams["button"] | undefined; readonly delay?: types.MouseDblclickParams["delay"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.mouse.dblclick");
+    return this.#host.call("page.mouse.dblclick", defined({ pageId: this.#host.id, x, y, button: options.button, delay: options.delay }), { signal: options.signal });
+  }
+
+  /**
+   * Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async down(options: { readonly button?: types.MouseButtonParams["button"] | undefined; readonly clickCount?: types.MouseButtonParams["clickCount"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.mouse.down");
+    return this.#host.call("page.mouse.down", defined({ pageId: this.#host.id, button: options.button, clickCount: options.clickCount }), { signal: options.signal });
+  }
+
+  /**
+   * Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async move(x: types.MouseMoveParams["x"], y: types.MouseMoveParams["y"], options: { readonly steps?: types.MouseMoveParams["steps"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.mouse.move");
+    return this.#host.call("page.mouse.move", defined({ pageId: this.#host.id, x, y, steps: options.steps }), { signal: options.signal });
+  }
+
+  /**
+   * Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async up(options: { readonly button?: types.MouseButtonParams["button"] | undefined; readonly clickCount?: types.MouseButtonParams["clickCount"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.mouse.up");
+    return this.#host.call("page.mouse.up", defined({ pageId: this.#host.id, button: options.button, clickCount: options.clickCount }), { signal: options.signal });
+  }
+
+  /**
+   * Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async wheel(deltaX: types.MouseWheelParams["deltaX"], deltaY: types.MouseWheelParams["deltaY"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.mouse.wheel");
+    return this.#host.call("page.mouse.wheel", { pageId: this.#host.id, deltaX, deltaY }, { signal: options.signal });
+  }
+}
+
+/** The `touchscreen` of a `Page` (ADR 0099). */
+export class PageTouchscreen {
+  readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
+
+  /** @internal A `Page` holds its own; a program never constructs one. */
+  constructor(host: HandleHost<types.PageId, CollieOperationTypes>) {
+    this.#host = host;
+  }
+
+  /**
+   * Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+   *
+   * @experimental
+   */
+  async tap(x: types.TouchscreenTapParams["x"], y: types.TouchscreenTapParams["y"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+    warnExperimental("page.touchscreen.tap");
+    return this.#host.call("page.touchscreen.tap", { pageId: this.#host.id, x, y }, { signal: options.signal });
+  }
+}
+
 /** The events a `WebSocket` listens to with `on`, under Playwright's names (ADR 0081), and what its listener gets of each. */
 export interface WebSocketEvents {
   /**
@@ -416,12 +566,21 @@ export class Page extends Handle implements AsyncDisposable {
 
   readonly #host: HandleHost<types.PageId, CollieOperationTypes>;
   readonly #session: Session;
+  /** Its `keyboard`. */
+  readonly keyboard: PageKeyboard;
+  /** Its `mouse`. */
+  readonly mouse: PageMouse;
+  /** Its `touchscreen`. */
+  readonly touchscreen: PageTouchscreen;
 
   /** @internal The engine's answer, or the handle that builds it, makes one; a program never constructs one. */
   constructor(host: HandleHost<types.PageId, CollieOperationTypes>, session: Session) {
     super(host, "page", "page_id", { type: "PageId" });
     this.#host = host;
     this.#session = session;
+    this.keyboard = new PageKeyboard(host);
+    this.mouse = new PageMouse(host);
+    this.touchscreen = new PageTouchscreen(host);
   }
 
   /** Its `session`, which every answer that opens a `page` names, answered without a call: the `session` that opened or told of it, or the one its opener keeps (ADRs 0078, 0092). */

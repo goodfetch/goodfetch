@@ -29,6 +29,7 @@ mod fetch_tiers;
 mod formats;
 mod guard;
 mod hostile_input;
+mod input;
 mod launch;
 mod navigation;
 mod page_check;
@@ -136,6 +137,8 @@ pub(crate) enum Case {
     BackgroundTimer,
     /// A guard case.
     Guard(guard::Case),
+    /// An unguarded input case (`page.keyboard`, `page.mouse`, `page.touchscreen`).
+    Input(input::Case),
     /// A Clean-up case.
     CleanUp(clean_up::Case),
     /// A Consent prompt case.
@@ -603,6 +606,7 @@ impl Case {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
                     .or_else(|| guard::Case::from_id(id).map(Self::Guard))
+                    .or_else(|| input::Case::from_id(id).map(Self::Input))
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
@@ -724,6 +728,7 @@ impl Case {
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
             Self::Guard(case) => case.run(connection, site, checks),
+            Self::Input(case) => case.run(connection, target, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, target, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),

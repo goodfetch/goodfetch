@@ -377,7 +377,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 102] = [
+    const COLLIE: [&str; 114] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -409,6 +409,18 @@ mod tests {
         "locator.click",
         "locator.fill",
         "locator.press",
+        "page.keyboard.down",
+        "page.keyboard.up",
+        "page.keyboard.press",
+        "page.keyboard.type",
+        "page.keyboard.insert_text",
+        "page.mouse.move",
+        "page.mouse.down",
+        "page.mouse.up",
+        "page.mouse.click",
+        "page.mouse.dblclick",
+        "page.mouse.wheel",
+        "page.touchscreen.tap",
         "page.route",
         "session.route",
         "route.continue",

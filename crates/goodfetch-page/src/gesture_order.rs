@@ -1,6 +1,7 @@
 //! A Page's Gesture order (ADRs 0085 and 0146), which the Page's owner
 //! holds as a value of its loop: who waits for the turn, in arrival order,
-//! and where the page's pointer is. The pointer goes with the turn: a
+//! and where the page's pointer is, with what its keyboard and mouse hold
+//! (`page.keyboard`, `page.mouse`). The pointer goes with the turn: a
 //! Gesture holds both from its first command to its last, and lends the
 //! pointer between two of its checks to what else clicks on the page, the
 //! Consent prompt runner, so the runner clears the prompt that covers the
@@ -32,6 +33,23 @@ struct Pointer {
     asks: mpsc::Receiver<oneshot::Sender<LentPointer>>,
     /// Closed once the loan under way ended; none while none is.
     lent: Option<oneshot::Receiver<()>>,
+    /// What the page's keyboard and mouse hold, which goes with the turn.
+    devices: Devices,
+}
+
+/// What a page's keyboard and mouse hold from one Gesture to the next, as
+/// a person's do (ADR 0085): the keys down, where the mouse is, and its
+/// buttons down, which every later input carries.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct Devices {
+    /// The keys down, by name, in the order they went down.
+    pub(crate) keys: Vec<String>,
+    /// Where the mouse is, in CSS pixels from the viewport's top-left
+    /// corner.
+    pub(crate) mouse: (f64, f64),
+    /// The mouse buttons down, as CDP's `buttons` bits: left 1, right 2,
+    /// middle 4.
+    pub(crate) buttons: i64,
 }
 
 /// A Page's Gesture order.
@@ -102,6 +120,7 @@ impl GestureOrder {
             at: At::Free(Pointer {
                 asks: asked,
                 lent: None,
+                devices: Devices::default(),
             }),
             waiting: VecDeque::new(),
         };
@@ -180,6 +199,15 @@ impl GestureTurn {
             pointer.lend(ask);
         }
         pointer.returned().await;
+    }
+
+    /// What the page's keyboard and mouse hold, the turn's until it drops.
+    pub(crate) fn devices(&mut self) -> &mut Devices {
+        let (pointer, _) = self
+            .pointer
+            .as_mut()
+            .expect("invariant: a turn holds its pointer until it drops");
+        &mut pointer.devices
     }
 }
 

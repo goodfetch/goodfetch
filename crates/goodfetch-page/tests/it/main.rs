@@ -17,6 +17,7 @@ mod gesture_input;
 mod gesture_navigation;
 mod guard_listener;
 mod handler_page;
+mod input_no_target;
 mod installed_browser;
 mod listener_arming;
 mod locator_fill;

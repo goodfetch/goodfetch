@@ -1,7 +1,9 @@
 //! Keys by Playwright's names (ADR 0085): a key or a combination such as
 //! `Enter`, `a` or `Shift+Tab` becomes the CDP key events a keyboard sends,
 //! modifiers pressed first and released last, so the page receives trusted
-//! `keydown`, `keypress` and `keyup` events.
+//! `keydown`, `keypress` and `keyup` events. A key goes down with the keys
+//! a page's keyboard holds (`page.keyboard.down`): their modifiers' bits,
+//! and a repeat when it is held already.
 
 use goodfetch_cdp::generated::input::{DispatchKeyEventParams, DispatchKeyEventType};
 
@@ -10,7 +12,7 @@ use super::KeyPress;
 /// One key: its `key` value, its physical `code`, its Windows virtual key
 /// code and the text it types, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Definition {
+pub(crate) struct Key {
     key: String,
     code: String,
     key_code: i64,
@@ -50,9 +52,15 @@ const MODIFIERS: [(&str, i64); 4] = [("Alt", 1), ("Control", 2), ("Meta", 4), ("
 )]
 pub(crate) struct UnknownKey(pub(crate) String);
 
-/// The key events that press `combination`, such as `Control+a`: at most
-/// ten, a modifier named twice being held once.
+/// The key events that press `combination`, such as `Control+a`, with no
+/// key held before: at most ten, a modifier named twice being held once.
 pub(crate) fn events(combination: &str) -> Result<KeyPress, UnknownKey> {
+    Ok(press(&keys(combination)?, &mut Vec::new()))
+}
+
+/// The keys of `combination`, such as `Control+a`, in the order they go
+/// down: its modifiers, each once, then its key.
+pub(crate) fn keys(combination: &str) -> Result<Vec<Key>, UnknownKey> {
     let unknown = || UnknownKey(combination.to_owned());
     // `+` alone, or ending a combination, is the plus key.
     let (modifiers, last) = match combination.strip_suffix('+') {
@@ -63,60 +71,104 @@ pub(crate) fn events(combination: &str) -> Result<KeyPress, UnknownKey> {
             .rsplit_once('+')
             .map_or(("", combination), |(modifiers, last)| (modifiers, last)),
     };
-    let mut held: Vec<Definition> = Vec::new();
+    let mut keys: Vec<Key> = Vec::new();
     for name in modifiers.split('+').filter(|name| !name.is_empty()) {
         let modifier = modifier(name).ok_or_else(unknown)?;
-        if !held.contains(&modifier) {
-            held.push(modifier);
+        if !keys.contains(&modifier) {
+            keys.push(modifier);
         }
     }
-    let pressed = key(last).ok_or_else(unknown)?;
-    let mut bits = 0;
-    let mut sent = Vec::new();
-    for modifier in &held {
-        bits |= bit(&modifier.key);
-        sent.push(event(
-            DispatchKeyEventType::RawKeyDown,
-            modifier,
-            bits,
-            None,
-        ));
+    keys.push(named(last).ok_or_else(unknown)?);
+    Ok(keys)
+}
+
+/// The one key `name` names, a modifier as any other.
+pub(crate) fn key(name: &str) -> Result<Key, UnknownKey> {
+    let name = match name {
+        "ControlOrMeta" => control_or_meta(),
+        other => other,
+    };
+    named(name).ok_or_else(|| UnknownKey(name.to_owned()))
+}
+
+/// The key a US keyboard types `character` with, a line break being
+/// `Enter`; none for a character it has no key for.
+pub(crate) fn typed(character: char) -> Option<Key> {
+    match character {
+        '\n' | '\r' => named("Enter"),
+        ' '..='~' => named(character.encode_utf8(&mut [0; 4])),
+        _ => None,
     }
-    // A shortcut types nothing, as a keyboard's does.
+}
+
+/// The key events that press `keys` with the keys `held` down: each key
+/// goes down in order, then up in the reverse order, as one keyboard press.
+pub(crate) fn press(keys: &[Key], held: &mut Vec<String>) -> KeyPress {
+    let mut sent: Vec<DispatchKeyEventParams> = keys.iter().map(|key| down(key, held)).collect();
+    sent.extend(keys.iter().rev().map(|key| up(key, held)));
+    KeyPress(sent)
+}
+
+/// The event that presses `key` down with the keys `held` down, which it
+/// joins: a modifier's bit is set from its own press on, a shortcut types
+/// nothing, as a keyboard's does, and a key held already repeats.
+pub(crate) fn down(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams {
+    let repeat = held.contains(&key.key);
+    if !repeat {
+        held.push(key.key.clone());
+    }
+    let bits = modifiers(held);
     let shortcut = bits & (bit("Control") | bit("Meta") | bit("Alt")) != 0;
     let text = if shortcut {
         None
     } else if bits & bit("Shift") != 0 {
-        pressed.text.as_deref().map(str::to_uppercase)
+        key.text.as_deref().map(str::to_uppercase)
     } else {
-        pressed.text.clone()
+        key.text.clone()
     };
-    let down = if text.is_some() {
+    let kind = if text.is_some() {
         DispatchKeyEventType::KeyDown
     } else {
         DispatchKeyEventType::RawKeyDown
     };
-    sent.push(event(down, &pressed, bits, text));
-    sent.push(event(DispatchKeyEventType::KeyUp, &pressed, bits, None));
-    for modifier in held.iter().rev() {
-        bits &= !bit(&modifier.key);
-        sent.push(event(DispatchKeyEventType::KeyUp, modifier, bits, None));
+    let mut event = event(kind, key, bits, text);
+    event.auto_repeat = repeat.then_some(true);
+    event
+}
+
+/// The event that releases `key`, which leaves the keys `held` down: a
+/// modifier's bit is cleared from its own release on.
+pub(crate) fn up(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams {
+    held.retain(|name| *name != key.key);
+    event(DispatchKeyEventType::KeyUp, key, modifiers(held), None)
+}
+
+/// `ControlOrMeta`'s key: Meta on macOS, Control elsewhere.
+const fn control_or_meta() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Meta"
+    } else {
+        "Control"
     }
-    Ok(KeyPress(sent))
 }
 
 /// A modifier by name; `ControlOrMeta` is Meta on macOS, Control elsewhere.
-fn modifier(name: &str) -> Option<Definition> {
+fn modifier(name: &str) -> Option<Key> {
     let name = match name {
-        "ControlOrMeta" if cfg!(target_os = "macos") => "Meta",
-        "ControlOrMeta" => "Control",
+        "ControlOrMeta" => control_or_meta(),
         other => other,
     };
     MODIFIERS
         .iter()
         .any(|(modifier, _)| *modifier == name)
-        .then(|| key(name))
+        .then(|| named(name))
         .flatten()
+}
+
+/// CDP's `modifiers` bits of the keys `held` down, which every input sent
+/// while they are carries.
+pub(crate) fn modifiers(held: &[String]) -> i64 {
+    held.iter().fold(0, |bits, name| bits | bit(name))
 }
 
 fn bit(name: &str) -> i64 {
@@ -127,9 +179,9 @@ fn bit(name: &str) -> i64 {
 }
 
 /// A key by name, or a single character, which types itself.
-fn key(name: &str) -> Option<Definition> {
+fn named(name: &str) -> Option<Key> {
     if let Some((key, code, key_code, text)) = NAMED.iter().find(|(key, ..)| *key == name) {
-        return Some(Definition {
+        return Some(Key {
             key: (*key).to_owned(),
             code: (*code).to_owned(),
             key_code: *key_code,
@@ -151,7 +203,7 @@ fn key(name: &str) -> Option<Definition> {
     } else {
         (String::new(), 0)
     };
-    Some(Definition {
+    Some(Key {
         key: character.to_string(),
         code,
         key_code,
@@ -161,7 +213,7 @@ fn key(name: &str) -> Option<Definition> {
 
 fn event(
     kind: DispatchKeyEventType,
-    key: &Definition,
+    key: &Key,
     modifiers: i64,
     text: Option<String>,
 ) -> DispatchKeyEventParams {

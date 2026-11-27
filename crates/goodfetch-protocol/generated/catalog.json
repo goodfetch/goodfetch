@@ -4384,6 +4384,215 @@
     {
       "arrived_in": "0.1",
       "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.keyboard.down",
+      "params": {
+        "$ref": "#/$defs/KeyboardKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.keyboard.insert_text",
+      "params": {
+        "$ref": "#/$defs/KeyboardInsertTextParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.keyboard.press",
+      "params": {
+        "$ref": "#/$defs/KeyboardPressParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.keyboard.type",
+      "params": {
+        "$ref": "#/$defs/KeyboardTypeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.keyboard.up",
+      "params": {
+        "$ref": "#/$defs/KeyboardKeyParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.mouse.click",
+      "params": {
+        "$ref": "#/$defs/MouseClickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.mouse.dblclick",
+      "params": {
+        "$ref": "#/$defs/MouseDblclickParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.mouse.down",
+      "params": {
+        "$ref": "#/$defs/MouseButtonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.mouse.move",
+      "params": {
+        "$ref": "#/$defs/MouseMoveParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.mouse.up",
+      "params": {
+        "$ref": "#/$defs/MouseButtonParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.mouse.wheel",
+      "params": {
+        "$ref": "#/$defs/MouseWheelParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
       "class": "read",
       "deprecated": null,
       "description": "Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.",
@@ -4509,6 +4718,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/RouteEnded"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "page.touchscreen.tap",
+      "params": {
+        "$ref": "#/$defs/TouchscreenTapParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/Acted"
       },
       "stability": "experimental"
     },

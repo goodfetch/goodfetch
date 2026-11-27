@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, KeyboardInsertTextParams, KeyboardKeyParams, KeyboardPressParams, KeyboardTypeParams, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, MouseButtonParams, MouseClickParams, MouseDblclickParams, MouseMoveParams, MouseWheelParams, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, TouchscreenTapParams, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -342,6 +342,94 @@ class AsyncCollieOperations:
         warn_experimental("page.goto")
         return result_of(Navigated, await self._caller.call("page.goto", params))
 
+    async def page_keyboard_down(self, params: KeyboardKeyParams) -> Acted:
+        """Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.down")
+        return result_of(Acted, await self._caller.call("page.keyboard.down", params))
+
+    async def page_keyboard_insert_text(self, params: KeyboardInsertTextParams) -> Acted:
+        """Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.insert_text")
+        return result_of(Acted, await self._caller.call("page.keyboard.insert_text", params))
+
+    async def page_keyboard_press(self, params: KeyboardPressParams) -> Acted:
+        """Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.press")
+        return result_of(Acted, await self._caller.call("page.keyboard.press", params))
+
+    async def page_keyboard_type(self, params: KeyboardTypeParams) -> Acted:
+        """Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.type")
+        return result_of(Acted, await self._caller.call("page.keyboard.type", params))
+
+    async def page_keyboard_up(self, params: KeyboardKeyParams) -> Acted:
+        """Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.up")
+        return result_of(Acted, await self._caller.call("page.keyboard.up", params))
+
+    async def page_mouse_click(self, params: MouseClickParams) -> Acted:
+        """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.click")
+        return result_of(Acted, await self._caller.call("page.mouse.click", params))
+
+    async def page_mouse_dblclick(self, params: MouseDblclickParams) -> Acted:
+        """Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.dblclick")
+        return result_of(Acted, await self._caller.call("page.mouse.dblclick", params))
+
+    async def page_mouse_down(self, params: MouseButtonParams) -> Acted:
+        """Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.down")
+        return result_of(Acted, await self._caller.call("page.mouse.down", params))
+
+    async def page_mouse_move(self, params: MouseMoveParams) -> Acted:
+        """Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.move")
+        return result_of(Acted, await self._caller.call("page.mouse.move", params))
+
+    async def page_mouse_up(self, params: MouseButtonParams) -> Acted:
+        """Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.up")
+        return result_of(Acted, await self._caller.call("page.mouse.up", params))
+
+    async def page_mouse_wheel(self, params: MouseWheelParams) -> Acted:
+        """Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.wheel")
+        return result_of(Acted, await self._caller.call("page.mouse.wheel", params))
+
     async def page_on(self, params: PageOnParams) -> PageOnEnded:
         """Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
 
@@ -389,6 +477,14 @@ class AsyncCollieOperations:
         """
         warn_experimental("page.route")
         return result_of(RouteEnded, await self._caller.call("page.route", params))
+
+    async def page_touchscreen_tap(self, params: TouchscreenTapParams) -> Acted:
+        """Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.touchscreen.tap")
+        return result_of(Acted, await self._caller.call("page.touchscreen.tap", params))
 
     async def page_wait_for_function(self, params: WaitForFunctionParams) -> Evaluated:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1078,6 +1174,94 @@ class CollieOperations:
         warn_experimental("page.goto")
         return result_of(Navigated, self._caller.call("page.goto", params))
 
+    def page_keyboard_down(self, params: KeyboardKeyParams) -> Acted:
+        """Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.down")
+        return result_of(Acted, self._caller.call("page.keyboard.down", params))
+
+    def page_keyboard_insert_text(self, params: KeyboardInsertTextParams) -> Acted:
+        """Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.insert_text")
+        return result_of(Acted, self._caller.call("page.keyboard.insert_text", params))
+
+    def page_keyboard_press(self, params: KeyboardPressParams) -> Acted:
+        """Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.press")
+        return result_of(Acted, self._caller.call("page.keyboard.press", params))
+
+    def page_keyboard_type(self, params: KeyboardTypeParams) -> Acted:
+        """Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.type")
+        return result_of(Acted, self._caller.call("page.keyboard.type", params))
+
+    def page_keyboard_up(self, params: KeyboardKeyParams) -> Acted:
+        """Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.up")
+        return result_of(Acted, self._caller.call("page.keyboard.up", params))
+
+    def page_mouse_click(self, params: MouseClickParams) -> Acted:
+        """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.click")
+        return result_of(Acted, self._caller.call("page.mouse.click", params))
+
+    def page_mouse_dblclick(self, params: MouseDblclickParams) -> Acted:
+        """Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.dblclick")
+        return result_of(Acted, self._caller.call("page.mouse.dblclick", params))
+
+    def page_mouse_down(self, params: MouseButtonParams) -> Acted:
+        """Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.down")
+        return result_of(Acted, self._caller.call("page.mouse.down", params))
+
+    def page_mouse_move(self, params: MouseMoveParams) -> Acted:
+        """Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.move")
+        return result_of(Acted, self._caller.call("page.mouse.move", params))
+
+    def page_mouse_up(self, params: MouseButtonParams) -> Acted:
+        """Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.up")
+        return result_of(Acted, self._caller.call("page.mouse.up", params))
+
+    def page_mouse_wheel(self, params: MouseWheelParams) -> Acted:
+        """Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.wheel")
+        return result_of(Acted, self._caller.call("page.mouse.wheel", params))
+
     def page_on(self, params: PageOnParams) -> PageOnEnded:
         """Listens to one of the page's events, armed when the call arrives: the call stays in flight, and the engine sends that event of the page on the call itself, in `$/events` batches naming it, never more than the credits granted it with `$/credit`, its positions counting the call's own events from 1. Only the Connection that armed it gets them, never the engine's shared event stream. Lossless: past 1,024 events unsent, as when its Client grants too few credits, the call raises `page_events_lost` once it sent those. Cancelling the call, as closing its `Subscription` does, removes the listener; it answers when the page closes or its Run ends, once it sent the events it holds. The page's console and uncaught exceptions, its out-of-process frames' included, are read only while a call listens to `console` or `page_error`.
 
@@ -1125,6 +1309,14 @@ class CollieOperations:
         """
         warn_experimental("page.route")
         return result_of(RouteEnded, self._caller.call("page.route", params))
+
+    def page_touchscreen_tap(self, params: TouchscreenTapParams) -> Acted:
+        """Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.touchscreen.tap")
+        return result_of(Acted, self._caller.call("page.touchscreen.tap", params))
 
     def page_wait_for_function(self, params: WaitForFunctionParams) -> Evaluated:
         """Runs a page function in the page's main frame, as `page.evaluate` does, again at each polling interval and in each new document, until its result is truthy, and answers that result as JSON. A value outside JSON raises `page_value_invalid`, an exception thrown in the page `page_function_failed`. A main-world call is marked in the Session's Provenance. Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded`.
@@ -1526,12 +1718,24 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "page.go_back",
     "page.go_forward",
     "page.goto",
+    "page.keyboard.down",
+    "page.keyboard.insert_text",
+    "page.keyboard.press",
+    "page.keyboard.type",
+    "page.keyboard.up",
+    "page.mouse.click",
+    "page.mouse.dblclick",
+    "page.mouse.down",
+    "page.mouse.move",
+    "page.mouse.up",
+    "page.mouse.wheel",
     "page.on",
     "page.on_dialog",
     "page.read",
     "page.reload",
     "page.request",
     "page.route",
+    "page.touchscreen.tap",
     "page.wait_for_function",
     "page.wait_for_load_state",
     "page.wait_for_request",
@@ -1628,12 +1832,24 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "page.go_back": "effect",
     "page.go_forward": "effect",
     "page.goto": "effect",
+    "page.keyboard.down": "effect",
+    "page.keyboard.insert_text": "effect",
+    "page.keyboard.press": "effect",
+    "page.keyboard.type": "effect",
+    "page.keyboard.up": "effect",
+    "page.mouse.click": "effect",
+    "page.mouse.dblclick": "effect",
+    "page.mouse.down": "effect",
+    "page.mouse.move": "effect",
+    "page.mouse.up": "effect",
+    "page.mouse.wheel": "effect",
     "page.on": "read",
     "page.on_dialog": "idempotent_write",
     "page.read": "read",
     "page.reload": "effect",
     "page.request": "effect",
     "page.route": "idempotent_write",
+    "page.touchscreen.tap": "effect",
     "page.wait_for_function": "effect",
     "page.wait_for_load_state": "read",
     "page.wait_for_request": "read",

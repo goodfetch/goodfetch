@@ -133,6 +133,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+mod input;
 mod plugin_extractor;
 pub(crate) mod served_formats;
 mod waits;
@@ -193,6 +194,7 @@ pub fn contribution_with(
     let contribution = with_page_read_handlers(contribution, &pages);
     let contribution = with_session_handlers(contribution, &pages.sessions);
     let contribution = with_locator_handlers(contribution, &pages);
+    let contribution = input::with_input_handlers(contribution, &pages);
     let contribution = with_event_handlers(contribution, &pages);
     let contribution = with_route_handlers(contribution, (&pages.interception, &pages.sessions));
     let contribution =

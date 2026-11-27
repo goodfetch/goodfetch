@@ -252,6 +252,157 @@ _PAGE_EVENTS: dict[str, tuple[str, type[BaseModel]]] = {
 """Each event `page.on` listens to, under Playwright's name (ADR 0081): its name on the wire, and the model of what its listener gets."""
 
 
+class AsyncPageKeyboard:
+    """The `keyboard` of a `page` (ADR 0099)."""
+
+    def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+
+    async def down(self, key: str) -> models.Acted:
+        """Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.down")
+        return result_of(models.Acted, await self._host.call("page.keyboard.down", models.KeyboardKeyParams(page_id=self._host.id, key=key)))
+
+    async def insert_text(self, text: str) -> models.Acted:
+        """Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.insert_text")
+        return result_of(models.Acted, await self._host.call("page.keyboard.insert_text", models.KeyboardInsertTextParams(page_id=self._host.id, text=text)))
+
+    async def press(self, key: str, *, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.press")
+        params = models.KeyboardPressParams(page_id=self._host.id, key=key)
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, await self._host.call("page.keyboard.press", params))
+
+    async def type(self, text: str, *, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.type")
+        params = models.KeyboardTypeParams(page_id=self._host.id, text=text)
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, await self._host.call("page.keyboard.type", params))
+
+    async def up(self, key: str) -> models.Acted:
+        """Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.up")
+        return result_of(models.Acted, await self._host.call("page.keyboard.up", models.KeyboardKeyParams(page_id=self._host.id, key=key)))
+
+
+class AsyncPageMouse:
+    """The `mouse` of a `page` (ADR 0099)."""
+
+    def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+
+    async def click(self, x: float, y: float, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, click_count: int | None | NotGiven = not_given, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.click")
+        params = models.MouseClickParams(page_id=self._host.id, x=x, y=y)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(click_count, NotGiven):
+            params.click_count = click_count
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, await self._host.call("page.mouse.click", params))
+
+    async def dblclick(self, x: float, y: float, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.dblclick")
+        params = models.MouseDblclickParams(page_id=self._host.id, x=x, y=y)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, await self._host.call("page.mouse.dblclick", params))
+
+    async def down(self, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, click_count: int | None | NotGiven = not_given) -> models.Acted:
+        """Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.down")
+        params = models.MouseButtonParams(page_id=self._host.id)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(click_count, NotGiven):
+            params.click_count = click_count
+        return result_of(models.Acted, await self._host.call("page.mouse.down", params))
+
+    async def move(self, x: float, y: float, *, steps: int | None | NotGiven = not_given) -> models.Acted:
+        """Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.move")
+        params = models.MouseMoveParams(page_id=self._host.id, x=x, y=y)
+        if not isinstance(steps, NotGiven):
+            params.steps = steps
+        return result_of(models.Acted, await self._host.call("page.mouse.move", params))
+
+    async def up(self, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, click_count: int | None | NotGiven = not_given) -> models.Acted:
+        """Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.up")
+        params = models.MouseButtonParams(page_id=self._host.id)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(click_count, NotGiven):
+            params.click_count = click_count
+        return result_of(models.Acted, await self._host.call("page.mouse.up", params))
+
+    async def wheel(self, delta_x: float, delta_y: float) -> models.Acted:
+        """Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.wheel")
+        return result_of(models.Acted, await self._host.call("page.mouse.wheel", models.MouseWheelParams(page_id=self._host.id, delta_x=delta_x, delta_y=delta_y)))
+
+
+class AsyncPageTouchscreen:
+    """The `touchscreen` of a `page` (ADR 0099)."""
+
+    def __init__(self, host: AsyncHandleHost[models.PageId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+
+    async def tap(self, x: float, y: float) -> models.Acted:
+        """Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.touchscreen.tap")
+        return result_of(models.Acted, await self._host.call("page.touchscreen.tap", models.TouchscreenTapParams(page_id=self._host.id, x=x, y=y)))
+
+
 class AsyncPage(AsyncHandle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
@@ -260,6 +411,24 @@ class AsyncPage(AsyncHandle):
         self._host = host
         self._session = session
         super().__init__(host, "page", "page_id")
+        self._keyboard = AsyncPageKeyboard(host)
+        self._mouse = AsyncPageMouse(host)
+        self._touchscreen = AsyncPageTouchscreen(host)
+
+    @property
+    def keyboard(self) -> AsyncPageKeyboard:
+        """Its `keyboard`."""
+        return self._keyboard
+
+    @property
+    def mouse(self) -> AsyncPageMouse:
+        """Its `mouse`."""
+        return self._mouse
+
+    @property
+    def touchscreen(self) -> AsyncPageTouchscreen:
+        """Its `touchscreen`."""
+        return self._touchscreen
 
     @property
     def session(self) -> AsyncSession:
@@ -871,6 +1040,157 @@ class Session(Handle):
         self.close()
 
 
+class PageKeyboard:
+    """The `keyboard` of a `page` (ADR 0099)."""
+
+    def __init__(self, host: HandleHost[models.PageId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+
+    def down(self, key: str) -> models.Acted:
+        """Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.down")
+        return result_of(models.Acted, self._host.call("page.keyboard.down", models.KeyboardKeyParams(page_id=self._host.id, key=key)))
+
+    def insert_text(self, text: str) -> models.Acted:
+        """Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.insert_text")
+        return result_of(models.Acted, self._host.call("page.keyboard.insert_text", models.KeyboardInsertTextParams(page_id=self._host.id, text=text)))
+
+    def press(self, key: str, *, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.press")
+        params = models.KeyboardPressParams(page_id=self._host.id, key=key)
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, self._host.call("page.keyboard.press", params))
+
+    def type(self, text: str, *, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.type")
+        params = models.KeyboardTypeParams(page_id=self._host.id, text=text)
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, self._host.call("page.keyboard.type", params))
+
+    def up(self, key: str) -> models.Acted:
+        """Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.keyboard.up")
+        return result_of(models.Acted, self._host.call("page.keyboard.up", models.KeyboardKeyParams(page_id=self._host.id, key=key)))
+
+
+class PageMouse:
+    """The `mouse` of a `page` (ADR 0099)."""
+
+    def __init__(self, host: HandleHost[models.PageId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+
+    def click(self, x: float, y: float, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, click_count: int | None | NotGiven = not_given, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.click")
+        params = models.MouseClickParams(page_id=self._host.id, x=x, y=y)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(click_count, NotGiven):
+            params.click_count = click_count
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, self._host.call("page.mouse.click", params))
+
+    def dblclick(self, x: float, y: float, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, delay: int | None | NotGiven = not_given) -> models.Acted:
+        """Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.dblclick")
+        params = models.MouseDblclickParams(page_id=self._host.id, x=x, y=y)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(delay, NotGiven):
+            params.delay = delay
+        return result_of(models.Acted, self._host.call("page.mouse.dblclick", params))
+
+    def down(self, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, click_count: int | None | NotGiven = not_given) -> models.Acted:
+        """Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.down")
+        params = models.MouseButtonParams(page_id=self._host.id)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(click_count, NotGiven):
+            params.click_count = click_count
+        return result_of(models.Acted, self._host.call("page.mouse.down", params))
+
+    def move(self, x: float, y: float, *, steps: int | None | NotGiven = not_given) -> models.Acted:
+        """Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.move")
+        params = models.MouseMoveParams(page_id=self._host.id, x=x, y=y)
+        if not isinstance(steps, NotGiven):
+            params.steps = steps
+        return result_of(models.Acted, self._host.call("page.mouse.move", params))
+
+    def up(self, *, button: Literal["left", "right", "middle"] | None | NotGiven = not_given, click_count: int | None | NotGiven = not_given) -> models.Acted:
+        """Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.up")
+        params = models.MouseButtonParams(page_id=self._host.id)
+        if not isinstance(button, NotGiven):
+            params.button = None if button is None else models.MouseButton(button)
+        if not isinstance(click_count, NotGiven):
+            params.click_count = click_count
+        return result_of(models.Acted, self._host.call("page.mouse.up", params))
+
+    def wheel(self, delta_x: float, delta_y: float) -> models.Acted:
+        """Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.mouse.wheel")
+        return result_of(models.Acted, self._host.call("page.mouse.wheel", models.MouseWheelParams(page_id=self._host.id, delta_x=delta_x, delta_y=delta_y)))
+
+
+class PageTouchscreen:
+    """The `touchscreen` of a `page` (ADR 0099)."""
+
+    def __init__(self, host: HandleHost[models.PageId]) -> None:
+        """Takes what it reaches its engine through; a program never constructs one."""
+        self._host = host
+
+    def tap(self, x: float, y: float) -> models.Acted:
+        """Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("page.touchscreen.tap")
+        return result_of(models.Acted, self._host.call("page.touchscreen.tap", models.TouchscreenTapParams(page_id=self._host.id, x=x, y=y)))
+
+
 class Page(Handle):
     """A `page` a program holds: the members the catalog gives it (ADR 0099)."""
 
@@ -879,6 +1199,24 @@ class Page(Handle):
         self._host = host
         self._session = session
         super().__init__(host, "page", "page_id")
+        self._keyboard = PageKeyboard(host)
+        self._mouse = PageMouse(host)
+        self._touchscreen = PageTouchscreen(host)
+
+    @property
+    def keyboard(self) -> PageKeyboard:
+        """Its `keyboard`."""
+        return self._keyboard
+
+    @property
+    def mouse(self) -> PageMouse:
+        """Its `mouse`."""
+        return self._mouse
+
+    @property
+    def touchscreen(self) -> PageTouchscreen:
+        """Its `touchscreen`."""
+        return self._touchscreen
 
     @property
     def session(self) -> Session:

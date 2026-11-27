@@ -1234,6 +1234,13 @@ export type Milliseconds = number;
  */
 export type ModelUnavailableReason = "unreachable" | "server_error" | "rate_limited" | (string & {});
 /**
+ * A mouse button.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MouseButton".
+ */
+export type MouseButton = "left" | "right" | "middle";
+/**
  * Which resolver the engine asked for a name.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5432,6 +5439,85 @@ export interface KeyValueStoreValue {
   };
 }
 /**
+ * What `page.keyboard.insert_text` takes: the page and the text.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyboardInsertTextParams".
+ */
+export interface KeyboardInsertTextParams {
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * The text, inserted whole.
+   */
+  text: string;
+}
+/**
+ * What `page.keyboard.down` and `page.keyboard.up` take: the page, and one
+ * key.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyboardKeyParams".
+ */
+export interface KeyboardKeyParams {
+  /**
+   * One key, by Playwright's key names, such as `Shift`, `ArrowLeft` or
+   * `a`.
+   */
+  key: string;
+  /**
+   * The page.
+   */
+  pageId: PageId;
+}
+/**
+ * What `page.keyboard.press` takes: the page, a key or a combination, and
+ * how long each key stays down.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyboardPressParams".
+ */
+export interface KeyboardPressParams {
+  /**
+   * The milliseconds between its keys going down and coming up; none
+   * for no wait.
+   */
+  delay?: number | null;
+  /**
+   * A key or a combination, such as `Enter`, `a` or `Shift+Tab`, by
+   * Playwright's key names.
+   */
+  key: string;
+  /**
+   * The page.
+   */
+  pageId: PageId;
+}
+/**
+ * What `page.keyboard.type` takes: the page, the text, and how long each
+ * key stays down.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "KeyboardTypeParams".
+ */
+export interface KeyboardTypeParams {
+  /**
+   * The milliseconds each key stays down, or a character with no key
+   * waits before it is inserted; none for no wait.
+   */
+  delay?: number | null;
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * The text, typed one character at a time.
+   */
+  text: string;
+}
+/**
  * What a Run used of one Usage kind.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -6160,6 +6246,140 @@ export interface ModelUsage {
    * counts.
    */
   tokens: number;
+}
+/**
+ * What `page.mouse.down` and `page.mouse.up` take: the page, the button,
+ * and which of a run of clicks it is.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MouseButtonParams".
+ */
+export interface MouseButtonParams {
+  /**
+   * The button; none for the left one.
+   */
+  button?: MouseButton | null;
+  /**
+   * Which of a run of clicks it is, from 1, as `UIEvent.detail`; none
+   * for 1.
+   */
+  clickCount?: number | null;
+  /**
+   * The page.
+   */
+  pageId: PageId;
+}
+/**
+ * What `page.mouse.click` takes: the page, the point, the button, how many
+ * clicks, and how long the button stays down.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MouseClickParams".
+ */
+export interface MouseClickParams {
+  /**
+   * The button; none for the left one.
+   */
+  button?: MouseButton | null;
+  /**
+   * How many clicks, one after the other; none for 1. At most 10.
+   */
+  clickCount?: number | null;
+  /**
+   * The milliseconds the button stays down at each click, and between
+   * two clicks; none for no wait.
+   */
+  delay?: number | null;
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * The point's distance from the viewport's left edge.
+   */
+  x: number;
+  /**
+   * The point's distance from the viewport's top edge.
+   */
+  y: number;
+}
+/**
+ * What `page.mouse.dblclick` takes: the page, the point, the button, and
+ * how long the button stays down.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MouseDblclickParams".
+ */
+export interface MouseDblclickParams {
+  /**
+   * The button; none for the left one.
+   */
+  button?: MouseButton | null;
+  /**
+   * The milliseconds the button stays down at each click, and between
+   * the two; none for no wait.
+   */
+  delay?: number | null;
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * The point's distance from the viewport's left edge.
+   */
+  x: number;
+  /**
+   * The point's distance from the viewport's top edge.
+   */
+  y: number;
+}
+/**
+ * What `page.mouse.move` takes: the page, the point, and how many moves
+ * the mouse makes to it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MouseMoveParams".
+ */
+export interface MouseMoveParams {
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * The moves, evenly spaced from where the mouse is to the point, the
+   * last on the point; none for one, as `0` is. At most 1000.
+   */
+  steps?: number | null;
+  /**
+   * The point's distance from the viewport's left edge.
+   */
+  x: number;
+  /**
+   * The point's distance from the viewport's top edge.
+   */
+  y: number;
+}
+/**
+ * What `page.mouse.wheel` takes: the page, and how far the wheel scrolls.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "MouseWheelParams".
+ */
+export interface MouseWheelParams {
+  /**
+   * How far it scrolls right, in CSS pixels; a negative value scrolls
+   * left.
+   */
+  deltaX: number;
+  /**
+   * How far it scrolls down, in CSS pixels; a negative value scrolls
+   * up.
+   */
+  deltaY: number;
+  /**
+   * The page.
+   */
+  pageId: PageId;
 }
 /**
  * What `name_lookup_failed` details.
@@ -10284,6 +10504,26 @@ export interface TooManyRedirectsDetails {
    * The count it went past, and what set it.
    */
   limit: RedirectLimit;
+}
+/**
+ * What `page.touchscreen.tap` takes: the page and the point.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TouchscreenTapParams".
+ */
+export interface TouchscreenTapParams {
+  /**
+   * The page.
+   */
+  pageId: PageId;
+  /**
+   * The point's distance from the viewport's left edge.
+   */
+  x: number;
+  /**
+   * The point's distance from the viewport's top edge.
+   */
+  y: number;
 }
 /**
  * What `usage.list` takes.

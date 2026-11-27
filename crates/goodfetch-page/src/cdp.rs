@@ -25,6 +25,9 @@
 //! |---|---|---|---|
 //! | [`CdpPage::pointer_click`]: a left click at a point of the page's viewport, as trusted input | `Input.dispatchMouseEvent` ×3: `mouseMoved`, `mousePressed` and `mouseReleased`, written as one burst | one `input.performActions` with a `pointer` source: `pointerMove`, `pointerDown` and `pointerUp` | `mouseClick` |
 //! | [`CdpPage::press_keys`]: a key or a combination pressed on the focused element, as trusted input | one `Input.dispatchKeyEvent` for each key down and key up, written as one burst | one `input.performActions` with a `key` source: a `keyDown` and a `keyUp` for each key | `keyboardDown` and `keyboardUp`, or `keyboardPress` for one key |
+//! | [`CdpPage::press_held`] and [`CdpPage::keys_going`]: keys pressed, or pressed down or released, on whatever has focus, with the keys the page's keyboard holds, as trusted input | one `Input.dispatchKeyEvent` for each key down and key up, each call's written as one burst | one `input.performActions` with a `key` source | `keyboardPress`, `keyboardDown` and `keyboardUp` |
+//! | [`CdpPage::mouse_move`], [`CdpPage::mouse_button`], [`CdpPage::mouse_click`] and [`CdpPage::mouse_wheel`]: the mouse moved in steps, a button pressed or released, clicks, and the wheel turned, with the buttons and keys held, as trusted input | `Input.dispatchMouseEvent`: `mouseMoved`, `mousePressed`, `mouseReleased` and `mouseWheel`, each call's written as one burst | one `input.performActions` with a `pointer` source (`pointerMove`, `pointerDown` and `pointerUp`), or with a `wheel` source's `scroll` | `mouseMove`, `mouseDown`, `mouseUp`, `mouseClick` and `mouseWheel` |
+//! | [`CdpPage::touch_tap`]: a tap at a point of the page's viewport with one finger, as trusted input | `Input.dispatchTouchEvent` ×2: `touchStart` and `touchEnd`, written as one burst | one `input.performActions` with a `pointer` source of `pointerType` `touch` | `touchscreenTap` |
 //! | [`CdpPage::paused_events`]: what the interception follows of the page's events, each read once | `Fetch.requestPaused`, `Fetch.authRequired`, `Network.loadingFailed`, `Network.webSocketCreated`, `Page.loadEventFired`, `Page.frameStartedNavigating`, and `Page.frameScheduledNavigation` or `Page.frameRequestedNavigation` | `network.beforeRequestSent` and `network.responseStarted` while blocked, `network.authRequired`, `network.fetchError`, `browsingContext.load` and `browsingContext.navigationStarted`; a scheduled navigation and a WebSocket's opening are Chromium only | `route`, `requestFailed`, `webSocket`, and a frame's `navigated` and `loadstate`; a scheduled navigation is Chromium only |
 //! | [`CdpPage::pause_requests_opening`] and [`CdpPage::pause_requests`]: every request paused before it leaves, a document's response too, and the challenges the page answers | `Fetch.enable` with a request-stage pattern, a response-stage one for documents, and `handleAuthRequests` | `network.addIntercept` at `beforeRequestSent`, `responseStarted` and `authRequired` | `setNetworkInterceptionPatterns`; a paused response is Chromium only |
 //! | [`CdpPage::follow_web_sockets`]: the WebSockets the page opens reported | `Network.enable` | `session.subscribe` to the `network` module | none: the driver reports a page's WebSockets itself |
@@ -96,6 +99,7 @@ mod functions;
 mod hiding;
 mod hop;
 mod init_scripts;
+mod input;
 pub(crate) mod keys;
 pub(crate) mod launch;
 pub(crate) mod live_view;
@@ -143,6 +147,7 @@ pub(crate) use self::followed::{
 pub(crate) use self::hiding::{HidingEvent, HidingEvents};
 pub(crate) use self::hop::{HopEvent, HopEvents};
 pub(crate) use self::init_scripts::InitScriptId;
+pub(crate) use self::input::Press;
 pub(crate) use self::masking::Emulated;
 #[cfg(test)]
 pub(crate) use self::masking::Geolocation;

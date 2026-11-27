@@ -1126,6 +1126,22 @@ number = 5
 kind = "operation"
 prefix = "locator."
 
+# Input with no target, each call marked unguarded (#3280).
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.keyboard."
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.mouse."
+
+[[area]]
+number = 5
+kind = "operation"
+prefix = "page.touchscreen."
+
 [[area]]
 number = 5
 kind = "error"

@@ -447,6 +447,336 @@ impl Session {
     }
 }
 
+/// The `keyboard` of a `page` (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct PageKeyboard {
+    pub(crate) host: crate::host::Host<::goodfetch_protocol::page::PageId>,
+}
+
+impl PageKeyboard {
+    /// Presses a key down, as a keyboard does, on whatever has focus, and holds it until `page.keyboard.up` releases it: a modifier held so is held for every later input. A key already down repeats. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn down(
+        &self,
+        key: impl Into<String>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::KeyboardKeyParams,
+    > {
+        crate::markers::warn("page.keyboard.down", true, None);
+        self.host.call(
+            "page.keyboard.down",
+            ::goodfetch_protocol::page::input::KeyboardKeyParams {
+                page_id: self.host.id().clone(),
+                key: key.into(),
+            },
+        )
+    }
+
+    /// Inserts a text where the focused element's selection is, as an input method commits it: an `input` event, and no key event. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn insert_text(
+        &self,
+        text: impl Into<String>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::KeyboardInsertTextParams,
+    > {
+        crate::markers::warn("page.keyboard.insert_text", true, None);
+        self.host.call(
+            "page.keyboard.insert_text",
+            ::goodfetch_protocol::page::input::KeyboardInsertTextParams {
+                page_id: self.host.id().clone(),
+                text: text.into(),
+            },
+        )
+    }
+
+    /// Presses a key or a combination, as a keyboard does, on whatever has focus: each key goes down in order, then comes up in the reverse order, with the keys `page.keyboard.down` holds. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn press(
+        &self,
+        key: impl Into<String>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::KeyboardPressParams,
+    > {
+        crate::markers::warn("page.keyboard.press", true, None);
+        self.host.call(
+            "page.keyboard.press",
+            ::goodfetch_protocol::page::input::KeyboardPressParams {
+                page_id: self.host.id().clone(),
+                key: key.into(),
+                delay: None,
+            },
+        )
+    }
+
+    /// Types a text into whatever has focus, one character at a time: a character a US keyboard has is pressed as a key, a line break as `Enter`, and any other is inserted as an input method commits it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn r#type(
+        &self,
+        text: impl Into<String>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::KeyboardTypeParams,
+    > {
+        crate::markers::warn("page.keyboard.type", true, None);
+        self.host.call(
+            "page.keyboard.type",
+            ::goodfetch_protocol::page::input::KeyboardTypeParams {
+                page_id: self.host.id().clone(),
+                text: text.into(),
+                delay: None,
+            },
+        )
+    }
+
+    /// Releases a key, as a keyboard does, on whatever has focus. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn up(
+        &self,
+        key: impl Into<String>,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::KeyboardKeyParams,
+    > {
+        crate::markers::warn("page.keyboard.up", true, None);
+        self.host.call(
+            "page.keyboard.up",
+            ::goodfetch_protocol::page::input::KeyboardKeyParams {
+                page_id: self.host.id().clone(),
+                key: key.into(),
+            },
+        )
+    }
+}
+
+/// The `mouse` of a `page` (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct PageMouse {
+    pub(crate) host: crate::host::Host<::goodfetch_protocol::page::PageId>,
+}
+
+impl PageMouse {
+    /// Moves the mouse to a point of the page's viewport and clicks there: the button goes down and up `click_count` times. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn click(
+        &self,
+        x: f64,
+        y: f64,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::MouseClickParams,
+    > {
+        crate::markers::warn("page.mouse.click", true, None);
+        self.host.call(
+            "page.mouse.click",
+            ::goodfetch_protocol::page::input::MouseClickParams {
+                page_id: self.host.id().clone(),
+                x,
+                y,
+                button: None,
+                click_count: None,
+                delay: None,
+            },
+        )
+    }
+
+    /// Moves the mouse to a point of the page's viewport and double-clicks there: two clicks, the second a `dblclick`. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn dblclick(
+        &self,
+        x: f64,
+        y: f64,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::MouseDblclickParams,
+    > {
+        crate::markers::warn("page.mouse.dblclick", true, None);
+        self.host.call(
+            "page.mouse.dblclick",
+            ::goodfetch_protocol::page::input::MouseDblclickParams {
+                page_id: self.host.id().clone(),
+                x,
+                y,
+                button: None,
+                delay: None,
+            },
+        )
+    }
+
+    /// Presses a mouse button where the mouse is, and holds it until `page.mouse.up` releases it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn down(
+        &self,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::MouseButtonParams,
+    > {
+        crate::markers::warn("page.mouse.down", true, None);
+        self.host.call(
+            "page.mouse.down",
+            ::goodfetch_protocol::page::input::MouseButtonParams {
+                page_id: self.host.id().clone(),
+                button: None,
+                click_count: None,
+            },
+        )
+    }
+
+    /// Moves the mouse to a point of the page's viewport, through `steps` moves, with the buttons and keys held down. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn r#move(
+        &self,
+        x: f64,
+        y: f64,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::MouseMoveParams,
+    > {
+        crate::markers::warn("page.mouse.move", true, None);
+        self.host.call(
+            "page.mouse.move",
+            ::goodfetch_protocol::page::input::MouseMoveParams {
+                page_id: self.host.id().clone(),
+                x,
+                y,
+                steps: None,
+            },
+        )
+    }
+
+    /// Releases a mouse button where the mouse is. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn up(
+        &self,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::MouseButtonParams,
+    > {
+        crate::markers::warn("page.mouse.up", true, None);
+        self.host.call(
+            "page.mouse.up",
+            ::goodfetch_protocol::page::input::MouseButtonParams {
+                page_id: self.host.id().clone(),
+                button: None,
+                click_count: None,
+            },
+        )
+    }
+
+    /// Turns the mouse wheel where the mouse is: a `wheel` event, which scrolls what is under the mouse unless the page cancels it. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn wheel(
+        &self,
+        delta_x: f64,
+        delta_y: f64,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::MouseWheelParams,
+    > {
+        crate::markers::warn("page.mouse.wheel", true, None);
+        self.host.call(
+            "page.mouse.wheel",
+            ::goodfetch_protocol::page::input::MouseWheelParams {
+                page_id: self.host.id().clone(),
+                delta_x,
+                delta_y,
+            },
+        )
+    }
+}
+
+/// The `touchscreen` of a `page` (ADR 0099).
+#[derive(Clone, Debug)]
+pub struct PageTouchscreen {
+    pub(crate) host: crate::host::Host<::goodfetch_protocol::page::PageId>,
+}
+
+impl PageTouchscreen {
+    /// Taps a point of the page's viewport with one finger: a touch starts there and ends. Marked unguarded in Provenance: no element is checked (ADR 0085).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when its handle or the Connection is closed, the engine's error, `deadline_exceeded` once its timeout runs out, and `internal` when its reply does not fit its type.
+    pub fn tap(
+        &self,
+        x: f64,
+        y: f64,
+    ) -> crate::Call<
+        crate::Answer<::goodfetch_protocol::page::Acted>,
+        ::goodfetch_protocol::page::input::TouchscreenTapParams,
+    > {
+        crate::markers::warn("page.touchscreen.tap", true, None);
+        self.host.call(
+            "page.touchscreen.tap",
+            ::goodfetch_protocol::page::input::TouchscreenTapParams {
+                page_id: self.host.id().clone(),
+                x,
+                y,
+            },
+        )
+    }
+}
+
 /// A `page` a program holds: the members the catalog gives it (ADR 0099).
 #[derive(Clone, Debug)]
 pub struct Page {
@@ -468,6 +798,30 @@ impl Page {
     /// closed value does with `closed`. It is never retried.
     pub fn call(&self, operation: &str) -> crate::RawCall {
         self.host.raw(operation, "page", "page_id")
+    }
+
+    /// Its `keyboard`.
+    #[must_use]
+    pub fn keyboard(&self) -> PageKeyboard {
+        PageKeyboard {
+            host: self.host.clone(),
+        }
+    }
+
+    /// Its `mouse`.
+    #[must_use]
+    pub fn mouse(&self) -> PageMouse {
+        PageMouse {
+            host: self.host.clone(),
+        }
+    }
+
+    /// Its `touchscreen`.
+    #[must_use]
+    pub fn touchscreen(&self) -> PageTouchscreen {
+        PageTouchscreen {
+            host: self.host.clone(),
+        }
     }
 
     /// Its `session`, which every answer that opens a `page` names,
@@ -1308,6 +1662,70 @@ impl<T> crate::Call<T, ::goodfetch_protocol::page::functions::LocatorEvaluateAll
     /// Where it runs; the main world when absent.
     pub fn world(self, world: ::goodfetch_protocol::page::functions::World) -> Self {
         self.edit(move |params| params.world = Some(world))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::input::KeyboardPressParams> {
+    /// The milliseconds between its keys going down and coming up; none
+    /// for no wait.
+    pub fn delay(self, delay: u64) -> Self {
+        self.edit(move |params| params.delay = Some(delay))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::input::KeyboardTypeParams> {
+    /// The milliseconds each key stays down, or a character with no key
+    /// waits before it is inserted; none for no wait.
+    pub fn delay(self, delay: u64) -> Self {
+        self.edit(move |params| params.delay = Some(delay))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::input::MouseButtonParams> {
+    /// The button; none for the left one.
+    pub fn button(self, button: ::goodfetch_protocol::page::input::MouseButton) -> Self {
+        self.edit(move |params| params.button = Some(button))
+    }
+    /// Which of a run of clicks it is, from 1, as `UIEvent.detail`; none
+    /// for 1.
+    pub fn click_count(self, click_count: u32) -> Self {
+        self.edit(move |params| params.click_count = Some(click_count))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::input::MouseClickParams> {
+    /// The button; none for the left one.
+    pub fn button(self, button: ::goodfetch_protocol::page::input::MouseButton) -> Self {
+        self.edit(move |params| params.button = Some(button))
+    }
+    /// How many clicks, one after the other; none for 1. At most 10.
+    pub fn click_count(self, click_count: u32) -> Self {
+        self.edit(move |params| params.click_count = Some(click_count))
+    }
+    /// The milliseconds the button stays down at each click, and between
+    /// two clicks; none for no wait.
+    pub fn delay(self, delay: u64) -> Self {
+        self.edit(move |params| params.delay = Some(delay))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::input::MouseDblclickParams> {
+    /// The button; none for the left one.
+    pub fn button(self, button: ::goodfetch_protocol::page::input::MouseButton) -> Self {
+        self.edit(move |params| params.button = Some(button))
+    }
+    /// The milliseconds the button stays down at each click, and between
+    /// the two; none for no wait.
+    pub fn delay(self, delay: u64) -> Self {
+        self.edit(move |params| params.delay = Some(delay))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::input::MouseMoveParams> {
+    /// The moves, evenly spaced from where the mouse is to the point, the
+    /// last on the point; none for one, as `0` is. At most 1000.
+    pub fn steps(self, steps: u32) -> Self {
+        self.edit(move |params| params.steps = Some(steps))
     }
 }
 

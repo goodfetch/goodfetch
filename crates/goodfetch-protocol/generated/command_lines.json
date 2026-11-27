@@ -332,6 +332,54 @@
           },
           {
             "commands": [],
+            "name": "keyboard.down"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.up"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.press"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.type"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.insert-text"
+          },
+          {
+            "commands": [],
+            "name": "mouse.move"
+          },
+          {
+            "commands": [],
+            "name": "mouse.down"
+          },
+          {
+            "commands": [],
+            "name": "mouse.up"
+          },
+          {
+            "commands": [],
+            "name": "mouse.click"
+          },
+          {
+            "commands": [],
+            "name": "mouse.dblclick"
+          },
+          {
+            "commands": [],
+            "name": "mouse.wheel"
+          },
+          {
+            "commands": [],
+            "name": "touchscreen.tap"
+          },
+          {
+            "commands": [],
             "name": "close"
           }
         ],
@@ -817,6 +865,54 @@
           {
             "commands": [],
             "name": "body"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.down"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.up"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.press"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.type"
+          },
+          {
+            "commands": [],
+            "name": "keyboard.insert-text"
+          },
+          {
+            "commands": [],
+            "name": "mouse.move"
+          },
+          {
+            "commands": [],
+            "name": "mouse.down"
+          },
+          {
+            "commands": [],
+            "name": "mouse.up"
+          },
+          {
+            "commands": [],
+            "name": "mouse.click"
+          },
+          {
+            "commands": [],
+            "name": "mouse.dblclick"
+          },
+          {
+            "commands": [],
+            "name": "mouse.wheel"
+          },
+          {
+            "commands": [],
+            "name": "touchscreen.tap"
           },
           {
             "commands": [],

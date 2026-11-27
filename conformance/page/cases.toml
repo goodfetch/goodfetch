@@ -347,6 +347,31 @@ covers = ["story:5-10", "operation:locator.press"]
 id = "two-fills-sent-at-once-type-their-own-text-while-reads-answer"
 covers = ["story:5-7", "operation:locator.fill", "operation:page.read"]
 
+[[capability.case]]
+id = "mouse-draws-on-the-canvas-surface-and-evaluate-reads-the-pixels-back"
+covers = [
+  "story:5-9",
+  "operation:page.mouse.move",
+  "operation:page.mouse.down",
+  "operation:page.mouse.up",
+  "operation:page.mouse.click",
+  "operation:page.mouse.dblclick",
+  "operation:page.mouse.wheel",
+  "operation:page.evaluate",
+]
+
+[[capability.case]]
+id = "keyboard-and-touchscreen-send-trusted-input-and-provenance-marks-each-unguarded"
+covers = [
+  "story:5-9",
+  "operation:page.keyboard.down",
+  "operation:page.keyboard.up",
+  "operation:page.keyboard.press",
+  "operation:page.keyboard.type",
+  "operation:page.keyboard.insert_text",
+  "operation:page.touchscreen.tap",
+]
+
 [[capability]]
 name = "routes"
 

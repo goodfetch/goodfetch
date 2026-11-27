@@ -262,7 +262,7 @@ fn the_page_suite_proves_launch_against_collies_attached_engine() {
     prove(LAUNCH);
 }
 
-/// Covers: story:5-2, story:5-3, story:5-7, story:5-10, story:5-18, operation:locator.click, operation:locator.fill, operation:locator.press, operation:page.read
+/// Covers: story:5-2, story:5-3, story:5-7, story:5-9, story:5-10, story:5-18, operation:locator.click, operation:locator.fill, operation:locator.press, operation:page.read, operation:page.keyboard.down, operation:page.keyboard.up, operation:page.keyboard.press, operation:page.keyboard.type, operation:page.keyboard.insert_text, operation:page.mouse.move, operation:page.mouse.down, operation:page.mouse.up, operation:page.mouse.click, operation:page.mouse.dblclick, operation:page.mouse.wheel, operation:page.touchscreen.tap
 #[test]
 fn the_page_suite_proves_locators_against_collies_attached_engine() {
     prove(LOCATORS);

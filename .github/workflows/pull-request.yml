@@ -701,7 +701,6 @@ jobs:
         uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
         with:
           target: x86_64-unknown-linux-gnu
-          runtimes: none
       - name: Build both Products' ci executables on Linux x64
         run: >-
           cargo build --locked --profile ci --target x86_64-unknown-linux-gnu

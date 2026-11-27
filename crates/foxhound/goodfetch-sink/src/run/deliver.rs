@@ -5,9 +5,11 @@
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, SystemTime};
 
+use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::run::run_error;
 use goodfetch_engine::run_state::run_row;
 use goodfetch_engine::runs::RunError;
+use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::{CallContext, CallError, named};
 use goodfetch_protocol::foxhound::report::SinkStatus;
@@ -24,12 +26,11 @@ use crate::dead_letters::{self, DeadLetter};
 use crate::driver::{Driver, Status};
 use crate::report::{self, SinkStateRow};
 use crate::schedule::SinkNotification;
-use crate::sqlite::SqliteSink;
 use crate::sync::Mutex;
-use crate::throughput::DEFAULT_WRITE_TIMEOUT;
 
+use super::built_in::{BuiltInSink, Destination};
 use super::ops::open_settings;
-use super::{Destination, Sink, deliverable, entries, layer};
+use super::{Sink, deliverable, entries, layer, sink_write_timeout};
 
 /// Output of one synchronous delivery pass against a run file.
 pub(super) struct PassOutput {
@@ -42,7 +43,7 @@ pub(super) struct PassOutput {
 /// Runs one delivery pass on `driver` against `run_file` and drains the
 /// resulting dead letters, Notifications and state snapshot.
 pub(super) fn deliver_pass(
-    driver: &Mutex<Driver<SqliteSink>>,
+    driver: &Mutex<Driver<BuiltInSink>>,
     sink_name: &str,
     run_file: &Connection,
 ) -> rusqlite::Result<PassOutput> {
@@ -186,6 +187,7 @@ async fn resolve_deliverable_sink(
     (
         goodfetch_protocol::foxhound::sink::SinkSettings,
         goodfetch_protocol::settings::SettingsLayer,
+        Resolved,
     ),
     CallError,
 > {
@@ -212,7 +214,53 @@ async fn resolve_deliverable_sink(
         ));
     };
     deliverable(sink_name, &entry, layer)?;
-    Ok((entry, layer))
+    Ok((entry, layer, settings))
+}
+
+async fn open_deliver_driver(
+    sink_name: &str,
+    entry: &goodfetch_protocol::foxhound::sink::SinkSettings,
+    layer: goodfetch_protocol::settings::SettingsLayer,
+    resolved: &Resolved,
+    run_id: &goodfetch_protocol::run::RunId,
+    run_epoch: u64,
+    context: &CallContext,
+) -> Result<
+    (
+        Arc<Mutex<Driver<BuiltInSink>>>,
+        goodfetch_engine::mask::Masks,
+    ),
+    String,
+> {
+    let (_, secrets) = context.runs().outside_a_run();
+    let masks = secrets.mask().masks().clone();
+    let endpoint = NotificationEndpoint::of(
+        resolved,
+        context.engine().clock(),
+        context.engine().owner().blocking_threads(),
+    );
+    let destination = Destination {
+        name: sink_name,
+        settings: entry,
+        layer,
+        write_timeout: sink_write_timeout(resolved),
+        run_id: Some(run_id),
+        endpoint: &endpoint,
+    };
+    let run_copy = RunCopy {
+        run_id: run_id.as_str().to_owned(),
+        run_epoch,
+    };
+    let driver = destination
+        .open_with_epoch(
+            &secrets,
+            context.engine().owner(),
+            context.engine().clock(),
+            run_copy,
+            true,
+        )
+        .await?;
+    Ok((Arc::new(Mutex::new(driver)), masks))
 }
 
 /// `sink.deliver`: redelivers one delivery, recovers failed deliveries since a
@@ -222,7 +270,7 @@ pub(super) async fn deliver_op(
     mut params: SinkDeliverParams,
     context: CallContext,
 ) -> Result<SinkDeliver, CallError> {
-    let (entry, layer) = resolve_deliverable_sink(&mut params, &context).await?;
+    let (entry, layer, resolved) = resolve_deliverable_sink(&mut params, &context).await?;
     let sink_name = params.sink.clone();
 
     let failed = |error: RunError| run_error(error, &context);
@@ -245,30 +293,18 @@ pub(super) async fn deliver_op(
         .await
         .map_err(failed)?;
 
-    let (_, secrets) = context.runs().outside_a_run();
-    let masks = secrets.mask().masks().clone();
-    let destination = Destination {
-        name: &sink_name,
-        settings: &entry,
+    let (driver, masks) = match open_deliver_driver(
+        &sink_name,
+        &entry,
         layer,
-        write_timeout: DEFAULT_WRITE_TIMEOUT,
-        run_id: Some(&params.run_id),
-    };
-    let run_copy = RunCopy {
-        run_id: params.run_id.as_str().to_owned(),
+        &resolved,
+        &params.run_id,
         run_epoch,
-    };
-    let driver = match destination
-        .open_with_epoch(
-            &secrets,
-            context.engine().owner(),
-            context.engine().clock(),
-            run_copy,
-            true,
-        )
-        .await
+        &context,
+    )
+    .await
     {
-        Ok(driver) => Arc::new(Mutex::new(driver)),
+        Ok(opened) => opened,
         Err(cause) => {
             tracing::warn!(sink = %sink_name, run_id = %params.run_id, %cause, "`sink.deliver` could not open destination");
             return Ok(SinkDeliver {
@@ -378,7 +414,7 @@ async fn persist_action_output(
 fn run_action(
     run_file: &Connection,
     sink_name: &str,
-    driver: &Mutex<Driver<SqliteSink>>,
+    driver: &Mutex<Driver<BuiltInSink>>,
     action: SinkDeliverAction,
 ) -> rusqlite::Result<ActionOutput> {
     let mut guard = driver.lock().unwrap_or_else(PoisonError::into_inner);

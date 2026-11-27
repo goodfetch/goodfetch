@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::run::{run_error, run_layer, settings_error};
 use goodfetch_engine::runs::{RunError, Runs};
 use goodfetch_engine::settings::{Opening, Resolved};
@@ -52,16 +53,19 @@ async fn probe_configured(
     sink: &str,
     entry: &SinkSettings,
     layer: SettingsLayer,
+    resolved: &Resolved,
     context: &CallContext,
 ) -> SinkProbeOutcome {
     let (_, secrets) = context.runs().outside_a_run();
     let owner = context.engine().owner();
+    let endpoint = NotificationEndpoint::of(resolved, Clock::system(), owner.blocking_threads());
     let destination = Destination {
         name: sink,
         settings: entry,
         layer,
         write_timeout: DEFAULT_WRITE_TIMEOUT,
         run_id: None,
+        endpoint: &endpoint,
     };
     let run = RunCopy {
         run_id: String::new(),
@@ -108,7 +112,7 @@ pub(super) async fn probe(
         });
     };
     deliverable(&sink, &entry, layer)?;
-    let outcome = probe_configured(&sink, &entry, layer, &context).await;
+    let outcome = probe_configured(&sink, &entry, layer, &settings, &context).await;
     Ok(SinkProbe { sink, outcome })
 }
 
@@ -143,7 +147,7 @@ pub(super) async fn list(
     for (name, entry) in entries(&settings) {
         let (dead_letters, outside_dedup_window) = totals.get(&name).copied().unwrap_or((0, 0));
         let (guarantee_class, probe_cause) = match deliverable(&name, &entry, layer) {
-            Ok(()) => match probe_configured(&name, &entry, layer, &context).await {
+            Ok(()) => match probe_configured(&name, &entry, layer, &settings, &context).await {
                 SinkProbeOutcome::Proved { class } => (Some(class), None),
                 SinkProbeOutcome::Failed { cause } => (None, Some(cause)),
             },

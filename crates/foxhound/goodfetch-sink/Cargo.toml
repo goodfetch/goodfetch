@@ -16,26 +16,31 @@ goodfetch-dataset.workspace = true
 goodfetch-engine.workspace = true
 # The Guarantee class a probe reports, the protocol's own (ADR 0026).
 goodfetch-protocol.workspace = true
+# Webhook Sink HTTP requests sent through the engine's NotificationEndpoint.
+hyper.workspace = true
 # A Record's commit time, written RFC 3339 into the destination.
 jiff.workspace = true
 rusqlite.workspace = true
 # A destination's resolved Secret.
 secrecy.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 # A Sink's driver opens once, whichever delivery reaches it first, and its
 # delivery task waits for a commit, a retry or its stop, whichever comes first.
 tokio = { workspace = true, features = ["macros", "sync"] }
 tracing.workspace = true
+url.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
 goodfetch-simulation.workspace = true
 goodfetch-test-support.workspace = true
+http-body-util.workspace = true
+hyper-util.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
-serde.workspace = true
 tempfile.workspace = true
 
 [lints]

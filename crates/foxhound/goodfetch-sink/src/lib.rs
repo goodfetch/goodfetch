@@ -22,6 +22,7 @@ pub mod schema;
 mod sqlite;
 mod sync;
 pub mod throughput;
+pub mod webhook;
 
 pub use contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
@@ -40,3 +41,4 @@ pub use throughput::{
     AdaptiveConcurrency, BatchPolicy, DEFAULT_WRITE_TIMEOUT, Preset, RateLimit, Throughput,
     TokenBucket, write_bounded,
 };
+pub use webhook::{DEFAULT_MAX_BATCH_BYTES, WebhookConfig, WebhookError, WebhookSink};

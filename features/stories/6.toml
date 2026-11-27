@@ -1285,6 +1285,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 296
+title = "As a crawl developer, I want webhook Sinks signed under Standard Webhooks, sending batches capped at 256 KB or a thin shape with a record range and a fetch URL, so that receivers verify and dedup (ADRs 0008, 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 298
 title = "As an operator, I want each Sink's class, dead letters and deliveries outside the dedup window in `sink list`, the Run report and any Client, so that what a destination guaranteed is reported per Run (ADRs 0026, 0102)."
 milestone = "M4 Everything else"

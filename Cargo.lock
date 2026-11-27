@@ -3353,6 +3353,9 @@ dependencies = [
  "goodfetch-simulation",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "jiff",
  "proptest",
  "proptest-state-machine",
@@ -3365,6 +3368,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]

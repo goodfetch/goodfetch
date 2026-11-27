@@ -20,4 +20,5 @@ mod schema_drift;
 #[cfg(tokio_unstable)]
 mod simulation;
 mod throughput;
+mod webhook;
 mod write_modes;

@@ -11,14 +11,13 @@
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
-use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::Masks;
+use goodfetch_engine::notification_endpoint::NotificationEndpoint;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::runs::{RunKeys, RunParts, Runs};
-use goodfetch_engine::secrets::{Purpose, RunSecrets};
 use goodfetch_engine::settings::Resolved;
-use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
+use goodfetch_engine::tasks::TaskOwner;
 use goodfetch_engine::{CallError, Contribution, Handler, named};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::report::SinkStatus;
@@ -26,14 +25,12 @@ use goodfetch_protocol::foxhound::sink::{
     CRAWL_MIN_SINK_GUARANTEE, CRAWL_ON_SINK_FAILURE, DeliveredAs, OnSinkFailure, SINK_DELIVER,
     SINK_LIST, SINK_PROBE, SINKS, SinkSettings, SinkType, WriteMode,
 };
-use goodfetch_protocol::run::{Lifecycle, Presence, RunId, RunKind, RunListParams};
-use goodfetch_protocol::secret_reference::SecretReference;
+use goodfetch_protocol::run::{Lifecycle, Presence, RunKind, RunListParams};
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
     SettingsLayer, TIMEOUT_SINK_WRITE,
 };
 use rusqlite::Connection;
-use secrecy::ExposeSecret as _;
 use tokio::sync::{Mutex as AsyncMutex, OnceCell, watch};
 
 use crate::contract::{Failure, GuaranteeClass, RunCopy};
@@ -41,15 +38,14 @@ use crate::dead_letters;
 use crate::driver::{Driver, RetryOutcome, Status};
 use crate::guarantee;
 use crate::report::{self, SinkReportPart, SinkStateRow};
-use crate::sqlite::SqliteSink;
 use crate::sync::Mutex;
-use crate::throughput::{DEFAULT_WRITE_TIMEOUT, Throughput};
+use crate::throughput::DEFAULT_WRITE_TIMEOUT;
 
+mod built_in;
 mod deliver;
 mod ops;
 
-/// The table a SQLite Sink writes when its `target` names none.
-const SQLITE_TARGET: &str = "records";
+use built_in::{BuiltInSink, Destination};
 
 /// Goodfetch-sink's composition value (ADR 0087): what the crawl's Run
 /// asks of its Sinks, the catalog's in-binary destinations this engine
@@ -85,6 +81,7 @@ impl Sinks {
         let layer = layer(settings);
         entries(settings).try_for_each(|(name, sink)| {
             deliverable(&name, &sink, layer)?;
+            webhook_checked(&name, &sink, layer)?;
             keyed(&name, &sink, layer, declarations)
         })
     }
@@ -107,6 +104,11 @@ impl Sinks {
         let layer = layer(settings);
         let on_failure = on_sink_failure(settings);
         let write_timeout = sink_write_timeout(settings);
+        let endpoint = NotificationEndpoint::of(
+            settings,
+            run.identity.clock(),
+            run.identity.owner().blocking_threads(),
+        );
         let stop_requested = Arc::new(watch::Sender::new(None));
         let sinks = entries(settings)
             .map(|(name, settings)| {
@@ -115,6 +117,7 @@ impl Sinks {
                     settings,
                     layer,
                     write_timeout,
+                    endpoint: endpoint.clone(),
                     identity: run.identity.clone(),
                     state: run.state.clone(),
                     keys: run.keys.clone(),
@@ -292,6 +295,7 @@ struct Sink {
     settings: SinkSettings,
     layer: SettingsLayer,
     write_timeout: Duration,
+    endpoint: NotificationEndpoint,
     identity: RunIdentity,
     state: RunState,
     keys: RunKeys,
@@ -300,7 +304,7 @@ struct Sink {
     runs: Runs,
     /// Its delivery driver, once its destination opened; why it did not
     /// otherwise.
-    driver: OnceCell<Result<Arc<Mutex<Driver<SqliteSink>>>, String>>,
+    driver: OnceCell<Result<Arc<Mutex<Driver<BuiltInSink>>>, String>>,
     /// Serializes delivery passes (including persisting dead letters into
     /// `state`) so `Delivery::finish` never overtakes an in-flight pass
     /// before `RunEnd::end` closes the run-state writer.
@@ -473,13 +477,17 @@ impl Sink {
     /// Retries dead letters stored for this Sink in this Run (on resume)
     /// and in earlier ended Crawl Runs, removing each that succeeds and
     /// updating each that is rejected again (ADR 0026).
-    async fn retry_dead_letters(&self, driver: &Arc<Mutex<Driver<SqliteSink>>>) {
+    async fn retry_dead_letters(&self, driver: &Arc<Mutex<Driver<BuiltInSink>>>) {
         let masks = self.keys.secrets().mask().masks().clone();
         self.retry_own_dead_letters(driver, &masks).await;
         self.retry_past_runs_dead_letters(driver, &masks).await;
     }
 
-    async fn retry_own_dead_letters(&self, driver: &Arc<Mutex<Driver<SqliteSink>>>, masks: &Masks) {
+    async fn retry_own_dead_letters(
+        &self,
+        driver: &Arc<Mutex<Driver<BuiltInSink>>>,
+        masks: &Masks,
+    ) {
         let sink_name = self.name.clone();
         let driver = Arc::clone(driver);
         let outcome = self
@@ -505,7 +513,7 @@ impl Sink {
 
     async fn retry_past_runs_dead_letters(
         &self,
-        driver: &Arc<Mutex<Driver<SqliteSink>>>,
+        driver: &Arc<Mutex<Driver<BuiltInSink>>>,
         masks: &Masks,
     ) {
         let Ok(rows) = self.runs.list(RunListParams::default()).await else {
@@ -579,7 +587,7 @@ impl Sink {
 
     /// Its delivery driver, opened by the first probe or delivery to reach
     /// it.
-    async fn driver(&self) -> Result<Arc<Mutex<Driver<SqliteSink>>>, String> {
+    async fn driver(&self) -> Result<Arc<Mutex<Driver<BuiltInSink>>>, String> {
         self.driver
             .get_or_init(|| async {
                 let run = RunCopy {
@@ -592,6 +600,7 @@ impl Sink {
                     layer: self.layer,
                     write_timeout: self.write_timeout,
                     run_id: Some(self.identity.id()),
+                    endpoint: &self.endpoint,
                 };
                 destination
                     .open(
@@ -613,7 +622,7 @@ impl Sink {
 fn retry_in(
     run_file: &Connection,
     sink_name: &str,
-    driver: &Mutex<Driver<SqliteSink>>,
+    driver: &Mutex<Driver<BuiltInSink>>,
 ) -> rusqlite::Result<Option<RetryOutcome>> {
     let entries = dead_letters::list(run_file, sink_name)?;
     if entries.is_empty() {
@@ -641,109 +650,6 @@ fn apply_retry_outcome(
         dead_letters::record(connection, entry, masks)?;
     }
     Ok(())
-}
-
-/// A Sink's destination, as its entry names it.
-struct Destination<'a> {
-    name: &'a str,
-    settings: &'a SinkSettings,
-    /// The layer that set its entry.
-    layer: SettingsLayer,
-    /// Per-write timeout (`timeout.sink_write`, ADR 0080).
-    write_timeout: Duration,
-    /// The Run it delivers for; none for a probe outside any Run.
-    run_id: Option<&'a RunId>,
-}
-
-impl Destination<'_> {
-    /// Its delivery driver for the copy `run` of a Run, its Secret
-    /// reference resolved through `secrets` and its database opened on
-    /// `owner`'s blocking threads; why not, without the resolved value,
-    /// when either fails. When `keep_destination_epoch` is set (for post-Run
-    /// `sink.deliver` operations), the driver adopts any epoch already fenced
-    /// at the destination for `run.run_id` so earlier rows are preserved.
-    async fn open_with_epoch(
-        &self,
-        secrets: &RunSecrets,
-        owner: &TaskStarter,
-        clock: Clock,
-        mut run: RunCopy,
-        keep_destination_epoch: bool,
-    ) -> Result<Driver<SqliteSink>, String> {
-        let destination =
-            self.settings.destination.as_deref().expect(
-                "invariant: `SinkSettings::read` refuses a typed Sink with no `destination`",
-            );
-        let reference = SecretReference::parse(destination).expect(
-            "invariant: `SinkSettings::read` refuses a `destination` that is no Secret reference",
-        );
-        let placeholder = format!("{}.{}.destination", SINKS.name, self.name);
-        let purpose = Purpose {
-            placeholder: &placeholder,
-            domain: None,
-            domains: &[],
-            layer: Some(self.layer),
-            run_id: self.run_id,
-        };
-        let path = secrets
-            .resolve(&reference, &purpose)
-            .await
-            .map_err(|error| format!("its destination `{destination}` did not resolve: {error}"))?
-            .expose_secret()
-            .to_owned();
-        let target = self.settings.target.as_deref().unwrap_or(SQLITE_TARGET);
-        let mode = self.settings.write_mode();
-        let schema = self.settings.schema.clone().unwrap_or_default();
-        let target_owned = target.to_owned();
-        let run_id_for_epoch = run.run_id.clone();
-        let (sqlite, existing_epoch) = owner
-            .blocking(move || {
-                let connection = Connection::open(path)?;
-                let sqlite = SqliteSink::new(connection, &target_owned)
-                    .with_mode(mode)
-                    .with_schema(schema);
-                let existing = keep_destination_epoch
-                    .then(|| sqlite.current_epoch(&run_id_for_epoch))
-                    .flatten();
-                Ok::<_, rusqlite::Error>((sqlite, existing))
-            })
-            .await
-            .map_err(|error| {
-                format!(
-                    "its SQLite database did not open ({:?})",
-                    error.sqlite_error_code()
-                )
-            })?;
-        if let Some(existing) = existing_epoch {
-            run.run_epoch = existing;
-        }
-        let throughput = Throughput::from_settings(
-            self.settings.sink_type,
-            self.settings.rate.as_ref(),
-            self.settings.batch.as_ref(),
-            self.write_timeout,
-        );
-        let driver = Driver::new(self.name, sqlite, run, self.settings.datasets.clone())
-            .with_clock(clock)
-            .with_masks(secrets.mask().masks().clone())
-            .with_throughput(throughput);
-        Ok(if mode == WriteMode::Append {
-            driver
-        } else {
-            driver.keyed(self.settings.key.clone())
-        })
-    }
-
-    async fn open(
-        &self,
-        secrets: &RunSecrets,
-        owner: &TaskStarter,
-        clock: Clock,
-        run: RunCopy,
-    ) -> Result<Driver<SqliteSink>, String> {
-        self.open_with_epoch(secrets, owner, clock, run, false)
-            .await
-    }
 }
 
 /// Why a probe that answered `failure` proved nothing, without the
@@ -902,13 +808,49 @@ fn keyed(
     ))
 }
 
+/// Refuses a webhook Sink with no `webhook.signing_secret` at start with
+/// `setting_invalid` (ADRs 0008 and 0026; issue 1166).
+fn webhook_checked(name: &str, sink: &SinkSettings, layer: SettingsLayer) -> Result<(), CallError> {
+    if sink.sink_type != Some(SinkType::Webhook) {
+        return Ok(());
+    }
+    let has_secret = sink
+        .webhook
+        .as_ref()
+        .and_then(|w| w.signing_secret.as_deref())
+        .is_some_and(|s| !s.trim().is_empty());
+    if has_secret {
+        return Ok(());
+    }
+    let key = format!("{}.{name}.webhook.signing_secret", SINKS.name);
+    let reason =
+        "a webhook Sink requires `webhook.signing_secret` to sign Standard Webhooks deliveries"
+            .to_owned();
+    let fix =
+        format!("set `{key}` to a Secret reference holding a `whsec_` or `whsk_` signing key");
+    Err(CallError::new(
+        &SETTING_INVALID,
+        format!(
+            "`{}` is invalid: {reason}; {fix}.",
+            named::setting_in(&key, layer)
+        ),
+        &SettingInvalidDetails {
+            key,
+            layer: Some(layer),
+            reason,
+            limit: None,
+            fix: Some(fix),
+        },
+    ))
+}
+
 /// The key of `sink`'s entry that asks for what this engine does not
 /// deliver yet, with the feature it asks for; none when it delivers it.
 fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
     let Some(sink_type) = sink.sink_type else {
         return Some(("type", "program_sink".to_owned()));
     };
-    if sink_type != SinkType::Sqlite {
+    if !matches!(sink_type, SinkType::Sqlite | SinkType::Webhook) {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
     }
     sink.deliver

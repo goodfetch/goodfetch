@@ -286,6 +286,25 @@ jobs:
             --packaged target/release-attested \
             --channels npm:nightly,ghcr:nightly,plugins-oci,github-prerelease \
             --verify-attestations
+      - name: Check both Products' release-profile files against their Size budget ceilings
+        run: |
+          cargo run --quiet --locked --bin xtask -- release size-manifest \
+            --binaries target/signed-binaries \
+            --packaged target/release-attested \
+            --out target/release-size-files.toml
+          cargo run --quiet --locked --bin xtask -- size ceilings \
+            --files target/release-size-files.toml > target/release-size-table.md
+      - name: Scan release size table for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/release-size-table.md
+      - name: Upload release size table for release notes
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-size-table
+          path: target/release-size-table.md
+          if-no-files-found: error
 
   publish-npm:
     name: publish-npm
@@ -394,15 +413,25 @@ jobs:
         with:
           name: release-attested
           path: target/release-attested
-      - name: Publish GitHub pre-release with both Products' assets and .devN wheels
+      - name: Download release size table
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-size-table
+          path: target/release-size-table
+      - name: Publish GitHub pre-release with both Products' assets, debug symbols, .devN wheels and size table
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
         run: |
+          {
+            printf 'Nightly pre-release of Goodfetch Collie and Foxhound (%s).\n\n' "$RELEASE_VERSION"
+            printf '## Sizes\n\n'
+            cat target/release-size-table/release-size-table.md
+          } > target/release-notes.md
           gh release create "v${RELEASE_VERSION}" \
             --prerelease \
             --title "Nightly v${RELEASE_VERSION}" \
-            --notes "Nightly pre-release of Goodfetch Collie and Foxhound (${RELEASE_VERSION})." \
+            --notes-file target/release-notes.md \
             target/release-attested/assets/* \
             target/release-attested/wheels/*.whl
 

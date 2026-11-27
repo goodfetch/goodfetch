@@ -7,20 +7,22 @@
 #   (glibc on Linux) and Alpine (musl container on Linux);
 # - `cargo package` output built in a temporary consumer project.
 #
-# Usage: ci/release/rehearse.sh [--packaged <dir>] [--version <semver>]
+# Usage: ci/release/rehearse.sh [--packaged <dir>] [--binaries <dir>] [--version <semver>]
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
 packaged=""
+binaries=""
 version="0.0.0"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --packaged) packaged=$2; shift 2 ;;
+    --binaries) binaries=$2; shift 2 ;;
     --version) version=$2; shift 2 ;;
     *)
-      echo "usage: ci/release/rehearse.sh [--packaged <dir>] [--version <semver>]" >&2
+      echo "usage: ci/release/rehearse.sh [--packaged <dir>] [--binaries <dir>] [--version <semver>]" >&2
       exit 2
       ;;
   esac
@@ -29,17 +31,30 @@ done
 export GOODFETCH_REHEARSE_PACKAGED="$packaged"
 export GOODFETCH_REHEARSE_VERSION="$version"
 
-# 0. Published Operation catalog signature and attestation rehearsal (issue 1662).
-if [[ -n "$packaged" && -f "$packaged/assets/goodfetch-catalog.json" ]]; then
+# 0. Published Operation catalog and debug symbol signature/attestation rehearsal (issues 1662, 203).
+if [[ -n "$packaged" ]]; then
   key_dir="$packaged/rehearsal-keys"
-  cargo run --quiet --bin xtask -- release sign-rehearsal \
-    --file "$packaged/assets/goodfetch-catalog.json" \
-    --key-dir "$key_dir"
-  cargo run --quiet --bin xtask -- release verify-rehearsal \
-    --file "$packaged/assets/goodfetch-catalog.json" \
-    --signature "$packaged/assets/goodfetch-catalog.json.sig" \
-    --attestation "$packaged/assets/goodfetch-catalog.json.sigstore.jsonl" \
-    --public-key "$key_dir/rehearsal.pub"
+  for asset in "$packaged/assets/goodfetch-catalog.json" "$packaged"/assets/*-debug.tar.xz; do
+    [[ -f "$asset" ]] || continue
+    cargo run --quiet --bin xtask -- release sign-rehearsal \
+      --file "$asset" \
+      --key-dir "$key_dir"
+    cargo run --quiet --bin xtask -- release verify-rehearsal \
+      --file "$asset" \
+      --signature "${asset}.sig" \
+      --attestation "${asset}.sigstore.jsonl" \
+      --public-key "$key_dir/rehearsal.pub"
+  done
+
+  # Enforce both Products' release-profile Size budget ceilings before any publish
+  # step: a broken ceiling of either Product stops the rehearsal for both (ADR 0087, 0094).
+  manifest="$packaged/release-size-files.toml"
+  size_args=(--packaged "$packaged" --out "$manifest")
+  if [[ -n "$binaries" ]]; then
+    size_args+=(--binaries "$binaries")
+  fi
+  cargo run --quiet --bin xtask -- release size-manifest "${size_args[@]}"
+  cargo run --quiet --bin xtask -- size ceilings --files "$manifest" >"$packaged/release-size-table.md"
 fi
 
 # 1. TypeScript installed-package rehearsal against local Verdaccio (ADR 0069).

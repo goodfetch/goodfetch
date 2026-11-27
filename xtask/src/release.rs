@@ -39,6 +39,7 @@ mod package;
 mod proving_ground;
 mod pull_request;
 mod signing;
+mod size_manifest;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
@@ -241,6 +242,10 @@ pub(crate) enum Command {
     /// and nightly channel exclusions before any publish step (ADRs 0030, 0032,
     /// 0057 and 0094; issue 143).
     ChannelGate(channel_gate::ChannelGateArguments),
+    /// Builds the `xtask size` TOML manifest over both Products' release-profile
+    /// files, excluding Goodfetch Chromium and debug symbols (ADRs 0057, 0074,
+    /// 0087 and 0094; issue 203).
+    SizeManifest(size_manifest::Arguments),
 }
 
 #[expect(
@@ -264,6 +269,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::SignatureGate(arguments) => signing::run_signature_gate(root, &arguments),
         Command::SigningReuseKey(arguments) => signing::run_reuse_key(root, &arguments),
         Command::ChannelGate(arguments) => channel_gate::run(root, &arguments),
+        Command::SizeManifest(arguments) => size_manifest::run(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

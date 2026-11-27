@@ -13,6 +13,7 @@ mod dead_letters;
 mod faults;
 mod files;
 mod model;
+mod mysql_duckdb_smtp;
 mod outlive;
 mod postgres;
 mod retries;

@@ -18,9 +18,12 @@ use url::Url;
 
 use crate::contract::{Batch, Failure, Primitives, Probe, RunCopy, Written};
 use crate::driver::Driver;
+use crate::duckdb_sink::{DEFAULT_DUCKDB_TARGET, DuckDbError, DuckDbSink};
 use crate::files::{FilesConfig, FilesError, FilesSink};
+use crate::mysql::{DEFAULT_MYSQL_TARGET, MySqlError, MySqlSink};
 use crate::object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
 use crate::postgres::{DEFAULT_POSTGRES_TARGET, PostgresError, PostgresSink};
+use crate::smtp_sink::{SmtpError, SmtpSink};
 use crate::sqlite::{SqliteError, SqliteSink};
 use crate::throughput::Throughput;
 use crate::webhook::{DEFAULT_MAX_BATCH_BYTES, WebhookConfig, WebhookError, WebhookSink};
@@ -34,6 +37,9 @@ pub(super) enum BuiltInSink {
     Webhook(WebhookSink),
     ObjectStore(FilesSink<ObjectStoreDestination>),
     Postgres(PostgresSink),
+    MySql(MySqlSink),
+    DuckDb(DuckDbSink),
+    Smtp(SmtpSink),
 }
 
 /// Errors from any [`BuiltInSink`].
@@ -42,6 +48,9 @@ pub(super) enum BuiltInError {
     Webhook(WebhookError),
     ObjectStore(FilesError<ObjectStoreError>),
     Postgres(PostgresError),
+    MySql(MySqlError),
+    DuckDb(DuckDbError),
+    Smtp(SmtpError),
 }
 
 impl Primitives for BuiltInSink {
@@ -53,6 +62,9 @@ impl Primitives for BuiltInSink {
             Self::Webhook(sink) => sink.probe(run).map_err(BuiltInError::Webhook),
             Self::ObjectStore(sink) => sink.probe(run).map_err(BuiltInError::ObjectStore),
             Self::Postgres(sink) => sink.probe(run).map_err(BuiltInError::Postgres),
+            Self::MySql(sink) => sink.probe(run).map_err(BuiltInError::MySql),
+            Self::DuckDb(sink) => sink.probe(run).map_err(BuiltInError::DuckDb),
+            Self::Smtp(sink) => sink.probe(run).map_err(BuiltInError::Smtp),
         }
     }
 
@@ -62,6 +74,9 @@ impl Primitives for BuiltInSink {
             Self::Webhook(sink) => sink.write(batch).map_err(BuiltInError::Webhook),
             Self::ObjectStore(sink) => sink.write(batch).map_err(BuiltInError::ObjectStore),
             Self::Postgres(sink) => sink.write(batch).map_err(BuiltInError::Postgres),
+            Self::MySql(sink) => sink.write(batch).map_err(BuiltInError::MySql),
+            Self::DuckDb(sink) => sink.write(batch).map_err(BuiltInError::DuckDb),
+            Self::Smtp(sink) => sink.write(batch).map_err(BuiltInError::Smtp),
         }
     }
 
@@ -83,6 +98,15 @@ impl Primitives for BuiltInSink {
             Self::Postgres(sink) => sink
                 .write_with_timeout(batch, timeout)
                 .map_err(BuiltInError::Postgres),
+            Self::MySql(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::MySql),
+            Self::DuckDb(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::DuckDb),
+            Self::Smtp(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::Smtp),
         }
     }
 
@@ -92,6 +116,9 @@ impl Primitives for BuiltInSink {
             Self::Webhook(sink) => sink.finish(run).map_err(BuiltInError::Webhook),
             Self::ObjectStore(sink) => sink.finish(run).map_err(BuiltInError::ObjectStore),
             Self::Postgres(sink) => sink.finish(run).map_err(BuiltInError::Postgres),
+            Self::MySql(sink) => sink.finish(run).map_err(BuiltInError::MySql),
+            Self::DuckDb(sink) => sink.finish(run).map_err(BuiltInError::DuckDb),
+            Self::Smtp(sink) => sink.finish(run).map_err(BuiltInError::Smtp),
         }
     }
 
@@ -101,6 +128,9 @@ impl Primitives for BuiltInSink {
             Self::Webhook(sink) => sink.dedup_window(),
             Self::ObjectStore(sink) => sink.dedup_window(),
             Self::Postgres(sink) => sink.dedup_window(),
+            Self::MySql(sink) => sink.dedup_window(),
+            Self::DuckDb(sink) => sink.dedup_window(),
+            Self::Smtp(sink) => sink.dedup_window(),
         }
     }
 
@@ -110,6 +140,9 @@ impl Primitives for BuiltInSink {
             (Self::Webhook(sink), BuiltInError::Webhook(err)) => sink.map_failure(err),
             (Self::ObjectStore(sink), BuiltInError::ObjectStore(err)) => sink.map_failure(err),
             (Self::Postgres(sink), BuiltInError::Postgres(err)) => sink.map_failure(err),
+            (Self::MySql(sink), BuiltInError::MySql(err)) => sink.map_failure(err),
+            (Self::DuckDb(sink), BuiltInError::DuckDb(err)) => sink.map_failure(err),
+            (Self::Smtp(sink), BuiltInError::Smtp(err)) => sink.map_failure(err),
             _ => unreachable!("invariant: error matches its BuiltInSink variant"),
         }
     }
@@ -158,7 +191,48 @@ impl Destination<'_> {
             self.settings.batch.as_ref(),
             self.write_timeout,
         );
-        let built_in = match self.settings.sink_type {
+        let built_in = self
+            .open_built_in(
+                resolved_dest,
+                mode,
+                secrets,
+                owner,
+                clock,
+                &mut run,
+                &mut throughput,
+                keep_destination_epoch,
+            )
+            .await?;
+        let driver = Driver::new(self.name, built_in, run, self.settings.datasets.clone())
+            .with_clock(clock)
+            .with_masks(secrets.mask().masks().clone())
+            .with_throughput(throughput);
+        Ok(if mode == WriteMode::Append {
+            driver
+        } else {
+            driver.keyed(self.settings.key.clone())
+        })
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "internal factory split from open_with_epoch"
+    )]
+    async fn open_built_in(
+        &self,
+        resolved_dest: String,
+        mode: WriteMode,
+        secrets: &RunSecrets,
+        owner: &TaskStarter,
+        clock: Clock,
+        run: &mut RunCopy,
+        throughput: &mut Throughput,
+        keep_destination_epoch: bool,
+    ) -> Result<BuiltInSink, String> {
+        let schema_cfg = self.settings.schema.as_ref();
+        let contract = schema_cfg.and_then(|s| s.contract).unwrap_or_default();
+        let flatten = schema_cfg.and_then(|s| s.flatten).unwrap_or(false);
+        match self.settings.sink_type {
             Some(SinkType::Sqlite) => {
                 let (sqlite, existing_epoch) = self
                     .open_sqlite(
@@ -172,13 +246,13 @@ impl Destination<'_> {
                 if let Some(existing) = existing_epoch {
                     run.run_epoch = existing;
                 }
-                BuiltInSink::Sqlite(sqlite)
+                Ok(BuiltInSink::Sqlite(sqlite))
             }
             Some(SinkType::Webhook) => {
                 let (webhook, max_bytes) =
                     self.open_webhook(&resolved_dest, secrets, clock).await?;
                 throughput.batch.max_bytes = throughput.batch.max_bytes.min(max_bytes);
-                BuiltInSink::Webhook(webhook)
+                Ok(BuiltInSink::Webhook(webhook))
             }
             Some(sink_type @ (SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob)) => {
                 let backend = match sink_type {
@@ -196,7 +270,9 @@ impl Destination<'_> {
                 .map_err(|err| err.to_string())?;
                 let config = FilesConfig::from_settings(self.settings.files.as_ref());
                 let prefix = self.settings.target.as_deref().unwrap_or_default();
-                BuiltInSink::ObjectStore(FilesSink::new(self.name, prefix, config, clock, dest))
+                Ok(BuiltInSink::ObjectStore(FilesSink::new(
+                    self.name, prefix, config, clock, dest,
+                )))
             }
             Some(SinkType::Postgres | SinkType::Supabase) => {
                 let table = self
@@ -204,28 +280,44 @@ impl Destination<'_> {
                     .target
                     .as_deref()
                     .unwrap_or(DEFAULT_POSTGRES_TARGET);
-                let schema_cfg = self.settings.schema.as_ref();
-                let contract = schema_cfg.and_then(|s| s.contract).unwrap_or_default();
-                let flatten = schema_cfg.and_then(|s| s.flatten).unwrap_or(false);
                 let pg = PostgresSink::new(resolved_dest, table, mode, contract, flatten)
                     .map_err(|err| err.to_string())?;
-                BuiltInSink::Postgres(pg)
+                Ok(BuiltInSink::Postgres(pg))
             }
-            other => {
-                return Err(format!(
-                    "Sink type `{other:?}` is not deliverable by this engine"
-                ));
+            Some(SinkType::Mysql) => {
+                let table = self
+                    .settings
+                    .target
+                    .as_deref()
+                    .unwrap_or(DEFAULT_MYSQL_TARGET);
+                let mysql = MySqlSink::new(resolved_dest, table, mode, contract, flatten)
+                    .map_err(|err| err.to_string())?;
+                Ok(BuiltInSink::MySql(mysql))
             }
-        };
-        let driver = Driver::new(self.name, built_in, run, self.settings.datasets.clone())
-            .with_clock(clock)
-            .with_masks(secrets.mask().masks().clone())
-            .with_throughput(throughput);
-        Ok(if mode == WriteMode::Append {
-            driver
-        } else {
-            driver.keyed(self.settings.key.clone())
-        })
+            Some(SinkType::Duckdb) => {
+                let table = self
+                    .settings
+                    .target
+                    .as_deref()
+                    .unwrap_or(DEFAULT_DUCKDB_TARGET);
+                let duck = DuckDbSink::open(&resolved_dest, table, mode, contract, flatten)
+                    .map_err(|err| err.to_string())?;
+                Ok(BuiltInSink::DuckDb(duck))
+            }
+            Some(SinkType::Smtp) => {
+                let smtp = SmtpSink::from_url(
+                    self.name,
+                    &resolved_dest,
+                    self.settings.target.as_deref(),
+                    self.endpoint.clone(),
+                )
+                .map_err(|err| err.to_string())?;
+                Ok(BuiltInSink::Smtp(smtp))
+            }
+            other => Err(format!(
+                "Sink type `{other:?}` is not deliverable by this engine"
+            )),
+        }
     }
 
     pub(super) async fn open(

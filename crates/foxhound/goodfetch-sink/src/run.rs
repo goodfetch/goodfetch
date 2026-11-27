@@ -859,6 +859,9 @@ fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
             | SinkType::AzureBlob
             | SinkType::Postgres
             | SinkType::Supabase
+            | SinkType::Mysql
+            | SinkType::Duckdb
+            | SinkType::Smtp
     ) {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
     }

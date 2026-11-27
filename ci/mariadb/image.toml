@@ -1,0 +1,5 @@
+# The pinned MariaDB image the MySQL/MariaDB Sink conformance tests run
+# (ADRs 0026 and 0043).
+repository = "docker.io/library/mariadb"
+tag = "11-ubi9"
+digest = "sha256:0f8b649f4e41fc883128593a2d35e3c417430f6c656903271182f812a8435672"

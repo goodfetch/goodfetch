@@ -14,14 +14,17 @@
 mod contract;
 pub mod dead_letters;
 mod driver;
+pub mod duckdb_sink;
 pub mod files;
 mod guarantee;
+pub mod mysql;
 pub mod object_store_sink;
 pub mod postgres;
 pub mod report;
 mod run;
 pub mod schedule;
 pub mod schema;
+pub mod smtp_sink;
 mod sqlite;
 mod sync;
 pub mod throughput;
@@ -32,12 +35,14 @@ pub use contract::{
     Written,
 };
 pub use driver::{Driver, RedeliverOutcome, RetryOutcome, Status};
+pub use duckdb_sink::{DEFAULT_DUCKDB_TARGET, DuckDbError, DuckDbSink, map_duckdb_error};
 pub use files::{
     DEFAULT_MAX_AGE, DEFAULT_MAX_BYTES, DEFAULT_MAX_RECORDS, FileDestination, FileProbe,
     FilesConfig, FilesError, FilesSink, ParsedPartKey, PutOutcome, format_part_key, parse_part_key,
     part_extension,
 };
 pub use guarantee::{meets, require};
+pub use mysql::{DEFAULT_MYSQL_TARGET, MySqlError, MySqlSink, map_mysql_error};
 pub use object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
 pub use postgres::{DEFAULT_POSTGRES_TARGET, PostgresError, PostgresSink, map_postgres_error};
 pub use report::{SinkReportPart, SinkStateRow};
@@ -46,6 +51,7 @@ pub use schedule::{
     PAUSE_AFTER, PauseReason, RetryDecision, RetryState, SCHEDULE, SinkNotification,
     SinkNotificationEvent, next_retry,
 };
+pub use smtp_sink::{SmtpError, SmtpSink, map_smtp_error};
 pub use sqlite::{SqliteError, SqliteSink};
 pub use throughput::{
     AdaptiveConcurrency, BatchPolicy, DEFAULT_WRITE_TIMEOUT, Preset, RateLimit, Throughput,

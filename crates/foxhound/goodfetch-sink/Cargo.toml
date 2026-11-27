@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # Encoded Export part bytes handed to `object_store`.
 bytes.workspace = true
+# DuckDB in-binary Sink (ADR 0026; issue 1163).
+duckdb = { workspace = true, features = ["bundled"] }
 # Streaming object-store listing on probe.
 futures-util = { workspace = true, features = ["alloc", "std"] }
 # The committed Records a delivery reads, through the Dataset's own query.
@@ -24,6 +26,12 @@ goodfetch-protocol.workspace = true
 hyper.workspace = true
 # A Record's commit time, written RFC 3339 into the destination.
 jiff.workspace = true
+# SMTP Sink message building and delivery (ADR 0026; issue 1163).
+mail-builder.workspace = true
+mail-send = { workspace = true, features = ["tls12"] }
+smtp-proto.workspace = true
+# MySQL and MariaDB Sink (ADR 0026; issue 1163).
+mysql_async.workspace = true
 # Object-store Sinks (S3, GCS, Azure Blob) in Files mode (ADR 0026).
 object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
 rusqlite.workspace = true

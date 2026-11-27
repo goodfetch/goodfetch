@@ -18,7 +18,7 @@ use tokio_postgres::{Client, NoTls, Transaction};
 use crate::contract::{
     Batch, Delivered, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy, Written,
 };
-use crate::schema::{ColumnType, ColumnValue, PreparedRow, RowOutcome, SchemaChange, TableSchema};
+use crate::schema::{ColumnType, ColumnValue, PreparedRow, SchemaChange, TableSchema};
 
 /// Default PostgreSQL target table when `target` is omitted.
 pub const DEFAULT_POSTGRES_TARGET: &str = "records";
@@ -279,39 +279,16 @@ impl PostgresSink {
         self.ensure_tables().await?;
         self.load_schema().await?;
 
-        let mut pending_changes = Vec::new();
-        if let Some(declared) = &batch.declared_schema
-            && !self
-                .schema_applied_for
-                .get(&batch.dataset)
-                .copied()
-                .unwrap_or(false)
-        {
-            let schema = self.schema.as_mut().expect("invariant: schema loaded");
-            pending_changes.extend(schema.apply_declared_schema(declared, self.flatten));
-            self.schema_applied_for.insert(batch.dataset.clone(), true);
-        }
-
-        let mut prepared_records: Vec<(&Delivered, Option<PreparedRow>)> =
-            Vec::with_capacity(batch.records.len());
-        for record in &batch.records {
-            if self.mode != WriteMode::Append && record.key.is_none() {
-                return Err(PostgresError::RejectedRecord(
-                    "record missing required key fields".to_owned(),
-                ));
-            }
-            let schema = self.schema.as_mut().expect("invariant: schema loaded");
-            let (outcome, changes, _counters) =
-                schema.prepare_record(&record.value, self.contract, self.flatten);
-            pending_changes.extend(changes);
-            match outcome {
-                RowOutcome::Write(row) => prepared_records.push((record, Some(row))),
-                RowOutcome::DiscardRow => prepared_records.push((record, None)),
-                RowOutcome::Refuse(reason) => {
-                    return Err(PostgresError::RejectedRecord(reason));
-                }
-            }
-        }
+        let schema = self.schema.as_mut().expect("invariant: schema loaded");
+        let (prepared_records, pending_changes) = schema
+            .prepare_batch(
+                &mut self.schema_applied_for,
+                batch,
+                self.mode,
+                self.contract,
+                self.flatten,
+            )
+            .map_err(PostgresError::RejectedRecord)?;
 
         let write_table = self.write_table();
         let target_table = self.target.clone();

@@ -14,8 +14,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use goodfetch_protocol::foxhound::sink::SchemaContract;
+use goodfetch_protocol::foxhound::sink::{SchemaContract, WriteMode};
 use serde_json::{Value, json};
+
+use crate::contract::{Batch, Delivered};
 
 /// A column's logical type across row-store Sinks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -295,6 +297,10 @@ pub struct TableSchema {
     established: bool,
 }
 
+/// Output of [`TableSchema::prepare_batch`]: prepared rows paired with their
+/// source [`Delivered`] metadata, plus any [`SchemaChange`]s to apply.
+pub type PreparedBatch<'a> = (Vec<(&'a Delivered, Option<PreparedRow>)>, Vec<SchemaChange>);
+
 impl TableSchema {
     /// Reconstructs a schema from existing non-system columns in a
     /// destination table.
@@ -346,6 +352,49 @@ impl TableSchema {
             self.established = true;
         }
         changes
+    }
+
+    /// Prepares all Records in `batch` against this schema, applying any
+    /// declared schema once per Dataset and checking keyed write-mode
+    /// preconditions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable rejection reason if a Record violates the
+    /// key requirement or the active [`SchemaContract`].
+    pub fn prepare_batch<'a>(
+        &mut self,
+        schema_applied_for: &mut BTreeMap<String, bool>,
+        batch: &'a Batch,
+        mode: WriteMode,
+        contract: SchemaContract,
+        flatten: bool,
+    ) -> Result<PreparedBatch<'a>, String> {
+        let mut pending_changes = Vec::new();
+        if let Some(declared) = &batch.declared_schema
+            && !schema_applied_for
+                .get(&batch.dataset)
+                .copied()
+                .unwrap_or(false)
+        {
+            pending_changes.extend(self.apply_declared_schema(declared, flatten));
+            schema_applied_for.insert(batch.dataset.clone(), true);
+        }
+
+        let mut prepared = Vec::with_capacity(batch.records.len());
+        for record in &batch.records {
+            if mode != WriteMode::Append && record.key.is_none() {
+                return Err("record missing required key fields".to_owned());
+            }
+            let (outcome, changes, _) = self.prepare_record(&record.value, contract, flatten);
+            pending_changes.extend(changes);
+            match outcome {
+                RowOutcome::Write(row) => prepared.push((record, Some(row))),
+                RowOutcome::DiscardRow => prepared.push((record, None)),
+                RowOutcome::Refuse(reason) => return Err(reason),
+            }
+        }
+        Ok((prepared, pending_changes))
     }
 
     /// Prepares one Record against this schema under `contract` and

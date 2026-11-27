@@ -5550,6 +5550,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sink.list",
+      "params": {
+        "$ref": "#/$defs/SinkListParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SinkList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
       "description": "Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.",

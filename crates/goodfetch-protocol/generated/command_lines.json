@@ -979,6 +979,10 @@
           {
             "commands": [],
             "name": "probe"
+          },
+          {
+            "commands": [],
+            "name": "list"
           }
         ],
         "name": "sink"

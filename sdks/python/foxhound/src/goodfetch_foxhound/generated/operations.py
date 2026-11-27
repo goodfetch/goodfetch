@@ -12,7 +12,7 @@ from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkProbe, SinkProbeParams
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkList, SinkListParams, SinkProbe, SinkProbeParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -205,6 +205,15 @@ class AsyncFoxhoundOperations:
     async def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""
         return result_of(SampleCrawlResult, await self._caller.call("sample.crawl", params))
+
+    async def sink_list(self, params: SinkListParams) -> SinkList:
+        """Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("sink.list")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(SinkList, await self._caller.call("sink.list", params))
 
     async def sink_probe(self, params: SinkProbeParams) -> SinkProbe:
         """Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.
@@ -406,6 +415,15 @@ class FoxhoundOperations:
         """Visits sample pages, each repeating a text."""
         return result_of(SampleCrawlResult, self._caller.call("sample.crawl", params))
 
+    def sink_list(self, params: SinkListParams) -> SinkList:
+        """Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("sink.list")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(SinkList, self._caller.call("sink.list", params))
+
     def sink_probe(self, params: SinkProbeParams) -> SinkProbe:
         """Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.
 
@@ -438,6 +456,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "run.rejected_records",
     "run.retry_failed",
     "run.seeds",
+    "sink.list",
     "sink.probe",
 })
 """The operations outside semver until they are promoted (ADR 0030)."""
@@ -470,6 +489,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "run.retry_failed": "effect",
     "run.seeds": "read",
     "sample.crawl": "effect",
+    "sink.list": "read",
     "sink.probe": "idempotent_write",
 }
 """The class of each operation (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079)."""

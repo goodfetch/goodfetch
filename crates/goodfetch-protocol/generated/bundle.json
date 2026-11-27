@@ -24052,6 +24052,126 @@
       ],
       "type": "object"
     },
+    "SinkList": {
+      "description": "What `sink.list` answers (ADR 0026).",
+      "properties": {
+        "sinks": {
+          "arrived_in": "0.1",
+          "description": "Each Sink, in name order.",
+          "items": {
+            "$ref": "#/$defs/SinkListEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "sinks"
+      ],
+      "type": "object"
+    },
+    "SinkListEntry": {
+      "description": "One Sink in `sink.list`'s answer (ADR 0026).",
+      "properties": {
+        "dead_letters": {
+          "arrived_in": "0.1",
+          "description": "How many deliveries are currently on its dead-letter list.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "guarantee_class": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GuaranteeClass"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its Guarantee class, when probed or recorded on a Run; none when\nprobing failed outside any Run."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name, its key under `sinks`.",
+          "type": "string"
+        },
+        "outside_dedup_window": {
+          "arrived_in": "0.1",
+          "description": "How many deliveries fell outside the destination's deduplication\nwindow, and so were at least once.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "probe_cause": {
+          "arrived_in": "0.1",
+          "description": "Why probing failed outside a Run, when `guarantee_class` is absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SinkStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Its delivery status on the named Run; absent when listing\nconfigured Sinks outside a single Run."
+        }
+      },
+      "required": [
+        "name",
+        "dead_letters",
+        "outside_dedup_window"
+      ],
+      "type": "object"
+    },
+    "SinkListParams": {
+      "additionalProperties": false,
+      "description": "What `sink.list` takes: optionally one Run to read each Sink's status\nfrom, or settings over the connection's to probe and summarize every\nconfigured Sink (ADRs 0026 and 0099).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "When set, lists the Sinks that applied to this Run with its\nRun-scoped class, status, dead letters and deliveries outside the\ndeduplication window. When absent, lists the Sinks configured in\n`settings` and aggregates their dead letters and late deliveries\nacross Runs."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Settings over the connection's, nested by key, as a crawl's Run\ntakes them (ADR 0083).",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "SinkProbe": {
       "description": "What `sink.probe` answers.",
       "properties": {

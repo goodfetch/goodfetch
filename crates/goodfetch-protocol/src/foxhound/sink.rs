@@ -16,6 +16,8 @@ use crate::catalog::{
     ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::foxhound::export::{ExportCompression, ExportFormat};
+use crate::foxhound::report::SinkStatus;
+use crate::run::RunId;
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
 use crate::settings::ProjectSettings;
 
@@ -685,11 +687,91 @@ pub const SINK_PROBE: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
-/// A crawl's Sinks' entries: their settings, `sink.probe` and the refusal
-/// of a Run whose Sink proves too little.
+/// What `sink.list` takes: optionally one Run to read each Sink's status
+/// from, or settings over the connection's to probe and summarize every
+/// configured Sink (ADRs 0026 and 0099).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SinkListParams {
+    /// When set, lists the Sinks that applied to this Run with its
+    /// Run-scoped class, status, dead letters and deliveries outside the
+    /// deduplication window. When absent, lists the Sinks configured in
+    /// `settings` and aggregates their dead letters and late deliveries
+    /// across Runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+    /// Settings over the connection's, nested by key, as a crawl's Run
+    /// takes them (ADR 0083).
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
+}
+
+/// One Sink in `sink.list`'s answer (ADR 0026).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkListEntry {
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// Its Guarantee class, when probed or recorded on a Run; none when
+    /// probing failed outside any Run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub guarantee_class: Option<GuaranteeClass>,
+    /// How many deliveries are currently on its dead-letter list.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub dead_letters: u64,
+    /// How many deliveries fell outside the destination's deduplication
+    /// window, and so were at least once.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub outside_dedup_window: u64,
+    /// Its delivery status on the named Run; absent when listing
+    /// configured Sinks outside a single Run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub status: Option<SinkStatus>,
+    /// Why probing failed outside a Run, when `guarantee_class` is absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub probe_cause: Option<String>,
+}
+
+/// What `sink.list` answers (ADR 0026).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkList {
+    /// Each Sink, in name order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sinks: Vec<SinkListEntry>,
+}
+
+/// `sink.list` (ADRs 0026 and 0099).
+pub const SINK_LIST: Operation = Operation {
+    name: "sink.list",
+    description: "Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SinkListParams>,
+    result: schema_of::<SinkList>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A crawl's Sinks' entries: their settings, `sink.probe`, `sink.list` and the
+/// refusal of a Run whose Sink proves too little.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[SINK_PROBE],
+    operations: &[SINK_PROBE, SINK_LIST],
     events: &[],
     handler_requests: &[],
     error_codes: &[SINK_GUARANTEE_UNMET],

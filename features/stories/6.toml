@@ -1258,6 +1258,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 298
+title = "As an operator, I want each Sink's class, dead letters and deliveries outside the dedup window in `sink list`, the Run report and any Client, so that what a destination guaranteed is reported per Run (ADRs 0026, 0102)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 299
 title = "As a user of both Products, I want `sinks.*` on a Collie engine refused with `not_in_product`, inactive for a Collie Run on a Foxhound engine, and listed as Foxhound's by `config explain`, so that one project file serves both Products (ADRs 0087, 0103)."
 milestone = "M4 Everything else"

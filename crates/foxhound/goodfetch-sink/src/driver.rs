@@ -78,6 +78,16 @@ pub struct RetryOutcome {
     pub status: Status,
 }
 
+impl RetryOutcome {
+    const fn empty(status: Status) -> Self {
+        Self {
+            delivered: Vec::new(),
+            still_rejected: Vec::new(),
+            status,
+        }
+    }
+}
+
 /// Delivers one copy of a Run's Datasets to one Sink.
 pub struct Driver<S> {
     sink_name: String,
@@ -100,6 +110,9 @@ pub struct Driver<S> {
     was_paused: bool,
     /// Whether any Record was dead-lettered during this Run.
     had_rejections: bool,
+    /// How many deliveries landed after the destination's deduplication
+    /// window elapsed (ADR 0026).
+    outside_dedup_window: u64,
     /// Latest Run-report status of this Sink.
     report_status: SinkStatus,
     /// How it keys its Records; none under `append`.
@@ -181,6 +194,7 @@ impl<S: Primitives> Driver<S> {
             paused: None,
             was_paused: false,
             had_rejections: false,
+            outside_dedup_window: 0,
             report_status: SinkStatus::Complete,
             keying: None,
             declared_schemas: None,
@@ -242,6 +256,13 @@ impl<S: Primitives> Driver<S> {
     #[must_use]
     pub fn report_status(&self) -> SinkStatus {
         self.report_status
+    }
+
+    /// How many deliveries landed after the destination's deduplication
+    /// window elapsed, and so were at least once (ADR 0026).
+    #[must_use]
+    pub fn outside_dedup_window(&self) -> u64 {
+        self.outside_dedup_window
     }
 
     /// Resumes a paused Sink so subsequent [`Self::deliver`] calls attempt
@@ -484,7 +505,10 @@ impl<S: Primitives> Driver<S> {
             records,
         };
         match self.sink.write(&batch) {
-            Ok(Written::Delivered) => None,
+            Ok(Written::Delivered) => {
+                self.count_late_deliveries(&batch.records);
+                None
+            }
             Ok(Written::Superseded { run_epoch }) => Some(Status::Superseded { run_epoch }),
             Err(error) => {
                 let failure = self.sink.map_failure(error);
@@ -510,6 +534,26 @@ impl<S: Primitives> Driver<S> {
                     return Some(early);
                 }
                 self.write_or_split(run, dataset, declared_schema, right)
+            }
+        }
+    }
+
+    /// Counts delivered Records whose commit timestamp is older than the
+    /// destination's deduplication window relative to `self.clock.wall()`.
+    fn count_late_deliveries(&mut self, records: &[Delivered]) {
+        let Some(window) = self.sink.dedup_window() else {
+            return;
+        };
+        let now = self.clock.wall();
+        for record in records {
+            let Ok(ts) = record.committed_at.parse::<jiff::Timestamp>() else {
+                continue;
+            };
+            let committed = SystemTime::from(ts);
+            if let Ok(age) = now.duration_since(committed)
+                && age > window
+            {
+                self.outside_dedup_window = self.outside_dedup_window.saturating_add(1);
             }
         }
     }
@@ -578,21 +622,13 @@ impl<S: Primitives> Driver<S> {
         entries: &[DeadLetter],
     ) -> rusqlite::Result<RetryOutcome> {
         if let Some((reason, failure)) = &self.paused {
-            return Ok(RetryOutcome {
-                delivered: Vec::new(),
-                still_rejected: Vec::new(),
-                status: Status::Paused {
-                    reason: *reason,
-                    failure: failure.clone(),
-                },
-            });
+            return Ok(RetryOutcome::empty(Status::Paused {
+                reason: *reason,
+                failure: failure.clone(),
+            }));
         }
         if entries.is_empty() {
-            return Ok(RetryOutcome {
-                delivered: Vec::new(),
-                still_rejected: Vec::new(),
-                status: Status::Complete,
-            });
+            return Ok(RetryOutcome::empty(Status::Complete));
         }
         if self.delivered.is_none() {
             match self.sink.probe(&self.run) {
@@ -600,13 +636,7 @@ impl<S: Primitives> Driver<S> {
                     self.class = Some(probe.class);
                     self.delivered = Some(probe.delivered);
                 }
-                Err(error) => {
-                    return Ok(RetryOutcome {
-                        delivered: Vec::new(),
-                        still_rejected: Vec::new(),
-                        status: self.failed(error),
-                    });
-                }
+                Err(error) => return Ok(RetryOutcome::empty(self.failed(error))),
             }
         }
         let mut delivered = Vec::new();
@@ -638,7 +668,10 @@ impl<S: Primitives> Driver<S> {
                 }],
             };
             match self.sink.write(&batch) {
-                Ok(Written::Delivered) => delivered.push(entry.delivery_id.clone()),
+                Ok(Written::Delivered) => {
+                    self.count_late_deliveries(&batch.records);
+                    delivered.push(entry.delivery_id.clone());
+                }
                 Ok(Written::Superseded { run_epoch }) => {
                     return Ok(RetryOutcome {
                         delivered,

@@ -635,3 +635,115 @@ fn the_run_report_reports_each_sinks_delivery_status() {
         ("failed".to_owned(), 0, "at_least_once".to_owned())
     );
 }
+
+/// `sink.list` reports each Sink's Guarantee class, dead-letter count and
+/// deliveries outside the deduplication window, both scoped to one Run
+/// (matching the Run report) and across configured Sinks (ADRs 0026, 0099).
+///
+/// Covers: story:6-298, operation:sink.list
+#[test]
+fn sink_list_reports_each_sinks_class_dead_letters_and_late_deliveries() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let database = env.folder().join("listed.sqlite");
+    let missing = env.folder().join("absent-dir").join("broken.sqlite");
+    set_headings_constraint(&database, true);
+
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let second = format!("{index}/headings/levels");
+    let settings = json!({
+        "fetch": { "tier": "http" },
+        "sinks": {
+            "mine": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": format!("env:{DESTINATION}"),
+            },
+            "lost": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": format!("env:{MISSING}"),
+            },
+        },
+    });
+    let extraction = json!({ "formats": { "markdown": true }, "follow": "none" });
+    let mut engine = crate::attached_with(&env, None, |command| {
+        command.env(DESTINATION, &database).env(MISSING, &missing);
+    });
+    let (started, _) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        (
+            "list-run",
+            &[
+                json!({ "url": index, "label": "page" }),
+                json!({ "url": second, "label": "page" }),
+            ],
+        ),
+        &extraction,
+        &settings,
+    );
+    assert!(started.get("result").is_some(), "{started}");
+
+    let by_run = engine.ask("list-run", "sink.list", &json!({ "run_id": "list-run" }));
+    let configured = engine.ask("list-cfg", "sink.list", &json!({ "settings": settings }));
+    let report = engine.ask("report", "run.report", &json!({ "run_id": "list-run" }));
+    assert!(engine.finished());
+
+    assert_eq!(
+        by_run["result"]["sinks"],
+        json!([
+            {
+                "name": "lost",
+                "guarantee_class": "at_least_once",
+                "dead_letters": 0,
+                "outside_dedup_window": 0,
+                "status": "failed",
+            },
+            {
+                "name": "mine",
+                "guarantee_class": "fenced",
+                "dead_letters": 1,
+                "outside_dedup_window": 0,
+                "status": "complete_with_rejections",
+            },
+        ]),
+        "{by_run}"
+    );
+    assert_eq!(
+        report["result"]["sinks"],
+        json!([
+            {
+                "name": "lost",
+                "guarantee_class": "at_least_once",
+                "dead_letters": 0,
+                "outside_dedup_window": 0,
+                "status": "failed",
+            },
+            {
+                "name": "mine",
+                "guarantee_class": "fenced",
+                "dead_letters": 1,
+                "outside_dedup_window": 0,
+                "status": "complete_with_rejections",
+            },
+        ]),
+        "{report}"
+    );
+
+    let cfg_sinks = configured["result"]["sinks"].as_array().unwrap();
+    assert_eq!(cfg_sinks.len(), 2, "{configured}");
+    assert_eq!(cfg_sinks[0]["name"], "lost");
+    assert!(cfg_sinks[0].get("guarantee_class").is_none());
+    assert!(cfg_sinks[0]["probe_cause"].as_str().is_some());
+    assert_eq!(
+        cfg_sinks[1],
+        json!({
+            "name": "mine",
+            "guarantee_class": "fenced",
+            "dead_letters": 1,
+            "outside_dedup_window": 0,
+        }),
+        "{configured}"
+    );
+}

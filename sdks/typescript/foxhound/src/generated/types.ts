@@ -3725,6 +3725,82 @@ export interface SinkGuaranteeUnmetDetails {
   sink: string;
 }
 /**
+ * What `sink.list` answers (ADR 0026).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkList".
+ */
+export interface SinkList {
+  /**
+   * Each Sink, in name order.
+   */
+  sinks: SinkListEntry[];
+}
+/**
+ * One Sink in `sink.list`'s answer (ADR 0026).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkListEntry".
+ */
+export interface SinkListEntry {
+  /**
+   * How many deliveries are currently on its dead-letter list.
+   */
+  deadLetters: number;
+  /**
+   * Its Guarantee class, when probed or recorded on a Run; none when
+   * probing failed outside any Run.
+   */
+  guaranteeClass?: GuaranteeClass | null;
+  /**
+   * The Sink's name, its key under `sinks`.
+   */
+  name: string;
+  /**
+   * How many deliveries fell outside the destination's deduplication
+   * window, and so were at least once.
+   */
+  outsideDedupWindow: number;
+  /**
+   * Why probing failed outside a Run, when `guarantee_class` is absent.
+   */
+  probeCause?: string | null;
+  /**
+   * Its delivery status on the named Run; absent when listing
+   * configured Sinks outside a single Run.
+   */
+  status?: SinkStatus | null;
+}
+/**
+ * What `sink.list` takes: optionally one Run to read each Sink's status
+ * from, or settings over the connection's to probe and summarize every
+ * configured Sink (ADRs 0026 and 0099).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkListParams".
+ */
+export interface SinkListParams {
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
+   * When set, lists the Sinks that applied to this Run with its
+   * Run-scoped class, status, dead letters and deliveries outside the
+   * deduplication window. When absent, lists the Sinks configured in
+   * `settings` and aggregates their dead letters and late deliveries
+   * across Runs.
+   */
+  runId?: RunId | null;
+  /**
+   * Settings over the connection's, nested by key, as a crawl's Run
+   * takes them (ADR 0083).
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+}
+/**
  * What `sink.probe` answers.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema

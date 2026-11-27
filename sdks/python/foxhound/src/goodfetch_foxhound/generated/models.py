@@ -1973,6 +1973,34 @@ class SinkGuaranteeUnmetDetails(BaseModel):
     """The Sink's name, its key under `sinks`."""
 
 
+class SinkListParams(BaseModel):
+    """
+    What `sink.list` takes: optionally one Run to read each Sink's status
+    from, or settings over the connection's to probe and summarize every
+    configured Sink (ADRs 0026 and 0099).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId | None = None
+    """
+    When set, lists the Sinks that applied to this Run with its
+    Run-scoped class, status, dead letters and deliveries outside the
+    deduplication window. When absent, lists the Sinks configured in
+    `settings` and aggregates their dead letters and late deliveries
+    across Runs.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run
+    takes them (ADR 0083).
+    """
+
+
 class SinkProbeOutcome1(BaseModel):
     """Its destination proved a Guarantee class."""
 
@@ -2990,6 +3018,35 @@ class Seeds(RootModel[list[Seed]]):
     """A crawl's seeds, at least one."""
 
 
+class SinkListEntry(BaseModel):
+    """One Sink in `sink.list`'s answer (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many deliveries are currently on its dead-letter list."""
+    guarantee_class: GuaranteeClass | None = None
+    """
+    Its Guarantee class, when probed or recorded on a Run; none when
+    probing failed outside any Run.
+    """
+    name: str
+    """The Sink's name, its key under `sinks`."""
+    outside_dedup_window: Annotated[int, Field(ge=0)]
+    """
+    How many deliveries fell outside the destination's deduplication
+    window, and so were at least once.
+    """
+    probe_cause: str | None = None
+    """Why probing failed outside a Run, when `guarantee_class` is absent."""
+    status: SinkStatus | None = None
+    """
+    Its delivery status on the named Run; absent when listing
+    configured Sinks outside a single Run.
+    """
+
+
 class SinkProbe(BaseModel):
     """What `sink.probe` answers."""
 
@@ -3388,6 +3445,16 @@ class RunAddSeedParams(BaseModel):
     """The crawl's Run."""
     seed: Seed
     """The seed."""
+
+
+class SinkList(BaseModel):
+    """What `sink.list` answers (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    sinks: list[SinkListEntry]
+    """Each Sink, in name order."""
 
 
 class DatasetRecord(BaseModel):

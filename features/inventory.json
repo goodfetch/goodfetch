@@ -1105,6 +1105,16 @@
       ]
     },
     {
+      "id": "command:sink.list",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:sink.probe",
       "kind": "command",
       "area": 6,
@@ -5015,6 +5025,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:sink.list",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -25620,6 +25640,16 @@
     },
     {
       "id": "story:6-290",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-298",
       "kind": "story",
       "area": 6,
       "milestone": "M4 Everything else",

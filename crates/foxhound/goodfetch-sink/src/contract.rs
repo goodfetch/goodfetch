@@ -311,6 +311,15 @@ pub trait Primitives {
         Ok(Written::Delivered)
     }
 
+    /// The destination's deduplication window, when its guarantee is keyed
+    /// only within a finite window (e.g. a 5-minute FIFO queue); a delivery
+    /// arriving later than this window after commit is counted in
+    /// `outside_dedup_window` (ADR 0026). `None` when deduplication has no
+    /// time window (e.g. fenced row stores).
+    fn dedup_window(&self) -> Option<Duration> {
+        None
+    }
+
     /// The Sink's translation point (ADR 0127): `error` as a [`Failure`].
     fn map_failure(&self, error: Self::Error) -> Failure;
 }

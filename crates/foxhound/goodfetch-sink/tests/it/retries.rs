@@ -19,7 +19,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::json;
 
-use crate::run_files::{commit, run_file};
+use crate::run_files::{commit, commit_at, run_file};
 
 /// 2026-01-05T09:00:00Z.
 const START_AT: SystemTime = UNIX_EPOCH;
@@ -435,4 +435,157 @@ fn run_report_gives_each_sink_status_complete_rejections_behind_or_failed() {
     assert_eq!(by_name["beta"], (SinkStatus::CompleteWithRejections, 1));
     assert_eq!(by_name["gamma"], (SinkStatus::Behind, 0));
     assert_eq!(by_name["delta"], (SinkStatus::Failed, 0));
+}
+
+/// A destination with a finite deduplication window (e.g. a 5-minute FIFO
+/// queue) that rejects Records containing `"bad": true`.
+struct DedupWindowSink {
+    window: Duration,
+    delivered: BTreeMap<String, u64>,
+}
+
+impl Primitives for DedupWindowSink {
+    type Error = &'static str;
+
+    fn probe(&mut self, _run: &RunCopy) -> Result<Probe, &'static str> {
+        Ok(Probe {
+            class: GuaranteeClass::Keyed,
+            delivered: self.delivered.clone(),
+        })
+    }
+
+    fn write(&mut self, batch: &Batch) -> Result<Written, &'static str> {
+        if batch
+            .records
+            .iter()
+            .any(|r| r.value.get("bad").and_then(serde_json::Value::as_bool) == Some(true))
+        {
+            return Err("rejected");
+        }
+        if let Some(last) = batch.records.last() {
+            self.delivered.insert(batch.dataset.clone(), last.number);
+        }
+        Ok(Written::Delivered)
+    }
+
+    fn dedup_window(&self) -> Option<Duration> {
+        Some(self.window)
+    }
+
+    fn map_failure(&self, error: &'static str) -> Failure {
+        Failure::new(FailureKind::RejectedRecords, error)
+    }
+}
+
+/// After a Run with both a dead letter and a late delivery past the
+/// destination's deduplication window, the Run report carries the Sink's
+/// Guarantee class, its dead-letter count and its `outside_dedup_window`
+/// count (ADRs 0026 and 0102).
+///
+/// Covers: story:6-298
+#[test]
+fn late_delivery_outside_dedup_window_and_dead_letters_appear_in_run_report() {
+    goodfetch_test_support::runtime().block_on(async {
+        let committed_at = START_AT + Duration::from_hours(491_001);
+        let committed_rfc3339 = "2026-01-05T09:00:00Z";
+        let clock = paused_clock(committed_at);
+        let run = run_file(&[]);
+        run.execute_batch(
+            "CREATE TABLE run (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 run_id TEXT NOT NULL,
+                 kind TEXT NOT NULL,
+                 run_epoch INTEGER NOT NULL
+             ) STRICT;
+             INSERT INTO run VALUES (1, 'run-late', 'crawl', 1);",
+        )
+        .unwrap();
+        dead_letters::ensure_table(&run).unwrap();
+        report::ensure_tables(&run).unwrap();
+
+        commit_at(
+            &run,
+            "pages",
+            1,
+            &[
+                json!({ "url": "https://a.test/ok" }),
+                json!({ "url": "https://a.test/bad", "bad": true }),
+            ],
+            committed_rfc3339,
+        );
+
+        let mut driver = Driver::new(
+            "fifo",
+            DedupWindowSink {
+                window: Duration::from_mins(5),
+                delivered: BTreeMap::new(),
+            },
+            copy_of("run-late", 1),
+            vec!["pages".to_owned()],
+        )
+        .with_clock(clock);
+
+        // Batch 1 lands within the 5-minute window: 1 good Record, 1 dead letter.
+        tokio::time::advance(Duration::from_mins(1)).await;
+        assert_eq!(
+            driver.deliver(&run).unwrap(),
+            Status::CompleteWithRejections
+        );
+        assert_eq!(driver.outside_dedup_window(), 0);
+        for entry in driver.take_dead_letters() {
+            dead_letters::record(&run, &entry, &Masks::new()).unwrap();
+        }
+
+        // Batch 2 was committed at `committed_at` but delivered after 10 minutes
+        // (outside the 5-minute dedup window).
+        commit_at(
+            &run,
+            "pages",
+            3,
+            &[json!({ "url": "https://a.test/late" })],
+            committed_rfc3339,
+        );
+        tokio::time::advance(Duration::from_mins(9)).await;
+        assert_eq!(driver.deliver(&run).unwrap(), Status::Complete);
+        assert_eq!(driver.outside_dedup_window(), 1);
+
+        report::record_state(
+            &run,
+            &SinkStateRow {
+                sink: "fifo".to_owned(),
+                guarantee_class: driver.class().unwrap(),
+                status: driver.report_status(),
+                paused_reason: driver.paused_reason(),
+                outside_dedup_window: driver.outside_dedup_window(),
+                undeclared_datasets: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        let mut run_report: RunReport = serde_json::from_value(json!({
+            "run_id": "run-late",
+            "lifecycle": "finished",
+            "verdict": "verified",
+            "completeness": "complete",
+            "started_at": "2026-01-05T09:00:00Z",
+            "ended_at": "2026-01-05T09:10:00Z",
+            "usage": serde_json::to_value(RunUsage::default()).unwrap(),
+        }))
+        .unwrap();
+        SinkReportPart.fill(&run, &mut run_report).unwrap();
+
+        let crawl_report: CrawlRunReport =
+            serde_json::from_value(serde_json::to_value(&run_report).unwrap()).unwrap();
+        assert_eq!(
+            crawl_report.sinks.unwrap(),
+            vec![SinkReport {
+                name: "fifo".to_owned(),
+                guarantee_class: GuaranteeClass::Keyed,
+                dead_letters: 1,
+                outside_dedup_window: 1,
+                status: SinkStatus::CompleteWithRejections,
+                undeclared_datasets: Vec::new(),
+            }]
+        );
+    });
 }

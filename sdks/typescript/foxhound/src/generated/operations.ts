@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkProbe, SinkProbeParams } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkList, SinkListParams, SinkProbe, SinkProbeParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -31,6 +31,7 @@ export interface FoxhoundOperationTypes {
   "run.retry_failed": { params: RunRetryFailedParams; result: RetriedFailed };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
+  "sink.list": { params: SinkListParams; result: SinkList };
   "sink.probe": { params: SinkProbeParams; result: SinkProbe };
 }
 
@@ -59,6 +60,7 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "run.retry_failed": { experimental: true, deprecated: undefined },
   "run.seeds": { experimental: true, deprecated: undefined },
   "sample.crawl": { experimental: false, deprecated: undefined },
+  "sink.list": { experimental: true, deprecated: undefined },
   "sink.probe": { experimental: true, deprecated: undefined },
 };
 
@@ -87,6 +89,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "run.retry_failed": "run.retryFailed",
   "run.seeds": "run.seeds",
   "sample.crawl": "sample.crawl",
+  "sink.list": "sink.list",
   "sink.probe": "sink.probe",
 };
 
@@ -115,6 +118,7 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "run.retry_failed": "effect",
   "run.seeds": "read",
   "sample.crawl": "effect",
+  "sink.list": "read",
   "sink.probe": "idempotent_write",
 };
 
@@ -354,6 +358,17 @@ export class FoxhoundOperations {
    */
   sampleCrawl(params: SampleCrawlParams): Promise<SampleCrawlResult> {
     return this.#caller.call("sample.crawl", params, {});
+  }
+
+  /**
+   * Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.
+   *
+   * @experimental
+   */
+  sinkList(params: SinkListParams): Promise<SinkList> {
+    warnExperimental("sink.list");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("sink.list", params, {});
   }
 
   /**

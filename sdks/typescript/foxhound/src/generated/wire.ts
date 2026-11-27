@@ -66,6 +66,9 @@ export type FoxhoundWireType =
   | "RunSeedsParams"
   | "SeedAttempt"
   | "ServingSession"
+  | "SinkList"
+  | "SinkListEntry"
+  | "SinkListParams"
   | "SinkReport"
   | "SitemapReport"
   | "TierProvenance"
@@ -135,6 +138,9 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "RunSeedsParams": { fields: { "run_id": "runId" } },
     "SeedAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "ServingSession": { fields: { "proxy_tier": "proxyTier" } },
+    "SinkList": { fields: { "sinks": ["sinks", { items: { type: "SinkListEntry" } }] } },
+    "SinkListEntry": { fields: { "dead_letters": "deadLetters", "guarantee_class": "guaranteeClass", "outside_dedup_window": "outsideDedupWindow", "probe_cause": "probeCause" } },
+    "SinkListParams": { fields: { "run_id": "runId" } },
     "SinkReport": { fields: { "dead_letters": "deadLetters", "guarantee_class": "guaranteeClass", "outside_dedup_window": "outsideDedupWindow", "undeclared_datasets": "undeclaredDatasets" } },
     "SitemapReport": { fields: { "not_added": "notAdded", "not_added_by_reason": "notAddedByReason" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
@@ -162,6 +168,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "run.rejected_records": { type: "RunRejectedRecordsParams" },
     "run.retry_failed": { type: "RunRetryFailedParams" },
     "run.seeds": { type: "RunSeedsParams" },
+    "sink.list": { type: "SinkListParams" },
   },
   results: {
     "crawl.serve": { type: "CrawlRunReport" },
@@ -176,6 +183,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "run.failed_requests": { type: "FailedRequests" },
     "run.outcomes": { type: "CrawlRequestOutcomes" },
     "run.rejected_records": { type: "RejectedRecords" },
+    "sink.list": { type: "SinkList" },
   },
   events: {
   },

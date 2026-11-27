@@ -26,15 +26,27 @@ pub(crate) fn run_file(records: &[(&str, Vec<Value>)]) -> Connection {
 
 /// Commits `values` to `dataset` of `run_file`, numbered from `first`.
 pub(crate) fn commit(run_file: &Connection, dataset: &str, first: i64, values: &[Value]) {
+    commit_at(run_file, dataset, first, values, "2026-01-05T09:00:00Z");
+}
+
+/// Commits `values` to `dataset` of `run_file`, numbered from `first`, at
+/// the time `committed_at`, RFC 3339 in UTC.
+pub(crate) fn commit_at(
+    run_file: &Connection,
+    dataset: &str,
+    first: i64,
+    values: &[Value],
+    committed_at: &str,
+) {
     let mut insert = run_file
         .prepare_cached(
             "INSERT INTO records (dataset, number, work_item, url, committed_at, data, schema_hash, provenance)
-             VALUES (?1, ?2, 'request-1', 'https://shop.test/', '2026-01-05T09:00:00Z', ?3, NULL, '{\"request_id\":\"request-1\"}')",
+             VALUES (?1, ?2, 'request-1', 'https://shop.test/', ?4, ?3, NULL, '{\"request_id\":\"request-1\"}')",
         )
         .unwrap();
     for (number, value) in (first..).zip(values) {
         insert
-            .execute((dataset, number, value.to_string()))
+            .execute((dataset, number, value.to_string(), committed_at))
             .unwrap();
     }
 }

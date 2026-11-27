@@ -56,6 +56,10 @@ pub struct Delivered {
     pub committed_at: String,
     /// The Record.
     pub value: Value,
+    /// Under a keyed write mode, the values of its key's fields, in the
+    /// key's order, as a JSON array: what identifies it among its
+    /// Dataset's Records (ADR 0026). None under `append`.
+    pub key: Option<Value>,
 }
 
 impl Delivered {
@@ -76,6 +80,7 @@ impl Delivered {
             number,
             committed_at,
             value,
+            key: None,
         }
     }
 }
@@ -207,6 +212,20 @@ pub trait Primitives {
     /// The destination's, when the batch did not land or its answer was
     /// lost.
     fn write(&mut self, batch: &Batch) -> Result<Written, Self::Error>;
+
+    /// Ends the delivery of the copy `run` of a Run that finished, once its
+    /// last batch is written: a Sink that writes a finished Run's Records
+    /// apart, as `replace` does, swaps them in here, unless the destination
+    /// holds a later copy of the Run. Nothing otherwise.
+    ///
+    /// # Errors
+    ///
+    /// The destination's, when the swap did not land or its answer was
+    /// lost.
+    fn finish(&mut self, run: &RunCopy) -> Result<Written, Self::Error> {
+        let _ = run;
+        Ok(Written::Delivered)
+    }
 
     /// The Sink's translation point (ADR 0127): `error` as a [`Failure`].
     fn map_failure(&self, error: Self::Error) -> Failure;

@@ -11,3 +11,4 @@ mod conformance;
 mod faults;
 mod model;
 mod run_files;
+mod write_modes;

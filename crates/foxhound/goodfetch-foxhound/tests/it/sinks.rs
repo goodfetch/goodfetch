@@ -136,6 +136,70 @@ fn a_crawls_records_reach_the_sqlite_sink_its_run_names() {
     assert_eq!(rows(&database), expected);
 }
 
+/// Two Runs crawling the same pages into a SQLite Sink whose write mode is
+/// `replace` leave its table holding the second Run's Records alone, each
+/// once: the Sink names no `key`, so each Record is keyed on its Dataset's,
+/// the `url` of `pages`, and the finished Run's Records are swapped in at
+/// its end.
+///
+/// Covers: story:6-286, operation:crawl.start
+#[test]
+fn a_replace_sink_holds_the_last_finished_runs_records_alone() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let database = env.folder().join("sink.sqlite");
+    let mut engine = crate::attached_with(&env, None, |command| {
+        command.env(DESTINATION, &database);
+    });
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let seeds = [
+        json!({ "url": index, "label": "page" }),
+        json!({ "url": format!("{index}/headings/levels"), "label": "page" }),
+    ];
+    let settings = json!({
+        "fetch": { "tier": "http" },
+        "sinks": {
+            "mine": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "mode": "replace",
+                "destination": format!("env:{DESTINATION}"),
+            },
+        },
+    });
+    let extraction = json!({ "formats": { "markdown": true }, "follow": "none" });
+
+    let mut records = Vec::new();
+    for run_id in ["first", "second"] {
+        let (started, read) = crawl_read(
+            &mut engine,
+            &proving_ground,
+            (run_id, &seeds),
+            &extraction,
+            &settings,
+        );
+        assert!(started.get("result").is_some(), "{started}");
+        records = read;
+    }
+
+    let held: Vec<(String, i64, Value)> = rows(&database)
+        .into_iter()
+        .map(|row| (row.run_id, row.number, row.record))
+        .collect();
+    let expected: Vec<(String, i64, Value)> = records
+        .iter()
+        .map(|record| {
+            (
+                "second".to_owned(),
+                record["number"].as_i64().unwrap(),
+                record["value"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(expected.len(), 2, "{records:?}");
+    assert_eq!(held, expected);
+}
+
 /// A Sink of a `type` this engine does not deliver to yet refuses the
 /// crawl at its start with `capability_unavailable`, naming the entry's
 /// `type`, rather than run with Records going nowhere.

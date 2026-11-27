@@ -272,7 +272,7 @@ async fn start(
     labels.sends_from_login_pools(settings.resolved())?;
     let datasets = pages.map_or_else(|| Datasets::declare(&params.datasets), Ok)?;
     FetchTiers::check(settings.resolved(), &labels.settings)?;
-    sinks.check(settings.resolved())?;
+    sinks.check(settings.resolved(), datasets.declarations())?;
     let invariants = Invariants::of_settings(settings.resolved(), &params.labels, fragments)?;
     let egress = domain_policy(settings.resolved())?;
     let found = schema_unchanged(&context, run_id.as_ref(), &invariants, &datasets).await?;

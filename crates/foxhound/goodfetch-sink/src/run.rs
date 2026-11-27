@@ -20,6 +20,7 @@ use goodfetch_engine::settings::{Opening, Resolved};
 use goodfetch_engine::tasks::TaskStarter;
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler, named};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::sink::{
     CRAWL_MIN_SINK_GUARANTEE, DeliveredAs, SINK_PROBE, SINKS, SinkProbe, SinkProbeOutcome,
     SinkProbeParams, SinkSettings, SinkType, WriteMode,
@@ -27,7 +28,8 @@ use goodfetch_protocol::foxhound::sink::{
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SettingsLayer,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SETTING_INVALID,
+    SettingInvalidDetails, SettingsLayer,
 };
 use rusqlite::Connection;
 use secrecy::ExposeSecret as _;
@@ -57,17 +59,27 @@ impl Sinks {
 
     /// Refuses `settings` when one of their `sinks` asks for what this
     /// engine does not deliver yet, rather than run with its Records going
-    /// nowhere (ADR 0083).
+    /// nowhere (ADR 0083), or is keyed on no key of the Datasets
+    /// `declarations` declare (ADR 0103).
     ///
     /// # Errors
     ///
     /// `capability_unavailable` naming the first such Sink's key: its
     /// `type` when it is not `sqlite` or is left out for a program's own
-    /// handler, its `mode` when not `append`, its `deliver` when not
-    /// `records`.
-    pub fn check(self, settings: &Resolved) -> Result<(), CallError> {
+    /// handler, its `deliver` when not `records`. `setting_invalid` naming
+    /// its `key`, when its mode is keyed, it names none and a Dataset it
+    /// receives has none, or when it names a field a schema of one of them
+    /// does not require.
+    pub fn check(
+        self,
+        settings: &Resolved,
+        declarations: &[DatasetDeclaration],
+    ) -> Result<(), CallError> {
         let layer = layer(settings);
-        entries(settings).try_for_each(|(name, sink)| deliverable(&name, &sink, layer))
+        entries(settings).try_for_each(|(name, sink)| {
+            deliverable(&name, &sink, layer)?;
+            keyed(&name, &sink, layer, declarations)
+        })
     }
 
     /// The deliveries of the Run `run`'s Datasets to each of the Sinks its
@@ -146,14 +158,16 @@ impl Delivery {
     /// Sink still delivering what the run file has committed, then stops
     /// its deliveries: what the Run's end waits for, so a Sink holds the
     /// Records the Run committed before its end, the last batch's included.
-    /// A Sink behind on its retries stays behind; a resumed copy of the
-    /// Run delivers again.
+    /// When the Run `finished`, a Sink that delivered all of them then
+    /// swaps in what it wrote apart, as `replace` does (ADR 0026). A Sink
+    /// behind on its retries stays behind; a resumed copy of the Run
+    /// delivers again.
     ///
     /// # Cancel safety
     ///
     /// Dropping the future leaves the Sinks it had not reached stopped,
     /// with what they last delivered.
-    pub async fn finish(&self) {
+    pub async fn finish(&self, finished: bool) {
         let Some(first) = self.sinks.first() else {
             return;
         };
@@ -161,8 +175,11 @@ impl Delivery {
             tracing::warn!(%error, "the run file's last batch did not commit before the Sinks' last delivery");
         }
         for sink in &self.sinks {
-            if !sink.stopped.send_replace(true) {
-                sink.deliver().await;
+            if !sink.stopped.send_replace(true)
+                && matches!(sink.deliver().await, Next::Wait)
+                && finished
+            {
+                sink.finish().await;
             }
         }
     }
@@ -262,6 +279,33 @@ impl Sink {
         next
     }
 
+    /// Ends its delivery of a Run that finished, once it delivered every
+    /// Record: a failure leaves the destination as it was, and is logged.
+    async fn finish(&self) {
+        let Ok(driver) = self.driver().await else {
+            return;
+        };
+        let finished = self
+            .identity
+            .owner()
+            .blocking(move || {
+                driver
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .finish()
+            })
+            .await;
+        match finished {
+            Status::Complete => {}
+            Status::Superseded { run_epoch } => {
+                tracing::info!(sink = %self.name, run_epoch, "a later copy of the Run finishes this Sink's delivery");
+            }
+            Status::Behind { failure, .. } | Status::Failed(failure) => {
+                tracing::warn!(sink = %self.name, %failure, "a Sink did not finish its delivery: its destination keeps what it held");
+            }
+        }
+    }
+
     /// Its delivery driver, opened by the first probe or delivery to reach
     /// it.
     async fn driver(&self) -> Result<Arc<Mutex<Driver<SqliteSink>>>, String> {
@@ -339,12 +383,18 @@ impl Destination<'_> {
                 )
             })?;
         let target = self.settings.target.as_deref().unwrap_or(SQLITE_TARGET);
-        Ok(Driver::new(
+        let mode = self.settings.write_mode();
+        let driver = Driver::new(
             self.name,
-            SqliteSink::new(connection, target),
+            SqliteSink::new(connection, target).with_mode(mode),
             run,
             self.settings.datasets.clone(),
-        ))
+        );
+        Ok(if mode == WriteMode::Append {
+            driver
+        } else {
+            driver.keyed(self.settings.key.clone())
+        })
     }
 }
 
@@ -485,14 +535,86 @@ fn deliverable(name: &str, sink: &SinkSettings, layer: SettingsLayer) -> Result<
     Err(CallError::new(
         &CAPABILITY_UNAVAILABLE,
         format!(
-            "`{}` asks for a Sink's `{kind}`, which this engine does not deliver yet: deliver to a `type: sqlite` Sink in `append` mode as `records`, or leave the Sink out.",
+            "`{}` asks for a Sink's `{kind}`, which this engine does not deliver yet: deliver to a `type: sqlite` Sink as `records`, or leave the Sink out.",
             named::setting_in(&key, layer),
         ),
         &CapabilityUnavailableDetails {
             key,
             layer,
             kind,
-            fix: "`type: sqlite`, `mode: append`, `deliver: records`".to_owned(),
+            fix: "`type: sqlite`, `deliver: records`".to_owned(),
+        },
+    ))
+}
+
+/// Refuses the Sink `name`, of entry `sink` set in `layer`, when its keyed
+/// write mode has no key for a Dataset it receives among `declarations`,
+/// or its own key names a field a schema of one of them does not require
+/// (ADR 0103).
+///
+/// # Errors
+///
+/// `setting_invalid` naming the entry's `key`.
+fn keyed(
+    name: &str,
+    sink: &SinkSettings,
+    layer: SettingsLayer,
+    declarations: &[DatasetDeclaration],
+) -> Result<(), CallError> {
+    if sink.write_mode() == WriteMode::Append {
+        return Ok(());
+    }
+    let mut received = declarations
+        .iter()
+        .filter(|declaration| sink.datasets.contains(&declaration.name));
+    let own = sink.key.as_deref().filter(|own| !own.is_empty());
+    let refused = match own {
+        None => received
+            .find(|declaration| declaration.key.is_empty())
+            .map(|declaration| {
+                (
+                    format!(
+                        "its mode is keyed and it names no `key`, while the Dataset `{}` it receives declares none",
+                        declaration.name
+                    ),
+                    format!(
+                        "give the Sink a `key` of fields every Dataset it receives requires, declare a `key` on `{}`, or set `mode: append`",
+                        declaration.name
+                    ),
+                )
+            }),
+        Some(own) => received
+            .find_map(|declaration| {
+                let required = goodfetch_dataset::required_fields(declaration.schema.as_ref()?);
+                let field = own.iter().find(|field| !required.contains(&field.as_str()))?;
+                Some((
+                    format!(
+                        "its `key` names `{field}`, which the schema of the Dataset `{}` it receives does not require",
+                        declaration.name
+                    ),
+                    format!(
+                        "key the Sink on fields the schema of `{}` requires, or require `{field}` there",
+                        declaration.name
+                    ),
+                ))
+            }),
+    };
+    let Some((reason, fix)) = refused else {
+        return Ok(());
+    };
+    let key = format!("{}.{name}.key", SINKS.name);
+    Err(CallError::new(
+        &SETTING_INVALID,
+        format!(
+            "`{}` is invalid: {reason}; {fix}.",
+            named::setting_in(&key, layer)
+        ),
+        &SettingInvalidDetails {
+            key,
+            layer: Some(layer),
+            reason,
+            limit: None,
+            fix: Some(fix),
         },
     ))
 }
@@ -505,9 +627,6 @@ fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
     };
     if sink_type != SinkType::Sqlite {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
-    }
-    if let Some(mode) = sink.mode.filter(|mode| *mode != WriteMode::Append) {
-        return Some(("mode", wire_name(serde_json::to_value(mode))));
     }
     sink.deliver
         .filter(|deliver| *deliver != DeliveredAs::Records)

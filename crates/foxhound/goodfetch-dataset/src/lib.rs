@@ -34,7 +34,7 @@ mod run_tables;
 use goodfetch_engine::Contribution;
 use goodfetch_engine::run_state::RunStateTables;
 
-pub use declaration::{Datasets, Declarations, Refused, counted_validator};
+pub use declaration::{Datasets, Declarations, Refused, counted_validator, required_fields};
 pub use encoding::ExportOptions;
 pub use open::{open_dataset, open_run};
 pub use pipeline::{WriteExportError, write_export};

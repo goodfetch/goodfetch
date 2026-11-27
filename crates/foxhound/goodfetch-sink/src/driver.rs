@@ -5,13 +5,16 @@
 //! and turns each failure into what it leads to: a retry on the delivery
 //! schedule, or a failed Sink. A copy with a new run epoch, as a resume
 //! takes (ADR 0003), holds nothing yet and delivers every Record again,
-//! in place of the older copy's.
+//! in place of the older copy's. Under a keyed write mode it gives each
+//! Record its key's values, from the Sink's own key or its Dataset's
+//! (ADR 0103).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use goodfetch_dataset::Query;
+use goodfetch_dataset::{Declarations, Query};
 use rusqlite::Connection;
+use serde_json::Value;
 
 use crate::contract::{
     Batch, Delivered, Failure, FailureKind, GuaranteeClass, Primitives, RunCopy, Written,
@@ -71,6 +74,56 @@ pub struct Driver<S> {
     delivered: Option<BTreeMap<String, u64>>,
     /// Attempts failed in a row.
     failures: usize,
+    /// How it keys its Records; none under `append`.
+    keying: Option<Keying>,
+}
+
+/// How a driver keys its Records under a keyed write mode.
+struct Keying {
+    /// The Sink's own key; none to take each Dataset's.
+    own: Option<Vec<String>>,
+    /// Each Dataset's key, as the run file declares it, read once.
+    declared: Option<BTreeMap<String, Vec<String>>>,
+}
+
+impl Keying {
+    /// The fields keying the Records of `dataset`: the Sink's own key, or
+    /// else the Dataset's as the run file `run_file` declares it; empty
+    /// when neither names any.
+    fn fields(&mut self, run_file: &Connection, dataset: &str) -> rusqlite::Result<Vec<String>> {
+        if let Some(own) = &self.own {
+            return Ok(own.clone());
+        }
+        if self.declared.is_none() {
+            let declarations = Declarations::read(run_file)?;
+            self.declared = Some(
+                declarations
+                    .declarations()
+                    .iter()
+                    .map(|declaration| (declaration.name.clone(), declaration.key.clone()))
+                    .collect(),
+            );
+        }
+        Ok(self
+            .declared
+            .as_ref()
+            .and_then(|declared| declared.get(dataset))
+            .cloned()
+            .unwrap_or_default())
+    }
+}
+
+/// The values of `fields` in `value`, in order, as a JSON array; the first
+/// field `value` lacks otherwise, or an empty one when `fields` is empty.
+fn key_of(fields: &[String], value: &Value) -> Result<Value, String> {
+    if fields.is_empty() {
+        return Err(String::new());
+    }
+    fields
+        .iter()
+        .map(|field| value.get(field).cloned().ok_or_else(|| field.clone()))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Value::Array)
 }
 
 impl<S: Primitives> Driver<S> {
@@ -87,7 +140,21 @@ impl<S: Primitives> Driver<S> {
             class: None,
             delivered: None,
             failures: 0,
+            keying: None,
         }
+    }
+
+    /// Gives each Record its key under a keyed write mode: the values of
+    /// the fields `own` names, the Sink's own `key`, or, when it names none,
+    /// of its Dataset's key (ADR 0103). A Record that lacks one fails the
+    /// Sink with `rejected_records`.
+    #[must_use]
+    pub fn keyed(mut self, own: Option<Vec<String>>) -> Self {
+        self.keying = Some(Keying {
+            own: own.filter(|own| !own.is_empty()),
+            declared: None,
+        });
+        self
     }
 
     /// Sends at most `records` Records in one write.
@@ -145,6 +212,10 @@ impl<S: Primitives> Driver<S> {
             },
         };
         for dataset in &self.datasets {
+            let fields = match self.keying.as_mut() {
+                Some(keying) => Some(keying.fields(run_file, dataset)?),
+                None => None,
+            };
             loop {
                 let after = delivered.get(dataset).copied().unwrap_or(0);
                 let page = goodfetch_dataset::read(
@@ -160,22 +231,40 @@ impl<S: Primitives> Driver<S> {
                 let Some(last) = page.last().map(|record| record.number) else {
                     break;
                 };
+                let mut records = Vec::with_capacity(page.len());
+                for record in page {
+                    let key = match &fields {
+                        Some(fields) => match key_of(fields, &record.value) {
+                            Ok(key) => Some(key),
+                            Err(field) => {
+                                tracing::warn!(sink = %self.sink_name, %dataset, number = record.number, %field, "a Record lacks a field of its key: the Sink fails");
+                                return Ok(Status::Failed(Failure::new(
+                                    FailureKind::RejectedRecords,
+                                    format!(
+                                        "Record {} of the Dataset `{dataset}` has no key field `{field}`",
+                                        record.number
+                                    ),
+                                )));
+                            }
+                        },
+                        None => None,
+                    };
+                    records.push(Delivered {
+                        key,
+                        ..Delivered::new(
+                            &self.run.run_id,
+                            &self.sink_name,
+                            dataset,
+                            record.number,
+                            record.committed_at,
+                            record.value,
+                        )
+                    });
+                }
                 let batch = Batch {
                     run: self.run.clone(),
                     dataset: dataset.clone(),
-                    records: page
-                        .into_iter()
-                        .map(|record| {
-                            Delivered::new(
-                                &self.run.run_id,
-                                &self.sink_name,
-                                dataset,
-                                record.number,
-                                record.committed_at,
-                                record.value,
-                            )
-                        })
-                        .collect(),
+                    records,
                 };
                 match self.sink.write(&batch) {
                     Ok(Written::Delivered) => {
@@ -191,6 +280,17 @@ impl<S: Primitives> Driver<S> {
         self.delivered = Some(delivered);
         self.failures = 0;
         Ok(Status::Complete)
+    }
+
+    /// Ends the delivery of a Run that finished, once [`Self::deliver`]
+    /// answered [`Status::Complete`]: a Sink that wrote its Records apart,
+    /// as `replace` does, swaps them in (ADR 0026).
+    pub fn finish(&mut self) -> Status {
+        match self.sink.finish(&self.run) {
+            Ok(Written::Delivered) => Status::Complete,
+            Ok(Written::Superseded { run_epoch }) => Status::Superseded { run_epoch },
+            Err(error) => self.failed(error),
+        }
     }
 
     /// What the failure `error` leads to. The next attempt probes again,

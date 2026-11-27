@@ -124,13 +124,16 @@ impl CrawlRun {
 
     /// Ends the Run as `ending` says, once its Sinks hold what its run
     /// file committed (ADR 0026): [`RunEnd::end`] after
-    /// [`Delivery::finish`].
+    /// [`Delivery::finish`], which swaps a `replace` Sink's Records in
+    /// when the Run finished.
     ///
     /// # Cancel safety
     ///
     /// As [`Delivery::finish`]'s, then as [`RunEnd::end`]'s.
     pub(crate) async fn end(&self, ending: Ending) {
-        self.sinks.finish().await;
+        self.sinks
+            .finish(matches!(ending, Ending::Finished(_)))
+            .await;
         self.end.end(ending).await;
     }
 

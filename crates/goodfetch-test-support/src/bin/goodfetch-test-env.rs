@@ -89,6 +89,11 @@ struct Arguments {
         default_missing_value = "collie"
     )]
     daemon: Option<Product>,
+    /// Enables the Daemon's HTTP JSON-RPC listener on loopback port 0 and
+    /// describes its base URL (`daemon.http`) and Bearer token
+    /// (`daemon.http_token`).
+    #[arg(long, requires = "daemon")]
+    http_listener: bool,
     /// Lays out the Browser cache in the test's home and, with
     /// `--proving-ground`, lets the home's engines reach its hosts.
     #[arg(long)]
@@ -350,8 +355,12 @@ fn serve(arguments: &Arguments) -> Result<(), Failure> {
     let daemon = match arguments.daemon {
         Some(product) => {
             // Its process joins the TestEnv's record too.
-            let started =
-                Daemon::start_program(&env, tools.path(product.tool())?, DAEMON_DEADLINE)?;
+            let program = tools.path(product.tool())?;
+            let started = if arguments.http_listener {
+                Daemon::start_program_with_http_listener(&env, program, DAEMON_DEADLINE)?
+            } else {
+                Daemon::start_program(&env, program, DAEMON_DEADLINE)?
+            };
             description = description.with_daemon(started.description().clone());
             Some(started)
         }

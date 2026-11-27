@@ -42,3 +42,49 @@ describe("daemon of a test that needs Foxhound", () => {
     expect(answer).toMatchObject({ result: { product: "foxhound" } });
   });
 });
+
+describe("daemon with HTTP listener", () => {
+  test.override({ withDaemon: true, withHttpListener: true });
+
+  test("reaches the HTTP listener with its Bearer token and refuses requests without it", async ({
+    daemon,
+  }) => {
+    expect(daemon.http).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(daemon.http_token).toBeTruthy();
+
+    const body = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "daemon.status",
+      params: {},
+    });
+    const baseHeaders = {
+      "Content-Type": "application/json",
+      "Goodfetch-Protocol": "0.1",
+      "Goodfetch-Product": "collie",
+      "Goodfetch-Form": "catalog",
+    };
+
+    const ok = await fetch(`${daemon.http}/v1/rpc`, {
+      method: "POST",
+      headers: { ...baseHeaders, Authorization: `Bearer ${daemon.http_token}` },
+      body,
+    });
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toMatchObject({ result: { product: "collie" } });
+
+    const missing = await fetch(`${daemon.http}/v1/rpc`, {
+      method: "POST",
+      headers: baseHeaders,
+      body,
+    });
+    expect(missing.status).toBe(401);
+
+    const wrongToken = await fetch(`${daemon.http}/v1/rpc`, {
+      method: "POST",
+      headers: { ...baseHeaders, Authorization: `Bearer ${daemon.token}` },
+      body,
+    });
+    expect(wrongToken.status).toBe(401);
+  });
+});

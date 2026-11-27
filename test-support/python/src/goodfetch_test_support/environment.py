@@ -125,6 +125,7 @@ class TestEnv:
         *,
         proving_ground_seed: int | None = None,
         daemon: Product | None = None,
+        http_listener: bool = False,
         browser: bool = False,
         browser_download: BrowserDownload | None = None,
         teardown_deadline: float = TEARDOWN_DEADLINE_SECONDS,
@@ -138,6 +139,8 @@ class TestEnv:
             proving_ground_seed: The seed of a Proving ground to start beside
                 the setup, if any.
             daemon: The Product whose Daemon to start in the test's home, if any.
+            http_listener: Whether the started Daemon enables its HTTP JSON-RPC
+                listener on loopback port 0 (`--http-listener`).
             browser: Whether to lay out the home's Browser cache and reach the
                 Proving ground's hosts, for an engine that opens a page.
             browser_download: How the engine's first use of an empty Browser
@@ -161,6 +164,7 @@ class TestEnv:
             else ["--proving-ground", str(proving_ground_seed)]
         )
         daemon_flag = [] if daemon is None else [f"--daemon={daemon.value}"]
+        http_listener_flag = ["--http-listener"] if http_listener else []
         browser_flag = ["--browser"] if browser else []
         download_flag = (
             []
@@ -174,6 +178,7 @@ class TestEnv:
                 test_name,
                 *proving_ground,
                 *daemon_flag,
+                *http_listener_flag,
                 *browser_flag,
                 *download_flag,
             ],

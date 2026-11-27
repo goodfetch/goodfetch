@@ -310,6 +310,110 @@ fn stopping_a_daemon_that_leaves_its_runtime_file_fails() {
     );
 }
 
+/// Sends one raw HTTP/1.1 `POST /v1/rpc` request to `base_url` (e.g.
+/// `http://127.0.0.1:<port>`) with an optional Bearer token and returns
+/// `(status_code, body_json)`.
+fn post_http_rpc(base_url: &str, token: Option<&str>, product: &str, body: &Value) -> (u16, Value) {
+    let authority = base_url
+        .strip_prefix("http://")
+        .unwrap_or_else(|| panic!("expected http:// base URL, got {base_url:?}"));
+    let mut stream = std::net::TcpStream::connect(authority).unwrap();
+    stream.set_read_timeout(Some(DEADLINE)).unwrap();
+    let payload = body.to_string();
+    let mut request = format!(
+        "POST /v1/rpc HTTP/1.1\r\nHost: {authority}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nGoodfetch-Protocol: 0.1\r\nGoodfetch-Product: {product}\r\nGoodfetch-Form: catalog\r\n",
+        payload.len()
+    );
+    if let Some(bearer) = token {
+        use std::fmt::Write as _;
+        let _ = write!(request, "Authorization: Bearer {bearer}\r\n");
+    }
+    request.push_str("\r\n");
+    request.push_str(&payload);
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut raw = Vec::new();
+    std::io::Read::read_to_end(&mut stream, &mut raw).unwrap();
+    let text = String::from_utf8(raw).unwrap();
+    let (head, response_body) = text.split_once("\r\n\r\n").unwrap();
+    let status: u16 = head
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let parsed: Value = serde_json::from_str(response_body).unwrap_or(Value::Null);
+    (status, parsed)
+}
+
+#[test]
+fn daemon_with_http_listener_describes_an_http_address_a_client_reaches_with_its_token() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
+    let process = start(&env, &["--daemon", "--http-listener"], &manifest);
+    let description = description(&process);
+    let (_socket, socket_token) = socket_and_token(&description);
+    let http = description["daemon"]["http"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no daemon.http: {description}"))
+        .to_owned();
+    let http_token = description["daemon"]["http_token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no daemon.http_token: {description}"))
+        .to_owned();
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "daemon.status", "params": {} });
+
+    let (ok_status, ok_body) = post_http_rpc(&http, Some(&http_token), "collie", &request);
+    let (missing_status, _) = post_http_rpc(&http, None, "collie", &request);
+    let (wrong_status, _) = post_http_rpc(&http, Some(&socket_token), "collie", &request);
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(schema_errors(&description), Vec::<String>::new());
+    assert_eq!(ok_status, 200, "{ok_body}");
+    assert_eq!(ok_body["result"]["product"], json!("collie"), "{ok_body}");
+    assert_eq!(missing_status, 401);
+    assert_eq!(wrong_status, 401);
+}
+
+#[test]
+fn daemon_foxhound_with_http_listener_reaches_foxhounds_http_listener() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("foxhound", &commit_tool(Tool::Foxhound))]);
+    let process = start(&env, &["--daemon=foxhound", "--http-listener"], &manifest);
+    let description = description(&process);
+    let http = description["daemon"]["http"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no daemon.http: {description}"))
+        .to_owned();
+    let http_token = description["daemon"]["http_token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no daemon.http_token: {description}"))
+        .to_owned();
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "daemon.status", "params": {} });
+
+    let (ok_status, ok_body) = post_http_rpc(&http, Some(&http_token), "foxhound", &request);
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(schema_errors(&description), Vec::<String>::new());
+    assert_eq!(ok_status, 200, "{ok_body}");
+    assert_eq!(ok_body["result"]["product"], json!("foxhound"), "{ok_body}");
+}
+
+#[test]
+fn http_listener_without_daemon_is_refused() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
+    let output = command(&env, TEST_ENV)
+        .args(["--http-listener"])
+        .env(TOOLS_VARIABLE, &manifest)
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+}
+
 /// A stand-in executable in the test's folder: a shell script on Unix, a
 /// batch file on Windows.
 pub(crate) fn stand_in(env: &TestEnv, name: &str, unix: &str, windows: &str) -> PathBuf {

@@ -378,7 +378,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 102] = [
+    const COLLIE: [&str; 108] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -481,6 +481,12 @@ mod tests {
         "usage.list",
         "usage.set",
         "usage.raise",
+        "group.init",
+        "group.token",
+        "group.join",
+        "group.leave",
+        "group.revoke",
+        "group.lead",
     ];
 
     #[test]

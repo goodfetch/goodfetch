@@ -77,6 +77,7 @@ async fn a_bindings_lookup_and_connection_leave_from_the_sessions_address() {
             ipv4: Some(BOUND),
             ipv6: None,
         },
+        None,
         &dns(&proving_ground),
     );
 

@@ -1773,6 +1773,7 @@ fn bound_network(case: &SsrfCase, dns: &goodfetch_engine::dns::Dns) -> super::Tc
                 ipv4: Some(Ipv4Addr::LOCALHOST),
                 ipv6: None,
             },
+            None,
             dns,
         )),
     }

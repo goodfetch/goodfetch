@@ -57,11 +57,6 @@ wreq-proto.workspace = true
 wreq-util.workspace = true
 goodfetch-workspace-hack.workspace = true
 
-# The index of the Session's interface, which each socket binds on macOS and
-# illumos (ADR 0044).
-[target.'cfg(any(target_os = "macos", target_os = "illumos"))'.dependencies]
-netdev.workspace = true
-
 [dev-dependencies]
 flate2.workspace = true
 goodfetch-runtime.workspace = true

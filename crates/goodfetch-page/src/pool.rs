@@ -494,7 +494,7 @@ impl Pool {
         ordinal: u64,
     ) -> Result<Option<Local>, LocalFailure> {
         let shared = &self.shared;
-        let addresses = match own.get(EGRESS_LOCAL_ADDRESSES.name) {
+        let (addresses, interface) = match own.get(EGRESS_LOCAL_ADDRESSES.name) {
             Some(serde_json::Value::Null) => return Ok(None),
             Some(value) => {
                 let parsed = LocalAddresses::parse(value)
@@ -506,7 +506,8 @@ impl Pool {
                     .map(|settings| BlockSizes::of(settings.resolved()))
                     .unwrap_or_default();
                 let rotation = Rotation::new(parsed, blocks);
-                shared
+                let interface = rotation.interface().map(str::to_owned);
+                let addresses = shared
                     .run
                     .identity
                     .owner()
@@ -515,20 +516,23 @@ impl Pool {
                         rotation.session(&local_addresses::System, 0)
                     })
                     .await
-                    .map_err(LocalFailure::Unavailable)?
+                    .map_err(LocalFailure::Unavailable)?;
+                (addresses, interface)
             }
             None => {
                 let Some(rotation) = &shared.rotation else {
                     return Ok(None);
                 };
+                let interface = rotation.interface().map(str::to_owned);
                 let rotation = Arc::clone(rotation);
-                shared
+                let addresses = shared
                     .run
                     .identity
                     .owner()
                     .blocking(move || rotation.session(&local_addresses::System, ordinal))
                     .await
-                    .map_err(LocalFailure::Unavailable)?
+                    .map_err(LocalFailure::Unavailable)?;
+                (addresses, interface)
             }
         };
         let clock = shared.run.identity.clock();
@@ -547,7 +551,11 @@ impl Pool {
             .await
             .clone()
             .map_err(LocalFailure::Unreadable)?;
-        Ok(Some(Local { addresses, dns }))
+        Ok(Some(Local {
+            addresses,
+            interface,
+            dns,
+        }))
     }
 
     /// A seat for a Session whose requests leave through `egress`, its

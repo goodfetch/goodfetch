@@ -213,6 +213,7 @@ store = []
 
 # Which of `local_addresses`' own modules may import which.
 [submodules.local_addresses]
+device = []
 host = []
 
 # Which of `dns`'s own modules may import which.

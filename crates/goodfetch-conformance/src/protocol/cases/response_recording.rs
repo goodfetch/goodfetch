@@ -10,6 +10,7 @@
 //! `recording_invalid` on an unreadable, non-WARC or unsupported-version
 //! file.
 
+mod determinism;
 mod record;
 
 use std::path::{Path, PathBuf};
@@ -49,6 +50,8 @@ pub(crate) enum Case {
     RecordRedactsAndMasksCanaries,
     RecordCutAndReplayTruncated,
     RecordCacheAndKillResume,
+    ReplayClockAndRandomness,
+    LoopbackResolveBypassDuringReplay,
 }
 
 impl Case {
@@ -78,6 +81,12 @@ impl Case {
             }
             "a-record-run-reads-no-cache-entry-may-store-into-cache-and-merges-both-halves-after-kill-and-resume" => {
                 Self::RecordCacheAndKillResume
+            }
+            "a-replayed-page-renders-recorded-date-and-seeded-randomness-identically-and-date-keeps-running" => {
+                Self::ReplayClockAndRandomness
+            }
+            "a-host-mapped-by-resolve-to-loopback-is-reached-live-during-replay-while-other-hosts-replay" => {
+                Self::LoopbackResolveBypassDuringReplay
             }
             _ => return None,
         })
@@ -114,6 +123,12 @@ impl Case {
             Self::RecordCacheAndKillResume => {
                 record::record_cache_and_kill_resume(connection, target, site, checks)
             }
+            Self::ReplayClockAndRandomness => {
+                determinism::replay_clock_and_randomness(connection, target, site, checks)
+            }
+            Self::LoopbackResolveBypassDuringReplay => {
+                determinism::loopback_resolve_bypass_during_replay(connection, target, site, checks)
+            }
         }
     }
 }
@@ -137,13 +152,13 @@ fn write_fixture(target: &EngineTarget, name: &str, bytes: &[u8]) -> PathBuf {
 }
 
 /// Builds a minimal WARC 1.1 byte buffer.
-struct WarcBuilder {
+pub(super) struct WarcBuilder {
     bytes: Vec<u8>,
     next_id: u64,
 }
 
 impl WarcBuilder {
-    fn new(software: &str) -> Self {
+    pub(super) fn new(software: &str) -> Self {
         let mut builder = Self {
             bytes: Vec::new(),
             next_id: 1,
@@ -153,7 +168,7 @@ impl WarcBuilder {
         builder.push_record(
             "warcinfo",
             &id,
-            "2026-01-05T09:00:00Z",
+            Some("2026-01-05T09:00:00Z"),
             &[],
             "application/warc-fields",
             block.as_bytes(),
@@ -171,7 +186,7 @@ impl WarcBuilder {
         &mut self,
         warc_type: &str,
         record_id: &str,
-        date: &str,
+        date: Option<&str>,
         extra: &[(&str, &str)],
         content_type: &str,
         block: &[u8],
@@ -181,8 +196,10 @@ impl WarcBuilder {
             .extend_from_slice(format!("WARC-Type: {warc_type}\r\n").as_bytes());
         self.bytes
             .extend_from_slice(format!("WARC-Record-ID: {record_id}\r\n").as_bytes());
-        self.bytes
-            .extend_from_slice(format!("WARC-Date: {date}\r\n").as_bytes());
+        if let Some(date) = date {
+            self.bytes
+                .extend_from_slice(format!("WARC-Date: {date}\r\n").as_bytes());
+        }
         for (name, value) in extra {
             self.bytes
                 .extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
@@ -200,9 +217,38 @@ impl WarcBuilder {
         clippy::too_many_arguments,
         reason = "one recorded HTTP exchange: method, target, request headers/body and response status/headers/body"
     )]
-    fn exchange(
+    pub(super) fn exchange(
         &mut self,
         date: &str,
+        method: &str,
+        url: &str,
+        req_headers: &[(&str, &str)],
+        req_body: &[u8],
+        status: u16,
+        resp_headers: &[(&str, &str)],
+        resp_body: &[u8],
+    ) {
+        self.exchange_with_optional_date(
+            Some(date),
+            method,
+            url,
+            req_headers,
+            req_body,
+            status,
+            resp_headers,
+            resp_body,
+        );
+    }
+
+    /// Appends a linked `request` + `response` pair whose `WARC-Date` header
+    /// may be omitted so the HTTP `Date` header fallback is exercised.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one recorded HTTP exchange: method, target, request headers/body and response status/headers/body"
+    )]
+    pub(super) fn exchange_with_optional_date(
+        &mut self,
+        date: Option<&str>,
         method: &str,
         url: &str,
         req_headers: &[(&str, &str)],
@@ -252,12 +298,14 @@ impl WarcBuilder {
         );
     }
 
-    fn finish(self) -> Vec<u8> {
+    pub(super) fn finish(self) -> Vec<u8> {
         self.bytes
     }
 }
 
-/// Starts a Run with `recording` and `settings`, returning the raw RPC reply.
+/// Starts a Run with `recording` (`mode: "replay"`) and `settings` with no
+/// loopback `network.resolve` mappings so every host replays from the file
+/// (ADR 0105, issue 801).
 fn start_with_recording(
     connection: &mut Connection,
     site: &Site,
@@ -265,7 +313,8 @@ fn start_with_recording(
     settings: &Value,
     path: &Path,
 ) -> Result<Value, Gone> {
-    let settings = site.mapped(settings, connection.acts_for_model());
+    let mut settings = site.mapped(settings, connection.acts_for_model());
+    settings["network"]["resolve"] = json!({});
     let id = connection.request(
         RUN_START.name,
         &json!({

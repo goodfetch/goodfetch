@@ -16,6 +16,8 @@ use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::CacheMode;
 use goodfetch_protocol::run::RunId;
 
+use crate::dns::HostMapping;
+
 use super::{
     CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseCacheError, ResponseHead, Stale,
     freshness, partition,
@@ -149,6 +151,10 @@ pub struct ResponseSource {
     cache: Keeping,
     recording: Option<Arc<dyn Recording>>,
     capture: Option<Arc<dyn Capture>>,
+    /// The Session/Run's `network.resolve` mapping, built once so a replaying
+    /// Run reaches hosts mapped to loopback live while answering every other
+    /// host from its recording before any DNS lookup (ADR 0105, issue 801).
+    resolve: Arc<HostMapping>,
 }
 
 /// How a Run uses the cache, as its `cache.mode` says.
@@ -175,6 +181,7 @@ impl ResponseSource {
             },
             recording: None,
             capture: None,
+            resolve: Arc::new(HostMapping::default()),
         }
     }
 
@@ -186,6 +193,14 @@ impl ResponseSource {
             recording: Some(recording),
             ..self
         }
+    }
+
+    /// Attaches `resolve`, the Session or Run's `network.resolve` mapping,
+    /// built once so loopback-mapped hosts bypass replay and reach the live
+    /// test server (ADR 0105, issue 801).
+    #[must_use]
+    pub fn resolve(self, resolve: Arc<HostMapping>) -> Self {
+        Self { resolve, ..self }
     }
 
     /// The source recording live responses into `capture` (`mode: "record"`):
@@ -204,10 +219,29 @@ impl ResponseSource {
     }
 
     /// Whether the Run replays a Response recording (ADR 0105): every
-    /// unrouted request is answered from the recording or refused as
-    /// `response_not_recorded`, and nothing reaches the cache or the site.
+    /// unrouted request not mapped to loopback by `network.resolve` is
+    /// answered from the recording or refused as `response_not_recorded`.
     pub fn replaying(&self) -> bool {
         self.recording.is_some()
+    }
+
+    /// Whether `url` is answered from the Run's Response recording rather than
+    /// reached live: true when replaying a recording and `url`'s host is not
+    /// mapped to loopback by `network.resolve` (ADR 0105, issue 801).
+    pub fn replays_url(&self, url: &str) -> bool {
+        if self.recording.is_none() {
+            return false;
+        }
+        if self.resolve.is_empty() {
+            return true;
+        }
+        let Some(host) = url::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_owned))
+        else {
+            return true;
+        };
+        !self.resolve.maps_to_loopback(&host)
     }
 
     /// Whether the Run records its live responses into a Response recording
@@ -285,7 +319,9 @@ impl ResponseSource {
         if let Some(served) = routed {
             return Source::Routed(served);
         }
-        if let Some(recording) = &self.recording {
+        if let Some(recording) = &self.recording
+            && self.replays_url(&request.url)
+        {
             return match recording.recorded(request).await {
                 Recorded::Answered(served) => Source::Recorded(served),
                 Recorded::Cut(served) => Source::RecordedCut(served),

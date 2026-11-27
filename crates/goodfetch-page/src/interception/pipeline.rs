@@ -673,7 +673,7 @@ impl PageContext {
             }
             (Answer::Fetch(overrides), Stage::Unanswered) => {
                 held.apply(overrides);
-                if self.replaying() {
+                if self.replays_url(held.url()) {
                     return self.fetch_from_recording(held, stage).await;
                 }
                 let (response, responded) = oneshot::channel();
@@ -731,6 +731,7 @@ impl PageContext {
                 }
             }
             (Answer::Fulfill(fulfillment), _) => {
+                self.note_routed_document_date(held, &fulfillment).await;
                 self.fulfill(&id, fulfillment).await;
                 (Ok(Reply::Answered), Some(Routed::Ended))
             }
@@ -934,7 +935,7 @@ impl PageContext {
         } else {
             &self.blocking
         };
-        let replaying = self.replaying();
+        let replaying = self.replays_url(held.url());
         let stepped = self
             .step_request(held, &paused, blocking, fetch, replaying)
             .await;

@@ -849,3 +849,11 @@ covers = ["story:6-57", "error:response_truncated", "operation:run.start", "oper
 [[capability.case]]
 id = "a-record-run-reads-no-cache-entry-may-store-into-cache-and-merges-both-halves-after-kill-and-resume"
 covers = ["story:6-55", "setting:cache.mode", "operation:run.start", "operation:page.goto", "operation:run.finish"]
+
+[[capability.case]]
+id = "a-replayed-page-renders-recorded-date-and-seeded-randomness-identically-and-date-keeps-running"
+covers = ["story:6-58", "operation:run.start", "operation:page.goto", "operation:page.evaluate", "operation:run.finish"]
+
+[[capability.case]]
+id = "a-host-mapped-by-resolve-to-loopback-is-reached-live-during-replay-while-other-hosts-replay"
+covers = ["story:6-59", "setting:network.resolve", "operation:run.start", "operation:page.goto", "operation:page.evaluate", "operation:run.finish"]

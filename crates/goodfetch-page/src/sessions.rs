@@ -2419,12 +2419,13 @@ fn session_interception(
     (relayed, proxied): (bool, bool),
     signing: Option<Arc<RequestSigner>>,
 ) -> Arc<SessionInterception> {
-    let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
-        Lookups::new(
-            resolve_of(run.identity.settings().map(RunSettings::resolved)),
-            browser,
-        )
-    });
+    let resolve = resolve_of(run.identity.settings().map(RunSettings::resolved));
+    let replay_script = run
+        .engine
+        .recordings()
+        .replay_init_script(run.identity.id(), &resolve);
+    let lookups =
+        held_browser(borrowed, relayed, proxied).map(|browser| Lookups::new(resolve, browser));
     // Its requests are answered from its Run's sources, as the HTTP tier's
     // are, so an entry either stored serves the other where the key
     // matches (ADR 0046).
@@ -2438,7 +2439,11 @@ fn session_interception(
         )
         .map(|caching| caching.of_session(session))
     });
-    Arc::new(SessionInterception::new(session.clone(), lookups, signing).with_caching(caching))
+    Arc::new(
+        SessionInterception::new(session.clone(), lookups, signing)
+            .with_caching(caching)
+            .with_replay_script(replay_script),
+    )
 }
 
 /// Forgets what `open`, the Session `session` that ended, kept in its own

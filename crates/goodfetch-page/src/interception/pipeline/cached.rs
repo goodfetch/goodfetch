@@ -76,12 +76,40 @@ struct Asked {
 }
 
 impl PageContext {
-    /// Whether this Run replays a Response recording (ADR 0105).
-    pub(super) fn replaying(&self) -> bool {
+    /// Whether `url` is answered from the Run's Response recording rather than
+    /// reached live (ADR 0105, issue 801).
+    pub(super) fn replays_url(&self, url: &str) -> bool {
         self.state
             .caching
             .as_ref()
-            .is_some_and(|caching| caching.replaying())
+            .is_some_and(|caching| caching.replays_url(url))
+    }
+
+    /// When a fulfilling route answers a main-frame navigation on a replaying
+    /// Run with an HTTP `Date` header, registers that timestamp so the
+    /// document's `Date` starts from it (ADR 0105, issue 801).
+    pub(super) async fn note_routed_document_date(
+        &self,
+        held: &Held,
+        fulfillment: &super::Fulfillment,
+    ) {
+        if !held.navigation || !self.replays_url(held.url()) {
+            return;
+        }
+        let headers: Vec<(String, String)> = fulfillment
+            .headers
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let Some(millis) = goodfetch_engine::response_recording::http_date_from_headers(&headers)
+            .and_then(goodfetch_engine::response_recording::system_time_millis)
+        else {
+            return;
+        };
+        let snippet = goodfetch_engine::response_recording::routed_date_script(held.url(), millis);
+        if let Err(failure) = self.cdp.add_init_script_opening(snippet).await {
+            tracing::debug!(%failure, "routed document Date init script was not installed");
+        }
     }
 
     /// Answers `held`, which `command` sends on, from the Session's
@@ -103,7 +131,7 @@ impl PageContext {
         let Some(caching) = self.state.caching.clone() else {
             return Ok(false);
         };
-        let replaying = caching.replaying();
+        let replaying = caching.replays_url(held.url());
         let recording = caching.recording();
         if !replaying && !recording && !self.consults_cache(held) {
             return Ok(false);

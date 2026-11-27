@@ -370,8 +370,29 @@ fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
     prove(RESPONSE_CACHE);
 }
 
-/// Covers: story:6-52, story:6-53, story:6-54, story:6-61, error:response_not_recorded, error:recording_invalid, setting:site_preferences.read_robots_txt_for_navigation, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:run.finish
+/// Covers: story:6-52, story:6-53, story:6-54, story:6-55, story:6-56, story:6-57, story:6-58, story:6-59, story:6-61, error:response_not_recorded, error:recording_invalid, error:response_truncated, setting:site_preferences.read_robots_txt_for_navigation, setting:network.resolve, setting:cache.mode, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:run.finish
 #[test]
 fn the_page_suite_proves_response_recordings_against_collies_attached_engine() {
     prove(RESPONSE_RECORDING);
+}
+
+/// Replayed page time and randomness never depend on the host's time zone or
+/// locale (ADR 0073, issue 801): under `TZ=Pacific/Chatham` and
+/// `LANG=tr_TR.UTF-8`, the replayed date, epoch and seeded `Math.random()`
+/// cases pass identically as under the host's environment. The Release suite
+/// runs this test with the Pre-merge suite's tests.
+///
+/// Covers: story:6-58, story:6-59, operation:run.start, operation:page.goto, operation:page.evaluate, operation:run.finish
+#[test]
+fn the_page_suite_proves_response_recordings_under_another_time_zone_and_locale() {
+    let elsewhere = TestEnv::new()
+        .with_time_zone("Pacific/Chatham")
+        .unwrap()
+        .with_locale("tr-TR")
+        .unwrap();
+    prove_in(
+        &elsewhere,
+        RESPONSE_RECORDING,
+        "response-recording-chatham-tr",
+    );
 }

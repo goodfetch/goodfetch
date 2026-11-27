@@ -19,7 +19,7 @@
 //! `revisit` record is answered with the payload of the record it refers
 //! to.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, PoisonError};
 use std::time::SystemTime;
@@ -31,6 +31,7 @@ use goodfetch_protocol::run::{
 };
 
 use crate::call_error::CallError;
+use crate::dns::HostMapping;
 use crate::mask::{Masks, Scope};
 use crate::response_cache::freshness::{CREDENTIALS, first};
 use crate::response_cache::{
@@ -40,10 +41,15 @@ use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
 use crate::warc::{self, HttpRequest, HttpResponse, Record, RecordType};
 
+mod determinism;
 mod record;
 #[cfg(test)]
 mod tests;
 
+pub use determinism::{
+    SeededRandom, http_date_from_headers, init_script, routed_date_script, seed_of,
+    system_time_millis,
+};
 pub use record::{Recorder, SanitizedExchange, TABLES};
 
 /// The most recorded URLs a [`Miss`] names.
@@ -154,6 +160,8 @@ pub struct Replay {
     entries: HashMap<String, Vec<Entry>>,
     /// Each host and path's recorded URLs, in the order recorded.
     places: HashMap<(String, String), Vec<String>>,
+    /// The `WARC-Record-ID` of the recording's `warcinfo` record, if any.
+    warcinfo_id: String,
     written_by: Option<String>,
     used: Mutex<Used>,
 }
@@ -180,14 +188,18 @@ impl Replay {
     ) -> Result<Self, RecordingInvalid> {
         let records = warc::read(contents, max_decompression_ratio)?;
         let index = Index::of(&records);
+        let warcinfo = records
+            .iter()
+            .find(|record| record.record_type() == RecordType::Warcinfo);
         let mut replay = Self {
             masks,
             entries: HashMap::new(),
             places: HashMap::new(),
-            written_by: records
-                .iter()
-                .find(|record| record.record_type() == RecordType::Warcinfo)
-                .and_then(software),
+            warcinfo_id: warcinfo
+                .and_then(Record::record_id)
+                .unwrap_or_default()
+                .to_owned(),
+            written_by: warcinfo.and_then(software),
             used: Mutex::new(Used::default()),
         };
         for record in &records {
@@ -248,6 +260,10 @@ impl Replay {
             used.answered.push(false);
             index
         };
+        let recorded_at = record
+            .date()
+            .map(SystemTime::from)
+            .or_else(|| http_date_from_headers(&served.head.headers));
         let entry = Entry {
             method: request.map_or_else(|| "GET".to_owned(), |request| request.method.clone()),
             body_key: request.map_or_else(
@@ -256,7 +272,7 @@ impl Replay {
             ),
             vary,
             served: Arc::new(served),
-            recorded_at: record.date().map(SystemTime::from),
+            recorded_at,
             cut: cut || truncated(record),
             index,
         };
@@ -330,6 +346,24 @@ impl Replay {
         }
     }
 
+    /// The `WARC-Record-ID` of the recording's `warcinfo` record (empty when
+    /// the file has no `warcinfo` record).
+    pub fn warcinfo_id(&self) -> &str {
+        &self.warcinfo_id
+    }
+
+    /// Each recorded URL's first recorded fetch timestamp in Unix epoch
+    /// milliseconds (`WARC-Date`, falling back to its HTTP `Date` header).
+    pub fn document_times(&self) -> BTreeMap<String, i64> {
+        self.entries
+            .iter()
+            .filter_map(|(url, entries)| {
+                let time = entries.iter().find_map(|entry| entry.recorded_at)?;
+                Some((url.clone(), system_time_millis(time)?))
+            })
+            .collect()
+    }
+
     /// What the replay did so far.
     pub fn report(&self) -> Report {
         let used = self.lock();
@@ -400,6 +434,17 @@ impl Replayed {
     /// Its path, as the Run's start named it.
     pub fn path(&self) -> &str {
         &self.path
+    }
+
+    /// The init script that sets `Date` and seeded `Math.random` for pages
+    /// replayed from this recording, skipping hosts `resolve` maps to loopback
+    /// (ADR 0105, issue 801).
+    pub fn init_script(&self, resolve: &HostMapping) -> String {
+        init_script(
+            self.replay.warcinfo_id(),
+            &self.replay.document_times(),
+            &resolve.loopback_hosts(),
+        )
     }
 
     /// What the replay did so far, in the Run report's wire shape.
@@ -543,6 +588,19 @@ impl Recordings {
             .unwrap_or_else(PoisonError::into_inner)
             .get(run_id)
             .is_some_and(|attached| matches!(attached, Attached::Replay(_)))
+    }
+
+    /// The page init script for `run_id`'s replay recording, or `None` when
+    /// `run_id` is not replaying (ADR 0105, issue 801).
+    pub fn replay_init_script(&self, run_id: &RunId, resolve: &HostMapping) -> Option<String> {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(run_id)
+            .and_then(|attached| match attached {
+                Attached::Replay(replayed) => Some(replayed.init_script(resolve)),
+                Attached::Record(_) => None,
+            })
     }
 
     /// Removes `run_id`'s recording (replay or record) without writing a file,

@@ -33,6 +33,8 @@ use crate::protocol::target::EngineTarget;
 const COOKIE_TASK: &str = "canaries/3";
 
 /// Starts `run_id` with `recording: { mode, path }` under `settings`.
+/// In `mode: "replay"`, clears `network.resolve` so replayed hosts are not
+/// treated as live loopback-mapped hosts (ADR 0105, issue 801).
 pub(super) fn start_with_mode(
     connection: &mut Connection,
     site: &Site,
@@ -41,7 +43,10 @@ pub(super) fn start_with_mode(
     mode: &str,
     path: &Path,
 ) -> Result<Value, Gone> {
-    let settings = site.mapped(settings, connection.acts_for_model());
+    let mut settings = site.mapped(settings, connection.acts_for_model());
+    if mode == "replay" {
+        settings["network"]["resolve"] = json!({});
+    }
     let id = connection.request(
         RUN_START.name,
         &json!({

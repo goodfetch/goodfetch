@@ -366,6 +366,9 @@ pub(crate) struct SessionInterception {
     /// What its requests are answered from before they leave, and kept in
     /// after, when its Run's cache or recording is on (ADR 0046).
     caching: Option<Arc<Caching>>,
+    /// The one init script registered once per page on a replaying Run to fix
+    /// `Date` and seed `Math.random` (ADR 0105, issue 801).
+    replay_script: Option<Arc<str>>,
 }
 
 impl SessionInterception {
@@ -386,6 +389,7 @@ impl SessionInterception {
             signing,
             failure: LeftFailure::default(),
             caching: None,
+            replay_script: None,
         }
     }
 
@@ -395,11 +399,26 @@ impl SessionInterception {
         Self { caching, ..self }
     }
 
+    /// The same, registering `replay_script` once on each page opened in the
+    /// Session when its Run replays a Response recording (ADR 0105, issue 801).
+    pub(crate) fn with_replay_script(self, replay_script: Option<String>) -> Self {
+        Self {
+            replay_script: replay_script.map(Arc::from),
+            ..self
+        }
+    }
+
     /// What its requests are answered from and kept in, when its Run's
     /// cache or recording is on: what it kept in its own partition is
     /// forgotten as it ends.
     pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
         self.caching.as_ref()
+    }
+
+    /// The time-and-randomness init script to register once on each opened
+    /// page of a replaying Run (ADR 0105, issue 801).
+    pub(crate) fn replay_script(&self) -> Option<&str> {
+        self.replay_script.as_deref()
     }
 
     /// Whether one of its pages started a main-frame navigation, whoever
@@ -529,11 +548,12 @@ impl EngineRequests {
         self.caching.as_ref()
     }
 
-    /// Whether the Run replays a Response recording (ADR 0105).
-    pub(crate) fn replaying(&self) -> bool {
+    /// Whether `url` is answered from the Run's Response recording rather than
+    /// reached live (ADR 0105, issue 801).
+    pub(crate) fn replays_url(&self, url: &str) -> bool {
         self.caching
             .as_ref()
-            .is_some_and(|caching| caching.replaying())
+            .is_some_and(|caching| caching.replays_url(url))
     }
 
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
@@ -562,7 +582,7 @@ impl EngineRequests {
             source_url: url,
             egress: RequestKind::Page,
         };
-        let stepped = if self.replaying() {
+        let stepped = if self.replays_url(url) {
             steps::send_on_replaying(
                 &request,
                 &self.policy,

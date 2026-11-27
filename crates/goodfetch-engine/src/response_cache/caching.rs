@@ -58,6 +58,13 @@ impl Caching {
         self.source.replaying()
     }
 
+    /// Whether `url` is answered from the Run's Response recording rather than
+    /// reached live: true when replaying a recording and `url`'s host is not
+    /// mapped to loopback by `network.resolve` (ADR 0105).
+    pub fn replays_url(&self, url: &str) -> bool {
+        self.source.replays_url(url)
+    }
+
     /// Whether the Run records its live responses into a Response recording
     /// (`mode: "record"`, ADR 0105).
     pub fn recording(&self) -> bool {

@@ -53,6 +53,7 @@ mod untouched;
 mod use_signals;
 mod xpath;
 
+pub use cached::over as cached_transport;
 pub use chain::{Following, Gating, HopGate, Redirected, Skip, Stop, Unfollowed, follow};
 #[doc(hidden)]
 pub use charset::fuzz_prescan;

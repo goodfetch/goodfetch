@@ -394,7 +394,9 @@ impl EngineContext {
     pub fn response_source_for(&self, run_id: &RunId, settings: &Resolved) -> ResponseSource {
         let source = self.response_source(settings);
         if let Some(recording) = self.stores.recordings.get(run_id) {
-            source.recording(recording)
+            source
+                .recording(recording)
+                .resolve(Arc::new(crate::dns::HostMapping::of(settings)))
         } else if let Some(recorder) = self.stores.recordings.recorder(run_id) {
             source.capturing(recorder)
         } else {

@@ -507,7 +507,7 @@ impl<'a> Load<'a> {
         let caching = self
             .sender
             .caching()
-            .filter(|caching| caching.replaying())
+            .filter(|caching| caching.replays_url(url))
             .cloned()?;
         if let Some(placeholders) = self.request.placeholders
             && let Err(refused) = placeholders

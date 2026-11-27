@@ -31,7 +31,7 @@ use url::Url;
 use crate::driver::{Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
 
 /// `transport` answering from `caching`'s sources first.
-pub(crate) fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
+pub fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
     Arc::new(Cached {
         transport,
         caching: Arc::clone(caching),

@@ -26,6 +26,7 @@
 //! answers and the settings that bound it, each a flat declaration.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
@@ -370,6 +371,12 @@ pub struct CrawlRequestEnqueueParams {
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: HttpMethod,
+    /// Extra request headers sent with the request (ADR 0093). Forbidden
+    /// headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    /// overrides; ADR 0033) are refused with `header_forbidden`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub headers: BTreeMap<String, String>,
     /// The body it is sent with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

@@ -75,7 +75,7 @@ from goodfetch_foxhound.generated.operations import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable, Sequence
+    from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 
     from goodfetch_collie_client.generated.handles import (
         AsyncLocator,
@@ -179,6 +179,11 @@ class DatasetRecord(WireDatasetRecord, Generic[R]):
     """The Record, of its Dataset's own type."""
 
 
+def _empty_headers() -> dict[str, str]:
+    """An empty header map for a `CrawlRequest` without extra headers."""
+    return {}
+
+
 @final
 @dataclass(frozen=True)
 class CrawlRequest(Generic[P]):
@@ -197,6 +202,8 @@ class CrawlRequest(Generic[P]):
     """Its HTTP method, `GET` unless its enqueue named another."""
     payload: P
     """The Payload its program attached, typed by its Label."""
+    headers: Mapping[str, str] = field(default_factory=_empty_headers)
+    """Extra request headers carried from its seed or enqueue (ADR 0093)."""
 
 
 @dataclass(frozen=True)
@@ -660,6 +667,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -673,6 +681,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -686,6 +695,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -698,6 +708,7 @@ class AsyncCrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -721,7 +732,11 @@ class AsyncCrawlContext(Generic[P]):
         lease no longer holds fails with `attempt_ended`.
 
         The request goes under `label`, and its Payload comes after the
-        Label only when the Label has one (ADR 0082).
+        Label only when the Label has one (ADR 0082). `headers` are sent on
+        that request's fetch across every tier; forbidden headers (`Host`,
+        `Cookie`, `Authorization`, `Proxy-*` and `X-HTTP-Method-Override`
+        aliases) fail with `header_forbidden`, and headers do not enter
+        request deduplication.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -733,7 +748,7 @@ class AsyncCrawlContext(Generic[P]):
         warn_entry(
             "crawl_request.enqueue", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
         )
-        options = _request_options(method, body, priority, forefront, key)
+        options = _request_options(method, body, headers, priority, forefront, key)
         params = self._attempt.enqueue_params(url, label, payload, options)
         return await self._operations.crawl_request_enqueue(params)
 
@@ -950,6 +965,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -963,6 +979,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -976,6 +993,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -988,6 +1006,7 @@ class CrawlContext(Generic[P]):
         *,
         method: str | None = None,
         body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
         priority: int | None = None,
         forefront: bool | None = None,
         key: str | None = None,
@@ -1020,7 +1039,7 @@ class CrawlContext(Generic[P]):
         warn_entry(
             "crawl_request.enqueue", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
         )
-        options = _request_options(method, body, priority, forefront, key)
+        options = _request_options(method, body, headers, priority, forefront, key)
         params = self._attempt.enqueue_params(url, label, payload, options)
         return self._operations.crawl_request_enqueue(params)
 
@@ -1434,6 +1453,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1446,6 +1466,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1458,6 +1479,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1469,6 +1491,7 @@ def seed(
     *,
     method: str | None = None,
     body: bytes | None = None,
+    headers: Mapping[str, str] | None = None,
     priority: int | None = None,
     forefront: bool | None = None,
     key: str | None = None,
@@ -1477,11 +1500,12 @@ def seed(
 
     A code-free crawl's seed names its Label by name, a string, since the
     program holds no `Label` of it. A Label with a Payload takes one, after
-    it (ADR 0082). `method` is
-    `GET` when left out, `body` is sent with it, a higher `priority` is
-    fetched first, `forefront` puts it ahead of the requests of its
-    priority, and `key` names it in place of its method, URL and body, so
-    another of the same key is a duplicate.
+    it (ADR 0082). `method` is `GET` when left out, `body` is sent with it,
+    `headers` are sent on its fetch across every tier (forbidden headers
+    fail with `header_forbidden` and headers do not enter deduplication), a
+    higher `priority` is fetched first, `forefront` puts it ahead of the
+    requests of its priority, and `key` names it in place of its method,
+    URL and body, so another of the same key is a duplicate.
 
     Raises:
         PayloadInvalidError: `payload` is not JSON, or its Label's model
@@ -1493,7 +1517,7 @@ def seed(
         "url": url,
         "label": label if isinstance(label, str) else label.name,
         **({} if isinstance(label, str) else _payload_field(label, payload)),
-        **_request_options(method, body, priority, forefront, key),
+        **_request_options(method, body, headers, priority, forefront, key),
     }
     return RequestSeed.model_validate(fields)
 
@@ -1602,6 +1626,7 @@ def _payload_refused(label: str, issues: list[dict[str, str]]) -> PayloadInvalid
 def _request_options(
     method: str | None,
     body: bytes | None,
+    headers: Mapping[str, str] | None,
     priority: int | None,
     forefront: bool | None,
     key: str | None,
@@ -1612,6 +1637,8 @@ def _request_options(
         options["method"] = method
     if body is not None:
         options["body"] = base64.b64encode(body).decode("ascii")
+    if headers is not None and len(headers) > 0:
+        options["headers"] = dict(headers)
     if priority is not None:
         options["priority"] = priority
     if forefront is not None:

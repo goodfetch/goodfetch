@@ -19,6 +19,7 @@ import type {
 import { nonJSON, parse, wireSchema, type SchemaIssue } from "@goodfetch/collie-client/runtime";
 import type { RecordsOptions, RejectedRecordsOptions } from "./crawl-run.ts";
 import type {
+  CrawlRequest,
   CrawlRequestEnqueueLinksParams,
   CrawlStartParams,
   DatasetDeclaration,
@@ -339,6 +340,8 @@ function recordUnreadable(
 export interface RequestOptions {
   /** Its HTTP method; `GET` when left out. */
   readonly method?: string | undefined;
+  /** Extra request headers sent with the request (ADR 0093); forbidden headers fail with `header_forbidden` (ADR 0033). */
+  readonly headers?: Readonly<Record<string, string>> | undefined;
   /** Its body, sent with its method. */
   readonly body?: HttpBody | null | undefined;
   /** Its place in the Frontier: a higher priority is fetched first. */
@@ -438,6 +441,8 @@ export interface AttemptRun {
  * Once the attempt ends, or its Run is closed, each call fails.
  */
 export interface CrawlContext {
+  /** The crawl request this attempt handles, including its URL, label, method, body and headers. */
+  readonly request: CrawlRequest;
   /**
    * The crawl's Run bound to this attempt (ADR 0093), not the program's own
    * Run value: its Key-value store's writes are staged with the attempt.
@@ -904,13 +909,18 @@ export function enqueueLinksOptions({
 /** The fields of `options` the wire carries, those left out omitted. */
 export function requestOptions({
   method,
+  headers,
   body,
   priority,
   forefront,
   key,
-}: RequestOptions): Pick<RequestSeed, "method" | "body" | "priority" | "forefront" | "key"> {
+}: RequestOptions): Pick<
+  RequestSeed,
+  "method" | "headers" | "body" | "priority" | "forefront" | "key"
+> {
   return {
     ...(method === undefined ? {} : { method }),
+    ...(headers === undefined ? {} : { headers: { ...headers } }),
     ...(body === undefined ? {} : { body }),
     ...(priority === undefined ? {} : { priority }),
     ...(forefront === undefined ? {} : { forefront }),

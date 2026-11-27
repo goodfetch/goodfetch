@@ -689,6 +689,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
       "details": {
         "$ref": "#/$defs/HeaderValueInvalidDetails"

@@ -1778,6 +1778,17 @@
       ]
     },
     {
+      "id": "error:header_forbidden",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:header_value_invalid",
       "kind": "error",
       "area": 4,

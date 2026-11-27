@@ -279,6 +279,16 @@ form = "read"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlContext"
+member = "request"
+entry = "none"
+reason = "The attempt's request from `crawl_request.handle`, including its URL, label, method, body and headers, read without a round trip."
+only = "TypeScript and Python hold the request's fields in `request`; Rust's context reads each with its own method."
+words = ["request"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlContext"
 member = "run"
 entry = "none"
 reason = "The crawl's Run bound to the attempt, from `crawl_request.handle`'s request (ADR 0093)."

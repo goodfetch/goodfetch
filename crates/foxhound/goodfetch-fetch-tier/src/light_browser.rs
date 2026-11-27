@@ -55,11 +55,16 @@ const METHOD_CALL: &str = "crawl_request.method";
 /// 2471).
 const BODY_CALL: &str = "crawl_request.body";
 
+/// What Provenance and `browser_required` name, in place of a call, as
+/// the cause of a crawl request the tier cannot send: its headers (issue
+/// 3660).
+const HEADERS_CALL: &str = "crawl_request.headers";
+
 /// What of `request` the tier cannot send, by the name Provenance and
 /// `browser_required` give it: its method when it is no `GET`, else its
-/// body; none for a bodiless `GET`, the only request `lightpanda fetch`
-/// sends (issue 2471). An empty body is no body, as the Frontier reads
-/// it.
+/// body, else its headers; none for a bodiless `GET` without headers, the
+/// only request `lightpanda fetch` sends (issues 2471, 3660). An empty
+/// body is no body, as the Frontier reads it.
 #[must_use]
 pub fn unsent(request: &CrawlRequest) -> Option<&'static str> {
     if !request.method.is_get() {
@@ -70,6 +75,8 @@ pub fn unsent(request: &CrawlRequest) -> Option<&'static str> {
         .is_some_and(|body| !body.bytes().is_empty())
     {
         Some(BODY_CALL)
+    } else if !request.headers.is_empty() {
+        Some(HEADERS_CALL)
     } else {
         None
     }

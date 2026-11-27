@@ -510,6 +510,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Seed"
+member = "header"
+entry = "none"
+reason = "An extra request header a request seed is sent with, carried by `crawl.start`, with no round trip of its own."
+only = "TypeScript's `seed` takes it as its options' `headers`."
+words = ["header"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
 member = "body"
 entry = "none"
 reason = "The body a request seed is sent with, carried by `crawl.start`, with no round trip of its own."
@@ -1123,6 +1133,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "CrawlContext"
+member = "headers"
+entry = "none"
+reason = "The extra request headers carried from the request's seed or enqueue, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's and Python's hold the request's fields on `ctx.request`."
+words = ["headers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlContext"
 member = "attempt"
 entry = "none"
 reason = "The attempt's number, 1 for the first, from `crawl_request.handle`, read without a round trip."
@@ -1332,6 +1352,16 @@ entry = "none"
 reason = "The method an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
 only = "TypeScript's `enqueue` takes it as its options' `method`."
 words = ["method"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Enqueue"
+member = "header"
+entry = "none"
+reason = "An extra request header an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `headers`."
+words = ["header"]
 form = "read"
 
 [[member]]
@@ -2150,6 +2180,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::CrawlContext"
+member = "headers"
+entry = "none"
+reason = "The extra request headers carried from the request's seed or enqueue, from `crawl_request.handle`, read without a round trip."
+only = "TypeScript's and Python's hold the request's fields on `ctx.request`."
+words = ["headers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlContext"
 member = "attempt"
 entry = "none"
 reason = "The attempt's number, 1 for the first, from `crawl_request.handle`, read without a round trip."
@@ -2332,6 +2372,16 @@ entry = "none"
 reason = "The method an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
 only = "TypeScript's `enqueue` takes it as its options' `method`."
 words = ["method"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Enqueue"
+member = "header"
+entry = "none"
+reason = "An extra request header an enqueued request is sent with, carried by `crawl_request.enqueue`, with no round trip of its own."
+only = "TypeScript's `enqueue` takes it as its options' `headers`."
+words = ["header"]
 form = "read"
 
 [[member]]

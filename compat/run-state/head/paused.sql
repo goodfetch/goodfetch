@@ -409,6 +409,7 @@ CREATE TABLE work_items (
             position INTEGER NOT NULL UNIQUE,
             url TEXT NOT NULL,
             method TEXT NOT NULL,
+            headers TEXT,
             body BLOB,
             label TEXT NOT NULL,
             depth INTEGER NOT NULL,

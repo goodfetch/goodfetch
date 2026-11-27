@@ -227,6 +227,7 @@ impl Subject {
                         Adding {
                             method: &get,
                             body: None,
+                            headers: None,
                             label: "page",
                             payload: None,
                             priority,

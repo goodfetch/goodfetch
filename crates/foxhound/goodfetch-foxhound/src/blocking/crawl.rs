@@ -232,6 +232,11 @@ impl<P> CrawlContext<P> {
         self.inner.label()
     }
 
+    /// The extra request headers carried from the request's seed or enqueue.
+    pub fn headers(&self) -> &std::collections::BTreeMap<String, String> {
+        self.inner.headers()
+    }
+
     /// The attempt's number, 1 for the first.
     pub fn attempt(&self) -> u32 {
         self.inner.attempt()
@@ -521,6 +526,12 @@ impl Enqueue {
     /// The request, sent with `method`, as [`crate::Enqueue::method`].
     pub fn method(self, method: HttpMethod) -> Self {
         self.with(|enqueue| enqueue.method(method))
+    }
+
+    /// The request, sent with the extra header `name: value`, as
+    /// [`crate::Enqueue::header`].
+    pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.with(|enqueue| enqueue.header(name, value))
     }
 
     /// The request, sent with `body`, as [`crate::Enqueue::body`].

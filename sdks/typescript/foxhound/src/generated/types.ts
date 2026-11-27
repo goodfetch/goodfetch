@@ -905,6 +905,14 @@ export interface RequestSeed {
    */
   forefront?: boolean;
   /**
+   * Extra request headers sent with the request (ADR 0093). Forbidden
+   * headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+   * overrides; ADR 0033) are refused with `header_forbidden`.
+   */
+  headers?: {
+    [k: string]: string;
+  };
+  /**
    * Its identity in the Frontier, declared by the program in place of
    * its method, its URL's key and its body's hash: a canonicalization
    * of the program's own, which always wins (ADR 0005).
@@ -1092,6 +1100,12 @@ export interface CrawlRequest {
    */
   body?: HttpBody | null;
   /**
+   * Extra request headers carried from its seed or enqueue, if any.
+   */
+  headers?: {
+    [k: string]: string;
+  };
+  /**
    * Its ID within the Run.
    */
   id: string;
@@ -1226,6 +1240,14 @@ export interface CrawlRequestEnqueueParams {
    * orders requests of different domains (ADR 0004); `false` by default.
    */
   forefront?: boolean;
+  /**
+   * Extra request headers sent with the request (ADR 0093). Forbidden
+   * headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+   * overrides; ADR 0033) are refused with `header_forbidden`.
+   */
+  headers?: {
+    [k: string]: string;
+  };
   /**
    * Its identity in the Frontier, declared by the program in place of
    * its method, its URL's key and its body's hash: a canonicalization

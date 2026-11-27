@@ -2857,6 +2857,14 @@
           "arrived_in": "0.1",
           "description": "The body it is sent with, if any."
         },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Extra request headers carried from its seed or enqueue, if any.",
+          "type": "object"
+        },
         "id": {
           "arrived_in": "0.1",
           "description": "Its ID within the Run.",
@@ -3011,6 +3019,14 @@
           "default": false,
           "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first. A priority or `forefront` never\norders requests of different domains (ADR 0004); `false` by default.",
           "type": "boolean"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Extra request headers sent with the request (ADR 0093). Forbidden\nheaders (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method\noverrides; ADR 0033) are refused with `header_forbidden`.",
+          "type": "object"
         },
         "key": {
           "arrived_in": "0.1",
@@ -7651,6 +7667,20 @@
           "type": "string"
         }
       ]
+    },
+    "HeaderForbiddenDetails": {
+      "description": "What `header_forbidden` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The forbidden header name, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
     },
     "HeaderValueInvalidDetails": {
       "description": "What `header_value_invalid` details.",
@@ -14885,6 +14915,14 @@
           "arrived_in": "0.1",
           "description": "Whether it goes ahead of every request its domain holds pending,\nwhatever their priority, as Crawlee's `forefront` (ADR 0005): of two\nsuch requests, the later goes first; `false` by default.",
           "type": "boolean"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "Extra request headers sent with the request (ADR 0093). Forbidden\nheaders (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method\noverrides; ADR 0033) are refused with `header_forbidden`.",
+          "type": "object"
         },
         "key": {
           "arrived_in": "0.1",
@@ -22988,6 +23026,19 @@
       "name": "handler_lost",
       "product": "foxhound",
       "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
+      "product": "collie",
+      "retryable": false
     },
     {
       "arrived_in": "0.1",

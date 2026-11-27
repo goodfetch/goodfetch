@@ -1533,6 +1533,12 @@ class RequestSeed(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first; `false` by default.
     """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
+    """
     key: str | None = None
     """
     Its identity in the Frontier, declared by the program in place of
@@ -2297,6 +2303,8 @@ class CrawlRequest(BaseModel):
     )
     body: HttpBody | None = None
     """The body it is sent with, if any."""
+    headers: dict[str, str] | None = None
+    """Extra request headers carried from its seed or enqueue, if any."""
     id: str
     """Its ID within the Run."""
     label: str
@@ -2329,6 +2337,12 @@ class CrawlRequestEnqueueParams(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first. A priority or `forefront` never
     orders requests of different domains (ADR 0004); `false` by default.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
     """
     key: str | None = None
     """

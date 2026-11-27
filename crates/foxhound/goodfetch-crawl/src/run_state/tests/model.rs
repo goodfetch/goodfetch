@@ -989,6 +989,7 @@ fn seed(page: usize) -> Seed {
         forefront: false,
         method: HttpMethod::get(),
         body: None,
+        headers: std::collections::BTreeMap::new(),
         key: None,
     })
 }
@@ -1279,6 +1280,7 @@ impl Subject {
                 forefront: false,
                 method: HttpMethod::get(),
                 body: None,
+                headers: std::collections::BTreeMap::new(),
                 key: None,
                 page_id: None,
             },

@@ -4553,6 +4553,20 @@
         }
       ]
     },
+    "HeaderForbiddenDetails": {
+      "description": "What `header_forbidden` details.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The forbidden header name, as given.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "HeaderValueInvalidDetails": {
       "description": "What `header_value_invalid` details.",
       "properties": {
@@ -16873,6 +16887,19 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "format_version_unsupported",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+      "details": {
+        "$ref": "#/$defs/HeaderForbiddenDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "header_forbidden",
       "product": "collie",
       "retryable": false
     },

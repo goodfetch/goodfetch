@@ -21,6 +21,41 @@ pub const HOOK_FAILED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A forbidden request header (ADRs 0033 and 0104).
+pub const HEADER_FORBIDDEN: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "header_forbidden",
+    description: "A seed, enqueue or Hook tried to set a header the engine owns (`Host`, `Cookie`, `Authorization`, `Proxy-*`, or a method-override header), so nothing was added or changed. The details name the forbidden header. Remove the header, or use the engine's own session, proxy or method APIs instead.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `header_forbidden` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct HeaderForbiddenDetails {
+    /// The forbidden header name, as given.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+}
+
+/// Whether `name` is one of ADR 0033's forbidden request headers (`Host`,
+/// `Cookie`, `Authorization`, `Proxy-*`, or method-override headers),
+/// compared ASCII case-insensitively.
+#[must_use]
+pub fn is_forbidden_request_header(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "host"
+            | "cookie"
+            | "authorization"
+            | "x-http-method-override"
+            | "x-http-method"
+            | "x-method-override"
+    ) || lower.starts_with("proxy-")
+}
+
 /// The stage a Hook that raised ran at, as `hook_failed` reports it, by
 /// the catalog's name (ADR 0104): a crawl's Hooks in code run at the stages
 /// whose answer changes the work, and Plugins and Script Hooks also at the
@@ -106,7 +141,7 @@ pub const ENTRIES: Entries = Entries {
     operations: &[],
     events: &[],
     handler_requests: &[],
-    error_codes: &[HOOK_FAILED],
+    error_codes: &[HEADER_FORBIDDEN, HOOK_FAILED],
     plugin_kinds: &[],
     metrics: &[],
     settings: &[],

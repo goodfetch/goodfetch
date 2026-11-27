@@ -834,6 +834,7 @@ class AsyncCrawlRun(AsyncRun):
             label=crawl_request.label,
             method=crawl_request.method.root,
             payload=payload_of(crawl, crawl_request.label, crawl_request.payload),
+            headers=dict(crawl_request.headers or {}),
         )
 
     def _lease_of(

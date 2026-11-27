@@ -1826,6 +1826,7 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                     let own = OwnFetch {
                         url,
                         method: "GET",
+                        headers: None,
                         body: None,
                     };
                     let pooled = pooled(params["pooled"].as_str().unwrap_or(POOLED));

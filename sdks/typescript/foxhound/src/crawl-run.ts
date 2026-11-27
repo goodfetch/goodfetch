@@ -718,6 +718,7 @@ export class CrawlRun extends Run {
     const page =
       pageId === undefined ? undefined : pageOf(this, pageId, request.session.id, signal);
     return {
+      request: request.crawlRequest,
       run: {
         id: () => attempt.runId,
         keyValueStore: attemptStoreOf(this, lease, signal),

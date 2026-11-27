@@ -69,6 +69,7 @@ fn seed(url: &str) -> Seed {
         forefront: false,
         method: HttpMethod::get(),
         body: None,
+        headers: std::collections::BTreeMap::new(),
         key: None,
     })
 }

@@ -105,6 +105,10 @@ pub struct RequestSeed {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub priority: i64,
+    // ADR 0038: wire request structs declare their fields inline rather than
+    // flattening a shared helper so `deny_unknown_fields` and flat JSON Schema
+    // definitions stay intact alongside `CrawlRequestEnqueueParams`.
+    // jscpd:ignore-start
     /// Whether it goes ahead of every request its domain holds pending,
     /// whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     /// such requests, the later goes first; `false` by default.
@@ -115,6 +119,12 @@ pub struct RequestSeed {
     #[serde(default, skip_serializing_if = "HttpMethod::is_get")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: HttpMethod,
+    /// Extra request headers sent with the request (ADR 0093). Forbidden
+    /// headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    /// overrides; ADR 0033) are refused with `header_forbidden`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub headers: BTreeMap<String, String>,
     /// The body it is sent with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
@@ -125,6 +135,7 @@ pub struct RequestSeed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub key: Option<String>,
+    // jscpd:ignore-end
 }
 
 #[expect(
@@ -469,6 +480,10 @@ pub struct CrawlRequest {
     /// The method it is sent with.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub method: HttpMethod,
+    /// Extra request headers carried from its seed or enqueue, if any.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub headers: BTreeMap<String, String>,
     /// The body it is sent with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

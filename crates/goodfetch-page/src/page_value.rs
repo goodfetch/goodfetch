@@ -39,6 +39,7 @@
 //! 0093), and the Product opens its handlers' browser pages through the
 //! [`BrowserPages`] it is handed once.
 
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
@@ -71,8 +72,8 @@ use crate::url_pattern::UrlPattern;
 pub type Opening<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// A crawl request's own document fetch, which the first navigation of
-/// its browser page sends (ADR 0093): its URL, and the method and body its
-/// main-frame request carries in place of the browser's bodiless `GET`.
+/// its browser page sends (ADR 0093): its URL, and the method, headers and
+/// body its main-frame request carries in place of the browser's bodiless `GET`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OwnFetch<'a> {
     /// Its URL.
@@ -80,16 +81,20 @@ pub struct OwnFetch<'a> {
     /// Its method, as the Frontier admitted it: one of the six standard
     /// methods upper-case, any other as written.
     pub method: &'a str,
+    /// Extra request headers carried from its seed or enqueue, if any.
+    pub headers: Option<&'a BTreeMap<String, String>>,
     /// Its body, if it has one.
     pub body: Option<&'a [u8]>,
 }
 
 impl OwnFetch<'_> {
-    /// Whether it is a `GET` with no body, or an empty one, as the
-    /// browser's own navigation sends it.
+    /// Whether it is a `GET` with no body (or an empty one) and no extra
+    /// headers, as the browser's own navigation sends it.
     #[must_use]
     pub fn is_bodiless_get(&self) -> bool {
-        self.method == "GET" && self.body.is_none_or(<[u8]>::is_empty)
+        self.method == "GET"
+            && self.body.is_none_or(<[u8]>::is_empty)
+            && self.headers.is_none_or(BTreeMap::is_empty)
     }
 }
 

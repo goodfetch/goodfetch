@@ -1501,6 +1501,16 @@ class HeaderCharacter(StrEnum):
     """A NUL, U+0000."""
 
 
+class HeaderForbiddenDetails(BaseModel):
+    """What `header_forbidden` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The forbidden header name, as given."""
+
+
 class HeaderValueInvalidDetails(BaseModel):
     """What `header_value_invalid` details."""
 
@@ -3379,6 +3389,12 @@ class RequestSeed(BaseModel):
     Whether it goes ahead of every request its domain holds pending,
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first; `false` by default.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
     """
     key: str | None = None
     """

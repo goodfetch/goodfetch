@@ -85,6 +85,7 @@ pub(crate) fn enqueue(
     };
     let adding = Adding {
         method: &params.method,
+        headers: (!params.headers.is_empty()).then_some(&params.headers),
         body: params.body.as_ref(),
         label: &params.label,
         payload,
@@ -343,6 +344,7 @@ pub(crate) fn links(
             } => {
                 let adding = Adding {
                     method: &method,
+                    headers: None,
                     body: None,
                     label: &params.label,
                     payload: payload.as_ref(),

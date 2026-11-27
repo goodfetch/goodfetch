@@ -218,6 +218,11 @@ impl<P> CrawlContext<P> {
         &self.attempt.params.crawl_request.label
     }
 
+    /// The extra request headers carried from the request's seed or enqueue.
+    pub fn headers(&self) -> &std::collections::BTreeMap<String, String> {
+        &self.attempt.params.crawl_request.headers
+    }
+
     /// The attempt's number, 1 for the first.
     pub fn attempt(&self) -> u32 {
         self.attempt.params.attempt

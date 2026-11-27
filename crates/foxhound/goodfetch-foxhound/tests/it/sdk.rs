@@ -25,6 +25,7 @@ mod datasets;
 mod enqueue;
 mod exports;
 mod foxhound_keys;
+mod headers;
 mod label_declaration;
 mod limits;
 mod outcomes;

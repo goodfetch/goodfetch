@@ -63,6 +63,7 @@ async fn enqueue(
     let Some(LiveCrawl { run, asking, .. }) = crawls.live(&params.run_id).await else {
         return Err(ended());
     };
+    crate::work_items::check_request_headers(&params.headers)?;
     // An absolute URL needs no base, so a browser page is not read for it.
     let document = match &params.page_id {
         Some(page_id) if Url::parse(&params.url).is_err() => {

@@ -37,6 +37,7 @@ mod page_functions;
 mod page_request;
 mod poll;
 mod popups;
+mod prerender;
 mod proxies;
 mod proxy_limits;
 mod read;
@@ -159,6 +160,8 @@ pub(crate) enum Case {
     Schedule(schedules::Case),
     /// A service worker case.
     ServiceWorker(service_workers::Case),
+    /// A Speculation Rules prerendering case (#730).
+    Prerender(prerender::Case),
     /// A `page.request` case, the hostile-input cases among them.
     PageRequest(page_request::Case),
     /// A fetch tier case, Foxhound's.
@@ -618,6 +621,7 @@ impl Case {
                     .or_else(|| two_copies::Case::from_id(id).map(Self::TwoCopies))
                     .or_else(|| schedules::Case::from_id(id).map(Self::Schedule))
                     .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
+                    .or_else(|| prerender::Case::from_id(id).map(Self::Prerender))
                     .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
                     .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
                     .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
@@ -745,6 +749,7 @@ impl Case {
                 checks,
             ),
             Self::ServiceWorker(case) => case.run(connection, target, site, checks),
+            Self::Prerender(case) => case.run(connection, target, site, checks),
             Self::FetchTier(case) => case.run(
                 connection,
                 target.environment.get("GOODFETCH_HOME").map(String::as_str),

@@ -153,7 +153,7 @@ fn a_held_modifier_carries_its_bit_until_released() {
     let mut held = Vec::new();
 
     let mut typed = vec![super::down(&shift, &mut held)];
-    typed.extend(press(&[a.clone()], &mut held).0);
+    typed.extend(press(std::slice::from_ref(&a), &mut held).0);
     typed.push(super::up(&shift, &mut held));
     typed.extend(press(&[a], &mut held).0);
 
@@ -168,7 +168,7 @@ fn a_held_modifier_carries_its_bit_until_released() {
             up("a", "KeyA", None),
         ]
     );
-    assert!(held.is_empty());
+    assert_eq!(held, Vec::<String>::new());
 }
 
 /// A key pressed down while it is held repeats, as a keyboard's does when
@@ -223,7 +223,7 @@ fn one_key_is_named_alone(#[case] name: &str, #[case] expected: Result<(), ()>) 
 #[case::an_emoji('🙂', None)]
 #[case::a_tab('\t', None)]
 fn a_us_keyboard_types_its_own_characters(#[case] character: char, #[case] expected: Option<&str>) {
-    assert_eq!(typed(character).map(|key| key.key).as_deref(), expected);
+    assert_eq!(typed(character).map(|key| key.name).as_deref(), expected);
 }
 
 /// The keys of a combination, in the order they go down.
@@ -232,7 +232,7 @@ fn a_combinations_keys_are_its_modifiers_then_its_key() {
     let names: Vec<String> = keys("Control+Shift+Shift+a")
         .unwrap()
         .into_iter()
-        .map(|key| key.key)
+        .map(|key| key.name)
         .collect();
 
     assert_eq!(names, ["Control", "Shift", "a"]);

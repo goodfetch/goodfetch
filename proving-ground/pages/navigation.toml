@@ -117,3 +117,25 @@ description = "Download the file the link Download offers and return it, named a
 download = { path = "/files/catalog.txt", name = "catalog.txt" }
 [tasks.pages]
 "/" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><a id="file" href="/files/catalog.txt" download="catalog.txt">Download</a><script>document.body.dataset.ready = 'true';</script></body></html>'''
+
+[[tasks]]
+name = "prerender"
+kind = "act"
+description = "Follow the link Next on a page that prerenders `/next` through Speculation Rules."
+effects = [{ event = "arrive", target = "next", trusted = true }]
+[tasks.pages]
+"/" = '''<!doctype html><html><head><script type="speculationrules">{"prerender":[{"source":"list","urls":["/next"],"eagerness":"immediate"}]}</script></head><body style="margin:0;font:16px sans-serif"><output id="done"></output><h1>prerender source</h1><a id="next" href="/next">Next</a><script>document.body.dataset.ready = 'true';</script></body></html>'''
+"/next" = '''<!doctype html><html><body style="margin:0;font:16px sans-serif"><output id="done"></output><h1 id="arrived">prerender target</h1><output id="activation"></output><script src="/effects.js"></script><script>
+const record = async () => {
+  const entry = performance.getEntriesByType('navigation')[0];
+  document.querySelector('#activation').textContent = String(entry ? entry.activationStart : 0);
+  await post({ event: 'arrive', target: 'next', trusted: true });
+  done();
+};
+if (document.prerendering) {
+  document.addEventListener('prerenderingchange', () => { record(); }, { once: true });
+} else {
+  record();
+}
+document.body.dataset.ready = 'true';
+</script></body></html>'''

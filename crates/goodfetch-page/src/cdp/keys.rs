@@ -13,9 +13,9 @@ use super::KeyPress;
 /// code and the text it types, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Key {
-    key: String,
+    name: String,
     code: String,
-    key_code: i64,
+    virtual_code: i64,
     text: Option<String>,
 }
 
@@ -113,9 +113,9 @@ pub(crate) fn press(keys: &[Key], held: &mut Vec<String>) -> KeyPress {
 /// joins: a modifier's bit is set from its own press on, a shortcut types
 /// nothing, as a keyboard's does, and a key held already repeats.
 pub(crate) fn down(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams {
-    let repeat = held.contains(&key.key);
+    let repeat = held.contains(&key.name);
     if !repeat {
-        held.push(key.key.clone());
+        held.push(key.name.clone());
     }
     let bits = modifiers(held);
     let shortcut = bits & (bit("Control") | bit("Meta") | bit("Alt")) != 0;
@@ -139,7 +139,7 @@ pub(crate) fn down(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams 
 /// The event that releases `key`, which leaves the keys `held` down: a
 /// modifier's bit is cleared from its own release on.
 pub(crate) fn up(key: &Key, held: &mut Vec<String>) -> DispatchKeyEventParams {
-    held.retain(|name| *name != key.key);
+    held.retain(|name| *name != key.name);
     event(DispatchKeyEventType::KeyUp, key, modifiers(held), None)
 }
 
@@ -180,11 +180,11 @@ fn bit(name: &str) -> i64 {
 
 /// A key by name, or a single character, which types itself.
 fn named(name: &str) -> Option<Key> {
-    if let Some((key, code, key_code, text)) = NAMED.iter().find(|(key, ..)| *key == name) {
+    if let Some((key, code, virtual_code, text)) = NAMED.iter().find(|(key, ..)| *key == name) {
         return Some(Key {
-            key: (*key).to_owned(),
+            name: (*key).to_owned(),
             code: (*code).to_owned(),
-            key_code: *key_code,
+            virtual_code: *virtual_code,
             text: text.map(str::to_owned),
         });
     }
@@ -194,7 +194,7 @@ fn named(name: &str) -> Option<Key> {
         return None;
     }
     let upper = character.to_ascii_uppercase();
-    let (code, key_code) = if upper.is_ascii_alphabetic() {
+    let (code, virtual_code) = if upper.is_ascii_alphabetic() {
         (format!("Key{upper}"), i64::from(u32::from(upper)))
     } else if character.is_ascii_digit() {
         (format!("Digit{character}"), i64::from(u32::from(character)))
@@ -204,9 +204,9 @@ fn named(name: &str) -> Option<Key> {
         (String::new(), 0)
     };
     Some(Key {
-        key: character.to_string(),
+        name: character.to_string(),
         code,
-        key_code,
+        virtual_code,
         text: Some(character.to_string()),
     })
 }
@@ -225,9 +225,9 @@ fn event(
         text,
         key_identifier: None,
         code: (!key.code.is_empty()).then(|| key.code.clone()),
-        key: Some(key.key.clone()),
-        windows_virtual_key_code: Some(key.key_code),
-        native_virtual_key_code: Some(key.key_code),
+        key: Some(key.name.clone()),
+        windows_virtual_key_code: Some(key.virtual_code),
+        native_virtual_key_code: Some(key.virtual_code),
         auto_repeat: None,
         is_keypad: None,
         is_system_key: None,

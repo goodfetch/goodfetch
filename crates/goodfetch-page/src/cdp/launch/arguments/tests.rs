@@ -262,6 +262,33 @@ fn every_launch_carries_every_entry_of_the_background_traffic_table() {
     );
 }
 
+/// Every Chromium launch disables Speculation Rules prerendering and its
+/// fallback prefetch inside its single `--disable-features` switch
+/// (ADR 0121, #730).
+/// Covers: story:5-25
+#[test]
+fn every_launch_disables_prerendering_in_its_one_disable_features_switch() {
+    let has_prerender_off = |built: &Arguments| {
+        let switches: Vec<&str> = built
+            .command_line
+            .iter()
+            .filter_map(|argument| argument.strip_prefix("--disable-features="))
+            .collect();
+        switches.len() == 1
+            && ["Prerender2", "Prerender2FallbackPrefetchSpecRules"]
+                .into_iter()
+                .all(|feature| switches[0].split(',').any(|named| named == feature))
+    };
+
+    assert_eq!(
+        (
+            has_prerender_off(&arguments(&launch(true, None))),
+            has_prerender_off(&arguments(&launch(false, None))),
+        ),
+        (true, true)
+    );
+}
+
 /// The Run's domain policy reaches the browser as the proxy auto-config
 /// script it gives, whole, and only when it gives one; WebRTC sends no UDP
 /// a proxy could not carry either way (ADRs 0014 and 0044).

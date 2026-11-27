@@ -8,6 +8,10 @@
     clippy::disallowed_methods,
     reason = "the engine runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
 )]
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::path::Path;
 use std::time::SystemTime;
@@ -143,6 +147,9 @@ fn unguarded_operations(provenance: &[Value], session_id: &Value, page_id: &Valu
         .collect()
 }
 
+/// One recorded keyboard/insert event: `(kind, key, modifiers, text)`.
+type KeySummary = (String, Option<String>, Option<i64>, Option<String>);
+
 /// Keyboard calls carry held modifiers across calls, split ASCII keys and
 /// non-ASCII inserts when typing, honour delays, and mark each call
 /// unguarded in Provenance.
@@ -182,29 +189,28 @@ fn keyboard_carries_held_modifiers_types_mixed_text_and_marks_provenance() {
         client
     });
 
-    let events: Vec<(String, Option<String>, Option<i64>, Option<String>)> =
-        input_commands(&commands)
-            .into_iter()
-            .map(|command| {
-                let method = command["method"].as_str().unwrap_or_default();
-                let params = &command["params"];
-                if method == "Input.insertText" {
-                    (
-                        "insertText".to_owned(),
-                        None,
-                        None,
-                        params["text"].as_str().map(str::to_owned),
-                    )
-                } else {
-                    (
-                        params["type"].as_str().unwrap_or_default().to_owned(),
-                        params["key"].as_str().map(str::to_owned),
-                        params["modifiers"].as_i64(),
-                        params["text"].as_str().map(str::to_owned),
-                    )
-                }
-            })
-            .collect();
+    let events: Vec<KeySummary> = input_commands(&commands)
+        .into_iter()
+        .map(|command| {
+            let method = command["method"].as_str().unwrap_or_default();
+            let params = &command["params"];
+            if method == "Input.insertText" {
+                (
+                    "insertText".to_owned(),
+                    None,
+                    None,
+                    params["text"].as_str().map(str::to_owned),
+                )
+            } else {
+                (
+                    params["type"].as_str().unwrap_or_default().to_owned(),
+                    params["key"].as_str().map(str::to_owned),
+                    params["modifiers"].as_i64(),
+                    params["text"].as_str().map(str::to_owned),
+                )
+            }
+        })
+        .collect();
 
     assert_eq!(
         events,

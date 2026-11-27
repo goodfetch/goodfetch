@@ -39,12 +39,18 @@ const MAX_CLICKS: u32 = 10;
 /// Adds the handlers of `page.keyboard`, `page.mouse` and
 /// `page.touchscreen`.
 pub(super) fn with_input_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
+    let contribution = with_keyboard_handlers(contribution, pages);
+    with_pointer_handlers(contribution, pages)
+}
+
+/// Adds the handlers of `page.keyboard`.
+fn with_keyboard_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let contribution = handled(
         contribution,
         pages,
         &PAGE_KEYBOARD_DOWN,
         |params: KeyboardKeyParams| {
-            let key = keys::key(&params.key).map_err(unknown)?;
+            let key = keys::key(&params.key).map_err(|err| unknown(&err))?;
             Ok((params.page_id, Input::Key(Press::Down, key)))
         },
     );
@@ -53,7 +59,7 @@ pub(super) fn with_input_handlers(contribution: Contribution, pages: &Pages) -> 
         pages,
         &PAGE_KEYBOARD_UP,
         |params: KeyboardKeyParams| {
-            let key = keys::key(&params.key).map_err(unknown)?;
+            let key = keys::key(&params.key).map_err(|err| unknown(&err))?;
             Ok((params.page_id, Input::Key(Press::Up, key)))
         },
     );
@@ -62,7 +68,7 @@ pub(super) fn with_input_handlers(contribution: Contribution, pages: &Pages) -> 
         pages,
         &PAGE_KEYBOARD_PRESS,
         |params: KeyboardPressParams| {
-            let keys = keys::keys(&params.key).map_err(unknown)?;
+            let keys = keys::keys(&params.key).map_err(|err| unknown(&err))?;
             let delay = millis(params.delay);
             Ok((params.page_id, Input::Press { keys, delay }))
         },
@@ -77,12 +83,16 @@ pub(super) fn with_input_handlers(contribution: Contribution, pages: &Pages) -> 
             Ok((params.page_id, Input::Type { text, delay }))
         },
     );
-    let contribution = handled(
+    handled(
         contribution,
         pages,
         &PAGE_KEYBOARD_INSERT_TEXT,
         |params: KeyboardInsertTextParams| Ok((params.page_id, Input::InsertText(params.text))),
-    );
+    )
+}
+
+/// Adds the handlers of `page.mouse` and `page.touchscreen`.
+fn with_pointer_handlers(contribution: Contribution, pages: &Pages) -> Contribution {
     let contribution = handled(
         contribution,
         pages,
@@ -248,7 +258,7 @@ fn millis(millis: Option<u64>) -> Duration {
 }
 
 /// `invalid_params` for a key the keyboard has no key for.
-fn unknown(unknown: UnknownKey) -> CallError {
+fn unknown(unknown: &UnknownKey) -> CallError {
     invalid(unknown.to_string())
 }
 

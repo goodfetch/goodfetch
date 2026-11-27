@@ -67,7 +67,10 @@ const CLEAN_UP_BLOCKING_OFF: Part = ("clean-up-blocking-off", &["clean_up.blocki
 const CLEAN_UP_HIDING: Part = ("clean-up-hiding", &["clean_up.hiding"]);
 const CONSENT: Part = ("consent", &["clean_up.consent", "clean_up.consent_walls"]);
 const EVENTS: Part = ("events", &["events", "bodies"]);
-const PAGE_STATES: Part = ("page-states", &["page_states.service_workers"]);
+const PAGE_STATES: Part = (
+    "page-states",
+    &["page_states.service_workers", "page_states.prerendering"],
+);
 const PAGE_REQUEST: Part = (
     "page-request",
     &[
@@ -304,7 +307,7 @@ fn the_page_suite_proves_events_against_collies_attached_engine() {
     prove(EVENTS);
 }
 
-/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state, story:5-56, setting:browser.headless, operation:page.goto
+/// Covers: operation:run.new_session, operation:page.route, operation:session.route, event:page.request, event:page.response, story:5-25, story:5-49, story:5-50, setting:browser.service_workers, operation:page.wait_for_response, operation:page.wait_for_load_state, operation:page.wait_for_url, operation:locator.click, setting:session.page_check, error:logged_out, story:5-56, setting:browser.headless, operation:page.goto
 #[test]
 fn the_page_suite_proves_page_states_against_collies_attached_engine() {
     if skipped_without_gui_session(

@@ -66,6 +66,12 @@ const SHELL_WEBRTC_POLICY: &str = "--force-webrtc-ip-handling-policy=disable_non
 /// as that call's own (fix-queue 83).
 const NO_AUTO_RELOAD: &str = "--disable-auto-reload";
 
+/// Chromium features switched off beside the background-traffic table's
+/// `--disable-features` list so Speculation Rules prerendering and its
+/// fallback prefetch never activate or pre-fetch a document outside
+/// `waitForURL`, the Page check and the navigation gate (ADR 0121, #730).
+const PRERENDER_OFF: [&str; 2] = ["Prerender2", "Prerender2FallbackPrefetchSpecRules"];
+
 /// Chromium's sandbox switched off, which only a launch whose
 /// `security.browser_sandbox` is off passes (ADRs 0017 and 0049): it also
 /// removes the renderers' seccomp-bpf layer.
@@ -161,7 +167,19 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
         .chain(BACKGROUND_PAGES)
         .map(str::to_owned),
     );
-    arguments.extend(chromium_background_traffic_off());
+    arguments.extend(
+        chromium_background_traffic_off()
+            .into_iter()
+            .map(|mut argument| {
+                if argument.starts_with("--disable-features=") {
+                    for feature in PRERENDER_OFF {
+                        argument.push(',');
+                        argument.push_str(feature);
+                    }
+                }
+                argument
+            }),
+    );
     arguments.push(
         if launch.headless_shell {
             SHELL_WEBRTC_POLICY

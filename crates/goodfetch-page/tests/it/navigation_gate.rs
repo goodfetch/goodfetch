@@ -918,3 +918,107 @@ fn a_document_is_judged_with_its_body_only_by_a_gate_that_reads_it(
         .collect();
     assert_eq!(judged_with_a_body, vec![reads]);
 }
+
+/// The navigation task whose `/` declares a Speculation Rules prerender of
+/// `/next`.
+const PRERENDER_HOST: &str = "8.navigation.test";
+
+/// Following a link whose target `/` declared for Speculation Rules
+/// prerendering passes a pending `page.wait_for_url`, consults the
+/// navigation gate for `/next` as a normal navigation (`activationStart`
+/// is 0), and is judged by `session.page_check` (ADR 0121, ticket #730).
+/// Covers: story:5-25, operation:page.wait_for_url, operation:locator.click, setting:session.page_check
+#[test]
+fn a_prerendered_page_passes_wait_for_url_page_check_and_the_gate() {
+    let gate = RecordingGate::new();
+    with_handler_page(&gate, Map::new(), async |program| {
+        program.goto(PRERENDER_HOST, "/").await;
+        let _ = program
+            .on_page(
+                "page.evaluate",
+                json!({ "function": "() => new Promise((resolve) => setTimeout(resolve, 600))" }),
+            )
+            .await;
+        let requested_before_click = program.requested(PRERENDER_HOST, "/next");
+        let from = gate.admitted().len();
+        let waited_id = program
+            .request(
+                "page.wait_for_url",
+                &json!({
+                    "page_id": program.page,
+                    "url": { "kind": "glob", "pattern": "**/next" },
+                    "timeout": 5_000,
+                }),
+            )
+            .await;
+        let clicked = program
+            .call(
+                "locator.click",
+                &json!({ "locator": { "page_id": program.page, "selector": "#next" } }),
+            )
+            .await;
+        let waited = program.answer(waited_id).await;
+
+        assert!(clicked.get("result").is_some(), "click failed: {clicked}");
+        assert!(
+            waited.get("result").is_some(),
+            "wait_for_url failed: {waited}"
+        );
+        let activation = program
+            .on_page(
+                "page.evaluate",
+                json!({ "function": "() => document.querySelector('#activation')?.textContent ?? ''" }),
+            )
+            .await;
+        let admitted = admitted_since(&gate, from);
+        assert!(
+            !requested_before_click,
+            "speculative request went out before click: activation={activation}, admitted={admitted:?}"
+        );
+        assert_eq!(activation["result"]["value"], json!("0"));
+        assert!(
+            admitted
+                .iter()
+                .any(|(path, kind)| path == "/next" && *kind == NavigationKind::Document),
+            "gate did not admit /next on click: admitted={admitted:?}, all={:?}",
+            gate.admitted()
+        );
+    });
+
+    let gate = RecordingGate::new();
+    let settings = Map::from_iter([(
+        "session".to_owned(),
+        json!({
+            "page_check": {
+                "login_page": { "kind": "css", "selector": "#arrived" }
+            }
+        }),
+    )]);
+    with_handler_page(&gate, settings, async |program| {
+        program.goto(PRERENDER_HOST, "/").await;
+        let _ = program
+            .on_page(
+                "page.evaluate",
+                json!({ "function": "() => new Promise((resolve) => setTimeout(resolve, 600))" }),
+            )
+            .await;
+        let clicked = program
+            .call(
+                "locator.click",
+                &json!({ "locator": { "page_id": program.page, "selector": "#next" } }),
+            )
+            .await;
+        let after = program
+            .on_page(
+                "page.evaluate",
+                json!({ "function": "() => document.title" }),
+            )
+            .await;
+        let raised = clicked["error"]["data"]["code"] == json!("logged_out")
+            || after["error"]["data"]["code"] == json!("logged_out");
+        assert!(
+            raised,
+            "Page check did not judge /next: clicked={clicked} after={after}"
+        );
+    });
+}

@@ -182,6 +182,7 @@ On any other host name, such as the bound address itself:
 | `actionability/1` to `actionability/26` | `act` or `submit` | `/` | the page's events, or a refusal |
 | `navigation/1` to `navigation/6` | `act` | `/` | the page's event |
 | `navigation/7` | `download` | `/` | `catalog.txt` with its seeded bytes |
+| `navigation/8` | `act` | `/` | `arrive` on `/next` (Speculation Rules prerender target) |
 | `agent/1` | `submit`, `time_steps: 4` | `/demo` | a booking for Ada Lovelace, `ada@example.test`, the Pro plan, consent given, from a trusted event, at each of steps 0 to 3; no account deleted |
 | `agent/2` | `extract`, `time_steps: 4` | `/demo` | a Record `S-<step>` with that step's Pro `price`, for steps 0 to 3 |
 | `agent/3` to `agent/9` | `extract` | `/demo`, never drifting | the Record `pro` with the Pro `price`; each asks the Fake model for its fault |

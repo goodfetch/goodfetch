@@ -617,6 +617,13 @@ id = "a-headless-service-workers-requests-show-the-site-its-windows-identity"
 covers = ["story:5-56", "setting:browser.headless", "operation:page.goto"]
 
 [[capability]]
+name = "page_states.prerendering"
+
+[[capability.case]]
+id = "a-speculation-rules-link-loads-as-a-normal-navigation-passing-wait-for-url-and-page-check"
+covers = ["story:5-25", "operation:page.goto", "operation:page.wait_for_url", "operation:locator.click", "setting:session.page_check", "error:logged_out"]
+
+[[capability]]
 name = "page_request"
 
 [[capability.case]]

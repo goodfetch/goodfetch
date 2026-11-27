@@ -105,6 +105,15 @@ jobs:
         with:
           name: release-packaged
           path: target/release-packaged
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Resolve main's newest passing Clean-up rules set at build time (without writing to main)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cargo run --quiet --locked --bin xtask -- release pin-clean-up-rules \
+            --line main \
+            --out-assets target/release-packaged/assets
       - name: Install cosign for keyless Sigstore signatures
         uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Attest release assets, SBOMs, debug symbols, wheels, OCI images, charts and catalog
@@ -425,6 +434,10 @@ jobs:
         run: |
           {
             printf 'Nightly pre-release of Goodfetch Collie and Foxhound (%s).\n\n' "$RELEASE_VERSION"
+            if [[ -f target/release-attested/assets/clean-up-rules-notes.md ]]; then
+              cat target/release-attested/assets/clean-up-rules-notes.md
+              printf '\n'
+            fi
             printf '## Sizes\n\n'
             cat target/release-size-table/release-size-table.md
           } > target/release-notes.md

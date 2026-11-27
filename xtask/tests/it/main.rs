@@ -120,6 +120,7 @@ mod release;
 mod release_assets;
 mod release_build;
 mod release_ceilings;
+mod release_clean_up_pin;
 mod release_deploy_smoke;
 mod release_digests;
 #[cfg(unix)]

@@ -32,6 +32,7 @@ mod attest;
 mod changelog;
 mod channel_gate;
 mod chromium;
+mod clean_up_pin;
 mod digests;
 mod gates;
 mod line;
@@ -251,6 +252,9 @@ pub(crate) enum Command {
     /// index covering the newest `--keep` nightly pre-releases (ADRs 0057, 0090
     /// and 0094; issue 205).
     PythonIndex(python_index::Arguments),
+    /// Pins the newest passing Clean-up rules daily set for a release line
+    /// (ADRs 0030, 0032 and 0047; issue 207).
+    PinCleanUpRules(clean_up_pin::Arguments),
 }
 
 #[expect(
@@ -276,6 +280,9 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::ChannelGate(arguments) => channel_gate::run(root, &arguments),
         Command::SizeManifest(arguments) => size_manifest::run(root, &arguments),
         Command::PythonIndex(arguments) => python_index::run(root, &arguments),
+        Command::PinCleanUpRules(arguments) => {
+            clean_up_pin::run(root, &arguments, environment.github_token.as_deref())
+        }
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

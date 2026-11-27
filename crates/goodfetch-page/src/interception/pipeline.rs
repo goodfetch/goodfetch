@@ -1066,12 +1066,12 @@ impl PageContext {
         }
         // A shared or service worker's target answers no
         // `Network.getCookies`: its browser context's cookies are matched.
-        let named = if self.sender.is_pages() {
+        let answered = if self.sender.is_pages() {
             self.cdp.cookie_names(url).await
         } else {
             self.cdp.context_cookie_names(&parsed).await
         };
-        let cookies = match named {
+        let cookies = match answered {
             Ok(names) => names,
             Err(failure) => {
                 tracing::debug!(

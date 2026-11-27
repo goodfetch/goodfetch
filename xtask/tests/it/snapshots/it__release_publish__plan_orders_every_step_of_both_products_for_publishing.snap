@@ -4,6 +4,7 @@ expression: outcome.stdout
 ---
 github draft v1.4.0: create
 github asset SHA256SUMS: upload
+github asset goodfetch-catalog.json: upload
 github asset goodfetch-collie-aarch64-apple-darwin-debug.tar.xz: upload
 github asset goodfetch-collie-aarch64-apple-darwin.tar.xz: upload
 github asset goodfetch-collie-aarch64-pc-windows-msvc-debug.tar.xz: upload

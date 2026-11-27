@@ -34,7 +34,8 @@
 # the end of its line. Nobody edits results.txt.
 #
 # Each run appends one line to `<log>/results.txt`, `<UTC day> <commit>
-# gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n> earned=<n>`, or
+# gate=<pass|fail> misses=<n> suspects=<n> unchecked=<n> earned=<n>
+# quarantined=<pass|fail>`, or
 # `gate=skipped (…)` when the disk lacks room or Linux lacks a LazyFS build, and
 # each miss, suspect or unchecked result to `<log>/misses.txt`; the run's own
 # log is `<log>/<day>.log`, with `<log>`
@@ -312,7 +313,11 @@ for base in $bases; do
   fi
 done
 
-result "$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned${told_since:+ since=$told_since}"
+quarantined=pass
+stoppable just repeat 50 --quarantined 10 || quarantined=fail
+echo "== the quarantined tests: $quarantined (blocks nothing, ADR 0064)"
+
+result "$gate misses=$misses suspects=$suspects unchecked=$unchecked earned=$earned quarantined=$quarantined${told_since:+ since=$told_since}"
 
 # Once the day's line is written, green or red, ADR 0144's sweep of the
 # tracker: every open `ready-for-agent` issue whose `Existing code` list no

@@ -54,6 +54,7 @@ pub mod page;
 pub mod plugin;
 pub mod point_in_time;
 pub mod politeness;
+pub mod published_catalog;
 pub mod recipe;
 pub mod refusals;
 pub mod releases;

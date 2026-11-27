@@ -1,0 +1,704 @@
+# Nightly channel release pipeline (spec #130, issue 143; ADRs 0030, 0032,
+# 0039, 0043, 0057, 0061, 0074 and 0094).
+#
+# Stays disabled in the repository's Actions settings on merge until the owner
+# enables hosted release publishing and configures trusted publishers.
+#
+# Fixed order:
+#   1. `release-suite`: runs the Release suite on `main`'s head before any build.
+#   2. `nightly-version`: computes the nightly semver (`<base>-dev.<YYYYMMDD>`).
+#   3. `build`: calls `release-build.yml` (Proving ground -> Platform signing ->
+#      Chromium fetch by digest -> build both Products per target -> Platform
+#      signing & signature gate -> signed-bundle smoke -> package & digests).
+#   4. `attest-and-sign`: GitHub artifact attestations and Sigstore keyless
+#      signatures over every release asset, debug symbol, SBOM and catalog.
+#   5. `verify-bytes-{linux,windows,macos}`: runs every file of both Products
+#      from its own bytes on its target OS before any publish.
+#   6. `release-gate`: verifies Platform signatures (#142), `gh attestation
+#      verify`, identical executable digests across every channel, and enforces
+#      that nightlies never publish to PyPI, crates.io or Homebrew.
+#   7. `publish-npm`, `publish-oci`, `publish-github-prerelease`: publishes via
+#      OIDC trusted publishing with provenance to npm `nightly`, GHCR `nightly`,
+#      first-party Plugin OCI artifacts, and a GitHub pre-release carrying both
+#      Products' files and `.devN` wheels (never PyPI, crates.io or Homebrew).
+#   8. `smoke-channels-{linux,windows,macos}`: smoke installs each Product from
+#      each published channel under ADR 0043's outbound-traffic deny.
+name: release-nightly
+
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+    inputs:
+      accounts_open:
+        description: "Whether Apple Developer ID and Azure Artifact Signing accounts are open (ADR 0039)"
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: release-nightly
+  cancel-in-progress: false
+
+jobs:
+  release-suite:
+    name: release-suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out main's head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Run the Release suite on main's head before building
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ github.sha }}
+        run: ci/nightly/release-suite.sh
+
+  nightly-version:
+    name: nightly-version
+    needs: [release-suite]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+    steps:
+      - name: Compute nightly semver version
+        id: compute
+        run: |
+          stamp=$(date -u +%Y%m%d)
+          echo "version=0.0.0-dev.${stamp}" >>"$GITHUB_OUTPUT"
+
+  build:
+    name: build
+    needs: [release-suite, nightly-version]
+    uses: ./.github/workflows/release-build.yml # zizmor: ignore[self-repository] actionlint lacks the $/ form
+    with:
+      version: ${{ needs.nightly-version.outputs.version }}
+      accounts_open: ${{ inputs.accounts_open == true }}
+
+  attest-and-sign:
+    name: attest-and-sign
+    needs: [build, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Resolve main's newest passing Clean-up rules set at build time (without writing to main)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cargo run --quiet --locked --bin xtask -- release pin-clean-up-rules \
+            --line main \
+            --registry https://ghcr.io \
+            --out-assets target/release-packaged/assets \
+            --out-notes target/release-packaged/clean-up-rules-notes.md
+          # Refresh SHA256SUMS so the pinned Clean-up rules assets are hashed and verified by channel-gate.
+          cargo run --quiet --locked --bin xtask -- release assets \
+            --folder target/release-packaged/assets
+      - name: Install cosign for keyless Sigstore signatures
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+      - name: Attest release assets, SBOMs, debug symbols, wheels, OCI images, charts and catalog
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            target/release-packaged/assets/*
+            target/release-packaged/wheels/*.whl
+            target/release-packaged/oci/images/*.oci.tar
+            target/release-packaged/oci/images/*.cdx.json
+      - name: Sign release assets with keyless Sigstore bundles
+        run: |
+          for file in target/release-packaged/assets/* target/release-packaged/wheels/*.whl; do
+            [[ -f "$file" ]] || continue
+            [[ "$file" == *.sigstore.json ]] && continue
+            cosign sign-blob --yes --bundle "${file}.sigstore.json" "$file"
+          done
+      - name: Scan attested release outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/release-packaged
+      - name: Upload attested release outputs
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-attested
+          path: target/release-packaged
+          if-no-files-found: error
+
+  verify-bytes-linux:
+    name: verify-bytes-linux
+    needs: [attest-and-sign, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: release-linux
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: verify every Linux file of both Products from its own bytes"
+        env:
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          ci/egress/under-deny.sh ci/release/verify-bytes.sh \
+            target/release-attested x86_64-unknown-linux-musl "$RELEASE_VERSION"
+          ci/egress/under-deny.sh ci/release/verify-bytes.sh \
+            target/release-attested x86_64-unknown-linux-gnu "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  verify-bytes-windows:
+    name: verify-bytes-windows
+    needs: [attest-and-sign, nightly-version]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-pc-windows-msvc
+          runtimes: release-other
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: verify every Windows file of both Products from its own bytes"
+        env:
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: >-
+          ci/egress/under-deny.sh ci/release/verify-bytes.sh
+          target/release-attested x86_64-pc-windows-msvc "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  verify-bytes-macos:
+    name: verify-bytes-macos
+    needs: [attest-and-sign, nightly-version]
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: aarch64-apple-darwin
+          runtimes: release-other
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: verify every macOS file of both Products from its own bytes"
+        env:
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: >-
+          ci/release/verify-bytes.sh
+          target/release-attested aarch64-apple-darwin "$RELEASE_VERSION"
+
+  release-gate:
+    name: release-gate
+    needs:
+      - nightly-version
+      - verify-bytes-linux
+      - verify-bytes-windows
+      - verify-bytes-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/signed-binaries
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Verify cross-channel digests, attestations and nightly channel exclusions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          cargo run --quiet --locked --bin xtask -- release channel-gate \
+            --version "$RELEASE_VERSION" \
+            --binaries target/signed-binaries \
+            --packaged target/release-attested \
+            --channels npm:nightly,ghcr:nightly,plugins-oci,github-prerelease \
+            --verify-attestations
+      - name: Check both Products' release-profile files against their Size budget ceilings
+        run: |
+          cargo run --quiet --locked --bin xtask -- release size-manifest \
+            --binaries target/signed-binaries \
+            --packaged target/release-attested \
+            --out target/release-size-files.toml
+          cargo run --quiet --locked --bin xtask -- size ceilings \
+            --files target/release-size-files.toml > target/release-size-table.md
+      - name: Scan release size table for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/release-size-table.md
+      - name: Upload release size table for release notes
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-size-table
+          path: target/release-size-table.md
+          if-no-files-found: error
+
+  publish-npm:
+    name: publish-npm
+    needs: [release-gate, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Publish Collie client, platform packages and both root packages to npm nightly with provenance
+        run: |
+          order=(
+            collie-client
+            collie-darwin-arm64 collie-darwin-x64 collie-linux-arm64 collie-linux-x64 collie-win32-arm64 collie-win32-x64
+            collie
+            foxhound-darwin-arm64 foxhound-darwin-x64 foxhound-linux-arm64 foxhound-linux-x64 foxhound-win32-arm64 foxhound-win32-x64
+            foxhound
+          )
+          for pkg in "${order[@]}"; do
+            npm publish "target/release-attested/npm/$pkg" --provenance --access public --tag nightly
+          done
+
+  publish-oci:
+    name: publish-oci
+    needs: [release-gate, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Install cosign for keyless OCI image and Helm chart signatures
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Push and sign both Products' nightly OCI images, Helm charts and first-party Plugins on GHCR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OCI_REGISTRY: ghcr.io
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          mkdir -p target/oci-digests
+          echo "$GITHUB_TOKEN" | docker login "$OCI_REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
+          for plugin_dir in target/release-attested/oci/plugins/*; do
+            [[ -d "$plugin_dir" ]] || continue
+            plugin=$(basename "$plugin_dir")
+            digest_file="target/oci-digests/plugin-${plugin}.digest"
+            cargo run --quiet --locked --bin xtask -- release oci-push \
+              --layout "$plugin_dir" \
+              --registry "https://${OCI_REGISTRY}" \
+              --repository "goodfetch/$plugin" \
+              --tag "$RELEASE_VERSION" \
+              --digest-out "$digest_file"
+            cargo run --quiet --locked --bin xtask -- release oci-push \
+              --layout "$plugin_dir" \
+              --registry "https://${OCI_REGISTRY}" \
+              --repository "goodfetch/$plugin" \
+              --tag nightly
+            digest=$(cat "$digest_file")
+            cosign sign --yes "${OCI_REGISTRY}/goodfetch/${plugin}@${digest}"
+          done
+          for product in collie foxhound; do
+            for variant in "" -slim -full -node -python; do
+              oci_tar="target/release-attested/oci/images/${product}-${RELEASE_VERSION}${variant}.oci.tar"
+              if [[ -f "$oci_tar" ]]; then
+                digest_file="target/oci-digests/${product}${variant}.digest"
+                cargo run --quiet --locked --bin xtask -- release oci-push \
+                  --layout "$oci_tar" \
+                  --registry "https://${OCI_REGISTRY}" \
+                  --repository "goodfetch/${product}" \
+                  --tag "${RELEASE_VERSION}${variant}" \
+                  --digest-out "$digest_file"
+                cargo run --quiet --locked --bin xtask -- release oci-push \
+                  --layout "$oci_tar" \
+                  --registry "https://${OCI_REGISTRY}" \
+                  --repository "goodfetch/${product}" \
+                  --tag "nightly${variant}"
+                digest=$(cat "$digest_file")
+                cosign sign --yes "${OCI_REGISTRY}/goodfetch/${product}@${digest}"
+              fi
+            done
+            chart_dir="target/release-attested/oci/charts/${product}"
+            if [[ -d "$chart_dir" ]]; then
+              digest_file="target/oci-digests/chart-${product}.digest"
+              cargo run --quiet --locked --bin xtask -- release oci-push \
+                --layout "$chart_dir" \
+                --registry "https://${OCI_REGISTRY}" \
+                --repository "goodfetch/charts/${product}" \
+                --tag "$RELEASE_VERSION" \
+                --digest-out "$digest_file"
+              cargo run --quiet --locked --bin xtask -- release oci-push \
+                --layout "$chart_dir" \
+                --registry "https://${OCI_REGISTRY}" \
+                --repository "goodfetch/charts/${product}" \
+                --tag nightly
+              digest=$(cat "$digest_file")
+              cosign sign --yes "${OCI_REGISTRY}/goodfetch/charts/${product}@${digest}"
+            fi
+          done
+      - name: Scan OCI digest outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/oci-digests
+      - name: Upload pushed OCI image digests for pinned smoke pulls
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-oci-digests
+          path: target/oci-digests
+          if-no-files-found: ignore
+
+  publish-github-prerelease:
+    name: publish-github-prerelease
+    needs: [release-gate, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Download attested release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-attested
+          path: target/release-attested
+      - name: Download release size table
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-size-table
+          path: target/release-size-table
+      - name: Publish GitHub pre-release with both Products' assets, debug symbols, .devN wheels and size table
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          {
+            printf 'Nightly pre-release of Goodfetch Collie and Foxhound (%s).\n\n' "$RELEASE_VERSION"
+            if [[ -f target/release-attested/clean-up-rules-notes.md ]]; then
+              cat target/release-attested/clean-up-rules-notes.md
+              printf '\n'
+            fi
+            printf '## Sizes\n\n'
+            cat target/release-size-table/release-size-table.md
+          } > target/release-notes.md
+          gh release create "v${RELEASE_VERSION}" \
+            --prerelease \
+            --title "Nightly v${RELEASE_VERSION}" \
+            --notes-file target/release-notes.md \
+            target/release-attested/assets/* \
+            target/release-attested/wheels/*.whl
+
+  deploy-python-index:
+    name: deploy-python-index
+    needs: [publish-github-prerelease, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Build static PEP 503 and PEP 691 nightly Python index (last 30 nightlies)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p target/python-index
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq 'add' > target/nightly-releases.json
+          cargo run --quiet --locked --bin xtask -- release python-index \
+            --releases target/nightly-releases.json \
+            --out target/python-index \
+            --keep 30
+      - name: Scan generated Python index for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/python-index
+      - name: Upload static nightly Python index for smoke runs
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-python-index
+          path: target/python-index
+          if-no-files-found: error
+      - name: Deploy static nightly Python index to its Vercel project
+        if: steps.leaks.outcome == 'success'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_NIGHTLY_INDEX }}
+        run: |
+          npx --yes "vercel@65.12.1" deploy target/python-index --prod --yes --token "$VERCEL_TOKEN"
+
+  smoke-channels-linux:
+    name: smoke-channels-linux
+    needs:
+      [nightly-version, publish-npm, publish-oci, publish-github-prerelease, deploy-python-index]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: release-linux
+      - name: Download pushed OCI image digests before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-oci-digests
+          path: target/channel-staged/oci-digests
+      - name: Stage published nightly channels before outbound-traffic deny
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index target/channel-staged/oci
+          gh release download "v${RELEASE_VERSION}" -p '*x86_64-unknown-linux-musl.tar.xz' -D target/channel-staged/github
+          gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
+          npm pack --pack-destination target/channel-staged/npm \
+            "@goodfetch/collie-client@${RELEASE_VERSION}" \
+            "@goodfetch/collie-linux-x64@${RELEASE_VERSION}" \
+            "@goodfetch/collie@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound-linux-x64@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound@${RELEASE_VERSION}"
+          for product in collie foxhound; do
+            digest=$(cat "target/channel-staged/oci-digests/${product}.digest")
+            image_ref="ghcr.io/goodfetch/${product}@${digest}"
+            docker pull "$image_ref"
+            docker save -o "target/channel-staged/oci/goodfetch-${product}-nightly.tar" "$image_ref"
+          done
+      - name: Download nightly Python simple index before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-python-index
+          path: target/channel-staged/python-index
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: smoke install nightly channels on Linux under outbound-traffic deny"
+        env:
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: ci/egress/under-deny.sh ci/release/smoke-channel.sh target/channel-staged "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  smoke-channels-windows:
+    name: smoke-channels-windows
+    needs:
+      [nightly-version, publish-npm, publish-oci, publish-github-prerelease, deploy-python-index]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-pc-windows-msvc
+          runtimes: release-other
+      - name: Stage published nightly channels before outbound-traffic deny
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index
+          gh release download "v${RELEASE_VERSION}" -p '*x86_64-pc-windows-msvc.tar.xz' -D target/channel-staged/github
+          gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
+          npm pack --pack-destination target/channel-staged/npm \
+            "@goodfetch/collie-client@${RELEASE_VERSION}" \
+            "@goodfetch/collie-win32-x64@${RELEASE_VERSION}" \
+            "@goodfetch/collie@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound-win32-x64@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound@${RELEASE_VERSION}"
+      - name: Download nightly Python simple index before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-python-index
+          path: target/channel-staged/python-index
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: smoke install nightly channels on Windows under outbound-traffic deny"
+        env:
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: ci/egress/under-deny.sh ci/release/smoke-channel.sh target/channel-staged "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  smoke-channels-macos:
+    name: smoke-channels-macos
+    needs:
+      [nightly-version, publish-npm, publish-oci, publish-github-prerelease, deploy-python-index]
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: aarch64-apple-darwin
+          runtimes: release-other
+      - name: Stage published nightly channels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: |
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index
+          gh release download "v${RELEASE_VERSION}" -p '*aarch64-apple-darwin.tar.xz' -D target/channel-staged/github
+          gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
+          npm pack --pack-destination target/channel-staged/npm \
+            "@goodfetch/collie-client@${RELEASE_VERSION}" \
+            "@goodfetch/collie-darwin-arm64@${RELEASE_VERSION}" \
+            "@goodfetch/collie@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound-darwin-arm64@${RELEASE_VERSION}" \
+            "@goodfetch/foxhound@${RELEASE_VERSION}"
+      - name: Download nightly Python simple index
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-python-index
+          path: target/channel-staged/python-index
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: smoke install nightly channels on macOS"
+        env:
+          RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
+        run: ci/release/smoke-channel.sh target/channel-staged "$RELEASE_VERSION"

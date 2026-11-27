@@ -18530,6 +18530,54 @@
       ],
       "type": "object"
     },
+    "PublishedCatalog": {
+      "additionalProperties": false,
+      "description": "The self-contained Operation catalog published with every release.",
+      "properties": {
+        "$defs": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Every JSON Schema definition (`#/$defs/...`) reached by `catalog` and\n`connection`.",
+          "type": "object"
+        },
+        "$schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema draft of `$defs`.",
+          "type": "string"
+        },
+        "catalog": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Every catalog section of both Products (`operations`, `events`,\n`error_codes`, `exit_codes`, `protocol_failures`, `plugin_kinds`,\n`metrics`, `settings`, `hook_stages`, `shared_types`, `kind_parts`, …),\neach entry carrying its `product` mark (`collie` or `foxhound`).",
+          "type": "object"
+        },
+        "connection": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Connection handshake and framing types outside the catalog (`hello`,\n`cancel`, `credit`, `events`, `chunk`, `meta`, …).",
+          "type": "object"
+        },
+        "format_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The version of the `published-catalog` format this file was written in."
+        },
+        "protocol_version": {
+          "$ref": "#/$defs/ProtocolVersion",
+          "arrived_in": "0.1",
+          "description": "The protocol version this release's engines speak."
+        }
+      },
+      "required": [
+        "format_version",
+        "protocol_version",
+        "$schema",
+        "catalog",
+        "connection",
+        "$defs"
+      ],
+      "type": "object"
+    },
     "PushedRecord": {
       "additionalProperties": false,
       "description": "One Record a handler pushed into a Dataset (ADR 0103).",
@@ -45271,6 +45319,16 @@
       "rule": "frozen_major",
       "schema": {
         "$ref": "#/$defs/NotificationPayload"
+      },
+      "storage": "json",
+      "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "published-catalog",
+      "rule": "default",
+      "schema": {
+        "$ref": "#/$defs/PublishedCatalog"
       },
       "storage": "json",
       "version": "0.1"

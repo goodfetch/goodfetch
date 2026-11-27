@@ -3648,6 +3648,17 @@
       ]
     },
     {
+      "id": "format:published-catalog",
+      "kind": "format",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "format:recipe-manifest",
       "kind": "format",
       "area": 11,

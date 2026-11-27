@@ -313,7 +313,7 @@ pub const DATASET_KEY_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
 /// A Record that does not hold for its Dataset (ADRs 0082 and 0103).
 pub const RECORD_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "record_invalid",
-    description: "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
+    description: "A Record is no JSON object, fails its Dataset's JSON Schema, or lacks a field of its Dataset's key, so it was not staged. The details name the Dataset and each such Record by its position, from 0, among the Records pushed together, or the first such Record by its position among those of the handler's answer, with each of its issues by its path, a JSON Pointer into the Record. An SDK reading `run.records` raises it too when its native parser rejects a Record the engine committed, naming that Record by its `number` and ending the read. Caught in the handler, the attempt keeps its other outputs; escaping it, the request ends `failed` and is not retried, since the same Record fails the same way.",
     group: ErrorGroup::Program,
     retryable: false,
     exit_code: None,
@@ -393,6 +393,12 @@ pub struct RecordInvalidDetails {
     /// Each Record that does not hold, in position order, at least one.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub records: Vec<InvalidRecord>,
+    /// The Record's number in its Dataset when an SDK reading it from
+    /// `run.records` could not parse it, which `records` then holds at
+    /// position 0; absent when a push or a handler's answer is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub number: Option<u64>,
 }
 
 /// One Record that does not hold for its Dataset, as `record_invalid`

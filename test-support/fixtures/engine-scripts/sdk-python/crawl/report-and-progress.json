@@ -1,0 +1,273 @@
+{
+  "description": "A Python Client starts a crawl with its own Run ID, tags and Limits (ADRs 0080 and 0093); its progress answers a crawl's, waiting idle with its requests by state, a request in flight and its concurrency; its stop answers a crawl's report, stopped with a Checkpoint, `incomplete` with a reason naming `crawl.max_requests` and the count it refused, its request totals and its Records per Dataset (ADR 0120); its report and its finish answer the same; the Client then closes. TypeScript's `run/foxhound-crawl-report-and-progress.json` is its twin.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_python",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "form": "python",
+          "log_level": "warn"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": { "listing": {}, "product": {} },
+          "datasets": [{ "name": "products", "key": ["id"] }],
+          "seeds": [{ "url": "https://shop.test/catalog/1", "label": "listing" }],
+          "run_id": "kept",
+          "tags": ["crawls"],
+          "limits": [{ "usage_kind": "requests", "amount": 10 }]
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "kept",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.progress",
+        "params": { "run_id": "kept" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "kept",
+          "position": 3,
+          "at": "2026-01-01T00:00:02Z",
+          "lifecycle": "running",
+          "writer": "live",
+          "epoch": 1,
+          "pauses": [],
+          "last": false,
+          "idle": true,
+          "requests": {
+            "pending": 0,
+            "fetching": 0,
+            "handling": 0,
+            "in_human_pause": 0,
+            "succeeded": 1,
+            "failed": 0,
+            "skipped": 1,
+            "blocked": 0,
+            "by_skip_reason": [{ "name": "max_requests", "count": 1 }]
+          },
+          "in_flight": [
+            {
+              "request_id": "1",
+              "url": "https://shop.test/catalog/1",
+              "attempt": 1,
+              "phase": "handling",
+              "started_at": "2026-01-01T00:00:01Z"
+            }
+          ],
+          "concurrency": { "handlers": 1, "handler_concurrency": 8 }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.stop",
+        "params": { "run_id": "kept" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "kept",
+          "lifecycle": "stopped",
+          "stop_reason": { "kind": "abort", "by": "program" },
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "completeness_reasons": [
+            {
+              "code": "crawl.max_requests",
+              "message": "`crawl.max_requests` refused 1 URL the crawl found.",
+              "count": 1
+            }
+          ],
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:05Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          },
+          "checkpoint": {
+            "run_id": "kept",
+            "location": "file:///checkpoints/kept",
+            "size": 2048,
+            "digest": "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "run_epoch": 1,
+            "journal_position": 7,
+            "time": "2026-01-01T00:00:05Z"
+          },
+          "requests": {
+            "succeeded": 1,
+            "failed": 0,
+            "skipped": 1,
+            "blocked": 0,
+            "pending": 0,
+            "by_skip_reason": [{ "name": "max_requests", "count": 1 }]
+          },
+          "records": [{ "dataset": "products", "committed": 1, "dropped": 0, "rejected": 0 }],
+          "learned_rules": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.report",
+        "params": { "run_id": "kept" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "kept",
+          "lifecycle": "stopped",
+          "stop_reason": { "kind": "abort", "by": "program" },
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "completeness_reasons": [
+            {
+              "code": "crawl.max_requests",
+              "message": "`crawl.max_requests` refused 1 URL the crawl found.",
+              "count": 1
+            }
+          ],
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:05Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          },
+          "checkpoint": {
+            "run_id": "kept",
+            "location": "file:///checkpoints/kept",
+            "size": 2048,
+            "digest": "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "run_epoch": 1,
+            "journal_position": 7,
+            "time": "2026-01-01T00:00:05Z"
+          },
+          "requests": {
+            "succeeded": 1,
+            "failed": 0,
+            "skipped": 1,
+            "blocked": 0,
+            "pending": 0,
+            "by_skip_reason": [{ "name": "max_requests", "count": 1 }]
+          },
+          "records": [{ "dataset": "products", "committed": 1, "dropped": 0, "rejected": 0 }],
+          "learned_rules": []
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": { "run_id": "kept" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "kept",
+          "lifecycle": "stopped",
+          "stop_reason": { "kind": "abort", "by": "program" },
+          "verdict": "verified",
+          "completeness": "incomplete",
+          "completeness_reasons": [
+            {
+              "code": "crawl.max_requests",
+              "message": "`crawl.max_requests` refused 1 URL the crawl found.",
+              "count": 1
+            }
+          ],
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:05Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 1
+          },
+          "checkpoint": {
+            "run_id": "kept",
+            "location": "file:///checkpoints/kept",
+            "size": 2048,
+            "digest": "sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+            "run_epoch": 1,
+            "journal_position": 7,
+            "time": "2026-01-01T00:00:05Z"
+          },
+          "requests": {
+            "succeeded": 1,
+            "failed": 0,
+            "skipped": 1,
+            "blocked": 0,
+            "pending": 0,
+            "by_skip_reason": [{ "name": "max_requests", "count": 1 }]
+          },
+          "records": [{ "dataset": "products", "committed": 1, "dropped": 0, "rejected": 0 }],
+          "learned_rules": []
+        }
+      }
+    }
+  ]
+}

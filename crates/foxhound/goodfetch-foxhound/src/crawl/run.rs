@@ -7,17 +7,16 @@ use std::pin::Pin;
 use std::sync::{Arc, PoisonError};
 use std::task::{Context, Poll, ready};
 
-use futures_util::{Stream, StreamExt as _};
+use futures_util::Stream;
 use goodfetch_collie_client::{
-    BoxError, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
+    Answer, BoxError, Call, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
 };
-use goodfetch_protocol::foxhound::dataset::{
-    DatasetRecord, RECORD, RUN_RECORDS, RecordRead, RunRecordsParams,
-};
+use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::{RUN_REPORT, RunId, RunParams};
+use goodfetch_protocol::run::{RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams};
 use serde_json::Value;
 
+use super::records::{Reach, ReadRecords, ReadRejectedRecords};
 use super::{
     CrawlContext, CrawlId, Dataset, Delivered, Forget, answer, delivered, params_unread, sent,
 };
@@ -45,6 +44,94 @@ impl CrawlRun {
     /// The Run, with every member a Run has, such as `close`.
     pub fn run(&self) -> &Run {
         &self.run
+    }
+
+    /// Lets a Run finish and answers its Run report: a Run its program drives
+    /// ends at once, `finished` and `complete`; a crawl ends once its work
+    /// items are done, and a keep-alive crawl (`crawl.keep_alive`), which waits
+    /// for new work while nothing is left, ends once this call lets it and its
+    /// work items are done. A Run something stopped first answers its report
+    /// saying `stopped`. A Run that ended `failed` fails the call with the
+    /// error that failed it, and a write at its end that failed, such as its
+    /// Plan file's, with that write's error. Cancelling the call, or its
+    /// `timeout` passing, which fails it with `deadline_exceeded`, ends only
+    /// the wait.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// As [`Run::finish`], with the report typed as a crawl's (ADRs 0102 and
+    /// 0120): its request totals, its Records per Dataset and its
+    /// Completeness, each reason naming the setting that capped it and the
+    /// count it refused.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`Run::finish`]: a Run that ended `failed` fails with
+    /// the error that failed it, and the call's timeout passing fails it
+    /// with `deadline_exceeded`, ending only the wait.
+    pub fn finish(&self) -> Call<Answer<CrawlRunReport>, RunFinishParams> {
+        self.run.finish().typed()
+    }
+
+    /// Stops a Run at its next safe point with a Checkpoint, `stopped` and
+    /// `incomplete` as an abort by its program, resumable by its Run ID, and
+    /// answers its Run report; an ended Run's report is answered as it is. The
+    /// wait is bounded by `timeout.close`, or the call's `timeout`: past it,
+    /// the call fails with `deadline_exceeded` and the Run still stops at its
+    /// next safe point. A Run that ended `failed` fails the call as
+    /// `run.finish` does.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// As [`Run::stop`], with the report typed as a crawl's.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`Run::stop`].
+    pub fn stop(&self) -> Call<Answer<CrawlRunReport>, RunStopParams> {
+        self.run.stop().typed()
+    }
+
+    /// Reads a Run's report: at once for a Run that ended, and at its end for a
+    /// live one, which the read never ends. A Run another engine works is read
+    /// through that engine, and one no engine works from its committed state,
+    /// never taking its writer lock. A Run that has no live writer and has not
+    /// ended fails with `run_interrupted`, whose `fix` names a start with its
+    /// Run ID, and a Run ID the Run index does not list with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// As [`Run::report`], with the report typed as a crawl's.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`Run::report`].
+    pub fn report(&self) -> Call<Answer<CrawlRunReport>, RunParams> {
+        self.run.report().typed()
+    }
+
+    /// Reads a Run's progress: what it does and why it waits. Without `after`,
+    /// it answers at once; given `after`, the position of the value the reader
+    /// last read, it waits for a change and answers the latest value, so values
+    /// in between are coalesced. The value whose `last` is true ends the
+    /// sequence: the Run ended, and its `lifecycle` and `stop_reason` say how,
+    /// or no engine works it (`writer: none`) until a start with its Run ID
+    /// resumes it. A Run another engine works is read through that engine, the
+    /// owner the Run index names, and one no engine works from its committed
+    /// state; a read never takes the Run's writer lock. A Run ID the Run index
+    /// does not list fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Follows it as [`Run::progress`] does, each value typed as a crawl's:
+    /// its request counts, and whether a keep-alive crawl waits idle.
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`Run::progress`]'s do, and with `internal` when a
+    /// value does not read as a crawl's progress.
+    pub fn progress(&self) -> EventStream<Answer<CrawlRunProgress>> {
+        self.run.progress().typed()
     }
 
     /// The Run's Crawl requests, for a program that answers them itself
@@ -122,7 +209,15 @@ impl CrawlRun {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     ///
-    /// Each Record is a [`DatasetRecord`], its value the Record's JSON.
+    /// Each Record is a [`DatasetRecord`] whose value is the Dataset's own
+    /// type `I`, which `I`'s `Deserialize` parses from the Record's JSON
+    /// (ADR 0103). A field `I` does not declare is kept as `I` keeps it: a
+    /// `#[serde(flatten)]` map holds each one, and a Dataset of
+    /// [`serde_json::Value`] of the same name, from any [`Crawl`](super::Crawl),
+    /// reads each Record's JSON whole. A Record `I` refuses ends the stream
+    /// with `record_invalid`, whose details name the Dataset and the
+    /// Record's number, with one issue at the root that carries serde's
+    /// message; [`ReadRecords::after`] resumes past it.
     ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, Foxhound, Seed};
@@ -149,31 +244,61 @@ impl CrawlRun {
     /// # Errors
     ///
     /// An item is `dataset_unknown` for a Dataset the crawl does not
-    /// declare, `closed` once the connection has ended, and the engine's
-    /// error when the read fails, after which the stream ends.
+    /// declare, `record_invalid` for a Record `I` refuses, `closed` once
+    /// the connection has ended, and the engine's error when the read
+    /// fails, after which the stream ends.
     ///
     /// # Cancel safety
     ///
     /// Dropping the stream cancels the read, and leaves the Run as it is.
-    pub fn records<I>(&self, dataset: &Dataset<I>) -> EventStream<DatasetRecord> {
-        let reads = self.connection.stream::<RecordRead>(
-            RUN_RECORDS.name,
-            &self.records_params(dataset),
-            RECORD,
-        );
-        EventStream::from_items(reads.map(|read| read.map(|read| read.record)))
+    pub fn records<I>(&self, dataset: &Dataset<I>) -> ReadRecords<I> {
+        ReadRecords::new(
+            self.connection.clone(),
+            self.id().clone(),
+            &dataset.name,
+            Reach::Follows,
+        )
     }
 
-    /// The read of all of `dataset`'s Records in the Run, from the first,
-    /// which [`CrawlRun::records`] and its blocking twin send.
-    pub(crate) fn records_params<I>(&self, dataset: &Dataset<I>) -> RunRecordsParams {
-        RunRecordsParams {
-            run_id: self.id().clone(),
-            dataset: dataset.name.to_string(),
-            after: None,
-            through: None,
-            wall: None,
-        }
+    /// Reads one Dataset's rejection table from a crawl's committed state:
+    /// each Record rejected rather than committed, numbered from 1 in
+    /// commit order, with the Record as JSON, the reason, each issue's
+    /// path, the Hook when one rejected it, and the request's ID and URL.
+    /// It starts at the first entry, or after `after`, the number a reader
+    /// last handled. While the Run is live and nothing follows, it waits
+    /// for the next commit; a page says `ended` once the Run has ended, or
+    /// has no live writer, and no entry follows. With `through`, such as
+    /// the `rejected` count `dataset.list` answers, it reads no entry
+    /// numbered past it and never waits, a live Run's included: a page says
+    /// `ended` once it reaches that number or has read every committed
+    /// entry. A reader never slows the Run. A
+    /// Dataset the crawl does not declare fails with `dataset_unknown`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Each entry is a [`RejectedRecord`]; the stream reads the table page
+    /// after page and ends with the page that says it ended (ADR 0104).
+    /// [`ReadRejectedRecords::after`] sets `after`; a handler reads through
+    /// [`AttemptRun::rejected_records`](crate::AttemptRun::rejected_records),
+    /// which sets `through`.
+    ///
+    /// # Errors
+    ///
+    /// An item is `dataset_unknown` for a Dataset the crawl does not
+    /// declare, `closed` once the connection has ended, and the engine's
+    /// error when a page's read fails, after which the stream ends.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the stream cancels the page being read, and leaves the Run
+    /// as it is.
+    pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
+        ReadRejectedRecords::new(
+            self.connection.clone(),
+            self.id().clone(),
+            &dataset.name,
+            Reach::Follows,
+        )
     }
 
     /// The Run's report, which the engine answers once the Run ends.

@@ -13,7 +13,7 @@
 import { createInterface } from "node:readline";
 import { parseArgs } from "node:util";
 import { Collie, GoodfetchError } from "@goodfetch/collie";
-import { Foxhound, seed, type DatasetRecord } from "@goodfetch/foxhound";
+import { Foxhound, seed } from "@goodfetch/foxhound";
 import type { Row } from "../../../src/campaign.ts";
 import { parserOf } from "../../../src/schema.ts";
 import { catalog, listing, productOf, products } from "./catalog.ts";
@@ -57,9 +57,9 @@ async function foxhoundDriver(): Promise<Driver> {
         settings: nested(settings),
       });
       await crawl.finish();
-      const records: DatasetRecord[] = [];
-      for await (const record of crawl.records(products)) records.push(record);
-      return records.map((record) => record.value);
+      const values: unknown[] = [];
+      for await (const record of crawl.records(products)) values.push(record.value);
+      return values;
     },
     close: () => foxhound.close(),
   };

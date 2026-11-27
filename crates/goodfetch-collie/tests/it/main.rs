@@ -68,6 +68,7 @@ mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;
+mod http_listener;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

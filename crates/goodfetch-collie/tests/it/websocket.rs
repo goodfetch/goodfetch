@@ -74,6 +74,7 @@ fn listener_name(kind: ListenerKind) -> &'static str {
         ListenerKind::DaemonSocket => "daemon_socket",
         ListenerKind::PrivateEndpoint => "private_endpoint",
         ListenerKind::OpsListener => "ops_listener",
+        ListenerKind::HttpListener => "http_listener",
         ListenerKind::ProxyRelay => "proxy_relay",
         ListenerKind::LiveView => "live_view",
     }

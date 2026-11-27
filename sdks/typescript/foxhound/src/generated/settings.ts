@@ -3178,6 +3178,11 @@ const SPELLING: Spelling = {
     sampleInterval: "sample_interval",
     workerThreads: "worker_threads",
   }],
+  httpListener: ["http_listener", {
+    address: "address",
+    enabled: "enabled",
+    port: "port",
+  }],
   identified: ["identified", {
     signatureAgent: "signature_agent",
     signingKey: "signing_key",

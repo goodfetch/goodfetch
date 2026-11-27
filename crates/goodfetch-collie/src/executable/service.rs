@@ -265,7 +265,11 @@ fn rotated(machine: &Machine<'_>) -> Result<TokenRotated, Failure> {
         let _: DaemonStopping = foreground.call("daemon.stop", &serde_json::json!({}))?;
         foreground.close();
     }
-    if activated {
+    let http_listener_enabled = machine
+        .settings
+        .as_ref()
+        .is_ok_and(|settings| settings.get::<bool>(&goodfetch_protocol::http_listener::ENABLED));
+    if activated || http_listener_enabled {
         // Connections that opened with the old token close with their
         // Daemon; the next connection starts one that takes the new token.
         machine.stop()?;

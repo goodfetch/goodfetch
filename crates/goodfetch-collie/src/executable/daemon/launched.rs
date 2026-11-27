@@ -210,6 +210,7 @@ pub(in crate::executable) fn launched(
     let ended = runtime.block_on(async {
         let (listener, endpoint, token, activated) =
             take_listener(machine, &files, &socket, service)?;
+        let http_listener = super::http_listener::open(machine, settings, &files, None).await?;
         let published = DaemonRuntimeFile {
             endpoint: endpoint.clone(),
             token: DaemonToken::new(token.clone()),
@@ -244,6 +245,7 @@ pub(in crate::executable) fn launched(
             websocket: None,
             live_view,
             accounts,
+            http_listener,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,

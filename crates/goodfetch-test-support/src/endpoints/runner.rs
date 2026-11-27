@@ -99,6 +99,15 @@ pub enum Endpoint {
         /// Where it listens.
         address: SocketAddr,
     },
+    /// The Daemon's HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027).
+    HttpRpc {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The `Goodfetch-Protocol` header value (such as `"0.1"`).
+        protocol: String,
+        /// The `Goodfetch-Product` header value (`"collie"` or `"foxhound"`).
+        product: String,
+    },
     /// A WebSocket listener on loopback TCP, whose valid handshake names
     /// `address` as its `Host` and `http://<address>` as its `Origin`, or
     /// over TLS its server name and port and `https://` with them, and
@@ -412,6 +421,19 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 address: *address,
                 protected_path,
             },
+            (
+                Endpoint::HttpRpc {
+                    address,
+                    protocol,
+                    product,
+                },
+                Transport::HttpRpc { path },
+            ) => Reach::HttpRpc {
+                address: *address,
+                path,
+                protocol,
+                product,
+            },
             (Endpoint::WebSocket { address, hello }, Transport::WebSocket) => Reach::WebSocket {
                 address: *address,
                 hello,
@@ -568,6 +590,12 @@ enum Reach<'a> {
         address: SocketAddr,
         protected_path: &'static str,
     },
+    HttpRpc {
+        address: SocketAddr,
+        path: &'static str,
+        protocol: &'a str,
+        product: &'a str,
+    },
     WebSocket {
         address: SocketAddr,
         hello: &'a Hello,
@@ -636,40 +664,78 @@ impl Reach<'_> {
             Self::Http {
                 address,
                 protected_path,
-            } => {
-                let authority = authority(*address, tls);
-                let cookie = format!("token={token}");
-                let mut request = http::Request {
-                    target: (*protected_path).to_owned(),
-                    host: &authority,
-                    bearer: Some(token),
-                    origin: None,
-                    cookie: None,
-                };
-                match attempt {
-                    Attempt::Valid | Attempt::NotHello | Attempt::NoOrigin => {}
-                    Attempt::TokenInCookie => {
-                        request.bearer = None;
-                        request.cookie = Some(&cookie);
-                    }
-                    Attempt::Token(token) => request.bearer = token,
-                    Attempt::Given(token) => request.bearer = Some(token),
-                    Attempt::TokenInQuery => {
-                        request.target =
-                            format!("{protected_path}?access_token={}", percent_encoded(token));
-                        request.bearer = None;
-                    }
-                    Attempt::ForeignHost => request.host = FOREIGN_HOST,
-                    Attempt::ForeignOrigin => request.origin = Some(FOREIGN_ORIGIN),
-                    Attempt::Probe(path) => {
-                        path.clone_into(&mut request.target);
-                        request.bearer = None;
-                    }
-                }
-                http::attempt(*address, tls, &request)
-            }
+            } => http_attempt(
+                (*address, tls),
+                "GET",
+                protected_path,
+                &[],
+                None,
+                token,
+                attempt,
+            ),
+            Self::HttpRpc {
+                address,
+                path,
+                protocol,
+                product,
+            } => http_attempt(
+                (*address, tls),
+                "POST",
+                path,
+                &[
+                    ("Goodfetch-Protocol", protocol),
+                    ("Goodfetch-Product", product),
+                    ("Goodfetch-Form", "catalog"),
+                ],
+                Some(r#"{"jsonrpc":"2.0","id":1,"method":"engine.info","params":{}}"#),
+                token,
+                attempt,
+            ),
         }
     }
+}
+
+fn http_attempt(
+    (address, tls): (SocketAddr, Option<&ListenerTls>),
+    method: &str,
+    protected_path: &str,
+    extra_headers: &[(&str, &str)],
+    body: Option<&str>,
+    token: &str,
+    attempt: Attempt<'_>,
+) -> Observed {
+    let authority = authority(address, tls);
+    let cookie = format!("token={token}");
+    let mut request = http::Request {
+        method,
+        target: protected_path.to_owned(),
+        host: &authority,
+        bearer: Some(token),
+        origin: None,
+        cookie: None,
+        extra_headers,
+        body,
+    };
+    match attempt {
+        Attempt::Valid | Attempt::NotHello | Attempt::NoOrigin => {}
+        Attempt::TokenInCookie => {
+            request.bearer = None;
+            request.cookie = Some(&cookie);
+        }
+        Attempt::Token(token) => request.bearer = token,
+        Attempt::Given(token) => request.bearer = Some(token),
+        Attempt::TokenInQuery => {
+            request.target = format!("{protected_path}?access_token={}", percent_encoded(token));
+            request.bearer = None;
+        }
+        Attempt::ForeignHost => request.host = FOREIGN_HOST,
+        Attempt::ForeignOrigin => request.origin = Some(FOREIGN_ORIGIN),
+        Attempt::Probe(path) => {
+            path.clone_into(&mut request.target);
+            request.bearer = None;
+        }
+    }
+    http::attempt(address, tls, &request)
 }
 
 /// Tries `attempt` on a WebSocket at `path` of `address`, over `tls` if

@@ -203,6 +203,8 @@ jobs:
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes
         id: size
+        env:
+          GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       # The counted performance gates on the gnu cells (ADR 0071).
       - name: Install Valgrind and gungraun's runner
@@ -334,7 +336,7 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
+        if: always() && steps.size.outputs.save == 'true' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
@@ -488,6 +490,8 @@ jobs:
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes
         id: size
+        env:
+          GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       # The counted performance gates on the gnu cells (ADR 0071).
       - name: Install Valgrind and gungraun's runner
@@ -553,7 +557,7 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
+        if: always() && steps.size.outputs.save == 'true' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-${{ matrix.target }}
@@ -658,6 +662,8 @@ jobs:
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes
         id: size
+        env:
+          GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
@@ -705,7 +711,7 @@ jobs:
           path: target/junit/
           if-no-files-found: ignore
       - name: Save the size report keyed by the tested tree
-        if: always() && github.ref == 'refs/heads/main' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
+        if: always() && steps.size.outputs.save == 'true' && steps.size.outcome == 'success' && steps.leaks.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: size-report-${{ steps.size.outputs.tree }}-x86_64-pc-windows-msvc
@@ -753,6 +759,8 @@ jobs:
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes
         id: size
+        env:
+          GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
@@ -836,6 +844,8 @@ jobs:
         run: ci/release/cell.sh build
       - name: Measure both Products' sizes
         id: size
+        env:
+          GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup

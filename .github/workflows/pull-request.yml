@@ -674,6 +674,45 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  # Non-blocking pull-request size estimate for both Products (ADRs 0057, 0087
+  # and 0094; issue 204): builds both `ci` executables on Linux x64 and posts or
+  # updates one sticky comment. Never in `all-green`'s `needs:`.
+  size-estimate:
+    name: size estimate
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository && (
+      startsWith(github.head_ref, 'batch/')
+      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: none
+      - name: Build both Products' ci executables on Linux x64
+        run: >-
+          cargo build --locked --profile ci --target x86_64-unknown-linux-gnu
+          -p goodfetch-collie --bin goodfetch-collie --features executable
+          -p goodfetch-foxhound --bin goodfetch-foxhound --features executable
+      - name: Estimate sizes and update sticky pull-request comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ci/release/size-comment.sh x86_64-unknown-linux-gnu "$PR_NUMBER"
+
   chromium-build-gate:
     name: Chromium build gate
     if: >-

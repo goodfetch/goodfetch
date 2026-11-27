@@ -55,6 +55,10 @@ job = "pull-request.yml#pre-merge-shard"
 job = "pull-request.yml#pre-merge-record"
 reason = "It judges the shards' results, runs the exercise audit over their records and records the step's result, after downloading the hosted records GitHub holds, and runs none of the product's tests."
 
+[[outside]]
+job = "pull-request.yml#size-estimate"
+reason = "It builds both Products' ci executables on Linux x64 to estimate sizes against main's saved report and updates one non-blocking pull-request comment via GitHub API, running none of the product's tests (issue 204)."
+
 [[deny]]
 job = "update-screenshots.yml#update"
 

@@ -1,9 +1,11 @@
 //! One page's pipeline: each request its target pauses goes through the
 //! steps the interception lists, in order, answered by the page's reader,
 //! or as a task of the page's Run when its verdict waits.
-//! Steps 3 to 8 for what the last route sends on are [`steps`]'s; step 6,
-//! the page's navigation gate, waits, so it is asked here. A document's
-//! response pauses too, for the gate to judge.
+//! Steps 3 to 8 for what the last route sends on are [`steps`]'s, but for
+//! two asked here once [`steps`] built the command that sends it on: step
+//! 5, the Response cache ([`cached`]), which judges the request as it
+//! leaves, and step 6, the page's navigation gate, which waits. A
+//! document's response pauses too, for the gate to judge.
 //!
 //! Size: one paused request's way through the steps, each of which reads
 //! and answers the same held request on the same page; the steps' pure

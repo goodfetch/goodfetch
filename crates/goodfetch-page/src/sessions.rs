@@ -2188,8 +2188,9 @@ fn session_interception(
     let caching = run.identity.settings().and_then(|settings| {
         Caching::of(
             run.engine.response_source(settings.resolved()),
-            &run.identity,
             CALLER,
+            run.identity.id().clone(),
+            run.identity.clock(),
         )
         .map(|caching| caching.of_session(session))
     });

@@ -18,7 +18,7 @@ The Response cache is kept per user on the machine, outside any Run, and every R
 - `revalidate`: the cache follows HTTP's caching rules (RFC 9111). It stores `GET` and `HEAD` responses, serves a fresh one with no request, and asks the site again about a stale one with `If-None-Match` and `If-Modified-Since`, serving the stored body when the site answers `304`.
 - `replay`, for development: the cache stores every response, whatever its method, status or freshness, and serves it again with no request. A `POST` is matched on its body, with JSON keys and form fields in any order. A Schedule's target never sets `replay`.
 
-An entry matches a request by its method, its URL without the fragment, the request headers the response names in `Vary` and, under `replay`, its body. A response sent with or setting a cookie or a credential, or marked `private`, is kept apart, in the partition of its Session's Saved identity, or of the Session alone when it has none, and no other Session reads it.
+An entry matches a request by its method, its URL without the fragment, the request headers the response names in `Vary` and, under `replay`, its body. A response sent with or setting a cookie or a credential, or marked `private`, is kept apart, in the partition of the Session that fetched it, which no other Session reads, until that Session ends. One fetched outside a Session is not stored.
 
 The cache keeps at most `cache.max_size` bytes, 10 GB by default, evicting the entries used least recently, and deletes an entry older than `cache.max_age_ceiling`, 30 days by default. Both are set in user configuration or an Operator policy only.
 

@@ -147,7 +147,13 @@ fn options() -> CacheOptions {
 /// Whether `revalidate` answers `request` from the cache: a GET or a HEAD.
 /// Any other is sent as it is.
 pub(crate) fn revalidates(request: &CacheRequest) -> bool {
-    matches!(request.method.as_str(), "GET" | "HEAD")
+    revalidates_method(&request.method)
+}
+
+/// Whether `revalidate` answers a request sent with `method`: a GET or a
+/// HEAD.
+pub(crate) fn revalidates_method(method: &str) -> bool {
+    matches!(method, "GET" | "HEAD")
 }
 
 /// Whether `request` carries a cookie or a credential.

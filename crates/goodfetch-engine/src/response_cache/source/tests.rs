@@ -493,3 +493,32 @@ fn a_response_is_paused_only_where_it_may_be_stored(
         paused
     );
 }
+
+/// A transport asks the sources about a request, and reads what it needs
+/// for that, only where its method may be answered or stored: a GET or a
+/// HEAD under `revalidate`, any method under `replay` or with a recording,
+/// none with the cache off and no recording.
+/// Covers: story:6-41
+#[rstest]
+#[case::revalidate_get(CacheMode::Revalidate, false, "GET", true)]
+#[case::revalidate_head(CacheMode::Revalidate, false, "HEAD", true)]
+#[case::revalidate_post(CacheMode::Revalidate, false, "POST", false)]
+#[case::replay_post(CacheMode::Replay, false, "POST", true)]
+#[case::off(CacheMode::Off, false, "GET", false)]
+#[case::recording_post(CacheMode::Off, true, "POST", true)]
+fn a_request_is_asked_about_only_where_its_method_may_be_answered(
+    #[case] mode: CacheMode,
+    #[case] recorded: bool,
+    #[case] method: &str,
+    #[case] asked: bool,
+) {
+    let env = TestEnv::new();
+    let source = ResponseSource::of(&cache(&env, &CountedWork::default()), mode);
+    let source = if recorded {
+        source.recording(Arc::new(Recorded::default()))
+    } else {
+        source
+    };
+
+    assert_eq!(source.takes(method), asked);
+}

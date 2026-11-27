@@ -136,6 +136,19 @@ impl ResponseSource {
         matches!(self.cache, Keeping::Off) && self.recording.is_none()
     }
 
+    /// Whether a request sent with `method` may be answered or stored at
+    /// all, so a transport reads what asking about it needs only then: the
+    /// recording and `replay` take any method, `revalidate` a GET or a
+    /// HEAD.
+    pub fn takes(&self, method: &str) -> bool {
+        self.recording.is_some()
+            || match &self.cache {
+                Keeping::Off => false,
+                Keeping::Revalidate(_) => freshness::revalidates_method(method),
+                Keeping::Replay(_) => true,
+            }
+    }
+
     /// Whether some response to `request` may be stored, before its head
     /// is known, so a browser pauses only those responses: the cache
     /// stores, `kept_out` names no reason, and under `revalidate` the

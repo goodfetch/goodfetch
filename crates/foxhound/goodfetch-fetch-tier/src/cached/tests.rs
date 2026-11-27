@@ -22,7 +22,7 @@ use bytes::Bytes;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
-use goodfetch_engine::response_cache::{Caching, Partition, ResponseCache, ResponseSource};
+use goodfetch_engine::response_cache::{Caching, ResponseCache, ResponseSource};
 use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::page::SessionId;
@@ -154,12 +154,9 @@ impl Fetching {
         let clock = Clock::paused(
             goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
         );
-        let caching = Caching::new(
+        let caching = Caching::of(
             ResponseSource::of(&cache, CacheMode::Revalidate),
-            Partition {
-                person: "ada".to_owned(),
-                ..Partition::default()
-            },
+            "ada",
             RunId::parse("run").unwrap(),
             clock,
         )
@@ -379,9 +376,9 @@ async fn a_cut_body_is_not_stored() {
 /// Covers: story:6-38, setting:cache.mode
 #[tokio::test(start_paused = true)]
 async fn a_run_with_the_cache_off_gets_no_cached_transport() {
-    let caching = Caching::new(
+    let caching = Caching::of(
         ResponseSource::default(),
-        Partition::default(),
+        "ada",
         RunId::parse("run").unwrap(),
         Clock::paused(std::time::UNIX_EPOCH),
     );

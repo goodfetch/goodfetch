@@ -35,8 +35,11 @@ use super::{COOKIE, Held, PageContext, Sender, lock};
 use crate::cdp::driver::cdp_response;
 use crate::cdp::{ContinueRequest, Header, NetworkId, PausedId, PausedRequest};
 
+/// The response header naming a body's content codings.
+const CONTENT_ENCODING: &str = "content-encoding";
+
 /// The response headers a body served decoded no longer matches.
-const DECODED_AWAY: [&str; 2] = ["content-encoding", "content-length"];
+const DECODED_AWAY: [&str; 2] = [CONTENT_ENCODING, "content-length"];
 
 /// A request sent on to the network whose response the cache may store,
 /// or answers once a 304 revalidated its stale entry.
@@ -60,8 +63,6 @@ impl Storing {
 struct Asked {
     request: CacheRequest,
     kept_out: Option<KeptOut>,
-    /// The headers it leaves with, without the cookies the browser adds.
-    sent: Vec<Header>,
 }
 
 impl PageContext {
@@ -80,6 +81,9 @@ impl PageContext {
         let Some(caching) = self.state.caching.clone() else {
             return false;
         };
+        if !caching.takes(held.method()) {
+            return false;
+        }
         let Some(asked) = self.asked(held, command).await else {
             return false;
         };
@@ -91,7 +95,7 @@ impl PageContext {
             Source::Network if caching.may_store(&asked.request, asked.kept_out) => None,
             Source::Network => return false,
             Source::Stale(stale) => {
-                command.headers = Some(conditional(asked.sent.clone(), &stale.conditions));
+                command.headers = Some(conditional(sent(held, command), &stale.conditions));
                 Some(stale)
             }
         };
@@ -143,16 +147,6 @@ impl PageContext {
             None if held.paused.has_body() => held.paused.body()?,
             None => Vec::new(),
         };
-        let sent = command.headers.clone().unwrap_or_else(|| {
-            held.paused
-                .headers()
-                .iter()
-                .map(|(name, value)| Header {
-                    name: name.to_owned(),
-                    value: value.to_owned(),
-                })
-                .collect()
-        });
         let cookies = match self.cdp.cookie_header(held.url()).await {
             Ok(cookies) => cookies,
             Err(failure) => {
@@ -163,11 +157,21 @@ impl PageContext {
                 return None;
             }
         };
-        let mut headers: Vec<(String, String)> = sent
-            .iter()
-            .filter(|header| !header.name.eq_ignore_ascii_case(COOKIE))
-            .map(|header| (header.name.clone(), header.value.clone()))
-            .collect();
+        let not_cookie = |name: &str| !name.eq_ignore_ascii_case(COOKIE);
+        let mut headers: Vec<(String, String)> = match &command.headers {
+            Some(sent) => sent
+                .iter()
+                .filter(|header| not_cookie(&header.name))
+                .map(|header| (header.name.clone(), header.value.clone()))
+                .collect(),
+            None => held
+                .paused
+                .headers()
+                .iter()
+                .filter(|(name, _)| not_cookie(name))
+                .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                .collect(),
+        };
         if !cookies.is_empty() {
             headers.push((COOKIE.to_owned(), cookies));
         }
@@ -175,7 +179,6 @@ impl PageContext {
         Some(Asked {
             request: CacheRequest::new(held.method(), &url, &headers, Bytes::from(body)),
             kept_out,
-            sent,
         })
     }
 
@@ -287,7 +290,7 @@ impl PageContext {
         let codings = head
             .headers
             .iter()
-            .filter(|(name, _)| name == DECODED_AWAY[0])
+            .filter(|(name, _)| name == CONTENT_ENCODING)
             .map(|(_, value)| value.as_str());
         let mut decoding =
             Decoding::new(url, codings, Limits::of_run(self.run.identity().settings()));
@@ -318,6 +321,21 @@ fn without_codings(headers: Vec<(String, String)>) -> Vec<(String, String)> {
         .into_iter()
         .filter(|(name, _)| !DECODED_AWAY.contains(&name.as_str()))
         .collect()
+}
+
+/// The headers `held` leaves with as `command` sends it on, without the
+/// cookies the browser adds.
+fn sent(held: &Held, command: &ContinueRequest) -> Vec<Header> {
+    command.headers.clone().unwrap_or_else(|| {
+        held.paused
+            .headers()
+            .iter()
+            .map(|(name, value)| Header {
+                name: name.to_owned(),
+                value: value.to_owned(),
+            })
+            .collect()
+    })
 }
 
 /// `sent` with `conditions` in place of any header of their names.

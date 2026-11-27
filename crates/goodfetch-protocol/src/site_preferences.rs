@@ -58,7 +58,7 @@ pub const SITE_PREFERENCES_RESPECT_USE_SIGNALS: Setting = Setting {
 /// 0138).
 pub const SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION: Setting = Setting {
     name: "site_preferences.read_robots_txt_for_navigation",
-    description: "Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.",
+    description: "Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under Foxhound's `site_preferences.respect_robots_txt`.",
     kind: ValueKind::Boolean,
     default: no,
     clearable: false,

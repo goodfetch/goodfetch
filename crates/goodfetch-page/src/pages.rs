@@ -436,6 +436,53 @@ fn with_event_handlers(contribution: Contribution, pages: &Pages) -> Contributio
         ))
 }
 
+/// Performs `action`, the call `operation`'s, on the element `locator`
+/// matches on `page`, through the guard: a gesture under the Run's
+/// `timeout.action`, of which `spent` is gone already. A dialog handler
+/// that failed on a dialog the action opened fails it, which the dialog
+/// blocked.
+async fn gesture(
+    page: &OpenPage,
+    operation: &'static str,
+    locator: &Locator,
+    action: Action,
+    spent: Duration,
+    form: Form,
+) -> Result<(), CallError> {
+    let (limit, duration) = page.action_timeout.clone();
+    let request = Request {
+        operation,
+        selector: &locator.selector,
+        action,
+        window: Window {
+            limit,
+            duration,
+            spent,
+        },
+        form,
+        hiding: page
+            .owner
+            .hiding()
+            .hidden(&page.run.trace, (&locator.page_id, &page.session)),
+        owner: &page.owner,
+        sent: SentMark {
+            window: &page.run.send_window,
+            lease: page.lease(),
+        },
+    };
+    let acted = page
+        .life
+        .call(
+            PageEvent::Gesture,
+            guard::act(&page.driver, request, &page.clock),
+        )
+        .await;
+    if let Some(failure) = page.owner.dialogs().take_failure() {
+        return Err(failure);
+    }
+    acted
+}
+
 /// The engine's matcher for `matcher`.
 fn pattern_of(matcher: &UrlMatcher) -> Result<UrlPattern, CallError> {
     Ok(match matcher {
@@ -1385,40 +1432,7 @@ impl Pages {
             })
             .await?;
         tracing::Span::current().record("run_id", page.run.identity.id().as_str());
-        let (limit, duration) = page.action_timeout.clone();
-        let request = Request {
-            operation,
-            selector: &locator.selector,
-            action,
-            window: Window {
-                limit,
-                duration,
-                spent,
-            },
-            form: context.form(),
-            hiding: page
-                .owner
-                .hiding()
-                .hidden(&page.run.trace, (&locator.page_id, &page.session)),
-            owner: &page.owner,
-            sent: SentMark {
-                window: &page.run.send_window,
-                lease: page.lease(),
-            },
-        };
-        let acted = page
-            .life
-            .call(
-                PageEvent::Gesture,
-                guard::act(&page.driver, request, &page.clock),
-            )
-            .await;
-        // A dialog handler that failed on a dialog the action opened fails
-        // the action, which the dialog blocked.
-        if let Some(failure) = page.owner.dialogs().take_failure() {
-            return Err(failure);
-        }
-        acted?;
+        gesture(&page, operation, &locator, action, spent, context.form()).await?;
         Ok(Acted {})
     }
 

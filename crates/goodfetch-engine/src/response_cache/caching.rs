@@ -17,7 +17,6 @@ use super::{
     CacheRequest, Hit, Keeper, KeptOut, Partition, ResponseHead, ResponseSource, Source, Stale,
 };
 use crate::clock::Clock;
-use crate::run_identity::RunIdentity;
 
 /// What a Run's transports answer from before they send: its source, the
 /// partition its responses are kept in, its ID and its clock.
@@ -30,39 +29,33 @@ pub struct Caching {
 }
 
 impl Caching {
-    /// What `run`'s transports answer from, `source` its own, its
-    /// responses kept in the partition of `person`, whom the Run's
-    /// Connection acts for (the engine's `CALLER`); none when it only
-    /// sends.
-    pub fn of(source: ResponseSource, run: &RunIdentity, person: &str) -> Option<Arc<Self>> {
-        Self::new(
-            source,
-            Partition {
-                person: person.to_owned(),
-                ..Partition::default()
-            },
-            run.id().clone(),
-            run.clock(),
-        )
-    }
-
     /// What the transports of the Run `run_id` answer from: `source`, its
-    /// responses kept in `partition` as `clock` reads the time; none when
-    /// `source` only sends.
-    pub fn new(
+    /// responses kept in the partition of `person`, whom the Run's
+    /// Connection acts for (the engine's `CALLER`), as `clock` reads the
+    /// time; none when `source` only sends.
+    pub fn of(
         source: ResponseSource,
-        partition: Partition,
+        person: &str,
         run_id: RunId,
         clock: Clock,
     ) -> Option<Arc<Self>> {
         (!source.sends_only()).then(|| {
             Arc::new(Self {
                 source,
-                partition,
+                partition: Partition {
+                    person: person.to_owned(),
+                    ..Partition::default()
+                },
                 run_id,
                 clock,
             })
         })
+    }
+
+    /// Whether a request sent with `method` may be answered or stored, as
+    /// [`ResponseSource::takes`] says.
+    pub fn takes(&self, method: &str) -> bool {
+        self.source.takes(method)
     }
 
     /// What the requests of the Run's Session `session` are answered from:

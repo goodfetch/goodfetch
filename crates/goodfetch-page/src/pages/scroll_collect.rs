@@ -22,9 +22,9 @@ use goodfetch_protocol::page::functions::{
     Declared, LOCATOR_SCROLL_COLLECT, ListEnded, LocatorScrollCollectParams, ScrollCollected, World,
 };
 
-use super::{Pages, in_call};
+use super::{Pages, gesture, in_call};
 use crate::cdp::CdpPage;
-use crate::guard::{self, Action, Request, SentMark, Window};
+use crate::guard::Action;
 use crate::page_functions::{self, Collected, Injection};
 use crate::page_reads;
 use crate::sessions::{OpenPage, PageEvent};
@@ -86,41 +86,15 @@ impl Collection<'_> {
     /// Scrolls the last match into view through the guard, a gesture under
     /// the Run's `timeout.action`.
     async fn scroll(&self) -> Result<(), CallError> {
-        let page = self.page;
-        let (limit, duration) = page.action_timeout.clone();
-        let request = Request {
-            operation: LOCATOR_SCROLL_COLLECT.name,
-            selector: &self.locator.selector,
-            action: Action::Scroll,
-            window: Window {
-                limit,
-                duration,
-                spent: Duration::ZERO,
-            },
-            form: self.form,
-            hiding: page
-                .owner
-                .hiding()
-                .hidden(&page.run.trace, (&self.locator.page_id, &page.session)),
-            owner: &page.owner,
-            sent: SentMark {
-                window: &page.run.send_window,
-                lease: page.lease(),
-            },
-        };
-        let scrolled = page
-            .life
-            .call(
-                PageEvent::Gesture,
-                guard::act(&page.driver, request, &page.clock),
-            )
-            .await;
-        // A dialog handler that failed on a dialog the scroll opened fails
-        // the collection, which the dialog blocked.
-        if let Some(failure) = page.owner.dialogs().take_failure() {
-            return Err(failure);
-        }
-        scrolled
+        gesture(
+            self.page,
+            LOCATOR_SCROLL_COLLECT.name,
+            self.locator,
+            Action::Scroll,
+            Duration::ZERO,
+            self.form,
+        )
+        .await
     }
 
     /// Reads and scrolls until the list ends, keeping its rows in `kept`.

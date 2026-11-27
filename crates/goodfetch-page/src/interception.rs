@@ -5,7 +5,9 @@
 //! Playwright's routing will (A05-45). The steps, each at its place in
 //! [`pipeline`]:
 //!
-//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s.
+//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s, but
+//! for the Response cache (5) and the navigation gate (6), which
+//! [`pipeline`] asks once [`steps`] built the request it sends on.
 //!
 //! 1. A crawl request's own document fetch has its Hooks applied already
 //!    (ADR 0104); nothing here runs a Hook. Its method and body, when it

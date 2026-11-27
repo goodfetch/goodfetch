@@ -968,6 +968,84 @@ jobs:
             target/vitest-attachments/
           if-no-files-found: ignore
 
+  # Deployment-target smoke runs for both Products (ADRs 0049, 0061, 0069, 0076
+  # and 0094; issue 206): runs Compose, kind (both Products' Helm charts + pod
+  # drain), systemd (`daemon run`), AWS Lambda RIE, edge runtimes (workerd,
+  # Vercel edge-runtime, Deno), Cloud Run contract (`PORT`, `K_SERVICE`,
+  # `SIGTERM` -> 10s `SIGKILL`), and Browser host smoke under the outbound deny
+  # against the local Proving ground. Named under `linux-x64-gnu ` so a red
+  # smoke run fails the Release suite and blocks the merge.
+  deploy-smoke:
+    name: linux-x64-gnu deploy smoke
+    needs: plan
+    if: needs.plan.outputs.linux-x64 != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CELL: linux-x64-gnu
+      TARGET: x86_64-unknown-linux-gnu
+      GOODFETCH_TEST_DNS_NAMESPACE: sudo
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: release-linux-x64-gnu
+      - name: Restore the build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-suite-linux-x64-gnu
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build both Products' executables and local Proving ground before the deny
+        run: |
+          cargo build --locked --profile ci --target x86_64-unknown-linux-gnu \
+            -p goodfetch-collie --bin goodfetch-collie --features executable \
+            -p goodfetch-foxhound --bin goodfetch-foxhound --features executable \
+            -p goodfetch-proving-ground --bin goodfetch-proving-ground
+          for product in collie foxhound; do
+            docker buildx build \
+              --load \
+              --file packaging/oci/Containerfile \
+              --target slim \
+              --build-arg "PRODUCT_EXECUTABLE=goodfetch-${product}" \
+              --build-arg "BINARY_DIR=target/x86_64-unknown-linux-gnu/ci" \
+              --tag "goodfetch/${product}:deploy-smoke" \
+              .
+          done
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: deployment-target smoke runs for both Products"
+        run: ci/egress/under-deny.sh ci/release/deploy-smoke/run.sh --junit target/junit/deploy-smoke.xml
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Record the job's context beside its JUnit files
+        if: always()
+        run: ci/junit-context.sh
+      - name: Scan the job's outputs for secrets before they upload
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/junit/
+      - name: Upload the JUnit files
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: junit-release-dispatch-linux-x64-gnu-deploy-smoke-1
+          path: target/junit/
+          if-no-files-found: ignore
+
   # The hosted tier's CI image (#3480): on `main` only, the image of the
   # commit's ci/image/Containerfile, built and saved compressed into the
   # Actions cache under a key holding the file's hash, which every hosted
@@ -1016,7 +1094,18 @@ jobs:
   caches:
     name: caches
     needs:
-      [plan, linux-x64, skew, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, ci-image]
+      [
+        plan,
+        linux-x64,
+        skew,
+        deploy-smoke,
+        linux-arm64,
+        windows-x64,
+        macos-arm64,
+        macos-x64,
+        visual,
+        ci-image,
+      ]
     if: "!cancelled() && github.ref == 'refs/heads/main'"
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -1053,7 +1142,19 @@ jobs:
   # their verdict as it is.
   budgets:
     name: budgets
-    needs: [plan, linux-x64, skew, linux-arm64, windows-x64, macos-arm64, macos-x64, visual, caches]
+    needs:
+      [
+        plan,
+        linux-x64,
+        skew,
+        deploy-smoke,
+        linux-arm64,
+        windows-x64,
+        macos-arm64,
+        macos-x64,
+        visual,
+        caches,
+      ]
     if: "!cancelled()"
     runs-on: ubuntu-24.04
     timeout-minutes: 5

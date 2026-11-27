@@ -75,6 +75,9 @@ job = "release-suite.yml#linux-x64"
 job = "release-suite.yml#skew"
 
 [[deny]]
+job = "release-suite.yml#deploy-smoke"
+
+[[deny]]
 job = "release-suite.yml#linux-arm64"
 
 [[deny]]

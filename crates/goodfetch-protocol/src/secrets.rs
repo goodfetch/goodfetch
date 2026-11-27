@@ -151,11 +151,15 @@ pub enum SecretInputRefusedReason {
     /// The receiving host was reached through an invalid-certificate
     /// exception (ADR 0042), so whoever holds its key may not be the site.
     InvalidCertificateException,
+    /// The browser is shared with other code (a Borrowed browser, a shared
+    /// `cdp_url`, an open raw CDP session, or a Lent page), which could read
+    /// the typed value or header (ADR 0092).
+    OtherCodeMayRead,
 }
 
 impl SecretInputRefusedReason {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 1] = [Self::InvalidCertificateException];
+    pub const ALL: [Self; 2] = [Self::InvalidCertificateException, Self::OtherCodeMayRead];
 
     /// Its name on the wire.
     pub fn as_str(self) -> &'static str {

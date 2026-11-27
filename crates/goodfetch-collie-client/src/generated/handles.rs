@@ -1450,6 +1450,7 @@ impl Locator {
             ::goodfetch_protocol::page::FillParams {
                 locator: self.host.id().clone(),
                 value: value.into(),
+                secret: None,
             },
         )
     }
@@ -1640,6 +1641,15 @@ impl<T> crate::Call<T, ::goodfetch_protocol::checkpoint::RunMigrateParams> {
     /// Checkpoints, its own folder.
     pub fn location(self, location: impl Into<String>) -> Self {
         self.edit(move |params| params.location = Some(location.into()))
+    }
+}
+
+impl<T> crate::Call<T, ::goodfetch_protocol::page::FillParams> {
+    /// A Secret placeholder name bound in `secrets.placeholders` (ADR 0092):
+    /// resolved at the moment of use only when the target field's frame is on
+    /// the placeholder's bound domains and no other code may read the browser.
+    pub fn secret(self, secret: impl Into<String>) -> Self {
+        self.edit(move |params| params.secret = Some(secret.into()))
     }
 }
 

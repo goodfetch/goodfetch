@@ -39,6 +39,7 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::waits::{Count, ElementState};
 use goodfetch_protocol::page::{TARGET_NOT_UNIQUE, TargetMatch, TargetNotUniqueDetails};
 use goodfetch_protocol::settings::SettingLimit;
+use secrecy::ExposeSecret as _;
 use serde::Deserialize;
 
 use self::check::{CHECK, Seen, Step, Target};
@@ -48,6 +49,7 @@ use crate::errors::Unanswered;
 use crate::hiding::Hidden;
 use crate::page_owner::PageOwner;
 use crate::page_reads::Turn;
+use crate::placeholders::BoundSecret;
 
 /// The disarm, which says where the gesture landed.
 const DISARM: &str = include_str!("guard/disarm.js");
@@ -70,6 +72,9 @@ pub(crate) enum Action {
     Click,
     /// Replaces its text with this text.
     Fill(String),
+    /// Replaces its text with a Secret placeholder's value, resolved only
+    /// after checking the target frame's origin and browser trust (ADR 0092).
+    FillSecret(BoundSecret),
     /// Sends this key press to it.
     Press(KeyPress),
 }
@@ -90,7 +95,7 @@ impl Action {
     fn kind(&self) -> &'static str {
         match self {
             Self::Click => "pointer",
-            Self::Fill(_) => "fill",
+            Self::Fill(_) | Self::FillSecret(_) => "fill",
             Self::Press(_) => "text",
         }
     }
@@ -100,7 +105,7 @@ impl Action {
     const fn commands(&self) -> Row {
         match self {
             Self::Click => Row::ActionClickCommands,
-            Self::Fill(_) => Row::ActionFillCommands,
+            Self::Fill(_) | Self::FillSecret(_) => Row::ActionFillCommands,
             Self::Press(_) => Row::ActionPressCommands,
         }
     }
@@ -300,24 +305,25 @@ async fn attempt(
                         }
                     }
                 }
-                Action::Fill(_) | Action::Press(_) => return Err(mismatched(&seen)),
+                Action::Fill(_) | Action::FillSecret(_) | Action::Press(_) => {
+                    return Err(mismatched(&seen));
+                }
             },
             Seen::Focused {
                 set_value,
                 password,
-            } => match &request.action {
-                Action::Fill(value) => {
-                    if let Some(acted) =
-                        perform_fill(page, &request, &mut turn, value, set_value, password).await?
-                    {
-                        return Ok(acted);
-                    }
-                }
-                Action::Press(events) => {
+                ref frame_url,
+            } => {
+                if let Action::Press(events) = &request.action {
                     return perform_press(page, &request, turn, events).await;
                 }
-                Action::Click => return Err(mismatched(&seen)),
-            },
+                if let Some(acted) =
+                    perform_focused(page, &request, &mut turn, (set_value, password), frame_url)
+                        .await?
+                {
+                    return Ok(acted);
+                }
+            }
             Seen::Ready { .. } => return Err(mismatched(&seen)),
             Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
             Seen::Waiting {
@@ -335,6 +341,37 @@ async fn attempt(
             }
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
+    }
+}
+
+/// Completes a focused text action (`Fill`, `FillSecret`, or `Press`),
+/// returning `None` only when a picked control needs another check.
+async fn perform_focused(
+    page: &PageDriver,
+    request: &Request<'_>,
+    turn: &mut Turn,
+    (set_value, password): (bool, bool),
+    frame_url: &str,
+) -> Result<Option<Acted>, CallError> {
+    match &request.action {
+        Action::Fill(value) => perform_fill(page, request, turn, value, set_value, password).await,
+        Action::FillSecret(bound) => {
+            bound.admit(page, frame_url)?;
+            let value = bound.resolve(frame_url).await?;
+            perform_fill(
+                page,
+                request,
+                turn,
+                value.expose_secret(),
+                set_value,
+                password,
+            )
+            .await
+        }
+        Action::Press(_) | Action::Click => Err(CallError::protocol(
+            ProtocolFailure::InternalError,
+            "the guard focused a non-fill action",
+        )),
     }
 }
 

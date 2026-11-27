@@ -335,6 +335,9 @@ pub(crate) struct SessionInterception {
     /// Whether interception step 7 sends `Sec-GPC: 1` (Borrowed browser
     /// with `consent.gpc: on`, ADR 0048, issue 758).
     send_gpc_header: bool,
+    /// The Session's own settings, used at step 7 only when a route override
+    /// carries `secret_headers` (ADR 0092, ticket #733).
+    own_settings: Values,
     /// Where a Session route's handler that failed on a service worker's
     /// request leaves its failure, for the next call on any of its pages.
     failure: LeftFailure,
@@ -352,6 +355,7 @@ impl SessionInterception {
         signing: Option<Arc<RequestSigner>>,
         send_gpc_header: bool,
         identified: bool,
+        own_settings: Values,
     ) -> Self {
         Self {
             id,
@@ -363,6 +367,7 @@ impl SessionInterception {
             lookups: lookups.map(Arc::new),
             signing,
             send_gpc_header,
+            own_settings,
             failure: LeftFailure::default(),
         }
     }
@@ -390,6 +395,9 @@ pub(super) type LeftFailure = Arc<Mutex<Option<CallError>>>;
 pub(super) struct PageState {
     routes: Arc<RouteTable>,
     session: Arc<RouteTable>,
+    /// The Session's own settings, used at step 7 only when a route override
+    /// carries `secret_headers` (ADR 0092, ticket #733).
+    own_settings: Values,
     /// Where its handlers' failures wait: the page's own slot, or a
     /// worker's Session's.
     failure: LeftFailure,
@@ -843,6 +851,7 @@ impl Interception {
         let state = Arc::new(PageState {
             routes: Arc::default(),
             session: Arc::clone(&session.routes),
+            own_settings: session.own_settings.clone(),
             pending: Arc::clone(&session.pending),
             navigation: PendingNavigation::default(),
             navigating: Some(navigating),
@@ -990,6 +999,7 @@ impl Interception {
                     let state = Arc::new(PageState {
                         routes: Arc::default(),
                         session: Arc::clone(&session.routes),
+                        own_settings: session.own_settings.clone(),
                         pending: Arc::clone(&session.pending),
                         navigation: PendingNavigation::default(),
                         navigating: None,

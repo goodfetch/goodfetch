@@ -760,13 +760,16 @@ class AsyncLocator(AsyncHandle):
             params.world = None if world is None else models.World(world)
         return result_of(models.Evaluated, await self._host.call("locator.evaluate_all", params)).value
 
-    async def fill(self, value: str) -> models.Acted:
+    async def fill(self, value: str, *, secret: str | None | NotGiven = not_given) -> models.Acted:
         """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("locator.fill")
-        return result_of(models.Acted, await self._host.call("locator.fill", models.FillParams(locator=self._host.id, value=value)))
+        params = models.FillParams(locator=self._host.id, value=value)
+        if not isinstance(secret, NotGiven):
+            params.secret = secret
+        return result_of(models.Acted, await self._host.call("locator.fill", params))
 
     async def press(self, key: str) -> models.Acted:
         """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).
@@ -1580,13 +1583,16 @@ class Locator(Handle):
             params.world = None if world is None else models.World(world)
         return result_of(models.Evaluated, self._host.call("locator.evaluate_all", params)).value
 
-    def fill(self, value: str) -> models.Acted:
+    def fill(self, value: str, *, secret: str | None | NotGiven = not_given) -> models.Acted:
         """Replaces the text of the field the locator matches, once it is unique, visible, enabled and editable, with text the page receives as typed input, until `timeout.action` passes. An input whose value a person picks rather than types (a date, a time, a month, a week, a local date and time, a colour or a range) has its value set, firing `input` and `change`, and a value it does not take fails with `invalid_params`.
 
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("locator.fill")
-        return result_of(models.Acted, self._host.call("locator.fill", models.FillParams(locator=self._host.id, value=value)))
+        params = models.FillParams(locator=self._host.id, value=value)
+        if not isinstance(secret, NotGiven):
+            params.secret = secret
+        return result_of(models.Acted, self._host.call("locator.fill", params))
 
     def press(self, key: str) -> models.Acted:
         """Focuses the element the locator matches, once it is unique, visible and enabled, and presses a key or a combination on it as a keyboard does, until `timeout.action` passes. A press that starts a navigation of the page answers once that navigation's document committed or it ended without one, within `timeout.navigation` (ADR 0085).

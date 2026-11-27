@@ -828,9 +828,9 @@ export class Locator extends Handle {
    *
    * @experimental
    */
-  async fill(value: types.FillParams["value"], options: { readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
+  async fill(value: types.FillParams["value"], options: { readonly secret?: types.FillParams["secret"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.Acted> {
     warnExperimental("locator.fill");
-    return this.#host.call("locator.fill", { locator: this.#host.id, value }, { signal: options.signal });
+    return this.#host.call("locator.fill", defined({ locator: this.#host.id, value, secret: options.secret }), { signal: options.signal });
   }
 
   /**

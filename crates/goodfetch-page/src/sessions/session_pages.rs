@@ -538,6 +538,7 @@ impl Sessions {
             .for_session(SessionEgress {
                 proxy: open.proxy.clone(),
                 relay: open.relay.clone(),
+                http_credentials: open.http_credentials.clone(),
             })
             .with_value(
                 PageValue::clone(&opener.driver.value()),

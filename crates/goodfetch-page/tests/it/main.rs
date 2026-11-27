@@ -29,6 +29,7 @@ mod page_request;
 mod proxy_challenge;
 mod robots_txt;
 mod root_events_lost;
+mod secrets_and_auth;
 mod served_calls;
 mod session_counts;
 mod session_end;

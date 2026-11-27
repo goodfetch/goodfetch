@@ -168,6 +168,13 @@ pub struct RouteOverridesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub headers: Option<BTreeMap<String, String>>,
+    /// Headers whose values carry a Secret placeholder (ADR 0092): resolved
+    /// at interception step 7 only when the request's host is on the
+    /// placeholder's bound domains, dropped on redirect to another domain,
+    /// and refused on a browser other code may read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub secret_headers: Option<BTreeMap<String, super::request::SecretHeader>>,
     /// Another body, in Base64.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]

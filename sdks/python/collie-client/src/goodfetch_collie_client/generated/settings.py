@@ -663,6 +663,23 @@ class ConnectionSecuritySettings(TypedDict):
     """
 
 
+class SessionHTTPCredentialsItem(TypedDict):
+    """One entry of `session.http_credentials` (ADR 0092)."""
+
+    domains: list[str]
+    """The registrable domains (or `*`) allowed to receive these credentials
+    on an HTTP 401 challenge; required and non-empty.
+    """
+
+    password: str
+    """The HTTP authentication password, as a Secret reference (`env:`,
+    `keychain:`, `op://`, `caller:`), never a raw value.
+    """
+
+    username: str
+    """The HTTP authentication username."""
+
+
 class SessionPageCheckGlob(TypedDict):
     """The document's URL matches a glob, as Playwright reads one."""
 
@@ -837,6 +854,12 @@ class SessionSourceCDPURL(TypedDict):
 
 class ConnectionSessionSettings(TypedDict):
     """The `session` settings of `Settings`."""
+
+    http_credentials: NotRequired[list[SessionHTTPCredentialsItem]]
+    """HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.
+
+    `session.http_credentials`.
+    """
 
     page_check: NotRequired[SessionPageCheck | None]
     """The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
@@ -1736,6 +1759,12 @@ class RunSecuritySettings(TypedDict):
 class RunSessionSettings(TypedDict):
     """The `session` settings of `RunSettings`."""
 
+    http_credentials: NotRequired[list[SessionHTTPCredentialsItem]]
+    """HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.
+
+    `session.http_credentials`.
+    """
+
     page_check: NotRequired[SessionPageCheck | None]
     """The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
 
@@ -2163,6 +2192,12 @@ class SessionSecretsSettings(TypedDict):
 
 class SessionSessionSettings(TypedDict):
     """The `session` settings of `SessionSettings`."""
+
+    http_credentials: NotRequired[list[SessionHTTPCredentialsItem]]
+    """HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.
+
+    `session.http_credentials`.
+    """
 
     page_check: NotRequired[SessionPageCheck | None]
     """The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.

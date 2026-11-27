@@ -13,29 +13,137 @@ use goodfetch_engine::hostile_input::check_header_value;
 use goodfetch_engine::run::secret_error;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::runs::RunKeys;
-use goodfetch_engine::secrets::{self, Purpose, SecretError};
+use goodfetch_engine::secrets::{self, Purpose, RunSecrets, SecretError};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::request::{JsonSecret, PageRequestParams, SecretHeader};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::secrets::placeholders::{PlaceholderSource, SECRETS_PLACEHOLDERS};
+use goodfetch_protocol::secrets::{
+    SECRET_INPUT_REFUSED, SecretInputRefusedDetails, SecretInputRefusedReason,
+};
 use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Value;
 
+use crate::cdp::driver::PageDriver;
 use crate::cdp::{self, ContinueRequest, RequestHeaders};
 
-/// The Secret placeholders of one `page.request`, bound.
+/// The Secret placeholders a `page.request` or route override carries, bound.
 pub(crate) struct Placeholders {
     /// The Run whose Secrets resolve their values.
     run: RunIdentity,
     /// Its Secrets.
-    keys: RunKeys,
+    secrets: RunSecrets,
     /// The headers whose value holds one.
     headers: Vec<Header>,
     /// The JSON body whose strings hold them, when any does.
     json: Option<JsonBody>,
+}
+
+/// One Secret placeholder bound for typing into a form field (`locator.fill`,
+/// ADR 0092, ticket #733).
+pub(crate) struct BoundSecret {
+    run: RunIdentity,
+    secrets: RunSecrets,
+    bound: Bound,
+}
+
+impl BoundSecret {
+    /// Binds `placeholder` for typing through `settings`, the page's Session's
+    /// beneath its Run's.
+    ///
+    /// # Errors
+    ///
+    /// `secret_unbound` when no scope binds `placeholder`; `invalid_params`
+    /// when `placeholder` is bound to a code source, which is not yet resolved
+    /// through `fill`.
+    pub(crate) fn bind(
+        (run, keys): (&RunIdentity, &RunKeys),
+        settings: Option<&Resolved>,
+        placeholder: &str,
+    ) -> Result<Self, CallError> {
+        let Some(settings) = settings else {
+            return Err(secret_error(&SecretError::Unbound {
+                placeholder: placeholder.to_owned(),
+                bound: Vec::new(),
+            }));
+        };
+        let binding =
+            secrets::binding(settings, placeholder).map_err(|error| secret_error(&error))?;
+        let reference = match binding.source {
+            PlaceholderSource::Reference { reference, .. } => reference,
+            PlaceholderSource::CodeSource(_) => {
+                return Err(invalid(format!(
+                    "the Secret placeholder `{placeholder}` is bound to a code source, which `locator.fill` does not resolve yet"
+                )));
+            }
+        };
+        Ok(Self {
+            run: run.clone(),
+            secrets: keys.secrets().clone(),
+            bound: Bound {
+                placeholder: placeholder.to_owned(),
+                reference,
+                domains: binding.domains,
+                layer: settings
+                    .effective(&SECRETS_PLACEHOLDERS)
+                    .map(|effective| effective.layer),
+            },
+        })
+    }
+
+    /// Checks whether the target frame at `frame_url` on `page` may receive
+    /// this Secret, before resolving its value: refuses with
+    /// `secret_input_refused` when other code may read `page` or when
+    /// `frame_url` is reached through `tls.accept_invalid_certs`, and with
+    /// `secret_domain_not_allowed` when `frame_url`'s host is outside the
+    /// placeholder's bound domains.
+    pub(crate) fn admit(&self, page: &PageDriver, frame_url: &str) -> Result<(), CallError> {
+        let host = host_of(frame_url);
+        if page.other_code_may_read() {
+            return Err(secret_input_refused(
+                self.bound.placeholder.clone(),
+                self.bound.reference.to_string(),
+                host,
+                SecretInputRefusedReason::OtherCodeMayRead,
+            ));
+        }
+        if is_tls_exception(page, frame_url, &host) {
+            return Err(secret_input_refused(
+                self.bound.placeholder.clone(),
+                self.bound.reference.to_string(),
+                host,
+                SecretInputRefusedReason::InvalidCertificateException,
+            ));
+        }
+        if !secrets::allowed(&host, &self.bound.domains) {
+            return Err(secret_error(&SecretError::DomainNotAllowed {
+                placeholder: self.bound.placeholder.clone(),
+                reference: self.bound.reference.clone(),
+                domain: host,
+                domains: self.bound.domains.clone(),
+            }));
+        }
+        Ok(())
+    }
+
+    /// Resolves this placeholder's value for `frame_url`, after [`Self::admit`].
+    pub(crate) async fn resolve(&self, frame_url: &str) -> Result<SecretString, CallError> {
+        let host = host_of(frame_url);
+        let purpose = Purpose {
+            placeholder: &self.bound.placeholder,
+            domain: Some(&host),
+            domains: &self.bound.domains,
+            layer: self.bound.layer,
+            run_id: Some(self.run.id()),
+        };
+        self.secrets
+            .resolve(&self.bound.reference, &purpose)
+            .await
+            .map_err(|error| secret_error(&error))
+    }
 }
 
 /// A header whose value holds a placeholder.
@@ -91,38 +199,94 @@ impl Placeholders {
         if secret_headers.is_none() && json_secrets.is_none() {
             return Ok(None);
         }
-        let headers = secret_headers
-            .into_iter()
-            .flatten()
-            .map(|(name, header)| {
-                let named_twice = params
-                    .headers
-                    .iter()
-                    .flat_map(BTreeMap::keys)
-                    .chain(secret_headers.into_iter().flat_map(BTreeMap::keys))
-                    .filter(|other| other.eq_ignore_ascii_case(name))
-                    .count()
-                    > 1;
-                if named_twice {
-                    return Err(invalid(format!(
-                        "the header `{name}` is named twice: once in `{}` and again in `{}` or `{}`",
-                        named::parameter("secret_headers"),
-                        named::parameter("headers"),
-                        named::parameter("secret_headers"),
-                    )));
-                }
-                header_of(name, header, |placeholder| bound(settings, placeholder))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let headers = match secret_headers {
+            Some(secret_headers) => {
+                bind_secret_headers(settings, params.headers.as_ref(), secret_headers)?
+            }
+            None => Vec::new(),
+        };
         let json = json_secrets
             .map(|strings| json_body(params.post_data.as_deref(), strings, settings))
             .transpose()?;
         Ok(Some(Self {
             run: run.clone(),
-            keys: keys.clone(),
+            secrets: keys.secrets().clone(),
             headers,
             json,
         }))
+    }
+
+    /// Binds `secret_headers` for a route override (`route.continue`,
+    /// `route.fallback`, `route.fetch`) through `settings`, rejecting any
+    /// header also named in `plain_headers` or named twice.
+    pub(crate) fn bind_headers(
+        (run, secrets): (&RunIdentity, &RunSecrets),
+        settings: Option<&Resolved>,
+        plain_headers: Option<&BTreeMap<String, String>>,
+        secret_headers: &BTreeMap<String, SecretHeader>,
+    ) -> Result<Option<Self>, CallError> {
+        if secret_headers.is_empty() {
+            return Ok(None);
+        }
+        let headers = bind_secret_headers(settings, plain_headers, secret_headers)?;
+        Ok(Some(Self {
+            run: run.clone(),
+            secrets: secrets.clone(),
+            headers,
+            json: None,
+        }))
+    }
+
+    /// Checks whether `driver` may send the placeholders' values on a hop to
+    /// `url`: refuses with `secret_input_refused` when other code may read
+    /// `driver` or when `url` is reached through `tls.accept_invalid_certs`,
+    /// then checks [`Self::admit`] for the bound domains.
+    pub(crate) fn admit_driver(
+        &self,
+        driver: &PageDriver,
+        url: &str,
+        carries_body: bool,
+    ) -> Result<(), CallError> {
+        let host = host_of(url);
+        let body = self.json.as_ref().filter(|_| carries_body);
+        let first = self
+            .headers
+            .iter()
+            .map(|header| &header.bound)
+            .chain(
+                body.into_iter()
+                    .flat_map(|json| json.strings.iter().map(|(_, bound)| bound)),
+            )
+            .next();
+        if let Some(bound) = first {
+            if driver.other_code_may_read() {
+                return Err(secret_input_refused(
+                    bound.placeholder.clone(),
+                    bound.reference.to_string(),
+                    host,
+                    SecretInputRefusedReason::OtherCodeMayRead,
+                ));
+            }
+            if is_tls_exception(driver, url, &host) {
+                return Err(secret_input_refused(
+                    bound.placeholder.clone(),
+                    bound.reference.to_string(),
+                    host,
+                    SecretInputRefusedReason::InvalidCertificateException,
+                ));
+            }
+        }
+        self.admit(url, carries_body)
+    }
+
+    /// The `(header_name, bound_domains)` pairs of these placeholders, so a
+    /// redirect hop of the same network request can drop any custom header
+    /// whose bound domains do not include the redirect target's host.
+    pub(crate) fn header_domains(&self) -> Vec<(String, Vec<String>)> {
+        self.headers
+            .iter()
+            .map(|header| (header.name.clone(), header.bound.domains.clone()))
+            .collect()
     }
 
     /// Whether the hop to `url` may carry the placeholders' values, before
@@ -232,12 +396,50 @@ impl Placeholders {
             layer: bound.layer,
             run_id: Some(self.run.id()),
         };
-        self.keys
-            .secrets()
+        self.secrets
             .resolve(&bound.reference, &purpose)
             .await
             .map_err(|error| secret_error(&error))
     }
+}
+
+/// Builds `secret_input_refused` for `placeholder` / `reference` on `domain`.
+pub(crate) fn secret_input_refused(
+    placeholder: String,
+    reference: String,
+    domain: String,
+    reason: SecretInputRefusedReason,
+) -> CallError {
+    let why = match reason {
+        SecretInputRefusedReason::InvalidCertificateException => {
+            "the host is reached through an invalid-certificate exception, so whoever holds its key may not be the site (ADR 0042)"
+        }
+        SecretInputRefusedReason::OtherCodeMayRead => {
+            "other code may read this browser or page (a Borrowed browser, a shared `cdp_url`, a Lent page, or a page with an open CDP session; ADR 0092)"
+        }
+    };
+    CallError::new(
+        &SECRET_INPUT_REFUSED,
+        format!("The Secret `{placeholder}` was not sent to {domain}: {why}."),
+        &SecretInputRefusedDetails {
+            placeholder,
+            reference,
+            domain,
+            reason,
+        },
+    )
+}
+
+/// Whether `url` on `driver` is an HTTPS/WSS request to a host reached through
+/// `tls.accept_invalid_certs` (ADR 0042).
+pub(crate) fn is_tls_exception(driver: &PageDriver, url: &str, host: &str) -> bool {
+    let Some(relay) = driver.relay() else {
+        return false;
+    };
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    matches!(parsed.scheme(), "https" | "wss") && relay.excepts(&host.to_ascii_lowercase())
 }
 
 impl Form {
@@ -257,11 +459,41 @@ impl Form {
 
 /// The host of `url`, without its userinfo or port; empty for a URL that
 /// has none.
-fn host_of(url: &str) -> String {
+pub(crate) fn host_of(url: &str) -> String {
     url::Url::parse(url)
         .ok()
         .and_then(|url| url.host_str().map(str::to_owned))
         .unwrap_or_default()
+}
+
+/// Binds every entry of `secret_headers` through `settings`, rejecting any
+/// header also named in `plain_headers` or named twice case-insensitively.
+fn bind_secret_headers(
+    settings: Option<&Resolved>,
+    plain_headers: Option<&BTreeMap<String, String>>,
+    secret_headers: &BTreeMap<String, SecretHeader>,
+) -> Result<Vec<Header>, CallError> {
+    secret_headers
+        .iter()
+        .map(|(name, header)| {
+            let named_twice = plain_headers
+                .into_iter()
+                .flat_map(BTreeMap::keys)
+                .chain(secret_headers.keys())
+                .filter(|other| other.eq_ignore_ascii_case(name))
+                .count()
+                > 1;
+            if named_twice {
+                return Err(invalid(format!(
+                    "the header `{name}` is named twice: once in `{}` and again in `{}` or `{}`",
+                    named::parameter("secret_headers"),
+                    named::parameter("headers"),
+                    named::parameter("secret_headers"),
+                )));
+            }
+            header_of(name, header, |placeholder| bound(settings, placeholder))
+        })
+        .collect()
 }
 
 /// The header `name`, whose value `header` builds, its placeholder bound by

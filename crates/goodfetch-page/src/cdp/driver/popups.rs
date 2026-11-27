@@ -155,6 +155,7 @@ impl PageDriver {
             frame: popup,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
+            other_code: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
             value: super::RequestValue::new(PageValue::empty()),
             waits: None,

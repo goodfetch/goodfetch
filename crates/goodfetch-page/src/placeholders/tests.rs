@@ -71,3 +71,42 @@ fn a_header_value_is_its_prefix_and_the_value_or_basic_credentials() {
         ]
     );
 }
+
+#[expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+/// Covers: story:5-84, error:secret_input_refused
+#[test]
+fn other_code_guard_toggles_other_code_may_read_and_builds_refusal() {
+    use goodfetch_protocol::secrets::{SECRET_INPUT_REFUSED, SecretInputRefusedReason};
+    use goodfetch_test_support::runtime;
+
+    use super::secret_input_refused;
+    use crate::live_run::played_page;
+
+    runtime().block_on(async {
+        let (driver, _played, _served) = played_page();
+
+        assert!(!driver.other_code_may_read());
+        let guard = driver.attach_other_code();
+        assert!(driver.other_code_may_read());
+        let nested = driver.attach_other_code();
+        drop(guard);
+        assert!(driver.other_code_may_read());
+        drop(nested);
+        assert!(!driver.other_code_may_read());
+
+        let refused = secret_input_refused(
+            "pw".to_owned(),
+            "env:FAKE_PW".to_owned(),
+            "example.test".to_owned(),
+            SecretInputRefusedReason::OtherCodeMayRead,
+        );
+        assert_eq!(refused.code(), SECRET_INPUT_REFUSED.name);
+        assert_eq!(
+            refused.details().unwrap()["reason"],
+            serde_json::to_value(SecretInputRefusedReason::OtherCodeMayRead).unwrap()
+        );
+    });
+}

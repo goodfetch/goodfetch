@@ -38,6 +38,7 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
     PageState {
         routes: Arc::default(),
         session: Arc::clone(&session.routes),
+        own_settings: session.own_settings.clone(),
         failure: failure.unwrap_or_else(|| Arc::clone(&session.failure)),
         session_failure: Arc::clone(&session.failure),
         cosmetic: None,
@@ -88,7 +89,14 @@ pub(crate) fn hold_serving(
 /// The side of the interception of a Session `session-1`, held by its
 /// relay and unsigned.
 pub(crate) fn session_side() -> SessionInterception {
-    SessionInterception::new(SessionId("session-1".to_owned()), None, None, false, false)
+    SessionInterception::new(
+        SessionId("session-1".to_owned()),
+        None,
+        None,
+        false,
+        false,
+        goodfetch_engine::settings::Values::default(),
+    )
 }
 
 /// The page and the side of the Session the tests hold.

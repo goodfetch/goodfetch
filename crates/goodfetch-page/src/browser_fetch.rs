@@ -358,10 +358,11 @@ impl<'a> Load<'a> {
         } else {
             paused.has_body()
         };
-        // A hop outside the Secret placeholders' bound domains goes
-        // nowhere, whatever the other steps would say of it.
+        // A hop outside the Secret placeholders' bound domains, or on a
+        // browser other code may read or an invalid-certificate exception,
+        // goes nowhere, whatever the other steps would say of it.
         if let Some(placeholders) = self.request.placeholders
-            && let Err(refused) = placeholders.admit(&url, carries_body)
+            && let Err(refused) = placeholders.admit_driver(self.driver, &url, carries_body)
         {
             self.fail(paused.id(), AbortReason::BlockedByClient).await;
             return Some(Err(refused));
@@ -443,6 +444,7 @@ impl<'a> Load<'a> {
             url: None,
             method: self.request.method.map(str::to_owned),
             headers,
+            secret_headers: None,
             post_data: self.request.post_data.map(str::to_owned),
         }
     }
@@ -644,7 +646,8 @@ impl<'a> Load<'a> {
     async fn authenticate(&mut self, challenge: AuthChallenge) -> Option<CallError> {
         let challenged = authentication::answer(self.driver, &challenge, || {
             std::mem::replace(&mut self.authenticated, true)
-        });
+        })
+        .await;
         went(
             self.page
                 .continue_with_auth(challenge.id(), challenged.response)

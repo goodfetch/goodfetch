@@ -20,7 +20,8 @@ use crate::page::{
 use crate::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use crate::settings::{
     CONSENT_GPC, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
-    FILTER_LISTS_TRACKERS, SESSION_PAGE_CHECK, SESSION_SOURCE, TIMEOUT_HOOK, TIMEOUT_RUN,
+    FILTER_LISTS_TRACKERS, SESSION_HTTP_CREDENTIALS, SESSION_PAGE_CHECK, SESSION_SOURCE,
+    TIMEOUT_HOOK, TIMEOUT_RUN,
 };
 
 /// What starts the `proxy.*` keys, which a Session chooses as it opens.
@@ -32,7 +33,7 @@ const PROXY_PREFIX: &str = "proxy.";
 /// whether its sites' service workers run, whether its Live
 /// view hides, its page check (ADR 0121) and its Secret placeholders'
 /// bindings, so that each Session logs in to its own account (ADR 0092).
-const SESSION_SETTINGS: [&Setting; 10] = [
+const SESSION_SETTINGS: [&Setting; 11] = [
     &FILTER_LISTS_ADS,
     &FILTER_LISTS_TRACKERS,
     &FILTER_LISTS_ANNOYANCES,
@@ -42,6 +43,7 @@ const SESSION_SETTINGS: [&Setting; 10] = [
     &BROWSER_SERVICE_WORKERS,
     &LIVE_VIEW_HIDING,
     &SESSION_PAGE_CHECK,
+    &SESSION_HTTP_CREDENTIALS,
     &SECRETS_PLACEHOLDERS,
 ];
 
@@ -54,7 +56,7 @@ const SESSION_SETTINGS: [&Setting; 10] = [
 /// is refused every other key: the Run's proxy, Politeness and bounds
 /// always, and the rest of ADR 0093's Label settings until this engine
 /// applies them (issue 1472).
-pub const LABEL_SETTINGS: [&Setting; 11] = [
+pub const LABEL_SETTINGS: [&Setting; 12] = [
     &FETCH_TIER,
     &FETCH_HTTP_FROM,
     &FETCH_ENCODING,
@@ -65,6 +67,7 @@ pub const LABEL_SETTINGS: [&Setting; 11] = [
     &CONTENT_EXTRACTOR,
     &TIMEOUT_HOOK,
     &SESSION_PAGE_CHECK,
+    &SESSION_HTTP_CREDENTIALS,
     &SESSION_SOURCE,
 ];
 

@@ -566,13 +566,18 @@ impl Pool {
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
     /// never enters the pool: it is neither recycled, nor counted, nor
     /// closed (ADR 0056). Its tasks are `tasks`', as [`Pool::seat`]'s.
-    pub(crate) fn borrowed_seat(&self, cdp_url: CdpUrl, tasks: TaskStarter) -> Seat {
+    pub(crate) fn borrowed_seat(
+        &self,
+        cdp_url: CdpUrl,
+        egress: SessionEgress,
+        tasks: TaskStarter,
+    ) -> Seat {
         let browser = Arc::new(BorrowedBrowser::new(Arc::clone(&self.shared.run), cdp_url));
         lock(&self.shared.browsers)
             .borrowed
             .push(Arc::clone(&browser));
         self.seat_of(
-            (BrowserPlacement::Shared, SessionEgress::default()),
+            (BrowserPlacement::Shared, egress),
             Some(browser),
             Carried::default(),
             tasks,

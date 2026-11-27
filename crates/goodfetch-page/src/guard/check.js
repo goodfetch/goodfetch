@@ -147,9 +147,10 @@ async function check({ selector, handle, action, events, slice, min, max }) {
       return waiting("editable", `${describe(element)} is not editable`);
     if (action !== "pointer") {
       element.focus();
+      const frame_url = location.href;
       if (action === "fill" && element.localName === "input" && PICKED.includes(element.type)) {
         world[Symbol.for("goodfetch.guard.fill")] = element;
-        return { state: "focused", set_value: true };
+        return { state: "focused", set_value: true, frame_url };
       }
       if (action === "fill") {
         const password = element.localName === "input" && element.type === "password";
@@ -162,9 +163,9 @@ async function check({ selector, handle, action, events, slice, min, max }) {
         } else {
           element.select();
         }
-        return { state: "focused", password };
+        return { state: "focused", password, frame_url };
       }
-      return { state: "focused" };
+      return { state: "focused", frame_url };
     }
     const centre = () => ({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
     let { x, y } = centre();

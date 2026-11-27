@@ -3675,6 +3675,13 @@ class RouteOverridesParams(BaseModel):
     """Another body, in Base64."""
     route_id: RouteId
     """The request."""
+    secret_headers: dict[str, Any] | None = None
+    """
+    Headers whose values carry a Secret placeholder (ADR 0092): resolved
+    at interception step 7 only when the request's host is on the
+    placeholder's bound domains, dropped on redirect to another domain,
+    and refused on a browser other code may read.
+    """
     url: str | None = None
     """Another URL, judged again by the domain policy."""
 
@@ -4408,6 +4415,12 @@ class SecretInputRefusedReason(StrEnum):
     """
     The receiving host was reached through an invalid-certificate
     exception (ADR 0042), so whoever holds its key may not be the site.
+    """
+    other_code_may_read = "other_code_may_read"
+    """
+    The browser is shared with other code (a Borrowed browser, a shared
+    `cdp_url`, an open raw CDP session, or a Lent page), which could read
+    the typed value or header (ADR 0092).
     """
 
 
@@ -9534,7 +9547,7 @@ class ExplainedSetting(BaseModel):
 class FillParams(BaseModel):
     """
     What `locator.fill` takes: the locator whose field it fills, and the
-    text.
+    text or Secret placeholder name.
     """
 
     model_config = ConfigDict(
@@ -9542,8 +9555,17 @@ class FillParams(BaseModel):
     )
     locator: Locator
     """The locator."""
+    secret: str | None = None
+    """
+    A Secret placeholder name bound in `secrets.placeholders` (ADR 0092):
+    resolved at the moment of use only when the target field's frame is on
+    the placeholder's bound domains and no other code may read the browser.
+    """
     value: str
-    """The text the field holds afterwards; an empty text clears it."""
+    """
+    The text the field holds afterwards, or a `%name%` Secret placeholder
+    (ADR 0092); an empty text clears it (or accompanies `secret`).
+    """
 
 
 class FormatsRequest(BaseModel):

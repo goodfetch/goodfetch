@@ -693,6 +693,7 @@ fn overrides(params: RouteOverridesParams) -> Overrides {
         url: params.url,
         method: params.method,
         headers: params.headers,
+        secret_headers: params.secret_headers,
         post_data: params.post_data,
     }
 }
@@ -885,14 +886,7 @@ fn with_locator_handlers(contribution: Contribution, pages: &Pages) -> Contribut
             move |params: FillParams, context: CallContext| {
                 let pages = filling.clone();
                 in_call((LOCATOR_FILL.name, context.form()), async move {
-                    pages
-                        .act(
-                            LOCATOR_FILL.name,
-                            params.locator,
-                            Ok(Action::Fill(params.value)),
-                            &context,
-                        )
-                        .await
+                    pages.fill(params, &context).await
                 })
             },
         ))
@@ -1372,6 +1366,67 @@ impl Pages {
         Ok(navigated)
     }
 
+    /// Fills `params.locator` with either a literal `value` or a bound
+    /// `secret` placeholder (explicit `secret` or `%name%` in `value`, ADR
+    /// 0092, ticket #733).
+    async fn fill(&self, params: FillParams, context: &CallContext) -> Result<Acted, CallError> {
+        let placeholder = if let Some(secret) = params.secret {
+            if !params.value.is_empty() {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    "pass either `value` or `secret` to `locator.fill`, not both",
+                ));
+            }
+            Some(secret)
+        } else {
+            params
+                .value
+                .strip_prefix('%')
+                .and_then(|rest| rest.strip_suffix('%'))
+                .filter(|name| {
+                    !name.is_empty()
+                        && name
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+                })
+                .map(str::to_owned)
+        };
+        let action = if let Some(placeholder) = placeholder {
+            let (page, _) = self
+                .open(&params.locator.page_id, |page| {
+                    Ok(Some(page.driver.action_deadline().clone()))
+                })
+                .await?;
+            self.bound_secret(&page, &placeholder)
+                .map(Action::FillSecret)
+        } else {
+            Ok(Action::Fill(params.value))
+        };
+        self.act(LOCATOR_FILL.name, params.locator, action, context)
+            .await
+    }
+
+    /// Binds one Secret placeholder for typing into a form field on `page`,
+    /// through `page`'s Session's settings beneath its Run's.
+    fn bound_secret(
+        &self,
+        page: &OpenPage,
+        placeholder: &str,
+    ) -> Result<crate::placeholders::BoundSecret, CallError> {
+        let (_, own) = self.sessions.own_settings(&page.session)?;
+        let settings = page.run.identity.settings().map(|settings| {
+            settings
+                .resolved()
+                .beneath(&own)
+                .expect("invariant: the Session's own settings opened beneath its Run's")
+        });
+        crate::placeholders::BoundSecret::bind(
+            (&page.run.identity, &page.run.keys),
+            settings.as_ref(),
+            placeholder,
+        )
+    }
+
     /// Performs `action` on the element `locator` matches, through the
     /// guard; `action` is the params' own failure when they name none.
     #[tracing::instrument(name = "page", level = "debug", skip_all, fields(page_id = %locator.page_id.0, operation = operation, run_id = tracing::field::Empty))]
@@ -1448,6 +1503,9 @@ impl Pages {
         let events = self.events(&params.page_id)?;
         let limits = Limits::of_run(page.run.identity.settings());
         let placeholders = self.placeholders(&page, &params)?;
+        if let Some(placeholders) = &placeholders {
+            placeholders.admit_driver(&page.driver, &params.url, params.post_data.is_some())?;
+        }
         let request = browser_fetch::Request {
             url: &params.url,
             method: params.method.as_deref(),

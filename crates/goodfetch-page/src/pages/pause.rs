@@ -335,6 +335,47 @@ impl Pages {
         .await
     }
 
+    async fn record_person_end(
+        &self,
+        page: &OpenPage,
+        page_id: &PageId,
+        (reason, until_text): (Option<&str>, Option<&str>),
+        ended: &str,
+        waited: u64,
+        (person, note): (&str, Option<&str>),
+    ) {
+        let mut trace_extra = json!({ "person": person });
+        let mut audit_details = json!({
+            "session": page.session.0,
+            "page": page_id.0,
+            "ended": ended,
+            "person": person,
+        });
+        if let Some(note) = note {
+            trace_extra["note"] = json!(note);
+            audit_details["note"] = json!(note);
+        }
+        record_trace(
+            page,
+            page_id,
+            reason,
+            until_text,
+            ended,
+            waited,
+            trace_extra,
+        )
+        .await;
+        record_audit(
+            page,
+            page_id,
+            Actor::Person {
+                name: person.to_owned(),
+            },
+            audit_details,
+        )
+        .await;
+    }
+
     async fn finish_pause(
         &self,
         page: &OpenPage,
@@ -368,29 +409,17 @@ impl Pages {
                 person,
                 waited,
             }) => {
-                let answer_name = match answer {
-                    PauseAnswer::Done => "done",
-                    PauseAnswer::HandBack => "hand_back",
-                    PauseAnswer::Decline => "decline",
-                };
-                record_trace(
+                self.record_person_end(
                     page,
                     page_id,
-                    reason,
-                    until_text,
-                    answer_name,
-                    waited,
-                    json!({ "person": person }),
-                )
-                .await;
-                let audit_details = json!({ "session": page.session.0, "page": page_id.0, "ended": answer_name, "person": person });
-                record_audit(
-                    page,
-                    page_id,
-                    Actor::Person {
-                        name: person.clone(),
+                    (reason, until_text),
+                    match answer {
+                        PauseAnswer::Done => "done",
+                        PauseAnswer::HandBack => "hand_back",
+                        PauseAnswer::Decline => "decline",
                     },
-                    audit_details,
+                    waited,
+                    (&person, None),
                 )
                 .await;
                 self.judge_after_pause(page, page_id).await?;
@@ -405,24 +434,13 @@ impl Pages {
                 note,
                 waited,
             }) => {
-                record_trace(
+                self.record_person_end(
                     page,
                     page_id,
-                    reason,
-                    until_text,
+                    (reason, until_text),
                     "declined",
                     waited,
-                    json!({ "person": person, "note": note }),
-                )
-                .await;
-                let audit_details = json!({ "session": page.session.0, "page": page_id.0, "ended": "declined", "person": person, "note": note });
-                record_audit(
-                    page,
-                    page_id,
-                    Actor::Person {
-                        name: person.clone(),
-                    },
-                    audit_details,
+                    (&person, note.as_deref()),
                 )
                 .await;
                 Err(declined(Some(person), note))

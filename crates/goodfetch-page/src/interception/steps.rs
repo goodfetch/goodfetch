@@ -17,6 +17,7 @@ use goodfetch_clean_up_rules::rules::FilterLists;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::egress::{self, Judgment, Policy, Refused, RequestKind};
 use goodfetch_engine::request_signing::{RequestSigner, SignedHeaders};
+use goodfetch_protocol::page::request::SecretHeader;
 use url::Url;
 
 /// What to send instead of what a request carries; each part replaces the
@@ -26,6 +27,9 @@ pub(crate) struct Overrides {
     pub(crate) url: Option<String>,
     pub(crate) method: Option<String>,
     pub(crate) headers: Option<BTreeMap<String, String>>,
+    /// Headers whose values come from Secret placeholders, resolved at step 7
+    /// only on their bound domains (ADR 0092, ticket #733).
+    pub(crate) secret_headers: Option<BTreeMap<String, SecretHeader>>,
     /// In Base64.
     pub(crate) post_data: Option<String>,
 }
@@ -37,6 +41,7 @@ impl Overrides {
             url: later.url.or(self.url),
             method: later.method.or(self.method),
             headers: later.headers.or(self.headers),
+            secret_headers: later.secret_headers.or(self.secret_headers),
             post_data: later.post_data.or(self.post_data),
         }
     }

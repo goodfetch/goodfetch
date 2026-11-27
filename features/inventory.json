@@ -11496,6 +11496,17 @@
       ]
     },
     {
+      "id": "setting:session.http_credentials",
+      "kind": "setting",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:session.page_check",
       "kind": "setting",
       "area": 5,

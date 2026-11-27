@@ -2673,6 +2673,40 @@
           "session": {
             "additionalProperties": false,
             "properties": {
+              "http_credentials": {
+                "description": "HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "One entry of `session.http_credentials` (ADR 0092).",
+                  "properties": {
+                    "domains": {
+                      "arrived_in": "0.1",
+                      "description": "The registrable domains (or `*`) allowed to receive these credentials\non an HTTP 401 challenge; required and non-empty.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "password": {
+                      "arrived_in": "0.1",
+                      "description": "The HTTP authentication password, as a Secret reference (`env:`,\n`keychain:`, `op://`, `caller:`), never a raw value.",
+                      "type": "string"
+                    },
+                    "username": {
+                      "arrived_in": "0.1",
+                      "description": "The HTTP authentication username.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "username",
+                    "password",
+                    "domains"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "page_check": {
                 "anyOf": [
                   {

@@ -413,7 +413,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RouteFetched": { fields: { "status_text": "statusText" } },
     "RouteFulfillParams": { fields: { "content_type": "contentType", "route_id": "routeId" } },
     "RouteHandleParams": { fields: { "page_id": "pageId", "request": ["request", { type: "RouteRequest" }], "route_id": "routeId" } },
-    "RouteOverridesParams": { fields: { "post_data": "postData", "route_id": "routeId" } },
+    "RouteOverridesParams": { fields: { "post_data": "postData", "route_id": "routeId", "secret_headers": "secretHeaders" } },
     "RouteRequest": { fields: { "is_navigation_request": "isNavigationRequest", "post_data": "postData", "resource_type": "resourceType" } },
     "RowsField": { fields: { "fields": ["fields", { values: { type: "ValueField" } }] } },
     "RunAbortParams": { fields: { "run_id": "runId" } },

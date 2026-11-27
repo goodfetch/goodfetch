@@ -264,7 +264,7 @@ impl Browser {
             identity: None,
             process: None,
             closing: CancellationToken::new(),
-            launched: false,
+            launched: true,
             state: Arc::default(),
             root_fell_behind: CancellationToken::new(),
             request: None,
@@ -298,6 +298,7 @@ impl PageDriver {
             frame: replay::FRAME.to_owned(),
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
+            other_code: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
             value: RequestValue::new(PageValue::empty()),
             waits: None,
@@ -849,13 +850,33 @@ impl Connect for LocalBrowser {
     }
 }
 
+/// One parsed `session.http_credentials` entry, with its `password` already
+/// parsed as a [`SecretReference`] when the Session opened.
+pub(crate) struct BoundHttpCredential {
+    pub(crate) username: String,
+    pub(crate) password: goodfetch_protocol::secret_reference::SecretReference,
+    pub(crate) domains: Vec<String>,
+}
+
+/// The `session.http_credentials` entries loaded once when a Session opens
+/// (ADR 0092, ticket #733), together with the Run's Secrets that resolve
+/// their passwords on matching HTTP authentication challenges.
+pub(crate) struct HttpCredentials {
+    pub(crate) run_id: goodfetch_protocol::run::RunId,
+    pub(crate) secrets: goodfetch_engine::secrets::RunSecrets,
+    pub(crate) entries: Vec<BoundHttpCredential>,
+    pub(crate) layer: Option<goodfetch_protocol::settings::SettingsLayer>,
+}
+
 /// What a Session's connections leave through: its upstream proxy, if it
-/// has one, and the egress relay its browser reaches the network through,
-/// if it has one.
+/// has one, the egress relay its browser reaches the network through,
+/// if it has one, and its domain-bound HTTP authentication credentials, if
+/// configured.
 #[derive(Clone, Default)]
 pub(crate) struct SessionEgress {
     pub(crate) proxy: Option<Arc<SessionProxy>>,
     pub(crate) relay: Option<Arc<EgressRelay>>,
+    pub(crate) http_credentials: Option<Arc<HttpCredentials>>,
 }
 
 /// The Session-level driver: one Session's browser context, its own
@@ -1088,6 +1109,7 @@ impl<B: Connect> SessionDriver<B> {
             frame,
             started: Arc::new(watch::Sender::new(0)),
             navigating: Arc::new(watch::Sender::new(0)),
+            other_code: Arc::new(watch::Sender::new(0)),
             spent: Duration::ZERO,
             value: RequestValue::new(PageValue::empty()),
             waits: None,
@@ -1162,6 +1184,11 @@ pub(crate) struct PageDriver {
     /// How many navigation calls wait on the page now: a request the
     /// navigation gate refuses raises from them, or else is recorded.
     navigating: Arc<watch::Sender<u32>>,
+    /// How many external holders currently have read access to this page
+    /// (an open CDP session from `page.newCDPSession`, or a library holding a
+    /// Lent page via `page.lend`): while non-zero, Secrets and HTTP
+    /// credentials are refused with `secret_input_refused` (ADR 0092).
+    other_code: Arc<watch::Sender<usize>>,
     /// What the call driving it spent of its own deadline before its work
     /// began ([`Self::having_spent`]).
     spent: Duration,
@@ -1203,6 +1230,25 @@ impl RequestValue {
 /// A navigation call waiting on its page, counted until dropped.
 pub(crate) struct NavigationCall<'page>(&'page watch::Sender<u32>);
 
+/// Marks a page as readable by external code (an open CDP session or a Lent
+/// page) until dropped (ADR 0092, ticket #733).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "used by #751 (page.newCDPSession) and #749 (page.lend), and tested by #733"
+    )
+)]
+pub(crate) struct OtherCodeGuard {
+    counter: Arc<watch::Sender<usize>>,
+}
+
+impl Drop for OtherCodeGuard {
+    fn drop(&mut self) {
+        self.counter.send_modify(|n| *n = n.saturating_sub(1));
+    }
+}
+
 impl<'page> NavigationCall<'page> {
     fn start(navigating: &'page watch::Sender<u32>) -> Self {
         navigating.send_modify(|navigating| *navigating += 1);
@@ -1243,14 +1289,43 @@ impl PageDriver {
         self.egress.relay.as_deref()
     }
 
-    /// Whether the browser asks the engine for the credentials of the proxy
-    /// it connects to: its Session's egress relay's, or an HTTP or HTTPS
-    /// proxy's, whose 407 then reaches the engine.
+    /// Its Session's domain-bound HTTP authentication credentials, if any.
+    pub(crate) fn http_credentials(&self) -> Option<&HttpCredentials> {
+        self.egress.http_credentials.as_deref()
+    }
+
+    /// Whether other code may read this page or its browser: a Borrowed
+    /// browser (`cdp_url`), a page with an open CDP session, or a Lent page
+    /// while a library is attached (ADR 0092, ticket #733).
+    pub(crate) fn other_code_may_read(&self) -> bool {
+        !self.browser.launched || *self.other_code.borrow() > 0
+    }
+
+    /// Marks this page as readable by other code until the returned guard is
+    /// dropped (for an open CDP session or a Lent page).
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "used by #751 (page.newCDPSession) and #749 (page.lend), and tested by #733"
+        )
+    )]
+    pub(crate) fn attach_other_code(&self) -> OtherCodeGuard {
+        self.other_code.send_modify(|n| *n += 1);
+        OtherCodeGuard {
+            counter: Arc::clone(&self.other_code),
+        }
+    }
+
+    /// Whether the browser asks the engine for authentication credentials:
+    /// its Session's egress relay's, an HTTP or HTTPS proxy's, or the
+    /// Session's domain-bound `session.http_credentials`.
     pub(crate) fn answers_authentication(&self) -> bool {
         self.relay().is_some()
             || self
                 .proxy()
                 .is_some_and(SessionProxy::answers_authentication)
+            || self.egress.http_credentials.is_some()
     }
 
     /// The credentials the engine answers the browser's proxy's 407 with:

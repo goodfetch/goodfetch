@@ -245,6 +245,9 @@ struct Session {
     /// `security.raw_cdp_egress_proxy` is off or it is on a Borrowed
     /// browser.
     relay: Option<Arc<EgressRelay>>,
+    /// Domain-bound HTTP authentication credentials loaded once when the
+    /// Session opens (ADR 0092, ticket #733).
+    http_credentials: Option<Arc<crate::cdp::driver::HttpCredentials>>,
     /// Set once its Provenance records how its network is held: by its
     /// egress relay, or by interception alone.
     egress_marked: OnceCell<()>,
@@ -644,6 +647,7 @@ impl Sessions {
             context,
         )
         .await?;
+        let http_credentials = http_credentials_of(&run, &settings);
         let attributes = if borrowed.is_some() { BORROWED } else { FRESH };
         // It goes into the table under the lock, while its Run is there:
         // once the Run stops, its clean-up has taken the Run out, and a
@@ -655,7 +659,7 @@ impl Sessions {
                 &runs.pool,
                 borrowed.as_ref(),
                 placement(fingerprint.as_ref(), gpc),
-                egress(proxy.as_ref(), relay.as_ref()),
+                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
                 TaskStarter::clone(&owner),
             );
             let session = session_id(run.identity.id(), position);
@@ -667,6 +671,7 @@ impl Sessions {
                 signing,
                 gpc.header_only(),
                 identity.mode == crate::access_mode::AccessMode::Identified,
+                settings.clone(),
             );
             let open = Arc::new(Session {
                 owner,
@@ -679,6 +684,7 @@ impl Sessions {
                 proxy,
                 egress_marked: OnceCell::new(),
                 relay,
+                http_credentials,
                 reopen_failed: None,
                 held_frames: borrowed
                     .as_ref()
@@ -820,11 +826,16 @@ impl Sessions {
             context,
         )
         .await?;
+        let http_credentials = http_credentials_of(run, &Values::default());
         let seat = match borrowed {
-            Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
+            Some(cdp_url) => pool.borrowed_seat(
+                cdp_url.clone(),
+                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
+                TaskStarter::clone(&owner),
+            ),
             None => pool.seat(
                 placement(fingerprint.as_ref(), gpc),
-                egress(proxy.as_ref(), relay.as_ref()),
+                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
                 TaskStarter::clone(&owner),
             ),
         };
@@ -849,6 +860,7 @@ impl Sessions {
             signing,
             gpc.header_only(),
             identity.mode == crate::access_mode::AccessMode::Identified,
+            Values::default(),
         );
         let held = Arc::new(Session {
             owner,
@@ -861,6 +873,7 @@ impl Sessions {
             proxy,
             egress_marked: OnceCell::new(),
             relay,
+            http_credentials,
             reopen_failed: None,
             held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
             injections: Injections::default(),
@@ -1986,15 +1999,20 @@ async fn reopened_session(
         storage: carried.storage_map(),
         last: carried.clone(),
     }));
+    let http_credentials = http_credentials_of(run, &settings);
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
-            pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
+            pool.borrowed_seat(
+                cdp_url.clone(),
+                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
+                TaskStarter::clone(&owner),
+            ),
             BORROWED,
         ),
         None => (
             pool.seat_with_carried(
                 placement(fingerprint.as_ref(), gpc),
-                egress(proxy.as_ref(), relay.as_ref()),
+                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
                 carried,
                 TaskStarter::clone(&owner),
             ),
@@ -2008,6 +2026,7 @@ async fn reopened_session(
         signing,
         gpc.header_only(),
         identified,
+        settings.clone(),
     );
     warn_gpc(run, &session, gpc).await;
     Ok(Session {
@@ -2021,6 +2040,7 @@ async fn reopened_session(
         proxy,
         egress_marked: OnceCell::new(),
         relay,
+        http_credentials,
         reopen_failed,
         held_frames: borrowed
             .as_ref()
@@ -2353,7 +2373,7 @@ fn open_seat(
     tasks: TaskStarter,
 ) -> Seat {
     match borrowed {
-        Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), tasks),
+        Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), egress, tasks),
         None => pool.seat(placement, egress, tasks),
     }
 }
@@ -2420,6 +2440,7 @@ fn session_interception(
     signing: Option<Arc<RequestSigner>>,
     send_gpc_header: bool,
     identified: bool,
+    own_settings: Values,
 ) -> Arc<SessionInterception> {
     let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
         Lookups::new(
@@ -2433,6 +2454,7 @@ fn session_interception(
         signing,
         send_gpc_header,
         identified,
+        own_settings,
     ))
 }
 
@@ -2449,11 +2471,56 @@ fn held_browser(borrowed: Option<&CdpUrl>, relayed: bool, proxied: bool) -> Opti
     }
 }
 
-/// What a Session's connections leave through: `proxy` and `relay`.
-fn egress(proxy: Option<&Arc<SessionProxy>>, relay: Option<&Arc<EgressRelay>>) -> SessionEgress {
+/// Loads `session.http_credentials` once when a Session opens, from the
+/// Session's own settings beneath its Run's (ADR 0092, ticket #733).
+fn http_credentials_of(
+    run: &Arc<BrowserRun>,
+    own: &Values,
+) -> Option<Arc<crate::cdp::driver::HttpCredentials>> {
+    use goodfetch_protocol::secret_reference::SecretReference;
+    use goodfetch_protocol::settings::SESSION_HTTP_CREDENTIALS;
+    use goodfetch_protocol::settings::http_credentials::HttpCredential;
+    let resolved = run.identity.settings().map(|settings| {
+        settings
+            .resolved()
+            .beneath(own)
+            .expect("invariant: the Session's own settings opened beneath its Run's")
+    })?;
+    let effective = resolved.effective(&SESSION_HTTP_CREDENTIALS)?;
+    let raw: Vec<HttpCredential> = serde_json::from_value(effective.value.clone()).ok()?;
+    let entries: Vec<crate::cdp::driver::BoundHttpCredential> = raw
+        .into_iter()
+        .filter_map(|entry| {
+            let password = SecretReference::parse(&entry.password).ok()?;
+            Some(crate::cdp::driver::BoundHttpCredential {
+                username: entry.username,
+                password,
+                domains: entry.domains,
+            })
+        })
+        .collect();
+    if entries.is_empty() {
+        return None;
+    }
+    Some(Arc::new(crate::cdp::driver::HttpCredentials {
+        run_id: run.identity.id().clone(),
+        secrets: run.keys.secrets().clone(),
+        entries,
+        layer: Some(effective.layer),
+    }))
+}
+
+/// What a Session's connections leave through: `proxy`, `relay` and
+/// `http_credentials`.
+fn egress(
+    proxy: Option<&Arc<SessionProxy>>,
+    relay: Option<&Arc<EgressRelay>>,
+    http_credentials: Option<&Arc<crate::cdp::driver::HttpCredentials>>,
+) -> SessionEgress {
     SessionEgress {
         proxy: proxy.cloned(),
         relay: relay.cloned(),
+        http_credentials: http_credentials.cloned(),
     }
 }
 

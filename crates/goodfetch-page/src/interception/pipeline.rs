@@ -140,6 +140,10 @@ pub(super) struct PageContext {
     document: Mutex<Arc<str>>,
     /// The requests the Session's proxy credentials were given for.
     authenticated: Mutex<Authenticated>,
+    /// Secret headers added by a route override, keyed by CDP `NetworkId`, so
+    /// a redirect hop to another domain drops any header whose bound domains
+    /// do not include that hop's host (ADR 0092, ticket #733).
+    secret_headers: Mutex<BTreeMap<NetworkId, SecretHeaderDomains>>,
     /// The permit the page's navigation gate gave the main frame's
     /// navigation for its latest hop, and that navigation's network ID,
     /// held until the next hop, the navigation's failure or the page's
@@ -158,6 +162,10 @@ pub(super) struct PageContext {
     /// reports is recorded.
     log: Arc<RequestLog>,
 }
+
+/// `(header_name, bound_domains)` pairs tracked per `NetworkId` for redirect
+/// stripping (ADR 0092, ticket #733).
+type SecretHeaderDomains = Vec<(String, Vec<String>)>;
 
 /// A request a `fetch` sent on: its network ID, and where its paused
 /// response goes.
@@ -223,6 +231,7 @@ impl PageContext {
             carried: Mutex::new(BTreeMap::new()),
             document: Mutex::new(Arc::from("")),
             authenticated: Mutex::new(Authenticated::default()),
+            secret_headers: Mutex::new(BTreeMap::new()),
             permit: Mutex::new(None),
             proxy_permit: Mutex::new(None),
             lookups: None,
@@ -467,9 +476,13 @@ impl PageContext {
             required.loads_document() && required.frame() == self.driver.main_frame().as_str();
         let challenged = authentication::answer(&self.driver, &required, || {
             lock(&self.authenticated).seen(required.id())
-        });
-        if navigation && let Some(refused) = challenged.refused {
-            self.state.leave(refused);
+        })
+        .await;
+        if let Some(refused) = challenged.refused {
+            record_outcome(self.run.identity(), refused.code());
+            if navigation {
+                self.state.leave(refused);
+            }
         }
         let credentials_given = challenged.credentials_given;
         let answered = self
@@ -936,7 +949,7 @@ impl PageContext {
         }
         // The page whose navigation a service worker's request carries.
         let mut gated: Option<Arc<PageState>> = None;
-        let command = match stepped {
+        let mut command = match stepped {
             Ok(steps::Sent::Continue(command)) => {
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
@@ -993,10 +1006,108 @@ impl PageContext {
                 return Err(refused.error());
             }
         };
+        // Step 7: route-override Secret placeholders and cross-domain
+        // redirect stripping (ADR 0092, ticket #733).
+        self.step_seven_secrets(held, &mut command).await?;
         if held.navigation {
             *lock(&self.document) = Arc::from(held.url());
         }
         self.sent_on(held, command, fetch, gated.as_deref()).await
+    }
+
+    /// Runs [`Self::apply_secret_headers`] and fails `held` if it refuses.
+    async fn step_seven_secrets(
+        &self,
+        held: &Held,
+        command: &mut ContinueRequest,
+    ) -> Result<(), CallError> {
+        let Err(refused) = self.apply_secret_headers(held, command).await else {
+            return Ok(());
+        };
+        if held.navigation {
+            self.state.leave(refused.clone());
+        }
+        record_outcome(self.run.identity(), refused.code());
+        self.fail(held.paused.id(), AbortReason::BlockedByClient)
+            .await;
+        Err(refused)
+    }
+
+    /// Step 7 for route-override `secret_headers` (ADR 0092, ticket #733):
+    /// resolves placeholders onto `command` only when the browser is trusted
+    /// and the hop's host is on the placeholder's bound domains, and strips
+    /// any previously added secret header on a redirect hop to another domain.
+    async fn apply_secret_headers(
+        &self,
+        held: &Held,
+        command: &mut ContinueRequest,
+    ) -> Result<(), CallError> {
+        // First, if an earlier hop of this network request received secret
+        // headers, drop any whose bound domains do not include this hop's host.
+        if let Some(net_id) = held.paused.network_id() {
+            let carried = lock(&self.secret_headers).get(net_id).cloned();
+            if let Some(carried) = carried {
+                let host = crate::placeholders::host_of(held.url());
+                let drop_names: Vec<&str> = carried
+                    .iter()
+                    .filter(|(_, domains)| !goodfetch_engine::secrets::allowed(&host, domains))
+                    .map(|(name, _)| name.as_str())
+                    .collect();
+                if !drop_names.is_empty() {
+                    let mut entries = command.headers.take().unwrap_or_else(|| {
+                        held.paused
+                            .headers()
+                            .iter()
+                            .map(|(name, value)| Header {
+                                name: name.to_owned(),
+                                value: value.to_owned(),
+                            })
+                            .collect()
+                    });
+                    entries.retain(|entry| {
+                        !drop_names
+                            .iter()
+                            .any(|name| name.eq_ignore_ascii_case(&entry.name))
+                    });
+                    command.headers = Some(entries);
+                }
+            }
+        }
+        let Some(secret_headers) = held
+            .overrides
+            .secret_headers
+            .as_ref()
+            .filter(|map| !map.is_empty())
+        else {
+            return Ok(());
+        };
+        let settings = self.run.identity().settings().map(|settings| {
+            settings
+                .resolved()
+                .beneath(&self.state.own_settings)
+                .expect("invariant: the Session's own settings opened beneath its Run's")
+        });
+        let Some(placeholders) = crate::placeholders::Placeholders::bind_headers(
+            (self.run.identity(), &self.run.secrets),
+            settings.as_ref(),
+            held.overrides.headers.as_ref(),
+            secret_headers,
+        )?
+        else {
+            return Ok(());
+        };
+        placeholders.admit_driver(&self.driver, held.url(), false)?;
+        placeholders
+            .fill(held.url(), false, held.paused.headers(), command)
+            .await?;
+        if let Some(net_id) = held.paused.network_id() {
+            let mut map = lock(&self.secret_headers);
+            if map.len() >= 64 {
+                map.pop_first();
+            }
+            map.insert(net_id.clone(), placeholders.header_domains());
+        }
+        Ok(())
     }
 
     /// Sends `held` on with `command`, then tells the gate that admitted it

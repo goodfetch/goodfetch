@@ -24,6 +24,7 @@ use crate::catalog::{
 
 mod deployment;
 pub mod edit;
+pub mod http_credentials;
 pub mod page_check;
 pub mod session_source;
 
@@ -1014,6 +1015,21 @@ pub const SESSION_PAGE_CHECK: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `session.http_credentials` (ADR 0092; SA-27).
+pub const SESSION_HTTP_CREDENTIALS: Setting = Setting {
+    name: "session.http_credentials",
+    description: "HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.",
+    kind: ValueKind::Shape(&http_credentials::HTTP_CREDENTIALS_SHAPE),
+    default: empty_list,
+    clearable: false,
+    authority: Authority::NotByRecipeOrModel,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `secrets.by_reference` (ADR 0028).
 pub const SECRETS_BY_REFERENCE: Setting = Setting {
     name: "secrets.by_reference",
@@ -1327,6 +1343,7 @@ pub const ENTRIES: Entries = Entries {
         CLEAN_UP_FETCH_TIMEOUT,
         SESSION_SOURCE,
         SESSION_PAGE_CHECK,
+        SESSION_HTTP_CREDENTIALS,
         SECRETS_BY_REFERENCE,
         WEBHOOK_SIGNING,
         TIMEOUT_RUN,

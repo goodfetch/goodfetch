@@ -1188,6 +1188,15 @@ impl<T> crate::blocking::Call<T, ::goodfetch_protocol::checkpoint::RunMigratePar
     }
 }
 
+impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::FillParams> {
+    /// A Secret placeholder name bound in `secrets.placeholders` (ADR 0092):
+    /// resolved at the moment of use only when the target field's frame is on
+    /// the placeholder's bound domains and no other code may read the browser.
+    pub fn secret(self, secret: impl Into<String>) -> Self {
+        self.edit(move |params| params.secret = Some(secret.into()))
+    }
+}
+
 impl<T> crate::blocking::Call<T, ::goodfetch_protocol::page::GotoParams> {
     /// When the navigation answers; `load` when absent.
     pub fn wait_until(self, wait_until: ::goodfetch_protocol::page::WaitUntil) -> Self {

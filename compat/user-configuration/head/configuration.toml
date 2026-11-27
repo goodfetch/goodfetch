@@ -282,6 +282,7 @@ fetch_timeout = 30000
 [settings.session]
 source = { kind = "saved_identity", name = "example" }
 page_check = { expected_page = { kind = "glob", pattern = "**/reports*" }, login_page = { kind = "css", selector = "form#login" } }
+http_credentials = [{ domains = ["example.com"], password = "env:SITE_PASSWORD", username = "alice" }]
 
 [settings.session.pool]
 max_size = 4

@@ -90,6 +90,11 @@ pub(crate) enum Seen {
         /// extra CDP command (ADR 0006, ticket #2447).
         #[serde(default)]
         password: bool,
+        /// The URL of the frame that owns the focused element, read from the
+        /// same check with no extra CDP command so a Secret placeholder checks
+        /// its bound domains against the target frame's origin (ADR 0092).
+        #[serde(default)]
+        frame_url: String,
     },
     /// A locator wait's matches are in the state it waits for.
     Ready {

@@ -21,7 +21,7 @@ use super::requests::{ContinueRequest, Fulfill, Header, PausedId, RequestHeaders
 
 /// The browser's ID of a request's hop, as the page's events and its
 /// responses name it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct NetworkId(String);
 
 impl NetworkId {

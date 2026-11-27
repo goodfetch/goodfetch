@@ -1179,6 +1179,12 @@ number = 5
 kind = "error"
 prefix = "human_pause_declined"
 
+# HTTP authentication credentials bound to domains (#733, ADR 0092).
+[[area]]
+number = 5
+kind = "setting"
+prefix = "session.http_credentials"
+
 # A Block cause on a Session a program or an Agent opened (#711, ADRs 0088
 # and 0092).
 [[area]]

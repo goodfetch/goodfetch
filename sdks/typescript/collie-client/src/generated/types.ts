@@ -1956,7 +1956,7 @@ export type SecretFailure =
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SecretInputRefusedReason".
  */
-export type SecretInputRefusedReason = "invalid_certificate_exception";
+export type SecretInputRefusedReason = "invalid_certificate_exception" | "other_code_may_read";
 /**
  * What a crawl starts from (ADR 0093): a request, or a sitemap seed, which
  * seeds the entries of a site's sitemaps.
@@ -4760,7 +4760,7 @@ export interface FileWriteFailedDetails {
 }
 /**
  * What `locator.fill` takes: the locator whose field it fills, and the
- * text.
+ * text or Secret placeholder name.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "FillParams".
@@ -4771,7 +4771,14 @@ export interface FillParams {
    */
   locator: Locator;
   /**
-   * The text the field holds afterwards; an empty text clears it.
+   * A Secret placeholder name bound in `secrets.placeholders` (ADR 0092):
+   * resolved at the moment of use only when the target field's frame is on
+   * the placeholder's bound domains and no other code may read the browser.
+   */
+  secret?: string | null;
+  /**
+   * The text the field holds afterwards, or a `%name%` Secret placeholder
+   * (ADR 0092); an empty text clears it (or accompanies `secret`).
    */
   value: string;
 }
@@ -8741,6 +8748,15 @@ export interface RouteOverridesParams {
    * The request.
    */
   routeId: RouteId;
+  /**
+   * Headers whose values carry a Secret placeholder (ADR 0092): resolved
+   * at interception step 7 only when the request's host is on the
+   * placeholder's bound domains, dropped on redirect to another domain,
+   * and refused on a browser other code may read.
+   */
+  secretHeaders?: {
+    [k: string]: SecretHeader;
+  } | null;
   /**
    * Another URL, judged again by the domain policy.
    */

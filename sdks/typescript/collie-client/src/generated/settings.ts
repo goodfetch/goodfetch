@@ -578,6 +578,12 @@ export interface Settings {
   };
   readonly session?: {
     /**
+     * HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.
+     *
+     * `session.http_credentials`.
+     */
+    readonly httpCredentials?: readonly ({ readonly domains: readonly string[]; readonly password: string; readonly username: string })[];
+    /**
      * The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
      *
      * `session.page_check`.
@@ -1322,6 +1328,12 @@ export interface RunSettings {
   };
   readonly session?: {
     /**
+     * HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.
+     *
+     * `session.http_credentials`.
+     */
+    readonly httpCredentials?: readonly ({ readonly domains: readonly string[]; readonly password: string; readonly username: string })[];
+    /**
      * The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
      *
      * `session.page_check`.
@@ -1662,6 +1674,12 @@ export interface SessionSettings {
   };
   readonly session?: {
     /**
+     * HTTP Basic and Digest authentication credentials for a Session, each `{ username, password, domains }` with `password` a Secret reference and `domains` required: answers a site's 401 challenge only from a listed registrable domain (or `*`), never on a browser other code may read or a host reached through `tls.accept_invalid_certs`. Set only by the program's own code, configuration or an Operator policy — never by a Recipe or a Client acting for a model.
+     *
+     * `session.http_credentials`.
+     */
+    readonly httpCredentials?: readonly ({ readonly domains: readonly string[]; readonly password: string; readonly username: string })[];
+    /**
      * The Page check every page of a Session is judged against once its navigation reached its document: `login_page` and `expected_page`, each optional and each a page match, a URL glob or regular expression, a CSS or XPath selector, or a text. A page matching its login page raises `logged_out` from the call that waited for its navigation; one matching neither, when an expected page is given, raises `page_check_failed`. None by default: the built-in detector then judges a page a login page when the navigation was redirected to a login path, or when the page shows one password field outside a login path, and Provenance marks each page it judged as weakly checked. Set at a Run, a connection or a Session's own `settings`.
      *
      * `session.page_check`.
@@ -1984,6 +2002,7 @@ const SPELLING: Spelling = {
     secureDelete: "secure_delete",
   }],
   session: ["session", {
+    httpCredentials: "http_credentials",
     pageCheck: { setting: "page_check", value: { fields: { "expected_page": "expectedPage", "login_page": "loginPage" } } },
     source: { setting: "source", value: { fields: { "chromium_profile": "chromiumProfile" } } },
   }],

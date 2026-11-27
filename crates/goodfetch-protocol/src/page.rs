@@ -784,16 +784,23 @@ pub struct ClickParams {
 }
 
 /// What `locator.fill` takes: the locator whose field it fills, and the
-/// text.
+/// text or Secret placeholder name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FillParams {
     /// The locator.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub locator: Locator,
-    /// The text the field holds afterwards; an empty text clears it.
+    /// The text the field holds afterwards, or a `%name%` Secret placeholder
+    /// (ADR 0092); an empty text clears it (or accompanies `secret`).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub value: String,
+    /// A Secret placeholder name bound in `secrets.placeholders` (ADR 0092):
+    /// resolved at the moment of use only when the target field's frame is on
+    /// the placeholder's bound domains and no other code may read the browser.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub secret: Option<String>,
 }
 
 /// What `locator.press` takes: the locator whose element gets the key, and

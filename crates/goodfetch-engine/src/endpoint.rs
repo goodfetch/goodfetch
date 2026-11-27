@@ -161,7 +161,7 @@ impl Authorities {
 
 /// How an Exposed Daemon's address is reached (ADR 0049): the names its
 /// WebSocket handshakes may carry, and where TLS is terminated.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Exposure {
     /// The names a handshake's `Host` may carry.
     pub authorities: Authorities,
@@ -204,7 +204,7 @@ impl From<Authorities> for Exposure {
 }
 
 /// Where an Exposed Daemon's TLS is terminated (ADR 0049).
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Termination {
     /// Nowhere: a Daemon on loopback.
     Plain,
@@ -247,6 +247,10 @@ pub(crate) enum Hosts<'a> {
 pub(crate) enum Origins<'a> {
     /// None: no browser page calls the listener.
     Forbidden,
+    /// Missing `Origin` is accepted (for requests carrying a header token
+    /// that a browser page cannot send cross-site); when present, it must
+    /// match one of these names over its scheme.
+    Optional(&'a [&'a Authorities]),
     /// One of these names over `http`, and a missing one is refused: a
     /// request a page of another origin could send, such as a WebSocket
     /// handshake.
@@ -296,13 +300,20 @@ pub(crate) fn refusal(
             .any(|authorities| authorities.admits_origin(origin))
     };
     match (origins, origin) {
-        (Origins::Forbidden, None) => None,
+        (Origins::Forbidden | Origins::Optional(_), None) => None,
         (Origins::Required(_), None) => Some(Refusal::OriginMissing),
         (Origins::Forbidden, Some(_)) => Some(Refusal::OriginForeign),
-        (Origins::Required(among), Some(origin)) => {
+        (Origins::Optional(among) | Origins::Required(among), Some(origin)) => {
             (!admitted(origin, among)).then_some(Refusal::OriginForeign)
         }
     }
+}
+
+/// The bearer token of a request's `Authorization` header, if any.
+pub(crate) fn bearer(headers: &hyper::header::HeaderMap) -> Option<&str> {
+    let value = headers.get(hyper::header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, token) = value.split_once(' ')?;
+    scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
 }
 
 /// Whether an HTTP request's `Host`, with or without a port, names an IP

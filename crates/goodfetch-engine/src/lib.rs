@@ -49,6 +49,7 @@ pub mod home;
 pub mod host_name;
 pub mod hostile_input;
 pub mod http_client;
+pub mod http_listener;
 mod info;
 pub mod installed;
 mod kept_by_the_daemon;

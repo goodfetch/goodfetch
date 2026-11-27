@@ -15,6 +15,7 @@ use crate::foxhound::fetch::{
 };
 use crate::foxhound::frontier::CRAWL_KEEP_URL_FRAGMENT;
 use crate::page::access_mode::{BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, STEALTH_ITEMS};
+use crate::page::emulation::EMULATION_SETTINGS;
 use crate::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, CONTENT_EXTRACTOR, LIVE_VIEW_HIDING,
 };
@@ -105,14 +106,16 @@ pub fn label_sets(key: &str) -> bool {
 }
 
 /// Whether the key `name` is one of what a Session keeps for its life,
-/// which only its opening sets (ADRs 0021 and 0044; pitfall S05): its Access
-/// mode, an item of its Identity profile, its signing key and key directory,
-/// its proxy, or its local addresses (`egress.local_addresses`).
+/// which only its opening sets (ADRs 0021, 0044 and 0083; pitfall S05): its
+/// Access mode, an item of its Identity profile, its signing key and key
+/// directory, its device emulation and network throttling, its proxy, or its
+/// local addresses (`egress.local_addresses`).
 pub fn fixed_for_the_session(name: &str) -> bool {
     name == BROWSER_ACCESS_MODE.name
         || name == EGRESS_LOCAL_ADDRESSES.name
         || STEALTH_ITEMS.iter().any(|item| item.name == name)
         || IDENTIFIED_ITEMS.iter().any(|item| item.name == name)
+        || EMULATION_SETTINGS.iter().any(|item| item.name == name)
         || name.starts_with(PROXY_PREFIX)
 }
 

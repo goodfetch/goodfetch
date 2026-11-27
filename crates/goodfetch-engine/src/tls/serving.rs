@@ -20,7 +20,16 @@ use crate::tasks::TaskOwner;
 /// read in them last.
 pub struct ServingCertificate {
     files: Arc<ServingFiles>,
-    current: Mutex<Current>,
+    current: Arc<Mutex<Current>>,
+}
+
+impl Clone for ServingCertificate {
+    fn clone(&self) -> Self {
+        Self {
+            files: Arc::clone(&self.files),
+            current: Arc::clone(&self.current),
+        }
+    }
 }
 
 impl std::fmt::Debug for ServingCertificate {
@@ -110,7 +119,7 @@ impl ServingCertificate {
         let current = files.read()?;
         Ok(Self {
             files,
-            current: Mutex::new(current),
+            current: Arc::new(Mutex::new(current)),
         })
     }
 

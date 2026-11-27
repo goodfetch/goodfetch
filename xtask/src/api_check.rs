@@ -50,10 +50,11 @@ use serde_json::{Map, Value};
 use crate::api_baseline::{self, Changes, Outcome};
 use crate::check::Finding;
 use crate::git;
-use crate::tree::BUNDLE;
+use crate::tree::{BUNDLE, PUBLISHED_CATALOG};
 
 mod connection;
 mod defaults;
+mod published_catalog;
 
 /// Each Product's projection of the catalog.
 const PROJECTIONS: [(&str, &str); 2] = [
@@ -159,6 +160,7 @@ fn check(root: &Path) -> Result<Outcome> {
     let commit = &baseline.commit;
     let mut entries: BTreeMap<String, Changes> = BTreeMap::new();
     let mut duplicates = BTreeSet::new();
+
     for (product, path) in PROJECTIONS {
         let previous = previous_json(root, commit, path)?;
         let current = current_json(root, path)?;
@@ -168,6 +170,28 @@ fn check(root: &Path) -> Result<Outcome> {
     let current = current_json(root, BUNDLE)?;
     compare_outputs(&previous, &current, &mut entries);
     connection::compare(&previous, &current, &mut entries);
+
+    let published_path = root.join(PUBLISHED_CATALOG);
+    let previous_published = previous_json_optional(root, commit, PUBLISHED_CATALOG)?;
+    if published_path.exists() {
+        let current_bytes = std::fs::read(&published_path)
+            .with_context(|| format!("reading {PUBLISHED_CATALOG}"))?;
+        let current_published: Value = serde_json::from_slice(&current_bytes)
+            .with_context(|| format!("parsing {PUBLISHED_CATALOG}"))?;
+        published_catalog::validate_current(&current_bytes, &current_published, &mut entries)?;
+        if let Some(previous_published) = previous_published {
+            let mut published_entries: BTreeMap<String, Changes> = BTreeMap::new();
+            published_catalog::compare(
+                &previous_published,
+                &current_published,
+                &mut published_entries,
+                &mut duplicates,
+            )?;
+            for (key, changes) in published_entries {
+                entries.entry(key).or_insert(changes);
+            }
+        }
+    }
 
     let mut outcome = baseline.verdict(|entry| !api_baseline::is_package_break(entry), &entries);
     outcome.findings.extend(duplicates.iter().map(|entry| {
@@ -185,6 +209,16 @@ fn previous_json(root: &Path, commit: &str, path: &str) -> Result<Value> {
     let bytes = git::bytes(root, &["show", &format!("{commit}:{path}")])
         .with_context(|| format!("reading {path} at the previous release's commit {commit}"))?;
     serde_json::from_slice(&bytes).with_context(|| format!("parsing {path} at {commit}"))
+}
+
+/// `path` at `commit`, returning `Ok(None)` when `commit` predates `path`.
+fn previous_json_optional(root: &Path, commit: &str, path: &str) -> Result<Option<Value>> {
+    let Ok(bytes) = git::bytes(root, &["show", &format!("{commit}:{path}")]) else {
+        return Ok(None);
+    };
+    let value =
+        serde_json::from_slice(&bytes).with_context(|| format!("parsing {path} at {commit}"))?;
+    Ok(Some(value))
 }
 
 fn current_json(root: &Path, path: &str) -> Result<Value> {

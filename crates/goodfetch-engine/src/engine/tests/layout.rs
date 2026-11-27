@@ -218,6 +218,7 @@ where
             websocket: None,
             live_view: None,
             accounts: None,
+            http_listener: None,
         };
         let (network, dialer) = transport::in_memory();
         let (listener, _) = Network::InMemory(network)

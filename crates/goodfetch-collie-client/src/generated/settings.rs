@@ -55,6 +55,58 @@ pub mod browser {
         ],
     );
 
+    /// The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.color_scheme`.
+    pub const COLOR_SCHEME: crate::settings::Setting<ColorScheme> = crate::settings::Setting::new(
+        "browser.color_scheme",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.device_scale_factor`.
+    pub const DEVICE_SCALE_FACTOR: crate::settings::Setting<
+        ::goodfetch_protocol::page::emulation::DeviceScaleFactor,
+    > = crate::settings::Setting::new(
+        "browser.device_scale_factor",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.geolocation`. `None` clears it.
+    pub const GEOLOCATION: crate::settings::Setting<
+        Option<::goodfetch_protocol::page::emulation::Geolocation>,
+    > = crate::settings::Setting::new(
+        "browser.geolocation",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.has_touch`.
+    pub const HAS_TOUCH: crate::settings::Setting<bool> = crate::settings::Setting::new(
+        "browser.has_touch",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
     /// Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
     ///
     /// `browser.headless`.
@@ -77,6 +129,55 @@ pub mod browser {
         ],
     );
 
+    /// Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.is_mobile`.
+    pub const IS_MOBILE: crate::settings::Setting<bool> = crate::settings::Setting::new(
+        "browser.is_mobile",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.java_script_enabled`.
+    pub const JAVA_SCRIPT_ENABLED: crate::settings::Setting<bool> = crate::settings::Setting::new(
+        "browser.java_script_enabled",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+    ///
+    /// `browser.locale`. `None` clears it.
+    pub const LOCALE: crate::settings::Setting<Option<String>> = crate::settings::Setting::new(
+        "browser.locale",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.permissions`.
+    pub const PERMISSIONS: crate::settings::Setting<Vec<PermissionsItem>> =
+        crate::settings::Setting::new(
+            "browser.permissions",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Session,
+            ],
+        );
+
     /// Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
     ///
     /// `browser.service_workers`.
@@ -89,6 +190,32 @@ pub mod browser {
                 ::goodfetch_protocol::catalog::SettingScope::Session,
             ],
         );
+
+    /// The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+    ///
+    /// `browser.timezone_id`. `None` clears it.
+    pub const TIMEZONE_ID: crate::settings::Setting<Option<String>> = crate::settings::Setting::new(
+        "browser.timezone_id",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
+
+    /// The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+    ///
+    /// `browser.viewport`. `None` clears it.
+    pub const VIEWPORT: crate::settings::Setting<
+        Option<::goodfetch_protocol::page::emulation::Viewport>,
+    > = crate::settings::Setting::new(
+        "browser.viewport",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
 
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -131,6 +258,102 @@ pub mod browser {
                 Self::Media => "media",
                 Self::Font => "font",
                 Self::Stylesheet => "stylesheet",
+            }
+        }
+    }
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum ColorScheme {
+        /// `light`.
+        Light,
+        /// `dark`.
+        Dark,
+        /// `no-preference`.
+        NoPreference,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for ColorScheme {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Light => "light",
+                Self::Dark => "dark",
+                Self::NoPreference => "no-preference",
+            }
+        }
+    }
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum PermissionsItem {
+        /// `geolocation`.
+        Geolocation,
+        /// `midi`.
+        Midi,
+        /// `midi-sysex`.
+        MidiSysex,
+        /// `notifications`.
+        Notifications,
+        /// `camera`.
+        Camera,
+        /// `microphone`.
+        Microphone,
+        /// `background-sync`.
+        BackgroundSync,
+        /// `ambient-light-sensor`.
+        AmbientLightSensor,
+        /// `accelerometer`.
+        Accelerometer,
+        /// `gyroscope`.
+        Gyroscope,
+        /// `magnetometer`.
+        Magnetometer,
+        /// `clipboard-read`.
+        ClipboardRead,
+        /// `clipboard-write`.
+        ClipboardWrite,
+        /// `payment-handler`.
+        PaymentHandler,
+        /// `storage-access`.
+        StorageAccess,
+        /// `local-fonts`.
+        LocalFonts,
+        /// `screen-wake-lock`.
+        ScreenWakeLock,
+        /// `idle-detection`.
+        IdleDetection,
+        /// `periodic-background-sync`.
+        PeriodicBackgroundSync,
+        /// `window-management`.
+        WindowManagement,
+        /// `local-network-access`.
+        LocalNetworkAccess,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for PermissionsItem {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Geolocation => "geolocation",
+                Self::Midi => "midi",
+                Self::MidiSysex => "midi-sysex",
+                Self::Notifications => "notifications",
+                Self::Camera => "camera",
+                Self::Microphone => "microphone",
+                Self::BackgroundSync => "background-sync",
+                Self::AmbientLightSensor => "ambient-light-sensor",
+                Self::Accelerometer => "accelerometer",
+                Self::Gyroscope => "gyroscope",
+                Self::Magnetometer => "magnetometer",
+                Self::ClipboardRead => "clipboard-read",
+                Self::ClipboardWrite => "clipboard-write",
+                Self::PaymentHandler => "payment-handler",
+                Self::StorageAccess => "storage-access",
+                Self::LocalFonts => "local-fonts",
+                Self::ScreenWakeLock => "screen-wake-lock",
+                Self::IdleDetection => "idle-detection",
+                Self::PeriodicBackgroundSync => "periodic-background-sync",
+                Self::WindowManagement => "window-management",
+                Self::LocalNetworkAccess => "local-network-access",
             }
         }
     }
@@ -849,6 +1072,20 @@ pub mod network {
                 ::goodfetch_protocol::catalog::SettingScope::Run,
             ],
         );
+
+    /// Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+    ///
+    /// `network.throttle`. `None` clears it.
+    pub const THROTTLE: crate::settings::Setting<
+        Option<::goodfetch_protocol::page::emulation::NetworkThrottle>,
+    > = crate::settings::Setting::new(
+        "network.throttle",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Session,
+        ],
+    );
 }
 
 /// The `politeness.*` settings.

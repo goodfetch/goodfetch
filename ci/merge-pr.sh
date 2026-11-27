@@ -590,16 +590,19 @@ if ((status != 0)); then
   keep_failed_gate
   exit "$status"
 fi
-# The incremental gate's verdict combines this run with the green results it
-# reused from earlier runs on ancestor heads (ADR 0135); the full gate's plan
-# names the nearest such run. A gate that ran on a dirty tree leaves no plan,
-# and so reused nothing.
-plan_file="$(cd "$worktree" && "$here/gate-records.sh")/$head.plan"
-if [[ $gate == all && -f $plan_file ]]; then
-  plan=$(cat "$plan_file")
-  reused=$(output_value previous "$plan")
-  if [[ $reused != none ]]; then
-    ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
+# Before merging, verify the signed verdict of `head` (ADR 0135): every unit
+# of every required step holds a signed green result on `head` or reused from
+# an earlier signed run on an ancestor with that ancestor's tree. The merge
+# commit names every earlier run it reused, not only the nearest.
+if [[ $gate == all || $gate == quick ]]; then
+  if ! verdict=$(cd "$worktree" && just _gate-verify "$gate" "$head"); then
+    echo "error: the gate's verdict of $head did not hold; refusing to merge" >&2
+    keep_failed_gate
+    exit 1
+  fi
+  origins=$(awk -F'\t' '$1 == "origin" { print $2 }' <<<"$verdict" | paste -sd, - | sed 's/,/, /g')
+  if [[ -n $origins ]]; then
+    ran+=" reusing the green results of the gate runs on $origins for the steps the change since did not reach (ADR 0135),"
   fi
 fi
 

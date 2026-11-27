@@ -30,6 +30,7 @@ mod fetch_tiers;
 mod formats;
 mod guard;
 mod hostile_input;
+mod http_listener;
 mod launch;
 mod navigation;
 mod page_check;
@@ -186,6 +187,8 @@ pub(crate) enum Case {
     RobotsTxt(robots_txt::Case),
     /// A page's Response cache case.
     ResponseCache(response_cache::Case),
+    /// A Daemon HTTP JSON-RPC listener case (`POST /v1/rpc`, #1400).
+    HttpListener(http_listener::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -661,6 +664,7 @@ impl Case {
             .or_else(|| formats::references::Case::from_id(id).map(Self::References))
             .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
             .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor))
+            .or_else(|| http_listener::Case::from_id(id).map(Self::HttpListener))
             .or_else(|| launch::Case::from_id(id).map(Self::Launch))
             .or_else(|| stealth::Case::from_id(id).map(Self::Stealth))
     }
@@ -825,6 +829,7 @@ impl Case {
                 site,
                 checks,
             ),
+            Self::HttpListener(case) => case.run(connection, target, checks),
         }
     }
 }

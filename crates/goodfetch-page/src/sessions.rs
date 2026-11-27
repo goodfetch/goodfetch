@@ -118,6 +118,7 @@ use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
 use crate::egress_relay::{self, EgressRelay};
+use crate::emulation::{self, SessionEmulation};
 pub(crate) use crate::errors::page_closed;
 use crate::errors::{cancelled, invalid_transition};
 use crate::fingerprint_method::FingerprintPlan;
@@ -606,7 +607,8 @@ impl Sessions {
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
-        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
+        let (identity, emulation) =
+            session_plans(&settings, &run.identity, named.as_ref(), context)?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
         let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
         let borrowed = opening_source(named)?;
@@ -635,16 +637,14 @@ impl Sessions {
         let (session, life, open) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run.identity)?;
-            let seat = match &borrowed {
-                Some(cdp_url) => runs
-                    .pool
-                    .borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
-                None => runs.pool.seat(
-                    placement(&run, fingerprint.as_ref()),
-                    egress(proxy.as_ref(), relay.as_ref()),
-                    TaskStarter::clone(&owner),
-                ),
-            };
+            let seat = seat_for(
+                &runs.pool,
+                borrowed.as_ref(),
+                placement(&run, fingerprint.as_ref()),
+                egress(proxy.as_ref(), relay.as_ref()),
+                emulation,
+                TaskStarter::clone(&owner),
+            );
             let session = session_id(run.identity.id(), position);
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
             let interception = session_interception(
@@ -710,15 +710,22 @@ impl Sessions {
         context: &CallContext,
     ) -> Result<PageOpened, CallError> {
         let run = live(run_id, context).await?;
+        let _ = page_settings(settings, &run, context)?;
         let named = named_source(&run, None, context);
-        let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
+        let (identity, emulation) =
+            session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
             .get_or_try_init(|| {
-                self.open_held(&run, borrowed.as_ref(), &identity, Opener::Default, context)
+                self.open_held(
+                    &run,
+                    borrowed.as_ref(),
+                    (&identity, &emulation),
+                    Opener::Default,
+                    context,
+                )
             })
             .await?;
         if reached(&mut *self.state.lock().await, &run.identity)?
@@ -749,7 +756,7 @@ impl Sessions {
         &self,
         run: &Arc<BrowserRun>,
         borrowed: Option<&CdpUrl>,
-        identity: &SessionIdentityPlan,
+        (identity, emulation): (&SessionIdentityPlan, &SessionEmulation),
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
@@ -786,6 +793,7 @@ impl Sessions {
             None => pool.seat(
                 placement(run, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
+                emulation.clone(),
                 TaskStarter::clone(&owner),
             ),
         };
@@ -963,8 +971,8 @@ impl Sessions {
     ) -> Result<SessionId, CallError> {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
-        let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
+        let (identity, emulation) =
+            session_plans(&Values::default(), &run.identity, named.as_ref(), context)?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
@@ -977,7 +985,15 @@ impl Sessions {
             address_ordinal: pooled.address_ordinal,
         };
         let position = *cell
-            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), &identity, opener, context))
+            .get_or_try_init(|| {
+                self.open_held(
+                    &run,
+                    borrowed.as_ref(),
+                    (&identity, &emulation),
+                    opener,
+                    context,
+                )
+            })
             .await?;
         Ok(session_id(run.identity.id(), position))
     }
@@ -1871,7 +1887,7 @@ async fn reopened_session(
         context,
     )
     .await;
-    let ((signing, fingerprint, human_input), reopen_failed) = match reopened_identity(
+    let (reopened, reopen_failed) = match reopened_identity(
         (run, human_cell),
         &settings,
         borrowed.is_some(),
@@ -1881,8 +1897,14 @@ async fn reopened_session(
     .await
     {
         Ok(identity) => (identity, reopen_failed),
-        Err(error) => ((None, None, None), reopen_failed.or(Some(error))),
+        Err(error) => (ReopenedIdentity::default(), reopen_failed.or(Some(error))),
     };
+    let ReopenedIdentity {
+        signing,
+        fingerprint,
+        human_input,
+        emulation,
+    } = reopened;
     let session = session_id(run.identity.id(), position);
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
@@ -1893,6 +1915,7 @@ async fn reopened_session(
             pool.seat(
                 placement(run, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
+                emulation,
                 TaskStarter::clone(&owner),
             ),
             FRESH,
@@ -1990,6 +2013,53 @@ fn access_mode_opens(
     let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
     access_mode::resolve(&settings, source, BrowserFamily::of(source))
         .and_then(|plan| plan.built(&settings))
+        .map_err(|refusal| refusal.call_error(context))
+}
+
+/// A seat in `pool` for either a Borrowed browser (`borrowed`) or a managed
+/// browser placed under `placement` with `egress` and `emulation`.
+fn seat_for(
+    pool: &Pool,
+    borrowed: Option<&CdpUrl>,
+    placement: (Placement, Window),
+    egress: SessionEgress,
+    emulation: SessionEmulation,
+    owner: TaskStarter,
+) -> Seat {
+    match borrowed {
+        Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), owner),
+        None => pool.seat(placement, egress, emulation, owner),
+    }
+}
+
+/// The Access mode and device emulation plans a Session of the Run
+/// `identity` opens with, from `own` over the Run's settings and `named`
+/// (ADR 0083; spec #578, ticket #3289).
+fn session_plans(
+    own: &Values,
+    identity: &RunIdentity,
+    named: Option<&NamedSource>,
+    context: &CallContext,
+) -> Result<(SessionIdentityPlan, SessionEmulation), CallError> {
+    let access = access_mode_opens(own, identity, named, context)?;
+    let emulation = emulation_opens(own, identity, named, context)?;
+    Ok((access, emulation))
+}
+
+/// The device emulation and network throttling a Session of the Run
+/// `identity` opens with, from `own` over the Run's settings and `named`
+/// (ADR 0083; spec #578, ticket #3289).
+fn emulation_opens(
+    own: &Values,
+    identity: &RunIdentity,
+    named: Option<&NamedSource>,
+    context: &CallContext,
+) -> Result<SessionEmulation, CallError> {
+    let source = named.map(|named| &named.source);
+    let source_layer = named.map(|named| named.layer);
+    let family = BrowserFamily::of(source);
+    let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
+    emulation::resolve(&settings, source, source_layer, family)
         .map_err(|refusal| refusal.call_error(context))
 }
 
@@ -2289,28 +2359,37 @@ async fn human_input_of(
 ///
 /// As [`access_mode_opens`], [`open_signing`] and [`fingerprint_of`] say:
 /// the Session then raises it from each page it is asked for.
+#[derive(Default)]
+struct ReopenedIdentity {
+    signing: Option<Arc<RequestSigner>>,
+    fingerprint: Option<FingerprintPlan>,
+    human_input: Option<human_input::Plan>,
+    emulation: SessionEmulation,
+}
+
 async fn reopened_identity(
     (run, human_cell): (&Arc<BrowserRun>, &OnceCell<human_input::Plan>),
     settings: &Values,
     borrowed: bool,
     seed: IdentitySeed,
     context: &CallContext,
-) -> Result<
-    (
-        Option<Arc<RequestSigner>>,
-        Option<FingerprintPlan>,
-        Option<human_input::Plan>,
-    ),
-    CallError,
-> {
+) -> Result<ReopenedIdentity, CallError> {
     if borrowed {
-        return Ok((None, None, None));
+        return Ok(ReopenedIdentity {
+            emulation: SessionEmulation::borrowed(),
+            ..ReopenedIdentity::default()
+        });
     }
-    let identity = access_mode_opens(settings, &run.identity, None, context)?;
+    let (identity, emulation) = session_plans(settings, &run.identity, None, context)?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
     let fingerprint = fingerprint_of(run, settings, &identity, seed, context).await?;
     let human_input = human_input_of(human_cell, run, &identity, context).await;
-    Ok((signing, fingerprint, human_input))
+    Ok(ReopenedIdentity {
+        signing,
+        fingerprint,
+        human_input,
+        emulation,
+    })
 }
 
 /// Where a Session of `run` whose pages mask their fingerprint as

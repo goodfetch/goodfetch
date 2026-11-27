@@ -9,13 +9,14 @@ use rstest::rstest;
 use serde_json::{Value, json};
 
 use super::RefusalCase;
-use crate::catalog::ProtocolVersion;
+use crate::catalog::{PROTOCOL_VERSION, Product, ProtocolVersion};
 use crate::error_code::ErrorCode;
-use crate::formats::{Compatibility, PLUGIN_MANIFEST};
+use crate::formats::{Compatibility, PLUGIN_MANIFEST, PUBLISHED_CATALOG};
 use crate::plugin::{
     DeclaredKind, HelloRefusal, MANIFEST_VERSION, NetworkLevel, PLUGIN_PROTOCOL, PluginHelloResult,
     PluginKindName, PluginManifest, PluginProtocolRange, check_hello,
 };
+use crate::published_catalog::{PublishedCatalog, PublishedCatalogError, SCHEMA_DRAFT};
 
 /// Each generated case, every registered format's among them, against the
 /// compatibility function of the rule it names: a function that disagrees
@@ -156,5 +157,80 @@ fn each_generated_refusal_of_the_plugin_manifest_is_settled_by_its_version(
             .compatibility(PLUGIN_MANIFEST.version, found),
         case.compatibility,
         "{case:#?}"
+    );
+}
+
+/// Each generated refusal case of the published Operation catalog (ADR 0066;
+/// issue 1662): its `format_version` is read before any field added by a newer
+/// version, and `PublishedCatalog::read` refuses every incompatible version.
+///
+/// Covers: format:published-catalog
+#[rstest]
+fn each_generated_refusal_of_the_published_catalog_is_settled_by_its_version(
+    #[files("generated/refusals/published-catalog/*.json")]
+    #[mode = str]
+    case: &str,
+) {
+    let case: RefusalCase = serde_json::from_str(case).unwrap();
+    let payload = json!({
+        "format_version": case.found.to_string(),
+        "protocol_version": PROTOCOL_VERSION.to_string(),
+        "$schema": SCHEMA_DRAFT,
+        "catalog": {},
+        "connection": {},
+        "$defs": {},
+        "added_in_a_newer_version": true,
+    })
+    .to_string();
+    assert_eq!(case.reader, PUBLISHED_CATALOG.version, "{case:#?}");
+
+    let found = PublishedCatalog::version_of(payload.as_bytes()).unwrap();
+    assert_eq!(found, case.found, "{case:#?}");
+    assert_eq!(
+        PUBLISHED_CATALOG
+            .rule
+            .compatibility(PUBLISHED_CATALOG.version, found),
+        case.compatibility,
+        "{case:#?}"
+    );
+    if case.compatibility != Compatibility::Compatible {
+        let error = PublishedCatalog::read(payload.as_bytes()).unwrap_err();
+        assert!(
+            matches!(error, PublishedCatalogError::UnsupportedVersion { found: actual, .. } if actual == case.found),
+            "expected UnsupportedVersion for {case:#?}, got {error}"
+        );
+    }
+}
+
+/// The committed `compat/published-catalog/head/catalog.json` and the full
+/// generated `goodfetch-catalog.json` both parse through
+/// `PublishedCatalog::read`, carry both Products' marks, and declare the
+/// current protocol version.
+///
+/// Covers: format:published-catalog
+#[test]
+fn published_catalog_head_and_generated_file_parse_with_both_product_marks() {
+    const HEAD: &str = include_str!("../../../../compat/published-catalog/head/catalog.json");
+    const GENERATED: &str = include_str!("../../generated/goodfetch-catalog.json");
+
+    let head = PublishedCatalog::read(HEAD.as_bytes()).unwrap();
+    assert_eq!(head.format_version, PUBLISHED_CATALOG.version);
+    assert_eq!(head.protocol_version, PROTOCOL_VERSION);
+
+    let generated = PublishedCatalog::read(GENERATED.as_bytes()).unwrap();
+    assert_eq!(generated.format_version, PUBLISHED_CATALOG.version);
+    assert_eq!(generated.protocol_version, PROTOCOL_VERSION);
+    let operations = generated.catalog["operations"].as_array().unwrap();
+    assert!(
+        operations
+            .iter()
+            .any(|op| op["product"] == Product::Collie.as_str()),
+        "generated catalog must carry Collie operations"
+    );
+    assert!(
+        operations
+            .iter()
+            .any(|op| op["product"] == Product::Foxhound.as_str()),
+        "generated catalog must carry Foxhound operations"
     );
 }

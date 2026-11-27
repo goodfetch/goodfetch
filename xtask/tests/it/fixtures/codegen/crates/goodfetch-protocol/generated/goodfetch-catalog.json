@@ -1,0 +1,345 @@
+{
+  "$defs": {
+    "HelloParams": {
+      "additionalProperties": false,
+      "description": "What a `hello` says, the Connection's own message.",
+      "properties": {
+        "protocol_version": {
+          "description": "The protocol version the sender speaks.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol_version"
+      ],
+      "type": "object"
+    },
+    "SampleCrawlParams": {
+      "additionalProperties": false,
+      "description": "What `sample.crawl` starts from.",
+      "properties": {
+        "echo": {
+          "$ref": "#/$defs/SampleEchoParams",
+          "description": "The text each page repeats, a type Collie's catalog defines."
+        },
+        "pages": {
+          "description": "How many pages to visit.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "echo",
+        "pages"
+      ],
+      "type": "object"
+    },
+    "SampleCrawlResult": {
+      "description": "What `sample.crawl` answers.",
+      "properties": {
+        "visited": {
+          "description": "How many pages were visited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visited"
+      ],
+      "type": "object"
+    },
+    "SampleCrawled": {
+      "description": "What `sample.crawled` reports.",
+      "properties": {
+        "visited": {
+          "description": "How many pages were visited.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "visited"
+      ],
+      "type": "object"
+    },
+    "SampleEchoParams": {
+      "additionalProperties": false,
+      "description": "What `sample.echo` repeats.",
+      "properties": {
+        "text": {
+          "description": "The text to repeat.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoResult": {
+      "description": "What `sample.echo` answers.",
+      "properties": {
+        "text": {
+          "description": "The text, repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleEchoed": {
+      "description": "What `sample.echoed` reports.",
+      "properties": {
+        "text": {
+          "description": "The text that was repeated.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SampleStorePutParams": {
+      "description": "What a sample store keeps.",
+      "properties": {
+        "key": {
+          "description": "The key to keep the value under.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to keep.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "SampleStorePutResult": {
+      "additionalProperties": false,
+      "description": "What a sample store answers once it kept a value.",
+      "properties": {
+        "replaced": {
+          "description": "Whether a value was already kept under the key.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "replaced"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog": {
+    "error_codes": [
+      {
+        "arrived_in": "0.1",
+        "description": "The sample crawl refused its pages.",
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "sample_crawl_refused",
+        "product": "foxhound",
+        "retryable": true
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "The sample operation refused the text.",
+        "exit_code": null,
+        "group": "refused",
+        "json_rpc_class": -32002,
+        "name": "sample_refused",
+        "product": "collie",
+        "retryable": false
+      }
+    ],
+    "error_groups": [
+      {
+        "description": "The program is wrong: its call, its settings or its own handler code. Fix the program.",
+        "json_rpc_class": -32001,
+        "name": "program",
+        "product": "collie"
+      },
+      {
+        "description": "A policy, a Limit, a lock or a person refused. Change a setting, raise the Limit or ask the operator.",
+        "json_rpc_class": -32002,
+        "name": "refused",
+        "product": "collie"
+      },
+      {
+        "description": "The page or site never reached the state the call needed. Read the Run trace; change the step, the wait or the Access mode.",
+        "json_rpc_class": -32003,
+        "name": "page",
+        "product": "collie"
+      },
+      {
+        "description": "The Model provider's answer was unusable. Change the model or the strategy.",
+        "json_rpc_class": -32004,
+        "name": "model",
+        "product": "collie"
+      },
+      {
+        "description": "The deadline passed. Raise it, or wait for the right thing.",
+        "json_rpc_class": -32005,
+        "name": "deadline_exceeded",
+        "product": "collie"
+      },
+      {
+        "description": "Something Goodfetch depends on is unreachable or gone. Retry, or fix the setup.",
+        "json_rpc_class": -32006,
+        "name": "unavailable",
+        "product": "collie"
+      },
+      {
+        "description": "A bug in Goodfetch. Report it.",
+        "json_rpc_class": -32007,
+        "name": "internal",
+        "product": "collie"
+      }
+    ],
+    "events": [
+      {
+        "arrived_in": "0.1",
+        "class": "telemetry",
+        "deprecated": null,
+        "description": "The sample crawl finished.",
+        "name": "sample.crawled",
+        "payload": {
+          "$ref": "#/$defs/SampleCrawled"
+        },
+        "product": "foxhound",
+        "stability": "stable"
+      },
+      {
+        "arrived_in": "0.1",
+        "class": "telemetry",
+        "deprecated": null,
+        "description": "A text was repeated.",
+        "name": "sample.echoed",
+        "payload": {
+          "$ref": "#/$defs/SampleEchoed"
+        },
+        "product": "collie",
+        "stability": "experimental"
+      }
+    ],
+    "exit_codes": [],
+    "handler_requests": [],
+    "hook_stages": [],
+    "kind_parts": [],
+    "metrics": [
+      {
+        "arrived_in": "0.1",
+        "description": "Pages the sample crawl visited.",
+        "instrument": "counter",
+        "labels": [],
+        "name": "goodfetch.sample.crawled_pages",
+        "product": "foxhound",
+        "stability": "experimental",
+        "unit": "{page}"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "Texts the sample operation repeated.",
+        "instrument": "counter",
+        "labels": [],
+        "name": "goodfetch.sample.echoes",
+        "product": "collie",
+        "stability": "stable",
+        "unit": "{echo}"
+      }
+    ],
+    "operations": [
+      {
+        "arrived_in": "0.1",
+        "cancellable": false,
+        "class": "effect",
+        "deprecated": null,
+        "description": "Visits sample pages, each repeating a text.",
+        "events": [
+          "sample.crawled"
+        ],
+        "kind": "round_trip",
+        "name": "sample.crawl",
+        "params": {
+          "$ref": "#/$defs/SampleCrawlParams"
+        },
+        "product": "foxhound",
+        "reach": "all_surfaces",
+        "result": {
+          "$ref": "#/$defs/SampleCrawlResult"
+        },
+        "stability": "stable"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": true,
+        "class": "read",
+        "deprecated": {
+          "earliest_removal": "1.0",
+          "note": "A sample entry, which the real catalog replaces.",
+          "replacement": null,
+          "since": "0.1"
+        },
+        "description": "Repeats a text back to the caller.",
+        "events": [
+          "sample.echoed"
+        ],
+        "kind": "round_trip",
+        "name": "sample.echo",
+        "params": {
+          "$ref": "#/$defs/SampleEchoParams"
+        },
+        "product": "collie",
+        "reach": "all_surfaces",
+        "result": {
+          "$ref": "#/$defs/SampleEchoResult"
+        },
+        "stability": "experimental"
+      }
+    ],
+    "plugin_kinds": [
+      {
+        "arrived_in": "0.1",
+        "description": "Keeps values by key for the sample operations.",
+        "methods": [
+          {
+            "description": "Keeps a value under a key.",
+            "name": "put",
+            "params": {
+              "$ref": "#/$defs/SampleStorePutParams"
+            },
+            "result": {
+              "$ref": "#/$defs/SampleStorePutResult"
+            }
+          }
+        ],
+        "name": "sample_store",
+        "product": "collie",
+        "stability": "experimental"
+      }
+    ],
+    "protocol_failures": [],
+    "protocol_version": "0.1",
+    "settings": [],
+    "shared_type_values": []
+  },
+  "connection": {
+    "hello": {
+      "params": {
+        "$ref": "#/$defs/HelloParams"
+      }
+    }
+  },
+  "format_version": "0.1",
+  "protocol_version": "0.1"
+}

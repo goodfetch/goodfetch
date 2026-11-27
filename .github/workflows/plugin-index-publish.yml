@@ -1,0 +1,115 @@
+# Signs and publishes `plugin-index/index.json` by keyless workflow identity
+# (Sigstore OIDC, no stored signing key; ADR 0033; issue 1534).
+#
+# - On push to `main` touching `plugin-index/**`, raises `version`, sets a
+#   14-day expiry, signs with keyless Sigstore (`cosign sign-blob --yes --bundle`),
+#   verifies the bundle, and publishes `index.json` + `index.json.sigstore.json`
+#   to the fixed `plugin-index` release URL.
+# - On its daily schedule, re-signs an index that is at least 10 days old so a
+#   quiet index never expires on users, and opens a GitHub issue if signing fails.
+name: plugin index publish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - plugin-index/**
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: plugin-index-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      issues: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Install cosign for keyless Sigstore signing
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+      - name: Prepare freshness version and 14-day expiry
+        id: prepare
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          min_age=0
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            min_age=10
+          fi
+          mkdir -p target/plugin-index
+          if [[ ! -f plugin-index/index.json ]]; then
+            echo "status=missing" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          published_arg=()
+          if gh release download plugin-index --pattern index.json \
+            --output target/plugin-index/published.json 2>/dev/null; then
+            published_arg=(--published target/plugin-index/published.json)
+          fi
+          cp plugin-index/index.json target/plugin-index/index.json
+          result=$(cargo run --quiet --locked --bin xtask -- release plugin-index prepare \
+            --index target/plugin-index/index.json \
+            "${published_arg[@]}" \
+            --min-age-days "$min_age")
+          if [[ "$result" == "unchanged" ]]; then
+            echo "status=unchanged" >>"$GITHUB_OUTPUT"
+          else
+            echo "status=updated" >>"$GITHUB_OUTPUT"
+          fi
+      - name: Sign plugin index by workflow identity (Sigstore keyless) and verify bundle
+        if: steps.prepare.outputs.status == 'updated'
+        env:
+          WORKFLOW_IDENTITY: "https://github.com/${{ github.repository }}/.github/workflows/plugin-index-publish.yml@refs/heads/main"
+        run: |
+          cosign sign-blob --yes \
+            --bundle target/plugin-index/index.json.sigstore.json \
+            target/plugin-index/index.json
+          cosign verify-blob \
+            --bundle target/plugin-index/index.json.sigstore.json \
+            --certificate-identity "$WORKFLOW_IDENTITY" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            target/plugin-index/index.json
+      - name: Scan signed plugin index outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/plugin-index
+      - name: Publish signed index and Sigstore bundle to the fixed URL
+        if: steps.prepare.outputs.status == 'updated' && steps.leaks.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload plugin-index --clobber \
+            target/plugin-index/index.json \
+            target/plugin-index/index.json.sigstore.json \
+          || gh release create plugin-index \
+            --title "Goodfetch Plugin Index" \
+            --notes "Signed Plugin index and Sigstore bundle." \
+            target/plugin-index/index.json \
+            target/plugin-index/index.json.sigstore.json
+      - name: Open an issue when signing or publishing fails
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: |
+          gh issue create \
+            --title "Plugin index signing failed (${GITHUB_RUN_ID})" \
+            --body "The plugin-index-publish workflow failed before publishing a fresh signed index. Inspect the run: ${RUN_URL}"

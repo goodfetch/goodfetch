@@ -407,3 +407,11 @@ reason = "`CrawlRun.records()` reads each Record as its Dataset's own output typ
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated AuditKind"
 reason = "`politeness_weakened` joined Collie's `AuditKind` so Collie records a weakened `politeness.sharing` (ADR 0086, issue 643): Foxhound's `AuditKind` inherits it through `CollieAuditKind` instead of repeating the literal, keeping the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated Surface"
+reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types Surface"
+reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."

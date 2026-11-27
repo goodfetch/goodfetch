@@ -22,17 +22,31 @@
 //! The publish: `assets` makes the GitHub Release's files ready to upload,
 //! `digests` writes each Product crate's table of its archives before
 //! `cargo package`, and `plan` lists both Products' publish steps.
+//!
+//! Size: 1,030 lines — the single release command entrypoint, Product version
+//! parser, and manifest/lockfile version rewriter; each workflow stage lives in
+//! its own submodule under `xtask/src/release/`.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
 mod assets;
+mod attest;
 mod changelog;
+mod channel_gate;
+mod chromium;
+mod clean_up_pin;
 mod digests;
 mod gates;
 mod line;
+mod package;
+mod plugin_index;
+mod proving_ground;
 mod pull_request;
+mod python_index;
+mod signing;
+mod size_manifest;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
@@ -95,6 +109,11 @@ pub(crate) enum Command {
         /// nightly `x.y.z-dev.N`, published under npm's `nightly` tag.
         #[arg(long)]
         version: ProductVersion,
+        /// Optional OCI registry URL to pin the release line's newest passing
+        /// Clean-up rules daily set into `crates/goodfetch-clean-up-rules/pin.json`
+        /// (refused on `main` or nightlies, ADR 0047).
+        #[arg(long)]
+        clean_up_registry: Option<String>,
     },
     /// Cuts minor `x.y` from `origin`'s `main`, once its release gates
     /// pass: pushes the `release/x.y` branch and the `x.y-branch` tag at
@@ -108,6 +127,10 @@ pub(crate) enum Command {
         /// (`xtask features report`'s `features.json`).
         #[arg(long)]
         feature_report: PathBuf,
+        /// Optional OCI registry URL to pin `minor`'s newest passing Clean-up
+        /// rules daily set on `release/x.y` after cutting (never on `main`).
+        #[arg(long)]
+        clean_up_registry: Option<String>,
         #[command(flatten)]
         github: github::Arguments,
     },
@@ -199,19 +222,96 @@ pub(crate) enum Command {
     /// SHA-256 from the digest table `assets` wrote in `assets` (ADRs 0051
     /// and 0094); writes nothing when the table lacks an archive.
     Digests(digests::Arguments),
+    /// Fixes the Proving ground binary's SHA-256 per target before the
+    /// Products' executables build (ADRs 0033 and 0039).
+    ProvingGroundDigests(proving_ground::Arguments),
+    /// Prints the commit's Goodfetch Chromium build-input and test-input
+    /// tree hashes as JSON (ADR 0074).
+    ChromiumTreeHashes,
+    /// Fetches the Goodfetch Chromium bundles and chromedriver from the
+    /// committed manifest after verifying input tree hashes and build and
+    /// verdict attestations; never builds Chromium (ADR 0074).
+    FetchChromium(chromium::FetchArguments),
+    /// Packages release archives, split debug symbols, `CycloneDX` SBOMs, npm
+    /// root and platform packages, `py3-none` Python wheels, and first-party
+    /// Plugin multi-platform OCI layouts from built binaries (ADRs 0090, 0094).
+    Package(package::PackageArguments),
+    /// Pushes an OCI Image Layout (multi-platform index, child manifests and
+    /// blobs) to an OCI Distribution registry.
+    OciPush(package::OciPushArguments),
+    /// Signs a release file with an ephemeral Ed25519 key and writes an in-toto
+    /// DSSE attestation beside it for local release rehearsal (ADRs 0016, 0032).
+    SignRehearsal(attest::SignRehearsalArguments),
+    /// Verifies a rehearsal artifact's detached signature and in-toto DSSE
+    /// attestation before reading it.
+    VerifyRehearsal(attest::VerifyRehearsalArguments),
+    /// Evaluates the Platform signature gate (ADR 0039, grilling G-18 Q11):
+    /// reports `not run: accounts not open` for `0.y` previews while accounts
+    /// are closed, blocks `1.0.0`+ and candidates, and verifies every target's
+    /// signatures, timestamps, notarization and entitlements when accounts are
+    /// open.
+    SignatureGate(signing::SignatureGateArguments),
+    /// Computes the deterministic reuse key for Platform-signed artifacts of a
+    /// version so re-runs reuse already-signed bytes without re-signing.
+    SigningReuseKey(signing::ReuseKeyArguments),
+    /// Verifies cross-channel executable digest equality, attestation validity,
+    /// and nightly channel exclusions before any publish step (ADRs 0030, 0032,
+    /// 0057 and 0094; issue 143).
+    ChannelGate(channel_gate::ChannelGateArguments),
+    /// Builds the `xtask size` TOML manifest over both Products' release-profile
+    /// files, excluding Goodfetch Chromium and debug symbols (ADRs 0057, 0074,
+    /// 0087 and 0094; issue 203).
+    SizeManifest(size_manifest::Arguments),
+    /// Writes the static PEP 503 HTML and PEP 691 JSON nightly Python simple
+    /// index covering the newest `--keep` nightly pre-releases (ADRs 0057, 0090
+    /// and 0094; issue 205).
+    PythonIndex(python_index::Arguments),
+    /// Pins the newest passing Clean-up rules daily set for a release line
+    /// (ADRs 0030, 0032 and 0047; issue 207).
+    PinCleanUpRules(clean_up_pin::Arguments),
+    /// Prepares or validates Plugin index files and entries (ADRs 0033, 0052; issue 1534).
+    PluginIndex {
+        #[command(subcommand)]
+        command: plugin_index::Command,
+    },
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "single top-level clap subcommand dispatcher for `xtask release`"
+)]
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = &environment.root;
     match command {
         Command::Assets { folder, part_size } => assets::run(&folder, part_size),
         Command::Digests(arguments) => digests::run(root, &arguments),
+        Command::ProvingGroundDigests(arguments) => proving_ground::run(root, &arguments),
+        Command::ChromiumTreeHashes => chromium::tree_hashes(root),
+        Command::FetchChromium(arguments) => chromium::fetch(root, &arguments),
+        Command::Package(arguments) => package::run_package(root, &arguments),
+        Command::OciPush(arguments) => {
+            package::run_oci_push(root, &arguments, environment.github_token.as_deref())
+        }
+        Command::SignRehearsal(arguments) => attest::sign_rehearsal(root, &arguments),
+        Command::VerifyRehearsal(arguments) => attest::verify_rehearsal(root, &arguments),
+        Command::SignatureGate(arguments) => signing::run_signature_gate(root, &arguments),
+        Command::SigningReuseKey(arguments) => signing::run_reuse_key(root, &arguments),
+        Command::ChannelGate(arguments) => channel_gate::run(root, &arguments),
+        Command::SizeManifest(arguments) => size_manifest::run(root, &arguments),
+        Command::PythonIndex(arguments) => python_index::run(root, &arguments),
+        Command::PinCleanUpRules(arguments) => {
+            clean_up_pin::run(root, &arguments, environment.github_token.as_deref())
+        }
+        Command::PluginIndex { command } => plugin_index::run(root, &command),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,
             environment.github_token.as_deref(),
         ),
-        Command::Prepare { version } => {
+        Command::Prepare {
+            version,
+            clean_up_registry,
+        } => {
             let findings = gates::patch(root, "HEAD", &version)?;
             if !findings.is_empty() {
                 return Ok(crate::check::report(&findings));
@@ -221,11 +321,22 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     .with_context(|| format!("writing {path}"))?;
                 output::line(&path);
             }
+            if let Some(registry) = clean_up_registry {
+                let line = format!("{}.{}", version.major, version.minor);
+                clean_up_pin::pin_release_line(
+                    root,
+                    &line,
+                    &registry,
+                    environment.github_token.as_deref(),
+                )?;
+                output::line(clean_up_pin::DEFAULT_PIN_FILE);
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Cut {
             minor,
             feature_report,
+            clean_up_registry,
             github,
         } => {
             let findings = gates::release(root, &feature_report)?;
@@ -235,6 +346,14 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             pull_request::require_clean(root)?;
             let api = github.authenticated(environment.token())?;
             let candidate = line::cut(root, minor)?;
+            if let Some(registry) = clean_up_registry {
+                clean_up_pin::pin_release_line(
+                    root,
+                    &minor.to_string(),
+                    &registry,
+                    environment.github_token.as_deref(),
+                )?;
+            }
             releaser(environment, &github, api)
                 .open(&candidate)
                 .with_context(|| {
@@ -585,6 +704,13 @@ fn prepare(tree: Tree<'_>, version: &ProductVersion) -> Result<Vec<(String, Stri
             .and_then(Item::as_inline_table)
             .is_some_and(|source| source.contains_key("editable"))
     })?);
+
+    // Shared Helm chart source versioned with the Product version (issue 202).
+    let helm_chart = "packaging/helm/goodfetch/Chart.yaml";
+    if let Ok(chart_text) = tree.read(helm_chart) {
+        let updated = package::update_helm_chart_yaml(&chart_text, &semver);
+        written.push((helm_chart.to_owned(), updated));
+    }
 
     Ok(written)
 }

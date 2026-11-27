@@ -112,3 +112,29 @@ fn each_decode_of_a_requests_params_is_counted(
     assert_eq!(decodes, requests);
     assert_eq!(decodes_planted - decodes, calls());
 }
+
+/// `POST /v1/rpc` and `GET /v1/events` over the Daemon's HTTP listener (ADR
+/// 0027, issues 1400 and 1401) go through `rpc`'s dispatch and event-stream
+/// writer: zero deep copies, one decode per request, one encode per answer and
+/// per streamed SSE event, and a plant adds one unit per call.
+#[test]
+fn http_rpc_requests_are_read_without_a_copy_decoded_once_and_encoded_once() {
+    let http_calls = u64::try_from(TRAFFIC.small + TRAFFIC.large + 2 * TRAFFIC.plugin + 2).unwrap();
+    let (copies, encodes, decodes, sent) = run(Carriage::HttpRpc, Logs::Off, None);
+    let (copies_planted, _, _, _) = run(Carriage::HttpRpc, Logs::Off, Some(Row::MessageDeepCopies));
+    let (_, encodes_planted, _, _) = run(Carriage::HttpRpc, Logs::Off, Some(Row::MessageEncodes));
+    let (_, _, decodes_planted, _) = run(Carriage::HttpRpc, Logs::Off, Some(Row::MessageDecodes));
+
+    assert_eq!(u64::try_from(sent.outgoing).unwrap(), http_calls);
+    assert!(sent.events >= 2, "{sent:?}");
+    assert_eq!(copies, 0);
+    assert_eq!(
+        encodes,
+        u64::try_from(sent.answers_and_events()).unwrap(),
+        "{sent:?}"
+    );
+    assert_eq!(decodes, http_calls);
+    assert_eq!(copies_planted - copies, http_calls);
+    assert_eq!(encodes_planted - encodes, http_calls);
+    assert_eq!(decodes_planted - decodes, http_calls);
+}

@@ -30453,6 +30453,68 @@
                     "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
                     "type": "boolean"
                   },
+                  "color_scheme": {
+                    "description": "The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "device_scale_factor": {
+                    "description": "The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.",
+                    "exclusiveMinimum": 0.0,
+                    "type": "number"
+                  },
+                  "geolocation": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Coordinates emulated for `browser.geolocation` (spec #578, Playwright's\nshape).",
+                        "properties": {
+                          "accuracy": {
+                            "arrived_in": "0.1",
+                            "description": "Non-negative accuracy in meters; `0` when left out.",
+                            "format": "double",
+                            "minimum": 0.0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "arrived_in": "0.1",
+                            "description": "Latitude in degrees, from -90 to 90.",
+                            "format": "double",
+                            "maximum": 90.0,
+                            "minimum": -90.0,
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "arrived_in": "0.1",
+                            "description": "Longitude in degrees, from -180 to 180.",
+                            "format": "double",
+                            "maximum": 180.0,
+                            "minimum": -180.0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "latitude",
+                          "longitude"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
+                  },
+                  "has_touch": {
+                    "description": "Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
                     "type": "boolean"
@@ -30461,10 +30523,58 @@
                     "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
+                  "is_mobile": {
+                    "description": "Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "java_script_enabled": {
+                    "description": "Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
                   "mirror": {
                     "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
                     "type": "string"
+                  },
+                  "permissions": {
+                    "description": "Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "items": {
+                      "enum": [
+                        "geolocation",
+                        "midi",
+                        "midi-sysex",
+                        "notifications",
+                        "camera",
+                        "microphone",
+                        "background-sync",
+                        "ambient-light-sensor",
+                        "accelerometer",
+                        "gyroscope",
+                        "magnetometer",
+                        "clipboard-read",
+                        "clipboard-write",
+                        "payment-handler",
+                        "storage-access",
+                        "local-fonts",
+                        "screen-wake-lock",
+                        "idle-detection",
+                        "periodic-background-sync",
+                        "window-management",
+                        "local-network-access"
+                      ]
+                    },
+                    "type": "array"
                   },
                   "service_workers": {
                     "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
@@ -30472,6 +30582,50 @@
                       "allow",
                       "block"
                     ]
+                  },
+                  "timezone_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
+                  "viewport": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions\nat least 1. Default is 1280×720, Playwright's; `null` clears it for the\nwindow's own size in a headful browser.",
+                        "properties": {
+                          "height": {
+                            "arrived_in": "0.1",
+                            "description": "Height in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "arrived_in": "0.1",
+                            "description": "Width in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -31705,6 +31859,55 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  },
+                  "throttle": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Chromium network throttling conditions for `network.throttle` (ADR 0083;\nspec #578).",
+                        "properties": {
+                          "download_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum download throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "latency": {
+                            "arrived_in": "0.1",
+                            "default": 0,
+                            "description": "Minimum additional round-trip latency in milliseconds; `0` by default.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "offline": {
+                            "arrived_in": "0.1",
+                            "default": false,
+                            "description": "Whether the browser appears offline; `false` by default.",
+                            "type": "boolean"
+                          },
+                          "upload_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum upload throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -35212,6 +35415,68 @@
                     "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
                     "type": "boolean"
                   },
+                  "color_scheme": {
+                    "description": "The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "device_scale_factor": {
+                    "description": "The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.",
+                    "exclusiveMinimum": 0.0,
+                    "type": "number"
+                  },
+                  "geolocation": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Coordinates emulated for `browser.geolocation` (spec #578, Playwright's\nshape).",
+                        "properties": {
+                          "accuracy": {
+                            "arrived_in": "0.1",
+                            "description": "Non-negative accuracy in meters; `0` when left out.",
+                            "format": "double",
+                            "minimum": 0.0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "arrived_in": "0.1",
+                            "description": "Latitude in degrees, from -90 to 90.",
+                            "format": "double",
+                            "maximum": 90.0,
+                            "minimum": -90.0,
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "arrived_in": "0.1",
+                            "description": "Longitude in degrees, from -180 to 180.",
+                            "format": "double",
+                            "maximum": 180.0,
+                            "minimum": -180.0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "latitude",
+                          "longitude"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
+                  },
+                  "has_touch": {
+                    "description": "Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
                     "type": "boolean"
@@ -35220,10 +35485,58 @@
                     "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
+                  "is_mobile": {
+                    "description": "Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "java_script_enabled": {
+                    "description": "Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
                   "mirror": {
                     "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
                     "type": "string"
+                  },
+                  "permissions": {
+                    "description": "Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "items": {
+                      "enum": [
+                        "geolocation",
+                        "midi",
+                        "midi-sysex",
+                        "notifications",
+                        "camera",
+                        "microphone",
+                        "background-sync",
+                        "ambient-light-sensor",
+                        "accelerometer",
+                        "gyroscope",
+                        "magnetometer",
+                        "clipboard-read",
+                        "clipboard-write",
+                        "payment-handler",
+                        "storage-access",
+                        "local-fonts",
+                        "screen-wake-lock",
+                        "idle-detection",
+                        "periodic-background-sync",
+                        "window-management",
+                        "local-network-access"
+                      ]
+                    },
+                    "type": "array"
                   },
                   "service_workers": {
                     "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
@@ -35231,6 +35544,50 @@
                       "allow",
                       "block"
                     ]
+                  },
+                  "timezone_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
+                  "viewport": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions\nat least 1. Default is 1280×720, Playwright's; `null` clears it for the\nwindow's own size in a headful browser.",
+                        "properties": {
+                          "height": {
+                            "arrived_in": "0.1",
+                            "description": "Height in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "arrived_in": "0.1",
+                            "description": "Width in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -36464,6 +36821,55 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  },
+                  "throttle": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Chromium network throttling conditions for `network.throttle` (ADR 0083;\nspec #578).",
+                        "properties": {
+                          "download_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum download throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "latency": {
+                            "arrived_in": "0.1",
+                            "default": 0,
+                            "description": "Minimum additional round-trip latency in milliseconds; `0` by default.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "offline": {
+                            "arrived_in": "0.1",
+                            "default": false,
+                            "description": "Whether the browser appears offline; `false` by default.",
+                            "type": "boolean"
+                          },
+                          "upload_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum upload throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -39987,6 +40393,68 @@
                     "description": "Whether the Run trace keeps its CDP command log, `trace/cdp-commands.jsonl`: one line for each command the engine sends a Session's browser, its method only, never its params, up to the launch's last `Browser.close`. Off by default: no command's method goes to the Run trace's writer and the file is never written. Turn it on to see every command the engine sent, such as to debug a Run. No result, Record or Provenance entry reads the log, so off weakens no guarantee.",
                     "type": "boolean"
                   },
+                  "color_scheme": {
+                    "description": "The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "enum": [
+                      "light",
+                      "dark",
+                      "no-preference"
+                    ]
+                  },
+                  "device_scale_factor": {
+                    "description": "The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.",
+                    "exclusiveMinimum": 0.0,
+                    "type": "number"
+                  },
+                  "geolocation": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Coordinates emulated for `browser.geolocation` (spec #578, Playwright's\nshape).",
+                        "properties": {
+                          "accuracy": {
+                            "arrived_in": "0.1",
+                            "description": "Non-negative accuracy in meters; `0` when left out.",
+                            "format": "double",
+                            "minimum": 0.0,
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          },
+                          "latitude": {
+                            "arrived_in": "0.1",
+                            "description": "Latitude in degrees, from -90 to 90.",
+                            "format": "double",
+                            "maximum": 90.0,
+                            "minimum": -90.0,
+                            "type": "number"
+                          },
+                          "longitude": {
+                            "arrived_in": "0.1",
+                            "description": "Longitude in degrees, from -180 to 180.",
+                            "format": "double",
+                            "maximum": 180.0,
+                            "minimum": -180.0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "latitude",
+                          "longitude"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
+                  },
+                  "has_touch": {
+                    "description": "Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
                   "headless": {
                     "description": "Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.",
                     "type": "boolean"
@@ -39995,10 +40463,58 @@
                     "description": "Whether the Session's Chromium is Chrome for Testing's `chrome-headless-shell` build, of the same pinned release, in place of the full browser: `false` by default. The shell runs only headless and differs from the full browser in fingerprint and features: a site sees its own identity, `HeadlessChrome` in its user agent and client hints, where the full build shows its window's. It starts where the full browser's headless mode cannot, such as on macOS with no GUI session (`browser_needs_gui_session`). It is downloaded on first use, as the full build is. Refused with `setting_not_applicable` beside `browser.headless: false`, and under the `stealth` Access mode, which launches its own build; a Borrowed browser launches nothing, so it takes no effect there.",
                     "type": "boolean"
                   },
+                  "is_mobile": {
+                    "description": "Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "java_script_enabled": {
+                    "description": "Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "type": "boolean"
+                  },
+                  "locale": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
                   "mirror": {
                     "description": "The URL a missing Chrome for Testing build is downloaded below, each build at `<build>/<platform>/<archive>-<platform>.zip` as Chrome for Testing lays them out: Chrome for Testing's own storage by default, or a mirror of it, whose certificate may chain to the authorities `tls.trusted_cas` lists for its domain. A mirror is an Operator-configured endpoint: `egress.no_private_endpoints` refuses one on a private address. What it sends is still checked against the pinned digest. Only Operator policy and user and project configuration set it: a Recipe's or a run's value is `setting_locked`.",
                     "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
                     "type": "string"
+                  },
+                  "permissions": {
+                    "description": "Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
+                    "items": {
+                      "enum": [
+                        "geolocation",
+                        "midi",
+                        "midi-sysex",
+                        "notifications",
+                        "camera",
+                        "microphone",
+                        "background-sync",
+                        "ambient-light-sensor",
+                        "accelerometer",
+                        "gyroscope",
+                        "magnetometer",
+                        "clipboard-read",
+                        "clipboard-write",
+                        "payment-handler",
+                        "storage-access",
+                        "local-fonts",
+                        "screen-wake-lock",
+                        "idle-detection",
+                        "periodic-background-sync",
+                        "window-management",
+                        "local-network-access"
+                      ]
+                    },
+                    "type": "array"
                   },
                   "service_workers": {
                     "description": "Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.",
@@ -40006,6 +40522,50 @@
                       "allow",
                       "block"
                     ]
+                  },
+                  "timezone_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens."
+                  },
+                  "viewport": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions\nat least 1. Default is 1280×720, Playwright's; `null` clears it for the\nwindow's own size in a headful browser.",
+                        "properties": {
+                          "height": {
+                            "arrived_in": "0.1",
+                            "description": "Height in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "width": {
+                            "arrived_in": "0.1",
+                            "description": "Width in CSS pixels, at least 1.",
+                            "format": "uint32",
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "width",
+                          "height"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"
@@ -41239,6 +41799,55 @@
                     },
                     "description": "Host names mapped to addresses before any lookup, in the engine's resolver and in Chromium, each address still checked by ADR 0017's resolved-address rule. Empty by default; an Operator policy can lock it.",
                     "type": "object"
+                  },
+                  "throttle": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "description": "Chromium network throttling conditions for `network.throttle` (ADR 0083;\nspec #578).",
+                        "properties": {
+                          "download_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum download throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "latency": {
+                            "arrived_in": "0.1",
+                            "default": 0,
+                            "description": "Minimum additional round-trip latency in milliseconds; `0` by default.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "offline": {
+                            "arrived_in": "0.1",
+                            "default": false,
+                            "description": "Whether the browser appears offline; `false` by default.",
+                            "type": "boolean"
+                          },
+                          "upload_bytes_per_second": {
+                            "arrived_in": "0.1",
+                            "description": "Maximum upload throughput in bytes per second; unthrottled when left out.",
+                            "format": "uint64",
+                            "minimum": 0,
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens."
                   }
                 },
                 "type": "object"

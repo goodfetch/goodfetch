@@ -1623,6 +1623,12 @@ class ConnectionSitePreferencesSettings(TypedDict):
     `site_preferences.purpose`.
     """
 
+    read_robots_txt_for_navigation: NotRequired[bool]
+    """Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.
+
+    `site_preferences.read_robots_txt_for_navigation`.
+    """
+
     respect_robots_txt: NotRequired[bool]
     """Whether every crawl request, start URLs and sitemap entries included, and every navigation a handler makes, obeys the site's robots.txt (RFC 9309): a request it disallows, or one waiting on a robots.txt that answers 429 or 5xx or no answer, with no earlier copy, until its retries ran out, ends `skipped` with `robots_txt` and its handler never runs. On by default. Off, robots.txt is neither fetched, read nor stored, and no Crawl-delay is recorded from it, unless `site_preferences.mark_robots_txt_ignored` marks the Records taken against it, the AI-use signals read its `Content-Signal` lines, or a sitemap seed names it for its `Sitemap` lines; its rules are then not applied, and it is listed in the run's result as a value that presses a site harder.
 
@@ -3161,6 +3167,12 @@ class RunSitePreferencesSettings(TypedDict):
     """What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).
 
     `site_preferences.purpose`.
+    """
+
+    read_robots_txt_for_navigation: NotRequired[bool]
+    """Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.
+
+    `site_preferences.read_robots_txt_for_navigation`.
     """
 
     respect_robots_txt: NotRequired[bool]

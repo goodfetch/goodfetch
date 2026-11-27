@@ -4,7 +4,8 @@
 //! every run; only with `site_preferences.respect_use_signals` on does a
 //! crawl skip a request whose signal refuses the Purpose, with
 //! `use_signals`. A Purpose left at `search` is no declaration to judge
-//! them against.
+//! them against. Whether a program's own navigation reads robots.txt for
+//! Provenance is a setting too, off by default (ticket #2448).
 
 use serde_json::Value;
 
@@ -53,6 +54,22 @@ pub const SITE_PREFERENCES_RESPECT_USE_SIGNALS: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+/// `site_preferences.read_robots_txt_for_navigation` (ADRs 0016, 0086 and
+/// 0138).
+pub const SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION: Setting = Setting {
+    name: "site_preferences.read_robots_txt_for_navigation",
+    description: "Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.",
+    kind: ValueKind::Boolean,
+    default: no,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -65,6 +82,7 @@ pub const ENTRIES: Entries = Entries {
     settings: &[
         SITE_PREFERENCES_PURPOSE,
         SITE_PREFERENCES_RESPECT_USE_SIGNALS,
+        SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION,
     ],
     hook_stages: &[],
     shared_type_values: &[],

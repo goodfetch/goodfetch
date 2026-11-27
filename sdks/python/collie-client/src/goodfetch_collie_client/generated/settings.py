@@ -854,6 +854,12 @@ class ConnectionSitePreferencesSettings(TypedDict):
     `site_preferences.purpose`.
     """
 
+    read_robots_txt_for_navigation: NotRequired[bool]
+    """Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.
+
+    `site_preferences.read_robots_txt_for_navigation`.
+    """
+
     respect_use_signals: NotRequired[bool]
     """Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.
 
@@ -1744,6 +1750,12 @@ class RunSitePreferencesSettings(TypedDict):
     """What the run's results are for, against which the AI-use signals are judged while `site_preferences.respect_use_signals` is on: `search` (the default, which no signal is judged against), `ai-input` (input to an AI model), `ai-train` (training an AI model) or `collect` (plain collection, text and data mining).
 
     `site_preferences.purpose`.
+    """
+
+    read_robots_txt_for_navigation: NotRequired[bool]
+    """Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.
+
+    `site_preferences.read_robots_txt_for_navigation`.
     """
 
     respect_use_signals: NotRequired[bool]

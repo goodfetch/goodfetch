@@ -793,6 +793,10 @@ covers = ["story:6-62", "operation:run.new_page", "operation:page.request"]
 id = "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file"
 covers = ["story:6-62", "story:6-64", "operation:run.new_session", "operation:session.new_page", "operation:session.close", "operation:page.goto"]
 
+[[capability.case]]
+id = "with-nothing-set-a-goto-and-a-page-request-read-no-robots-txt-and-record-none"
+covers = ["story:6-62", "setting:site_preferences.read_robots_txt_for_navigation", "operation:run.new_page", "operation:page.goto", "operation:page.request"]
+
 [[capability]]
 name = "response_cache"
 

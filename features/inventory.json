@@ -11321,6 +11321,17 @@
       ]
     },
     {
+      "id": "setting:site_preferences.read_robots_txt_for_navigation",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:site_preferences.respect_robots_txt",
       "kind": "setting",
       "area": 6,

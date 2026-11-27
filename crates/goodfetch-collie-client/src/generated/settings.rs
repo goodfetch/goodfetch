@@ -1418,6 +1418,18 @@ pub mod site_preferences {
         ],
     );
 
+    /// Whether a page a program opened reads its origin's robots.txt for Provenance: on, each document its main frame receives and each `page.request` it sends reads the origin's robots.txt once per Run, beside the navigation, and Provenance records whether the page was allowed, never gating it. Off by default: nothing is fetched and no Provenance entry is written. A crawl's own requests and a handler's navigations read and obey robots.txt either way, under `site_preferences.respect_robots_txt`.
+    ///
+    /// `site_preferences.read_robots_txt_for_navigation`.
+    pub const READ_ROBOTS_TXT_FOR_NAVIGATION: crate::settings::Setting<bool> =
+        crate::settings::Setting::new(
+            "site_preferences.read_robots_txt_for_navigation",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
     /// Whether the AI-use signals a site sends (IETF aipref's `Content-Usage` header, TDMRep's `tdm-reservation` header) are applied to the run's `site_preferences.purpose`: on, a crawl request whose response's signal refuses the Purpose ends `skipped` with `use_signals` and its handler never runs. Off by default; the signals are read either way.
     ///
     /// `site_preferences.respect_use_signals`.

@@ -82,6 +82,11 @@ pub struct OwnFetch<'a> {
     pub method: &'a str,
     /// Its body, if it has one.
     pub body: Option<&'a [u8]>,
+    /// Whether this navigation bypasses the Session's HTTP cache while loading
+    /// its document (`Network.setCacheDisabled` around `Page.navigate`), so a
+    /// tier race's navigation does not wait in Chrome's HTTP cache lock behind
+    /// its in-flight browser-fetch for the same URL (ADR 0040; issue 1630).
+    pub bypass_cache: bool,
 }
 
 impl OwnFetch<'_> {

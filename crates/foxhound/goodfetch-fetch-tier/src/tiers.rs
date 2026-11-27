@@ -2129,6 +2129,36 @@ impl FetchTiers {
         request: &CrawlRequest,
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
+        self.browser_opening(hand_over, pooled, request, context, false)
+            .await
+    }
+
+    /// As [`FetchTiers::browser`], bypassing the Session's HTTP cache for the
+    /// navigation so a tier race's navigation does not wait in Chrome's HTTP
+    /// cache lock behind its in-flight browser-fetch (ADR 0040; issue 1630).
+    ///
+    /// # Errors
+    ///
+    /// As [`FetchTiers::browser`].
+    pub async fn browser_raced(
+        &self,
+        hand_over: &Arc<HandOver>,
+        pooled: &PooledSession,
+        request: &CrawlRequest,
+        context: &CallContext,
+    ) -> Result<(PageId, Navigated), CallError> {
+        self.browser_opening(hand_over, pooled, request, context, true)
+            .await
+    }
+
+    async fn browser_opening(
+        &self,
+        hand_over: &Arc<HandOver>,
+        pooled: &PooledSession,
+        request: &CrawlRequest,
+        context: &CallContext,
+        bypass_cache: bool,
+    ) -> Result<(PageId, Navigated), CallError> {
         let Some(pages) = self.served.browser.get() else {
             return Err(CallError::protocol(
                 ProtocolFailure::InternalError,
@@ -2140,6 +2170,7 @@ impl FetchTiers {
             url: &request.url,
             method: request.method.as_str(),
             body: request.body.as_ref().map(HttpBody::bytes),
+            bypass_cache,
         };
         OPENING
             .scope(

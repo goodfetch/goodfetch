@@ -452,7 +452,7 @@ impl Navigation {
         let _ = sending.send(());
         let opened = tokio::select! {
             biased;
-            opened = self.tiers.browser(&self.hand_over, &self.pooled, &self.crawl_request, &self.context) => Some(opened),
+            opened = self.tiers.browser_raced(&self.hand_over, &self.pooled, &self.crawl_request, &self.context) => Some(opened),
             // Dropped, the navigation's page closes, its load with it.
             _ = &mut cancelled => None,
         };

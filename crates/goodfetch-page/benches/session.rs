@@ -1563,6 +1563,7 @@ fn pool_pages(pages: &PoolPages) -> Contribution {
                         url,
                         method: "GET",
                         body: None,
+                        bypass_cache: false,
                     };
                     let pooled = pooled(params["pooled"].as_str().unwrap_or(POOLED));
                     let (page_id, _) = pages.open(&run_id, &pooled, own, &context).await?;

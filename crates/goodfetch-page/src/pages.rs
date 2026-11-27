@@ -984,6 +984,9 @@ impl BrowserPages for Opener {
             // body for as long as the navigation goes on, its request charged
             // at its admission already.
             let sent = page.owner.interception().send_own(own);
+            if own.bypass_cache {
+                CdpPage::of(&page.driver).set_cache_disabled(true).await?;
+            }
             let navigated = self
                 .pages
                 .navigate(
@@ -995,6 +998,9 @@ impl BrowserPages for Opener {
                     context,
                 )
                 .await;
+            if own.bypass_cache && navigated.is_ok() {
+                let _ = CdpPage::of(&page.driver).set_cache_disabled(false).await;
+            }
             drop(sent);
             closing.disarm();
             match navigated {

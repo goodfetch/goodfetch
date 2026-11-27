@@ -98,7 +98,7 @@ fn outcomes(document: &ConformanceDocument) -> Vec<(&str, Outcome)> {
 /// kind's shape is proved in `content`; one whose result holds a field the
 /// kind does not have fails it.
 ///
-/// Covers: story:7-87
+/// Covers: story:7-87, plugin-kind:extract
 #[test]
 fn the_extractor_suite_proves_a_conforming_toy_extractor_and_fails_a_broken_one() {
     let content = json!({

@@ -91,19 +91,43 @@ pub(crate) fn check(root: &Path) -> Result<Vec<Finding>> {
                 }
                 continue;
             }
-            if let Rule::Named { exception, .. } = declaration.rule
-                && exception != Exception::FixtureLicence
-                && let Some(event) = PULL_REQUEST_EVENTS
-                    .iter()
-                    .find(|event| workflow.events.contains(**event))
+            if let Rule::Named {
+                exception,
+                endpoints,
+            } = &declaration.rule
             {
-                findings.push(Finding::new(
-                    "named-job-on-pull-request",
-                    subject.clone(),
-                    format!(
-                        "a job that reaches named endpoints runs on a schedule or by hand, never on `{event}`"
-                    ),
-                ));
+                if *exception != Exception::FixtureLicence
+                    && let Some(event) = PULL_REQUEST_EVENTS
+                        .iter()
+                        .find(|event| workflow.events.contains(**event))
+                {
+                    findings.push(Finding::new(
+                        "named-job-on-pull-request",
+                        subject.clone(),
+                        format!(
+                            "a job that reaches named endpoints runs on a schedule or by hand, never on `{event}`"
+                        ),
+                    ));
+                }
+                if *exception == Exception::IntegrationAccount {
+                    if !job.condition.as_deref().is_some_and(requires_repo_variable) {
+                        findings.push(Finding::new(
+                            "integration-account-unprotected",
+                            subject.clone(),
+                            "an integration-account job stays off unless a repository variable (`vars.<NAME> == 'true'`) is set (ADRs 0070 and 0076)",
+                        ));
+                    }
+                    if endpoints
+                        .iter()
+                        .any(|endpoint| is_goodfetch_dev(&endpoint.host))
+                    {
+                        findings.push(Finding::new(
+                            "named-tunnel-host",
+                            subject.clone(),
+                            "an integration-account job reaches Cloudflare's Quick Tunnel service, never a named `goodfetch.dev` tunnel host (ADR 0076)",
+                        ));
+                    }
+                }
             }
             findings.extend(under_deny(&job.steps, deny, &subject));
         }
@@ -176,4 +200,113 @@ fn under_deny(steps: &[Step], deny: Option<usize>, subject: &str) -> Vec<Finding
         ));
     }
     findings
+}
+
+/// Whether `condition` requires a repository variable (`vars.<NAME> == 'true'`)
+/// as a top-level conjunct, with no top-level `||` that could bypass it.
+fn requires_repo_variable(condition: &str) -> bool {
+    let mut trimmed = condition.trim();
+    if let Some(inner) = trimmed
+        .strip_prefix("${{")
+        .and_then(|rest| rest.strip_suffix("}}"))
+    {
+        trimmed = inner.trim();
+    }
+    trimmed = strip_outer_parens(trimmed);
+    let Some(conjuncts) = split_top_level_and(trimmed) else {
+        return false;
+    };
+    conjuncts.into_iter().any(is_repo_variable_enabled)
+}
+
+/// Strips parentheses that wrap the entire expression.
+fn strip_outer_parens(mut text: &str) -> &str {
+    while let Some(inner) = text
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+    {
+        if scan_expression(inner, false).is_none() {
+            break;
+        }
+        text = inner.trim();
+    }
+    text
+}
+
+/// Splits `expression` on top-level `&&`, returning `None` if a top-level `||`
+/// or unbalanced parentheses/quotes appear.
+fn split_top_level_and(expression: &str) -> Option<Vec<&str>> {
+    scan_expression(expression, true)
+}
+
+/// Walks `expression` tracking single-quoted strings (`''`-escaped) and
+/// parenthesis depth. Returns `None` on unbalanced parens/quotes, or when
+/// `split_and` is true and a top-level `||` appears.
+fn scan_expression(expression: &str, split_and: bool) -> Option<Vec<&str>> {
+    let bytes = expression.as_bytes();
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut depth: usize = 0;
+    let mut in_quote = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_quote {
+            if byte == b'\'' {
+                if bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                in_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'\'' => in_quote = true,
+            b'(' => depth += 1,
+            b')' => depth = depth.checked_sub(1)?,
+            b'|' if split_and && depth == 0 && bytes.get(index + 1) == Some(&b'|') => return None,
+            b'&' if split_and && depth == 0 && bytes.get(index + 1) == Some(&b'&') => {
+                parts.push(expression[start..index].trim());
+                index += 2;
+                start = index;
+                continue;
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    if depth != 0 || in_quote {
+        return None;
+    }
+    if split_and {
+        parts.push(expression[start..].trim());
+    }
+    Some(parts)
+}
+
+/// Whether `term` is `vars.<IDENT> == 'true'` or `'true' == vars.<IDENT>`
+/// (stripping matching outer parentheses).
+fn is_repo_variable_enabled(term: &str) -> bool {
+    let term = strip_outer_parens(term);
+    let Some((left, right)) = term.split_once("==") else {
+        return false;
+    };
+    let (left, right) = (left.trim(), right.trim());
+    (is_vars_ident(left) && right == "'true'") || (left == "'true'" && is_vars_ident(right))
+}
+
+fn is_vars_ident(text: &str) -> bool {
+    text.strip_prefix("vars.").is_some_and(|name| {
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    })
+}
+
+fn is_goodfetch_dev(host: &str) -> bool {
+    let host = host.trim_end_matches('.');
+    host == "goodfetch.dev" || host.ends_with(".goodfetch.dev")
 }

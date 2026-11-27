@@ -95,7 +95,7 @@ pub const KIND_PARTS: [&KindPart; 1] = [&foxhound::progress::CRAWL_RUN_PROGRESS]
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 10] = [
+pub const YIELDING: [&Yielding; 11] = [
     &foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN,
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[0],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[1],
@@ -104,6 +104,7 @@ pub const YIELDING: [&Yielding; 10] = [
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[4],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[5],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[6],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[7],
     &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[0],
     &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[1],
 ];

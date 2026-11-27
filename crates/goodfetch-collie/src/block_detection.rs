@@ -8,12 +8,15 @@
 //! no rule classifies is no block. The outside sources the rules are seeded
 //! from are declared in `block_detection/third-party.toml` for the notice
 //! inventory. It never produces `decoy`, Foxhound's alone (ADR 0095). It
-//! classifies a response as the site's: a proxy's own refusal is told where
-//! an engine module sees the proxy's answer (ADR 0127). [`Detector`] gives
-//! it to the page crate, whose pages ask it for a document's Block cause.
+//! classifies only the site's responses: whether the proxy answered is told
+//! where an engine module sees the proxy's answer (ADR 0127), and a proxy's
+//! own refusal, such as its 429 or 502, is a proxy error, never a Block
+//! cause (ADR 0053). [`Detector`] gives it to the page crate, whose pages
+//! ask it for a document's Block cause.
 
 mod rules;
 
+use goodfetch_page::Party;
 use goodfetch_page::blocks::{Block, BlockClassifier};
 use goodfetch_protocol::block::BlockCause;
 use goodfetch_protocol::page::PageResponse;
@@ -26,6 +29,8 @@ pub(crate) struct Response<'a> {
     pub(crate) status: u16,
     /// Its headers, each `(name, value)`, as received.
     pub(crate) headers: &'a [(&'a str, &'a str)],
+    /// Who answered it: the site, or the proxy itself.
+    pub(crate) party: Party,
 }
 
 /// What `classify` reads of the document a response carries.
@@ -64,7 +69,7 @@ pub(crate) struct Evidence {
 pub(crate) struct Detector;
 
 impl BlockClassifier for Detector {
-    fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
+    fn classify(&self, response: &PageResponse, party: Party, markup: &str) -> Option<Block> {
         let headers: Vec<(&str, &str)> = response
             .headers
             .iter()
@@ -73,6 +78,7 @@ impl BlockClassifier for Detector {
         let response = Response {
             status: response.status,
             headers: &headers,
+            party,
         };
         classify(&response, &Document { markup }).map(|classification| Block {
             cause: classification.cause,
@@ -107,8 +113,12 @@ pub(crate) fn markers(status: u16) -> Vec<&'static str> {
     markers
 }
 
-/// The Block cause of a response with `document`, if a rule decides one.
+/// The Block cause of a response with `document`, if a rule decides one;
+/// none for the proxy's own answer.
 pub(crate) fn classify(response: &Response<'_>, document: &Document<'_>) -> Option<Classification> {
+    if response.party == Party::Proxy {
+        return None;
+    }
     let headers: Vec<(String, String)> = response
         .headers
         .iter()

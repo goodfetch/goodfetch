@@ -15,6 +15,10 @@ pub(crate) const RELEASE_SUITE: &str = "release";
 /// The branch whose Release runs count.
 pub(crate) const MAIN: &str = "main";
 
+/// The Chromium build gate's tier (ADR 0074): its tests declare no Feature and
+/// sit in no suite, so Feature and Journey reports always ignore it.
+pub(crate) const CHROMIUM_BUILD_TIER: &str = "chromium-build";
+
 /// A cell's configuration, as its test runs record it: OS, architecture
 /// and runtime.
 type Configuration = (String, String, Option<String>);
@@ -39,7 +43,7 @@ pub(crate) fn latest_on_main(attempts: &[Attempt]) -> Option<(String, Vec<&TestR
         .iter()
         .filter(|attempt| attempt.run.branch.as_deref() == Some(MAIN))
         .flat_map(|attempt| &attempt.test_runs)
-        .filter(|run| run.suite == RELEASE_SUITE)
+        .filter(|run| run.suite == RELEASE_SUITE && run.tier != CHROMIUM_BUILD_TIER)
         .collect();
     let cells = cells();
     let every_cell_ran = |commit: &str| {

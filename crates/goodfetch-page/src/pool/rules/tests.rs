@@ -3,6 +3,7 @@ use std::time::Duration;
 use rstest::rstest;
 
 use super::{Limits, Opens, Placement, Recycle, Seats, Stage, Use, leaves, place, recycle};
+use crate::cdp::launch::Window;
 
 const MIB: u64 = 1024 * 1024;
 
@@ -86,6 +87,7 @@ fn seats(contexts: u64, retiring: bool, own: bool) -> Seats {
         contexts,
         retiring,
         own,
+        window: Window::Headless,
     }
 }
 
@@ -101,7 +103,35 @@ fn a_session_shares_the_first_browser_of_its_run_with_room_or_gets_a_new_one(
     #[case] placement: Placement,
     #[case] expected: Option<u64>,
 ) {
-    assert_eq!(place(browsers, placement, &defaults()), expected);
+    assert_eq!(
+        place(browsers, (placement, Window::Headless), &defaults()),
+        expected
+    );
+}
+
+/// A Session goes only to a browser of its window: a headful `stealth`
+/// Session never shares a headless browser, nor the reverse.
+#[rstest]
+#[case::a_headful_browser_takes_a_headful_session(Window::Headful, Window::Headful, Some(1))]
+#[case::a_headless_browser_takes_no_headful_session(Window::Headless, Window::Headful, None)]
+#[case::a_headful_browser_takes_no_headless_session(Window::Headful, Window::Headless, None)]
+fn a_session_goes_only_to_a_browser_of_its_window(
+    #[case] browser: Window,
+    #[case] session: Window,
+    #[case] expected: Option<u64>,
+) {
+    let browsers = vec![(
+        1,
+        Seats {
+            window: browser,
+            ..seats(0, false, false)
+        },
+    )];
+
+    assert_eq!(
+        place(browsers, (Placement::Shared, session), &defaults()),
+        expected
+    );
 }
 
 #[test]
@@ -115,12 +145,12 @@ fn a_contexts_per_process_of_zero_still_seats_one_session_a_browser() {
         (
             place(
                 vec![(1, seats(0, false, false))],
-                Placement::Shared,
+                (Placement::Shared, Window::Headless),
                 &limits
             ),
             place(
                 vec![(1, seats(1, false, false))],
-                Placement::Shared,
+                (Placement::Shared, Window::Headless),
                 &limits
             ),
         ),

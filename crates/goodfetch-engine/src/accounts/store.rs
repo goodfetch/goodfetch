@@ -325,10 +325,20 @@ impl AccountsStore {
     ///
     /// `Sqlite` when it cannot be read.
     pub fn named_token(&self, value: &SecretString) -> Result<Option<String>, AccountsStoreError> {
+        self.named_token_by_hash(&hash(value))
+    }
+
+    /// The name of its Named token whose lowercase hex SHA-256 is `sha256`, if
+    /// it holds one.
+    ///
+    /// # Errors
+    ///
+    /// `Sqlite` when it cannot be read.
+    pub fn named_token_by_hash(&self, sha256: &str) -> Result<Option<String>, AccountsStoreError> {
         self.on(|connection| {
             connection
                 .prepare_cached(NAMED_TOKEN)?
-                .query_row([hash(value)], |row| row.get(0))
+                .query_row([sha256], |row| row.get(0))
                 .optional()
         })
     }

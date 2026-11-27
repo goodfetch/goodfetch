@@ -72,6 +72,7 @@ export type CollieWireType =
   | "GroupInitParams"
   | "GroupJoinParams"
   | "GroupJoined"
+  | "GroupLeadReachabilityChanged"
   | "GroupLeadStatus"
   | "GroupMemberRevoked"
   | "HelloParams"
@@ -310,6 +311,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "GroupInitParams": { fields: { "peer_address": "peerAddress" } },
     "GroupJoinParams": { fields: { "authority_key": "authorityKey", "peer_address": "peerAddress" } },
     "GroupJoined": { fields: { "certificate_expires_at": ["certificateExpiresAt", "time"], "lead_epoch": "leadEpoch", "peer_address": "peerAddress" } },
+    "GroupLeadReachabilityChanged": { fields: { "lead_name": "leadName" } },
     "GroupLeadStatus": { fields: { "confirmed_by_operator": "confirmedByOperator", "lead_epoch": "leadEpoch" } },
     "GroupMemberRevoked": { fields: { "revocation_list": "revocationList" } },
     "HelloParams": { fields: { "client_surface": "clientSurface", "keep_daemon_alive": "keepDaemonAlive", "log_level": "logLevel", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
@@ -457,7 +459,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SigningKeyCreated": { fields: { "key_id": "keyId", "public_key": "publicKey", "signing_key": "signingKey" } },
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
     "SigningKeyDirectoryParams": { fields: { "signing_keys": "signingKeys", "valid_for": "validFor" } },
-    "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
+    "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "lead_unreachable", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },
     "Table": { fields: { "body_rows": "bodyRows", "header_rows": "headerRows" } },
     "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
@@ -624,6 +626,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "browser_cache.download_progress": { type: "DownloadProgress" },
     "engine.system_info": { type: "SystemInfo" },
     "events.resync": { type: "Resync" },
+    "group.lead_reachability_changed": { type: "GroupLeadReachabilityChanged" },
     "needs_you.changed": { type: "NeedsYouChange" },
     "page.close": { type: "PageFired" },
     "page.console": { type: "ConsoleMessage" },

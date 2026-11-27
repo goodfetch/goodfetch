@@ -665,6 +665,14 @@ class LeadUnconfirmedError(UnavailableError):
         super().__init__(message, code="lead_unconfirmed", group="unavailable", retryable=True, **fields)
 
 
+class LeadUnreachableError(UnavailableError):
+    """The Daemon group's Lead Daemon, or the local Group member named by this machine's group redirect row, cannot be reached to check or grant a Usage ledger Slice or verify a sign-in: live Runs continue spending held Slices until they need a new one, and new Runs needing a Slice or sign-in wait until the Lead Daemon or Group member returns (or `group leave` removes the redirect row)."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_unreachable", group="unavailable", retryable=True, **fields)
+
+
 class LimitNotUnderstoodError(RefusedError):
     """A newer engine wrote a Limit this engine cannot evaluate, and it may cover the run; the details name it. Upgrade the engine."""
 
@@ -1729,6 +1737,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "lead_cannot_leave": LeadCannotLeaveError,
     "lead_epoch_stale": LeadEpochStaleError,
     "lead_unconfirmed": LeadUnconfirmedError,
+    "lead_unreachable": LeadUnreachableError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,

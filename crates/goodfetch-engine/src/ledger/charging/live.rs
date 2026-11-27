@@ -805,6 +805,10 @@ impl RunCharging {
                     )));
                 Refusal::NotUnderstood(limit).into()
             }
+            Refusal::LeadUnreachable(reason) => {
+                self.0.stop.at_safe_point(StopReason::LeadUnreachable);
+                Refusal::LeadUnreachable(reason).into()
+            }
             Refusal::Ledger(LedgerError::Storage { path, message }) => {
                 // The ledger holds every Run's Limits: each Run of the
                 // engine stops as at `critical` (ADR 0122).

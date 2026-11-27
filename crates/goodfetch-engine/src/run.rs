@@ -29,6 +29,7 @@ use goodfetch_protocol::checkpoint::{
 use goodfetch_protocol::connection::{StoppedBy, WaitedFor};
 use goodfetch_protocol::entries::operations_of;
 use goodfetch_protocol::formats::{Compatibility, Format};
+use goodfetch_protocol::group::{ErasureTarget, LEAD_UNREACHABLE};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::Recording;
 use goodfetch_protocol::run::{
@@ -299,6 +300,9 @@ pub fn start_error(error: StartError) -> CallError {
         ),
         StartError::LimitReached(reached) => limit_reached(&reached),
         StartError::LimitNotUnderstood(limit) => limit_not_understood(*limit),
+        StartError::LeadUnreachable(message) => {
+            CallError::new(&LEAD_UNREACHABLE, message, &serde_json::json!({}))
+        }
         StartError::Internal { message, .. } => internal(message),
         StartError::Format {
             format,
@@ -1289,6 +1293,15 @@ async fn discard(params: RunParams, context: CallContext) -> Result<RunDiscarded
     context.engine().response_cache().forget_run(&run_id).await.map_err(|error| {
         internal(format!("the Run `{run_id}` was discarded, but the Response cache keeps what it fetched: {error}; `cache clear --run-id {run_id}` deletes it"))
     })?;
+    if let Err(error) = context
+        .engine()
+        .broadcast_erasure(ErasureTarget::Run {
+            run_id: run_id.clone(),
+        })
+        .await
+    {
+        tracing::warn!(%run_id, %error, "the discarded Run's group erasure broadcast did not finish immediately");
+    }
     Ok(RunDiscarded { run_id })
 }
 

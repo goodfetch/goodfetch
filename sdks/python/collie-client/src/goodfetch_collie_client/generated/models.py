@@ -1540,6 +1540,20 @@ class GroupLeadParams(BaseModel):
     """
 
 
+class GroupLeadReachabilityChanged(BaseModel):
+    """Payload of `group.lead_reachability_changed` (ADR 0055)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    lead_name: str
+    """The Lead Daemon's Group member name."""
+    reachable: bool
+    """Whether the Lead Daemon is reachable now."""
+    reason: str | None = None
+    """Why the Lead Daemon became unreachable, when `reachable` is `false`."""
+
+
 class GroupLeaveParams(BaseModel):
     """What `group.leave` takes: nothing."""
 
@@ -5144,6 +5158,20 @@ class StopReason5(BaseModel):
 
 
 class StopReason8(BaseModel):
+    """
+    It needed a new Usage ledger Slice from its Daemon group's Lead Daemon
+    (or local Group member), which could not be reached, and stopped at its
+    next safe point, resumable once reachable (ADR 0055): the stop of the
+    Error code `lead_unreachable`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["lead_unreachable"]
+
+
+class StopReason9(BaseModel):
     """Its engine was lost while it ran, and another engine stopped it."""
 
     model_config = ConfigDict(
@@ -5152,7 +5180,7 @@ class StopReason8(BaseModel):
     kind: Literal["engine_lost"]
 
 
-class StopReason9(BaseModel):
+class StopReason10(BaseModel):
     """
     Its Attached engine stopped on a panic in a part every Run shares,
     and stopped it first, resumable by its Run ID (ADR 0148); a Daemon
@@ -5165,7 +5193,7 @@ class StopReason9(BaseModel):
     kind: Literal["engine_panicked"]
 
 
-class StopReason10(BaseModel):
+class StopReason11(BaseModel):
     """
     The resource governor ran out of a resource for it, and it stopped
     at its next safe point, resumable (ADRs 0040 and 0122).
@@ -5181,7 +5209,7 @@ class StopReason10(BaseModel):
     """The resource that ran out."""
 
 
-class StopReason11(UnknownMember):
+class StopReason12(UnknownMember):
     """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
 
     model_config = ConfigDict(
@@ -8893,6 +8921,7 @@ class StopReason(
         | StopReason9
         | StopReason10
         | StopReason11
+        | StopReason12
     ]
 ):
     root: (
@@ -8907,6 +8936,7 @@ class StopReason(
         | StopReason9
         | StopReason10
         | StopReason11
+        | StopReason12
     )
     """Why a Run stopped (ADRs 0029, 0080 and 0102)."""
 

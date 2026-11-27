@@ -916,6 +916,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon group's Lead Daemon, or the local Group member named by this machine's group redirect row, cannot be reached to check or grant a Usage ledger Slice or verify a sign-in: live Runs continue spending held Slices until they need a new one, and new Runs needing a Slice or sign-in wait until the Lead Daemon or Group member returns (or `group leave` removes the redirect row).",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lead_unreachable",
+      "product": "collie",
+      "retryable": true
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The attempt's lease ended before it committed: its handler answered after the lease's end, or the run file holds a later lease of its work item. Its outputs are discarded, and the commit of the work item's next attempt is the one that counts.",
       "exit_code": null,
       "group": "unavailable",
@@ -2233,6 +2243,18 @@
       "arrived_in": "0.1",
       "class": "lossless",
       "deprecated": null,
+      "description": "A Group member lost contact with its Lead Daemon or regained it (ADR 0055). Readiness on `/readyz` stays ready while the Lead Daemon is unreachable; live Runs keep spending held Slices until they need a new one.",
+      "name": "group.lead_reachability_changed",
+      "payload": {
+        "$ref": "#/$defs/GroupLeadReachabilityChanged"
+      },
+      "product": "collie",
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "class": "lossless",
+      "deprecated": null,
       "description": "An item of \"Needs you\" appeared, changed or left the list: resolved, by a person or by its Run, or dismissed. Lossless: a subscription that falls behind next takes `events.resync`, which holds every item.",
       "name": "needs_you.changed",
       "payload": {
@@ -3069,6 +3091,16 @@
       "product": "collie",
       "stability": "experimental",
       "unit": "{admission}"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "1 while this Group member cannot reach its Daemon group's Lead Daemon, else 0 (ADR 0055).",
+      "instrument": "gauge",
+      "labels": [],
+      "name": "goodfetch.group.lead_unreachable",
+      "product": "collie",
+      "stability": "experimental",
+      "unit": "{daemon}"
     },
     {
       "arrived_in": "0.1",
@@ -3948,7 +3980,8 @@
         "events.resync",
         "run.axes_changed",
         "needs_you.changed",
-        "engine.system_info"
+        "engine.system_info",
+        "group.lead_reachability_changed"
       ],
       "kind": "sequence",
       "name": "events.subscribe",

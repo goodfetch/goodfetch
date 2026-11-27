@@ -38,15 +38,21 @@ use std::time::{Duration, SystemTime};
 use goodfetch_counted_work::{CountedWork, Row as CountedRow};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::formats::{Compatibility, USAGE_LEDGER};
+use goodfetch_protocol::group::{GROUP_REDIRECT_SCOPE, GroupRedirectRow};
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{LimitScope, Period, PeriodLength, ReachedLimit};
 use goodfetch_protocol::usage::{Limit, LimitUsage};
 use jiff::Timestamp;
 use rusqlite::{Connection, Row};
 
+pub use self::authority::{
+    DEFAULT_REDIRECT_HEARTBEAT_TTL_MS, PeerLedgerClient, RedirectClient, Refusal, SliceAuthority,
+    check_redirect_heartbeat, from_wire_holder, from_wire_limit, from_wire_sizing, from_wire_slice,
+    is_group_redirect, parse_redirect, to_wire_holder, to_wire_limit, to_wire_sizing,
+};
 use self::changes::Changes;
 pub use self::charging::{
-    Allowance, Change, ChargeError, Charged, Charging, Counted, Refusal, Reservation, RunCharging,
+    Allowance, Change, ChargeError, Charged, Charging, Counted, Reservation, RunCharging,
     UnjournaledCharges, Unmade,
 };
 pub(crate) use self::charging::{ChargingParts, StorageFailed};
@@ -304,6 +310,46 @@ pub fn point_in_time(at: Timestamp) -> SystemTime {
     SystemTime::from(at)
 }
 
+/// Shared group-ledger hook slots cloned alongside a [`Ledger`].
+#[derive(Default)]
+struct GroupHooks {
+    #[expect(
+        clippy::disallowed_types,
+        reason = "RwLock only guards an Option<Arc<...>> swap/clone, never held across I/O or .await (ADR 0060)"
+    )]
+    authority: std::sync::RwLock<Option<Arc<dyn SliceAuthority>>>,
+    #[expect(
+        clippy::disallowed_types,
+        reason = "RwLock only guards this Group member's own name string, never held across I/O or .await (ADR 0060)"
+    )]
+    own_redirect_member: std::sync::RwLock<Option<String>>,
+    /// Persistent SQLite connection reused by Lead Daemon peer-ledger RPCs so
+    /// taking a Slice costs 0 opens and 1 SQLite transaction (ADR 0140 E3).
+    direct_connection: crate::sync::Mutex<Option<Connection>>,
+}
+
+impl std::fmt::Debug for GroupHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GroupHooks")
+            .field(
+                "has_authority",
+                &self
+                    .authority
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .is_some(),
+            )
+            .field(
+                "own_redirect_member",
+                &*self
+                    .own_redirect_member
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 /// The Usage ledger of one user: its file and the VFS it opens through.
 #[derive(Clone, Debug)]
 pub struct Ledger {
@@ -313,6 +359,8 @@ pub struct Ledger {
     work: CountedWork,
     /// How many times this process changed its Limits.
     changes: Arc<Changes>,
+    /// Optional group-ledger authority and own redirect-row owner name.
+    group: Arc<GroupHooks>,
 }
 
 impl Ledger {
@@ -324,7 +372,271 @@ impl Ledger {
             path,
             vfs,
             work: CountedWork::default(),
+            group: Arc::new(GroupHooks::default()),
         }
+    }
+
+    /// Installs or clears the group [`SliceAuthority`] used by a non-lead
+    /// Group member (ADR 0055).
+    pub fn set_authority(&self, authority: Option<Arc<dyn SliceAuthority>>) {
+        *self
+            .group
+            .authority
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = authority;
+        self.changed();
+    }
+
+    /// Returns the directly installed group [`SliceAuthority`], if any.
+    pub fn direct_authority(&self) -> Option<Arc<dyn SliceAuthority>> {
+        self.group
+            .authority
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Records this engine's own Group member name so it ignores its own
+    /// *group redirect* row when reading the per-user ledger locally.
+    pub fn set_own_redirect_member(&self, member: Option<String>) {
+        *self
+            .group
+            .own_redirect_member
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = member;
+        self.changed();
+    }
+
+    /// This engine's own Group member name, if it is currently writing a
+    /// *group redirect* row into this ledger.
+    pub fn own_redirect_member(&self) -> Option<String> {
+        self.group
+            .own_redirect_member
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Subscribes to Limit change notifications committed through this process.
+    pub fn subscribe_changes(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.changes.subscribe()
+    }
+
+    /// Upserts a *group redirect* row for `row.member_name` in this per-user
+    /// ledger, flagged *must understand* so older engines refuse runs with
+    /// `limit_not_understood` (ADRs 0041 and 0055).
+    pub fn write_group_redirect(
+        &self,
+        row: &GroupRedirectRow,
+        now: Timestamp,
+    ) -> Result<(), LedgerError> {
+        let payload = serde_json::to_string(row).map_err(|error| LedgerError::Sqlite {
+            path: self.path.clone(),
+            message: error.to_string(),
+        })?;
+        let member_name = row.member_name.clone();
+        self.on_created(&mut None, |connection| {
+            immediate(connection, |transaction| {
+                let existing = stored_limits(transaction)?;
+                let mut existing_id = None;
+                for stored in existing {
+                    if is_group_redirect(&stored)
+                        && let Ok(parsed) = serde_json::from_str::<GroupRedirectRow>(&stored.scope.id)
+                        && parsed.member_name == member_name
+                    {
+                        existing_id = Some(stored.id);
+                        break;
+                    }
+                }
+                match existing_id {
+                    Some(id) => {
+                        transaction
+                            .prepare_cached(
+                                "UPDATE limits SET scope_id = ?1, set_at = ?2 WHERE limit_id = ?3",
+                            )?
+                            .execute((&payload, now.to_string(), id))?;
+                    }
+                    None => {
+                        transaction
+                            .prepare_cached(
+                                "INSERT INTO limits (scope_kind, scope_id, usage_kind, currency, period, time_zone, amount, must_understand, set_by, set_at, managed_major)
+                                 VALUES (?1, ?2, ?3, NULL, NULL, NULL, 0, 1, 'managed_policy', ?4, NULL)",
+                            )?
+                            .execute((GROUP_REDIRECT_SCOPE, &payload, GROUP_REDIRECT_SCOPE, now.to_string()))?;
+                    }
+                }
+                Ok(())
+            })
+        })?;
+        Ok(())
+    }
+
+    /// Removes the *group redirect* row for `member_name` (called on
+    /// `group leave`). Leaves an uncreated ledger uncreated.
+    pub fn remove_group_redirect(&self, member_name: &str) -> Result<(), LedgerError> {
+        self.on(&mut None, false, |connection| {
+            immediate(connection, |transaction| {
+                let existing = stored_limits(transaction)?;
+                for stored in existing {
+                    if is_group_redirect(&stored)
+                        && let Ok(parsed) =
+                            serde_json::from_str::<GroupRedirectRow>(&stored.scope.id)
+                        && parsed.member_name == member_name
+                    {
+                        drop_limit(transaction, stored.id)?;
+                    }
+                }
+                Ok(())
+            })
+        })?;
+        self.changed();
+        Ok(())
+    }
+
+    /// Inspects `stored` rows read from this local ledger for a *group
+    /// redirect* row belonging to another Group member (so an Attached engine
+    /// on this machine routes through it), validating format version and
+    /// heartbeat at `now`. Returns `Ok(None)` when no external redirect row is
+    /// present.
+    pub(crate) fn resolve_redirect_in(
+        &self,
+        stored: &[StoredLimit],
+        now: Timestamp,
+    ) -> Result<Option<Arc<dyn SliceAuthority>>, Refusal> {
+        let own = self.own_redirect_member();
+        for row in stored {
+            if !is_group_redirect(row) {
+                continue;
+            }
+            let parsed = parse_redirect(row)?;
+            if own.as_deref() == Some(parsed.member_name.as_str()) {
+                continue;
+            }
+            check_redirect_heartbeat(row, &parsed, now)?;
+            return Ok(Some(Arc::new(RedirectClient::new(parsed))));
+        }
+        Ok(None)
+    }
+
+    /// Returns the active [`SliceAuthority`] for this engine at `now`: the
+    /// directly installed group authority (non-lead Group member), a
+    /// [`RedirectClient`] resolved from a *group redirect* row in the local
+    /// ledger (Attached engine beside a Group member), or `None` when using
+    /// the local SQLite ledger directly.
+    pub fn active_authority(
+        &self,
+        now: Timestamp,
+    ) -> Result<Option<Arc<dyn SliceAuthority>>, Refusal> {
+        if let Some(authority) = self.direct_authority() {
+            return Ok(Some(authority));
+        }
+        let stored = self.limits_on(&mut None)?;
+        self.resolve_redirect_in(&stored, now)
+    }
+
+    /// Finds any external *group redirect* row in this ledger (ignoring this
+    /// engine's own row when it is the Group member), without checking its
+    /// heartbeat, so an Attached engine can read cached configuration.
+    pub fn external_group_redirect(&self) -> Result<Option<GroupRedirectRow>, Refusal> {
+        let own = self.own_redirect_member();
+        let stored = self.limits_on(&mut None)?;
+        for row in &stored {
+            if !is_group_redirect(row) {
+                continue;
+            }
+            let parsed = parse_redirect(row)?;
+            if own.as_deref() == Some(parsed.member_name.as_str()) {
+                continue;
+            }
+            return Ok(Some(parsed));
+        }
+        Ok(None)
+    }
+
+    /// All non-redirect Limit rows in this local SQLite ledger, reusing the
+    /// Lead Daemon's kept connection.
+    pub fn non_redirect_limits(&self) -> Result<Vec<StoredLimit>, LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(self
+            .limits_on(&mut kept)?
+            .into_iter()
+            .filter(|stored| !is_group_redirect(stored))
+            .collect())
+    }
+
+    /// What is left of `stored` at `now`, reusing the Lead Daemon's kept
+    /// connection.
+    pub(crate) fn left_direct(
+        &self,
+        stored: &StoredLimit,
+        now: Timestamp,
+    ) -> Result<u64, LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.left_on(&mut kept, stored, now)
+    }
+
+    /// Takes a Slice directly on this local SQLite ledger, reusing the Lead
+    /// Daemon's kept connection (0 opens, 1 SQLite transaction per Slice).
+    pub fn take_slice_direct(
+        &self,
+        stored: &StoredLimit,
+        holder: &Holder,
+        now: Timestamp,
+        sizing: SliceSizing,
+        needing: u64,
+    ) -> Result<Option<Slice>, LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.take_slice(&mut kept, stored, holder, now, sizing, needing)
+    }
+
+    /// Gives back Slices directly on this local SQLite ledger, reusing the
+    /// Lead Daemon's kept connection.
+    pub fn give_back_direct(&self, used: &[(SliceId, u64)]) -> Result<(), LedgerError> {
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.give_back(&mut kept, used)
+    }
+
+    /// Records reclaimed Slice charges reported by an owning Group member.
+    pub(crate) fn apply_reclaim_charges(
+        &self,
+        charges: &[(SliceId, u64, String)],
+    ) -> Result<(), LedgerError> {
+        if charges.is_empty() {
+            return Ok(());
+        }
+        let mut kept = self
+            .group
+            .direct_connection
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.on_created(&mut kept, |connection| {
+            immediate(connection, |transaction| {
+                let mut statement = transaction.prepare_cached(
+                    "UPDATE slices SET charged = MIN(size, ?2), state = ?3 WHERE slice_id = ?1 AND state = 'held'",
+                )?;
+                for (slice, charged, state) in charges {
+                    let valid_state = if state == "review" { "review" } else { "reclaimed" };
+                    statement.execute((slice, amount(*charged), valid_state))?;
+                }
+                Ok(())
+            })
+        })
     }
 
     /// How many times this process changed the ledger's Limits: a run
@@ -609,7 +921,10 @@ impl Ledger {
     /// When the ledger cannot be read.
     pub fn usage(&self, product: Product, now: Timestamp) -> Result<Vec<LimitUsage>, LedgerError> {
         self.on_created(&mut None, |connection| {
-            let mut limits = stored_limits(connection)?;
+            let mut limits: Vec<StoredLimit> = stored_limits(connection)?
+                .into_iter()
+                .filter(|stored| !is_group_redirect(stored))
+                .collect();
             limits.sort_by(|left, right| left.scope.cmp(&right.scope).then(left.id.cmp(&right.id)));
             limits
                 .iter()
@@ -1074,6 +1389,7 @@ fn amount(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 
+mod authority;
 mod changes;
 mod charging;
 mod period;

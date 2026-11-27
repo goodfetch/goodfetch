@@ -18,6 +18,7 @@ use goodfetch_confinement::deny_list::Places;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
+use goodfetch_protocol::group::ErasureTarget;
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -29,10 +30,12 @@ use crate::clock::Clock;
 use crate::control_state::ControlStateRegistry;
 use crate::endpoint::Refusals;
 use crate::entropy::Entropy;
+use crate::events::Events;
 use crate::governor::Governor;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
+use crate::metrics::Metrics;
 use crate::needs_you::NeedsYou;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
@@ -125,6 +128,24 @@ pub(crate) trait ToTheDaemon: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>>;
 }
 
+/// Broadcasts an erasure (a discarded Run or deleted Saved identity) and
+/// verifies named tokens across a Daemon group (ADRs 0046 and 0055).
+pub(crate) trait ErasureBroadcaster: Send + Sync {
+    /// Broadcasts `target` through the Lead Daemon to every Group member.
+    fn broadcast(
+        &self,
+        target: ErasureTarget,
+    ) -> Pin<Box<dyn Future<Output = Result<(), CallError>> + Send>>;
+
+    /// Verifies a named token's SHA-256 digest against the Lead Daemon (or
+    /// cached token verification valid for at most 10 minutes while the Lead
+    /// Daemon is unreachable).
+    fn check_named_token(
+        &self,
+        token_sha256: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<String>, CallError>> + Send>>;
+}
+
 /// What the engine knows of its host beside its stores: the person it
 /// acts for, its time zone, the stream its handlers draw from and the
 /// person's folders a Plugin's confinement denies.
@@ -142,6 +163,10 @@ pub(crate) struct Host {
     pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
     /// The Daemon group control-state store registry (ADR 0055).
     pub(crate) control_stores: Arc<ControlStateRegistry>,
+    /// The engine's event stream (ADR 0024).
+    pub(crate) events: Events,
+    /// The engine's metrics instruments (ADR 0050).
+    pub(crate) metrics: Metrics,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -250,6 +275,9 @@ struct Held {
     daemon: Option<Arc<dyn ToTheDaemon>>,
     peer_link: Mutex<Option<HeldPeerLink>>,
     control_stores: Arc<ControlStateRegistry>,
+    events: Events,
+    metrics: Metrics,
+    erasure: Mutex<Option<Arc<dyn ErasureBroadcaster>>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -288,6 +316,8 @@ impl EngineContext {
             places,
             daemon,
             control_stores,
+            events,
+            metrics,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -306,6 +336,9 @@ impl EngineContext {
                 daemon,
                 peer_link: Mutex::new(None),
                 control_stores,
+                events,
+                metrics,
+                erasure: Mutex::new(None),
             }),
         }
     }
@@ -484,6 +517,64 @@ impl EngineContext {
     /// (ADR 0055).
     pub fn control_stores(&self) -> &Arc<ControlStateRegistry> {
         &self.held.control_stores
+    }
+
+    /// The engine's event stream (ADR 0024).
+    pub(crate) fn events(&self) -> &Events {
+        &self.held.events
+    }
+
+    /// The engine's metrics instruments (ADR 0050).
+    pub(crate) fn metrics(&self) -> &Metrics {
+        &self.held.metrics
+    }
+
+    /// Registers or clears the Daemon group erasure broadcaster (ADR 0055).
+    pub(crate) fn set_erasure_broadcaster(&self, broadcaster: Option<Arc<dyn ErasureBroadcaster>>) {
+        *self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = broadcaster;
+    }
+
+    /// Broadcasts `target` to every Group member if this engine belongs to a
+    /// Daemon group; a no-op outside a group.
+    pub(crate) async fn broadcast_erasure(&self, target: ErasureTarget) -> Result<(), CallError> {
+        let broadcaster = self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(broadcaster) = broadcaster {
+            broadcaster.broadcast(target).await?;
+        }
+        Ok(())
+    }
+
+    /// Checks a named token's lowercase hex SHA-256 digest across the Daemon
+    /// group when this engine is a Group member, respecting the 10-minute
+    /// cached-token cap when the Lead Daemon is unreachable (ADR 0055).
+    ///
+    /// # Errors
+    ///
+    /// Returns `lead_unreachable` when the Lead Daemon cannot be reached and
+    /// no fresh cached verification exists, or a store failure.
+    pub async fn check_group_named_token(
+        &self,
+        token_sha256: &str,
+    ) -> Result<Option<String>, CallError> {
+        let broadcaster = self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        match broadcaster {
+            Some(broadcaster) => broadcaster.check_named_token(token_sha256.to_owned()).await,
+            None => Ok(None),
+        }
     }
 }
 

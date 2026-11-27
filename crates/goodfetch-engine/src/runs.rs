@@ -551,6 +551,10 @@ pub enum StartError {
     /// may cover the Run (ADR 0041).
     #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
     LimitNotUnderstood(Box<Limit>),
+    /// The Daemon group's Lead Daemon (or local Group member named by a
+    /// *group redirect* row) cannot be reached (ADR 0055).
+    #[error("the Lead Daemon cannot be reached: {0}")]
+    LeadUnreachable(String),
     /// The Run index refuses this engine: its format is of another major,
     /// or its lowest minor is newer than the engine (ADR 0098), so no Run
     /// starts.
@@ -1171,6 +1175,7 @@ impl End {
                 StopReason::Timeout => RunEvent::Timeout,
                 StopReason::Limit(_) => RunEvent::Limit,
                 StopReason::LimitNotUnderstood(_) => RunEvent::LimitNotUnderstood,
+                StopReason::LeadUnreachable => RunEvent::LeadUnreachable,
                 StopReason::Drain => RunEvent::Drain,
                 StopReason::EngineLost => RunEvent::EngineLost,
                 StopReason::EnginePanicked => RunEvent::EnginePanicked,

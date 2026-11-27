@@ -25,10 +25,11 @@ use data_encoding::BASE64;
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
-    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_MEMBER_EXISTS, HELLO, JOIN, JOIN_TOKEN_REFUSED,
-    LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION, PeerControlStatePushParams,
-    PeerControlStateSyncParams, PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerRenewParams,
-    PeerRunIndexReportParams, RENEW, RUN_INDEX_REPORT,
+    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_ERASURE, GROUP_LEDGER, GROUP_MEMBER_EXISTS,
+    GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
+    PeerControlStatePushParams, PeerControlStateSyncParams, PeerErasureParams, PeerJoinParams,
+    PeerJoinResult, PeerLeaveParams, PeerLedgerParams, PeerRenewParams, PeerRunIndexReportParams,
+    PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
@@ -52,9 +53,14 @@ use crate::clock::Clock;
 use crate::control_state::{ControlStateRegistry, ReplicatedState};
 use crate::endpoint::Refusals;
 use crate::engine_context::EngineContext;
+use crate::events::Events;
 use crate::framing::{Call, Frame, Incoming, decode};
+use crate::home::Home;
+use crate::ledger::Ledger;
+use crate::metrics::Metrics;
 use crate::ops::connections_own;
 use crate::product::Identity;
+use crate::response_cache::ResponseCache;
 use crate::run_index::RunIndex;
 use crate::settings::Settings;
 use crate::sync::Mutex;
@@ -79,6 +85,12 @@ pub(super) struct PeerServices {
     pub(super) run_index: Option<RunIndex>,
     pub(super) refusals: Option<Refusals>,
     pub(super) control_stores: Arc<ControlStateRegistry>,
+    pub(super) ledger: Option<Ledger>,
+    pub(super) response_cache: Option<ResponseCache>,
+    pub(super) events: Option<Events>,
+    pub(super) metrics: Option<Metrics>,
+    pub(super) home: Option<Home>,
+    pub(super) owner: Option<Arc<TaskOwner>>,
 }
 
 impl Default for PeerServices {
@@ -88,6 +100,12 @@ impl Default for PeerServices {
             run_index: None,
             refusals: None,
             control_stores: Arc::new(ControlStateRegistry::with_defaults()),
+            ledger: None,
+            response_cache: None,
+            events: None,
+            metrics: None,
+            home: None,
+            owner: None,
         }
     }
 }
@@ -99,6 +117,12 @@ impl PeerServices {
             run_index: Some(engine.run_index().clone()),
             refusals: Some(engine.refusals().clone()),
             control_stores: Arc::clone(engine.control_stores()),
+            ledger: Some(engine.ledger().clone()),
+            response_cache: Some(engine.response_cache().clone()),
+            events: Some(engine.events().clone()),
+            metrics: Some(engine.metrics().clone()),
+            home: Some(engine.home().clone()),
+            owner: Some(Arc::clone(engine.owner())),
         }
     }
 }
@@ -123,7 +147,13 @@ pub(super) struct Peering {
     control_state: tokio::sync::Mutex<ReplicatedState>,
     /// Wakes the Lead Daemon's control-state replicator on new writes or joins.
     control_wake: Arc<tokio::sync::Notify>,
-    /// Engine services (settings, Run index, endpoint refusals).
+    /// Last observed Lead Daemon reachability for metrics & events.
+    lead_reachability: limits::LeadReachability,
+    /// 10-minute bounded cache of named-token verifications.
+    token_cache: limits::TokenCheckCache,
+    /// Erasures awaiting acknowledgement from temporarily offline Group members.
+    pending_erasures: erasure::PendingErasures,
+    /// Engine services (settings, Run index, endpoint refusals, ledger, cache).
     services: PeerServices,
 }
 
@@ -188,12 +218,34 @@ pub(super) async fn start(
     )?);
     peering.hydrate_control_state().await;
     engine.settings().set_group_member(Some(kept.name.clone()));
+    engine
+        .ledger()
+        .set_own_redirect_member(Some(kept.name.clone()));
+    if !kept.is_lead() {
+        engine
+            .ledger()
+            .set_authority(Some(Arc::new(limits::GroupMemberLedger::new(
+                Arc::clone(&peering),
+                tokio::runtime::Handle::current(),
+            ))));
+    }
+    engine.set_erasure_broadcaster(Some(Arc::new(erasure::GroupErasureBroadcaster::new(
+        Arc::clone(&peering),
+    ))));
+    let local_redirect = limits::start_local_redirect(&peering).await;
     let group = engine.owner().part("daemon group");
     group.spawn(serve(
         listener,
         Arc::clone(&peering),
         group.part("peer link"),
     ));
+    if let Some(redirect) = local_redirect {
+        group.spawn(limits::serve_local_redirect(
+            Arc::clone(&peering),
+            redirect,
+            group.part("group redirect"),
+        ));
+    }
     group.spawn(renewal::keep_renewed(
         Arc::clone(&peering),
         group.part("certificate renewal"),
@@ -208,6 +260,10 @@ pub(super) async fn start(
         group.spawn(control_state::replicate_control_state(
             Arc::clone(&peering),
             group.part("control state replication"),
+        ));
+        group.spawn(erasure::retry_pending_erasures(
+            Arc::clone(&peering),
+            group.part("group erasure retries"),
         ));
     } else {
         group.spawn(run_index::feed_run_index(
@@ -230,9 +286,36 @@ pub(super) fn running(engine: &EngineContext) -> Option<Arc<Peering>> {
 }
 
 /// Stops the peer listener and the certificate's renewal of a Daemon that
-/// left its group: once this answers, the listener's address is free.
+/// left its group: once this answers, the listener's address is free and its
+/// *group redirect* row has been removed from the per-user Usage ledger.
 pub(super) async fn stop(engine: &EngineContext) {
+    let member = engine.ledger().own_redirect_member();
+    let version = running(engine).map(|p| p.identity.product_version.clone());
     engine.stop_peer_link().await;
+    engine.set_erasure_broadcaster(None);
+    engine.ledger().set_authority(None);
+    engine.ledger().set_own_redirect_member(None);
+    if let Some(member) = member {
+        let ledger = engine.ledger().clone();
+        let _ = engine
+            .owner()
+            .blocking(move || ledger.remove_group_redirect(&member))
+            .await;
+    }
+    if let Some(version) = version {
+        let token_path = engine
+            .home()
+            .per_major(&version)
+            .join(limits::REDIRECT_TOKEN_FILE);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "runs inside owner.blocking on a dedicated blocking thread, never on an async worker"
+        )]
+        let _ = engine
+            .owner()
+            .blocking(move || std::fs::remove_file(token_path))
+            .await;
+    }
     engine.settings().set_group_member(None);
     engine.settings().refresh().await;
 }
@@ -358,6 +441,9 @@ impl Peering {
             leadership: Mutex::new(leadership),
             control_state: tokio::sync::Mutex::new(control_state),
             control_wake: Arc::new(tokio::sync::Notify::new()),
+            lead_reachability: limits::LeadReachability::default(),
+            token_cache: limits::TokenCheckCache::default(),
+            pending_erasures: erasure::PendingErasures::default(),
             services,
         })
     }
@@ -590,6 +676,11 @@ impl Peering {
                 }
                 Opening::ControlStateSync(request) => {
                     Some(self.control_state_sync(&presented, request).await)
+                }
+                Opening::Ledger(request) => Some(self.ledger_request(&presented, *request).await),
+                Opening::Erasure(request) => Some(self.erasure_request(&presented, request).await),
+                Opening::TokenCheck(request) => {
+                    Some(self.token_check_request(&presented, request).await)
                 }
                 Opening::Refused(reply) => Some(reply),
                 Opening::Other(first) => {
@@ -834,6 +925,12 @@ enum Opening {
     ControlStatePush(Asked<PeerControlStatePushParams>),
     /// A `group.control_state.sync`, likewise.
     ControlStateSync(Asked<PeerControlStateSyncParams>),
+    /// A `group.ledger` operation, likewise.
+    Ledger(Box<Asked<PeerLedgerParams>>),
+    /// A `group.erasure` broadcast or apply, likewise.
+    Erasure(Asked<PeerErasureParams>),
+    /// A `group.token.check`, likewise.
+    TokenCheck(Asked<PeerTokenCheckParams>),
     /// The line refusing either.
     Refused(Vec<u8>),
     /// Another message, which opens a [`PeerLink`].
@@ -870,6 +967,18 @@ fn opening(identity: &Identity, first: Frame) -> Opening {
             (params.product, params.protocol_version)
         })
         .map(Opening::ControlStateSync),
+        GROUP_LEDGER => asked(identity, id, call, |params: &PeerLedgerParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::Ledger(Box::new(req))),
+        GROUP_ERASURE => asked(identity, id, call, |params: &PeerErasureParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::Erasure),
+        GROUP_TOKEN_CHECK => asked(identity, id, call, |params: &PeerTokenCheckParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::TokenCheck),
         _ => return Opening::Other(Frame::Line(line)),
     };
     read.unwrap_or_else(Opening::Refused)
@@ -982,13 +1091,16 @@ fn lead_refusal(refusal: LeadRefusal) -> CallError {
 
 mod confirmation;
 mod control_state;
+mod erasure;
 mod leaving;
+mod limits;
 mod politeness;
 mod renewal;
 mod run_index;
 mod wire;
 
 pub(super) use leaving::ask_to_leave;
+pub use limits::{TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache};
 pub use run_index::reindex_to_lead;
 pub(super) use wire::{Asking, ask_to_join};
 #[cfg(test)]

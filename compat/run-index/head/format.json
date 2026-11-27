@@ -597,6 +597,19 @@
             "type": "object"
           },
           {
+            "description": "It needed a new Usage ledger Slice from its Daemon group's Lead Daemon\n(or local Group member), which could not be reached, and stopped at its\nnext safe point, resumable once reachable (ADR 0055): the stop of the\nError code `lead_unreachable`.",
+            "properties": {
+              "kind": {
+                "const": "lead_unreachable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
             "description": "Its engine was lost while it ran, and another engine stopped it.",
             "properties": {
               "kind": {

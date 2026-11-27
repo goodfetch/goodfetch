@@ -293,6 +293,7 @@ impl Disk {
             Ok(charging) => Ok(charging),
             Err(Refusal::Reached(reached)) => Err(StartError::LimitReached(reached)),
             Err(Refusal::NotUnderstood(limit)) => Err(StartError::LimitNotUnderstood(limit)),
+            Err(Refusal::LeadUnreachable(reason)) => Err(StartError::LeadUnreachable(reason)),
             Err(Refusal::Ledger(error)) => Err(StartError::Unavailable {
                 run_id: self.run_id.clone(),
                 folder: limits.ledger.path().to_owned(),
@@ -492,6 +493,7 @@ fn writer_found(run_id: &RunId, error: StartError, held: Lifecycle) -> RunError 
         | StartError::Live { .. }
         | StartError::LimitReached(_)
         | StartError::LimitNotUnderstood(_)
+        | StartError::LeadUnreachable(_)
         | StartError::Draining { .. }
         | StartError::Secret(_)
         | StartError::Refused(_)

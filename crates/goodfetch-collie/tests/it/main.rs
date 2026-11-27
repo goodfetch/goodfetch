@@ -68,6 +68,7 @@ mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod group;
+mod group_limits;
 mod help;
 #[cfg(all(
     target_os = "linux",

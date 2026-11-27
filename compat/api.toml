@@ -419,3 +419,31 @@ reason = "Daemon groups add the group-member settings scope for machine-specific
 [[announced]]
 entry = "typescript @goodfetch/foxhound SettingsLayer"
 reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.models StopReason10"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258): generated union member numbering shifts."
+
+[[announced]]
+entry = "python goodfetch_collie_client.generated.models StopReason11"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258): generated union member numbering shifts."
+
+[[announced]]
+entry = "typescript @goodfetch/collie StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound StopReason"
+reason = "Daemon groups add `lead_unreachable` to `StopReason` when a live Run needs a new Usage ledger Slice while the Lead Daemon is unreachable (ADR 0055, issue 258)."

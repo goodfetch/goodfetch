@@ -127,6 +127,7 @@ fn event() -> impl Strategy<Value = RunEvent> {
         RunEvent::Timeout,
         RunEvent::Limit,
         RunEvent::LimitNotUnderstood,
+        RunEvent::LeadUnreachable,
         RunEvent::ResourcesExhausted,
         RunEvent::EngineLost,
         RunEvent::EnginePanicked,

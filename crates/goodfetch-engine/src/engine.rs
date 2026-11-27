@@ -456,7 +456,7 @@ impl Engine {
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
-            (needs_you, sandbox_probe, stores, daemon),
+            (needs_you, sandbox_probe, stores, daemon, events.clone()),
             owner,
         );
         let runs = Runs::start_registry(
@@ -527,11 +527,12 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        (needs_you, sandbox_probe, stores, daemon): (
+        (needs_you, sandbox_probe, stores, daemon, events): (
             NeedsYou,
             SandboxProbe,
             Stores,
             Option<Arc<dyn ToTheDaemon>>,
+            Events,
         ),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
@@ -567,6 +568,8 @@ impl Engine {
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,
                 control_stores: Arc::clone(&self.control_stores),
+                events,
+                metrics: self.metrics.clone(),
             },
         );
         let secrets = Secrets::new(
@@ -832,6 +835,7 @@ fn part_stopped_with(owner: &TaskOwner, part: &'static str) -> Arc<TaskOwner> {
 /// the engine's snapshot of the machine's settings, read as the engine
 /// starts (ADR 0140), so no Run counts a read of its own for them.
 async fn write_managed(context: EngineContext, version: ProductVersion) {
+    sync_group_redirect_config(&context).await;
     let snapshot = context.settings().snapshot().await;
     let machine = match snapshot.layers() {
         Ok(machine) => machine,
@@ -856,6 +860,61 @@ async fn write_managed(context: EngineContext, version: ProductVersion) {
         .await;
     if let Err(error) = written {
         tracing::warn!(%error, "the Usage ledger could not be opened to write the managed Operator policy's Limits");
+    }
+}
+
+/// If this engine is an Attached or embedded engine starting on a Group
+/// member's machine (where the per-user Usage ledger carries a *group
+/// redirect* row for that Group member), fetches the Group member's cached
+/// Operator policy, user configuration and Politeness configuration through
+/// its local redirect endpoint (ADR 0055).
+async fn sync_group_redirect_config(context: &EngineContext) {
+    let ledger = context.ledger().clone();
+    if ledger.direct_authority().is_some() || ledger.own_redirect_member().is_some() {
+        return;
+    }
+    let found = context
+        .owner()
+        .blocking(move || ledger.external_group_redirect())
+        .await;
+    let Ok(Some(row)) = found else {
+        return;
+    };
+    context
+        .settings()
+        .set_group_member(Some(row.member_name.clone()));
+    let client = crate::ledger::RedirectClient::new(row);
+    let fetched = context
+        .owner()
+        .blocking(move || client.fetch_config())
+        .await;
+    let Ok(config) = fetched else {
+        return;
+    };
+    for (layer, content) in [
+        (
+            goodfetch_protocol::settings::SettingsLayer::OperatorPolicy,
+            config.operator_policy,
+        ),
+        (
+            goodfetch_protocol::settings::SettingsLayer::UserConfiguration,
+            config.user_configuration,
+        ),
+    ] {
+        if let Some(text) = content {
+            let existing = context
+                .settings()
+                .read_file_text(layer)
+                .await
+                .ok()
+                .flatten();
+            if existing.as_deref() != Some(text.as_str()) {
+                let _ = context
+                    .settings()
+                    .write_cached_file(layer, Some(text))
+                    .await;
+            }
+        }
     }
 }
 

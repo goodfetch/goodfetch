@@ -29,6 +29,7 @@
 //! that leaves the group sends [`LEAVE`] the same way.
 
 mod control_state;
+mod limits;
 
 use std::fmt;
 use std::time::SystemTime;
@@ -37,6 +38,14 @@ pub use control_state::{
     CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, ControlStateMode, ControlStateSnapshot,
     PeerControlStatePushParams, PeerControlStatePushResult, PeerControlStateSyncParams,
     PeerControlStateSyncResult, StoredReplicatedStore,
+};
+pub use limits::{
+    ErasureTarget, GROUP_ERASURE, GROUP_LEAD_REACHABILITY_CHANGED, GROUP_LEDGER,
+    GROUP_REDIRECT_FORMAT_VERSION, GROUP_REDIRECT_SCOPE, GROUP_TOKEN_CHECK,
+    GroupLeadReachabilityChanged, GroupRedirectRow, LEAD_UNREACHABLE, PeerErasureParams,
+    PeerErasureResult, PeerLedgerAction, PeerLedgerParams, PeerLedgerReply, PeerLedgerResult,
+    PeerTokenCheckParams, PeerTokenCheckResult, RedirectAction, RedirectConfig, RedirectReply,
+    RedirectRequest, WireHolder, WireSlice, WireSliceSizing, WireStoredLimit,
 };
 
 use schemars::JsonSchema;
@@ -950,7 +959,7 @@ pub const ENTRIES: Entries = Entries {
         GROUP_REVOKE,
         GROUP_LEAD,
     ],
-    events: &[],
+    events: &[GROUP_LEAD_REACHABILITY_CHANGED],
     handler_requests: &[],
     error_codes: &[
         LEAD_EPOCH_STALE,
@@ -960,6 +969,7 @@ pub const ENTRIES: Entries = Entries {
         GROUP_MEMBER_EXISTS,
         AUTHORITY_KEY_MISMATCH,
         GROUP_LEAD_UNREACHABLE,
+        LEAD_UNREACHABLE,
         LEAD_CANNOT_LEAVE,
         GROUP_MEMBER_UNKNOWN,
         NOT_IN_A_GROUP,

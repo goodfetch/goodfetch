@@ -1780,6 +1780,9 @@ export type StopReason =
       kind: "limit_not_understood";
     })
   | {
+      kind: "lead_unreachable";
+    }
+  | {
       kind: "engine_lost";
     }
   | {
@@ -5026,6 +5029,26 @@ export interface GroupLeadParams {
    * last-known Group members can be reached.
    */
   confirm?: boolean;
+}
+/**
+ * Payload of `group.lead_reachability_changed` (ADR 0055).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeadReachabilityChanged".
+ */
+export interface GroupLeadReachabilityChanged {
+  /**
+   * The Lead Daemon's Group member name.
+   */
+  leadName: string;
+  /**
+   * Whether the Lead Daemon is reachable now.
+   */
+  reachable: boolean;
+  /**
+   * Why the Lead Daemon became unreachable, when `reachable` is `false`.
+   */
+  reason?: string | null;
 }
 /**
  * What `group.lead` answers.

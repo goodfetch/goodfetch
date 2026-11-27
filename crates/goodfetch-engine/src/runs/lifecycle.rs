@@ -58,6 +58,9 @@ pub enum RunEvent {
     /// came to cover it (ADR 0041): stopped, to be resumed by an engine
     /// that can.
     LimitNotUnderstood,
+    /// The Daemon group's Lead Daemon (or local Group member) could not be
+    /// reached for a new Slice (ADR 0055): stopped, resumable once reachable.
+    LeadUnreachable,
     /// The resource governor ran out of resources for it (ADR 0040).
     ResourcesExhausted,
     /// Its engine is gone: its state says `running` and no writer holds it.
@@ -109,6 +112,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Timeout
             | RunEvent::Limit
             | RunEvent::LimitNotUnderstood
+            | RunEvent::LeadUnreachable
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
             | RunEvent::EnginePanicked
@@ -127,6 +131,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Timeout
             | RunEvent::Limit
             | RunEvent::LimitNotUnderstood
+            | RunEvent::LeadUnreachable
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
             | RunEvent::EnginePanicked
@@ -146,6 +151,7 @@ pub fn apply(state: Lifecycle, event: RunEvent) -> Result<Next, InvalidRunTransi
             | RunEvent::Timeout
             | RunEvent::Limit
             | RunEvent::LimitNotUnderstood
+            | RunEvent::LeadUnreachable
             | RunEvent::ResourcesExhausted
             | RunEvent::EngineLost
             | RunEvent::EnginePanicked

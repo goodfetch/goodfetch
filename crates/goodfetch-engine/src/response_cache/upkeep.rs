@@ -152,6 +152,23 @@ impl ResponseCache {
         }
     }
 
+    /// Deletes every cached entry belonging to the deleted Saved identity
+    /// partition `name` (ADRs 0046 and 0055).
+    pub async fn forget_saved_identity(&self, name: &str) -> Result<(), ResponseCacheError> {
+        let clearing = Clearing {
+            partition: Some(name.to_owned()),
+            ..Clearing::default()
+        };
+        match self.clear(clearing).await {
+            Ok(_) => Ok(()),
+            Err(error @ ResponseCacheError::Format { .. }) => {
+                tracing::warn!(saved_identity = name, %error, "the deleted Saved identity's entries stay in a Response cache this engine cannot read");
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     /// Reads the body file of each of `person`'s entries, each file once,
     /// and lists the entries whose file is missing or no longer hashes to
     /// the body stored. It changes nothing; a cache never written holds

@@ -9252,6 +9252,34 @@
       },
       "type": "object"
     },
+    "GroupLeadReachabilityChanged": {
+      "description": "Payload of `group.lead_reachability_changed` (ADR 0055).",
+      "properties": {
+        "lead_name": {
+          "arrived_in": "0.1",
+          "description": "The Lead Daemon's Group member name.",
+          "type": "string"
+        },
+        "reachable": {
+          "arrived_in": "0.1",
+          "description": "Whether the Lead Daemon is reachable now.",
+          "type": "boolean"
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the Lead Daemon became unreachable, when `reachable` is `false`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reachable",
+        "lead_name"
+      ],
+      "type": "object"
+    },
     "GroupLeadStatus": {
       "description": "What `group.lead` answers.",
       "properties": {
@@ -26611,6 +26639,19 @@
           "properties": {
             "kind": {
               "const": "limit_not_understood",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "It needed a new Usage ledger Slice from its Daemon group's Lead Daemon\n(or local Group member), which could not be reached, and stopped at its\nnext safe point, resumable once reachable (ADR 0055): the stop of the\nError code `lead_unreachable`.",
+          "properties": {
+            "kind": {
+              "const": "lead_unreachable",
               "type": "string"
             }
           },

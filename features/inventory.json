@@ -2057,6 +2057,17 @@
       ]
     },
     {
+      "id": "error:lead_unreachable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:lease_lost",
       "kind": "error",
       "area": 3,
@@ -3157,6 +3168,17 @@
       "id": "event:events.resync",
       "kind": "event",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "event:group.lead_reachability_changed",
+      "kind": "event",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [

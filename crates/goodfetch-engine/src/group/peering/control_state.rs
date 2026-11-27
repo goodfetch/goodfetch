@@ -62,27 +62,43 @@ pub(super) async fn replicate_control_state(peering: Arc<Peering>, owner: TaskOw
         .settings
         .as_ref()
         .map(crate::settings::Settings::subscribe_changes);
+    let mut ledger_changes = peering
+        .services
+        .ledger
+        .as_ref()
+        .map(crate::ledger::Ledger::subscribe_changes);
     let mut acked: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
     loop {
         if owner.token().is_cancelled() {
             return;
         }
         peering.sync_settings_from_disk().await;
+        peering.sync_usage_limits().await;
         let pending = peering.push_round(&mut acked).await;
-        wait_next(&peering, &owner, &mut changes, pending).await;
+        wait_next(&peering, &owner, &mut changes, &mut ledger_changes, pending).await;
     }
 }
 
-/// Waits for a settings write, a newly admitted member wake, a retry timer
-/// (when `pending`), or cancellation.
+/// Waits for a settings write, a ledger Limit write, a newly admitted member
+/// wake, a retry timer (when `pending`), or cancellation.
 async fn wait_next(
     peering: &Peering,
     owner: &TaskOwner,
     changes: &mut Option<tokio::sync::broadcast::Receiver<()>>,
+    ledger_changes: &mut Option<tokio::sync::broadcast::Receiver<()>>,
     pending: bool,
 ) {
     let recv_change = async {
         match changes.as_mut() {
+            Some(rx) => match rx.recv().await {
+                Ok(()) | Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => std::future::pending::<()>().await,
+            },
+            None => std::future::pending::<()>().await,
+        }
+    };
+    let recv_ledger = async {
+        match ledger_changes.as_mut() {
             Some(rx) => match rx.recv().await {
                 Ok(()) | Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => std::future::pending::<()>().await,
@@ -101,6 +117,7 @@ async fn wait_next(
         () = owner.token().cancelled() => {}
         () = peering.control_wake.notified() => {}
         () = recv_change => {}
+        () = recv_ledger => {}
         () = retry => {}
     }
 }
@@ -145,6 +162,7 @@ pub(super) async fn sync_control_state(peering: Arc<Peering>, owner: TaskOwner) 
                 if answered.lead_epoch > lead_epoch {
                     let _ = peering.admit_epoch(answered.lead_epoch).await;
                 }
+                peering.report_lead_reachable(true, None).await;
                 if let Err(error) = peering.apply_snapshots(answered.snapshots).await {
                     tracing::warn!(%error, "failed to apply synced control-state snapshots");
                     tokio::select! {
@@ -155,6 +173,9 @@ pub(super) async fn sync_control_state(peering: Arc<Peering>, owner: TaskOwner) 
                 return;
             }
             Err(error) => {
+                peering
+                    .report_lead_reachable(false, Some(error.to_string()))
+                    .await;
                 tracing::debug!(
                     %error,
                     "failed to sync control-state stores from Lead Daemon; retrying"

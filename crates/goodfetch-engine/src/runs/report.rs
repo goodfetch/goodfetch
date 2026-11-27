@@ -218,6 +218,9 @@ fn stopped_for(reason: &StopReason) -> String {
             "a Limit on {} {} this engine cannot evaluate covered it",
             limit.scope.kind, limit.usage_kind
         ),
+        StopReason::LeadUnreachable => {
+            "the Daemon group's Lead Daemon could not be reached for a new Slice".to_owned()
+        }
         StopReason::EngineLost => "its engine was lost".to_owned(),
         StopReason::EnginePanicked => "its engine stopped on a bug".to_owned(),
         StopReason::Resources { resource, .. } => match resource {

@@ -22,6 +22,7 @@ use crate::catalog::{
 };
 use crate::connection::EngineInstance;
 use crate::governor::SYSTEM_INFO;
+use crate::group::GROUP_LEAD_REACHABILITY_CHANGED;
 use crate::jsonrpc::RequestId;
 use crate::needs_you::{NEEDS_YOU_CHANGED, NeedsYouItem};
 use crate::run::{RUN_AXES_CHANGED, RunAxes};
@@ -184,7 +185,13 @@ pub const EVENTS_SUBSCRIBE: Operation = Operation {
     reach: Reach::AllSurfaces,
     params: schema_of::<EventsSubscribeParams>,
     result: schema_of::<SubscriptionEnded>,
-    events: &[&RESYNC, &RUN_AXES_CHANGED, &NEEDS_YOU_CHANGED, &SYSTEM_INFO],
+    events: &[
+        &RESYNC,
+        &RUN_AXES_CHANGED,
+        &NEEDS_YOU_CHANGED,
+        &SYSTEM_INFO,
+        &GROUP_LEAD_REACHABILITY_CHANGED,
+    ],
     cancellable: true,
     input: None,
     bound: None,

@@ -15,9 +15,16 @@
 //!
 //! A live Run charges through [`RunCharging`], the value of its charging
 //! that a function takes in place of the Run's handle (ADR 0145).
+//!
+//! Size: one concern, a Run's charging state machine against its covering
+//! Limits and Slices, kept together so in-memory charging, refresh checks,
+//! Slice taking/giving back, and group-authority delegation share one
+//! authoritative invariant.
 
+use std::sync::Arc;
+
+use goodfetch_protocol::run::AppliedLimit;
 use goodfetch_protocol::run::LimitSetter;
-use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
 use goodfetch_protocol::usage::{LEDGER_READ_INTERVAL_DEFAULT, Limit};
 use jiff::{SignedDuration, Timestamp};
 use rusqlite::Connection;
@@ -25,25 +32,9 @@ use rusqlite::Connection;
 pub use self::live::{Allowance, ChargeError, RunCharging, UnjournaledCharges};
 pub(crate) use self::live::{ChargingParts, StorageFailed};
 use super::{
-    Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, SliceId, SliceSizing,
-    StoredLimit, TARGET, point_in_time,
+    Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, Refusal, SliceAuthority,
+    SliceId, SliceSizing, StoredLimit, TARGET, is_group_redirect, point_in_time,
 };
-
-/// Why a run may not start, or may not charge more.
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[non_exhaustive]
-pub enum Refusal {
-    /// A Limit covering it has nothing left in its period: `limit_reached`.
-    #[error("a Limit on {} {} has nothing left", .0.scope.kind, .0.usage_kind)]
-    Reached(Box<ReachedLimit>),
-    /// A Limit flagged *must understand* that this engine cannot evaluate
-    /// may cover it: `limit_not_understood`.
-    #[error("a Limit on {} cannot be evaluated by this engine", .0.scope.kind)]
-    NotUnderstood(Box<Limit>),
-    /// The ledger could not be read or written.
-    #[error(transparent)]
-    Ledger(#[from] LedgerError),
-}
 
 /// What a charge took from each Slice: every Slice it touched, with what
 /// the run has now used of it in all, which the run journals under its
@@ -364,6 +355,10 @@ pub struct Charging {
     /// prepared once on it, so a run opens the ledger once (#1886), as it
     /// starts; let go when a call fails, so the next one opens afresh.
     connection: Option<Connection>,
+    /// The group [`SliceAuthority`] resolved on the most recent [`Charging::read`],
+    /// if this engine is a non-lead Group member or an Attached engine beside a
+    /// Group member.
+    resolved_authority: Option<Arc<dyn SliceAuthority>>,
 }
 
 impl Charging {
@@ -384,6 +379,7 @@ impl Charging {
             uncapped: false,
             limits: Limits::unread(),
             connection: None,
+            resolved_authority: None,
         }
     }
 
@@ -414,10 +410,15 @@ impl Charging {
             ledger,
             connection,
             limits,
+            resolved_authority,
             ..
         } = self;
         for holding in limits.holding()?.iter() {
-            if ledger.left_on(connection, &holding.stored, now)? == 0 {
+            let left = match resolved_authority {
+                Some(authority) => authority.left(&holding.stored, now)?,
+                None => ledger.left_on(connection, &holding.stored, now)?,
+            };
+            if left == 0 {
                 return Err(reached(&holding.stored, now));
             }
         }
@@ -454,9 +455,31 @@ impl Charging {
         // Counted before the read: a change that lands while it reads
         // moves the count past this one, and the next charge reads again.
         let changes = self.ledger.changes();
-        let stored = match reading {
-            Reading::Start => self.ledger.limits_on(&mut self.connection)?,
-            Reading::Charge => self.ledger.charge_limits(&mut self.connection)?,
+        let (stored, using_authority) = if let Some(authority) = self.ledger.direct_authority() {
+            let stored = authority.limits(now)?;
+            self.resolved_authority = Some(authority);
+            (stored, true)
+        } else {
+            let local = match reading {
+                Reading::Start => self.ledger.limits_on(&mut self.connection)?,
+                Reading::Charge => self.ledger.charge_limits(&mut self.connection)?,
+            };
+            if let Some(authority) = self.ledger.resolve_redirect_in(&local, now)? {
+                let stored = authority.limits(now)?;
+                self.resolved_authority = Some(authority);
+                (stored, true)
+            } else {
+                self.resolved_authority = None;
+                let filtered = if local.iter().any(is_group_redirect) {
+                    local
+                        .into_iter()
+                        .filter(|stored| !is_group_redirect(stored))
+                        .collect()
+                } else {
+                    local
+                };
+                (filtered, false)
+            }
         };
         let holding = match self.placement.holding(&stored) {
             Ok(holding) => Ok(holding
@@ -465,7 +488,7 @@ impl Charging {
                 .collect::<Vec<_>>()),
             Err(stored) => Err(Box::new(stored.limit())),
         };
-        if holding.as_ref().is_ok_and(|holding| !holding.is_empty()) {
+        if !using_authority && holding.as_ref().is_ok_and(|holding| !holding.is_empty()) {
             self.ledger.prepare_slices(&mut self.connection)?;
         }
         self.limits = Limits {
@@ -680,7 +703,19 @@ impl Charging {
         usage_kind: &str,
         currency: &str,
     ) -> Result<Option<LimitSetter>, Refusal> {
-        let limits = self.ledger.limits_on(&mut self.connection)?;
+        let at = self
+            .limits
+            .read
+            .map_or(Timestamp::UNIX_EPOCH, |read| read.at);
+        let limits = match &self.resolved_authority {
+            Some(authority) => authority.limits(at)?,
+            None => self
+                .ledger
+                .limits_on(&mut self.connection)?
+                .into_iter()
+                .filter(|stored| !is_group_redirect(stored))
+                .collect(),
+        };
         let holding = self
             .placement
             .holding(&limits)
@@ -706,7 +741,16 @@ impl Charging {
     /// `NotUnderstood` when a Limit the run cannot be placed outside of
     /// appeared, `Ledger` when the ledger cannot be read.
     pub fn applied(&mut self, now: Timestamp) -> Result<Vec<AppliedLimit>, Refusal> {
-        let limits = self.ledger.limits_on(&mut self.connection)?;
+        let authority = self.ledger.active_authority(now)?;
+        let limits = match &authority {
+            Some(authority) => authority.limits(now)?,
+            None => self
+                .ledger
+                .limits_on(&mut self.connection)?
+                .into_iter()
+                .filter(|stored| !is_group_redirect(stored))
+                .collect(),
+        };
         let holding = self
             .placement
             .holding(&limits)
@@ -715,6 +759,10 @@ impl Charging {
             .into_iter()
             .map(|stored| {
                 let (_, bounds) = stored.period_key(now);
+                let left = match &authority {
+                    Some(authority) => authority.left(stored, now)?,
+                    None => self.ledger.left_on(&mut self.connection, stored, now)?,
+                };
                 Ok(AppliedLimit {
                     scope: stored.scope.clone(),
                     usage_kind: stored.usage_kind.clone(),
@@ -722,7 +770,7 @@ impl Charging {
                     period: stored.known_period(),
                     resets_at: bounds.map(|bounds| point_in_time(bounds.end)),
                     amount: stored.amount,
-                    left: self.ledger.left_on(&mut self.connection, stored, now)?,
+                    left,
                     set_by: stored.limit().set_by,
                 })
             })
@@ -874,6 +922,7 @@ impl Charging {
             held,
             limits,
             connection,
+            resolved_authority,
             ..
         } = self;
         for holding in limits.capping(usage_kind, currency, now)? {
@@ -881,15 +930,20 @@ impl Charging {
             if room >= amount {
                 continue;
             }
-            let Some(slice) = ledger.take_slice(
-                connection,
-                &holding.stored,
-                holder,
-                now,
-                *sizing,
-                amount - room,
-            )?
-            else {
+            let taken = match resolved_authority {
+                Some(authority) => {
+                    authority.take_slice(&holding.stored, holder, now, *sizing, amount - room)?
+                }
+                None => ledger.take_slice(
+                    connection,
+                    &holding.stored,
+                    holder,
+                    now,
+                    *sizing,
+                    amount - room,
+                )?,
+            };
+            let Some(slice) = taken else {
                 return Err(reached(&holding.stored, now));
             };
             held.push(Held {
@@ -952,7 +1006,19 @@ impl Charging {
     /// an engine that opens the ledger reclaims them.
     pub fn give_back(&mut self) -> Result<(), LedgerError> {
         let used: Vec<(SliceId, u64)> = self.held.iter().map(|held| (held.id, held.used)).collect();
-        self.ledger.give_back(&mut self.connection, &used)?;
+        if let Some(authority) = &self.resolved_authority {
+            authority
+                .give_back(&used)
+                .map_err(|refusal| match refusal {
+                    Refusal::Ledger(error) => error,
+                    other => LedgerError::Sqlite {
+                        path: self.ledger.path().to_owned(),
+                        message: other.to_string(),
+                    },
+                })?;
+        } else {
+            self.ledger.give_back(&mut self.connection, &used)?;
+        }
         self.held.clear();
         Ok(())
     }

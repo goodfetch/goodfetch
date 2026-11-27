@@ -456,6 +456,11 @@ pub enum StopReason {
     /// point, resumable by an engine that can (ADR 0041): the stop of the
     /// Error code `limit_not_understood`.
     LimitNotUnderstood(Box<NotUnderstoodLimit>),
+    /// It needed a new Usage ledger Slice from its Daemon group's Lead Daemon
+    /// (or local Group member), which could not be reached, and stopped at its
+    /// next safe point, resumable once reachable (ADR 0055): the stop of the
+    /// Error code `lead_unreachable`.
+    LeadUnreachable,
     /// Its engine was lost while it ran, and another engine stopped it.
     EngineLost,
     /// Its Attached engine stopped on a panic in a part every Run shares,
@@ -482,7 +487,7 @@ pub enum StopReason {
 
 impl StopReason {
     /// The tags of the reasons this reader knows, in declaration order.
-    const KNOWN_TAGS: [&str; 10] = [
+    const KNOWN_TAGS: [&str; 11] = [
         "abort",
         "pause",
         "migrate",
@@ -490,6 +495,7 @@ impl StopReason {
         "drain",
         "limit",
         "limit_not_understood",
+        "lead_unreachable",
         "engine_lost",
         "engine_panicked",
         "resources",

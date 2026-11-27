@@ -18,8 +18,9 @@ use goodfetch_protocol::governor::{
 use goodfetch_protocol::ops::{
     BROWSER_LABEL, BROWSER_MEMORY, BROWSER_RECYCLED, BROWSER_RUNNING, CLIENT_CONNECTED,
     COMPLETENESS_LABEL, COUNTED_WORK, COUNTED_WORK_PATH_LABEL, COUNTED_WORK_WORK_LABEL,
-    DAEMON_DRAINING, DAEMON_HEAP, ENGINE_PANICS, LIFECYCLE_LABEL, PANIC_ENDED_LABEL,
-    RECYCLE_REASON_LABEL, RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL, SURFACE_LABEL, VERDICT_LABEL,
+    DAEMON_DRAINING, DAEMON_HEAP, ENGINE_PANICS, GROUP_LEAD_UNREACHABLE, LIFECYCLE_LABEL,
+    PANIC_ENDED_LABEL, RECYCLE_REASON_LABEL, RUN_ACTIVE, RUN_ENDED, RUN_KIND_LABEL, SURFACE_LABEL,
+    VERDICT_LABEL,
 };
 use goodfetch_protocol::run::{RunKind, RunReport};
 use goodfetch_protocol::storage::{
@@ -48,6 +49,7 @@ struct Instruments {
     run_ended: Counter<u64>,
     client_connected: UpDownCounter<i64>,
     daemon_draining: Gauge<u64>,
+    group_lead_unreachable: Gauge<u64>,
     engine_panics: Counter<u64>,
     governor_saturation: Gauge<f64>,
     governor_target: Gauge<u64>,
@@ -186,6 +188,11 @@ impl Metrics {
                 .with_description(DAEMON_DRAINING.description)
                 .with_unit(DAEMON_DRAINING.unit)
                 .build(),
+            group_lead_unreachable: meter
+                .u64_gauge(GROUP_LEAD_UNREACHABLE.name)
+                .with_description(GROUP_LEAD_UNREACHABLE.description)
+                .with_unit(GROUP_LEAD_UNREACHABLE.unit)
+                .build(),
             governor_saturation: meter
                 .f64_gauge(SATURATION.name)
                 .with_description(SATURATION.description)
@@ -314,6 +321,13 @@ impl Metrics {
     /// Whether the Daemon drains.
     pub(crate) fn draining(&self, draining: bool) {
         self.0.daemon_draining.record(u64::from(draining), &[]);
+    }
+
+    /// Whether this Group member cannot reach its Lead Daemon (ADR 0055).
+    pub(crate) fn group_lead_unreachable(&self, unreachable: bool) {
+        self.0
+            .group_lead_unreachable
+            .record(u64::from(unreachable), &[]);
     }
 
     /// The Resource governor's sample `info`: each kind's target, what

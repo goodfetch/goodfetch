@@ -140,6 +140,9 @@ pub enum Written {
 pub enum FailureKind {
     /// It may pass later: retried on the delivery schedule.
     Transient,
+    /// The destination's rate or quota limit was reached: reported as
+    /// `behind`, never `failed` (ADR 0026).
+    QuotaExhausted,
     /// The destination refused some of the batch's Records.
     RejectedRecords,
     /// The destination refused the engine's credentials or access.
@@ -165,6 +168,8 @@ pub enum FailureKind {
 pub struct Failure {
     kind: FailureKind,
     retry_after: Option<Duration>,
+    rate_limited: bool,
+    timed_out: bool,
     text: PartyText,
 }
 
@@ -195,7 +200,26 @@ impl Failure {
         Self {
             kind,
             retry_after: None,
+            rate_limited: kind == FailureKind::QuotaExhausted,
+            timed_out: false,
             text: PartyText(text.into()),
+        }
+    }
+
+    /// A write that exceeded `timeout.sink_write` (`deadline_exceeded`,
+    /// ADRs 0026 and 0080): retried as transient and lowers adaptive
+    /// concurrency.
+    #[must_use]
+    pub fn deadline_exceeded(timeout: Duration) -> Self {
+        Self {
+            kind: FailureKind::Transient,
+            retry_after: None,
+            rate_limited: false,
+            timed_out: true,
+            text: PartyText(format!(
+                "Sink write exceeded `timeout.sink_write` ({} ms): deadline_exceeded",
+                timeout.as_millis()
+            )),
         }
     }
 
@@ -223,7 +247,13 @@ impl Failure {
             400 | 422 => FailureKind::RejectedRecords,
             _ => FailureKind::Permanent,
         };
-        let failure = Self::new(kind, detail);
+        let mut failure = Self::new(kind, detail);
+        if status == 429 {
+            failure.rate_limited = true;
+        }
+        if status == 408 {
+            failure.timed_out = true;
+        }
         match (kind, retry_after) {
             (FailureKind::Transient, Some(wait)) => failure.with_retry_after(wait),
             _ => failure,
@@ -265,6 +295,20 @@ impl Failure {
         self.retry_after
     }
 
+    /// Whether the failure signals rate limiting or quota exhaustion (HTTP 429
+    /// or [`FailureKind::QuotaExhausted`]), lowering adaptive concurrency.
+    #[must_use]
+    pub fn is_rate_limited(&self) -> bool {
+        self.rate_limited
+    }
+
+    /// Whether the failure was a write timeout (`timeout.sink_write` or HTTP
+    /// 408), lowering adaptive concurrency.
+    #[must_use]
+    pub fn is_timeout(&self) -> bool {
+        self.timed_out
+    }
+
     /// The destination's text, masked at [`Scope::Kept`] for a dead-letter
     /// reason: no code reads the raw text (ADRs 0067 and 0127).
     #[must_use]
@@ -296,6 +340,22 @@ pub trait Primitives {
     /// The destination's, when the batch did not land or its answer was
     /// lost.
     fn write(&mut self, batch: &Batch) -> Result<Written, Self::Error>;
+
+    /// Writes `batch` bounded by `timeout` (`timeout.sink_write`, ADRs 0026
+    /// and 0080). Sinks whose underlying client or connection accepts a
+    /// per-write timeout override this; others fall back to [`Self::write`].
+    ///
+    /// # Errors
+    ///
+    /// The destination's, when the batch did not land or timed out.
+    fn write_with_timeout(
+        &mut self,
+        batch: &Batch,
+        timeout: Duration,
+    ) -> Result<Written, Self::Error> {
+        let _ = timeout;
+        self.write(batch)
+    }
 
     /// Ends the delivery of the copy `run` of a Run that finished, once its
     /// last batch is written: a Sink that writes a finished Run's Records

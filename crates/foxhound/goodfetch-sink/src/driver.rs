@@ -23,13 +23,29 @@ use crate::contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, RunCopy,
     Written,
 };
-use crate::dead_letters::{self, DeadLetter};
+use crate::dead_letters::DeadLetter;
 use crate::schedule::{
     self, PauseReason, RetryDecision, RetryState, SinkNotification, SinkNotificationEvent,
 };
+use crate::throughput::{
+    AdaptiveConcurrency, BatchPolicy, DEFAULT_WRITE_TIMEOUT, RateLimit, Throughput, TokenBucket,
+    record_wire_bytes,
+};
+
+mod bounded;
 
 /// The most Records one write carries, unless set otherwise.
 const BATCH_RECORDS: usize = 256;
+
+/// Default maximum serialized Record bytes per write (16 MiB) unless set
+/// otherwise.
+const BATCH_BYTES: usize = 16 * 1024 * 1024;
+
+/// Default starting adaptive concurrency limit.
+const INITIAL_CONCURRENCY: usize = 4;
+
+/// Default upper adaptive concurrency limit.
+const MAX_CONCURRENCY: usize = 16;
 
 /// Where a Sink's delivery stands after [`Driver::deliver`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,7 +123,10 @@ pub struct Driver<S> {
     sink: S,
     run: RunCopy,
     datasets: Vec<String>,
-    batch_records: usize,
+    batch_policy: BatchPolicy,
+    bucket: Option<TokenBucket>,
+    concurrency: AdaptiveConcurrency,
+    write_timeout: Duration,
     clock: Clock,
     class: Option<GuaranteeClass>,
     /// How far the destination holds each Dataset, once probed; none until
@@ -220,7 +239,10 @@ impl<S: Primitives> Driver<S> {
             sink,
             run,
             datasets,
-            batch_records: BATCH_RECORDS,
+            batch_policy: BatchPolicy::new(BATCH_RECORDS, BATCH_BYTES),
+            bucket: None,
+            concurrency: AdaptiveConcurrency::new(INITIAL_CONCURRENCY, MAX_CONCURRENCY),
+            write_timeout: DEFAULT_WRITE_TIMEOUT,
             clock: Clock::system(),
             class: None,
             delivered: None,
@@ -270,8 +292,62 @@ impl<S: Primitives> Driver<S> {
     /// Sends at most `records` Records in one write.
     #[must_use]
     pub fn with_batch_records(mut self, records: usize) -> Self {
-        self.batch_records = records.max(1);
+        self.batch_policy = BatchPolicy::new(records, self.batch_policy.max_bytes);
         self
+    }
+
+    /// Configures rate limiting, batch sizing, adaptive concurrency and
+    /// `timeout.sink_write` from a [`Throughput`] configuration (ADRs 0026
+    /// and 0080).
+    #[must_use]
+    pub fn with_throughput(mut self, throughput: Throughput) -> Self {
+        self.batch_policy = throughput.batch;
+        self.bucket = Some(TokenBucket::new(throughput.rate));
+        self.concurrency =
+            AdaptiveConcurrency::new(throughput.initial_concurrency, throughput.max_concurrency);
+        self.write_timeout = throughput.write_timeout;
+        self
+    }
+
+    /// Configures the token bucket rate limit for this Sink (ADR 0026).
+    #[must_use]
+    pub fn with_rate(mut self, rate: RateLimit) -> Self {
+        self.bucket = Some(TokenBucket::new(rate));
+        self
+    }
+
+    /// Configures both `batch.max_records` and `batch.max_bytes` (ADR 0026).
+    #[must_use]
+    pub fn with_batch_policy(mut self, policy: BatchPolicy) -> Self {
+        self.batch_policy = policy;
+        self
+    }
+
+    /// Sets `timeout.sink_write`, bounding each write (ADR 0080).
+    #[must_use]
+    pub fn with_write_timeout(mut self, timeout: Duration) -> Self {
+        self.write_timeout = timeout;
+        self
+    }
+
+    /// Sets the adaptive concurrency starting and maximum limits (ADR 0026).
+    #[must_use]
+    pub fn with_concurrency(mut self, initial: usize, max: usize) -> Self {
+        self.concurrency = AdaptiveConcurrency::new(initial, max);
+        self
+    }
+
+    /// Current adaptive concurrency limit (lowers on 429/timeout and recovers
+    /// on consecutive successes, ADR 0026).
+    #[must_use]
+    pub fn concurrency_limit(&self) -> usize {
+        self.concurrency.limit()
+    }
+
+    /// Configured `timeout.sink_write` for this driver.
+    #[must_use]
+    pub fn write_timeout(&self) -> Duration {
+        self.write_timeout
     }
 
     /// The guarantee class the Sink's last probe reported; none before one
@@ -365,51 +441,35 @@ impl<S: Primitives> Driver<S> {
         }
     }
 
-    /// Delivers the Records `run_file` has committed past those the
-    /// destination holds, in number order per Dataset, and says where the
-    /// delivery stands. A rejected batch is split recursively until every
-    /// bad Record is isolated onto [`Self::take_dead_letters`] (ADR 0026);
-    /// a Record lacking a key field under a keyed mode joins them too
-    /// (ADR 0103).
-    ///
-    /// # Errors
-    ///
-    /// The run file's, when its Records cannot be read.
-    pub fn deliver(&mut self, run_file: &Connection) -> rusqlite::Result<Status> {
+    /// Checks pause state and ensures the destination has been probed,
+    /// returning the per-Dataset delivered cursor or an early [`Status`].
+    pub(super) fn begin_delivery_pass(&mut self) -> Result<BTreeMap<String, u64>, Status> {
         if let Some((reason, failure)) = &self.paused {
-            return Ok(Status::Paused {
+            return Err(Status::Paused {
                 reason: *reason,
                 failure: failure.clone(),
             });
         }
-        let mut delivered = match self.delivered.take() {
-            Some(delivered) => delivered,
+        match self.delivered.take() {
+            Some(delivered) => Ok(delivered),
             None => match self.sink.probe(&self.run) {
                 Ok(probe) => {
                     self.class = Some(probe.class);
-                    probe.delivered
+                    Ok(probe.delivered)
                 }
-                Err(error) => return Ok(self.failed(error)),
+                Err(error) => Err(self.failed(error)),
             },
-        };
-        let rejected_before = self.dead_letters.len();
-        for index in 0..self.datasets.len() {
-            let dataset = self.datasets[index].clone();
-            let fields = match self.keying.as_mut() {
-                Some(keying) => Some(keying.fields(run_file, &dataset)?),
-                None => None,
-            };
-            let declared_schema = self.declared_schema(run_file, &dataset)?;
-            if let Some(early) = self.deliver_dataset(
-                run_file,
-                &dataset,
-                fields.as_deref(),
-                declared_schema.as_ref(),
-                &mut delivered,
-            )? {
-                return Ok(early);
-            }
         }
+    }
+
+    /// Finalizes a successful delivery pass: stores `delivered`, clears any
+    /// failure streak, emits recovery if resumed from pause, and returns
+    /// [`Status::Complete`] or [`Status::CompleteWithRejections`].
+    pub(super) fn complete_delivery_pass(
+        &mut self,
+        delivered: BTreeMap<String, u64>,
+        rejected_before: usize,
+    ) -> Status {
         self.delivered = Some(delivered);
         self.retry_state.clear();
         self.next_retry_at = None;
@@ -430,16 +490,59 @@ impl<S: Primitives> Driver<S> {
         } else {
             SinkStatus::Complete
         };
-        Ok(if had_rejections_now {
+        if had_rejections_now {
             Status::CompleteWithRejections
         } else {
             Status::Complete
-        })
+        }
+    }
+
+    /// Delivers the Records `run_file` has committed past those the
+    /// destination holds, in number order per Dataset, and says where the
+    /// delivery stands. A rejected batch is split recursively until every
+    /// bad Record is isolated onto [`Self::take_dead_letters`] (ADR 0026);
+    /// a Record lacking a key field under a keyed mode joins them too
+    /// (ADR 0103).
+    ///
+    /// # Errors
+    ///
+    /// The run file's, when its Records cannot be read.
+    pub fn deliver(&mut self, run_file: &Connection) -> rusqlite::Result<Status> {
+        let mut delivered = match self.begin_delivery_pass() {
+            Ok(delivered) => delivered,
+            Err(early) => return Ok(early),
+        };
+        let rejected_before = self.dead_letters.len();
+        for index in 0..self.datasets.len() {
+            let dataset = self.datasets[index].clone();
+            let fields = match self.keying.as_mut() {
+                Some(keying) => Some(keying.fields(run_file, &dataset)?),
+                None => None,
+            };
+            let declared_schema = self.declared_schema(run_file, &dataset)?;
+            if let Some(early) = self.deliver_dataset(
+                run_file,
+                &dataset,
+                fields.as_deref(),
+                declared_schema.as_ref(),
+                &mut delivered,
+            )? {
+                if matches!(
+                    &early,
+                    Status::Behind { failure, .. }
+                        if failure.kind() == FailureKind::QuotaExhausted
+                ) {
+                    self.delivered = Some(delivered);
+                }
+                return Ok(early);
+            }
+        }
+        Ok(self.complete_delivery_pass(delivered, rejected_before))
     }
 
     /// Reads the declared JSON Schema for `dataset` from `run_file`, caching
     /// the run file's Dataset declarations on first call.
-    fn declared_schema(
+    pub(super) fn declared_schema(
         &mut self,
         run_file: &Connection,
         dataset: &str,
@@ -462,16 +565,16 @@ impl<S: Primitives> Driver<S> {
             .flatten())
     }
 
-    /// Delivers every committed page of `dataset` past `delivered`,
-    /// returning early on supersession or a non-record failure.
-    fn deliver_dataset(
+    /// Reads the next write-sized chunk of committed Records of `dataset`
+    /// past `delivered`, respecting `batch.max_records` and `batch.max_bytes`
+    /// and dead-lettering Records missing a required key field.
+    pub(super) fn next_chunk(
         &mut self,
         run_file: &Connection,
         dataset: &str,
         fields: Option<&[String]>,
-        declared_schema: Option<&Value>,
         delivered: &mut BTreeMap<String, u64>,
-    ) -> rusqlite::Result<Option<Status>> {
+    ) -> rusqlite::Result<Option<(Vec<Delivered>, u64)>> {
         let run = self.run.clone();
         loop {
             let after = delivered.get(dataset).copied().unwrap_or(0);
@@ -483,12 +586,15 @@ impl<S: Primitives> Driver<S> {
                     through: None,
                     wall: None,
                 },
-                self.batch_records,
+                self.batch_policy.max_records,
             )?;
-            let Some(last) = page.last().map(|record| record.number) else {
+            if page.is_empty() {
                 return Ok(None);
-            };
+            }
             let mut batch = Vec::with_capacity(page.len());
+            let mut used_bytes = 0usize;
+            let mut last_in_batch = after;
+            let mut skipped_to = after;
             for record in page {
                 let mut item = Delivered::new(
                     &self.run.run_id,
@@ -498,20 +604,12 @@ impl<S: Primitives> Driver<S> {
                     record.committed_at,
                     record.value,
                 );
-                match fields {
-                    Some(fields) => match key_of(fields, &item.value) {
-                        Ok(key) => {
-                            item.key = Some(key);
-                            batch.push(item);
-                        }
+                if let Some(fields) = fields {
+                    match key_of(fields, &item.value) {
+                        Ok(key) => item.key = Some(key),
                         Err(field) => {
-                            if let Some(early) = self.write_or_split(
-                                &run,
-                                dataset,
-                                declared_schema,
-                                std::mem::take(&mut batch),
-                            ) {
-                                return Ok(Some(early));
+                            if !batch.is_empty() {
+                                return Ok(Some((batch, last_in_batch)));
                             }
                             let reason = format!(
                                 "Record {} of the Dataset `{dataset}` has no key field `{field}`",
@@ -524,17 +622,73 @@ impl<S: Primitives> Driver<S> {
                                 %field,
                                 "a Record lacks a field of its key: dead-lettered"
                             );
+                            skipped_to = item.number;
                             self.push_dead_letter(&run, dataset, item, &reason);
+                            continue;
                         }
-                    },
-                    None => batch.push(item),
+                    }
                 }
+                let item_bytes = record_wire_bytes(&item);
+                if !batch.is_empty()
+                    && used_bytes.saturating_add(item_bytes) > self.batch_policy.max_bytes
+                {
+                    return Ok(Some((batch, last_in_batch)));
+                }
+                used_bytes = used_bytes.saturating_add(item_bytes);
+                last_in_batch = item.number;
+                batch.push(item);
             }
+            if !batch.is_empty() {
+                return Ok(Some((batch, last_in_batch)));
+            }
+            delivered.insert(dataset.to_owned(), skipped_to);
+        }
+    }
+
+    /// Acquires one write token from the Sink's token bucket, or returns a
+    /// [`Status::Behind`] (`FailureKind::QuotaExhausted`) with the exact wait
+    /// without marking the Sink `failed` (ADR 0026).
+    pub(super) fn acquire_write_token(&mut self) -> Option<Status> {
+        let bucket = self.bucket.as_mut()?;
+        let now = self.clock.wall();
+        match bucket.try_acquire(now) {
+            Ok(()) => None,
+            Err(wait) => {
+                let next_at = now + wait;
+                self.next_retry_at = Some(next_at);
+                self.report_status = SinkStatus::Behind;
+                let failure = Failure::new(
+                    FailureKind::QuotaExhausted,
+                    "Sink token bucket exhausted; waiting for quota refill",
+                )
+                .with_retry_after(wait);
+                Some(Status::Behind {
+                    failure,
+                    retry_in: wait,
+                    next_at,
+                })
+            }
+        }
+    }
+
+    /// Delivers every committed page of `dataset` past `delivered`,
+    /// returning early on supersession, rate limit or a non-record failure.
+    fn deliver_dataset(
+        &mut self,
+        run_file: &Connection,
+        dataset: &str,
+        fields: Option<&[String]>,
+        declared_schema: Option<&Value>,
+        delivered: &mut BTreeMap<String, u64>,
+    ) -> rusqlite::Result<Option<Status>> {
+        let run = self.run.clone();
+        while let Some((batch, last)) = self.next_chunk(run_file, dataset, fields, delivered)? {
             if let Some(early) = self.write_or_split(&run, dataset, declared_schema, batch) {
                 return Ok(Some(early));
             }
             delivered.insert(dataset.to_owned(), last);
         }
+        Ok(None)
     }
 
     /// Writes `records` for `dataset`; on `RejectedRecords`, splits the
@@ -550,14 +704,18 @@ impl<S: Primitives> Driver<S> {
         if records.is_empty() {
             return None;
         }
+        if let Some(behind) = self.acquire_write_token() {
+            return Some(behind);
+        }
         let batch = Batch {
             run: run.clone(),
             dataset: dataset.to_owned(),
             declared_schema: declared_schema.cloned(),
             records,
         };
-        match self.sink.write(&batch) {
+        match self.sink.write_with_timeout(&batch, self.write_timeout) {
             Ok(Written::Delivered) => {
+                self.concurrency.record_success();
                 self.delivered_count = self
                     .delivered_count
                     .saturating_add(u64::try_from(batch.records.len()).unwrap_or(u64::MAX));
@@ -595,7 +753,7 @@ impl<S: Primitives> Driver<S> {
 
     /// Counts delivered Records whose commit timestamp is older than the
     /// destination's deduplication window relative to `self.clock.wall()`.
-    fn count_late_deliveries(&mut self, records: &[Delivered]) {
+    pub(super) fn count_late_deliveries(&mut self, records: &[Delivered]) {
         let Some(window) = self.sink.dedup_window() else {
             return;
         };
@@ -614,7 +772,7 @@ impl<S: Primitives> Driver<S> {
     }
 
     /// Buffers one isolated Record as a masked [`DeadLetter`].
-    fn push_dead_letter(
+    pub(super) fn push_dead_letter(
         &mut self,
         run: &RunCopy,
         dataset: &str,
@@ -636,235 +794,6 @@ impl<S: Primitives> Driver<S> {
         });
     }
 
-    /// Computes `entry`'s key for a retry, or returns the updated rejected
-    /// [`DeadLetter`] when a keyed Sink's Record still lacks a key field.
-    fn retry_key(
-        &mut self,
-        run_file: &Connection,
-        entry: &DeadLetter,
-    ) -> rusqlite::Result<Result<Option<Value>, DeadLetter>> {
-        let Some(keying) = self.keying.as_mut() else {
-            return Ok(Ok(None));
-        };
-        let fields = keying.fields(run_file, &entry.dataset)?;
-        Ok(match key_of(&fields, &entry.value) {
-            Ok(key) => Ok(Some(key)),
-            Err(field) => {
-                let reason = format!(
-                    "Record {} of the Dataset `{}` has no key field `{field}`",
-                    entry.number, entry.dataset
-                );
-                Err(DeadLetter {
-                    reason: self.masks.apply(&reason, Scope::Kept).into_owned(),
-                    attempts: entry.attempts.saturating_add(1),
-                    ..entry.clone()
-                })
-            }
-        })
-    }
-
-    /// Retries each dead letter in `entries` one by one against the
-    /// destination (ADR 0026), reading any Dataset key from `run_file`
-    /// under a keyed mode. Reports which succeeded (to remove) and which
-    /// were rejected again (to keep with incremented attempt counts).
-    ///
-    /// # Errors
-    ///
-    /// The run file's, when a Dataset's declared key cannot be read.
-    pub fn retry_dead_letters(
-        &mut self,
-        run_file: &Connection,
-        entries: &[DeadLetter],
-    ) -> rusqlite::Result<RetryOutcome> {
-        if let Some((reason, failure)) = &self.paused {
-            return Ok(RetryOutcome::empty(Status::Paused {
-                reason: *reason,
-                failure: failure.clone(),
-            }));
-        }
-        if entries.is_empty() {
-            return Ok(RetryOutcome::empty(Status::Complete));
-        }
-        if self.delivered.is_none() {
-            match self.sink.probe(&self.run) {
-                Ok(probe) => {
-                    self.class = Some(probe.class);
-                    self.delivered = Some(probe.delivered);
-                }
-                Err(error) => return Ok(RetryOutcome::empty(self.failed(error))),
-            }
-        }
-        let mut delivered = Vec::new();
-        let mut still_rejected = Vec::new();
-        for entry in entries {
-            let key = match self.retry_key(run_file, entry)? {
-                Ok(key) => key,
-                Err(rejected) => {
-                    still_rejected.push(rejected);
-                    continue;
-                }
-            };
-            let run = if entry.run.run_id == self.run.run_id {
-                self.run.clone()
-            } else {
-                entry.run.clone()
-            };
-            let declared_schema = self.declared_schema(run_file, &entry.dataset)?;
-            let batch = Batch {
-                run: run.clone(),
-                dataset: entry.dataset.clone(),
-                declared_schema,
-                records: vec![Delivered {
-                    delivery_id: entry.delivery_id.clone(),
-                    number: entry.number,
-                    committed_at: entry.committed_at.clone(),
-                    value: entry.value.clone(),
-                    key,
-                }],
-            };
-            match self.sink.write(&batch) {
-                Ok(Written::Delivered) => {
-                    self.delivered_count = self.delivered_count.saturating_add(1);
-                    self.count_late_deliveries(&batch.records);
-                    delivered.push(entry.delivery_id.clone());
-                }
-                Ok(Written::Superseded { run_epoch }) => {
-                    return Ok(RetryOutcome {
-                        delivered,
-                        still_rejected,
-                        status: Status::Superseded { run_epoch },
-                    });
-                }
-                Err(error) => {
-                    let failure = self.sink.map_failure(error);
-                    if failure.kind() == FailureKind::RejectedRecords {
-                        still_rejected.push(DeadLetter {
-                            run,
-                            reason: failure.masked_reason(&self.masks),
-                            attempts: entry.attempts.saturating_add(1),
-                            ..entry.clone()
-                        });
-                    } else {
-                        self.delivered = None;
-                        return Ok(RetryOutcome {
-                            delivered,
-                            still_rejected,
-                            status: self.handle_failure(failure),
-                        });
-                    }
-                }
-            }
-        }
-        let status = if still_rejected.is_empty() {
-            Status::Complete
-        } else {
-            Status::CompleteWithRejections
-        };
-        Ok(RetryOutcome {
-            delivered,
-            still_rejected,
-            status,
-        })
-    }
-
-    /// Backfills every committed Record of `run_file` from Record 1 into this
-    /// Sink (including a Sink configured after the Run ended) (ADR 0026).
-    ///
-    /// # Errors
-    ///
-    /// The run file's, when its Records cannot be read.
-    pub fn backfill(&mut self, run_file: &Connection) -> rusqlite::Result<Status> {
-        if self.class.is_none() {
-            match self.sink.probe(&self.run) {
-                Ok(probe) => self.class = Some(probe.class),
-                Err(error) => return Ok(self.failed(error)),
-            }
-        }
-        self.delivered = Some(BTreeMap::new());
-        self.deliver(run_file)
-    }
-
-    /// Redelivers a single delivery by its `delivery_id`
-    /// (`<run_id>/<sink>/<dataset>/<number>`), preserving the exact same
-    /// delivery ID so the destination can deduplicate (ADR 0026). Looks up
-    /// `sink_dead_letters` first, then falls back to the Run's committed
-    /// Dataset row.
-    ///
-    /// # Errors
-    ///
-    /// The run file's, when dead letters or Records cannot be read.
-    pub fn redeliver(
-        &mut self,
-        run_file: &Connection,
-        delivery_id: &str,
-    ) -> rusqlite::Result<RedeliverOutcome> {
-        if let Some(entry) = dead_letters::list(run_file, &self.sink_name)?
-            .into_iter()
-            .find(|entry| entry.delivery_id.as_str() == delivery_id)
-        {
-            let outcome = self.retry_dead_letters(run_file, &[entry])?;
-            return Ok(RedeliverOutcome {
-                found: true,
-                delivered: !outcome.delivered.is_empty(),
-                still_rejected: outcome.still_rejected.into_iter().next(),
-                status: outcome.status,
-            });
-        }
-        let Some((dataset, number)) = parse_delivery_target(delivery_id, &self.run.run_id) else {
-            return Ok(RedeliverOutcome {
-                found: false,
-                delivered: false,
-                still_rejected: None,
-                status: Status::Complete,
-            });
-        };
-        let page = goodfetch_dataset::read(
-            run_file,
-            Query {
-                dataset: &dataset,
-                after: number.saturating_sub(1),
-                through: Some(number),
-                wall: None,
-            },
-            1,
-        )?;
-        let Some(record) = page.into_iter().find(|r| r.number == number) else {
-            return Ok(RedeliverOutcome {
-                found: false,
-                delivered: false,
-                still_rejected: None,
-                status: Status::Complete,
-            });
-        };
-        let mut item = Delivered::new(
-            &self.run.run_id,
-            &self.sink_name,
-            &dataset,
-            record.number,
-            record.committed_at,
-            record.value,
-        );
-        item.delivery_id = DeliveryId::from_stored(delivery_id.to_owned());
-        let entry = DeadLetter {
-            sink: self.sink_name.clone(),
-            delivery_id: item.delivery_id,
-            run: self.run.clone(),
-            dataset,
-            number: item.number,
-            committed_at: item.committed_at,
-            value: item.value,
-            reason: String::new(),
-            attempts: 0,
-        };
-        let outcome = self.retry_dead_letters(run_file, &[entry])?;
-        Ok(RedeliverOutcome {
-            found: true,
-            delivered: !outcome.delivered.is_empty(),
-            still_rejected: outcome.still_rejected.into_iter().next(),
-            status: outcome.status,
-        })
-    }
-
     /// Ends the delivery of a Run that finished, once [`Self::deliver`]
     /// answered [`Status::Complete`] or [`Status::CompleteWithRejections`]:
     /// a Sink that wrote its Records apart, as `replace` does, swaps them
@@ -879,13 +808,28 @@ impl<S: Primitives> Driver<S> {
 
     /// What the failure `error` leads to. The next attempt probes again,
     /// since a write whose answer was lost may have landed.
-    fn failed(&mut self, error: S::Error) -> Status {
+    pub(super) fn failed(&mut self, error: S::Error) -> Status {
         let failure = self.sink.map_failure(error);
         self.handle_failure(failure)
     }
 
-    fn handle_failure(&mut self, failure: Failure) -> Status {
+    pub(super) fn handle_failure(&mut self, failure: Failure) -> Status {
+        if failure.is_rate_limited() || failure.is_timeout() {
+            self.concurrency.record_throttle();
+        }
         match failure.kind() {
+            FailureKind::QuotaExhausted => {
+                let now = self.clock.wall();
+                let wait = failure.retry_after().unwrap_or(Duration::from_secs(1));
+                let next_at = now + wait;
+                self.next_retry_at = Some(next_at);
+                self.report_status = SinkStatus::Behind;
+                Status::Behind {
+                    failure,
+                    retry_in: wait,
+                    next_at,
+                }
+            }
             FailureKind::Transient | FailureKind::Unrecognized => {
                 if failure.kind() == FailureKind::Unrecognized {
                     tracing::warn!(sink = %self.sink_name, ?failure, "a Sink's failure was not recognized");

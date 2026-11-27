@@ -26,6 +26,7 @@ use crate::report::{self, SinkStateRow};
 use crate::schedule::SinkNotification;
 use crate::sqlite::SqliteSink;
 use crate::sync::Mutex;
+use crate::throughput::DEFAULT_WRITE_TIMEOUT;
 
 use super::ops::open_settings;
 use super::{Destination, Sink, deliverable, entries, layer};
@@ -250,6 +251,7 @@ pub(super) async fn deliver_op(
         name: &sink_name,
         settings: &entry,
         layer,
+        write_timeout: DEFAULT_WRITE_TIMEOUT,
         run_id: Some(&params.run_id),
     };
     let run_copy = RunCopy {

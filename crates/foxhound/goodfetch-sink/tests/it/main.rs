@@ -15,4 +15,5 @@ mod outlive;
 mod retries;
 mod run_files;
 mod schema_drift;
+mod throughput;
 mod write_modes;

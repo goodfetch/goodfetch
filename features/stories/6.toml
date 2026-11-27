@@ -1276,6 +1276,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 293
+title = "As an operator, I want each Sink rate-limited by a token bucket preset to its destination's quotas, batched for its API, with adaptive concurrency and a quota exhaustion reported as `behind`, so that a Sink never trips its destination's limits (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 298
 title = "As an operator, I want each Sink's class, dead letters and deliveries outside the dedup window in `sink list`, the Run report and any Client, so that what a destination guaranteed is reported per Run (ADRs 0026, 0102)."
 milestone = "M4 Everything else"

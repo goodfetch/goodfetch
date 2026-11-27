@@ -30,7 +30,7 @@ use goodfetch_protocol::run::{Lifecycle, Presence, RunId, RunKind, RunListParams
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
-    SettingsLayer,
+    SettingsLayer, TIMEOUT_SINK_WRITE,
 };
 use rusqlite::Connection;
 use secrecy::ExposeSecret as _;
@@ -43,6 +43,7 @@ use crate::guarantee;
 use crate::report::{self, SinkReportPart, SinkStateRow};
 use crate::sqlite::SqliteSink;
 use crate::sync::Mutex;
+use crate::throughput::{DEFAULT_WRITE_TIMEOUT, Throughput};
 
 mod deliver;
 mod ops;
@@ -105,6 +106,7 @@ impl Sinks {
     ) -> Delivery {
         let layer = layer(settings);
         let on_failure = on_sink_failure(settings);
+        let write_timeout = sink_write_timeout(settings);
         let stop_requested = Arc::new(watch::Sender::new(None));
         let sinks = entries(settings)
             .map(|(name, settings)| {
@@ -112,6 +114,7 @@ impl Sinks {
                     name,
                     settings,
                     layer,
+                    write_timeout,
                     identity: run.identity.clone(),
                     state: run.state.clone(),
                     keys: run.keys.clone(),
@@ -288,6 +291,7 @@ struct Sink {
     name: String,
     settings: SinkSettings,
     layer: SettingsLayer,
+    write_timeout: Duration,
     identity: RunIdentity,
     state: RunState,
     keys: RunKeys,
@@ -586,6 +590,7 @@ impl Sink {
                     name: &self.name,
                     settings: &self.settings,
                     layer: self.layer,
+                    write_timeout: self.write_timeout,
                     run_id: Some(self.identity.id()),
                 };
                 destination
@@ -644,6 +649,8 @@ struct Destination<'a> {
     settings: &'a SinkSettings,
     /// The layer that set its entry.
     layer: SettingsLayer,
+    /// Per-write timeout (`timeout.sink_write`, ADR 0080).
+    write_timeout: Duration,
     /// The Run it delivers for; none for a probe outside any Run.
     run_id: Option<&'a RunId>,
 }
@@ -710,9 +717,16 @@ impl Destination<'_> {
         if let Some(existing) = existing_epoch {
             run.run_epoch = existing;
         }
+        let throughput = Throughput::from_settings(
+            self.settings.sink_type,
+            self.settings.rate.as_ref(),
+            self.settings.batch.as_ref(),
+            self.write_timeout,
+        );
         let driver = Driver::new(self.name, sqlite, run, self.settings.datasets.clone())
             .with_clock(clock)
-            .with_masks(secrets.mask().masks().clone());
+            .with_masks(secrets.mask().masks().clone())
+            .with_throughput(throughput);
         Ok(if mode == WriteMode::Append {
             driver
         } else {
@@ -912,6 +926,14 @@ fn layer(settings: &Resolved) -> SettingsLayer {
 /// The crawl's `crawl.on_sink_failure` choice, defaulting to `continue`.
 fn on_sink_failure(settings: &Resolved) -> OnSinkFailure {
     serde_json::from_value(settings.value(&CRAWL_ON_SINK_FAILURE).clone()).unwrap_or_default()
+}
+
+/// The Run's `timeout.sink_write` duration, defaulting to 30 s (ADR 0080).
+pub(super) fn sink_write_timeout(settings: &Resolved) -> Duration {
+    settings
+        .value(&TIMEOUT_SINK_WRITE)
+        .as_u64()
+        .map_or(DEFAULT_WRITE_TIMEOUT, Duration::from_millis)
 }
 
 /// The wire name of a value of one of the Sink entry's enums.

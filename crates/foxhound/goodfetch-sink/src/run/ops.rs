@@ -18,6 +18,7 @@ use goodfetch_protocol::settings::{ProjectSettings, RunOrigin, SettingsLayer};
 
 use crate::contract::RunCopy;
 use crate::report;
+use crate::throughput::DEFAULT_WRITE_TIMEOUT;
 
 use super::{Destination, deliverable, entries, layer, probe_failed};
 
@@ -59,6 +60,7 @@ async fn probe_configured(
         name: sink,
         settings: entry,
         layer,
+        write_timeout: DEFAULT_WRITE_TIMEOUT,
         run_id: None,
     };
     let run = RunCopy {

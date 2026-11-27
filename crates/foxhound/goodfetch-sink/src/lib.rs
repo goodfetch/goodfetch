@@ -21,6 +21,7 @@ pub mod schedule;
 pub mod schema;
 mod sqlite;
 mod sync;
+pub mod throughput;
 
 pub use contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
@@ -35,3 +36,7 @@ pub use schedule::{
     SinkNotificationEvent, next_retry,
 };
 pub use sqlite::{SqliteError, SqliteSink};
+pub use throughput::{
+    AdaptiveConcurrency, BatchPolicy, DEFAULT_WRITE_TIMEOUT, Preset, RateLimit, Throughput,
+    TokenBucket, write_bounded,
+};

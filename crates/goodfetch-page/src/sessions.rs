@@ -63,6 +63,7 @@ use goodfetch_engine::governor::Permit;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::request_signing::{KeyError, RequestSigner};
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::run::{secret_error, settings_error};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_key::Sealed;
@@ -73,7 +74,7 @@ use goodfetch_engine::settings::{
     RunSettings, SettingsError, Values, check_session_source, get_or_default, setting,
 };
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
-use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
+use goodfetch_engine::{CALLER, CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_identity_profile::IdentitySeed;
 use goodfetch_protocol::browser_cache::PinnedBy;
@@ -112,6 +113,7 @@ use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::cdp::launch::{Launcher, Window};
+use crate::cdp::live_view::WatchedTabs;
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
@@ -562,6 +564,11 @@ impl Sessions {
         }
     }
 
+    /// Its open Sessions' tabs, as the Live view watches them.
+    pub(crate) fn watched(&self) -> WatchedTabs {
+        self.index.watched()
+    }
+
     /// Each open page's owner, by its ID, which a call that acts as it
     /// arrives reads.
     pub(crate) fn page_owners(&self) -> &PageOwners {
@@ -666,7 +673,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
             });
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session.clone(), &open);
             (session, life, open)
         };
@@ -827,7 +834,7 @@ impl Sessions {
         {
             let mut state = self.state.lock().await;
             reached(&mut state, &run.identity)?;
-            self.index.opened(session.clone(), Arc::clone(&held));
+            self.index.opened(&session, Arc::clone(&held));
             self.watch_session(session.clone(), &held);
         }
         if let Some(fingerprint) = &held.fingerprint {
@@ -1117,6 +1124,7 @@ impl Sessions {
         }
         if crashed {
             open.owner.stop().await;
+            forget_cached(open, session).await;
             return Ok(Ok(()));
         }
         open.life.apply(SessionEvent::ChildrenClosed, None)?;
@@ -1124,6 +1132,7 @@ impl Sessions {
         // Its owner stops last, waiting for every task it and its pages
         // started (ADR 0146).
         open.owner.stop().await;
+        forget_cached(open, session).await;
         Ok(ended)
     }
 
@@ -1308,7 +1317,7 @@ impl Sessions {
         for open in reopened {
             let session = session_id(run.identity.id(), open.position);
             let open = Arc::new(open);
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session, &open);
         }
         state.runs.insert(run.identity.id().clone(), runs);
@@ -2313,7 +2322,28 @@ fn session_interception(
             browser,
         )
     });
-    Arc::new(SessionInterception::new(session.clone(), lookups, signing))
+    // Its requests are answered from its Run's sources, as the HTTP tier's
+    // are, so an entry either stored serves the other where the key
+    // matches (ADR 0046).
+    let caching = run.identity.settings().and_then(|settings| {
+        Caching::of(
+            run.engine.response_source(settings.resolved()),
+            CALLER,
+            run.identity.id().clone(),
+            run.identity.clock(),
+        )
+        .map(|caching| caching.of_session(session))
+    });
+    Arc::new(SessionInterception::new(session.clone(), lookups, signing).with_caching(caching))
+}
+
+/// Forgets what `open`, the Session `session` that ended, kept in its own
+/// partition of its Run's cache, once no task of its own stores more
+/// (ADR 0046).
+async fn forget_cached(open: &Session, session: &SessionId) {
+    if let Some(caching) = open.interception.caching() {
+        caching.forget(session).await;
+    }
 }
 
 /// The browser interception alone holds for a Session: a Borrowed one at

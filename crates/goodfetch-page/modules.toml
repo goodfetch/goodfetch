@@ -141,6 +141,7 @@ messages = []
 # Which of `guard`'s own modules may import which.
 [submodules.guard]
 check = []
+human = []
 target = []
 
 # Which of `pages`'s own modules may import which.
@@ -150,6 +151,7 @@ blocked = []
 blocking_off = ["arrival", "blocked"]
 clean_up = []
 plugin_extractor = []
+scroll_collect = []
 served_formats = ["clean_up"]
 waits = []
 

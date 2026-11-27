@@ -21,6 +21,7 @@ Commands:
   skill            Installs the agent skills this executable carries for a coding agent
   usage            Shows, sets and raises the Limits of the user's Usage ledger, which hold every engine of the user
   upgrade-files    Gives this executable's major its own copy of an older major's settings, Operator policy, Run index and runs in Goodfetch home, never changing the older major's files
+  cache            Calls the catalog's `cache` operations
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
   run              Calls the catalog's `run` operations
@@ -604,6 +605,62 @@ Usage: goodfetch-collie upgrade-files [OPTIONS]
 Options:
       --from <MAJOR>  The older major to upgrade from, such as `1` or `0.4`; the newest older major Goodfetch home holds when not given
       --json          Prints the result as JSON
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie cache --help
+Calls the catalog's `cache` operations
+
+Usage: goodfetch-collie cache [OPTIONS] <COMMAND>
+
+Commands:
+  stats   Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`
+  clear   Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`
+  verify  Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie cache stats --help
+Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`
+
+Usage: goodfetch-collie cache stats [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie cache clear --help
+Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`
+
+Usage: goodfetch-collie cache clear [OPTIONS]
+
+Options:
+      --country <COUNTRY>      Only the entries fetched through this proxy exit country; the empty text for those that left directly
+      --device <DEVICE>        Only the entries fetched with this device class; the empty text for those fetched without one
+      --domain <DOMAIN>        Only the entries of this host and its subdomains
+      --language <LANGUAGE>    Only the entries fetched with this Identity profile language; the empty text for those fetched without one
+      --partition <PARTITION>  Only the entries of this partition: `public`, or a Saved identity's name
+      --run-id <RUN_ID>        Only the entries this Run fetched
+      --color <WHEN>           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --json                   Prints the result as JSON
+      --attached               Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon                 Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                   Print help
+
+$ goodfetch-collie cache verify --help
+Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`
+
+Usage: goodfetch-collie cache verify [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help          Print help
 

@@ -129,6 +129,10 @@ entry = "typescript @goodfetch/collie-client/generated CollieErrorCode"
 reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every code needs their cases."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client/generated CollieOperationTypes"
+reason = "The Response cache's upkeep joins the catalog, `cache.stats`, `cache.clear` and `cache.verify` (issue 798): a type that implements every operation's types needs theirs."
+
+[[announced]]
 entry = "typescript @goodfetch/foxhound CollieError"
 reason = "Three Error codes join the catalog, `page_navigated_during_call` (issue 3168), `schema_validator_failed` (issue 1338) and `model_unavailable` (issue 3167): a switch over every Collie error needs their cases."
 
@@ -391,3 +395,11 @@ reason = "A Run report's durations are each language's duration type (ADR 0080, 
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types RunUsage"
 reason = "A Run report's durations are each language's duration type (ADR 0080, issue 1282): `RunUsage.browserTime` is `Milliseconds`, the alias of `number` that names a count of milliseconds, in place of a bare `number`; a program reads and writes the same values."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/runtime SequenceOptions"
+reason = "A Product's sequence may make each item asynchronously, such as a Record its Dataset's schema parses (issue 1487): `SequenceOptions.itemOf` may answer a promise of the item; a program that answers the item itself still compiles."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound DatasetRecord"
+reason = "`CrawlRun.records()` reads each Record as its Dataset's own output type (issue 1487, ADR 0103): `DatasetRecord` is generic in its value's type, `DatasetRecord<O>`, keeping the wire Record's members, and its `value` is read-only; the default `O` is the wire's JSON object, so a program that names `DatasetRecord` alone reads the same members."

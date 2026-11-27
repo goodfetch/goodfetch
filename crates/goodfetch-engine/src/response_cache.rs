@@ -5,20 +5,24 @@
 //! lies beside it in a file named by its SHA-256, which one body shared by
 //! several entries is stored once as.
 //!
-//! This minor builds the public partition: GET and HEAD responses sent with
-//! no cookie or credential, which set no cookie and are not `private`
-//! ([`freshness`] says which are storable). Each partition also carries the
-//! person, the proxy's exit country, the language and the device class it
-//! was fetched with, so a page fetched for one never answers another. A
+//! A response sent with no cookie or credential, which sets no cookie and
+//! is not `private`, is kept in the public partition; any other in its
+//! Session's Saved identity's, or for the life of a Session with none in
+//! the Session's own ([`partition`]; [`freshness`] says which are
+//! storable). Each partition also carries the person, the proxy's exit
+//! country, the language and the device class it was fetched with, so a
+//! page fetched for one never answers another. A
 //! fresh entry is served with no request, a stale one revalidated with its
 //! validators, its stored body served on a 304. Under `replay` every
 //! response in the partition is stored, whatever its method, status or
 //! freshness, its key adding the SHA-256 of its request's canonical body
 //! ([`canonical`]), and served again as stored with no request; the two
-//! modes' entries never answer each other. Its callers never store a
-//! blocked request, an Effect, a payment, a Secret's response, one fetched
-//! under a certificate exception or a cut body; each entry records the Run
-//! that fetched it.
+//! modes' entries never answer each other. What became of a fetch keeps
+//! its response out ([`KeptOut`], which [`ResponseSource`] reads): a Block
+//! cause or a soft block, a failed Page check, a cut body, a Paid fetch,
+//! which is never served either, a resolved secret in the request, or a
+//! certificate exception; its callers never store an Effect's. Each entry
+//! records the Run that fetched it.
 //!
 //! The index opens through a VFS named by a value, none in production, as
 //! every store does, once for its writes, on a writer, and once for its
@@ -37,6 +41,9 @@
 //! holding the cache is at `low` or `critical` it stores nothing new (ADR
 //! 0122), and still serves and revalidates what it holds.
 //!
+//! Its upkeep ([`upkeep`]) counts, clears and verifies one person's
+//! entries, and deletes a discarded Run's (ADR 0001).
+//!
 //! Counted work (ADR 0140): a lookup that queries the index counts once on
 //! `C5.cache_lookups`, a body file opened to serve a hit once on
 //! `C5.cache_file_opens`, and a body file written, or the bodies' folder
@@ -48,9 +55,12 @@
 //! frees body files, reads beside the lookups it answers.
 
 mod bounds;
+mod caching;
 mod canonical;
 pub mod freshness;
+mod partition;
 pub mod source;
+mod upkeep;
 
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -69,9 +79,13 @@ use tokio::sync::watch;
 
 pub use self::bounds::Bounds;
 use self::bounds::{Weighed, evictions, index_time};
+pub use self::caching::Caching;
+pub(crate) use self::canonical::body_sha256;
 pub use self::freshness::{CacheRequest, ResponseHead};
 use self::freshness::{Freshness, Stored};
-pub use self::source::{Recording, Replaying, ResponseSource, Served, Source};
+pub use self::partition::Keeper;
+pub use self::source::{KeptOut, Recording, Replaying, ResponseSource, Served, Source};
+pub use self::upkeep::Clearing;
 use crate::governor::{Held, StorageSample};
 use crate::sqlite_store::{
     self, Access, Durability, File, Folder, FormatRefusal, FullFsync, KeptStore, OpenError,
@@ -85,10 +99,6 @@ const INDEX: &str = "index.sqlite";
 
 /// The body files' folder in the cache's folder.
 const BODIES: &str = "bodies";
-
-/// The one partition this minor stores (ADR 0046); the Session partition
-/// joins with #795.
-const PUBLIC: &str = "public";
 
 /// How long a write waits for another engine's, and a lookup while SQLite
 /// answers busy.
@@ -177,9 +187,9 @@ const PAGE: i64 = 64;
 /// Records a hit's use.
 const USED: &str = "UPDATE entries SET used_at = ?1 WHERE partition = ?2 AND person = ?3 AND country = ?4 AND language = ?5 AND device = ?6 AND method = ?7 AND url = ?8 AND vary_key = ?9 AND replay_key = ?10 AND used_at < ?1";
 
-/// A URL's entries in one partition under one replay key, empty for
-/// `revalidate`'s, the newest first.
-const FIND: &str = "SELECT vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id FROM entries WHERE partition = ?1 AND person = ?2 AND country = ?3 AND language = ?4 AND device = ?5 AND method = ?6 AND url = ?7 AND replay_key = ?8 ORDER BY fetched_at DESC";
+/// A URL's entries in two partitions, the same one twice to read one,
+/// under one replay key, empty for `revalidate`'s, the newest first.
+const FIND: &str = "SELECT vary_key, request_headers, status, response_headers, fetched_at, body_sha256, body_size, run_id, partition FROM entries WHERE partition IN (?1, ?9) AND person = ?2 AND country = ?3 AND language = ?4 AND device = ?5 AND method = ?6 AND url = ?7 AND replay_key = ?8 ORDER BY fetched_at DESC";
 
 /// The replay key of `revalidate`'s entries.
 const REVALIDATED: &str = "";
@@ -188,6 +198,10 @@ const REVALIDATED: &str = "";
 /// entries from answering another's requests (ADR 0046).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Partition {
+    /// Whose partition a response that is not public is kept in: the
+    /// Session's Saved identity, or the Session itself; none outside a
+    /// Session, such a response then kept nowhere.
+    pub keeper: Option<Keeper>,
     /// The person it was fetched for.
     pub person: String,
     /// The proxy's exit country, as the Proxy declares it; empty when it
@@ -236,6 +250,8 @@ pub struct Stale {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Entry {
     partition: Partition,
+    /// The partition's name in the index ([`partition`]).
+    kept_in: String,
     vary_key: String,
     /// The SHA-256 of the request's canonical body under `replay`;
     /// [`REVALIDATED`] for `revalidate`'s.
@@ -336,6 +352,7 @@ struct Uses {
 #[derive(Debug)]
 struct Use {
     partition: Partition,
+    kept_in: String,
     method: String,
     url: String,
     vary_key: String,
@@ -426,14 +443,17 @@ impl ResponseCache {
         request: &CacheRequest,
         now: SystemTime,
     ) -> Lookup {
-        if self.running_without() || !freshness::public(request) {
+        if self.running_without() || !freshness::revalidates(request) {
             return Lookup::Miss;
         }
+        let Some(read) = partition::read_from(partition.keeper.as_ref(), request) else {
+            return Lookup::Miss;
+        };
         let (partition, request, bounds) = (partition.clone(), request.clone(), self.bounds);
         let looked = self
             .store
             .read(Some((Lookup::Miss, false)), move |file, connection| {
-                file.lookup(connection, &partition, &request, now, bounds)
+                file.lookup(connection, &partition, &read, &request, now, bounds)
             })
             .await;
         let (lookup, flush) = self.settled(looked).unwrap_or((Lookup::Miss, false));
@@ -472,9 +492,10 @@ impl ResponseCache {
 
     /// Stores `head` and `body`, the response to `request` in `partition`
     /// received at `now` in the Run `run_id`, in place of what the cache
-    /// held for its variant; whether it was stored. A response the public
-    /// partition does not store is skipped, as every one is while the
-    /// engine runs without the cache.
+    /// held for its variant, in the public partition or its keeper's
+    /// ([`Keeper`]); whether it was stored. A response that is not
+    /// storable, or that is personal with no keeper, is skipped, as every
+    /// one is while the engine runs without the cache.
     pub async fn store(
         &self,
         partition: &Partition,
@@ -487,7 +508,14 @@ impl ResponseCache {
         let Some(variant) = freshness::storable(request, head) else {
             return false;
         };
-        let keyed = (variant, REVALIDATED.to_owned());
+        let Some(kept_in) = partition::kept_in(partition.keeper.as_ref(), request, head) else {
+            return false;
+        };
+        let keyed = Keyed {
+            kept_in,
+            variant,
+            replay_key: REVALIDATED.to_owned(),
+        };
         self.put(entry(partition, request, head, keyed, run_id, now), body)
             .await
     }
@@ -497,22 +525,28 @@ impl ResponseCache {
     /// the entry of its method, its URL, its canonical body and the variant
     /// its stored `Vary` names; none when the cache holds no such entry, or
     /// it has outlived the ceiling.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future leaves a read begun to finish on its own, its
+    /// hit lost; the use it recorded waits for the next flush.
     pub async fn replayed(
         &self,
         partition: &Partition,
         request: &CacheRequest,
         now: SystemTime,
     ) -> Option<Hit> {
-        if self.running_without() || freshness::credentialed(request) {
+        if self.running_without() {
             return None;
         }
+        let read = partition::read_from(partition.keeper.as_ref(), request)?;
         // Hashed once, before the request is handed to the reader.
         request.replay_key();
         let (partition, request, bounds) = (partition.clone(), request.clone(), self.bounds);
         let looked = self
             .store
             .read(Some((None, false)), move |file, connection| {
-                file.replayed(connection, &partition, &request, now, bounds)
+                file.replayed(connection, &partition, &read, &request, now, bounds)
             })
             .await;
         let (hit, flush) = self.settled(looked).unwrap_or((None, false));
@@ -525,8 +559,14 @@ impl ResponseCache {
     /// Stores `head` and `body` under `replay`, the response to `request`
     /// in `partition` received at `now` in the Run `run_id`, keyed by its
     /// canonical body and in place of what `replay` held for it; whether
-    /// it was stored. Any method, status and freshness is stored, but
-    /// never a response the public partition does not hold.
+    /// it was stored, in the public partition or its keeper's ([`Keeper`]).
+    /// Any method, status and freshness is stored, but never `Vary: *` nor
+    /// a personal response with no keeper.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future once the writer took the store still stores
+    /// the response; only the answer is lost.
     pub async fn store_replayed(
         &self,
         partition: &Partition,
@@ -536,10 +576,17 @@ impl ResponseCache {
         run_id: Option<&RunId>,
         now: SystemTime,
     ) -> bool {
-        let Some(variant) = freshness::replayable(request, head) else {
+        let Some(variant) = freshness::variant(request, head) else {
             return false;
         };
-        let keyed = (variant, request.replay_key().to_owned());
+        let Some(kept_in) = partition::kept_in(partition.keeper.as_ref(), request, head) else {
+            return false;
+        };
+        let keyed = Keyed {
+            kept_in,
+            variant,
+            replay_key: request.replay_key().to_owned(),
+        };
         self.put(entry(partition, request, head, keyed, run_id, now), body)
             .await
     }
@@ -609,19 +656,20 @@ impl ResponseCache {
 }
 
 impl CacheFile {
-    /// What the cache holds for `request` at `now`, an entry past the
-    /// ceiling left out, and whether a fresh hit's use, recorded, needs a
-    /// flush started.
+    /// What the cache holds for `request` at `now` in the partitions
+    /// `read`, an entry past the ceiling left out, and whether a fresh
+    /// hit's use, recorded, needs a flush started.
     fn lookup(
         &self,
         connection: &Connection,
         partition: &Partition,
+        read: &[String; 2],
         request: &CacheRequest,
         now: SystemTime,
         bounds: Bounds,
     ) -> Result<(Lookup, bool), ResponseCacheError> {
         self.work.count(Row::CacheLookups);
-        let rows = self.find(connection, partition, request, REVALIDATED)?;
+        let rows = self.find(connection, partition, read, request, REVALIDATED)?;
         for entry in rows {
             if bounds.outlived(entry.stored.fetched_at, now) {
                 continue;
@@ -659,21 +707,22 @@ impl CacheFile {
         Ok((Lookup::Miss, false))
     }
 
-    /// The entry `replay` stored for `request`: its stored head, served as
-    /// it is, and its body, whatever their freshness, and whether its use,
-    /// recorded, needs a flush started; none when no entry's variant is the
-    /// one `request` asks for, it has outlived the ceiling at `now`, or its
-    /// body is gone.
+    /// The entry `replay` stored for `request` in the partitions `read`:
+    /// its stored head, served as it is, and its body, whatever their
+    /// freshness, and whether its use, recorded, needs a flush started;
+    /// none when no entry's variant is the one `request` asks for, it has
+    /// outlived the ceiling at `now`, or its body is gone.
     fn replayed(
         &self,
         connection: &Connection,
         partition: &Partition,
+        read: &[String; 2],
         request: &CacheRequest,
         now: SystemTime,
         bounds: Bounds,
     ) -> Result<(Option<Hit>, bool), ResponseCacheError> {
         self.work.count(Row::CacheLookups);
-        let rows = self.find(connection, partition, request, request.replay_key())?;
+        let rows = self.find(connection, partition, read, request, request.replay_key())?;
         for entry in rows {
             let asked = freshness::variant(request, &entry.stored.head);
             if asked.is_none_or(|asked| asked.vary_key != entry.vary_key)
@@ -703,6 +752,7 @@ impl CacheFile {
         let mut uses = self.uses.lock().unwrap_or_else(PoisonError::into_inner);
         uses.pending.push(Use {
             partition: entry.partition.clone(),
+            kept_in: entry.kept_in.clone(),
             method: entry.stored.method.clone(),
             url: entry.stored.url.clone(),
             vary_key: entry.vary_key.clone(),
@@ -723,7 +773,7 @@ impl CacheFile {
         for used in uses {
             statement.execute(rusqlite::params![
                 index_time(used.at),
-                PUBLIC,
+                used.kept_in,
                 used.partition.person,
                 used.partition.country,
                 used.partition.language,
@@ -737,12 +787,14 @@ impl CacheFile {
         Ok(())
     }
 
-    /// `request`'s entries in `partition` under `replay_key`, the newest
-    /// first; a row this engine cannot read is left out.
+    /// `request`'s entries in `partition` under `replay_key`, kept in
+    /// either of the partitions `read`, the newest first; a row this engine
+    /// cannot read is left out.
     fn find(
         &self,
         connection: &Connection,
         partition: &Partition,
+        [first, second]: &[String; 2],
         request: &CacheRequest,
         replay_key: &str,
     ) -> Result<Vec<Entry>, ResponseCacheError> {
@@ -752,7 +804,7 @@ impl CacheFile {
         let rows = statement
             .query_map(
                 (
-                    PUBLIC,
+                    first,
                     &partition.person,
                     &partition.country,
                     &partition.language,
@@ -760,6 +812,7 @@ impl CacheFile {
                     &request.method,
                     &request.url,
                     replay_key,
+                    second,
                 ),
                 |row| {
                     Ok((
@@ -771,6 +824,7 @@ impl CacheFile {
                         row.get::<_, String>(5).ok(),
                         row.get::<_, i64>(6).ok(),
                         row.get::<_, Option<String>>(7).ok(),
+                        row.get::<_, String>(8)?,
                     ))
                 },
             )
@@ -786,10 +840,12 @@ impl CacheFile {
                 sha256,
                 size,
                 run_id,
+                kept_in,
             ) = row.map_err(|error| self.failed(&error))?;
             let read = || {
                 Some(Entry {
                     partition: partition.clone(),
+                    kept_in: kept_in.clone(),
                     stored: Stored {
                         method: request.method.clone(),
                         url: request.url.clone(),
@@ -831,7 +887,7 @@ impl CacheFile {
                 statement.execute(rusqlite::params![
                     json(headers),
                     at,
-                    PUBLIC,
+                    entry.kept_in,
                     entry.partition.person,
                     entry.partition.country,
                     entry.partition.language,
@@ -880,25 +936,37 @@ impl CacheFile {
                     .execute([index_time(oldest)])?;
             }
             insert(connection, entry)?;
-            evict(connection, bounds.max_size)?;
-            let_go(connection)
+            evict(connection, bounds.max_size)
         })
         .map_err(|error| self.failed(&error))?;
+        self.remove_bodies(&let_go);
+        Ok(())
+    }
+
+    /// Deletes the files of `let_go`, bodies no entry holds any more, and
+    /// answers how many were there and the bytes their bodies weighed; one
+    /// that cannot be deleted stays, counts in neither, and is logged.
+    fn remove_bodies(&self, let_go: &[(String, u64)]) -> (u64, u64) {
         let bodies = self.folder.join(BODIES);
-        for sha256 in let_go.iter().filter(|sha256| is_sha256(sha256)) {
+        let (mut removed, mut bytes) = (0, 0_u64);
+        for (sha256, size) in let_go.iter().filter(|(sha256, _)| is_sha256(sha256)) {
             let path = bodies.join(sha256);
             #[expect(
                 clippy::disallowed_methods,
                 reason = "the writer's job is blocking work, on its own thread"
             )]
-            let removed = std::fs::remove_file(&path);
-            if let Err(error) = removed
-                && error.kind() != std::io::ErrorKind::NotFound
-            {
-                tracing::warn!(error = %body_failed(&path, &error), "a body file the Response cache let go stays");
+            match std::fs::remove_file(&path) {
+                Ok(()) => {
+                    removed += 1;
+                    bytes = bytes.saturating_add(*size);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    tracing::warn!(error = %body_failed(&path, &error), "a body file the Response cache let go stays");
+                }
             }
         }
-        Ok(())
+        (removed, bytes)
     }
 
     /// The body of `entry`, read whole from its file; none when its file is
@@ -922,7 +990,10 @@ impl CacheFile {
 
     /// Writes `body` as the file `sha256` names, unless it is there: to a
     /// partial file of this engine's, then renamed, so a reader never meets
-    /// half a body.
+    /// half a body. Another engine's clear may delete a file found there
+    /// before this store's entry is written; that entry then misses, as
+    /// one whose file is gone does, until a later store of the same body
+    /// writes the file again, a race accepted for the cost of a miss.
     fn write_body(&self, sha256: &str, body: &[u8]) -> Result<(), ResponseCacheError> {
         let bodies = self.folder.join(BODIES);
         let path = bodies.join(sha256);
@@ -1047,20 +1118,35 @@ impl StoreFile for CacheFile {
     }
 }
 
+/// Where an entry is stored beyond its [`Partition`]'s person, country,
+/// language and device.
+struct Keyed {
+    /// The partition that keeps it ([`partition`]).
+    kept_in: String,
+    variant: freshness::Variant,
+    /// [`REVALIDATED`], or its request's replay key under `replay`.
+    replay_key: String,
+}
+
 /// The entry `head`, the response to `request` in `partition` received at
-/// `now` in the Run `run_id`, is stored as under `keyed`, its variant and
-/// its replay key; its body's hash and length set as it is stored.
+/// `now` in the Run `run_id`, is stored as under `keyed`; its body's hash
+/// and length set as it is stored.
 fn entry(
     partition: &Partition,
     request: &CacheRequest,
     head: &ResponseHead,
-    keyed: (freshness::Variant, String),
+    keyed: Keyed,
     run_id: Option<&RunId>,
     now: SystemTime,
 ) -> Entry {
-    let (variant, replay_key) = keyed;
+    let Keyed {
+        kept_in,
+        variant,
+        replay_key,
+    } = keyed;
     Entry {
         partition: partition.clone(),
+        kept_in,
         vary_key: variant.vary_key,
         replay_key,
         stored: Stored {
@@ -1086,7 +1172,7 @@ fn insert(connection: &Connection, entry: &Entry) -> rusqlite::Result<()> {
              request_headers = excluded.request_headers, status = excluded.status, response_headers = excluded.response_headers, fetched_at = excluded.fetched_at, body_sha256 = excluded.body_sha256, body_size = excluded.body_size, run_id = excluded.run_id, used_at = excluded.used_at",
         )?
         .execute(rusqlite::params![
-            PUBLIC,
+            entry.kept_in,
             entry.partition.person,
             entry.partition.country,
             entry.partition.language,
@@ -1107,15 +1193,21 @@ fn insert(connection: &Connection, entry: &Entry) -> rusqlite::Result<()> {
 }
 
 /// Deletes the least recently used entries, a page at a time, until the
-/// bytes held are within `cap`, or no entry is left.
-fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<()> {
+/// bytes held are within `cap`, or no entry is left, and answers the
+/// bodies no entry holds any more with their sizes. Those bodies are
+/// deleted before each weighing, so the bytes held never count a body
+/// already let go: the entries a deletion before it took, or a page
+/// taken before.
+fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<Vec<(String, u64)>> {
+    let mut gone = Vec::new();
     loop {
+        gone.extend(let_go(connection)?);
         let held: i64 = connection
             .prepare_cached(HELD)?
             .query_row([], |row| row.get(0))?;
         let held = u64::try_from(held).unwrap_or(0);
         if held <= cap {
-            return Ok(());
+            return Ok(gone);
         }
         let (rowids, oldest): (Vec<i64>, Vec<Weighed>) = connection
             .prepare_cached(OLDEST)?
@@ -1138,17 +1230,24 @@ fn evict(connection: &Connection, cap: u64) -> rusqlite::Result<()> {
             delete.execute([rowid])?;
         }
         if taken < oldest.len() || oldest.is_empty() {
-            return Ok(());
+            gone.extend(let_go(connection)?);
+            return Ok(gone);
         }
     }
 }
 
-/// Deletes the bodies no entry holds any more, and answers them.
-fn let_go(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+/// Deletes the bodies no entry holds any more, and answers them with their
+/// sizes.
+fn let_go(connection: &Connection) -> rusqlite::Result<Vec<(String, u64)>> {
     let unheld = connection
-        .prepare_cached("SELECT sha256 FROM bodies WHERE holders = 0")?
-        .query_map([], |row| row.get(0))?
-        .collect::<rusqlite::Result<Vec<String>>>()?;
+        .prepare_cached("SELECT sha256, size FROM bodies WHERE holders = 0")?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                u64::try_from(row.get::<_, i64>(1)?).unwrap_or(0),
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
     connection
         .prepare_cached("DELETE FROM bodies WHERE holders = 0")?
         .execute([])?;

@@ -56,6 +56,15 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `connection`: Its Connection.
 """
 
+ListEnded: TypeAlias = Literal["end_of_list", "max_rows"] | str
+"""How a scroll collection ended, open (ADR 0079).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `end_of_list`: `idle_steps` steps in a row brought no new key.
+- `max_rows`: It kept `max_rows` rows.
+"""
+
 ModelUnavailableReason: TypeAlias = Literal["unreachable", "server_error", "rate_limited"] | str
 """Why a Model provider could not answer (ADR 0101), open (ADR 0079).
 
@@ -88,6 +97,31 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `no_rule`: A sitemap entry no rule of its sitemap seed matches (ADR 0093).
 - `trap_link`: On the browser tier, its link is one a person cannot see, a `nofollow` one among them: a trap a crawl never enters (ADR 0035).
 - `link_limit`: The `enqueueLinks` call that matched it already added its `limit` links (ADR 0093).
+"""
+
+NotificationEvent: TypeAlias = Literal["run_started", "run_finished", "run_failed", "run_stopped", "verdict_rejected", "verdict_needs_review", "run_incomplete", "effect_uncertain", "reconciliation_requested", "effect_reconciled", "approval_requested", "human_pause_waiting", "limit_threshold", "schedule_auto_paused", "schedule_occurrences_skipped", "schedule_occurrences_missed", "identity_cookie_expiry", "quarantined"] | str
+"""A Notification event's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `run_started`: A Run started.
+- `run_finished`: A Run finished.
+- `run_failed`: A Run ended on an error.
+- `run_stopped`: A Run was stopped, by a Limit, a person or a program.
+- `verdict_rejected`: A Run's success check rejected its result.
+- `verdict_needs_review`: A Run's result waits for a person's review.
+- `run_incomplete`: A Run ended with its Completeness `incomplete`.
+- `effect_uncertain`: A Run reported an Effect whose outcome is uncertain.
+- `reconciliation_requested`: A person is asked to reconcile an uncertain Effect.
+- `effect_reconciled`: An uncertain Effect was reconciled.
+- `approval_requested`: A Run waits for a person's approval.
+- `human_pause_waiting`: A Human pause waits for a person, with a link to the Live view.
+- `limit_threshold`: A Limit reached its warning threshold.
+- `schedule_auto_paused`: A Schedule paused itself.
+- `schedule_occurrences_skipped`: A Limit skipped a Schedule's occurrences, notified once per period.
+- `schedule_occurrences_missed`: A Schedule's occurrences were missed, notified once per wake.
+- `identity_cookie_expiry`: A Saved identity's earliest cookie expiry entered its warning window.
+- `quarantined`: Code mode or a Plugin was quarantined.
 """
 
 ReportedHookStage: TypeAlias = Literal["before_request", "after_response", "before_navigation", "after_navigation", "page_ready", "before_record_commit", "request_ended"] | str

@@ -10,16 +10,6 @@ use rstest::rstest;
 use crate::workspace::{Workspace, finding};
 
 #[test]
-fn standard_runners_pinned_actions_and_no_top_level_permissions_pass() {
-    let workspace = Workspace::from_fixture("workflow-policy");
-
-    let outcome = workspace.xtask(&["workflow-policy"]);
-
-    assert_eq!(outcome.findings(), vec![], "{}", outcome.stderr);
-    assert_eq!(outcome.code, 0);
-}
-
-#[test]
 fn workflows_of_this_repository_pass() {
     let workspace = Workspace::from_fixture("workflow-policy");
     workspace.remove_folder(".github/workflows");

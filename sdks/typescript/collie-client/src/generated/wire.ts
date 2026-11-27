@@ -17,6 +17,10 @@ export type CollieWireType =
   | "BodyHandle"
   | "BodyUnavailableDetails"
   | "BrowserNotInstalledDetails"
+  | "CacheClearParams"
+  | "CacheDamage"
+  | "CacheStats"
+  | "CacheVerified"
   | "CatalogRunStartParams"
   | "CatalogTarget"
   | "CdpUrlNotBrowserDetails"
@@ -62,6 +66,7 @@ export type CollieWireType =
   | "FileWriteFailedDetails"
   | "FillParams"
   | "FormatsParams"
+  | "FullNotification"
   | "GotoParams"
   | "HelloParams"
   | "HelloResult"
@@ -84,6 +89,7 @@ export type CollieWireType =
   | "ListField"
   | "Locator"
   | "LocatorEvaluateAllParams"
+  | "LocatorScrollCollectParams"
   | "LocatorWaitForFunctionParams"
   | "LocatorWaitForParams"
   | "LoggedOutDetails"
@@ -107,6 +113,8 @@ export type CollieWireType =
   | "NotUnderstoodLimit"
   | "NotVerifiedDetails"
   | "NothingDone"
+  | "NotificationData"
+  | "NotificationPayload"
   | "PageBodyParams"
   | "PageCloseParams"
   | "PageCrashedDetails"
@@ -207,6 +215,7 @@ export type CollieWireType =
   | "StopReason"
   | "SystemInfo"
   | "Table"
+  | "ThinNotification"
   | "TierProvenance"
   | "TimeRange"
   | "TransformProvenance"
@@ -239,6 +248,10 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "BodyHandle": { fields: { "run_id": "runId" } },
     "BodyUnavailableDetails": { fields: { "request_id": "requestId" } },
     "BrowserNotInstalledDetails": { fields: { "missing": ["missing", { type: "MissingBrowser" }] } },
+    "CacheClearParams": { fields: { "run_id": "runId" } },
+    "CacheDamage": { fields: { "body_sha256": "bodySha256", "run_id": "runId" } },
+    "CacheStats": { fields: { "body_bytes": "bodyBytes", "held_bytes": "heldBytes" } },
+    "CacheVerified": { fields: { "damaged": ["damaged", { items: { type: "CacheDamage" } }] } },
     "CatalogRunStartParams": { fields: { "limits": ["limits", { items: { type: "RunLimit" } }], "run_id": "runId", "target": ["target", { type: "CatalogTarget" }] } },
     "CatalogTarget": { fields: { "max_steps": "maxSteps" } },
     "CdpUrlNotBrowserDetails": { fields: { "browser_url": "browserURL" } },
@@ -255,7 +268,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ConsoleLocation": { fields: { "column_number": "columnNumber", "line_number": "lineNumber" } },
     "ConsoleMessage": { fields: { "location": ["location", { type: "ConsoleLocation" }], "page_id": "pageId" } },
     "CpuReading": { fields: { "tokio_busy": "tokioBusy" } },
-    "DaemonState": { fields: { "idle_timeout": "idleTimeout", "kept_alive": "keptAlive", "live_runs": "liveRuns", "product_version": "productVersion" } },
+    "DaemonState": { fields: { "idle_timeout": "idleTimeout", "kept_alive": "keptAlive", "live_runs": "liveRuns", "live_view": "liveView", "product_version": "productVersion" } },
     "DaemonStopping": { fields: { "live_runs": "liveRuns" } },
     "DatasetRecord": { fields: { "committed_at": ["committedAt", "time"], "provenance": ["provenance", { type: "RecordProvenance" }], "request_id": "requestId" } },
     "DeadlineExceededDetails": { fields: { "ended_by": ["endedBy", { type: "EnclosingCall" }], "waited_for": "waitedFor" } },
@@ -284,6 +297,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "FileWriteFailedDetails": { fields: { "os_code": "osCode" } },
     "FillParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "FormatsParams": { fields: { "page_id": "pageId" } },
+    "FullNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "GotoParams": { fields: { "page_id": "pageId", "wait_until": "waitUntil" } },
     "HelloParams": { fields: { "client_surface": "clientSurface", "keep_daemon_alive": "keepDaemonAlive", "log_level": "logLevel", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
@@ -306,6 +320,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ListField": { fields: { "list": ["list", { type: "ValueField" }] } },
     "Locator": { fields: { "page_id": "pageId" } },
     "LocatorEvaluateAllParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
+    "LocatorScrollCollectParams": { fields: { "idle_steps": "idleSteps", "locator": ["locator", { type: "Locator" }], "max_rows": "maxRows", "step_wait": "stepWait" } },
     "LocatorWaitForFunctionParams": { fields: { "locator": ["locator", { type: "Locator" }], "polling_interval": "pollingInterval" } },
     "LocatorWaitForParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "LoggedOutDetails": { fields: { "judged_by": "judgedBy" } },
@@ -329,6 +344,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "NotUnderstoodLimit": { fields: { "period": ["period", { type: "Period" }], "usage_kind": "usageKind" } },
     "NotVerifiedDetails": { fields: { "reasons": ["reasons", { items: { type: "AxisReason" } }] } },
     "NothingDone": { fields: { "ended_at": ["endedAt", "time"] } },
+    "NotificationData": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
+    "NotificationPayload": { fields: { "data": ["data", { type: "NotificationData" }], "timestamp": ["timestamp", "time"] } },
     "PageBodyParams": { fields: { "run_id": "runId" } },
     "PageCloseParams": { fields: { "page_id": "pageId", "run_before_unload": "runBeforeUnload" } },
     "PageCrashedDetails": { fields: { "browser_exit": "browserExit" } },
@@ -429,6 +446,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },
     "Table": { fields: { "body_rows": "bodyRows", "header_rows": "headerRows" } },
+    "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TimeRange": { fields: { "from": ["from", "time"], "until": ["until", "time"] } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
@@ -448,6 +466,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "WebSocketFrame": { fields: { "page_id": "pageId", "web_socket_id": "webSocketId" } },
   },
   params: {
+    "cache.clear": { type: "CacheClearParams" },
     "catalog_run.start": { type: "CatalogRunStartParams" },
     "config.explain": { type: "ConfigExplainParams" },
     "connection.set_log_level": { type: "SetLogLevelParams" },
@@ -467,6 +486,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "locator.evaluate_all": { type: "LocatorEvaluateAllParams" },
     "locator.fill": { type: "FillParams" },
     "locator.press": { type: "PressParams" },
+    "locator.scroll_collect": { type: "LocatorScrollCollectParams" },
     "locator.wait_for": { type: "LocatorWaitForParams" },
     "locator.wait_for_count": { type: "WaitForCountParams" },
     "locator.wait_for_function": { type: "LocatorWaitForFunctionParams" },
@@ -529,6 +549,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   results: {
     "audit.export": { type: "AuditExported" },
     "audit.verify": { type: "AuditVerified" },
+    "cache.stats": { type: "CacheStats" },
+    "cache.verify": { type: "CacheVerified" },
     "catalog_run.start": { type: "RunStarted" },
     "certs.list": { type: "CertsListed" },
     "config.explain": { type: "SettingsExplanation" },

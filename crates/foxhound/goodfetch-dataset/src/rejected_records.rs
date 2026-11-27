@@ -37,20 +37,30 @@ async fn rejected_records(
     let failed = |error: RunError| run_error(error, &context);
     let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset;
+    let through = params.through;
     let mut after = params.after.unwrap_or_default();
     loop {
         let live = reader.is_live().await;
         let read = dataset.clone();
         let Page { records, next } = reader
-            .read(move |connection| rejections::page(connection, &read, after, request_url))
+            .read(move |connection| {
+                rejections::page(connection, &read, after, through, request_url)
+            })
             .await
             .map_err(failed)?;
         let full = records.len() == REJECTED_RECORDS_PAGE;
-        if !records.is_empty() || !live {
+        // A read through a number never waits, a live Run's included: a
+        // handler reads what had committed, and the Run its attempt holds
+        // would never end under it (ADR 0103). It ends once it reaches the
+        // number or has read every committed entry, so a number past the
+        // last one, as after an erase, ends it too.
+        let reached = through.is_some_and(|through| next >= through);
+        let waits = live && through.is_none();
+        if !records.is_empty() || !waits {
             return Ok(RejectedRecords {
                 records,
                 next,
-                ended: !live && !full,
+                ended: reached || (!waits && !full),
             });
         }
         after = next;

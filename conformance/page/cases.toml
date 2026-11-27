@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
-# spec #580, tickets #783, #784, #785, #786, #787, #788, #789 and #2402; spec #599, tickets #913 and #871): a Collie program's pages, their locator actions
+# spec #580, tickets #783, #784, #785, #786, #787, #788, #789, #2402 and #796; spec #599, tickets #913 and #871): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -693,6 +693,33 @@ id = "evaluate-all-hands-every-match-and-one-json-argument-and-refuses-what-eval
 covers = ["story:5-34", "operation:locator.evaluate_all", "operation:page.evaluate", "error:page_value_invalid", "error:page_function_failed"]
 
 [[capability]]
+name = "page_functions.scroll_collect"
+
+[[capability.case]]
+id = "scroll-collect-reads-a-virtualized-list-whole-each-row-once-and-what-it-declares"
+covers = ["story:6-23", "story:6-24", "operation:locator.scroll_collect"]
+
+[[capability.case]]
+id = "scroll-collect-reads-an-infinite-feed-to-every-item-it-serves"
+covers = ["story:6-23", "story:6-24", "operation:locator.scroll_collect"]
+
+[[capability.case]]
+id = "a-list-that-stops-loading-short-of-what-it-declares-ends-end-of-list-with-what-it-read"
+covers = ["story:6-24", "operation:locator.scroll_collect"]
+
+[[capability.case]]
+id = "a-main-world-function-skips-the-rows-it-answers-null-for-on-a-list-of-unknown-size"
+covers = ["story:6-24", "operation:locator.scroll_collect"]
+
+[[capability.case]]
+id = "a-scroll-collection-past-its-timeout-names-what-it-kept-and-a-throw-fails-as-evaluate-fails"
+covers = ["story:6-26", "operation:locator.scroll_collect", "error:deadline_exceeded", "error:page_function_failed"]
+
+[[capability.case]]
+id = "each-scroll-goes-through-the-guard-and-no-other-read-scrolls"
+covers = ["story:6-25", "story:6-27", "operation:locator.scroll_collect", "operation:page.read", "operation:page.formats", "operation:locator.evaluate_all", "operation:locator.wait_for", "error:deadline_exceeded", "setting:timeout.action"]
+
+[[capability]]
 name = "read"
 
 [[capability.case]]
@@ -772,3 +799,18 @@ covers = ["story:6-62", "operation:run.new_page", "operation:page.request"]
 [[capability.case]]
 id = "a-reading-a-closed-session-cut-short-is-not-read-and-the-next-document-reads-the-file"
 covers = ["story:6-62", "story:6-64", "operation:run.new_session", "operation:session.new_page", "operation:session.close", "operation:page.goto"]
+
+[[capability.case]]
+id = "with-nothing-set-a-goto-and-a-page-request-read-no-robots-txt-and-record-none"
+covers = ["story:6-62", "setting:site_preferences.read_robots_txt_for_navigation", "operation:run.new_page", "operation:page.goto", "operation:page.request"]
+
+[[capability]]
+name = "response_cache"
+
+[[capability.case]]
+id = "a-later-runs-page-takes-its-script-and-frame-from-the-response-cache"
+covers = ["story:6-41", "setting:cache.mode", "operation:page.goto", "operation:page.evaluate"]
+
+[[capability.case]]
+id = "a-call-a-service-worker-answers-misses-the-response-cache-and-is-kept-with-service-workers-blocked"
+covers = ["story:6-41", "story:6-51", "setting:cache.mode", "setting:browser.service_workers", "operation:run.new_session", "operation:session.new_page", "operation:page.goto"]

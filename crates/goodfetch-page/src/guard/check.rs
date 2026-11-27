@@ -27,9 +27,10 @@ pub(crate) enum Target<'a> {
 }
 
 /// The check's argument: its target, the kind of action, which decides the
-/// conditions (`pointer`, `text` or `fill`), how long it may wait in the
-/// page before it answers, and whether an off-screen target should ask the
-/// engine to scroll with wheel notches instead of teleporting into view.
+/// conditions (`pointer`, `text`, `fill` or `scroll`), how long it may wait
+/// in the page before it answers, and whether an off-screen target should
+/// ask the engine to scroll with wheel notches instead of teleporting into
+/// view.
 pub(crate) fn argument(
     target: Target<'_>,
     kind: &str,
@@ -119,6 +120,9 @@ pub(crate) enum Seen {
         #[serde(default)]
         set_value: bool,
     },
+    /// A scroll's target, the last match, is visible and was scrolled to
+    /// the top of the view.
+    Scrolled,
     /// A locator wait's matches are in the state it waits for.
     Ready {
         /// For `count`, how many elements matched.

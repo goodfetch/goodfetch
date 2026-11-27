@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorScrollCollectParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, ScrollCollected, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -11,6 +11,9 @@ export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
 export interface CollieOperationTypes {
   "audit.export": { params: AuditExportParams; result: AuditExported };
   "audit.verify": { params: AuditVerifyParams; result: AuditVerified };
+  "cache.clear": { params: CacheClearParams; result: CacheCleared };
+  "cache.stats": { params: CacheStatsParams; result: CacheStats };
+  "cache.verify": { params: CacheVerifyParams; result: CacheVerified };
   "catalog_run.start": { params: CatalogRunStartParams; result: RunStarted };
   "certs.list": { params: CertsListParams; result: CertsListed };
   "config.explain": { params: ConfigExplainParams; result: SettingsExplanation };
@@ -35,6 +38,7 @@ export interface CollieOperationTypes {
   "locator.evaluate_all": { params: LocatorEvaluateAllParams; result: Evaluated };
   "locator.fill": { params: FillParams; result: Acted };
   "locator.press": { params: PressParams; result: Acted };
+  "locator.scroll_collect": { params: LocatorScrollCollectParams; result: ScrollCollected };
   "locator.wait_for": { params: LocatorWaitForParams; result: Reached };
   "locator.wait_for_count": { params: WaitForCountParams; result: Counted };
   "locator.wait_for_function": { params: LocatorWaitForFunctionParams; result: Evaluated };
@@ -105,6 +109,9 @@ export interface CollieOperationTypes {
 export const collieOperations: Readonly<Record<keyof CollieOperationTypes, EntryMarkers>> = {
   "audit.export": { experimental: true, deprecated: undefined },
   "audit.verify": { experimental: true, deprecated: undefined },
+  "cache.clear": { experimental: true, deprecated: undefined },
+  "cache.stats": { experimental: true, deprecated: undefined },
+  "cache.verify": { experimental: true, deprecated: undefined },
   "catalog_run.start": { experimental: true, deprecated: undefined },
   "certs.list": { experimental: true, deprecated: undefined },
   "config.explain": { experimental: false, deprecated: undefined },
@@ -129,6 +136,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "locator.evaluate_all": { experimental: true, deprecated: undefined },
   "locator.fill": { experimental: true, deprecated: undefined },
   "locator.press": { experimental: true, deprecated: undefined },
+  "locator.scroll_collect": { experimental: true, deprecated: undefined },
   "locator.wait_for": { experimental: true, deprecated: undefined },
   "locator.wait_for_count": { experimental: true, deprecated: undefined },
   "locator.wait_for_function": { experimental: true, deprecated: undefined },
@@ -199,6 +207,9 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
 export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, string>> = {
   "audit.export": "audit.export",
   "audit.verify": "audit.verify",
+  "cache.clear": "cache.clear",
+  "cache.stats": "cache.stats",
+  "cache.verify": "cache.verify",
   "catalog_run.start": "catalogRun.start",
   "certs.list": "certs.list",
   "config.explain": "config.explain",
@@ -223,6 +234,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "locator.evaluate_all": "locator.evaluateAll",
   "locator.fill": "locator.fill",
   "locator.press": "locator.press",
+  "locator.scroll_collect": "locator.scrollCollect",
   "locator.wait_for": "locator.waitFor",
   "locator.wait_for_count": "locator.waitForCount",
   "locator.wait_for_function": "locator.waitForFunction",
@@ -293,6 +305,9 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
 export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes, "read" | "idempotent_write" | "effect">> = {
   "audit.export": "read",
   "audit.verify": "read",
+  "cache.clear": "idempotent_write",
+  "cache.stats": "read",
+  "cache.verify": "read",
   "catalog_run.start": "idempotent_write",
   "certs.list": "read",
   "config.explain": "read",
@@ -317,6 +332,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "locator.evaluate_all": "effect",
   "locator.fill": "effect",
   "locator.press": "effect",
+  "locator.scroll_collect": "effect",
   "locator.wait_for": "read",
   "locator.wait_for_count": "read",
   "locator.wait_for_function": "effect",
@@ -409,6 +425,36 @@ export class CollieOperations {
   auditVerify(params: AuditVerifyParams): Promise<AuditVerified> {
     warnExperimental("audit.verify");
     return this.#caller.call("audit.verify", params, {});
+  }
+
+  /**
+   * Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+   *
+   * @experimental
+   */
+  cacheClear(params: CacheClearParams): Promise<CacheCleared> {
+    warnExperimental("cache.clear");
+    return this.#caller.call("cache.clear", params, {});
+  }
+
+  /**
+   * Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+   *
+   * @experimental
+   */
+  cacheStats(params: CacheStatsParams): Promise<CacheStats> {
+    warnExperimental("cache.stats");
+    return this.#caller.call("cache.stats", params, {});
+  }
+
+  /**
+   * Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.
+   *
+   * @experimental
+   */
+  cacheVerify(params: CacheVerifyParams): Promise<CacheVerified> {
+    warnExperimental("cache.verify");
+    return this.#caller.call("cache.verify", params, {});
   }
 
   /**
@@ -636,6 +682,16 @@ export class CollieOperations {
   locatorPress(params: PressParams, options: CallOptions = {}): Promise<Acted> {
     warnExperimental("locator.press");
     return this.#caller.call("locator.press", params, options);
+  }
+
+  /**
+   * Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.
+   *
+   * @experimental
+   */
+  locatorScrollCollect(params: LocatorScrollCollectParams, options: CallOptions = {}): Promise<ScrollCollected> {
+    warnExperimental("locator.scroll_collect");
+    return this.#caller.call("locator.scroll_collect", params, options);
   }
 
   /**

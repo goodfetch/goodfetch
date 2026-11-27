@@ -24,12 +24,13 @@ use std::time::{Duration, SystemTime};
 use bytes::Bytes;
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::formats::Compatibility;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::storage::StorageLevel;
 use goodfetch_test_support::TestEnv;
 use rusqlite::Connection;
 
-use super::{Bounds, CacheRequest, Hit, Lookup, Partition, ResponseCache, ResponseHead};
+use super::{Bounds, CacheRequest, Hit, Keeper, Lookup, Partition, ResponseCache, ResponseHead};
 use crate::governor::{Filesystem, Governor, StorageSample};
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -407,6 +408,111 @@ async fn a_response_varying_on_cookie_is_keyed_on_it() {
     );
 }
 
+/// Ada's partition, kept by `keeper`.
+fn kept_by(keeper: Keeper) -> Partition {
+    Partition {
+        keeper: Some(keeper),
+        ..ada()
+    }
+}
+
+/// Ada's partition in the Session `session` of the Run `run`, which has
+/// no Saved identity.
+fn in_session(run: &str, session: &str) -> Partition {
+    kept_by(Keeper::Session {
+        run_id: RunId::parse(run).unwrap(),
+        session_id: SessionId(session.to_owned()),
+    })
+}
+
+/// Ada's partition under the Saved identity `name`.
+fn as_identity(name: &str) -> Partition {
+    kept_by(Keeper::SavedIdentity(name.to_owned()))
+}
+
+/// What a lookup of `request` a second after the start serves to
+/// `partition`: the body of a fresh hit, or none.
+async fn served_to(
+    cache: &ResponseCache,
+    partition: &Partition,
+    request: &CacheRequest,
+) -> Option<Bytes> {
+    match cache.lookup(partition, request, at(1)).await {
+        Lookup::Fresh(hit) => Some(hit.body),
+        _ => None,
+    }
+}
+
+/// A logged-in page, fetched with a cookie, is kept in its Session's own
+/// partition, or its Saved identity's, and served to that keeper alone:
+/// never to another Session, another Run's, an anonymous one or another
+/// identity. A page that carries nothing of a person's, fetched by the
+/// same Session, is public and served to all of them.
+/// Covers: story:6-39
+#[tokio::test]
+async fn a_logged_in_page_is_served_to_its_own_keeper_only() {
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let account = get("/account", &[("cookie", "sid=1")]);
+    let public = get("/page", &[]);
+    for (partition, request, body) in [
+        (in_session("r1", "s1"), &account, "session"),
+        (as_identity("work"), &account, "identity"),
+        (in_session("r1", "s1"), &public, "public"),
+    ] {
+        assert!(
+            cache
+                .store(
+                    &partition,
+                    request,
+                    &minute(),
+                    Bytes::from(body),
+                    None,
+                    start()
+                )
+                .await
+        );
+    }
+    let askers = [
+        in_session("r1", "s1"),
+        in_session("r1", "s2"),
+        in_session("r2", "s1"),
+        ada(),
+        as_identity("work"),
+        as_identity("home"),
+    ];
+
+    let mut answers = Vec::new();
+    for asker in &askers {
+        answers.push((
+            served_to(&cache, asker, &account).await,
+            served_to(&cache, asker, &public).await,
+        ));
+    }
+
+    let page = |body: &'static str| Some(Bytes::from(body));
+    assert_eq!(
+        answers,
+        [
+            (page("session"), page("public")),
+            (None, page("public")),
+            (None, page("public")),
+            (None, page("public")),
+            (page("identity"), page("public")),
+            (None, page("public")),
+        ]
+    );
+    let connection = Connection::open(folder(&env).join("index.sqlite")).unwrap();
+    let partitions: Vec<String> = connection
+        .prepare("SELECT partition FROM entries ORDER BY partition")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(partitions, ["public", "session:r1:s1", "work"]);
+}
+
 /// One body shared by two entries is stored once, under its SHA-256; an
 /// entry whose body file is gone misses.
 #[tokio::test]
@@ -540,7 +646,7 @@ async fn a_body_larger_than_the_cap_is_not_stored() {
 /// Past `cache.max_age_ceiling`, an entry is served in neither mode,
 /// however fresh its headers say it is, and the next store deletes it
 /// with its body file.
-/// Covers: story:6-43, setting:cache.max_age_ceiling
+/// Covers: story:6-42, setting:cache.max_age_ceiling
 #[tokio::test]
 async fn past_the_age_ceiling_an_entry_is_served_in_neither_mode_and_leaves() {
     let env = TestEnv::new();
@@ -567,6 +673,70 @@ async fn past_the_age_ceiling_an_entry_is_served_in_neither_mode_and_leaves() {
     assert_eq!(body_files(&env), [sha256(&body())]);
 }
 
+/// The URLs of the entries `env`'s index holds, in their order.
+fn urls(env: &TestEnv) -> Vec<String> {
+    rows(env).into_iter().map(|(url, _)| url).collect()
+}
+
+/// Eviction weighs the bytes held again after each page of 64 entries it
+/// takes, those entries' bodies gone, so a store that needs more than a
+/// page taken takes no more than it needs: of seventy entries of a
+/// quarter MiB under a cap with room for seventy and seven eighths, a body
+/// of sixty-six takes the sixty-six least recently used and leaves the
+/// last four.
+/// Covers: story:6-42, setting:cache.max_size
+#[tokio::test]
+async fn an_eviction_past_one_page_takes_only_the_entries_it_needs() {
+    const QUARTER: usize = MIB / 4;
+    let env = TestEnv::new();
+    let cap = 70 * QUARTER + 7 * QUARTER / 8;
+    let cache = bounded(&env, cap as u64, Duration::from_secs(3600));
+    for number in 0..70_u8 {
+        let body = Bytes::from(vec![number; QUARTER]);
+        let path = format!("/{number:02}");
+        assert!(replay_stored(&cache, &path, body, at(u64::from(number))).await);
+    }
+
+    let new = Bytes::from(vec![b'n'; 66 * QUARTER]);
+    assert!(replay_stored(&cache, "/new", new.clone(), at(70)).await);
+
+    assert_eq!(
+        urls(&env),
+        ["66", "67", "68", "69", "new"].map(|path| format!("https://cache.test/{path}"))
+    );
+    let mut kept: Vec<String> = (66..70_u8)
+        .map(|number| sha256(&vec![number; QUARTER]))
+        .collect();
+    kept.push(sha256(&new));
+    assert_eq!(body_files(&env), sorted(kept));
+}
+
+/// The entries past the age ceiling that a store deletes free their bytes
+/// before it weighs what to evict, so no live entry leaves to make room
+/// they held: under a cap of two and a half MiB, the entry stored half an
+/// hour in stays beside the new one when the first passes the ceiling.
+/// Covers: story:6-42, setting:cache.max_size, setting:cache.max_age_ceiling
+#[tokio::test]
+async fn the_entries_past_the_age_ceiling_make_room_before_any_eviction() {
+    let env = TestEnv::new();
+    let hour = Duration::from_secs(3600);
+    let cache = bounded(&env, (5 * MIB / 2) as u64, hour);
+    assert!(replay_stored(&cache, "/old", mebibyte(b'o'), start()).await);
+    assert!(replay_stored(&cache, "/kept", mebibyte(b'k'), at(1800)).await);
+
+    let later = start() + hour + Duration::from_secs(1);
+    assert!(replay_stored(&cache, "/new", mebibyte(b'n'), later).await);
+
+    assert_eq!(
+        urls(&env),
+        ["https://cache.test/kept", "https://cache.test/new"]
+    );
+    assert_eq!(
+        body_files(&env),
+        sorted(vec![sha256(&mebibyte(b'k')), sha256(&mebibyte(b'n'))])
+    );
+}
+
 /// A sample with `folder`'s filesystem at `level`.
 fn sample(folder: PathBuf, level: StorageLevel) -> Arc<StorageSample> {
     Arc::new(StorageSample {
@@ -584,7 +754,7 @@ fn sample(folder: PathBuf, level: StorageLevel) -> Arc<StorageSample> {
 /// While its filesystem is at `low` or `critical`, the cache stores
 /// nothing new and evicts nothing, and still serves what it holds
 /// (ADR 0122).
-/// Covers: story:6-42
+/// Covers: story:6-43
 #[rstest::rstest]
 #[case::low(StorageLevel::Low)]
 #[case::critical(StorageLevel::Critical)]

@@ -3,7 +3,8 @@
 //! `replay_not_allowed` a Schedule whose target sets `replay` is refused
 //! with, and one entry of the cache's index as its format's schema
 //! describes it. Both Products carry them, since the engine's interception
-//! and every fetch tier consult the one cache.
+//! and every fetch tier consult the one cache. A user sees and empties the
+//! cache with `cache.stats`, `cache.clear` and `cache.verify`.
 //!
 //! Each field records the protocol minor that added it, as `arrived_in` in
 //! its schema (ADR 0096).
@@ -14,7 +15,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, ValueKind,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, schema_of,
 };
 use crate::run::RunId;
 
@@ -60,7 +62,7 @@ fn off() -> serde_json::Value {
 /// `cache.mode` (ADRs 0028 and 0046).
 pub const CACHE_MODE: Setting = Setting {
     name: "cache.mode",
-    description: "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses sent with no cookie or credential, whose response sets no cookie and is not `private`, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response to a request sent with no cookie or credential, which sets no cookie and is not `private`, whatever its method, status or freshness, and serves it again with no request and no revalidation. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
+    description: "What the per-user Response cache does: `off` (the default) stores and serves nothing, so a run never serves a stale page silently; `revalidate` stores GET and HEAD responses, serves a fresh one with no request and revalidates a stale one with `ETag` and `Last-Modified` under RFC 9111, serving the stored body on a 304; `replay`, for development, stores every response, whatever its method, status or freshness, and serves it again with no request and no revalidation. A response sent with or setting a cookie or a credential, or marked `private`, is kept in the partition of the Session that fetched it, which no other Session reads, until that Session ends; one fetched outside a Session is not stored. Every tier shares the cache: a browser page's requests are served through its interception, and a request a site's service worker answers never reaches it. The key is the method, the URL without its fragment, the request headers the response's `Vary` names and, under `replay`, the SHA-256 of the request's canonical body: a JSON body with its object keys sorted, a form with its fields sorted by name and each name's values in their order, a body sent with no `Content-Type` read as JSON or a form by its bytes; a `Vary: *` response is never stored. A Schedule's target never sets `replay`. An engine that finds a cache written by a newer format runs without it, reading and writing nothing. When a site's service worker answers a request the Response cache must serve, set `browser.service_workers` to `block` (ADR 0121).",
     kind: ValueKind::Choice(CACHE_MODES),
     default: off,
     clearable: false,
@@ -191,10 +193,214 @@ pub struct ResponseCacheEntry {
     pub used_at: SystemTime,
 }
 
+/// What `cache.stats` takes: nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CacheStatsParams {}
+
+/// What `cache.stats` answers: what the caller's Response cache holds.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CacheStats {
+    /// The caller's entries.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub entries: u64,
+    /// The bodies they hold, each once however many entries share it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bodies: u64,
+    /// The bytes those bodies weigh, each once.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub body_bytes: u64,
+    /// The bytes the whole cache holds on disk, every person's bodies and
+    /// its index, which `cache.max_size` bounds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub held_bytes: u64,
+    /// The caller's entries by partition, the most entries first.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partitions: Vec<CachePartitionStats>,
+}
+
+/// One partition's entries, as `cache.stats` counts them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CachePartitionStats {
+    /// `public`, or the Saved identity whose partition it is.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partition: String,
+    /// The proxy's exit country its entries were fetched through; empty
+    /// when they left directly or the Proxy declares none.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub country: String,
+    /// The Identity profile's language; empty without one.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub language: String,
+    /// The Identity profile's device class; empty without one.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub device: String,
+    /// Its entries.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub entries: u64,
+}
+
+/// `cache.stats` (ADR 0046).
+pub const CACHE_STATS: Operation = Operation {
+    name: "cache.stats",
+    description: "Counts the caller's entries in the Response cache of the engine's major, the bodies they hold and the bytes those weigh, by partition, and the bytes the whole cache holds against `cache.max_size`. A cache never written counts nothing and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+    class: OperationClass::Read,
+    kind: OperationKind::Query,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<CacheStatsParams>,
+    result: schema_of::<CacheStats>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `cache.clear` takes: which of the caller's entries leave, each
+/// given filter narrowing it; every one of them when none is given.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CacheClearParams {
+    /// Only the entries of this host and its subdomains.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub domain: Option<String>,
+    /// Only the entries this Run fetched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+    /// Only the entries of this partition: `public`, or a Saved
+    /// identity's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partition: Option<String>,
+    /// Only the entries fetched through this proxy exit country; the
+    /// empty text for those that left directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub country: Option<String>,
+    /// Only the entries fetched with this Identity profile language; the
+    /// empty text for those fetched without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub language: Option<String>,
+    /// Only the entries fetched with this device class; the empty text
+    /// for those fetched without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub device: Option<String>,
+}
+
+/// What `cache.clear` answers: what left.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CacheCleared {
+    /// The entries deleted.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub entries: u64,
+    /// The body files deleted with them: those no entry left holds.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bodies: u64,
+    /// The bytes those body files weighed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bytes: u64,
+}
+
+/// `cache.clear` (ADR 0046).
+pub const CACHE_CLEAR: Operation = Operation {
+    name: "cache.clear",
+    description: "Deletes the caller's entries from the Response cache of the engine's major: those of a domain and its subdomains, of a Run, of a partition, or every one when no filter is given; given filters narrow each other. A body file leaves with the last entry holding it, and nothing of a deleted entry stays in the cache's files. A cache never written is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<CacheClearParams>,
+    result: schema_of::<CacheCleared>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `cache.verify` takes: nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CacheVerifyParams {}
+
+/// What `cache.verify` answers: what it read, and what it found damaged.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CacheVerified {
+    /// The caller's entries it checked.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub entries: u64,
+    /// The body files it read and hashed, each once.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bodies: u64,
+    /// The entries whose body file is missing or no longer the body
+    /// stored; none when the cache is whole.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub damaged: Vec<CacheDamage>,
+}
+
+/// An entry whose body file `cache.verify` found damaged.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CacheDamage {
+    /// The entry's partition: `public`, or a Saved identity's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub partition: String,
+    /// The request's method.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub method: String,
+    /// The request's URL, without its fragment.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub url: String,
+    /// The Run that fetched it; none outside a Run.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: Option<RunId>,
+    /// The SHA-256 of the body stored, as lower-case hex: its file's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub body_sha256: String,
+    /// What is wrong with its body file.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub problem: CacheBodyProblem,
+}
+
+/// What `cache.verify` found wrong with a body file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CacheBodyProblem {
+    /// The file is not there.
+    Missing,
+    /// The file's bytes are not the body stored: their SHA-256 or their
+    /// length is another.
+    Changed,
+}
+
+/// `cache.verify` (ADR 0046).
+pub const CACHE_VERIFY: Operation = Operation {
+    name: "cache.verify",
+    description: "Reads every body file the caller's entries in the Response cache of the engine's major hold, and lists each entry whose file is missing or whose bytes no longer hash to the body stored; it changes nothing, and `cache.clear` deletes what it lists. A cache never written holds nothing to verify and is not created; one of a format version the engine cannot read is refused with `format_version_unsupported`.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<CacheVerifyParams>,
+    result: schema_of::<CacheVerified>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[CACHE_STATS, CACHE_CLEAR, CACHE_VERIFY],
     events: &[],
     handler_requests: &[],
     error_codes: &[REPLAY_NOT_ALLOWED],

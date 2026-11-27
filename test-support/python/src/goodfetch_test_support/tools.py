@@ -26,6 +26,7 @@ class Tool(StrEnum):
     PROVING_GROUND = "proving_ground"
     TEST_ENV = "test_env"
     SCRIPTED_ENGINE = "scripted_engine"
+    SCRIPTED_PLUGIN = "scripted_plugin"
     CONFORMANCE = "conformance"
     STUB_GATEWAY = "stub_gateway"
 

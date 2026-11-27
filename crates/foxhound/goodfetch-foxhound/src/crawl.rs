@@ -10,6 +10,7 @@
 //! spawns no task.
 
 use std::any::Any;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::future::{Future, IntoFuture};
 use std::marker::PhantomData;
@@ -20,16 +21,20 @@ use std::sync::atomic::Ordering;
 
 use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt as _, StreamExt as _};
-use goodfetch_collie_client::{BoxError, ClientConnection, Error, EventStream, HandlerCall, Run};
+use goodfetch_collie_client::{
+    BoxError, ClientConnection, Error, EventStream, HandlerCall, Limits, Run,
+};
+use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
-    CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
-    LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel, LabelUnknownDetails,
-    Seed as SeedRequest, Seeds,
+    CODE_FREE_LABEL, CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlExtraction, CrawlRequestHandleParams,
+    CrawlRequestHandled, CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip,
+    LABEL_DUPLICATE, LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel,
+    LabelUnknownDetails, Seed as SeedRequest, Seeds, SitemapSeed,
 };
 use goodfetch_protocol::foxhound::dataset::{
     DATASET_DUPLICATE, DatasetDeclaration as WireDataset, DatasetDuplicateDetails,
 };
+use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{RunId, Tags};
@@ -39,11 +44,13 @@ use serde_json::{Value, json};
 
 use crate::Foxhound;
 use crate::crawl_requests::CrawlRequests;
+use crate::settings::Settings;
 use crate::sync::AtomicU64;
 
 mod context;
 mod declaration;
 mod handles;
+mod records;
 mod run;
 #[cfg(test)]
 mod tests;
@@ -53,6 +60,7 @@ pub use context::{AttemptRun, CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
 pub use declaration::{DatasetDeclaration, LabelDeclaration};
 use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
+pub use records::{DatasetRecord, ReadRecords, ReadRejectedRecords};
 pub use run::{CrawlCall, CrawlRun};
 
 /// The source of each crawl's own number, which its Labels and Datasets
@@ -62,7 +70,7 @@ static NEXT_CRAWL: AtomicU64 = AtomicU64::new(0);
 /// A crawl's own number within the process, which its Labels, Datasets
 /// and seeds carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct CrawlId(u64);
+pub(crate) struct CrawlId(u64);
 
 impl CrawlId {
     /// A number no other crawl of the process has.
@@ -429,37 +437,26 @@ impl<'a> Crawl<'a> {
         for seed in seeds {
             requests.push(self.own_seed(seed)?);
         }
-        let Some(seeds) = Seeds::new(requests) else {
-            return Err(Error::refused(
-                CRAWL_START.name,
-                "a crawl starts from at least one seed",
-                "Give `start_crawl` one seed or more.",
-            ));
-        };
         Ok(CrawlStartParams {
-            run_id: None,
-            tags: Tags::default(),
-            seeds,
             labels: self
                 .labels
                 .iter()
                 .map(|declared| (declared.name.to_string(), declared.wire.clone()))
                 .collect(),
             datasets: self.datasets.clone(),
-            extraction: None,
-            hooks: Vec::new(),
-            settings: serde_json::Map::new(),
-            project: None,
-            limits: Vec::new(),
-            // The program's crawl waits on it, so it never detaches (ADR
-            // 0102).
-            detached: false,
+            ..start_params(requests)?
         })
     }
 
+    /// Whether this crawl declares the Label named `name`.
+    fn declares(&self, name: &str) -> bool {
+        self.labels.iter().any(|declared| *declared.name == *name)
+    }
+
     /// `seed` as `crawl.start` takes it, or `label_unknown` for a Label of
-    /// another crawl, the `payload_invalid` of its Payload, or the refusal
-    /// of a request option given to a sitemap seed.
+    /// another crawl, or one named by name that it does not declare, the
+    /// `payload_invalid` of its Payload, or the refusal of a request option
+    /// given to a sitemap seed.
     fn own_seed(&self, seed: Seed) -> Result<SeedRequest, Error> {
         match seed.seeded {
             Seeded::Request {
@@ -473,33 +470,108 @@ impl<'a> Crawl<'a> {
                 request.payload = Some(payload?);
                 Ok(SeedRequest::Request(request))
             }
+            Seeded::Named(request) => {
+                if !self.declares(&request.label) {
+                    return Err(self.label_unknown(&request.label));
+                }
+                Ok(SeedRequest::Request(request))
+            }
             Seeded::Sitemap {
                 sitemap,
                 crawls,
                 refused,
             } => {
                 if let Some(option) = refused {
-                    return Err(Error::refused(
-                        CRAWL_START.name,
-                        &format!(
-                            "the sitemap seed `{}` was given `{option}`, which only a request seed takes",
-                            sitemap.sitemap
-                        ),
-                        "Give the request options to `Seed::new`'s seeds; a sitemap's entries are each a `GET` of their Label's.",
-                    ));
+                    return Err(sitemap_option_refused(&sitemap, option));
                 }
-                if let Some(rule) = sitemap
-                    .rules
-                    .iter()
-                    .zip(&crawls)
-                    .find_map(|(rule, crawl)| (*crawl != self.id).then_some(rule))
-                {
+                let foreign = match &crawls {
+                    Some(crawls) => sitemap
+                        .rules
+                        .iter()
+                        .zip(crawls)
+                        .find_map(|(rule, crawl)| (*crawl != self.id).then_some(rule)),
+                    None => sitemap
+                        .rules
+                        .iter()
+                        .find(|rule| !self.declares(&rule.label)),
+                };
+                if let Some(rule) = foreign {
                     return Err(self.label_unknown(&rule.label));
                 }
                 Ok(SeedRequest::Sitemap(sitemap))
             }
         }
     }
+}
+
+/// The refusal of `option`, a request's, given to the sitemap seed
+/// `sitemap`.
+fn sitemap_option_refused(sitemap: &SitemapSeed, option: &str) -> Error {
+    Error::refused(
+        CRAWL_START.name,
+        &format!(
+            "the sitemap seed `{}` was given `{option}`, which only a request seed takes",
+            sitemap.sitemap
+        ),
+        "Give the request options to `Seed::new`'s seeds; a sitemap's entries are each a `GET` of their Label's.",
+    )
+}
+
+/// What `crawl.start` takes to start a crawl from `seeds`, with no Label,
+/// no Dataset and no code-free crawl of its own, or `invalid_params` with
+/// no seed.
+fn start_params(seeds: Vec<SeedRequest>) -> Result<CrawlStartParams, Error> {
+    let Some(seeds) = Seeds::new(seeds) else {
+        return Err(Error::refused(
+            CRAWL_START.name,
+            "a crawl starts from at least one seed",
+            "Give `start_crawl` one seed or more.",
+        ));
+    };
+    Ok(CrawlStartParams {
+        run_id: None,
+        tags: Tags::default(),
+        seeds,
+        labels: BTreeMap::new(),
+        datasets: Vec::new(),
+        extraction: None,
+        declaration: None,
+        hooks: Vec::new(),
+        settings: serde_json::Map::new(),
+        project: None,
+        limits: Vec::new(),
+        detached: false,
+    })
+}
+
+/// What `crawl.start` takes to start a code-free crawl from `seeds`, each
+/// naming its Label by name, before its declaration or extraction is set;
+/// a seed holding a [`Label`], of a crawl the program declares, is
+/// refused.
+fn code_free_params(seeds: Vec<Seed>) -> Result<CrawlStartParams, Error> {
+    let mut requests = Vec::with_capacity(seeds.len());
+    for seed in seeds {
+        let request = match seed.seeded {
+            Seeded::Named(request) => SeedRequest::Request(request),
+            Seeded::Sitemap {
+                sitemap,
+                crawls: None,
+                refused,
+            } => match refused {
+                Some(option) => return Err(sitemap_option_refused(&sitemap, option)),
+                None => SeedRequest::Sitemap(sitemap),
+            },
+            Seeded::Request { .. } | Seeded::Sitemap { .. } => {
+                return Err(Error::refused(
+                    CRAWL_START.name,
+                    "a code-free crawl's seed names its Label by name",
+                    "Give `Seed::named` or `Seed::named_sitemap` seeds; a `Label` belongs to a `Crawl` the program declares.",
+                ));
+            }
+        };
+        requests.push(request);
+    }
+    start_params(requests)
 }
 
 /// The `label_unknown` of `label`, among the Labels `declared`.
@@ -648,6 +720,13 @@ impl Foxhound {
     /// Awaiting sends it; [`Crawl::serve`] then serves the Run. The crawl's
     /// declarations are checked before anything is sent.
     ///
+    /// A code-free crawl, a [`CrawlDeclaration`] or a [`CrawlExtraction`],
+    /// starts the same way with no handler: its seeds name their Labels by
+    /// name ([`Seed::named`]), the program reads its Datasets by name with
+    /// the raw call `dataset.page` ([`Foxhound::call`]), and
+    /// [`StartCrawl::detached`] lets its Run outlive the Connection on a
+    /// Daemon (ADRs 0093 and 0102).
+    ///
     /// ```no_run
     /// use goodfetch_foxhound::{ConnectOptions, Crawl, CrawlContext, Foxhound, Seed};
     ///
@@ -670,15 +749,96 @@ impl Foxhound {
     /// handler, `label_unknown` for a seed of another crawl's Label,
     /// `payload_invalid` for a Payload that does not serialize, or that
     /// its Label's schema refuses, naming each issue, `invalid_params`
-    /// with no seed, and what `crawl.start` fails with.
+    /// with no seed, `invalid_params` for a code-free crawl's seed that
+    /// holds a [`Label`], and what `crawl.start` fails with, such as
+    /// `detach_unsupported` for a detached crawl the program serves.
     pub fn start_crawl(
         &self,
-        crawl: &Crawl<'_>,
+        crawl: impl CrawlTarget,
         seeds: impl IntoIterator<Item = Seed>,
     ) -> StartCrawl {
         StartCrawl::new(self.as_ref(), self.crawl_requests(), crawl, seeds)
     }
 }
+
+/// What [`Foxhound::start_crawl`] starts (ADR 0093): a `&`[`Crawl`] the
+/// program serves, or a code-free crawl the engine handles itself, a
+/// [`CrawlDeclaration`] or a [`CrawlExtraction`], whose seeds name their
+/// Labels by name ([`Seed::named`], [`Seed::named_sitemap`]). Only this
+/// crate implements it.
+pub trait CrawlTarget: target::Parts {}
+
+/// What a crawl's start takes from its [`CrawlTarget`], which only this
+/// crate implements.
+pub(crate) mod target {
+    use goodfetch_collie_client::Error;
+    use goodfetch_protocol::foxhound::crawl::CrawlStartParams;
+
+    use super::CrawlId;
+    use crate::Seed;
+
+    /// What a crawl's start sends and keeps.
+    #[derive(Debug)]
+    pub struct Started {
+        /// The crawl's number.
+        pub(crate) id: CrawlId,
+        /// The Labels the crawl declares.
+        pub(crate) declared: Vec<String>,
+        /// `crawl.start`'s params from the seeds, or why it cannot start.
+        pub(crate) params: Result<CrawlStartParams, Error>,
+    }
+
+    /// A crawl a start sends.
+    pub trait Parts {
+        /// What the start of this crawl from `seeds` sends.
+        fn parts(self, seeds: Vec<Seed>) -> Started;
+    }
+}
+
+impl target::Parts for &Crawl<'_> {
+    fn parts(self, seeds: Vec<Seed>) -> target::Started {
+        target::Started {
+            id: self.id,
+            declared: self.declared(),
+            params: self.start_params(seeds),
+        }
+    }
+}
+
+impl CrawlTarget for &Crawl<'_> {}
+
+impl target::Parts for CrawlDeclaration {
+    fn parts(self, seeds: Vec<Seed>) -> target::Started {
+        let declared = self.labels.iter().map(|label| label.name.clone()).collect();
+        let params = code_free_params(seeds).map(|params| CrawlStartParams {
+            declaration: Some(self),
+            ..params
+        });
+        target::Started {
+            id: CrawlId::next(),
+            declared,
+            params,
+        }
+    }
+}
+
+impl CrawlTarget for CrawlDeclaration {}
+
+impl target::Parts for CrawlExtraction {
+    fn parts(self, seeds: Vec<Seed>) -> target::Started {
+        let params = code_free_params(seeds).map(|params| CrawlStartParams {
+            extraction: Some(self),
+            ..params
+        });
+        target::Started {
+            id: CrawlId::next(),
+            declared: vec![CODE_FREE_LABEL.to_owned()],
+            params,
+        }
+    }
+}
+
+impl CrawlTarget for CrawlExtraction {}
 
 /// The start of a crawl's Run (`crawl.start`), which awaiting sends.
 /// Nothing is sent until it is awaited.
@@ -691,24 +851,45 @@ pub struct StartCrawl {
     declared: Arc<[String]>,
     /// The start's params, or why the crawl cannot start.
     params: Result<CrawlStartParams, Error>,
+    /// The Run's own settings, which its params carry once checked.
+    settings: Settings,
 }
 
 impl StartCrawl {
     /// The start of `crawl`'s Run from `seeds` on `connection`, whose
-    /// Runs share `requests`.
+    /// Runs share `requests`. A code-free crawl takes a number of its own,
+    /// so no [`Crawl`] serves its Run.
     pub(crate) fn new(
         connection: &ClientConnection,
         requests: &Arc<CrawlRequests>,
-        crawl: &Crawl<'_>,
+        crawl: impl CrawlTarget,
         seeds: impl IntoIterator<Item = Seed>,
     ) -> Self {
+        let target::Started {
+            id,
+            declared,
+            params,
+        } = target::Parts::parts(crawl, seeds.into_iter().collect());
         Self {
             connection: connection.clone(),
             requests: Arc::clone(requests),
-            crawl: crawl.id,
-            declared: crawl.declared().into(),
-            params: crawl.start_params(seeds.into_iter().collect()),
+            crawl: id,
+            declared: declared.into(),
+            params,
+            settings: Settings::new(),
         }
+    }
+
+    /// Lets the Run outlive the Connection, as
+    /// [`HandlerlessStart::detached`](crate::HandlerlessStart::detached)
+    /// does: closing or dropping its [`CrawlRun`] then sends no
+    /// `run.abort`. Only a code-free crawl started on a Daemon detaches;
+    /// any other start fails with `detach_unsupported` (ADR 0102).
+    pub fn detached(mut self) -> Self {
+        if let Ok(params) = &mut self.params {
+            params.detached = true;
+        }
+        self
     }
 
     /// Names the Run for good, as [`Start::run_id`](crate::Start::run_id)
@@ -718,6 +899,37 @@ impl StartCrawl {
         if let Ok(params) = &mut self.params {
             params.run_id = Some(run_id.as_str().to_owned());
         }
+        self
+    }
+
+    /// Tags the Run, in place of any tags given before, as
+    /// [`Start::tags`](crate::Start::tags) does (ADR 0036).
+    pub fn tags(mut self, tags: Tags) -> Self {
+        if let Ok(params) = &mut self.params {
+            params.tags = tags;
+        }
+        self
+    }
+
+    /// Sets the Run's own `limits`, in place of any given before, as
+    /// [`Start::limits`](crate::Start::limits) does: each only lowers what
+    /// covers the Run, and a start that names the Run again lowers its
+    /// Limits and never raises them (ADRs 0080 and 0102).
+    pub fn limits(mut self, limits: Limits) -> Self {
+        if let Ok(params) = &mut self.params {
+            params.limits = limits.into();
+        }
+        self
+    }
+
+    /// Sets the Run's own settings, in place of any given before, as
+    /// [`Start::settings`](crate::Start::settings) does: what they leave
+    /// out the connection's settings give, and its Labels' own settings
+    /// override them for their requests (ADRs 0083 and 0093). A key a
+    /// Run's start does not set fails the start with
+    /// `setting_not_applicable` before anything is sent.
+    pub fn settings(mut self, settings: Settings) -> Self {
+        self.settings = settings;
         self
     }
 }
@@ -736,11 +948,14 @@ impl IntoFuture for StartCrawl {
             crawl,
             declared,
             params,
+            settings,
         } = self;
         let started = params.and_then(|mut params| {
+            params.settings = settings.within(SettingScope::Run)?;
             params.project = connection.project().cloned();
             requests.open(&connection)?;
-            Ok(connection.start_with(CRAWL_START.name, params))
+            let detached = params.detached;
+            Ok(connection.start_held(CRAWL_START.name, params, detached))
         });
         Box::pin(async move {
             let run = started?.await?;

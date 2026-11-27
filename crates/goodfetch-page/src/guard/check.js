@@ -4,7 +4,9 @@
 // milliseconds pass, and answers what it saw last. A ready pointer target gets
 // the interception listener armed on the window, which cancels every event of
 // the gesture that reaches another element; a ready text target gets the
-// focus, and for `fill` its text selected. A locator wait (ADR 0080) passes a
+// focus, and for `fill` its text selected; for `scroll`, the last of the
+// matches, which need not be unique, is scrolled to the top of the view once
+// it is visible (a scroll collection's step). A locator wait (ADR 0080) passes a
 // state for `action` instead, `attached`, `detached`, `visible` or `hidden`,
 // or `count` with its `min` and `max`, and the check only observes the
 // matches until they are in it, answering their count for `count`. The target is a CSS selector's one
@@ -134,6 +136,12 @@ async function check({ selector, handle, action, events, slice, min, max, human_
     }
     if (WAITS.includes(action)) return reached(found);
     if (found.length === 0) return waiting("attached", "no element matches");
+    if (action === "scroll") {
+      const last = found.at(-1);
+      if (!shown(last)) return waiting("visible", `${describe(last)} is not visible`);
+      last.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+      return { state: "scrolled" };
+    }
     if (found.length > 1)
       return {
         ...waiting("unique", `${found.length} elements match`),

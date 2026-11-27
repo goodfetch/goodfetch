@@ -3,8 +3,10 @@
 //! of the gate's `target/` is short of space (#1822), keeps a failing gate's
 //! log and test results in the repository's common folder (#2087), and
 //! sweeps the gate's `target/` after each gate, still holding its lock; it
-//! gates a head without its base's tip merged with that tip, and refuses one
-//! that conflicts with it, and one whose merge would close other issues
+//! gates a head without its base's tip merged with that tip, with what
+//! `just codegen` writes on that merge and a conflict only in codegen's
+//! folders settled (ADR 0135's note of 2026-11-26), and refuses one that
+//! conflicts with it elsewhere, and one whose merge would close other issues
 //! than its `Closes` lines name (#2249); a
 //! gate waits for the run in the backstop's worktree, a test-health run or
 //! the backstop's own, unless that one waits for it; it files the merge's stress
@@ -36,9 +38,15 @@ const STARTED: &str = "1800000000";
 /// A process ID above every system's limit, so no process has it.
 pub(crate) const NO_PROCESS: &str = "2147483646";
 
+/// The one folder the `cargo` stand-in's `xtask codegen --folders` names.
+const GENERATED: &str = "crates/protocol/generated";
+
+/// The file in [`GENERATED`] the `just` stand-in's `just codegen` writes,
+/// with `written again`, when the stand-in folder holds `codegen-writes`.
+const WRITTEN: &str = "output.json";
+
 /// The `gh` stand-in of [`stand_ins`]: it reads the pull request from the
-/// folder's files and answers the query of a spec's sub-issues and the paged
-/// query of what the merge closes.
+/// folder's files and answers the paged query of what the merge closes.
 fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
     let viewed = format!(
         "#!/bin/sh\necho \"gh $*\" >>\"{calls}\"\n\
@@ -51,26 +59,16 @@ fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
     viewed
         + &format!(
             "if [ \"$1 $2\" = \"api graphql\" ]; then\n\
-           case \" $* \" in\n\
-             *\" --paginate \"*)\n\
-               if [ -f \"{closing_unreadable}\" ]; then exit 1; fi\n\
-               printf 'default\\t%s\\n' \"$(cat \"{default_branch}\" 2>/dev/null || echo main)\"\n\
-               if [ -f \"{closes}\" ]; then awk '{{ print \"closes\\t\" $0 }}' \"{closes}\"; fi\n\
-               if [ -f \"{body}\" ]; then awk '{{ print \"body\\t\" $0 }}' \"{body}\"; fi\n\
-               ;;\n\
-             *)\n\
-               if [ -f \"{unreadable}\" ]; then exit 1; fi\n\
-               cat \"{left}\" 2>/dev/null || echo 0\n\
-               ;;\n\
-           esac\n\
+           if [ -f \"{closing_unreadable}\" ]; then exit 1; fi\n\
+           printf 'default\\t%s\\n' \"$(cat \"{default_branch}\" 2>/dev/null || echo main)\"\n\
+           if [ -f \"{closes}\" ]; then awk '{{ print \"closes\\t\" $0 }}' \"{closes}\"; fi\n\
+           if [ -f \"{body}\" ]; then awk '{{ print \"body\\t\" $0 }}' \"{body}\"; fi\n\
          fi\n\
          if [ \"$1 $2\" = \"pr merge\" ] && [ -f \"{merges_as}\" ]; then\n\
            merged=$(git -c user.name=GitHub -c user.email=noreply@example.test commit-tree \"$(cat \"{merges_as}\")^{{tree}}\" -p refs/heads/main -p {head} -m merged)\n\
            git update-ref refs/heads/main \"$merged\"\n\
          fi\n",
             merges_as = folder.join("merges-as").display(),
-            left = folder.join("sub-issues-left").display(),
-            unreadable = folder.join("sub-issues-unreadable").display(),
             closing_unreadable = folder.join("closing-unreadable").display(),
             default_branch = folder.join("default-branch").display(),
             closes = folder.join("closes").display(),
@@ -84,11 +82,9 @@ fn gh_stand_in(folder: &Path, calls: &Path, head: &str) -> String {
 /// `gh pr view` shows an open pull request at the head of `change`, or at the
 /// commit `pushed` names once a test pushed another, in the state and draft
 /// state `state` gives (`<state>`, a tab, `<true|false>`) when it exists, from
-/// the head branch `branch` names, `change` without it; `gh api graphql`, the
-/// query of the spec's sub-issues left open after the pull request, prints
-/// `sub-issues-left`'s content, `0` without it, and fails while
-/// `sub-issues-unreadable` exists; `gh api graphql --paginate`, the query of
-/// what the merge closes, answers as its filter does, a line `default`, the
+/// the head branch `branch` names, `change` without it; `gh api graphql
+/// --paginate`, the query of what the merge closes, answers as its filter
+/// does, a line `default`, the
 /// repository's default branch (`default-branch`'s content, `main` without
 /// it), a line `closes` for each line of `closes`, the issues GitHub would
 /// close, and a line `body` for each line of `body`, the pull request's body,
@@ -120,6 +116,7 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\necho \"cargo $* in $PWD\" >>\"{calls}\"\n\
                  case \" $* \" in\n\
+                   *\" codegen --folders \"*) echo {GENERATED} ;;\n\
                    *\" affected \"*) if [ -f \"{selection}\" ]; then cat \"{selection}\"; elif [ -f \"{gate}\" ]; then echo gate=$(cat \"{gate}\"); else echo gate=quick; fi ;;\n\
                    *\" sweep-target \"*)\n\
                      : >\"{sweeping}\"\n\
@@ -146,6 +143,11 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
             format!(
                 "#!/bin/sh\n\
                  echo \"just $*\" >>\"{calls}\"\n\
+                 if [ \"$1\" = codegen ]; then\n\
+                   if [ -f \"{codegen_fails}\" ]; then exit 1; fi\n\
+                   if [ -f \"{codegen_locks}\" ]; then echo 'rewritten' >Cargo.lock; fi\n\
+                   if [ -f \"{codegen_writes}\" ]; then mkdir -p {GENERATED} && echo 'written again' >{GENERATED}/{WRITTEN}; fi\n\
+                 fi\n\
                  if [ -n \"$GOODFETCH_PERF_PULL_REQUEST\" ]; then\n\
                    echo \"acceptance $GOODFETCH_PERF_PULL_REQUEST\" >>\"{calls}\"\n\
                  fi\n\
@@ -176,6 +178,9 @@ fn stand_ins(workspace: &Workspace, head: &str) -> PathBuf {
                    fi\n\
                  fi\n",
                 calls = calls.display(),
+                codegen_fails = folder.join("codegen-fails").display(),
+                codegen_locks = folder.join("codegen-locks").display(),
+                codegen_writes = folder.join("codegen-writes").display(),
                 running = folder.join("running").display(),
                 together = folder.join("together").display(),
                 lengthy = folder.join("lengthy").display(),
@@ -211,7 +216,7 @@ struct Run {
 
 /// What a quick merge of a change a test reads says of its gate, in the
 /// gate's log and in the merge's message.
-const A_TEST_READS_THE_CHANGE: &str = "`just pre-merge quick` (a test reads the change, and the full gate runs only once per finished spec, on the pull request of its `spec/<n>` branch that leaves none of its sub-issues open; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
+const A_TEST_READS_THE_CHANGE: &str = "`just pre-merge quick` (a test reads the change, and the full gate runs only when the owner asks for it with `--full`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)";
 
 /// Lands a pull request on `main` as `just merge` does when a test reads its
 /// change and it merged on the quick gate: a merge commit whose message says
@@ -289,6 +294,12 @@ fn calls(stand_in: &Path) -> Vec<String> {
 /// Runs `merge_command` to its end.
 fn merge(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Run {
     merge_with(workspace, stand_in, &[], variables)
+}
+
+/// Runs `merge_command` to its end with `--full`, the owner's request for the
+/// full gate.
+fn full_merge(workspace: &Workspace, stand_in: &Path, variables: &[(&str, &str)]) -> Run {
+    merge_with(workspace, stand_in, &["--full"], variables)
 }
 
 /// Runs `merge_command` to its end with these options after the number, as
@@ -416,8 +427,8 @@ fn gate_log(workspace: &Workspace) -> String {
 }
 
 /// No gate starts a run as it ends, merged or red: what a quick merge skips
-/// runs on the finished spec's full gate alone (the owner's decision of
-/// 2026-11-18, ADR 0135).
+/// runs on a full gate alone, which the owner asks for (the owner's decisions
+/// of 2026-11-18 and 2026-11-26, ADR 0135).
 #[rstest]
 #[case::merged(false, 0)]
 #[case::red(true, 3)]
@@ -689,14 +700,13 @@ fn a_gates_steps_ignore_no_signal_the_gates_start_would_have_them_ignore() {
 fn a_full_gate_without_a_lazyfs_build_fails_before_any_step(#[case] lazyfs: Option<&str>) {
     let (workspace, head) = pull_request();
     let stand_in = stand_ins(&workspace, &head);
-    a_specs_pull_request_a_test_reads(&stand_in);
     let named = lazyfs.map(|path| workspace.path().join(path).display().to_string());
     let mut variables = vec![("GOODFETCH_GATE_MIN_FREE_GB", "0")];
     if let Some(named) = &named {
         variables.push(("GOODFETCH_LAZYFS", named));
     }
 
-    let run = merge(&workspace, &stand_in, &variables);
+    let run = full_merge(&workspace, &stand_in, &variables);
 
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert!(run.stdout.contains("GOODFETCH_LAZYFS"), "{}", run.stdout);
@@ -761,29 +771,28 @@ fn a_gate_the_script_does_not_know_merges_nothing() {
     assert!(!gate_lock(&workspace).exists());
 }
 
-/// Which gate `just merge` runs (ADR 0135's amendment of 2026-11-10, the
-/// owner's decision for the refactor: quick per merge, the full gate once per
-/// finished spec; its note of 2026-11-13: only the pull request that finishes
-/// the spec; and its note of 2026-11-14: no other trigger). `xtask affected`
-/// says what the change is; a change a test reads takes the full gate only on
-/// a spec's pull request, whose head branch is `spec/<n>`, when none of the
-/// spec's sub-issues stays open once the issues it closes are closed, and the
-/// quick gate on every other. A change of documents alone keeps the docs
-/// gate, and one no test reads the quick gate, on any branch. Only the full
-/// gate's stress run needs a LazyFS build, so the quick and docs gates run
-/// without one.
+/// Which gate `just merge` runs (ADR 0135's note of 2026-11-26, the owner's
+/// rule « full gates seulement sur ma demande »). The full gate runs only
+/// when the owner passes `--full`, whatever the change and its branch.
+/// Without it, `xtask affected` says what the change is: documents alone take
+/// the docs gate, and every other change the quick gate, a change a test
+/// reads on a spec's `spec/<n>` branch included. No branch name and no count
+/// of a spec's open sub-issues picks the full gate, so the gate asks GitHub
+/// nothing about the spec. Only the full gate's stress run needs a LazyFS
+/// build, so the quick and docs gates run without one.
 #[rstest]
-#[case::a_change_a_test_reads("full", "change", "0", "quick")]
-#[case::a_finished_specs_pull_request("full", "spec/130", "0", "all")]
-#[case::an_unfinished_specs_pull_request("full", "spec/130", "2", "quick")]
-#[case::a_branch_that_only_starts_like_a_specs("full", "spec/notes", "0", "quick")]
-#[case::a_branch_that_only_names_a_spec("full", "claude/spec/130", "0", "quick")]
-#[case::a_specs_documents("docs", "spec/130", "0", "docs")]
-#[case::a_specs_change_no_test_reads("quick", "spec/130", "0", "quick")]
-fn a_change_a_test_reads_takes_the_full_gate_only_on_a_finished_specs_pull_request(
+#[case::a_change_a_test_reads("full", "change", &[], "quick")]
+#[case::a_specs_last_pull_request("full", "spec/130", &[], "quick")]
+#[case::a_specs_documents("docs", "spec/130", &[], "docs")]
+#[case::a_specs_change_no_test_reads("quick", "spec/130", &[], "quick")]
+#[case::the_owners_full_gate("full", "change", &["--full"], "all")]
+#[case::the_owners_full_gate_on_a_spec("full", "spec/130", &["--full"], "all")]
+#[case::the_owners_full_gate_on_documents("docs", "change", &["--full"], "all")]
+#[case::the_owners_full_gate_on_a_change_no_test_reads("quick", "change", &["--full"], "all")]
+fn only_the_owners_full_option_takes_the_full_gate(
     #[case] affected: &str,
     #[case] branch: &str,
-    #[case] sub_issues_left: &str,
+    #[case] options: &[&str],
     #[case] form: &str,
 ) {
     let (workspace, head) = pull_request();
@@ -791,13 +800,20 @@ fn a_change_a_test_reads_takes_the_full_gate_only_on_a_finished_specs_pull_reque
     let lazyfs = full_gate_with_lazyfs(&stand_in);
     std::fs::write(stand_in.join("gate"), affected).unwrap();
     std::fs::write(stand_in.join("branch"), branch).unwrap();
-    std::fs::write(stand_in.join("sub-issues-left"), sub_issues_left).unwrap();
     let mut variables = vec![("GOODFETCH_GATE_MIN_FREE_GB", "0")];
     if form == "all" {
         variables.push(("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()));
     }
 
-    let run = merge(&workspace, &stand_in, &variables);
+    let run = merge_with(&workspace, &stand_in, options, &variables);
+
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("gh api graphql ") && !call.contains("--paginate")),
+        "{:?}",
+        run.calls
+    );
 
     assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
     assert_eq!(forms(&run), [form], "{}", run.stdout);
@@ -842,32 +858,33 @@ fn a_quick_merge_of_a_change_a_test_reads_says_what_it_did_not_run() {
 /// The backstop tells a merge a full gate passed, which leaves a record, from a
 /// quick gate's, which leaves none, by the message's first words (`xtask gate
 /// compare`, as `gate::FULL_GATE_MERGE` quotes them), so the reason comes
-/// after them.
+/// after them. A full gate names the owner's `--full`, so a full gate nobody
+/// asked for shows in its log.
 #[rstest]
-#[case::a_finished_specs_pull_request(
+#[case::the_owners_full_gate(
     "full",
-    "spec/130",
-    "`just pre-merge all` (the pull request that finishes spec #130, from `spec/130`)"
+    &["--full"],
+    "`just pre-merge all` (the owner asked for it with `--full`)"
 )]
 #[case::a_change_no_test_reads(
     "quick",
-    "change",
+    &[],
     "`just pre-merge quick` (no test, benchmark, model, container or Evaluation reads the change)"
 )]
 fn a_gate_says_which_gate_ran_and_why(
     #[case] affected: &str,
-    #[case] branch: &str,
+    #[case] options: &[&str],
     #[case] said: &str,
 ) {
     let (workspace, head) = pull_request();
     let stand_in = stand_ins(&workspace, &head);
     let lazyfs = full_gate_with_lazyfs(&stand_in);
     std::fs::write(stand_in.join("gate"), affected).unwrap();
-    std::fs::write(stand_in.join("branch"), branch).unwrap();
 
-    let run = merge(
+    let run = merge_with(
         &workspace,
         &stand_in,
+        options,
         &[
             ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
             ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),
@@ -891,114 +908,25 @@ fn a_gate_says_which_gate_ran_and_why(
     );
 }
 
-/// A spec's pull request that leaves sub-issues of its spec open takes the
-/// quick gate (the owner's rule of 2026-11-13, after three full gates on an
-/// unfinished spec's pull request), and its gate's log and its merge's
-/// message say why, after the words a quick merge of a change a test reads
-/// opens with. The one query names the spec and the pull request.
-#[test]
-fn an_unfinished_specs_pull_request_says_why_it_took_the_quick_gate() {
-    let (workspace, head) = pull_request();
-    let stand_in = stand_ins(&workspace, &head);
-    a_specs_pull_request_a_test_reads(&stand_in);
-    std::fs::write(stand_in.join("sub-issues-left"), "1\n").unwrap();
-
-    let run = merge(
-        &workspace,
-        &stand_in,
-        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
-    );
-
-    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
-    assert_eq!(forms(&run), ["quick"], "{}", run.stdout);
-    let why = "spec #130 is not finished: 1 sub-issue stays open after this pull request";
-    let merged = run
-        .calls
-        .iter()
-        .find(|call| call.starts_with("gh pr merge "))
-        .unwrap();
-    assert!(
-        merged.contains(
-            "--body Merged on the local gate: `just pre-merge quick` (a test reads the change"
-        ) && merged.contains(why),
-        "{merged}"
-    );
-    assert!(run.stdout.contains(why), "{}", run.stdout);
-    let queries: Vec<&String> = run
-        .calls
-        .iter()
-        .filter(|call| call.starts_with("gh api graphql ") && !call.contains("--paginate"))
-        .collect();
-    assert_eq!(queries.len(), 1, "{:?}", run.calls);
-    assert!(
-        queries[0].contains("-F spec=130") && queries[0].contains(&format!("-F pr={NUMBER}")),
-        "{}",
-        queries[0]
-    );
-}
-
-/// Whether a spec's pull request finishes the spec decides whether it takes
-/// the full gate, so a query that fails, or answers with no whole number,
-/// merges nothing: taken for none left, it would run a full gate on an
-/// unfinished spec; taken for some, it would skip a finished spec's.
-#[rstest]
-#[case::the_query_fails(None)]
-#[case::it_gives_nothing(Some(""))]
-#[case::it_gives_no_whole_number(Some("more than 100"))]
-fn a_specs_sub_issues_that_cannot_be_read_merge_nothing(#[case] answer: Option<&str>) {
-    let (workspace, head) = pull_request();
-    let stand_in = stand_ins(&workspace, &head);
-    a_specs_pull_request_a_test_reads(&stand_in);
-    match answer {
-        Some(answer) => std::fs::write(stand_in.join("sub-issues-left"), answer).unwrap(),
-        None => std::fs::write(stand_in.join("sub-issues-unreadable"), "").unwrap(),
-    }
-
-    let run = merge(
-        &workspace,
-        &stand_in,
-        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
-    );
-
-    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
-    assert!(
-        run.stdout.contains("sub-issues of spec #130")
-            && run.stdout.contains("run the command again")
-            && !run.stdout.contains("--full"),
-        "{}",
-        run.stdout
-    );
-    assert!(
-        !run.calls
-            .iter()
-            .any(|call| call.starts_with("just ") || call.starts_with("gh pr merge")),
-        "{:?}",
-        run.calls
-    );
-    assert!(!gate_lock(&workspace).exists());
-}
-
 /// No count sends a change to the full gate (ADR 0135's note of 2026-11-14,
-/// the owner's rule « FULL GATE seulement en fermant une spec entière », which
-/// ended the tenth change's full gate of its amendment of 2026-11-10): however
-/// many changes a test reads merged on the quick gate before it, a change a
-/// test reads that finishes no spec takes the quick gate, from a branch that
-/// is no spec's or from an unfinished spec's, and its gate's log and its
-/// merge's message announce no full gate to come.
+/// which ended the tenth change's full gate of its amendment of 2026-11-10,
+/// and its note of 2026-11-26: only the owner's `--full`): however many
+/// changes a test reads merged on the quick gate before it, a change a test
+/// reads takes the quick gate, from a branch that is no spec's or from a
+/// spec's, and its gate's log and its merge's message announce no full gate
+/// to come.
 #[rstest]
-#[case::after_nine_such_merges(9, "change", "0")]
-#[case::after_twelve_such_merges(12, "change", "0")]
-#[case::an_unfinished_specs_after_nine(9, "spec/130", "2")]
+#[case::after_nine_such_merges(9, "change")]
+#[case::after_twelve_such_merges(12, "change")]
+#[case::a_specs_after_nine(9, "spec/130")]
 fn no_count_of_quick_merges_sends_a_change_to_the_full_gate(
     #[case] merged_on_the_quick_gate: usize,
     #[case] branch: &str,
-    #[case] sub_issues_left: &str,
 ) {
     let (workspace, head) = pull_request_after(merged_on_the_quick_gate);
     let stand_in = stand_ins(&workspace, &head);
     std::fs::write(stand_in.join("gate"), "full").unwrap();
     std::fs::write(stand_in.join("branch"), branch).unwrap();
-    std::fs::write(stand_in.join("sub-issues-left"), sub_issues_left).unwrap();
 
     let run = merge(
         &workspace,
@@ -1025,16 +953,17 @@ fn forms(run: &Run) -> Vec<&str> {
         .collect()
 }
 
-/// `--past-cap` is the one option, and any other is refused before the gate
-/// starts: `--full` too, since only a finished spec's pull request takes the
-/// full gate (ADR 0135's note of 2026-11-14).
+/// `--past-cap` and `--full` are the gate's two options, the owner's alone,
+/// in either order, and any other is refused before the gate starts.
 #[rstest]
 #[case::past_cap(&["--past-cap"], Some(0), "quick")]
-#[case::full(&["--full"], Some(2), "")]
-#[case::full_after_past_cap(&["--past-cap", "--full"], Some(2), "")]
+#[case::full(&["--full"], Some(0), "all")]
+#[case::full_after_past_cap(&["--past-cap", "--full"], Some(0), "all")]
+#[case::past_cap_after_full(&["--full", "--past-cap"], Some(0), "all")]
 #[case::unknown(&["--fast"], Some(2), "")]
 #[case::unknown_after_a_known_one(&["--past-cap", "--fast"], Some(2), "")]
-fn past_cap_is_the_gates_one_option(
+#[case::unknown_after_full(&["--full", "--fast"], Some(2), "")]
+fn past_cap_and_full_are_the_gates_options(
     #[case] options: &[&str],
     #[case] code: Option<i32>,
     #[case] form: &str,
@@ -1099,18 +1028,10 @@ fn a_quick_merge_of_a_change_a_test_reads_hands_no_listings_to_the_merge() {
     );
 }
 
-/// Makes the pull request a spec's, from its integration branch `spec/<n>`
-/// (`docs/agents/issue-tracker.md`), with a change a test reads: the one kind
-/// that takes the full gate unasked, when it finishes the spec, as the `gh`
-/// stand-in answers by default.
-fn a_specs_pull_request_a_test_reads(stand_in: &Path) {
-    std::fs::write(stand_in.join("gate"), "full").unwrap();
-    std::fs::write(stand_in.join("branch"), "spec/130").unwrap();
-}
-
-/// A stand-in LazyFS build, and the variables of a full gate that uses it.
+/// A stand-in LazyFS build, which a full gate on Linux needs, for a change a
+/// test reads.
 fn full_gate_with_lazyfs(stand_in: &Path) -> PathBuf {
-    a_specs_pull_request_a_test_reads(stand_in);
+    std::fs::write(stand_in.join("gate"), "full").unwrap();
     let lazyfs = stand_in.join("lazyfs");
     std::fs::write(&lazyfs, "#!/bin/sh\n").unwrap();
     std::fs::set_permissions(&lazyfs, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -1127,7 +1048,7 @@ fn a_full_gate_runs_its_steps_when_the_pull_requests_acceptance_cannot_be_read()
     let lazyfs = full_gate_with_lazyfs(&stand_in);
     std::fs::write(stand_in.join("acceptance-unread"), "").unwrap();
 
-    let run = merge(
+    let run = full_merge(
         &workspace,
         &stand_in,
         &[
@@ -1155,7 +1076,7 @@ fn a_full_gate_hands_its_steps_the_pull_requests_acceptance() {
     let stand_in = stand_ins(&workspace, &head);
     let lazyfs = full_gate_with_lazyfs(&stand_in);
 
-    let run = merge(
+    let run = full_merge(
         &workspace,
         &stand_in,
         &[
@@ -1189,7 +1110,7 @@ fn a_green_full_gate_merges_without_a_plan_to_read() {
     let lazyfs = full_gate_with_lazyfs(&stand_in);
     std::fs::write(stand_in.join("no-plan"), "").unwrap();
 
-    let run = merge(
+    let run = full_merge(
         &workspace,
         &stand_in,
         &[
@@ -1207,7 +1128,7 @@ fn a_green_full_gate_merges_without_a_plan_to_read() {
 fn full_gate_merging_as(workspace: &Workspace, stand_in: &Path, merged_as: &str) -> (Run, String) {
     let lazyfs = full_gate_with_lazyfs(stand_in);
     std::fs::write(stand_in.join("merges-as"), merged_as).unwrap();
-    let run = merge(
+    let run = full_merge(
         workspace,
         stand_in,
         &[
@@ -1830,11 +1751,173 @@ fn a_head_without_its_bases_tip_is_gated_and_merged_with_it() {
     );
 }
 
-/// A head that conflicts with its base's tip merges nothing and runs no
-/// step: the gate cannot resolve a conflict, and says what to do.
+/// The gate writes again, with `just codegen`, what `xtask codegen` writes
+/// on the merge it makes, and the merge it pushes and gates holds what that
+/// wrote (ADR 0135's note of 2026-11-26).
 #[test]
-fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step() {
-    let (workspace, head, _) = pull_request_behind_main("change.txt", b"another change\n");
+fn a_merge_with_the_bases_tip_holds_what_codegen_writes_on_it() {
+    let (workspace, head, tip) = pull_request_behind_main("main.txt", b"on main\n");
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("codegen-writes"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    let merged = workspace
+        .git(&["rev-parse", "refs/heads/change"])
+        .trim()
+        .to_owned();
+    let parents = workspace.git(&["rev-list", "--parents", "-n", "1", &merged]);
+    assert_eq!(parents.trim(), format!("{merged} {head} {tip}"));
+    assert_eq!(
+        workspace.git(&["show", &format!("{merged}:{GENERATED}/{WRITTEN}")]),
+        "written again\n"
+    );
+    assert!(call(&run, "just codegen") < call(&run, "just pre-merge"));
+}
+
+/// [`pull_request_behind_main`] where the head wrote its own contents to
+/// each of `changed` and `removed`, files it shares with `main`, and `main`
+/// then wrote its own to each of `changed` and removed each of `removed`.
+fn pull_request_conflicting_with_main(
+    changed: &[&str],
+    removed: &[&str],
+) -> (Workspace, String, String) {
+    let workspace = repository();
+    let path = workspace.path().display().to_string();
+    workspace.git(&["remote", "add", "origin", &path]);
+    workspace.git(&["config", "user.name", "Gate host"]);
+    workspace.git(&["config", "user.email", "gate@example.invalid"]);
+    workspace.git(&["switch", "--quiet", "main"]);
+    for file in changed.iter().chain(removed) {
+        workspace.write(file, b"shared\n");
+    }
+    commit_all(&workspace, "Shared files");
+    workspace.git(&["switch", "--quiet", "change"]);
+    workspace.git(&["merge", "--quiet", "--ff-only", "main"]);
+    for file in changed.iter().chain(removed) {
+        workspace.write(file, b"the head's\n");
+    }
+    commit_all(&workspace, "A change");
+    let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    workspace.git(&["update-ref", &format!("refs/pull/{NUMBER}/head"), &head]);
+    workspace.git(&["switch", "--quiet", "main"]);
+    for file in changed {
+        workspace.write(file, b"main's\n");
+    }
+    for file in removed {
+        workspace.remove(file);
+    }
+    commit_all(&workspace, "Another change");
+    let tip = workspace.git(&["rev-parse", "main"]).trim().to_owned();
+    workspace.git(&["switch", "--quiet", "--detach"]);
+    (workspace, head, tip)
+}
+
+/// A head that conflicts with its base's tip only in the folders
+/// `xtask codegen` owns is merged with the tip's side there, which
+/// `just codegen` then writes again: no one has to merge `main` into it and
+/// run codegen first (ADR 0135's note of 2026-11-26).
+#[test]
+fn a_conflict_only_in_what_codegen_writes_is_settled_and_written_again() {
+    let written = format!("{GENERATED}/{WRITTEN}");
+    let taken = format!("{GENERATED}/taken.json");
+    let gone = format!("{GENERATED}/gone.json");
+    let (workspace, head, tip) = pull_request_conflicting_with_main(&[&written, &taken], &[&gone]);
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join("codegen-writes"), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(0), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(&format!(
+            "conflicts with the tip of main only in what `xtask codegen` writes; the gate takes the tip's side there and writes it again:\n  {gone}\n  {written}\n  {taken}\n"
+        )),
+        "{}",
+        run.stdout
+    );
+    let merged = workspace
+        .git(&["rev-parse", "refs/heads/change"])
+        .trim()
+        .to_owned();
+    let parents = workspace.git(&["rev-list", "--parents", "-n", "1", &merged]);
+    assert_eq!(parents.trim(), format!("{merged} {head} {tip}"));
+    assert_eq!(
+        workspace.git(&["show", &format!("{merged}:{written}")]),
+        "written again\n"
+    );
+    assert_eq!(
+        workspace.git(&["show", &format!("{merged}:{taken}")]),
+        "main's\n"
+    );
+    let files = workspace.git(&["ls-tree", "-r", "--name-only", &merged]);
+    assert!(!files.lines().any(|file| file == gone), "{files}");
+    let gh_merge = &run.calls[call(&run, "gh pr merge ")];
+    assert!(
+        gh_merge.contains(&format!("--match-head-commit {merged}")),
+        "{gh_merge}"
+    );
+}
+
+/// A merge on which `just codegen` fails, or rewrites `Cargo.lock`, which is
+/// the author's, is pushed nowhere and gated never.
+#[rstest]
+#[case::codegen_fails("codegen-fails", "failed on")]
+#[case::codegen_rewrites_the_lock("codegen-locks", "changed Cargo.lock on")]
+fn a_merge_on_which_codegen_fails_or_rewrites_the_lock_is_refused_before_any_step(
+    #[case] marker: &str,
+    #[case] what: &str,
+) {
+    let (workspace, head, _) = pull_request_behind_main("main.txt", b"on main\n");
+    let stand_in = stand_ins(&workspace, &head);
+    std::fs::write(stand_in.join(marker), "").unwrap();
+
+    let run = merge(
+        &workspace,
+        &stand_in,
+        &[("GOODFETCH_GATE_MIN_FREE_GB", "0")],
+    );
+
+    assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains(&format!(
+            "error: `just codegen` {what} the merge of pull request #{NUMBER} and the tip of main"
+        )),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !run.calls
+            .iter()
+            .any(|call| call.starts_with("just pre-merge") || call.starts_with("gh pr merge")),
+        "{:?}",
+        run.calls
+    );
+    assert_eq!(
+        workspace.git(&["rev-parse", "refs/heads/change"]).trim(),
+        head
+    );
+    assert!(!gate_lock(&workspace).exists());
+}
+
+/// A head that conflicts with its base's tip outside the folders
+/// `xtask codegen` owns merges nothing and runs no step, even when it also
+/// conflicts inside them: the gate leaves that conflict to its author, says
+/// what to do and names the paths.
+#[rstest]
+#[case::outside_alone(&["change.txt"])]
+#[case::inside_and_outside(&["change.txt", "crates/protocol/generated/output.json"])]
+fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step(#[case] files: &[&str]) {
+    let (workspace, head, _) = pull_request_conflicting_with_main(files, &[]);
     let stand_in = stand_ins(&workspace, &head);
 
     let run = merge(
@@ -1846,7 +1929,7 @@ fn a_head_that_conflicts_with_its_bases_tip_is_refused_before_any_step() {
     assert_eq!(run.code, Some(1), "{}{}", run.stdout, run.stderr);
     assert!(
         run.stdout.contains(&format!(
-            "error: pull request #{NUMBER} conflicts with the tip of main; merge main into it and resolve the conflict"
+            "error: pull request #{NUMBER} conflicts with the tip of main; merge main into it and resolve the conflict\n  change.txt\n"
         )),
         "{}",
         run.stdout
@@ -2080,12 +2163,13 @@ fn on_a_base_other_than_the_default_branch_no_closing_line_is_refused() {
 /// pull-request workflow's hosted runs, on any gate: it neither waits for
 /// one, nor reads its records, nor cancels it (ADR 0135's note of
 /// 2026-11-25, the owner's « Fais-les en local, arrête le truc GitHub »). A
-/// batch's and a finishing spec's pull requests were the ones that read them.
+/// batch's and a full gate's pull requests were the ones that read them.
 #[rstest]
-#[case::a_batchs_quick_gate("batch/2026-11-25a", "quick")]
-#[case::a_finished_specs_full_gate("spec/130", "all")]
+#[case::a_batchs_quick_gate("batch/2026-11-25a", &[], "quick")]
+#[case::a_specs_full_gate("spec/130", &["--full"], "all")]
 fn the_gate_never_reads_waits_for_or_cancels_a_hosted_run(
     #[case] branch: &str,
+    #[case] options: &[&str],
     #[case] suite: &str,
 ) {
     let (workspace, head) = pull_request();
@@ -2096,9 +2180,10 @@ fn the_gate_never_reads_waits_for_or_cancels_a_hosted_run(
     }
     std::fs::write(stand_in.join("branch"), branch).unwrap();
 
-    let run = merge(
+    let run = merge_with(
         &workspace,
         &stand_in,
+        options,
         &[
             ("GOODFETCH_GATE_MIN_FREE_GB", "0"),
             ("GOODFETCH_LAZYFS", lazyfs.to_str().unwrap()),

@@ -9,14 +9,20 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+data-encoding.workspace = true
 goodfetch-engine.workspace = true
 goodfetch-protocol.workspace = true
 hyper.workspace = true
+mail-builder.workspace = true
+mail-send.workspace = true
+quick-xml.workspace = true
 rusqlite.workspace = true
-serde.workspace = true
+secrecy.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+smtp-proto.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "sync", "time", "io-util"] }
 tracing.workspace = true
 url.workspace = true
 goodfetch-workspace-hack.workspace = true
@@ -26,11 +32,14 @@ futures-util.workspace = true
 goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 httpmock.workspace = true
+insta.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
+rcgen = { workspace = true, features = ["ring"] }
 rstest.workspace = true
-secrecy.workspace = true
-tokio = { workspace = true, features = ["rt"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+tokio = { workspace = true, features = ["rt", "net"] }
+tokio-rustls = { workspace = true, features = ["ring"] }
 
 [lints]
 workspace = true

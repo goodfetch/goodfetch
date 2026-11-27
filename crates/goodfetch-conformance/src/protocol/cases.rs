@@ -40,6 +40,7 @@ mod proxies;
 mod proxy_limits;
 mod read;
 mod reset;
+mod response_cache;
 mod robots_txt;
 mod routes;
 mod run_start;
@@ -182,6 +183,8 @@ pub(crate) enum Case {
     Wait(waits::Case),
     /// A robots.txt reading case.
     RobotsTxt(robots_txt::Case),
+    /// A page's Response cache case.
+    ResponseCache(response_cache::Case),
 }
 
 /// What a case reaches of the Proving ground: a page of its catalog family,
@@ -626,34 +629,39 @@ impl Case {
                 Self::NeverActionable
             }
             "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline" => Self::BusyPage,
-            _ => {
-                return fetch_edge::Case::from_id(id)
-                    .map(Self::FetchEdge)
-                    .or_else(|| routes::Case::from_id(id).map(Self::Route))
-                    .or_else(|| sessions::Case::from_id(id).map(Self::Session))
-                    .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
-                    .or_else(|| events::Case::from_id(id).map(Self::Events))
-                    .or_else(|| consent::Case::from_id(id).map(Self::Consent))
-                    .or_else(|| reset::Case::from_id(id).map(Self::Reset))
-                    .or_else(|| run_start::Case::from_id(id).map(Self::RunStart))
-                    .or_else(|| two_copies::Case::from_id(id).map(Self::TwoCopies))
-                    .or_else(|| schedules::Case::from_id(id).map(Self::Schedule))
-                    .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
-                    .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
-                    .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
-                    .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
-                    .or_else(|| popups::Case::from_id(id).map(Self::Popup))
-                    .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
-                    .or_else(|| read::Case::from_id(id).map(Self::Read))
-                    .or_else(|| waits::Case::from_id(id).map(Self::Wait))
-                    .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
-                    .or_else(|| formats::references::Case::from_id(id).map(Self::References))
-                    .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
-                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor))
-                    .or_else(|| launch::Case::from_id(id).map(Self::Launch))
-                    .or_else(|| stealth::Case::from_id(id).map(Self::Stealth));
-            }
+            _ => return Self::of_module(id),
         })
+    }
+
+    /// The case a suite's case ID names among those a module of its own
+    /// holds.
+    fn of_module(id: &str) -> Option<Self> {
+        fetch_edge::Case::from_id(id)
+            .map(Self::FetchEdge)
+            .or_else(|| routes::Case::from_id(id).map(Self::Route))
+            .or_else(|| sessions::Case::from_id(id).map(Self::Session))
+            .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
+            .or_else(|| events::Case::from_id(id).map(Self::Events))
+            .or_else(|| consent::Case::from_id(id).map(Self::Consent))
+            .or_else(|| reset::Case::from_id(id).map(Self::Reset))
+            .or_else(|| run_start::Case::from_id(id).map(Self::RunStart))
+            .or_else(|| two_copies::Case::from_id(id).map(Self::TwoCopies))
+            .or_else(|| schedules::Case::from_id(id).map(Self::Schedule))
+            .or_else(|| service_workers::Case::from_id(id).map(Self::ServiceWorker))
+            .or_else(|| page_request::Case::from_id(id).map(Self::PageRequest))
+            .or_else(|| fetch_tiers::Case::from_id(id).map(Self::FetchTier))
+            .or_else(|| dialogs::Case::from_id(id).map(Self::Dialog))
+            .or_else(|| popups::Case::from_id(id).map(Self::Popup))
+            .or_else(|| page_functions::Case::from_id(id).map(Self::PageFunction))
+            .or_else(|| read::Case::from_id(id).map(Self::Read))
+            .or_else(|| waits::Case::from_id(id).map(Self::Wait))
+            .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
+            .or_else(|| response_cache::Case::from_id(id).map(Self::ResponseCache))
+            .or_else(|| formats::references::Case::from_id(id).map(Self::References))
+            .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
+            .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor))
+            .or_else(|| launch::Case::from_id(id).map(Self::Launch))
+            .or_else(|| stealth::Case::from_id(id).map(Self::Stealth))
     }
 
     /// Runs the case on the open Connection to `target`, whose `hello` the
@@ -713,6 +721,7 @@ impl Case {
             Self::Read(case) => case.run(connection, site, checks),
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
+            Self::ResponseCache(case) => case.run(connection, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, None, checks)
             }

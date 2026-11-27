@@ -111,7 +111,7 @@ pub const EGRESS_OFFLINE: Setting = Setting {
 /// policy).
 pub const EGRESS_NO_PRIVATE_ENDPOINTS: Setting = Setting {
     name: "egress.no_private_endpoints",
-    description: "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification webhooks, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
+    description: "Whether Operator-configured endpoints (Model providers, Secret providers, proxies, Notification channels, OTLP collectors, the Plugin index, a configured `cdp_url`) are refused every address that is not globally reachable, as the addresses a page can reach are, so a tenant's endpoint never reaches the network the engine runs in. `false` by default, so an endpoint on localhost or a private network works; set only in an Operator policy, as Goodfetch Cloud sets it. A refused endpoint fails with `egress_refused` before it connects.",
     kind: ValueKind::Boolean,
     default: no,
     clearable: false,

@@ -267,6 +267,9 @@ rows! {
     /// `C3.commands`, of human-like input: a CDP command a `stealth` Session's
     /// human-like gesture sent (ADR 0140, #1018).
     ActionHumanInputCommands => "C3.commands.human_input", "action", "human_input_commands";
+    /// `C3.commands`, of a scroll collection's scroll: a CDP command a
+    /// scroll's attempt sent.
+    ActionScrollCollectCommands => "C3.commands.scroll_collect", "action", "scroll_collect_commands";
     /// `C3.owner_round_trips`: an ask an action's attempt sends its Page's
     /// owner and awaits the answer to (ADR 0146).
     ActionOwnerRoundTrips => "C3.owner_round_trips", "action", "owner_round_trips";

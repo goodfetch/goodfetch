@@ -155,6 +155,7 @@ mod crawl_plants;
 mod daemon;
 mod dataset_pages;
 mod datasets;
+mod declaration;
 mod decoding;
 mod discovered_api;
 mod effect_window;
@@ -174,6 +175,7 @@ mod in_memory_crawl;
 mod journeys;
 mod kept_responses;
 mod kept_tree;
+mod key_value_batches;
 mod label_pools;
 mod learned_rules;
 // Lightpanda pins no Windows build, so Windows cannot take the tier.

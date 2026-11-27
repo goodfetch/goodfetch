@@ -12,7 +12,10 @@
 //! injection, while a page with none records none. `locator.evaluate_all`
 //! hands a function every element its locator matches, inside open shadow
 //! roots too, with the argument after them, and refuses what
-//! `page.evaluate` refuses (#1597).
+//! `page.evaluate` refuses (#1597). `locator.scroll_collect`'s cases are in
+//! [`scroll_collect`].
+
+mod scroll_collect;
 
 use goodfetch_protocol::connection::{CALL_CANCELLED, CANCEL};
 use goodfetch_protocol::page::functions::{
@@ -46,6 +49,7 @@ pub(crate) enum Case {
     Thrown,
     InitScript,
     EvaluateAll,
+    ScrollCollect(scroll_collect::Case),
 }
 
 impl Case {
@@ -67,7 +71,7 @@ impl Case {
             "evaluate-all-hands-every-match-and-one-json-argument-and-refuses-what-evaluate-refuses" => {
                 Self::EvaluateAll
             }
-            _ => return None,
+            _ => return scroll_collect::Case::from_id(id).map(Self::ScrollCollect),
         })
     }
 
@@ -85,6 +89,7 @@ impl Case {
             Self::Thrown => thrown(connection, site, checks),
             Self::InitScript => init_script(connection, target, site, checks),
             Self::EvaluateAll => evaluate_all(connection, target, site, checks),
+            Self::ScrollCollect(case) => case.run(connection, site, checks),
         }
     }
 }
@@ -98,6 +103,17 @@ fn on_the_page(
     checks: &mut Checks,
     before: impl FnOnce(&mut Connection, &Value) -> Result<Option<i64>, Gone>,
 ) -> Result<Option<(Value, Option<i64>)>, Gone> {
+    on_the_page_under(connection, site, (run_id, &json!({})), checks, before)
+}
+
+/// [`on_the_page`], its Run started with `settings`.
+fn on_the_page_under(
+    connection: &mut Connection,
+    site: &Site,
+    (run_id, settings): (&str, &Value),
+    checks: &mut Checks,
+    before: impl FnOnce(&mut Connection, &Value) -> Result<Option<i64>, Gone>,
+) -> Result<Option<(Value, Option<i64>)>, Gone> {
     checks.check(
         "the Proving ground serves the access family",
         site.access_origin.is_some(),
@@ -105,7 +121,7 @@ fn on_the_page(
     let Some(origin) = site.access_origin.clone() else {
         return Ok(None);
     };
-    start_run(connection, site, run_id, &json!({}), checks)?;
+    start_run(connection, site, run_id, settings, checks)?;
     let Some(page) = new_page(connection, run_id, checks)? else {
         return Ok(None);
     };

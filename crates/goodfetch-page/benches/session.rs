@@ -51,12 +51,23 @@
 //! page shows a prompt to. The browser plays the runner's bundle in the guard's world:
 //! started in that page's document, it reports the prompt found, hidden and
 //! its first pass settled, as the bundle reports through its binding.
+//!
+//! The engine runs as a Daemon on the in-memory network, as a person's
+//! Live view needs one (ADR 0031): the program speaks to it in lines, and
+//! with [`Viewer::On`] a viewer opens a Live view channel to it at the same
+//! address once the Session's page opened (C6). The browser plays the
+//! page's screencast as Chromium does, a frame as it starts and one per
+//! navigation, each sent once the one before was acknowledged; the viewer
+//! acknowledges each frame it gets and counts it, the unit of C6's rows.
+//! Each frame comes within its navigation's own work, before the program
+//! reads, so no read's window holds a frame's work.
 #![expect(
     clippy::disallowed_types,
     reason = "a benchmark's browser end listens on its own socket, and counts its commands on an atomic no behaviour reads (ADR 0071)"
 )]
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -66,12 +77,14 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, LiveViewAt, Succession};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::metrics::Metrics;
+use goodfetch_engine::ops::Ops;
 use goodfetch_engine::run_state::RunStateOptions;
 use goodfetch_engine::tasks::BlockingPolicy;
-use goodfetch_engine::transport::{self, Network};
+use goodfetch_engine::transport::{self, DaemonListener, InMemoryDialer, Network};
 use goodfetch_engine::{
     CallContext, CallError, Channel, Composition, Contribution, Dependencies, Engine, Handler,
     Identity,
@@ -86,6 +99,8 @@ use goodfetch_protocol::catalog::{
     schema_of,
 };
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::daemon::DaemonEndpoint;
+use goodfetch_protocol::live_view::CHANNEL_PATH;
 use goodfetch_protocol::page::{PageId, PageResponse, SessionId};
 use goodfetch_protocol::run::RunId;
 use serde_json::{Map, Value, json};
@@ -93,8 +108,11 @@ use tokio::io::{
     AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, ReadHalf, WriteHalf,
 };
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::client::generate_key;
+use tokio_tungstenite::tungstenite::http;
 
 /// One extra unit of a row's work, done once per command the browser reads.
 pub(crate) type Plant = Arc<dyn Fn() + Send + Sync>;
@@ -138,6 +156,34 @@ pub(crate) enum Browsers {
     /// of the pool, as Foxhound's crawl opens its handlers' pages.
     Pool,
 }
+
+/// Whether a person watches the Session through a Live view channel (C6):
+/// on a Borrowed browser, the viewer opens its channel once the Session's
+/// page opened, before its first navigation, acknowledges each frame as it
+/// comes and leaves once the program is done.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Viewer {
+    On,
+    Off,
+}
+
+/// The Daemon's `daemon.address`, on the in-memory network, where its Live
+/// view channels open.
+const ADDRESS: &str = "127.0.0.1:7900";
+
+/// The Daemon's per-launch token, which the program's `hello` and the
+/// viewer's `open` carry.
+const TOKEN: &str = "b2-launch-token";
+
+/// The Daemon's socket, in memory.
+const SOCKET: &str = "b2.sock";
+
+/// How long the Daemon waits once its Client left before it stops.
+const IDLE: Duration = Duration::from_millis(200);
+
+/// What the browser sends as each screencast frame: a JPEG with no image,
+/// which nothing on the frame's path decodes.
+const FRAME_DATA: &str = "/9j/2Q==";
 
 /// The pages the scenario navigates to, a navigation in the middle of a
 /// Session's life, the last one showing a Consent prompt. Literal addresses
@@ -300,6 +346,8 @@ pub(crate) struct Counted {
     /// The requests the browser was told to continue with a `Signature`
     /// header, each once.
     pub(crate) signed: u64,
+    /// The Live view frames the viewer got, each once: none with no viewer.
+    pub(crate) frames: u64,
     /// Its Counted work.
     pub(crate) work: CountedWork,
     /// What [`READ_ROWS`], [`SERIALIZATION_ROWS`], [`FIELD_READ_ROWS`] and
@@ -1029,6 +1077,61 @@ impl Attachments {
     }
 }
 
+/// The screencast the browser plays of its page, as Chromium's: a frame as
+/// it starts and one as each navigation changes the page, never one more
+/// before the one it sent last was acknowledged, a change meanwhile held
+/// back until then.
+#[derive(Default)]
+struct Screencast {
+    /// Whether it runs.
+    running: bool,
+    /// The number of the frame it sent last.
+    sent: i64,
+    /// Whether that frame was acknowledged, or none was sent yet.
+    acknowledged: bool,
+    /// Whether the page changed since that frame.
+    changed: bool,
+}
+
+impl Screencast {
+    /// The frame the command `method` lets the screencast send, if any.
+    fn heard(&mut self, method: &str) -> Option<Value> {
+        match method {
+            "Page.startScreencast" => {
+                self.running = true;
+                self.acknowledged = true;
+                self.changed = true;
+            }
+            "Page.stopScreencast" => self.running = false,
+            "Page.screencastFrameAck" => self.acknowledged = true,
+            "Page.navigate" => self.changed = true,
+            _ => {}
+        }
+        if !(self.running && self.acknowledged && self.changed) {
+            return None;
+        }
+        self.sent += 1;
+        self.acknowledged = false;
+        self.changed = false;
+        Some(json!({
+            "method": "Page.screencastFrame",
+            "sessionId": SESSION,
+            "params": {
+                "data": FRAME_DATA,
+                "metadata": {
+                    "offsetTop": 0.0,
+                    "pageScaleFactor": 1.0,
+                    "deviceWidth": 1280.0,
+                    "deviceHeight": 720.0,
+                    "scrollOffsetX": 0.0,
+                    "scrollOffsetY": 0.0,
+                },
+                "sessionId": self.sent,
+            },
+        }))
+    }
+}
+
 /// The browser: reads each command of its one connection, does `plant`,
 /// answers at once, until the engine closes it or asks it to close. Each
 /// event a command on a page's session leads to goes on that session.
@@ -1037,6 +1140,7 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
     let mut page = Page::blank();
     let mut requests = Requests::default();
     let mut attachments = Attachments::default();
+    let mut screencast = Screencast::default();
     while let Some(text) = wire.next().await {
         let command: Value = serde_json::from_str(&text).expect("invariant: a command is JSON");
         let id = command["id"]
@@ -1098,6 +1202,13 @@ async fn browser(mut wire: Wire, counts: Heard, plant: Option<Plant>) {
                 &mut requests,
                 &counts.units,
             ));
+            // A headless browser's identity read's page is no Session's.
+            let on_background = command["sessionId"]
+                .as_str()
+                .is_some_and(|session| attachments.background.contains(session));
+            if !on_background {
+                events.extend(screencast.heard(method));
+            }
         }
         if method == "Target.attachToTarget" {
             answer["result"]["sessionId"] = json!(attachments.attach(id));
@@ -1149,11 +1260,19 @@ impl Client {
         }
     }
 
-    /// Opens the Connection and starts the Run [`RUN`] with `settings`.
+    /// Opens the Connection with [`TOKEN`], which the scenario's Daemon
+    /// asks for and an engine with no token ignores, and starts the Run
+    /// [`RUN`] with `settings`.
     pub(crate) async fn start_run(&mut self, settings: Map<String, Value>) {
         self.call(
             "hello",
-            &json!({ "protocol_version": "0.1", "surface": "rust", "needs": "collie", "product_version": "0.0.0" }),
+            &json!({
+                "protocol_version": "0.1",
+                "surface": "rust",
+                "needs": "collie",
+                "product_version": "0.0.0",
+                "token": TOKEN,
+            }),
         )
         .await;
         self.call("run.start", &json!({ "run_id": RUN, "settings": settings }))
@@ -1225,17 +1344,152 @@ pub(crate) enum Armed {
     RouteAndListener,
 }
 
+/// What the program hands the viewer once its Session's page opened: the
+/// Session to watch, and where to say its first frame came.
+type Watch = (Value, oneshot::Sender<()>);
+
+/// A viewer: once `watch` names a Session, opens a Live view channel to
+/// the Daemon, as a person's browser opens one from the Daemon's own origin,
+/// on a screen of 1280 by 720, acknowledges each frame as it comes, says
+/// when the first came, and leaves once `leave` says so. Answers the frames
+/// it got; none when no Session was named.
+async fn view(
+    dialer: &InMemoryDialer,
+    watch: oneshot::Receiver<Watch>,
+    leave: oneshot::Receiver<()>,
+) -> u64 {
+    let Ok((session, first)) = watch.await else {
+        return 0;
+    };
+    let (reader, writer) = dialer
+        .connect()
+        .await
+        .expect("invariant: the Daemon listens")
+        .split();
+    let request = http::Request::builder()
+        .uri(format!("ws://{ADDRESS}{CHANNEL_PATH}"))
+        .header("Host", ADDRESS)
+        .header("Origin", format!("http://{ADDRESS}"))
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", generate_key())
+        .body(())
+        .expect("invariant: a literal handshake");
+    let (mut socket, _) = tokio_tungstenite::client_async(request, tokio::io::join(reader, writer))
+        .await
+        .expect("invariant: the Daemon opens a Live view channel from its own origin");
+    let open = json!({
+        "kind": "open",
+        "token": TOKEN,
+        "session": session,
+        "screen": { "width": 1280, "height": 720, "device_pixel_ratio": 1.0 },
+    });
+    socket
+        .send(Message::text(open.to_string()))
+        .await
+        .expect("invariant: the channel is open");
+    let mut first = Some(first);
+    let mut frames = 0;
+    tokio::pin!(leave);
+    loop {
+        let message = tokio::select! {
+            _ = &mut leave => break,
+            message = socket.next() => message,
+        };
+        let Some(Ok(message)) = message else {
+            panic!("the Live view channel closed while its viewer watched");
+        };
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let message: Value =
+            serde_json::from_str(text.as_str()).expect("invariant: the engine writes JSON");
+        match message["kind"].as_str() {
+            Some("frame") => {
+                frames += 1;
+                if let Some(first) = first.take() {
+                    let _ = first.send(());
+                }
+                let acknowledged = json!({ "kind": "acknowledge", "frame": message["frame"] });
+                socket
+                    .send(Message::text(acknowledged.to_string()))
+                    .await
+                    .expect("invariant: the channel is open");
+            }
+            Some("error") => panic!("the Live view refused its viewer: {message}"),
+            _ => {}
+        }
+    }
+    let _ = socket.close(None).await;
+    while let Some(Ok(_)) = socket.next().await {}
+    frames
+}
+
+/// The Daemon's Succession: it is its major's pick, so it never hands over.
+struct Pick;
+
+impl Succession for Pick {
+    fn is_pick(&self) -> bool {
+        true
+    }
+
+    fn begin_handover(&self) -> Box<dyn Send> {
+        Box::new(())
+    }
+}
+
+/// The machine's Daemon the scenario's engine runs as, on `listener`, its
+/// Live view channels on `live_view`, its `daemon.address` at [`ADDRESS`],
+/// which stops once idle for [`IDLE`] after its Client left. Its Clients
+/// are the machine's own, so a borrowed browser at loopback is theirs to
+/// reach (ADR 0056), as it is not an Exposed Daemon's.
+async fn daemon(
+    engine: &Engine,
+    (listener, live_view): (DaemonListener, DaemonListener),
+    dependencies: Dependencies,
+) {
+    let address: SocketAddr = ADDRESS.parse().expect("invariant: a literal address");
+    let options = DaemonOptions {
+        token: TOKEN.to_owned(),
+        endpoint: DaemonEndpoint::Unix(SOCKET.into()),
+        pid: 1,
+        idle_timeout: IDLE,
+        keep_alive: false,
+        holds: Holds::new(),
+        succession: Arc::new(Pick),
+        drain: Drain {
+            asked: None,
+            grace: IDLE,
+        },
+        install: None,
+        ops: Ops::default(),
+        websocket: None,
+        accounts: None,
+        live_view: Some(LiveViewAt::Address(live_view, address)),
+    };
+    let end = engine.run_daemon(listener, dependencies, options).await;
+    assert!(
+        matches!(end, DaemonEnd::Idle),
+        "the Daemon stopped idle, not {end:?}"
+    );
+}
+
 /// What a program does on a Session: on a Borrowed browser, opens a page and
 /// navigates it to each of [`PAGES`], so a navigation sits in the middle; in
 /// the browser pool, opens a page at each and closes it after. On each
 /// document, it does [`on_page`]'s work. Answers once the browser heard all
 /// of it, with the actions the engine answered, by kind, and the Sessions it
-/// opened. On a Borrowed browser, `armed` is armed on the page once it opens.
+/// opened. On a Borrowed browser, `armed` is armed on the page once it
+/// opens, and it hands its Session to `watch`, when given, once its page
+/// opened, and goes on once the viewer got its first frame and that
+/// frame's work ended.
 async fn program(
     client: &mut Client,
     (browsers, armed, cdp_url, settings): (Browsers, Armed, &str, Map<String, Value>),
     (heard, work): (&Heard, &CountedWork),
     (during_reads, by_fields): (&mut BTreeMap<&'static str, u64>, &mut ByFields),
+    watch: Option<oneshot::Sender<Watch>>,
 ) -> (BTreeMap<&'static str, u64>, u64) {
     client.start_run(settings).await;
     let mut attempts = BTreeMap::new();
@@ -1291,6 +1545,16 @@ async fn program(
                 &json!({ "page_id": opened["page_id"], "event": "request" }),
             )
             .await;
+    }
+    if let Some(watch) = watch {
+        quiet(&heard.units, work).await;
+        let (first, came) = oneshot::channel();
+        watch
+            .send((session["session_id"].clone(), first))
+            .expect("invariant: the viewer waits for its Session");
+        came.await
+            .expect("invariant: the viewer gets the Session's first frame");
+        quiet(&heard.units, work).await;
     }
     for url in PAGES {
         client
@@ -1633,13 +1897,37 @@ pub(crate) fn engine(metrics: Metrics, launcher: Launcher) -> Engine {
         .with_metrics(metrics)
 }
 
+/// An in-memory listener at `path` the engine serves at as a Daemon, and
+/// the dialer that connects to it.
+fn in_memory_daemon(path: &str) -> (DaemonListener, InMemoryDialer) {
+    let (network, dialer) = transport::in_memory();
+    let (listener, _) = Network::InMemory(network)
+        .listen(Path::new(path))
+        .expect("invariant: an in-memory listener");
+    (listener, dialer)
+}
+
+/// A loopback listener for the borrowed browser's `DevTools`, and the URL a
+/// Run connects to it by.
+async fn devtools_listener() -> (TcpListener, String) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("invariant: loopback binds");
+    let address = listener.local_addr().expect("invariant: it is bound");
+    (
+        listener,
+        format!("ws://{address}/devtools/browser/scripted"),
+    )
+}
+
 /// Runs the scenario on `browsers`, with `armed` on a Borrowed browser's
-/// page, in the home `home`, with `settings` on its Run, doing `plant` once
-/// per command the browser reads, and answers what it counted.
+/// page, watched by `viewer`, in the home `home`, with `settings` on its
+/// Run, doing `plant` once per command the browser reads, and answers what
+/// it counted.
 ///
 /// `metrics` is the engine's, whose [`CountedWork`] counts it all.
 pub(crate) fn counted(
-    (browsers, armed): (Browsers, Armed),
+    (browsers, armed, viewer): (Browsers, Armed, Viewer),
     home: &Path,
     metrics: Metrics,
     mut settings: Map<String, Value>,
@@ -1659,44 +1947,52 @@ pub(crate) fn counted(
         .enable_all()
         .build()
         .expect("invariant: the runtime starts");
-    let (attempts, sessions_opened) = runtime.block_on(async {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("invariant: loopback binds");
-        let address = listener.local_addr().expect("invariant: it is bound");
-        let cdp_url = format!("ws://{address}/devtools/browser/scripted");
-        let (network, dialer) = transport::in_memory();
+    let ((attempts, sessions_opened), frames) = runtime.block_on(async {
+        let (listener, cdp_url) = devtools_listener().await;
+        let (daemon_listener, dialer) = in_memory_daemon(SOCKET);
+        let (live_view_listener, live_view_dialer) = in_memory_daemon("b2-daemon-address");
         let served: std::pin::Pin<Box<dyn Future<Output = ()>>> = match browsers {
             Browsers::Borrowed => Box::pin(browser_end(listener, heard.clone(), plant)),
             Browsers::Pool => Box::pin(launched_ends(started, heard.clone(), plant)),
         };
+        let (watch, watched) = oneshot::channel();
+        let watch = (viewer == Viewer::On).then_some(watch);
+        let (leave, left) = oneshot::channel();
         let client = async {
             let mut client = Client::connected(&dialer).await;
-            let programmed = program(
-                &mut client,
-                (browsers, armed, &cdp_url, settings),
-                (&heard, &work),
-                (&mut during_reads, &mut by_fields),
-            )
-            .await;
+            let driven = async {
+                let programmed = program(
+                    &mut client,
+                    (browsers, armed, &cdp_url, settings),
+                    (&heard, &work),
+                    (&mut during_reads, &mut by_fields),
+                    watch,
+                )
+                .await;
+                quiet(&heard.units, &work).await;
+                let _ = leave.send(());
+                programmed
+            };
+            let watching = view(&live_view_dialer, watched, left);
+            let (programmed, frames) = tokio::join!(driven, watching);
+            // The screencast stops once its viewer left.
             quiet(&heard.units, &work).await;
             client.close().await;
-            programmed
+            (programmed, frames)
         };
         let dependencies = dependencies(home);
         let ran = async {
             tokio::join!(
-                engine.run_attached(Network::InMemory(network), dependencies),
-                client,
+                daemon(&engine, (daemon_listener, live_view_listener), dependencies),
+                client
             )
         };
         tokio::pin!(ran);
         // The pool's browsers are played until the engine is done with them.
-        let (engine_ended, programmed) = tokio::select! {
+        let ((), programmed) = tokio::select! {
             ran = &mut ran => ran,
             () = served => ran.await,
         };
-        engine_ended.expect("invariant: the engine got its Connection");
         programmed
     });
     let reading = &heard.reading;
@@ -1727,6 +2023,7 @@ pub(crate) fn counted(
         paused,
         refused,
         signed: heard.units.signed.load(Ordering::Relaxed),
+        frames,
         work,
         during_reads,
     }

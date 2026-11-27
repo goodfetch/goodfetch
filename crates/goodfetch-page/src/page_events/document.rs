@@ -458,6 +458,25 @@ impl WaitDeadline {
         waited_for: WaitedFor,
         work: impl Future<Output = T>,
     ) -> Result<T, CallError> {
+        self.within_seeing(waited_for, work, || None).await
+    }
+
+    /// As [`Self::within`], the `deadline_exceeded`'s `observed` what
+    /// `observe` says the work saw last, asked once the deadline passed.
+    ///
+    /// # Errors
+    ///
+    /// `deadline_exceeded` once the deadline passed first.
+    ///
+    /// # Cancel safety
+    ///
+    /// As cancel-safe as `work`.
+    pub(crate) async fn within_seeing<T>(
+        &self,
+        waited_for: WaitedFor,
+        work: impl Future<Output = T>,
+        observe: impl FnOnce() -> Option<String>,
+    ) -> Result<T, CallError> {
         let Some(deadline) = &self.deadline else {
             return Ok(work.await);
         };
@@ -467,7 +486,8 @@ impl WaitDeadline {
             biased;
             answer = work => Ok(answer),
             () = self.clock.sleep_until(end) => {
-                Err(deadline.exceeded(waited_for, self.clock.now() - started + self.spent))
+                let elapsed = self.clock.now() - started + self.spent;
+                Err(deadline.exceeded_seeing(waited_for, elapsed, observe()))
             }
         }
     }

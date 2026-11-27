@@ -7,6 +7,10 @@
 //   rs-trafilatura-md (its own converter, quick_html2md), dom-smoothie-md (its own Markdown text mode),
 //   rs-trafilatura-<converter> (rs-trafilatura's content HTML through htmd, html2md, fast-html2md or mdka),
 //   lol-html-htmd (the lol-html selection through htmd).
+// Goodfetch's chain, goodfetch-extractor's `formats` (#818): goodfetch (its main content as Markdown, dom-smoothie then
+//   htmd with goodfetch's element handlers), goodfetch-<converter> (the same main-content HTML through htmd, html2md,
+//   fast-html2md or mdka); goodfetch-trafilatura and goodfetch-trafilatura-<converter> the same with
+//   `content.extractor: trafilatura`.
 // Converters alone, on the whole input (for the curated fixtures): conv-htmd, conv-html2md, conv-fast-html2md,
 //   conv-mdka, conv-quick-html2md.
 // Structural fields (selector speed and agreement): scraper-fields, lol-html-fields.
@@ -64,6 +68,18 @@ fn extract(mode: &str, html: &str, url: Option<&str>) -> Result<String, String> 
         "scraper-fields" => Ok(fields_scraper(html).to_string()),
         "lol-html-fields" => lol::fields(html).map(|fields| fields.to_string()),
         other => {
+            if let Some(rest) = other.strip_prefix("goodfetch") {
+                let (built_in, rest) = match rest.strip_prefix("-trafilatura") {
+                    Some(rest) => (goodfetch_extractor::BuiltIn::Trafilatura, rest),
+                    None => (goodfetch_extractor::BuiltIn::DomSmoothie, rest),
+                };
+                let read = goodfetch::main_content(html, url, built_in);
+                return match rest.strip_prefix('-') {
+                    Some(converter) => convert(converter, &read.html),
+                    None if rest.is_empty() => Ok(read.markdown),
+                    None => Err(format!("unknown extractor {other}")),
+                };
+            }
             if let Some(converter) = other.strip_prefix("rs-trafilatura-") {
                 let content = trafilatura(html, false)?.content_html.unwrap_or_default();
                 return convert(converter, &content);
@@ -73,6 +89,29 @@ fn extract(mode: &str, html: &str, url: Option<&str>) -> Result<String, String> 
             }
             Err(format!("unknown extractor {other}"))
         }
+    }
+}
+
+// goodfetch-extractor's `formats` on a page as served, with no Clean-up rule and the built-in main-content step
+// `content.extractor` names (dom-smoothie, the default, with its default attempts; or rs-trafilatura): the main content
+// as Markdown and as HTML, both read from the same nodes.
+mod goodfetch {
+    use goodfetch_extractor::{BuiltIn, Chosen, Context, Document, Serialization, formats};
+    use goodfetch_protocol::page::{Asked, FormatsRequest, HtmlFormat, MarkdownContent, MarkdownFormat, MarkdownOptions};
+
+    pub struct MainContent { pub markdown: String, pub html: String }
+
+    pub fn main_content(html: &str, url: Option<&str>, built_in: BuiltIn) -> MainContent {
+        let url = url.unwrap_or("https://example.invalid/");
+        let request = FormatsRequest {
+            markdown: Some(MarkdownFormat::Options(MarkdownOptions { content: MarkdownContent::Main })),
+            html: Some(HtmlFormat::Asked(Asked)),
+            ..FormatsRequest::default()
+        };
+        let document = Document { html, url, base_url: url, serialization: Serialization::Served };
+        let context = Context { extractor: Chosen { built_in, ..Chosen::default() }.extractor(), ..Context::default() };
+        let read = formats(&document, &request, &context);
+        MainContent { markdown: read.markdown.unwrap_or_default(), html: read.html.unwrap_or_default() }
     }
 }
 
@@ -238,7 +277,9 @@ fn respond(id: Value, result: Result<Value, String>) {
     let _ = stdout.flush();
 }
 
-const VERSIONS: &[(&str, &str)] = &[("rs-trafilatura", "0.2.2"), ("dom_smoothie", "0.18.2"), ("scraper", "0.27.0"), ("htmd", "0.5.5"), ("lol_html", "3.0.1"), ("html2md", "0.2.17"), ("fast_html2md", "0.0.63"), ("mdka", "3.3.0"), ("quick_html2md", "0.2.1"), ("html-escape", "0.2.15")];
+// The three `+goodfetch.1` crates are the repository's vendored copies; goodfetch-extractor is the repository's crate at
+// the commit the run records.
+const VERSIONS: &[(&str, &str)] = &[("rs-trafilatura", "0.2.2+goodfetch.1"), ("dom_smoothie", "0.18.2+goodfetch.1"), ("scraper", "0.27.0"), ("htmd", "0.5.6"), ("lol_html", "3.0.2"), ("html2md", "0.2.17"), ("fast_html2md", "0.0.63"), ("mdka", "3.3.0"), ("quick_html2md", "0.2.1+goodfetch.1"), ("html-escape", "0.2.15"), ("goodfetch-extractor", "0.0.0")];
 
 fn main() {
     let mode = std::env::args().nth(1).unwrap_or_default();

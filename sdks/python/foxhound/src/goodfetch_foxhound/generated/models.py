@@ -31,6 +31,8 @@ from goodfetch_collie_client.generated.models import (
     RecordingReport,
     RunId,
     RunLimit,
+    RunProgress,
+    RunReport,
     RunStorage,
     RunUsage,
     RunWarning,
@@ -466,6 +468,24 @@ class DatasetUnknownDetails(BaseModel):
     """The names of the Datasets the crawl declares, in order."""
 
 
+class DeclaredExtract(BaseModel):
+    """
+    One Record a page of a declared Label pushes into `dataset`: its named
+    `fields`, read as `extraction`'s are and written in the order declared;
+    a field name repeats across one Label's extracts only as one field,
+    read once for them all.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    dataset: str
+    """The Dataset it pushes into, one the declaration declares."""
+    fields: dict[str, PageField]
+    """Its named fields, by name, each a value field, a list or rows."""
+
+
 class EncodingSource(StrEnum):
     """
     Where a document's encoding came from, in the order the tiers look
@@ -839,6 +859,28 @@ class FieldFilter2(BaseModel):
 class FieldFilter(RootModel[FieldFilter1 | FieldFilter2]):
     root: FieldFilter1 | FieldFilter2
     """A condition on one top-level field of a Record."""
+
+
+class FollowRule(BaseModel):
+    """
+    The links a page of a declared Label enqueues, as `enqueueLinks` takes
+    them: each `links` matches, under `label`, narrowed by `include` and
+    `exclude`, at most `limit` of them.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exclude: list[str] | None = None
+    """URL patterns a link must match none of."""
+    include: list[str] | None = None
+    """URL patterns of which a link must match one when there are any."""
+    label: str
+    """The Label of the requests it enqueues, one the declaration declares."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """At most this many links of a page are added; none for no limit."""
+    links: str
+    """The CSS selector of the elements whose `href` it follows."""
 
 
 class ForcedBy(StrEnum):
@@ -1725,6 +1767,15 @@ class RunRejectedRecordsParams(BaseModel):
     """The Dataset whose rejection table to read."""
     run_id: RunId
     """The crawl's Run."""
+    through: Annotated[int | None, Field(ge=0)] = None
+    """
+    The number of the last entry to read, such as the `rejected` count
+    `dataset.list` answers: no entry past it is read, and the read never
+    waits, a live Run's included. A page says `ended` once it reaches
+    that number or has read every committed entry, as when an erase left
+    fewer entries than the count. Absent, it follows a live Run until
+    the Run ends.
+    """
 
 
 class RunRetryFailedParams(BaseModel):
@@ -2561,7 +2612,7 @@ class CrawlRequestOutcomes(BaseModel):
     """The outcomes that match, in commit order."""
 
 
-class CrawlRunProgress(BaseModel):
+class CrawlRunProgress(RunProgress):
     """
     A crawl's progress (ADR 0102): what a crawl adds to every Run's, a part
     no area supplied being absent.
@@ -2647,6 +2698,39 @@ class DatasetQueryResult(BaseModel):
     """
     total: Annotated[int, Field(ge=0)]
     """How many rows the query produced, those not returned counted."""
+
+
+class DeclaredLabel(BaseModel):
+    """
+    One Label of a [`CrawlDeclaration`]: as `crawl.start`'s `labels` declare
+    one, with what each of its pages follows and extracts.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    extract: list[DeclaredExtract] | None = None
+    """
+    The Records each of its pages pushes, one per entry; none by
+    default.
+    """
+    follow: list[FollowRule] | None = None
+    """
+    The links each of its pages enqueues, rule by rule, each as
+    `enqueueLinks` admits them; none by default.
+    """
+    name: str
+    """Its name, unique among the declaration's Labels."""
+    payload_schema: Any | None = None
+    """
+    The JSON Schema its requests' Payloads are checked against; none
+    takes any Payload.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Its settings, nested by key, as a Label declared at the start takes
+    them.
+    """
 
 
 class EncodingProvenance(BaseModel):
@@ -2819,6 +2903,12 @@ class RecordInvalidDetails(BaseModel):
     )
     dataset: str
     """The Dataset's name."""
+    number: Annotated[int | None, Field(ge=0)] = None
+    """
+    The Record's number in its Dataset when an SDK reading it from
+    `run.records` could not parse it, which `records` then holds at
+    position 0; absent when a push or a handler's answer is refused.
+    """
     records: list[InvalidRecord]
     """Each Record that does not hold, in position order, at least one."""
 
@@ -2905,6 +2995,39 @@ class TransformProvenance(BaseModel):
     """The transform."""
 
 
+class CrawlDeclaration(BaseModel):
+    """
+    A crawl declared as data: the engine handles each of its requests
+    itself, by the request's Label's `follow` and `extract`. A start naming
+    it declares no Label and no Dataset of its own, else it fails with
+    `invalid_params`, and never with `extraction` too, else it fails with
+    `setting_invalid`; `extraction` is its one-Label shorthand.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    datasets: list[DatasetDeclaration] | None = None
+    """
+    Its Datasets, as `crawl.start`'s `datasets`, which its Labels'
+    `extract` fills.
+    """
+    labels: list[DeclaredLabel]
+    """Its Labels, in order, each with what its pages follow and extract."""
+    seeds: list[Seed] | None = None
+    """
+    The requests the crawl starts from, after the start's own `seeds`,
+    of which the start still names at least one, each request seed
+    naming a Label it declares; none by default.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    Its Run's settings, nested by key, only those a Recipe may set,
+    beneath the start's own `settings`, which win key by key, each
+    key's value whole.
+    """
+
+
 class CrawlHookHandleParams(BaseModel):
     """
     What `crawl_hook.handle` gives the program: one call of one Hook, for
@@ -2934,7 +3057,7 @@ class CrawlHookHandleParams(BaseModel):
     """The stage it runs at."""
 
 
-class CrawlRunReport(BaseModel):
+class CrawlRunReport(RunReport):
     """
     A crawl's Run report (ADR 0102): what a crawl adds to every Run's
     report, a part no area supplied being absent. On the wire, a crawl's
@@ -3030,6 +3153,15 @@ class CrawlStartParams(BaseModel):
     `dataset_duplicate`, and a key on a field the schema does not
     require with `dataset_key_invalid`. Its handlers push Records only
     into these.
+    """
+    declaration: CrawlDeclaration | None = None
+    """
+    The crawl as data (ADR 0103): its Labels, what each of their pages
+    follows and extracts, its Datasets, settings and more seeds, which
+    the engine handles itself as it does `extraction`, its one-Label
+    shorthand. Such a start declares no Label and no Dataset of its own,
+    else it fails with `invalid_params`, and names no `extraction`, else
+    it fails with `setting_invalid`.
     """
     detached: bool | None = None
     """

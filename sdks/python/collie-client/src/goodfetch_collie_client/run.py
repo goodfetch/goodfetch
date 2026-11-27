@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Generic, Literal, Protocol, TypeVar
 
 import anyio
 
-from goodfetch_collie_client._followed import FollowedReading
+from goodfetch_collie_client._followed import PagedReading
 from goodfetch_collie_client._framing import object_members
 from goodfetch_collie_client._once import Once
 from goodfetch_collie_client.caller import result_of
@@ -66,6 +66,7 @@ from goodfetch_collie_client.sequence import AsyncSequence, Reading, Sequence
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Mapping
+    from collections.abc import Sequence as Items
     from typing import Self
 
     from pydantic import BaseModel, JsonValue
@@ -92,6 +93,8 @@ _ChildId = TypeVar("_ChildId")
 _Model = TypeVar("_Model", bound="BaseModel")
 _Result = TypeVar("_Result")
 _Item = TypeVar("_Item")
+_Page = TypeVar("_Page")
+_Progress = TypeVar("_Progress", bound=RunProgress)
 
 _logger = logging.getLogger(CLIENT_LOGGER)
 
@@ -841,18 +844,60 @@ class AsyncRun(AsyncRunMembers):
             ClosedError: The Run is closed; nothing is sent.
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
+        return self._progress(RunProgress)
+
+    def _progress(self, model: type[_Progress]) -> AsyncSequence[_Progress]:
+        """The Run's progress, each value read as `model`.
+
+        For a Product's own Run whose progress carries its own parts, such
+        as Foxhound's crawl Run (ADR 0120).
+        """
         warn_entry("run.progress", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
-        self._scope.ensure_open("run.progress")
         host = self._host
 
-        async def read(after: int | None) -> RunProgress:
+        async def read(after: int | None) -> _Progress:
             params = RunProgressParams(run_id=host.id)
             if after is not None:
                 params.after = after
-            return result_of(RunProgress, await host.call("run.progress", params))
+            return result_of(model, await host.call("run.progress", params))
 
-        reading = FollowedReading(
-            read, position=lambda value: value.position, last=lambda value: value.last
+        return self._paged(
+            "run.progress",
+            read,
+            items=lambda value: (value,),
+            position=lambda value: value.position,
+            last=lambda value: value.last,
+        )
+
+    def _paged(
+        self,
+        operation: str,
+        read: Callable[[int | None], Awaitable[_Page]],
+        *,
+        items: Callable[[_Page], Items[_Item]],
+        position: Callable[[_Page], int],
+        last: Callable[[_Page], bool],
+        credits: int = 1,
+        regrant: int = 1,
+    ) -> AsyncSequence[_Item]:
+        """A paged or followed read of `operation` on the Run, read with `async for`.
+
+        `read` sends one read after a position; its first is sent at once,
+        and each next one while the program has credit left, `credits` items
+        at first and as many again each `regrant` items it reads.
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        self._scope.ensure_open(operation)
+        reading = PagedReading(
+            read,
+            items=items,
+            position=position,
+            last=last,
+            credits=credits,
+            regrant=regrant,
         )
         spawner()(reading.run)
         return AsyncSequence(reading)

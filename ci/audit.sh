@@ -8,7 +8,7 @@
 #   pin, through GitHub's API with GITHUB_TOKEN or `gh auth token`), every
 #   tool offline. Its verdict moves only with a commit: a fail is an
 #   advisory in the snapshot against what the commit locks.
-# - `live` (`just audit-live`, the daily Live check on `main`): against each
+# - `live` (`just audit-live`, the Live check on `main`, run by hand): against each
 #   ecosystem's newest public advisories, each tool fetching its own.
 #
 # All free; no paid scanner is used (ADR 0076).

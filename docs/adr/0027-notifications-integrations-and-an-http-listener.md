@@ -26,7 +26,10 @@ Evidence: [workflow tools, Airbyte and AI loaders](https://github.com/goodfetch/
 - Discord
 - Telegram
 - email: SMTP, SES, Resend, Postmark, SendGrid and Mailgun
+- Amazon SNS topics; a FIFO topic gets the event ID as its deduplication ID, so a retry publishes once
 - Standard Webhooks
+
+> Note (2026-11-24, the Kept ready parity re-check, `.claude/handoff/ticket-merge-review-20261123/parity-recheck-sinks.md`): Amazon SNS joins the channels and leaves ADR 0026's Sink catalog (#3680, split from #1190). changedetection.io publishes its notifications to SNS topics through Apprise (`apprise/plugins/sns.py`), and what it publishes is an event, not a Dataset's Records. A FIFO topic is a third channel with an idempotency key, beside Resend and Discord's bot API.
 
 **Notification events**:
 - run started, finished, failed, or stopped by a Limit

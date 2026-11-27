@@ -95,9 +95,12 @@ const SERVICE_WORKER_SCRIPT: &str = "/service-worker/sw.js";
 /// The JSON calls the service worker page and its worker make.
 const SERVICE_WORKER_CALLS: [&str; 3] = [
     "/service-worker/own.json",
-    "/service-worker/cached.json",
+    SERVICE_WORKER_CACHED,
     "/service-worker/network.json",
 ];
+/// The call the worker answers from its Cache Storage, which the site lets
+/// a cache keep an hour when it reaches it past no worker (#796).
+const SERVICE_WORKER_CACHED: &str = "/service-worker/cached.json";
 /// The path the service worker requests that EasyPrivacy blocks.
 const SERVICE_WORKER_TRACKER: &str = "/service-worker/js/adobe-analytics.js";
 /// The request the service worker makes, when its page asks, that the
@@ -266,10 +269,7 @@ pub(crate) fn respond(
         Method::GET if path == SERVICE_WORKER_SCRIPT => {
             (script_reply(SERVICE_WORKER_WORKER_SCRIPT), None)
         }
-        Method::GET if SERVICE_WORKER_CALLS.contains(&path) => (
-            Reply::json(StatusCode::OK, &serde_json::json!({ "path": path })),
-            None,
-        ),
+        Method::GET if SERVICE_WORKER_CALLS.contains(&path) => (service_worker_call(path), None),
         Method::GET if path == SERVICE_WORKER_TRACKER => (script_reply("void 0;\n"), None),
         Method::GET if path == SERVICE_WORKER_HELD => (
             Reply::json(StatusCode::OK, &serde_json::json!({ "held": true })),
@@ -297,6 +297,18 @@ fn pointer_page(seed: u64) -> Reply {
             "<div style=\"margin-top:220px;margin-left:380px\">\n<button type=\"button\" id=\"target\" style=\"width:120px;height:48px\">Target</button>\n</div>\n<div style=\"margin-top:24px;margin-left:380px\">\n<input id=\"field\" type=\"text\" autocomplete=\"off\">\n</div>\n<div style=\"margin-top:1400px;margin-left:380px\">\n<button type=\"button\" id=\"far\" style=\"width:120px;height:48px\">Far target</button>\n</div>\n<pre id=\"summary\"></pre>\n<script>\n{POINTER_SCRIPT}</script>\n"
         ),
     ))
+}
+
+/// The answer to the service worker page's call at `path`, which names it;
+/// the one its worker answers from its Cache Storage may be kept an hour.
+fn service_worker_call(path: &str) -> Reply {
+    let mut reply = Reply::json(StatusCode::OK, &serde_json::json!({ "path": path }));
+    if path == SERVICE_WORKER_CACHED {
+        reply
+            .headers
+            .push(("cache-control", "max-age=3600".to_owned()));
+    }
+    reply
 }
 
 /// The page events page's forms page and the pages its forms reach, its

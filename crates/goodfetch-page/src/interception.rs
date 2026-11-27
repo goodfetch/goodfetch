@@ -5,7 +5,9 @@
 //! Playwright's routing will (A05-45). The steps, each at its place in
 //! [`pipeline`]:
 //!
-//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s.
+//! Steps 3 to 8, for what the last route sends on, are [`steps`]'s, but
+//! for the Response cache (5) and the navigation gate (6), which
+//! [`pipeline`] asks once [`steps`] built the request it sends on.
 //!
 //! 1. A crawl request's own document fetch has its Hooks applied already
 //!    (ADR 0104); nothing here runs a Hook. Its method and body, when it
@@ -105,6 +107,7 @@ use goodfetch_engine::egress::{self, Navigator, Policy, RequestKind};
 use goodfetch_engine::governor::RunGovernor;
 use goodfetch_engine::net_error::NetError;
 use goodfetch_engine::request_signing::RequestSigner;
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::{RequestLog, RunTrace};
@@ -326,6 +329,9 @@ pub(crate) struct SessionInterception {
     /// Where a Session route's handler that failed on a service worker's
     /// request leaves its failure, for the next call on any of its pages.
     failure: LeftFailure,
+    /// What its requests are answered from before they leave, and kept in
+    /// after, when its Run's cache or recording is on (ADR 0046).
+    caching: Option<Arc<Caching>>,
 }
 
 impl SessionInterception {
@@ -345,7 +351,21 @@ impl SessionInterception {
             lookups: lookups.map(Arc::new),
             signing,
             failure: LeftFailure::default(),
+            caching: None,
         }
+    }
+
+    /// The same, its requests answered from `caching` before they leave and
+    /// kept in it after, when it is some (ADR 0046).
+    pub(crate) fn with_caching(self, caching: Option<Arc<Caching>>) -> Self {
+        Self { caching, ..self }
+    }
+
+    /// What its requests are answered from and kept in, when its Run's
+    /// cache or recording is on: what it kept in its own partition is
+    /// forgotten as it ends.
+    pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
+        self.caching.as_ref()
     }
 
     /// Whether one of its pages started a main-frame navigation, whoever
@@ -406,6 +426,8 @@ pub(super) struct PageState {
     /// What it does with each document its main frame receives, when a
     /// program opened it; none for a service worker's own.
     on_document: Option<Arc<dyn OnDocument>>,
+    /// Its Session's [`SessionInterception::caching`].
+    caching: Option<Arc<Caching>>,
 }
 
 /// What a crawl request's own document fetch sends in place of the
@@ -789,6 +811,7 @@ impl Interception {
                 signing: session.signing.clone(),
             },
             on_document,
+            caching: session.caching.clone(),
         });
         (state, session.lookups.clone())
     }
@@ -935,6 +958,7 @@ impl Interception {
                             signing: session.signing.clone(),
                         },
                         on_document: None,
+                        caching: session.caching.clone(),
                     });
                     let context = Arc::new(
                         PageContext::new(

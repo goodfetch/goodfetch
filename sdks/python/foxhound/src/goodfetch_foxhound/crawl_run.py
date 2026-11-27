@@ -20,7 +20,16 @@ import functools
 import traceback
 import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    TypeAlias,
+    TypeVar,
+    cast,
+    final,
+)
 
 import anyio
 import anyio.to_thread
@@ -28,13 +37,21 @@ from goodfetch_collie_client.caller import result_of
 from goodfetch_collie_client.connection import closed_error
 from goodfetch_collie_client.generated.errors import ClosedError, RunNotFoundError
 from goodfetch_collie_client.generated.handles import AsyncPage, Page, Session
+from goodfetch_collie_client.generated.models import (
+    RunFinishParams,
+    RunParams,
+    RunStopParams,
+)
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
-from goodfetch_collie_client.listeners import spawner
-from goodfetch_collie_client.markers import warn_entry
+from goodfetch_collie_client.handle import NotGiven, not_given, timeout_of
+from goodfetch_collie_client.limits import limit_list
+from goodfetch_collie_client.listeners import CREDITS, REGRANT, spawner
+from goodfetch_collie_client.markers import warn_entry, warn_experimental
 from goodfetch_collie_client.portal import CallGroup, LoopStopped
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.sequence import Sequence
 from goodfetch_collie_client.settings import settings_on_wire
+from pydantic import BaseModel, ConfigDict
 
 from goodfetch_foxhound.crawl import (
     AsyncAttemptRun,
@@ -43,17 +60,28 @@ from goodfetch_foxhound.crawl import (
     Crawl,
     CrawlContext,
     CrawlRequest,
+    DatasetRecord,
     HandlerAttempt,
     check_startable,
     crawl_declaration,
     handler_of,
     payload_of,
+    read_record,
 )
-from goodfetch_foxhound.generated.errors import HandlerFailedError
+from goodfetch_foxhound.generated.errors import HandlerFailedError, RecordInvalidError
 from goodfetch_foxhound.generated.models import (
+    CrawlDeclaration,
+    CrawlExtraction,
     CrawlRequestHandleParams,
+    CrawlRunProgress,
+    CrawlRunReport,
     CrawlStartParams,
-    DatasetRecord,
+    DatasetList,
+    DatasetListParams,
+    DatasetPageParams,
+    RejectedRecord,
+    RejectedRecords,
+    RunRejectedRecordsParams,
 )
 from goodfetch_foxhound.generated.operations import (
     DEPRECATED_OPERATIONS,
@@ -64,6 +92,7 @@ from goodfetch_foxhound.generated.operations import (
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
+    from datetime import timedelta
 
     from goodfetch_collie_client.connection import ClientConnection
     from goodfetch_collie_client.generated.models import (
@@ -75,9 +104,9 @@ if TYPE_CHECKING:
     )
     from goodfetch_collie_client.handle import HandleHost
     from goodfetch_collie_client.key_value_store import KeyValueStore
+    from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.portal import PrivateLoop
     from goodfetch_collie_client.sequence import AsyncSequence
-    from pydantic import BaseModel
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Dataset
     from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
@@ -88,10 +117,24 @@ if TYPE_CHECKING:
     ]
     """What runs one attempt on the crawl's Run its request names."""
 
-__all__ = ["AsyncCrawlRun", "CrawlRun"]
+__all__ = ["AsyncCrawlRun", "CodeFreeCrawl", "CrawlRun"]
+
+CodeFreeCrawl: TypeAlias = CrawlDeclaration | CrawlExtraction
+"""A crawl with no handler in the program (ADR 0093).
+
+A reviewed `CrawlDeclaration`, whose Labels follow links and extract
+Records into its Datasets, or a code-free `CrawlExtraction`, its one-Label
+shorthand (the Label `page` and the Dataset `pages`).
+"""
 
 RECORD = "$/record"
 """The notification each Record `run.records` reads comes in."""
+
+R = TypeVar("R")
+"""What a Dataset's Records read as."""
+
+_Item = TypeVar("_Item")
+"""What a read hands the program, one at a time."""
 
 
 class _Served(Protocol):
@@ -144,18 +187,26 @@ class AsyncCrawlRun(AsyncRun):
         self,
         connection: ClientConnection,
         started: RunStarted,
-        crawl: AsyncCrawl | Crawl,
+        crawl: AsyncCrawl | Crawl | None,
         crawls: CrawlRuns,
+        *,
+        detached: bool = False,
     ) -> None:
-        """Takes its Connection, its start's answer, its crawl and the crawls' Runs."""
-        super().__init__(connection, started)
+        """Takes its Connection, its start's answer, its crawl and the crawls' Runs.
+
+        A code-free crawl has no crawl of the program's, and a `detached`
+        start's Run outlives its program (ADR 0102).
+        """
+        super().__init__(connection, started, detached=detached)
         self._crawl = crawl
         self._crawls = crawls
         self._attempts: set[_Attempt] = set()
         self._stopping = False
         crawls.hold(self, self._handle)
 
-    def records(self, dataset: Dataset[Any]) -> AsyncSequence[DatasetRecord]:
+    def records(
+        self, dataset: Dataset[R], *, after: int | None = None
+    ) -> AsyncSequence[DatasetRecord[R]]:
         """The committed Records of `dataset`, read with `async for` (ADR 0103).
 
         Reads the committed Records of one Dataset of a crawl's Run in number
@@ -176,8 +227,11 @@ class AsyncCrawlRun(AsyncRun):
         with `false` only the others (ADR 0052). A Dataset the crawl does not
         declare fails with `dataset_unknown`.
 
-        This member reads every Record from the first; `after`, `through`
-        and `wall` are not taken yet.
+        Each Record's `value` is the Dataset's own type, parsed by its model
+        with each field the model does not declare kept in `model_extra`; a
+        Record the model refuses ends the read with `RecordInvalidError`
+        naming its `number`, past which `after` resumes, once the Records
+        before it are read. `through` and `wall` are not taken yet.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -189,8 +243,246 @@ class AsyncCrawlRun(AsyncRun):
             RuntimeError: No asyncio or Trio loop runs on this thread.
         """
         warn_entry("run.records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
-        params = {"run_id": self.id, "dataset": dataset.name}
-        return self._read("run.records", params, _record_of)
+        params: dict[str, object] = {"run_id": self.id, "dataset": dataset.name}
+        if after is not None:
+            params["after"] = after
+
+        def item_of(method: str, notified: object) -> DatasetRecord[R] | None:
+            record = _record_of(method, notified)
+            return None if record is None else read_record(dataset, record)
+
+        return self._read("run.records", params, item_of)
+
+    def rejected_records(
+        self, dataset: Dataset[Any], *, after: int | None = None
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset`, read with `async for` (ADRs 0103, 0104).
+
+        Reads one Dataset's rejection table from a crawl's committed state:
+        each Record rejected rather than committed, numbered from 1 in commit
+        order, with the Record as JSON, the reason, each issue's path, the
+        Hook when one rejected it, and the request's ID and URL. It starts at
+        the first entry, or after `after`, the number a reader last handled.
+        While the Run is live and nothing follows, it waits for the next
+        commit; a page says `ended` once the Run has ended, or has no live
+        writer, and no entry follows. With `through`, such as the `rejected`
+        count `dataset.list` answers, it reads no entry numbered past it and
+        never waits, a live Run's included: a page says `ended` once it
+        reaches that number or has read every committed entry. A reader never
+        slows the Run. A Dataset the crawl does not declare fails with
+        `dataset_unknown`.
+
+        Each entry's `data` is the Record's JSON as it was pushed, never
+        parsed. The read goes page after page: its first page is asked when
+        it is called, each next one once the program has read on, and it ends
+        once a page says the table is read to its end. `through` is not taken
+        here: a handler's `ctx.run` read bounds itself.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Leaving an `async with` block, `aclose()` or releasing it cancel the
+        read at once.
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        return self._rejected(dataset, after, committed=False)
+
+    def _committed_records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> AsyncSequence[DatasetRecord[R]]:
+        """`ctx.run.records`: the Records of `dataset` committed when it is sent.
+
+        It pages `dataset.page`, whose `through` bounds every page to the
+        last Record committed when the first was read, rather than following
+        `run.records`, whose stream would hold the Run's order while the
+        first page is asked (ADR 0103).
+        """
+        warn_entry("run.records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        host = self._host
+        through: int | None = None
+        refused: RecordInvalidError | None = None
+
+        async def read(position: int | None) -> _CommittedRecords[R]:
+            nonlocal through, refused
+            if refused is not None:
+                # The Records before it were read: the read ends on it.
+                raise refused
+            params = DatasetPageParams(
+                run_id=host.id,
+                dataset=dataset.name,
+                after=after if position is None else position,
+                through=through,
+            )
+            page = result_of(_CommittedPage, await host.call("dataset.page", params))
+            through = page.through
+            records: list[DatasetRecord[R]] = []
+            for record in page.records:
+                try:
+                    records.append(read_record(dataset, record))
+                except RecordInvalidError as error:
+                    refused = error
+                    break
+            return _CommittedRecords(
+                records, page.next or 0, ended=refused is None and page.next is None
+            )
+
+        return self._paged(
+            "run.records",
+            read,
+            items=lambda page: page.records,
+            position=lambda page: page.next,
+            last=lambda page: page.ended,
+            credits=CREDITS,
+            regrant=REGRANT,
+        )
+
+    def _rejected(
+        self, dataset: Dataset[Any], after: int | None, *, committed: bool
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset`, followed, or `committed` when it is sent.
+
+        A `committed` read, `ctx.run.rejected_records`, reads through the
+        `rejected` count `dataset.list` answers first, the last entry's
+        number since entries have no gaps, so it ends on a live Run (ADR
+        0103).
+        """
+        warn_entry(
+            "run.rejected_records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
+        )
+        host = self._host
+        bound: int | None = None
+
+        async def through() -> int | None:
+            # Asked once, before the first page: every page reads through it.
+            nonlocal bound
+            if committed and bound is None:
+                answer = await host.call(
+                    "dataset.list", DatasetListParams(run_id=host.id)
+                )
+                summaries = result_of(DatasetList, answer).datasets
+                rejected = (s.rejected for s in summaries if s.name == dataset.name)
+                bound = next(rejected, 0)
+            return bound
+
+        async def read(position: int | None) -> RejectedRecords:
+            # The first page is read past `after`, each next past the last.
+            params = RunRejectedRecordsParams(
+                run_id=host.id,
+                dataset=dataset.name,
+                after=after if position is None else position,
+            )
+            bound = await through()
+            if bound is not None:
+                # Set only when bounded: an unset field stays off the wire.
+                params = params.model_copy(update={"through": bound})
+            answer = await host.call("run.rejected_records", params)
+            return result_of(RejectedRecords, answer)
+
+        return self._paged(
+            "run.rejected_records",
+            read,
+            items=lambda page: page.records,
+            position=lambda page: page.next,
+            last=lambda page: page.ended,
+            credits=CREDITS,
+            regrant=REGRANT,
+        )
+
+    async def finish(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Waits for the crawl's Run to end and answers a crawl's report (ADR 0120).
+
+        Lets a Run finish and answers its Run report: a Run its program drives ends at
+        once, `finished` and `complete`; a crawl ends once its work items are done, and
+        a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing
+        is left, ends once this call lets it and its work items are done. A Run
+        something stopped first answers its report saying `stopped`. A Run that ended
+        `failed` fails the call with the error that failed it, and a write at its end
+        that failed, such as its Plan file's, with that write's error. Cancelling the
+        call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends
+        only the wait.
+
+        Left out, `timeout` takes the Run's `timeout.run`, by default none. The
+        report is a crawl's: a Run's, with its request totals, its Records per
+        Dataset, its Sinks, its sitemaps and the rules it learned; its
+        Completeness is `incomplete` or `unverified` when a setting cut the crawl
+        short, its reason naming the setting and the count it refused.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.finish")
+        params = _finish_params(self._host.id, timeout)
+        answer = await self._host.call(
+            "run.finish", params, timeout_setting="timeout.run"
+        )
+        return result_of(CrawlRunReport, answer)
+
+    async def stop(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Stops the crawl's Run with a Checkpoint and answers its report, a crawl's.
+
+        Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete`
+        as an abort by its program, resumable by its Run ID, and answers its Run report;
+        an ended Run's report is answered as it is. The wait is bounded by
+        `timeout.close`, or the call's `timeout`: past it, the call fails with
+        `deadline_exceeded` and the Run still stops at its next safe point. A Run that
+        ended `failed` fails the call as `run.finish` does.
+
+        No attempt in flight commits, and its work items return to pending.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.stop")
+        params = _stop_params(self._host.id, timeout)
+        answer = await self._host.call(
+            "run.stop", params, timeout_setting="timeout.close"
+        )
+        return result_of(CrawlRunReport, answer)
+
+    async def report(self) -> CrawlRunReport:
+        """Reads the crawl's Run report, a crawl's.
+
+        Reads a Run's report: at once for a Run that ended, and at its end for a live
+        one, which the read never ends. A Run another engine works is read through that
+        engine, and one no engine works from its committed state, never taking its
+        writer lock. A Run that has no live writer and has not ended fails with
+        `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the
+        Run index does not list with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.report")
+        params = RunParams(run_id=self._host.id)
+        return result_of(CrawlRunReport, await self._host.call("run.report", params))
+
+    def progress(self) -> AsyncSequence[CrawlRunProgress]:
+        """Follows the crawl's progress, a crawl's (ADR 0120), read with `async for`.
+
+        Reads a Run's progress: what it does and why it waits. Without `after`, it
+        answers at once; given `after`, the position of the value the reader last read,
+        it waits for a change and answers the latest value, so values in between are
+        coalesced. The value whose `last` is true ends the sequence: the Run ended, and
+        its `lifecycle` and `stop_reason` say how, or no engine works it (`writer:
+        none`) until a start with its Run ID resumes it. A Run another engine works is
+        read through that engine, the owner the Run index names, and one no engine works
+        from its committed state; a read never takes the Run's writer lock. A Run ID the
+        Run index does not list fails with `run_not_found`.
+
+        Each value is a crawl's: a Run's progress with its requests by state, its
+        concurrency, the requests in flight, the domains it waits on and whether
+        it waits idle, read as a Run's progress is.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        return self._progress(CrawlRunProgress)
 
     async def _close(self) -> None:
         """Cancels each attempt still running and waits for its answer, then closes.
@@ -219,8 +511,9 @@ class AsyncCrawlRun(AsyncRun):
             ClosedError: The Run is closed, which stopped the attempt.
         """
         label = request.crawl_request.label
-        handler = handler_of(self._crawl, label)
-        if handler is None:
+        crawl = self._crawl
+        handler = None if crawl is None else handler_of(crawl, label)
+        if crawl is None or handler is None:
             message = f"the Crawl attaches no handler to the Label {label}"
             raise HandlerFailedError(
                 message,
@@ -233,7 +526,7 @@ class AsyncCrawlRun(AsyncRun):
         attempt.held_by = self._attempts
         with attempt.scope:
             try:
-                await self._run_handler(handler, request, attempt)
+                await self._run_handler(crawl, handler, request, attempt)
             except GoodfetchError:
                 raise
             except Exception as error:
@@ -244,21 +537,22 @@ class AsyncCrawlRun(AsyncRun):
 
     async def _run_handler(
         self,
+        crawl: AsyncCrawl | Crawl,
         handler: Callable[..., object],
         request: CrawlRequestHandleParams,
         attempt: _Attempt,
     ) -> None:
-        """Runs an async handler here, or a sync one on a worker thread."""
-        crawl_request = self._request_of(request)
-        lease = self._lease_of(request)
+        """Runs `crawl`'s async handler here, or its sync one on a worker thread."""
+        crawl_request = self._request_of(crawl, request)
+        lease = self._lease_of(crawl, request)
         page_id = request.page_id
-        if not isinstance(self._crawl, Crawl):
+        if not isinstance(crawl, Crawl):
             page = (
                 None if page_id is None else self._page_of(page_id, request.session.id)
             )
             operations = AsyncFoxhoundOperations(self._host)
             store = self._attempt_key_value_store(lease.key_value_store_attempt())
-            run = AsyncAttemptRun(self.id, store)
+            run = AsyncAttemptRun(self.id, store, _AttemptReads(self))
             context = AsyncCrawlContext(crawl_request, lease, run, operations, page)
             await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
                 context
@@ -272,7 +566,9 @@ class AsyncCrawlRun(AsyncRun):
             None if page_id is None else threaded.page_of(page_id, request.session.id)
         )
         sync_run = AttemptRun(
-            self.id, threaded.key_value_store(lease.key_value_store_attempt())
+            self.id,
+            threaded.key_value_store(lease.key_value_store_attempt()),
+            _ThreadedReads(threaded.loop, _AttemptReads(self)),
         )
         sync_context = CrawlContext(
             crawl_request,
@@ -298,7 +594,9 @@ class AsyncCrawlRun(AsyncRun):
         host, session = self._kept_session(session_id)
         return AsyncPage(host.child(page_id), session)
 
-    def _request_of(self, request: CrawlRequestHandleParams) -> CrawlRequest[Any]:
+    def _request_of(
+        self, crawl: AsyncCrawl | Crawl, request: CrawlRequestHandleParams
+    ) -> CrawlRequest[Any]:
         """The crawl request the handler reads, its Payload typed by its Label."""
         crawl_request = request.crawl_request
         return CrawlRequest(
@@ -306,16 +604,18 @@ class AsyncCrawlRun(AsyncRun):
             url=crawl_request.url,
             label=crawl_request.label,
             method=crawl_request.method.root,
-            payload=payload_of(self._crawl, crawl_request.label, crawl_request.payload),
+            payload=payload_of(crawl, crawl_request.label, crawl_request.payload),
         )
 
-    def _lease_of(self, request: CrawlRequestHandleParams) -> HandlerAttempt:
+    def _lease_of(
+        self, crawl: AsyncCrawl | Crawl, request: CrawlRequestHandleParams
+    ) -> HandlerAttempt:
         """The lease the attempt's context calls the engine with, on this Run."""
         return HandlerAttempt(
             run_id=self.id,
             crawl_request_id=request.crawl_request.id,
             lease_epoch=request.lease_epoch,
-            crawl=self._crawl,
+            crawl=crawl,
             page_id=request.page_id,
         )
 
@@ -348,10 +648,12 @@ class CrawlRun(Run):
         super().__init__(loop, run)
         self._crawl_run = run
         _threaded[run] = _Threaded(
-            self._host, self._sessions, self._attempt_key_value_store
+            loop, self._host, self._sessions, self._attempt_key_value_store
         )
 
-    def records(self, dataset: Dataset[Any]) -> Sequence[DatasetRecord]:
+    def records(
+        self, dataset: Dataset[R], *, after: int | None = None
+    ) -> Sequence[DatasetRecord[R]]:
         """The committed Records of `dataset`, read with `for`, as the async Run's.
 
         Reads the committed Records of one Dataset of a crawl's Run in number
@@ -372,8 +674,11 @@ class CrawlRun(Run):
         with `false` only the others (ADR 0052). A Dataset the crawl does not
         declare fails with `dataset_unknown`.
 
-        This member reads every Record from the first; `after`, `through`
-        and `wall` are not taken yet.
+        Each Record's `value` is the Dataset's own type, parsed by its model
+        with each field the model does not declare kept in `model_extra`; a
+        Record the model refuses ends the read with `RecordInvalidError`
+        naming its `number`, past which `after` resumes, once the Records
+        before it are read. `through` and `wall` are not taken yet.
 
         Experimental: outside semver until it is promoted (ADR 0030).
 
@@ -386,14 +691,233 @@ class CrawlRun(Run):
         warn_entry("run.records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
         run = self._crawl_run
 
-        async def reading() -> AsyncSequence[DatasetRecord]:
-            return run.records(dataset)
+        async def reading() -> AsyncSequence[DatasetRecord[R]]:
+            return run.records(dataset, after=after)
 
-        try:
-            sequence = self._loop.call(reading)
-        except LoopStopped:
-            raise closed_error("run.records") from None
-        return Sequence(self._loop, sequence, lambda: closed_error("run.records"))
+        return _on_thread(self._loop, "run.records", reading)
+
+    def rejected_records(
+        self, dataset: Dataset[Any], *, after: int | None = None
+    ) -> Sequence[RejectedRecord]:
+        """The rejected Records of `dataset`, read with `for`, as the async Run's.
+
+        Reads one Dataset's rejection table from a crawl's committed state:
+        each Record rejected rather than committed, numbered from 1 in commit
+        order, with the Record as JSON, the reason, each issue's path, the
+        Hook when one rejected it, and the request's ID and URL. It starts at
+        the first entry, or after `after`, the number a reader last handled.
+        While the Run is live and nothing follows, it waits for the next
+        commit; a page says `ended` once the Run has ended, or has no live
+        writer, and no entry follows. With `through`, such as the `rejected`
+        count `dataset.list` answers, it reads no entry numbered past it and
+        never waits, a live Run's included: a page says `ended` once it
+        reaches that number or has read every committed entry. A reader never
+        slows the Run. A Dataset the crawl does not declare fails with
+        `dataset_unknown`.
+
+        Each entry's `data` is the Record's JSON as it was pushed, never
+        parsed. The read goes page after page, each next page once the
+        program has read on, and ends once a page says the table is read to
+        its end. `through` is not taken here: a handler's `ctx.run` read
+        bounds itself.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Any thread may read it. Leaving a `with` block, `close()` or
+        releasing it cancel its read at once.
+
+        Raises:
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        warn_entry(
+            "run.rejected_records", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
+        )
+        run = self._crawl_run
+
+        async def reading() -> AsyncSequence[RejectedRecord]:
+            return run.rejected_records(dataset, after=after)
+
+        return _on_thread(self._loop, "run.rejected_records", reading)
+
+    def finish(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Waits for the crawl's Run to end and answers its report, as the async Run's.
+
+        Lets a Run finish and answers its Run report: a Run its program drives ends at
+        once, `finished` and `complete`; a crawl ends once its work items are done, and
+        a keep-alive crawl (`crawl.keep_alive`), which waits for new work while nothing
+        is left, ends once this call lets it and its work items are done. A Run
+        something stopped first answers its report saying `stopped`. A Run that ended
+        `failed` fails the call with the error that failed it, and a write at its end
+        that failed, such as its Plan file's, with that write's error. Cancelling the
+        call, or its `timeout` passing, which fails it with `deadline_exceeded`, ends
+        only the wait.
+
+        Left out, `timeout` takes the Run's `timeout.run`, by default none. The
+        report is a crawl's: a Run's, with its request totals, its Records per
+        Dataset, its Sinks, its sitemaps and the rules it learned; its
+        Completeness is `incomplete` or `unverified` when a setting cut the crawl
+        short, its reason naming the setting and the count it refused.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.finish")
+        params = _finish_params(self._host.id, timeout)
+        answer = self._host.call("run.finish", params, timeout_setting="timeout.run")
+        return result_of(CrawlRunReport, answer)
+
+    def stop(
+        self, *, timeout: timedelta | NotGiven | None = not_given
+    ) -> CrawlRunReport:
+        """Stops the crawl's Run and answers its report, as the async Run's.
+
+        Stops a Run at its next safe point with a Checkpoint, `stopped` and `incomplete`
+        as an abort by its program, resumable by its Run ID, and answers its Run report;
+        an ended Run's report is answered as it is. The wait is bounded by
+        `timeout.close`, or the call's `timeout`: past it, the call fails with
+        `deadline_exceeded` and the Run still stops at its next safe point. A Run that
+        ended `failed` fails the call as `run.finish` does.
+
+        No attempt in flight commits, and its work items return to pending.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.stop")
+        params = _stop_params(self._host.id, timeout)
+        answer = self._host.call("run.stop", params, timeout_setting="timeout.close")
+        return result_of(CrawlRunReport, answer)
+
+    def report(self) -> CrawlRunReport:
+        """Reads the crawl's Run report, as the async Run's.
+
+        Reads a Run's report: at once for a Run that ended, and at its end for a live
+        one, which the read never ends. A Run another engine works is read through that
+        engine, and one no engine works from its committed state, never taking its
+        writer lock. A Run that has no live writer and has not ended fails with
+        `run_interrupted`, whose `fix` names a start with its Run ID, and a Run ID the
+        Run index does not list with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("run.report")
+        params = RunParams(run_id=self._host.id)
+        return result_of(CrawlRunReport, self._host.call("run.report", params))
+
+    def progress(self) -> Sequence[CrawlRunProgress]:
+        """Follows the crawl's progress, read with `for`, as the async Run's.
+
+        Reads a Run's progress: what it does and why it waits. Without `after`, it
+        answers at once; given `after`, the position of the value the reader last read,
+        it waits for a change and answers the latest value, so values in between are
+        coalesced. The value whose `last` is true ends the sequence: the Run ended, and
+        its `lifecycle` and `stop_reason` say how, or no engine works it (`writer:
+        none`) until a start with its Run ID resumes it. A Run another engine works is
+        read through that engine, the owner the Run index names, and one no engine works
+        from its committed state; a read never takes the Run's writer lock. A Run ID the
+        Run index does not list fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        # Its async twin reads each value as a crawl's progress.
+        return cast("Sequence[CrawlRunProgress]", super().progress())
+
+
+class _CommittedPage(BaseModel):
+    """One page of `dataset.page`, its Records ready to read as their Dataset's type."""
+
+    model_config = ConfigDict(extra="allow")
+    next: int | None = None
+    """The next page's `after`; absent once no Record follows."""
+    records: list[DatasetRecord[Any]]
+    """The Records, in number order."""
+    through: int
+    """The last Record committed when the first page was read."""
+
+
+@dataclass(frozen=True)
+class _CommittedRecords(Generic[R]):
+    """One page of a handler's committed read, its Records of their Dataset's type."""
+
+    records: list[DatasetRecord[R]]
+    """The Records its Dataset's model read, up to one it refused."""
+    next: int
+    """The next page's `after`."""
+    ended: bool
+    """Whether no Record follows and none was refused."""
+
+
+@final
+class _AttemptReads:
+    """What an `AsyncAttemptRun` reads its Run's committed Records through."""
+
+    def __init__(self, run: AsyncCrawlRun) -> None:
+        """Takes the crawl's Run the attempt belongs to."""
+        self._run = run
+
+    def records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> AsyncSequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is sent, past `after`."""
+        return self._run._committed_records(dataset, after)  # pyright: ignore[reportPrivateUsage]
+
+    def rejected_records(
+        self, dataset: Dataset[Any], after: int | None
+    ) -> AsyncSequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        return self._run._rejected(dataset, after, committed=True)  # pyright: ignore[reportPrivateUsage]
+
+
+@final
+class _ThreadedReads:
+    """What an `AttemptRun` reads its Run's committed Records through, on the loop."""
+
+    def __init__(self, loop: PrivateLoop, reads: _AttemptReads) -> None:
+        """Takes the Connection's private loop and the async reads it drives there."""
+        self._loop = loop
+        self._reads = reads
+
+    def records(
+        self, dataset: Dataset[R], after: int | None
+    ) -> Sequence[DatasetRecord[R]]:
+        """The Records of `dataset` committed when it is sent, past `after`."""
+        reads = self._reads
+
+        async def reading() -> AsyncSequence[DatasetRecord[R]]:
+            return reads.records(dataset, after)
+
+        return _on_thread(self._loop, "run.records", reading)
+
+    def rejected_records(
+        self, dataset: Dataset[Any], after: int | None
+    ) -> Sequence[RejectedRecord]:
+        """The rejected Records of `dataset` committed when it is sent, past `after`."""
+        reads = self._reads
+
+        async def reading() -> AsyncSequence[RejectedRecord]:
+            return reads.rejected_records(dataset, after)
+
+        return _on_thread(self._loop, "run.rejected_records", reading)
+
+
+def _on_thread(
+    loop: PrivateLoop,
+    operation: str,
+    reading: Callable[[], Awaitable[AsyncSequence[_Item]]],
+) -> Sequence[_Item]:
+    """The async read `reading` opens on `loop`, read from the calling thread.
+
+    Raises:
+        ClosedError: The Connection is closed; nothing is sent.
+    """
+    try:
+        sequence = loop.call(reading)
+    except LoopStopped:
+        raise closed_error(operation) from None
+    return Sequence(loop, sequence, lambda: closed_error(operation))
 
 
 @dataclass(frozen=True)
@@ -404,6 +928,8 @@ class _Threaded:
     `CrawlRun`, which holds the async Run that keys it in `_threaded`.
     """
 
+    loop: PrivateLoop
+    """The Connection's private loop, which its handlers' reads run on."""
     host: HandleHost[RunId]
     """The sync host its handlers call through."""
     sessions: dict[str, tuple[HandleHost[SessionId], Session]]
@@ -450,12 +976,14 @@ class CrawlRuns:
 
     async def start(
         self,
-        crawl: AsyncCrawl,
+        crawl: AsyncCrawl | CodeFreeCrawl,
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
+        limits: Limits | None,
         settings: CrawlSettings | None,
+        detached: bool,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`: `AsyncFoxhound.start_crawl`.
 
@@ -464,24 +992,31 @@ class CrawlRuns:
             LabelUnknownError: A seed names a Label `crawl` does not declare.
             ClosedError: The Connection is closed; nothing is sent.
         """
+        served = (
+            None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
+        )
         return await self._start(
             crawl,
-            functools.partial(self._opened, crawl),
+            functools.partial(self._opened, served, detached),
             seeds=seeds,
             run_id=run_id,
             tags=tags,
+            limits=limits,
             settings=settings,
+            detached=detached,
         )
 
     async def start_threaded(
         self,
         loop: PrivateLoop,
-        crawl: Crawl,
+        crawl: Crawl | CodeFreeCrawl,
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
+        limits: Limits | None,
         settings: CrawlSettings | None,
+        detached: bool,
     ) -> CrawlRun:
         """Starts the sync `crawl` from `seeds` on `loop`: `Foxhound.start_crawl`.
 
@@ -491,47 +1026,63 @@ class CrawlRuns:
             ClosedError: The Connection is closed; nothing is sent.
         """
         threaded: list[CrawlRun] = []
+        served = (
+            None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
+        )
 
         def opened(started: RunStarted) -> AsyncCrawlRun:
-            run = self._opened(crawl, started)
+            run = self._opened(served, detached, started)
             threaded.append(CrawlRun(loop, run))
             return run
 
         await self._start(
-            crawl, opened, seeds=seeds, run_id=run_id, tags=tags, settings=settings
+            crawl,
+            opened,
+            seeds=seeds,
+            run_id=run_id,
+            tags=tags,
+            limits=limits,
+            settings=settings,
+            detached=detached,
         )
         return threaded[0]
 
     async def _start(
         self,
-        crawl: AsyncCrawl | Crawl,
+        crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
         opened: Callable[[RunStarted], AsyncCrawlRun],
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
         tags: Iterable[str] | None,
+        limits: Limits | None,
         settings: CrawlSettings | None,
+        detached: bool,
     ) -> AsyncCrawlRun:
-        """Sends `crawl.start`, and `opened` builds the Run it answers."""
+        """Sends `crawl.start`, and `opened` builds the Run it answers.
+
+        Raises:
+            SettingInvalidError: A `limits` amount the SDK cannot turn
+                exactly; nothing is sent.
+        """
         sent_seeds = list(seeds)
-        check_startable(crawl, sent_seeds)
-        labels, datasets = crawl_declaration(crawl)
-        fields: dict[str, object] = {
-            "labels": {name: _wire(label) for name, label in labels.items()}
-        }
-        if datasets:
-            fields["datasets"] = [_wire(dataset) for dataset in datasets]
+        fields = _crawl_shape(crawl, sent_seeds)
         fields["seeds"] = [_wire(sent) for sent in sent_seeds]
         if run_id is not None:
             fields["run_id"] = run_id
         if tags is not None:
             fields["tags"] = list(tags)
+        run_limits = limit_list(limits)
+        if run_limits:
+            fields["limits"] = run_limits
         if settings is not None:
             fields["settings"] = settings_on_wire(settings)
         # The start carries the project file `connect()` read (ADR 0083).
         project = self._connection.project
         if project is not None:
             fields["project"] = project
+        if detached:
+            fields["detached"] = True
         params = CrawlStartParams.model_construct(None, **fields)
         operations = AsyncFoxhoundOperations(self._connection)
         starting = anyio.Event()
@@ -569,8 +1120,10 @@ class CrawlRuns:
             self._reading = (anyio.CancelScope(), anyio.Event())
             spawner()(functools.partial(self._read, *self._reading))
 
-    def _opened(self, crawl: AsyncCrawl | Crawl, started: RunStarted) -> AsyncCrawlRun:
-        return AsyncCrawlRun(self._connection, started, crawl, self)
+    def _opened(
+        self, crawl: AsyncCrawl | Crawl | None, detached: bool, started: RunStarted
+    ) -> AsyncCrawlRun:
+        return AsyncCrawlRun(self._connection, started, crawl, self, detached=detached)
 
     async def _read(self, scope: anyio.CancelScope, ended: anyio.Event) -> None:
         """Reads the engine's messages while no call does, until `scope` is cancelled.
@@ -639,12 +1192,57 @@ def handler_failed(label: str, error: Exception) -> HandlerFailedError:
     )
 
 
-def _record_of(method: str, params: object) -> DatasetRecord | None:
-    """The Record a `$/record` notification carries; none for another."""
+def _finish_params(
+    run_id: RunId, timeout: timedelta | NotGiven | None
+) -> RunFinishParams:
+    """`run.finish`'s params, its `timeout` off the wire when not given."""
+    params = RunFinishParams(run_id=run_id)
+    if not isinstance(timeout, NotGiven):
+        params.timeout = timeout_of(timeout, "timeout.run")
+    return params
+
+
+def _stop_params(run_id: RunId, timeout: timedelta | NotGiven | None) -> RunStopParams:
+    """`run.stop`'s params, its `timeout` off the wire when not given."""
+    params = RunStopParams(run_id=run_id)
+    if not isinstance(timeout, NotGiven):
+        params.timeout = timeout_of(timeout, "timeout.close")
+    return params
+
+
+def _record_of(method: str, params: object) -> DatasetRecord[Any] | None:
+    """The Record a `$/record` notification carries, unparsed; none for another."""
     if method != RECORD or not isinstance(params, dict):
         return None
     record = cast("dict[str, object]", params).get("record")
-    return None if record is None else result_of(DatasetRecord, record)
+    return None if record is None else result_of(DatasetRecord[Any], record)
+
+
+def _crawl_shape(
+    crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
+    seeds: list[RequestSeed | SitemapSeed],
+) -> dict[str, object]:
+    """What `crawl.start` takes for `crawl`: its Labels and Datasets, or itself.
+
+    A code-free crawl goes as its `declaration` or its `extraction`.
+
+    Raises:
+        LabelUnhandledError: A Label of the program's crawl has no handler.
+        LabelUnknownError: A seed names a Label the program's crawl does not
+            declare.
+    """
+    if isinstance(crawl, CrawlDeclaration):
+        return {"declaration": _wire(crawl)}
+    if isinstance(crawl, CrawlExtraction):
+        return {"extraction": _wire(crawl)}
+    check_startable(crawl, seeds)
+    labels, datasets = crawl_declaration(crawl)
+    fields: dict[str, object] = {
+        "labels": {name: _wire(label) for name, label in labels.items()}
+    }
+    if datasets:
+        fields["datasets"] = [_wire(dataset) for dataset in datasets]
+    return fields
 
 
 def _wire(model: BaseModel) -> dict[str, object]:

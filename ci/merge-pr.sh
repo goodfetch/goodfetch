@@ -3,26 +3,20 @@
 # Actions runs only the Release suite, so no required check can block a
 # merge: this command is the lock instead. In a clean checkout of the pull
 # request's head, which it first makes the merge of that head and the base's
-# tip when the head lacks it (ADR 0135's amendment of 2026-11-17), it runs one
-# gate and merges only when it passes.
-# Which gate (ADR 0135's amendment of 2026-11-10, the owner's decision for
-# the refactor: quick per merge, the full gate once per finished spec; its
-# note of 2026-11-13: a spec is finished by the pull request that leaves none
-# of its sub-issues open; and its note of 2026-11-14, the owner's rule « FULL
-# GATE seulement en fermant une spec entière »: nothing else takes the full
-# gate):
-#   - `just pre-merge docs` when `xtask affected` finds the change is
-#     documents alone (`gate=docs`);
-#   - `just pre-merge quick` when it finds that no test, benchmark, model,
-#     container or Evaluation reads the change (`gate=quick`);
-#   - for a change a test reads (`gate=full`), `just pre-merge all`, which
-#     starts with `just quick all`'s lint and runs the Quick suite's tests in
-#     its Pre-merge suite, on the pull request
-#     that finishes a spec: its head branch is `spec/<n>`
-#     (docs/agents/issue-tracker.md), and spec issue #<n> has no open
-#     sub-issue once the issues the pull request closes are closed, as one
-#     GitHub query reads them; `just pre-merge quick` on every other pull
-#     request, an unfinished spec's included.
+# tip when the head lacks it (ADR 0135's amendment of 2026-11-17), with what
+# `just codegen` writes on that merge and a conflict only in codegen's
+# folders settled (its note of 2026-11-26), it runs one gate and merges only
+# when it passes.
+# Which gate (ADR 0135's note of 2026-11-26: the full gate only when the
+# owner asks for it):
+#   - `just pre-merge all`, the full gate, which starts with `just quick
+#     all`'s lint and runs the Quick suite's tests in its Pre-merge suite,
+#     only when the owner passes `--full`, whatever the change;
+#   - otherwise `just pre-merge docs` when `xtask affected` finds the change
+#     is documents alone (`gate=docs`), and `just pre-merge quick` for every
+#     other change (`gate=quick` or `gate=full`), a spec's last pull request
+#     included. No branch name and no count of merges or of a spec's open
+#     sub-issues picks the full gate.
 # Every gate runs all its units on the gate host: it reads no hosted run of
 # the pull-request workflow (ADR 0135's note of 2026-11-25).
 # The gate's log and the merge's message name the gate that ran and why, and
@@ -46,7 +40,7 @@
 # the lock.
 set -euo pipefail
 
-usage="usage: ci/merge-pr.sh <pull request number> [--past-cap]"
+usage="usage: ci/merge-pr.sh <pull request number> [--past-cap] [--full]"
 # Only the command itself passes this, to start the gate: what names the
 # gate's files, `<run>.log` and `<run>.status`.
 run=""
@@ -56,13 +50,16 @@ if [[ ${1:-} == --detached ]]; then
 fi
 number=${1:?$usage}
 shift
-# The options as given, which the gate started below takes too: `--past-cap`,
-# the owner's way past the merge cap, the only one.
+# The options as given, which the gate started below takes too, both the
+# owner's alone: `--past-cap`, the way past the merge cap, and `--full`, the
+# request for the full gate.
 options=("$@")
 cap=()
+full=""
 for option in ${options[@]+"${options[@]}"}; do
   case $option in
     --past-cap) cap=(--past-cap) ;;
+    --full) full=1 ;;
     *)
       echo "error: $usage" >&2
       exit 2
@@ -238,13 +235,62 @@ JQ
   fi
 }
 
+# Prints the folders `xtask codegen` owns, one a line, as the checkout in the
+# current folder's xtask names them: codegen writes every file in them and
+# removes any other, so they hold its output alone.
+codegen_folders() {
+  cargo run --quiet --locked --bin xtask -- codegen --folders
+}
+
+# Prints each of the paths `$1` gives, one a line, that lies in none of the
+# folders `$2` gives, one a line.
+outside_folders() {
+  local path folder inside
+  while IFS= read -r path; do
+    [[ -n $path ]] || continue
+    inside=""
+    while IFS= read -r folder; do
+      if [[ -n $folder && $path == "$folder"/* ]]; then
+        inside=1
+        break
+      fi
+    done <<<"$2"
+    [[ -n $inside ]] || echo "$path"
+  done <<<"$1"
+}
+
+# Prints the tree `$1` with each path `$2` gives, one a line, as the base's
+# tip has it, or without it when the tip has none; fails on a path the tip
+# holds as anything but a file or a link. Settles conflicts in codegen's
+# folders, which `just codegen` then writes again (merge_the_bases_tip).
+take_the_bases_side() (
+  index=$(mktemp -d) || exit 1
+  trap 'rm -rf "$index"' EXIT
+  export GIT_INDEX_FILE=$index/index
+  git read-tree "$1" || exit 1
+  while IFS= read -r path; do
+    [[ -n $path ]] || continue
+    entry=$(git ls-tree "origin/$base" -- "$path") || exit 1
+    if [[ -z $entry ]]; then
+      git update-index --force-remove -- "$path" || exit 1
+      continue
+    fi
+    read -r mode type object _ <<<"$entry"
+    [[ $type == blob ]] || exit 1
+    git update-index --add --cacheinfo "$mode,$object,$path" || exit 1
+  done <<<"$2"
+  git write-tree
+)
+
 # Reads the pull request, its state, head, base, head branch and title, and
 # refuses one the gate cannot merge: closed, a draft, past the merge cap,
 # moved while it was read, whose merge would close other issues than its
-# `Closes` lines name, or in conflict with its base's tip. A head
-# without that tip leaves in `with_base` the tree of its merge with it, which
-# the gate commits and gates (merge_the_bases_tip); one that holds it leaves
-# it empty.
+# `Closes` lines name, or in conflict with its base's tip outside the
+# folders `xtask codegen` owns. A head without that tip leaves in
+# `with_base` the tree of its merge with it, which the gate commits,
+# regenerates and gates (merge_the_bases_tip), and in `settled` the paths
+# in codegen's folders whose conflict it settled with the base's side; one
+# that holds it leaves both empty.
 read_pull_request() {
   IFS=$'\t' read -r state draft head base branch title < <(
     gh pr view "$number" --json state,isDraft,headRefOid,baseRefName,headRefName,title \
@@ -271,12 +317,36 @@ read_pull_request() {
   # The gate tests what lands on the base: the head itself when it holds the
   # base's tip, else the merge of the two, so its verdict holds either way
   # (the owner's decision of 2026-11-17, ADR 0135).
+  # A conflict only in what `xtask codegen` writes is settled with the base's
+  # side, which the gate's `just codegen` then writes again; any other
+  # conflict is the author's to resolve (ADR 0135's note of 2026-11-26).
   with_base=""
+  settled=""
   if ! git merge-base --is-ancestor "origin/$base" "$head"; then
-    if ! with_base=$(git merge-tree --write-tree "$head" "origin/$base"); then
-      echo "error: pull request #$number conflicts with the tip of $base; merge $base into it and resolve the conflict" >&2
-      exit 1
-    fi
+    local merged status=0 folders outside
+    merged=$(git -c core.quotePath=false merge-tree --write-tree --name-only --no-messages "$head" "origin/$base") || status=$?
+    case $status in
+      0) with_base=${merged%%$'\n'*} ;;
+      1)
+        settled=${merged#*$'\n'}
+        if ! folders=$(codegen_folders); then
+          echo "error: \`xtask codegen --folders\` failed, so the gate cannot tell whether pull request #$number's conflict with the tip of $base is only in what codegen writes" >&2
+          exit 1
+        fi
+        outside=$(outside_folders "$settled" "$folders")
+        if [[ -n $outside ]] || ! with_base=$(take_the_bases_side "${merged%%$'\n'*}" "$settled"); then
+          echo "error: pull request #$number conflicts with the tip of $base; merge $base into it and resolve the conflict" >&2
+          [[ -z $outside ]] || echo "  ${outside//$'\n'/$'\n'  }" >&2
+          exit 1
+        fi
+        echo "Pull request #$number conflicts with the tip of $base only in what \`xtask codegen\` writes; the gate takes the tip's side there and writes it again:"
+        echo "  ${settled//$'\n'/$'\n'  }"
+        ;;
+      *)
+        echo "error: git could not merge pull request #$number with the tip of $base" >&2
+        exit 1
+        ;;
+    esac
   fi
 }
 # Before the lock and any wait, so a pull request the gate refuses is refused
@@ -324,7 +394,10 @@ while ahead=$(run_in_the_backstops_worktree "$$") && [[ -n $ahead ]]; do
   fi
   sleep 1
 done
-[[ -z $waiting_for ]] || read_pull_request
+# Called as a command of its own, so `set -e` holds in its body.
+if [[ -n $waiting_for ]]; then
+  read_pull_request
+fi
 
 here=$(cd "$(dirname "$0")" && pwd)
 # This checkout's compiler cache check, which the gate runs in its own.
@@ -366,22 +439,62 @@ echo "The gate's target/ is on $mount, with $free_gb GB free (at least $min_free
 
 # A head without its base's tip becomes the merge of the two, pushed to the
 # pull request's branch so the pull request's head is the commit the gate
-# tests and merges. The push only moves the branch forward: one that moved
-# since it was read refuses it. The pre-push hook's checks are the gate's own
-# first steps, so the push skips them.
+# tests and merges. Before the push, `just codegen` writes again on the merge
+# what `xtask codegen` writes, so a merge that settled a conflict there, or
+# whose two sides each changed what codegen reads, holds what the merged
+# sources give (ADR 0135's note of 2026-11-26); a merge whose regeneration
+# fails, or that settled a path its own codegen does not own, is refused. The
+# push only moves the branch forward: one that moved since it was read
+# refuses it. The pre-push hook's checks are the gate's own first steps, so
+# the push skips them.
 merge_the_bases_tip() {
-  local merge
+  local merge signed folders outside tree regenerated=""
+  signed="Signed-off-by: $(git config user.name) <$(git config user.email)>"
   merge=$(git commit-tree "$with_base" -p "$head" -p "origin/$base" \
-    -m "Merge branch '$base' into $branch" \
-    -m "Signed-off-by: $(git config user.name) <$(git config user.email)>")
+    -m "Merge branch '$base' into $branch" -m "$signed")
+  gate_worktree_checkout "$merge"
+  if [[ -n $settled ]]; then
+    if ! folders=$(cd "$worktree" && codegen_folders); then
+      echo "error: the merge's \`xtask codegen --folders\` failed, so the gate cannot tell whether pull request #$number's conflict with the tip of $base is only in what codegen writes" >&2
+      exit 1
+    fi
+    outside=$(outside_folders "$settled" "$folders")
+    if [[ -n $outside ]]; then
+      echo "error: pull request #$number conflicts with the tip of $base outside the folders the merge's \`xtask codegen\` owns; merge $base into it and resolve the conflict" >&2
+      echo "  ${outside//$'\n'/$'\n'  }" >&2
+      exit 1
+    fi
+  fi
+  if ! (cd "$worktree" && just codegen); then
+    echo "error: \`just codegen\` failed on the merge of pull request #$number and the tip of $base, so the gate merges nothing; merge $base into it and run \`just codegen\` there" >&2
+    exit 1
+  fi
+  # The recipe's cargo runs without `--locked`: a lock it rewrote is the
+  # author's to settle, never the gate's to commit.
+  if [[ -n $(cd "$worktree" && git status --porcelain -- Cargo.lock) ]]; then
+    echo "error: \`just codegen\` changed Cargo.lock on the merge of pull request #$number and the tip of $base, so the gate merges nothing; merge $base into it and update Cargo.lock there" >&2
+    exit 1
+  fi
+  tree=$(cd "$worktree" && git add --all && git write-tree)
+  if [[ $tree != "$with_base" ]]; then
+    merge=$(git commit-tree "$tree" -p "$head" -p "origin/$base" \
+      -m "Merge branch '$base' into $branch" \
+      -m "The gate wrote again what \`xtask codegen\` writes on this merge (ADR 0135's note of 2026-11-26)." \
+      -m "$signed")
+    regenerated=1
+  fi
   if ! git push --quiet --no-verify origin "$merge:refs/heads/$branch"; then
     echo "error: pull request #$number moved while it was read; run the command again" >&2
     exit 1
   fi
   echo "The head $head lacks the tip of $base: the gate merged it in as $merge and pushed that to $branch"
+  [[ -z $regenerated ]] || echo "The merge holds what \`just codegen\` wrote again on it"
   head=$merge
 }
-[[ -z $with_base ]] || merge_the_bases_tip
+# Called as a command of its own, so `set -e` holds in its body.
+if [[ -n $with_base ]]; then
+  merge_the_bases_tip
+fi
 
 gate_worktree_checkout "$head"
 
@@ -398,42 +511,19 @@ case $affected in
     ;;
 esac
 # Which gate runs, and why, as the log and the merge's message say it. The
-# full gate runs only once per finished spec, on the pull request of its
-# integration branch `spec/<n>` that leaves none of the spec's sub-issues
-# open; every other change a test reads merges on the quick gate, a spec's
-# pull request that leaves sub-issues open included (the owner's decision of
-# 2026-11-10 for the refactor, rule of 2026-11-13 on the finished spec and
-# rule of 2026-11-14, « FULL GATE seulement en fermant une spec entière »,
-# which ended the full gate of the tenth change a test reads, of `--full` and
-# of the pull request that pins the reference build, ADR 0135).
+# full gate runs only when the owner passes `--full`; every other change a
+# test reads merges on the quick gate, a spec's last pull request included
+# (the owner's rule of 2026-11-26, « full gates seulement sur ma demande »,
+# which ended the full gate of the pull request that finishes a spec, ADR
+# 0135). A full gate's reason names `--full`, so a full gate nobody asked
+# for shows in its log.
 #
 # How a merge's message opens: `xtask gate compare` and the test-health run
 # find a full gate's merge by these words followed by `just pre-merge all`.
 merged_on="Merged on the local gate: "
-why_full=""
-not_finished=""
-if [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
-  # How many of the spec's sub-issues stay open once this pull request's
-  # closing issues are closed, as the hosted tier's plan asks it too. An
-  # answer that cannot be read is refused: taken for none left, it would
-  # run a full gate on an unfinished spec; taken for some, it would skip a
-  # finished spec's.
-  spec=${branch#spec/}
-  if ! left_open=$("$here/spec-sub-issues.sh" "$spec" "$number") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
-    echo "error: the sub-issues of spec #$spec that stay open after pull request #$number could not be read from GitHub (the query read \"${left_open:-}\", which is no whole number), so nothing says whether it finishes the spec; run the command again" >&2
-    exit 1
-  fi
-  if ((left_open == 0)); then
-    why_full="the pull request that finishes spec #$spec, from \`$branch\`"
-  elif ((left_open == 1)); then
-    not_finished="spec #$spec is not finished: 1 sub-issue stays open after this pull request"
-  else
-    not_finished="spec #$spec is not finished: $left_open sub-issues stay open after this pull request"
-  fi
-fi
-if [[ -n $why_full ]]; then
+if [[ -n $full ]]; then
   gate=all
-  ran="\`just pre-merge all\` ($why_full), which starts with \`just quick all\`'s lint and runs the Quick suite's tests in its Pre-merge suite,"
+  ran="\`just pre-merge all\` (the owner asked for it with \`--full\`), which starts with \`just quick all\`'s lint and runs the Quick suite's tests in its Pre-merge suite,"
   # `just stress`, after the whole Pre-merge suite, refuses a selected
   # `lazyfs::` test without a LazyFS build (xtask's `repeat`). Which tests it
   # selects takes a build to find, so every full gate on Linux, the one system
@@ -450,7 +540,7 @@ elif [[ $affected == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
 else
   gate=quick
-  ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs only once per finished spec, on the pull request of its \`spec/<n>\` branch that leaves none of its sub-issues open;${not_finished:+ $not_finished;} the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
+  ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs only when the owner asks for it with \`--full\`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
 fi
 echo "The gate is ${ran%,}"
 # The gate runs every unit itself: it neither waits for, nor reads, nor

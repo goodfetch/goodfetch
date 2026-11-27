@@ -10,13 +10,13 @@ use crate::catalog::{
 use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
     egress, engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store,
-    log, model, needs_you, notifications, ops, page, plugin, politeness, recipe, response_cache,
-    response_limits, run, sample, schedule, schema_validator, secrets, security, settings,
-    site_preferences, skills, storage, tls, usage, versions,
+    live_view, log, model, needs_you, notifications, ops, page, plugin, politeness, recipe,
+    response_cache, response_limits, run, sample, schedule, schema_validator, secrets, security,
+    settings, site_preferences, skills, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 69] = [
+pub const MODULES: [&Entries; 70] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
@@ -40,6 +40,7 @@ pub const MODULES: [&Entries; 69] = [
     &page::access_mode::ENTRIES,
     &page::signing_key::ENTRIES,
     &page::cdp_url::ENTRIES,
+    &live_view::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &run::completeness::ENTRIES,
@@ -377,11 +378,14 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 99] = [
+    const COLLIE: [&str; 103] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
         "daemon.health",
+        "cache.stats",
+        "cache.clear",
+        "cache.verify",
         "certs.list",
         "certs.accept",
         "certs.forget",
@@ -425,6 +429,7 @@ mod tests {
         "page.close",
         "page.evaluate",
         "locator.evaluate_all",
+        "locator.scroll_collect",
         "page.add_init_script",
         "page.wait_for_url",
         "page.wait_for_request",

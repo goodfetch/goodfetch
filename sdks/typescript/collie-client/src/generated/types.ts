@@ -299,6 +299,13 @@ export type ChromeChannel = "stable" | "beta" | "dev" | "canary";
 export type SandboxEnvironment =
   "docker_default_seccomp" | "kubernetes_runtime_default" | "apparmor_userns" | "unknown";
 /**
+ * What `cache.verify` found wrong with a body file.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheBodyProblem".
+ */
+export type CacheBodyProblem = "missing" | "changed";
+/**
  * Who stopped a call that `call_cancelled` ended (ADR 0113): the
  * vocabulary of an Agent's `abort` (ADR 0100), plus `browser`, open
  * (ADR 0079).
@@ -615,6 +622,13 @@ export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
  * via the `definition` "WaitedFor".
  */
 export type WaitedFor = string;
+/**
+ * The rows a list declares: a count, or `unknown` for `-1`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Declared".
+ */
+export type Declared = number | "unknown";
 /**
  * A dialog's kind, as Playwright's `dialog.type()` names it.
  *
@@ -986,6 +1000,60 @@ export type MarkdownFormat = Asked | MarkdownOptions;
  */
 export type MarkdownContent = "main" | "full" | "fit";
 /**
+ * A Notification event's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `run_started`: A Run started.
+ * - `run_finished`: A Run finished.
+ * - `run_failed`: A Run ended on an error.
+ * - `run_stopped`: A Run was stopped, by a Limit, a person or a program.
+ * - `verdict_rejected`: A Run's success check rejected its result.
+ * - `verdict_needs_review`: A Run's result waits for a person's review.
+ * - `run_incomplete`: A Run ended with its Completeness `incomplete`.
+ * - `effect_uncertain`: A Run reported an Effect whose outcome is uncertain.
+ * - `reconciliation_requested`: A person is asked to reconcile an uncertain Effect.
+ * - `effect_reconciled`: An uncertain Effect was reconciled.
+ * - `approval_requested`: A Run waits for a person's approval.
+ * - `human_pause_waiting`: A Human pause waits for a person, with a link to the Live view.
+ * - `limit_threshold`: A Limit reached its warning threshold.
+ * - `schedule_auto_paused`: A Schedule paused itself.
+ * - `schedule_occurrences_skipped`: A Limit skipped a Schedule's occurrences, notified once per period.
+ * - `schedule_occurrences_missed`: A Schedule's occurrences were missed, notified once per wake.
+ * - `identity_cookie_expiry`: A Saved identity's earliest cookie expiry entered its warning window.
+ * - `quarantined`: Code mode or a Plugin was quarantined.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationEvent".
+ */
+export type NotificationEvent =
+  | "run_started"
+  | "run_finished"
+  | "run_failed"
+  | "run_stopped"
+  | "verdict_rejected"
+  | "verdict_needs_review"
+  | "run_incomplete"
+  | "effect_uncertain"
+  | "reconciliation_requested"
+  | "effect_reconciled"
+  | "approval_requested"
+  | "human_pause_waiting"
+  | "limit_threshold"
+  | "schedule_auto_paused"
+  | "schedule_occurrences_skipped"
+  | "schedule_occurrences_missed"
+  | "identity_cookie_expiry"
+  | "quarantined"
+  | (string & {});
+/**
+ * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleId".
+ */
+export type ScheduleId = string;
+/**
  * When a navigation answers, by the state its document reached
  * (Playwright's `waitUntil`).
  *
@@ -1111,6 +1179,18 @@ export type LimitSetting = "network.max_body_size" | "network.max_decompression_
  * via the `definition` "LimitStanding".
  */
 export type LimitStanding = "held" | "foxhound" | "not_understood";
+/**
+ * How a scroll collection ended, open (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `end_of_list`: `idle_steps` steps in a row brought no new key.
+ * - `max_rows`: It kept `max_rows` rows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ListEnded".
+ */
+export type ListEnded = "end_of_list" | "max_rows" | (string & {});
 /**
  * A state the page's document reaches (Playwright's `LoadState`).
  *
@@ -1375,6 +1455,13 @@ export type NothingDone =
   | {
       reason: "nothing_pending";
     };
+/**
+ * What a delivery's `data` holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationData".
+ */
+export type NotificationData = FullNotification | ThinNotification;
 /**
  * A table of the Operator policy: what it sets, what it sets and locks, and
  * its caps.
@@ -1787,13 +1874,6 @@ export type StartedAs = "new" | "resumed" | "ended";
  */
 export type RunStateFilesystem = "nfs" | "smb" | "fuse_object_storage";
 /**
- * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ScheduleId".
- */
-export type ScheduleId = string;
-/**
  * What a Schedule starts: a Recipe with its inputs, or a code-free
  * catalog run by its own start parameters, each with the run's settings
  * and timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,
@@ -1899,6 +1979,13 @@ export type ValueInvalidReason =
   | "value_json"
   | "value_not_json"
   | "value_schema";
+/**
+ * Why a call is no verified delivery.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebhookInvalidReason".
+ */
+export type WebhookInvalidReason = "signature" | "timestamp" | "malformed" | "missing_header";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -2349,6 +2436,188 @@ export interface BrowserSandboxUnavailableDetails {
    */
   environment: SandboxEnvironment;
 }
+/**
+ * What `cache.clear` takes: which of the caller's entries leave, each
+ * given filter narrowing it; every one of them when none is given.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheClearParams".
+ */
+export interface CacheClearParams {
+  /**
+   * Only the entries fetched through this proxy exit country; the
+   * empty text for those that left directly.
+   */
+  country?: string | null;
+  /**
+   * Only the entries fetched with this device class; the empty text
+   * for those fetched without one.
+   */
+  device?: string | null;
+  /**
+   * Only the entries of this host and its subdomains.
+   */
+  domain?: string | null;
+  /**
+   * Only the entries fetched with this Identity profile language; the
+   * empty text for those fetched without one.
+   */
+  language?: string | null;
+  /**
+   * Only the entries of this partition: `public`, or a Saved
+   * identity's name.
+   */
+  partition?: string | null;
+  /**
+   * Only the entries this Run fetched.
+   */
+  runId?: RunId | null;
+}
+/**
+ * What `cache.clear` answers: what left.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheCleared".
+ */
+export interface CacheCleared {
+  /**
+   * The body files deleted with them: those no entry left holds.
+   */
+  bodies: number;
+  /**
+   * The bytes those body files weighed.
+   */
+  bytes: number;
+  /**
+   * The entries deleted.
+   */
+  entries: number;
+}
+/**
+ * An entry whose body file `cache.verify` found damaged.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheDamage".
+ */
+export interface CacheDamage {
+  /**
+   * The SHA-256 of the body stored, as lower-case hex: its file's name.
+   */
+  bodySha256: string;
+  /**
+   * The request's method.
+   */
+  method: string;
+  /**
+   * The entry's partition: `public`, or a Saved identity's name.
+   */
+  partition: string;
+  /**
+   * What is wrong with its body file.
+   */
+  problem: CacheBodyProblem;
+  /**
+   * The Run that fetched it; none outside a Run.
+   */
+  runId?: RunId | null;
+  /**
+   * The request's URL, without its fragment.
+   */
+  url: string;
+}
+/**
+ * One partition's entries, as `cache.stats` counts them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CachePartitionStats".
+ */
+export interface CachePartitionStats {
+  /**
+   * The proxy's exit country its entries were fetched through; empty
+   * when they left directly or the Proxy declares none.
+   */
+  country: string;
+  /**
+   * The Identity profile's device class; empty without one.
+   */
+  device: string;
+  /**
+   * Its entries.
+   */
+  entries: number;
+  /**
+   * The Identity profile's language; empty without one.
+   */
+  language: string;
+  /**
+   * `public`, or the Saved identity whose partition it is.
+   */
+  partition: string;
+}
+/**
+ * What `cache.stats` answers: what the caller's Response cache holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheStats".
+ */
+export interface CacheStats {
+  /**
+   * The bodies they hold, each once however many entries share it.
+   */
+  bodies: number;
+  /**
+   * The bytes those bodies weigh, each once.
+   */
+  bodyBytes: number;
+  /**
+   * The caller's entries.
+   */
+  entries: number;
+  /**
+   * The bytes the whole cache holds on disk, every person's bodies and
+   * its index, which `cache.max_size` bounds.
+   */
+  heldBytes: number;
+  /**
+   * The caller's entries by partition, the most entries first.
+   */
+  partitions: CachePartitionStats[];
+}
+/**
+ * What `cache.stats` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheStatsParams".
+ */
+export interface CacheStatsParams {}
+/**
+ * What `cache.verify` answers: what it read, and what it found damaged.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheVerified".
+ */
+export interface CacheVerified {
+  /**
+   * The body files it read and hashed, each once.
+   */
+  bodies: number;
+  /**
+   * The entries whose body file is missing or no longer the body
+   * stored; none when the cache is whole.
+   */
+  damaged: CacheDamage[];
+  /**
+   * The caller's entries it checked.
+   */
+  entries: number;
+}
+/**
+ * What `cache.verify` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CacheVerifyParams".
+ */
+export interface CacheVerifyParams {}
 /**
  * What `call_cancelled` details (ADR 0113).
  *
@@ -3280,6 +3549,11 @@ export interface DaemonState {
    * How many of its Runs are live.
    */
   liveRuns: number;
+  /**
+   * Where a Live view channel opens, the WebSocket's `host:port`; none
+   * where it accepts none, as with `live_view.enabled` off.
+   */
+  liveView?: string | null;
   /**
    * Its process ID.
    */
@@ -4587,6 +4861,47 @@ export interface MarkdownOptions {
   content: MarkdownContent;
 }
 /**
+ * The whole Notification.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FullNotification".
+ */
+export interface FullNotification {
+  /**
+   * What happened.
+   */
+  event: NotificationEvent;
+  /**
+   * The event's ID, the same on every delivery of it and the
+   * `webhook-id` header's value.
+   */
+  eventId: string;
+  /**
+   * Where a person acts on it, such as the Run's page, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Product whose engine sent it.
+   */
+  product: Product;
+  /**
+   * The Run it concerns, if any.
+   */
+  runId?: RunId | null;
+  /**
+   * The Schedule it concerns, if any.
+   */
+  scheduleId?: ScheduleId | null;
+  /**
+   * Its text.
+   */
+  text: string;
+  /**
+   * Its one-line title.
+   */
+  title: string;
+}
+/**
  * What `page.goto` takes: the page, the URL it goes to, and when it
  * answers.
  *
@@ -5372,6 +5687,13 @@ export interface ListenerEventsLostDetails {
   lost: number;
 }
 /**
+ * What `live_view_viewer_limit` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LiveViewViewerLimitDetails".
+ */
+export interface LiveViewViewerLimitDetails {}
+/**
  * What `local_address_unavailable` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5417,6 +5739,58 @@ export interface LocatorEvaluateAllParams {
   locator: Locator;
   /**
    * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * What `locator.scroll_collect` takes (#807): the locator, the page
+ * function reading each match, its argument and world, and when the
+ * collection ends.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorScrollCollectParams".
+ */
+export interface LocatorScrollCollectParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source, called with each matched
+   * element and `arg`: it answers the row's `{ key, value }`, `key` a
+   * string, or `null` to skip the element.
+   */
+  function: string;
+  /**
+   * The steps in a row without a new key at which it ends
+   * `end_of_list`, at least 1; 3 when absent.
+   */
+  idleSteps?: number | null;
+  /**
+   * The locator, whose every match the function reads, resolved again
+   * at each step.
+   */
+  locator: Locator;
+  /**
+   * The rows at which the collection ends `max_rows`, at least 1;
+   * 10,000 when absent.
+   */
+  maxRows?: number | null;
+  /**
+   * How long a step waits for an element with a new key after its
+   * scroll, in milliseconds, at least 1; 2,000 when absent.
+   */
+  stepWait?: number | null;
+  /**
+   * How long the whole collection may take, in milliseconds, at least
+   * 1: absent for `timeout.wait`, `null` for none, though an enclosing
+   * timeout still applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * Where it runs; the isolated world when absent.
    */
   world?: World | null;
 }
@@ -6342,6 +6716,60 @@ export interface SeedsKept {
    * code or a Block cause.
    */
   reason: string;
+}
+/**
+ * A thin Notification: its IDs and link only, which an Integration reads
+ * the rest from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ThinNotification".
+ */
+export interface ThinNotification {
+  /**
+   * The event's ID, the same on every delivery of it and the
+   * `webhook-id` header's value.
+   */
+  eventId: string;
+  /**
+   * Where a person acts on it, such as the Run's page, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Run it concerns, if any.
+   */
+  runId?: RunId | null;
+  /**
+   * The Schedule it concerns, if any.
+   */
+  scheduleId?: ScheduleId | null;
+}
+/**
+ * A `webhook` channel's delivery: the Standard Webhooks envelope around
+ * one Notification.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationPayload".
+ */
+export interface NotificationPayload {
+  /**
+   * The Notification, whole or thin as the channel's `webhook.payload`
+   * says.
+   */
+  data: NotificationData;
+  /**
+   * The body's `major.minor` version: a receiver reads every minor of
+   * its major.
+   */
+  format: ProtocolVersion;
+  /**
+   * When the Notification's event happened, in RFC 3339, UTC.
+   */
+  timestamp: PointInTime;
+  /**
+   * `notification.` and the Notification's event, such as
+   * `notification.run_failed`.
+   */
+  type: string;
 }
 /**
  * The Operator policy as `config.policy_read` reads it.
@@ -7560,6 +7988,22 @@ export interface RecordRead {
   record: DatasetRecord;
 }
 /**
+ * What `recording_invalid`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RecordingInvalidDetails".
+ */
+export interface RecordingInvalidDetails {
+  /**
+   * What is wrong with it.
+   */
+  reason: string;
+  /**
+   * The Response recording's path, as the start named it.
+   */
+  recording: string;
+}
+/**
  * What a Run did with the Response recording its start named (ADR 0105).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7731,6 +8175,27 @@ export interface ResponseLimitExceededDetails {
    * The setting whose limit it passed.
    */
   setting: LimitSetting;
+}
+/**
+ * What `response_not_recorded`'s details hold.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ResponseNotRecordedDetails".
+ */
+export interface ResponseNotRecordedDetails {
+  /**
+   * The request's method.
+   */
+  method: string;
+  /**
+   * The recorded URLs of the request's host and path, in the order
+   * recorded, at most five.
+   */
+  nearest: string[];
+  /**
+   * The Response recording's path, as the start named it.
+   */
+  recording: string;
 }
 /**
  * What `response_truncated` details.
@@ -9276,6 +9741,29 @@ export interface SchemaValidatorFailedDetails {
   schema?: string | null;
 }
 /**
+ * What `locator.scroll_collect` answers (#807): the rows, how the
+ * collection ended and what the list declares, so a short read is never
+ * silent.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScrollCollected".
+ */
+export interface ScrollCollected {
+  /**
+   * The rows the list declares through `aria-rowcount` or its items'
+   * `aria-setsize`; `null` when it declares none.
+   */
+  declared?: Declared | null;
+  /**
+   * How it ended.
+   */
+  ended: ListEnded;
+  /**
+   * Each new key's value, in the order its key was first seen.
+   */
+  rows: unknown[];
+}
+/**
  * What `secret_domain_not_allowed` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -10294,4 +10782,16 @@ export interface WebSocketFrame {
    * The socket.
    */
   webSocketId: string;
+}
+/**
+ * What `webhook_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebhookInvalidDetails".
+ */
+export interface WebhookInvalidDetails {
+  /**
+   * Why the call was refused.
+   */
+  reason: WebhookInvalidReason;
 }

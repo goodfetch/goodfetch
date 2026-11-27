@@ -435,9 +435,55 @@ jobs:
             target/release-attested/assets/* \
             target/release-attested/wheels/*.whl
 
+  deploy-python-index:
+    name: deploy-python-index
+    needs: [publish-github-prerelease, nightly-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Build static PEP 503 and PEP 691 nightly Python index (last 30 nightlies)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p target/python-index
+          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq 'add' > target/nightly-releases.json
+          cargo run --quiet --locked --bin xtask -- release python-index \
+            --releases target/nightly-releases.json \
+            --out target/python-index \
+            --keep 30
+      - name: Scan generated Python index for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/python-index
+      - name: Upload static nightly Python index for smoke runs
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-python-index
+          path: target/python-index
+          if-no-files-found: error
+      - name: Deploy static nightly Python index to its Vercel project
+        if: steps.leaks.outcome == 'success'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_NIGHTLY_INDEX }}
+        run: |
+          npx --yes "vercel@65.12.1" deploy target/python-index --prod --yes --token "$VERCEL_TOKEN"
+
   smoke-channels-linux:
     name: smoke-channels-linux
-    needs: [nightly-version, publish-npm, publish-oci, publish-github-prerelease]
+    needs:
+      [nightly-version, publish-npm, publish-oci, publish-github-prerelease, deploy-python-index]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -457,7 +503,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
         run: |
-          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index
           gh release download "v${RELEASE_VERSION}" -p '*x86_64-unknown-linux-musl.tar.xz' -D target/channel-staged/github
           gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
           npm pack --pack-destination target/channel-staged/npm \
@@ -466,6 +512,11 @@ jobs:
             "@goodfetch/collie@${RELEASE_VERSION}" \
             "@goodfetch/foxhound-linux-x64@${RELEASE_VERSION}" \
             "@goodfetch/foxhound@${RELEASE_VERSION}"
+      - name: Download nightly Python simple index before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-python-index
+          path: target/channel-staged/python-index
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -482,7 +533,8 @@ jobs:
 
   smoke-channels-windows:
     name: smoke-channels-windows
-    needs: [nightly-version, publish-npm, publish-oci, publish-github-prerelease]
+    needs:
+      [nightly-version, publish-npm, publish-oci, publish-github-prerelease, deploy-python-index]
     runs-on: windows-2025
     timeout-minutes: 45
     permissions:
@@ -507,7 +559,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
         run: |
-          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index
           gh release download "v${RELEASE_VERSION}" -p '*x86_64-pc-windows-msvc.tar.xz' -D target/channel-staged/github
           gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
           npm pack --pack-destination target/channel-staged/npm \
@@ -516,6 +568,11 @@ jobs:
             "@goodfetch/collie@${RELEASE_VERSION}" \
             "@goodfetch/foxhound-win32-x64@${RELEASE_VERSION}" \
             "@goodfetch/foxhound@${RELEASE_VERSION}"
+      - name: Download nightly Python simple index before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-python-index
+          path: target/channel-staged/python-index
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic
@@ -532,7 +589,8 @@ jobs:
 
   smoke-channels-macos:
     name: smoke-channels-macos
-    needs: [nightly-version, publish-npm, publish-oci, publish-github-prerelease]
+    needs:
+      [nightly-version, publish-npm, publish-oci, publish-github-prerelease, deploy-python-index]
     runs-on: macos-15
     timeout-minutes: 45
     permissions:
@@ -552,7 +610,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
         run: |
-          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index
           gh release download "v${RELEASE_VERSION}" -p '*aarch64-apple-darwin.tar.xz' -D target/channel-staged/github
           gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
           npm pack --pack-destination target/channel-staged/npm \
@@ -561,6 +619,11 @@ jobs:
             "@goodfetch/collie@${RELEASE_VERSION}" \
             "@goodfetch/foxhound-darwin-arm64@${RELEASE_VERSION}" \
             "@goodfetch/foxhound@${RELEASE_VERSION}"
+      - name: Download nightly Python simple index
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-python-index
+          path: target/channel-staged/python-index
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: "Test: smoke install nightly channels on macOS"

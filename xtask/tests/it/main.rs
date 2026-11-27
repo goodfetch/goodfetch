@@ -127,6 +127,7 @@ mod release_nightly;
 mod release_oci_helm;
 mod release_package;
 mod release_publish;
+mod release_python_index;
 mod release_rehearsal;
 mod release_signing;
 mod release_size_ci;

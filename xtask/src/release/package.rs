@@ -736,3 +736,21 @@ fn set_executable_mode(path: &Path, windows: bool) -> Result<()> {
 fn set_executable_mode(_path: &Path, _windows: bool) -> Result<()> {
     Ok(())
 }
+
+pub(super) fn update_helm_chart_yaml(text: &str, semver: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    for line in text.lines() {
+        if line.starts_with("version:") {
+            out.push_str("version: ");
+            out.push_str(semver);
+        } else if line.starts_with("appVersion:") {
+            out.push_str("appVersion: \"");
+            out.push_str(semver);
+            out.push('"');
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}

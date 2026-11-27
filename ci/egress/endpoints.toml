@@ -378,6 +378,10 @@ reason = "It pushes nightly OCI images and first-party Plugin OCI artifacts to G
 job = "release-nightly.yml#publish-github-prerelease"
 reason = "It creates the nightly GitHub pre-release with release assets and .devN wheels and runs none of the product."
 
+[[outside]]
+job = "release-nightly.yml#deploy-python-index"
+reason = "It builds the static PEP 503/PEP 691 nightly Python index from GitHub releases and deploys it to Vercel without running the product (issue 205)."
+
 [[deny]]
 job = "release-nightly.yml#smoke-channels-linux"
 

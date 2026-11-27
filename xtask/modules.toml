@@ -178,6 +178,7 @@ package = ["assets"]
 proving_ground = ["assets"]
 publish = ["assets", "digests"]
 pull_request = ["changelog"]
+python_index = []
 signing = ["assets"]
 size_manifest = ["assets"]
 

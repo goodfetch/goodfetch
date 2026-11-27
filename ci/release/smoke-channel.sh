@@ -33,14 +33,55 @@ for product in collie foxhound; do
   fi
 done
 
-# 2. Verify `.devN` wheels staged from the GitHub pre-release (or nightly Python
-#    index from #205) install offline in a fresh venv and start both executables.
+# 2. Verify `.devN` wheels staged from the GitHub pre-release and the nightly
+#    Python simple index (issue 205) install offline in fresh venvs via both
+#    `pip install --pre --index-url` and `uv` for each Product.
 if [[ -d "$staged/wheels" ]] && ls "$staged/wheels"/*.whl >/dev/null 2>&1; then
   venv="$scratch/wheel-venv"
   uv venv --seed "$venv" >/dev/null
-  "$venv/bin/pip" install --quiet --no-deps --no-index --find-links "$staged/wheels" \
+  pip_bin="$venv/bin/pip"
+  py_bin="$venv/bin/python"
+  [[ -x "$venv/Scripts/pip.exe" ]] && pip_bin="$venv/Scripts/pip.exe" && py_bin="$venv/Scripts/python.exe"
+  "$pip_bin" install --quiet --pre --no-deps --no-index --find-links "$staged/wheels" \
     goodfetch-collie-client goodfetch-collie goodfetch-foxhound
-  "$venv/bin/python" -c "import goodfetch_collie_client, goodfetch_collie, goodfetch_foxhound"
+  "$py_bin" -c "import goodfetch_collie_client, goodfetch_collie, goodfetch_foxhound"
+
+  if [[ -d "$staged/python-index/simple" ]]; then
+    # Verify PEP 503 HTML and PEP 691 JSON project pages exist for each Product,
+    # then test `pip install --pre --index-url` and `uv pip install` against a
+    # local file/loopback copy of the simple index pointing at the staged wheels.
+    for project in goodfetch-collie goodfetch-collie-client goodfetch-foxhound; do
+      test -f "$staged/python-index/simple/$project/index.html"
+      test -f "$staged/python-index/simple/$project/index.json"
+    done
+    local_index="$scratch/local-simple"
+    mkdir -p "$local_index/goodfetch-collie" "$local_index/goodfetch-foxhound" "$local_index/goodfetch-collie-client"
+    for whl in "$staged/wheels"/*.whl; do
+      base=$(basename "$whl")
+      abs=$(cd "$(dirname "$whl")" && pwd)/"$base"
+      sha=$(sha256sum "$abs" | awk '{print $1}')
+      case "$base" in
+        goodfetch_collie_client-*) proj="goodfetch-collie-client" ;;
+        goodfetch_collie-*) proj="goodfetch-collie" ;;
+        goodfetch_foxhound-*) proj="goodfetch-foxhound" ;;
+        *) continue ;;
+      esac
+      printf '<a href="file://%s#sha256=%s">%s</a><br>\n' "$abs" "$sha" "$base" \
+        >>"$local_index/$proj/index.html"
+    done
+    for product in goodfetch-collie goodfetch-foxhound; do
+      pip_venv="$scratch/pip-index-$product"
+      uv venv --seed "$pip_venv" >/dev/null
+      pbin="$pip_venv/bin/pip"
+      [[ -x "$pip_venv/Scripts/pip.exe" ]] && pbin="$pip_venv/Scripts/pip.exe"
+      "$pbin" install --quiet --pre --no-deps --index-url "file://$local_index" "$product"
+
+      uv_venv="$scratch/uv-index-$product"
+      uv venv "$uv_venv" >/dev/null
+      uv pip install --quiet --python "$uv_venv" --prerelease=allow --no-deps \
+        --index "goodfetch-nightly=file://$local_index" "$product"
+    done
+  fi
 fi
 
 # 3. Verify npm `nightly` tarballs staged from npm install with `--ignore-scripts`

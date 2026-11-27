@@ -38,6 +38,7 @@ mod line;
 mod package;
 mod proving_ground;
 mod pull_request;
+mod python_index;
 mod signing;
 mod size_manifest;
 
@@ -246,6 +247,10 @@ pub(crate) enum Command {
     /// files, excluding Goodfetch Chromium and debug symbols (ADRs 0057, 0074,
     /// 0087 and 0094; issue 203).
     SizeManifest(size_manifest::Arguments),
+    /// Writes the static PEP 503 HTML and PEP 691 JSON nightly Python simple
+    /// index covering the newest `--keep` nightly pre-releases (ADRs 0057, 0090
+    /// and 0094; issue 205).
+    PythonIndex(python_index::Arguments),
 }
 
 #[expect(
@@ -270,6 +275,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::SigningReuseKey(arguments) => signing::run_reuse_key(root, &arguments),
         Command::ChannelGate(arguments) => channel_gate::run(root, &arguments),
         Command::SizeManifest(arguments) => size_manifest::run(root, &arguments),
+        Command::PythonIndex(arguments) => python_index::run(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,
@@ -653,29 +659,11 @@ fn prepare(tree: Tree<'_>, version: &ProductVersion) -> Result<Vec<(String, Stri
     // Shared Helm chart source versioned with the Product version (issue 202).
     let helm_chart = "packaging/helm/goodfetch/Chart.yaml";
     if let Ok(chart_text) = tree.read(helm_chart) {
-        let updated = update_helm_chart_yaml(&chart_text, &semver);
+        let updated = package::update_helm_chart_yaml(&chart_text, &semver);
         written.push((helm_chart.to_owned(), updated));
     }
 
     Ok(written)
-}
-
-fn update_helm_chart_yaml(text: &str, semver: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 16);
-    for line in text.lines() {
-        if line.starts_with("version:") {
-            out.push_str("version: ");
-            out.push_str(semver);
-        } else if line.starts_with("appVersion:") {
-            out.push_str("appVersion: \"");
-            out.push_str(semver);
-            out.push('"');
-        } else {
-            out.push_str(line);
-        }
-        out.push('\n');
-    }
-    out
 }
 
 /// `manifest`'s dependency tables of the `kinds` given, each target's

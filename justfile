@@ -244,6 +244,7 @@ lint:
     # (ADR 0074); both pass while `chromium/` is empty.
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
+    step --after xtask xtask-probes 'cargo run --quiet --bin xtask -- probes check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     steps_end
 

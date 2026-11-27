@@ -211,6 +211,55 @@ fn assert_every_probe_at_none(kind: Option<MechanismKind>) {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+#[test]
+fn a_probe_with_a_failing_positive_control_is_rejected_even_when_confined_refuses() {
+    let table =
+        ProbeTable::read(probes::committed(Host::Linux, NetworkLevel::None).unwrap()).unwrap();
+    let ptrace = table
+        .call
+        .iter()
+        .find(|case| case.rule == "ptrace")
+        .unwrap()
+        .clone();
+    let broken_control = goodfetch_confinement::probes::CallCase {
+        // Real unconfined `ptrace` returns ESRCH; expecting `ok` makes the positive control fail.
+        unconfined: Outcome::Ok,
+        ..ptrace
+    };
+    let plugin = Plugin::new(&table, NetworkLevel::None);
+    let confined = Confined {
+        policy: &plugin.policy,
+        kind: None,
+    };
+    let probe = || Probe::Call {
+        call: broken_control.call,
+        args: broken_control.args.clone(),
+    };
+    let result = goodfetch_confinement::probes::run_call_case(
+        &broken_control,
+        broken_control.confined,
+        || match run(probe(), None).unwrap() {
+            Report::Outcome(outcome) => outcome,
+            other => panic!("unexpected unconfined report: {other:?}"),
+        },
+        || match run(probe(), Some(confined)).unwrap() {
+            Report::Outcome(outcome) => outcome,
+            other => panic!("unexpected confined report: {other:?}"),
+        },
+    );
+
+    assert_eq!(
+        result,
+        Err(
+            goodfetch_confinement::probes::CaseFailure::PositiveControl {
+                rule: "ptrace".to_owned(),
+                expected: Outcome::Ok,
+                found: Outcome::Errno(goodfetch_confinement::probes::Errno::Esrch),
+            }
+        )
+    );
+}
+
 /// Asserts the mechanism `confined` gets against the kernel's own answers,
 /// and the one this runner declares; gives the mechanism used and whether
 /// it is enforced here.

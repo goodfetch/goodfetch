@@ -109,6 +109,7 @@ mod perf_script;
 #[cfg(unix)]
 mod pgo;
 mod pre_merge;
+mod probes;
 mod quarantine;
 mod quick;
 mod received_requests;

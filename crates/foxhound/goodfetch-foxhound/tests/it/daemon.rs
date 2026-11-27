@@ -378,3 +378,72 @@ fn a_foxhound_program_on_daemon_fails_past_a_busy_collie_daemon_with_its_daemon_
     assert!(fix.ends_with(FOXHOUND_RESTART), "{fix}");
     assert_eq!(String::from_utf8(log.written()).unwrap(), "");
 }
+
+/// A Foxhound Daemon joining a Collie Lead Daemon's group is refused over the
+/// peer link with `not_in_product`, naming both Products and carrying a `fix`
+/// (ADR 0055, ADR 0095).
+///
+/// Covers: story:3-145, error:not_in_product
+#[test]
+fn a_foxhound_daemon_joining_a_collie_group_is_refused_with_not_in_product() {
+    let (lead, member) = (TestEnv::new(), TestEnv::new());
+    short_idle(&lead);
+    short_idle(&member);
+    let layout = goodfetch_test_client::HomeLayout::of(lead.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(
+        layout.operator_policy(),
+        "version = \"0.1\"\n\n[settings.politeness]\nsharing = \"per_daemon\"\n",
+    )
+    .unwrap();
+    let _stop_lead = StopsTheDaemon(&lead);
+    let _stop_member = StopsTheDaemon(&member);
+
+    let formed = json_of(
+        &collie(),
+        &lead,
+        &[
+            "group",
+            "init",
+            "--name",
+            "collie-lead",
+            "--peer-address",
+            "127.0.0.1:0",
+            "--json",
+        ],
+    );
+    let minted = json_of(&collie(), &lead, &["group", "token", "--json"]);
+
+    let checked = cli(&member, FOXHOUND)
+        .args([
+            "group",
+            "join",
+            "--lead",
+            formed["peer_address"].as_str().unwrap(),
+            "--token",
+            minted["token"].as_str().unwrap(),
+            "--authority-key",
+            minted["authority_key"].as_str().unwrap(),
+            "--name",
+            "foxhound-worker",
+            "--peer-address",
+            "127.0.0.1:0",
+            "--json",
+        ])
+        .json("CommandFailed")
+        .unwrap();
+    assert_ne!(checked.output.exit, Some(0), "{}", checked.output);
+    let error = &checked.documents[0]["error"];
+    let message = error["message"].as_str().unwrap().to_lowercase();
+    assert_eq!(error["code"].as_str(), Some("not_in_product"), "{error:#}");
+    assert!(
+        message.contains("collie") && message.contains("foxhound"),
+        "expected both Products named in message: {error:#}"
+    );
+    assert_eq!(error["product"].as_str(), Some("collie"), "{error:#}");
+    assert_eq!(error["needs"].as_str(), Some("foxhound"), "{error:#}");
+    assert!(
+        error["fix"].as_str().is_some_and(|fix| !fix.is_empty()),
+        "expected a non-empty fix: {error:#}"
+    );
+}

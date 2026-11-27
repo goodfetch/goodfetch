@@ -17,13 +17,15 @@ use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use data_encoding::BASE64;
+use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
-    GROUP_MEMBER_EXISTS, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
+    GROUP_MEMBER_EXISTS, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
     PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerRenewParams, PeerRunIndexReportParams,
     RENEW, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
 use rustls::server::ParsedCertificate;
 use serde::de::DeserializeOwned;
@@ -472,6 +474,13 @@ impl Peering {
         Ok(epochs.highest())
     }
 
+    /// Records a peer-link refusal in the Audit log when refusals are wired.
+    async fn record_refusal(&self, reason: RefusalReason) {
+        if let Some(refusals) = &self.services.refusals {
+            refusals.refused(Listener::PeerLink, reason).await;
+        }
+    }
+
     /// The group's certificate authority, which the Lead Daemon alone
     /// keeps.
     ///
@@ -511,6 +520,9 @@ impl Peering {
             Ok(None) => return,
             Err(error) => {
                 tracing::debug!(%error, "a peer link's handshake failed");
+                if let Some(reason) = handshake_refusal(&error) {
+                    self.record_refusal(reason).await;
+                }
                 return;
             }
         };
@@ -556,9 +568,14 @@ impl Peering {
     ) {
         let mut link = PeerLink::accepting(self.identity.clone());
         let mut frame = Some(first);
+        let mut first_message = true;
         while let Some(received) = frame {
             let answer = match received {
                 Frame::Line(sent) => {
+                    if first_message && is_not_hello(&sent) {
+                        self.record_refusal(RefusalReason::HelloNotFirst).await;
+                    }
+                    first_message = false;
                     let mut epochs = self.epochs.lock().await;
                     let before = epochs.highest();
                     let mut staged = epochs.clone();
@@ -854,6 +871,37 @@ fn join_request(
         (params.product, params.protocol_version)
     })
     .map_err(Some)
+}
+
+/// Classifies a peer-link TLS handshake error into its endpoint-table Audit
+/// refusal reason (ADR 0067).
+fn handshake_refusal(error: &std::io::Error) -> Option<RefusalReason> {
+    let inner = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())?;
+    if let Some(CertificateFailure::Known(known)) = crate::tls::certificate_failure(inner) {
+        return match known {
+            KnownCertificateFailure::UnknownIssuer | KnownCertificateFailure::SelfSigned => {
+                Some(RefusalReason::CertificateUnknownAuthority)
+            }
+            KnownCertificateFailure::Revoked => Some(RefusalReason::CertificateRevoked),
+            KnownCertificateFailure::Expired | KnownCertificateFailure::NotYetValid => {
+                Some(RefusalReason::CertificateExpired)
+            }
+            _ => None,
+        };
+    }
+    matches!(inner, rustls::Error::InvalidMessage(_)).then_some(RefusalReason::TlsRequired)
+}
+
+/// Whether `line`, the first message on an authenticated peer link that was
+/// neither `group.renew`, `group.leave`, nor `group.run_index.report`, is not
+/// a `hello` request.
+fn is_not_hello(line: &[u8]) -> bool {
+    !matches!(
+        decode(line.to_vec()),
+        Ok(Incoming::Request { call, .. }) if call.method() == HELLO
+    )
 }
 
 /// Maps a [`LeadRefusal`] to its wire [`CallError`].

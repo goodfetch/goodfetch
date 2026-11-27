@@ -14,6 +14,11 @@ listeners.daemon_websocket = { expect = "closed" }
 listeners.live_view = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
 listeners.proxy_relay = { expect = "challenge" }
+
+[rule.certificate_unknown_authority]
+summary = "A peer presents a certificate from another group's authority."
+adrs = [55, 67]
+listeners.peer_link = { expect = "closed" }
 "#;
 
 #[test]

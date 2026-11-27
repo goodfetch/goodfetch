@@ -11,16 +11,30 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
-use std::time::{Duration, Instant};
+use std::io::{BufRead as _, BufReader, Write as _};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime};
 
+use data_encoding::BASE64;
 use goodfetch_engine::home::Home;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_protocol::group::PEER_PROTOCOL_VERSION;
+use goodfetch_protocol::home::GROUP_STORE;
+use goodfetch_protocol::refusals::{RefusalCase, Reply};
 use goodfetch_test_client::{DaemonClient, Hello, HomeLayout};
-use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
+use goodfetch_test_support::{
+    Endpoint, EndpointRunner, Listener, ListenerKind, ListenerTls, RuntimeFile, TestEnv, Toxiproxy,
+    cli,
+};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, runtime_file, short_idle, wait_until_stopped};
+use crate::endpoint::audit_verifier;
 use crate::engine_choice::daemon_dispatched;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -509,4 +523,270 @@ fn a_group_member_feeds_the_lead_daemons_run_index_and_runs_reindex_re_reports()
         run_index_owner(&lead, "group-run-1"),
         Some((expected_owner, "present".to_owned()))
     );
+}
+
+/// Reads `(key_der, cert_der, ca_der, lead_server_name)` from `env`'s group store.
+fn stored_peer_identity(env: &TestEnv) -> (Vec<u8>, Vec<u8>, Vec<u8>, String) {
+    let version = ProductVersion::parse(VERSION).unwrap();
+    let path = Home::new(env.home().to_path_buf())
+        .per_major(&version)
+        .join(GROUP_STORE);
+    let connection = rusqlite::Connection::open(path).unwrap();
+    let (key, cert, authority, lead_name): (String, String, String, String) = connection
+        .query_row(
+            "SELECT key, certificate, authority, lead_name FROM identity WHERE only = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap();
+    (
+        BASE64.decode(key.as_bytes()).unwrap(),
+        BASE64.decode(cert.as_bytes()).unwrap(),
+        BASE64.decode(authority.as_bytes()).unwrap(),
+        format!("{lead_name}.group.goodfetch.invalid"),
+    )
+}
+
+/// Reads `(authority_name, ca_key_der)` from a Lead Daemon's group store.
+fn stored_authority(env: &TestEnv) -> (String, Vec<u8>) {
+    let version = ProductVersion::parse(VERSION).unwrap();
+    let path = Home::new(env.home().to_path_buf())
+        .per_major(&version)
+        .join(GROUP_STORE);
+    let connection = rusqlite::Connection::open(path).unwrap();
+    let (name, key): (String, String) = connection
+        .query_row(
+            "SELECT name, key FROM authority WHERE only = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    (name, BASE64.decode(key.as_bytes()).unwrap())
+}
+
+/// Signs a client certificate `(cert_der, key_der)` with `issuer` over the
+/// given validity window.
+fn sign_client_cert(
+    issuer: &rcgen::Issuer<'_, rcgen::KeyPair>,
+    name: &str,
+    not_before: SystemTime,
+    not_after: SystemTime,
+) -> (Vec<u8>, Vec<u8>) {
+    let mut params =
+        rcgen::CertificateParams::new(vec![format!("{name}.group.goodfetch.invalid")]).unwrap();
+    params.not_before = not_before.into();
+    params.not_after = not_after.into();
+    params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+    let key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+    let cert = params.signed_by(&key, issuer).unwrap();
+    (cert.der().to_vec(), key.serialize_der())
+}
+
+/// The peer link is a column of the endpoint table (ADR 0067): it accepts a
+/// valid Group member certificate and refuses another group's CA, a revoked
+/// Group member, an expired certificate, a plain connection and a non-`hello`
+/// first message, recording every refusal in the Audit log.
+///
+/// Covers: story:3-106, story:3-108, story:4-21
+#[test]
+fn the_peer_link_passes_its_column_of_the_endpoint_table() {
+    let (lead, valid, to_revoke) = (home(), home(), home());
+    let _stops = [&lead, &valid, &to_revoke].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    let address: SocketAddr = formed["peer_address"].as_str().unwrap().parse().unwrap();
+    let _ = joined_as(&lead, &formed, &valid, "valid-member", "127.0.0.1:0");
+    let _ = joined_as(&lead, &formed, &to_revoke, "revoked-member", "127.0.0.1:0");
+
+    let (valid_key, valid_cert, ca_cert, lead_name) = stored_peer_identity(&valid);
+    let (revoked_key, revoked_cert, _, _) = stored_peer_identity(&to_revoke);
+    let _ = answered(
+        &lead,
+        &["group", "revoke", "--name", "revoked-member"],
+        "GroupMemberRevoked",
+    );
+
+    // Expired certificate signed by the group's own authority.
+    let (ca_name, ca_key_der) = stored_authority(&lead);
+    let ca_key = rcgen::KeyPair::try_from(&PrivatePkcs8KeyDer::from(ca_key_der)).unwrap();
+    let mut group_ca_params = rcgen::CertificateParams::default();
+    group_ca_params
+        .distinguished_name
+        .push(rcgen::DnType::CommonName, ca_name);
+    group_ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Constrained(0));
+    group_ca_params.key_usages = vec![
+        rcgen::KeyUsagePurpose::KeyCertSign,
+        rcgen::KeyUsagePurpose::CrlSign,
+        rcgen::KeyUsagePurpose::DigitalSignature,
+    ];
+    let group_issuer = rcgen::Issuer::new(group_ca_params, ca_key);
+    let now = SystemTime::now();
+    let (expired_cert, expired_key) = sign_client_cert(
+        &group_issuer,
+        "expired-member",
+        now - Duration::from_hours(72),
+        now - Duration::from_hours(24),
+    );
+
+    // Certificate signed by another group's authority.
+    let mut other_params = rcgen::CertificateParams::default();
+    other_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let other_ca_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+    let other_issuer = rcgen::Issuer::new(other_params, other_ca_key);
+    let (unknown_cert, unknown_key) = sign_client_cert(
+        &other_issuer,
+        "stranger",
+        now - Duration::from_hours(1),
+        now + Duration::from_hours(24),
+    );
+
+    let hello = json!({
+        "protocol_version": PEER_PROTOCOL_VERSION,
+        "product": Product::Collie,
+        "product_version": VERSION,
+        "lead_epoch": 1,
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let tls = ListenerTls::new(lead_name, ca_cert).with_client_certificate(valid_cert, valid_key);
+    let listener = Listener::new(
+        ListenerKind::PeerLink,
+        Endpoint::PeerLink { address, hello },
+        "",
+    )
+    .over_tls(tls)
+    .with_unknown_authority_certificate(unknown_cert, unknown_key)
+    .with_revoked_certificate(revoked_cert, revoked_key)
+    .with_expired_certificate(expired_cert, expired_key);
+
+    let ran = EndpointRunner::new(audit_verifier(&lead, "peer_link")).run(&listener);
+    assert_eq!(ran, Ok(()));
+}
+
+/// Every generated peer-protocol refusal case for Collie (ADR 0066) gets its
+/// expected reply over mutual TLS against Collie's live Lead Daemon executable,
+/// and a refused `hello` closes the peer link.
+///
+/// Covers: story:3-95, story:3-108, format:peer-protocol
+#[test]
+fn refused_peer_versions_are_refused_in_reply_to_hello_by_collie() {
+    let (lead, member) = (home(), home());
+    let _stops = [&lead, &member].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    let address: SocketAddr = formed["peer_address"].as_str().unwrap().parse().unwrap();
+    let _ = joined(&lead, &formed, &member, "127.0.0.1:0");
+
+    let (key_der, cert_der, ca_der, lead_name) = stored_peer_identity(&member);
+    let mut roots = RootCertStore::empty();
+    roots.add(CertificateDer::from(ca_der)).unwrap();
+    let config = Arc::new(
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .with_root_certificates(roots)
+            .with_client_auth_cert(
+                vec![CertificateDer::from(cert_der)],
+                PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key_der)),
+            )
+            .unwrap(),
+    );
+
+    let cases_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../goodfetch-protocol/generated/refusals/peer-protocol");
+    let mut checked = 0usize;
+    for entry in std::fs::read_dir(&cases_dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let case: RefusalCase = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let fabricated = case.hello.clone().unwrap();
+        if fabricated.engine != Product::Collie {
+            continue;
+        }
+        let tcp = TcpStream::connect(address).unwrap();
+        tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let server_name = ServerName::try_from(lead_name.clone()).unwrap();
+        let mut tls = StreamOwned::new(
+            ClientConnection::new(Arc::clone(&config), server_name).unwrap(),
+            tcp,
+        );
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "hello",
+            "params": {
+                "protocol_version": case.found,
+                "product": fabricated.needs.unwrap(),
+                "product_version": VERSION,
+                "lead_epoch": 1,
+            },
+        });
+        writeln!(tls, "{request}").unwrap();
+        tls.flush().unwrap();
+
+        let mut reader = BufReader::new(tls);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap();
+        match fabricated.reply {
+            Reply::Accepted { protocol_version } => {
+                assert_eq!(
+                    reply["result"]["protocol_version"],
+                    json!(protocol_version),
+                    "{path:?}: {reply:#}"
+                );
+            }
+            Reply::Refused { error_code } => {
+                assert_eq!(
+                    reply["error"]["data"]["code"],
+                    json!(error_code),
+                    "{path:?}: {reply:#}"
+                );
+                let mut trailing = String::new();
+                let eof = reader.read_line(&mut trailing).unwrap_or(0);
+                assert_eq!(eof, 0, "refused hello must close the peer link: {trailing}");
+            }
+        }
+        checked += 1;
+    }
+    assert!(checked > 0, "expected Collie peer-protocol refusal cases");
+}
+
+/// Toxiproxy partitions one Group member from its Lead Daemon in multi-process
+/// tests (ADR 0060): while partitioned, `group leave` fails with
+/// `group_lead_unreachable` and the member stays in the group; once healed,
+/// `group leave` succeeds.
+///
+/// Covers: story:3-106
+#[test]
+fn toxiproxy_partition_blocks_a_group_member_until_healed() {
+    let (lead, member) = (home(), home());
+    let _stops = [&lead, &member].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    let lead_addr: SocketAddr = formed["peer_address"].as_str().unwrap().parse().unwrap();
+
+    let toxiproxy = Toxiproxy::start(&lead).unwrap();
+    let proxied = toxiproxy
+        .proxy("peer-to-lead", lead_addr, IpAddr::V4(Ipv4Addr::LOCALHOST))
+        .unwrap();
+    let minted = answered(&lead, &["group", "token"], "JoinTokenMinted");
+    let _joined = answered(
+        &member,
+        &join(
+            &proxied.to_string(),
+            minted["token"].as_str().unwrap(),
+            minted["authority_key"].as_str().unwrap(),
+            "partitioned",
+        ),
+        "GroupJoined",
+    );
+
+    toxiproxy.partition("peer-to-lead").unwrap();
+    let while_partitioned = refused(&member, &["group", "leave"]);
+    assert_eq!(while_partitioned.as_str(), Some("group_lead_unreachable"));
+
+    toxiproxy.heal("peer-to-lead").unwrap();
+    let after_heal = answered(&member, &["group", "leave"], "GroupLeft");
+    assert_eq!(after_heal["name"].as_str(), Some("partitioned"));
 }

@@ -132,6 +132,14 @@ pub enum Endpoint {
         /// The `open` it accepts.
         open: Open,
     },
+    /// A Daemon group's peer link on TCP (ADR 0055): mutual TLS 1.3 carrying
+    /// newline-delimited JSON-RPC opened with `hello`.
+    PeerLink {
+        /// Where it listens.
+        address: SocketAddr,
+        /// The `hello` params it accepts (no token; authenticated by mTLS).
+        hello: Map<String, Value>,
+    },
 }
 
 /// The listener under test, as a value.
@@ -142,6 +150,9 @@ pub struct Listener {
     token: String,
     /// The token each row that presents a token of its own presents.
     given: BTreeMap<Rule, String>,
+    /// The client certificate and PKCS #8 key (DER) each mutual-TLS
+    /// certificate rule presents.
+    given_certificates: BTreeMap<Rule, (Vec<u8>, Vec<u8>)>,
     /// The TLS the listener terminates, if any, which every attempt but
     /// the `plain_where_tls_configured` row's opens.
     tls: Option<ListenerTls>,
@@ -155,6 +166,7 @@ impl Listener {
             endpoint,
             token: token.into(),
             given: BTreeMap::new(),
+            given_certificates: BTreeMap::new(),
             tls: None,
         }
     }
@@ -195,8 +207,52 @@ impl Listener {
         self.giving(Rule::TokenScopedElsewhere, token)
     }
 
+    /// A certificate signed by another group's authority, which the
+    /// `certificate_unknown_authority` row presents.
+    #[must_use]
+    pub fn with_unknown_authority_certificate(
+        self,
+        certificate: impl Into<Vec<u8>>,
+        key: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.giving_certificate(Rule::CertificateUnknownAuthority, certificate, key)
+    }
+
+    /// A revoked Group member certificate, which the `certificate_revoked`
+    /// row presents.
+    #[must_use]
+    pub fn with_revoked_certificate(
+        self,
+        certificate: impl Into<Vec<u8>>,
+        key: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.giving_certificate(Rule::CertificateRevoked, certificate, key)
+    }
+
+    /// An expired Group member certificate, which the `certificate_expired`
+    /// row presents.
+    #[must_use]
+    pub fn with_expired_certificate(
+        self,
+        certificate: impl Into<Vec<u8>>,
+        key: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.giving_certificate(Rule::CertificateExpired, certificate, key)
+    }
+
     fn giving(mut self, rule: Rule, token: impl Into<String>) -> Self {
         self.given.insert(rule, token.into());
+        self
+    }
+
+    fn giving_certificate(
+        mut self,
+        rule: Rule,
+        certificate: impl Into<Vec<u8>>,
+        key: impl Into<Vec<u8>>,
+    ) -> Self {
+        self.given_certificates
+            .insert(rule, (certificate.into(), key.into()));
         self
     }
 }
@@ -312,6 +368,9 @@ pub enum Failure {
     /// The row connects in plain where the listener terminates TLS, which
     /// the listener's description does not say it does.
     TlsNotGiven,
+    /// The row presents a client certificate of its own, which the listener's
+    /// description lacks.
+    CertificateNotGiven,
 }
 
 /// A row the listener failed.
@@ -440,6 +499,10 @@ impl<A: AuditVerifier> EndpointRunner<A> {
                 path,
                 open,
             },
+            (Endpoint::PeerLink { address, hello }, Transport::PeerMutualTls) => Reach::PeerLink {
+                address: *address,
+                hello,
+            },
             _ => {
                 return Err(EndpointRunError::TransportMismatch {
                     listener: listener.kind,
@@ -504,6 +567,18 @@ fn apply(
                 return Some(Failure::TlsNotGiven);
             }
             reach.attempt(token, Attempt::Valid, None)
+        }
+        Rule::CertificateUnknownAuthority | Rule::CertificateRevoked | Rule::CertificateExpired => {
+            let Some(base_tls) = tls else {
+                return Some(Failure::TlsNotGiven);
+            };
+            let Some((cert, key)) = listener.given_certificates.get(&rule) else {
+                return Some(Failure::CertificateNotGiven);
+            };
+            let presented = base_tls
+                .clone()
+                .with_client_certificate(cert.clone(), key.clone());
+            reach.attempt(token, Attempt::Valid, Some(&presented))
         }
         Rule::ProbesAnswerStatusOnly => {
             return PROBES
@@ -578,6 +653,10 @@ enum Reach<'a> {
         path: &'a str,
         open: &'a Open,
     },
+    PeerLink {
+        address: SocketAddr,
+        hello: &'a Map<String, Value>,
+    },
 }
 
 /// An HTTP proxy, and the `CONNECT` target and username of its valid
@@ -632,6 +711,19 @@ impl Reach<'_> {
                 &open.message(NOT_OPEN, Some(token)),
                 |answer| answer.get("kind").and_then(Value::as_str) == Some("opened"),
             ),
+            Self::PeerLink { address, hello } => {
+                let method = match attempt {
+                    Attempt::NotHello => NOT_HELLO,
+                    _ => "hello",
+                };
+                let message = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": method,
+                    "params": hello,
+                });
+                json_rpc::attempt(&ListenerAddress::Tcp(*address), tls, &message)
+            }
             Self::HttpProxy(reach) => reach.attempt(token, attempt, tls),
             Self::Http {
                 address,

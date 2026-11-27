@@ -62,7 +62,10 @@ fn reason(rule: Rule) -> Option<&'static str> {
         | Rule::TokenExpired
         | Rule::TokenRevoked
         | Rule::TokenScopedElsewhere
-        | Rule::OriginMissingWithoutHeaderToken => return None,
+        | Rule::OriginMissingWithoutHeaderToken
+        | Rule::CertificateUnknownAuthority
+        | Rule::CertificateRevoked
+        | Rule::CertificateExpired => return None,
     })
 }
 
@@ -76,6 +79,7 @@ fn listener_name(kind: ListenerKind) -> &'static str {
         ListenerKind::OpsListener => "ops_listener",
         ListenerKind::ProxyRelay => "proxy_relay",
         ListenerKind::LiveView => "live_view",
+        ListenerKind::PeerLink => "peer_link",
     }
 }
 

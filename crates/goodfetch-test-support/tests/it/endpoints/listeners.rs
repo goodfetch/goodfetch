@@ -61,7 +61,10 @@ impl AuditLog {
             Rule::OriginMissing => Reason::MissingOrigin,
             Rule::HelloNotFirst => Reason::NotHello,
             Rule::PlainWhereTlsConfigured => Reason::PlainWhereTls,
-            Rule::ProbesAnswerStatusOnly => return false,
+            Rule::CertificateUnknownAuthority
+            | Rule::CertificateRevoked
+            | Rule::CertificateExpired
+            | Rule::ProbesAnswerStatusOnly => return false,
         };
         self.0.recv_timeout(Duration::from_secs(5)) == Ok(expected)
     }

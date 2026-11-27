@@ -52,7 +52,11 @@ pub(crate) fn reason(rule: Rule) -> Option<&'static str> {
         Rule::OriginForeign => "origin_foreign",
         Rule::HelloNotFirst => "hello_not_first",
         Rule::OriginMissing => "origin_missing",
-        Rule::PlainWhereTlsConfigured | Rule::ProbesAnswerStatusOnly => return None,
+        Rule::PlainWhereTlsConfigured => "tls_required",
+        Rule::CertificateUnknownAuthority => "certificate_unknown_authority",
+        Rule::CertificateRevoked => "certificate_revoked",
+        Rule::CertificateExpired => "certificate_expired",
+        Rule::ProbesAnswerStatusOnly => return None,
     })
 }
 

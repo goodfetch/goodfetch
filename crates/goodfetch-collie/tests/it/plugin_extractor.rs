@@ -4,7 +4,9 @@
 //! through its own executable as a page first reads with it, and whose
 //! answer `page.formats` answers as the page's main content; and its
 //! settings, which value its environment (ticket 861), and a secret one
-//! of which a discarded Run leaves nowhere (ticket 819).
+//! of which a discarded Run leaves nowhere (ticket 819), as it leaves
+//! nowhere a Secret the Plugin's `net.fetch` names by reference (ticket
+//! 842).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -17,7 +19,7 @@ use std::path::Path;
 use goodfetch_protocol::home::{PLUGIN_INSTANCES, RUN_TRACE_PLUGIN_CALLS};
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    Canaries, Output, ProvingGround, SecretKind, TestEnv, Tool, browser_cache, tools,
+    Canaries, Output, Placement, ProvingGround, SecretKind, TestEnv, Tool, browser_cache, tools,
 };
 use serde_json::{Value, json};
 
@@ -37,8 +39,9 @@ fn install(home: &Path, answer: &Value) {
 /// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
 /// the Extractor `name`, which answers `extract.content` with `answer`,
 /// its manifest's fields `more` added; the Operator policy allows it, and
-/// approves the release of `env:EXTRACT_SECRET`, the one Secret these
-/// tests give a Plugin (issue 900).
+/// approves `env:EXTRACT_SECRET`, the one Secret these tests give a Plugin,
+/// both for the release of its value (issue 900) and for its insertion in
+/// a `net.fetch` (issue 842).
 #[expect(
     clippy::disallowed_methods,
     reason = "the test lays out the Plugin store by hand, before the engine starts"
@@ -50,7 +53,7 @@ fn install_as(home: &Path, name: &str, answer: &Value, more: &Value) {
     fs::write(
         &policy,
         format!(
-            "{written}\n[settings.plugins.{name}]\nallow = true\napproved.secret_values = [\"env:EXTRACT_SECRET\"]\n"
+            "{written}\n[settings.plugins.{name}]\nallow = true\napproved.secret_values = [\"env:EXTRACT_SECRET\"]\napproved.secrets = [\"env:EXTRACT_SECRET\"]\n"
         ),
     )
     .unwrap();
@@ -338,7 +341,7 @@ fn found_in(folder: &Path, canaries: &Canaries) -> BTreeSet<(&'static str, Strin
 /// or in any of Goodfetch's encodings, and the Plugin's answer held it
 /// masked.
 ///
-/// Covers: story:7-28, story:7-30, story:3-39, operation:run.discard, setting:plugins
+/// Covers: story:7-28, story:7-30, story:7-45, story:3-39, operation:run.discard, setting:plugins
 #[test]
 fn a_secret_planted_through_a_plugin_is_found_nowhere_once_its_run_is_discarded() {
     let env = TestEnv::new();
@@ -397,14 +400,23 @@ fn a_secret_planted_through_a_plugin_is_found_nowhere_once_its_run_is_discarded(
         &json!({ "page_id": page.page_id, "formats": { "text": true } }),
     );
     let while_running = found_in(&env.home().join(PLUGIN_INSTANCES), &canaries);
-    engine.ask(5, "run.finish", &json!({ "run_id": "plugins" }));
-    let discarded = engine.ask(6, "run.discard", &json!({ "run_id": "plugins" }));
+    let audit = engine.ask(5, "audit.export", &json!({}));
+    let released: Vec<Value> = audit["result"]["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry["kind"] == "plugin_secret_value_released")
+        .map(|entry| entry["details"].clone())
+        .collect();
+    engine.ask(6, "run.finish", &json!({ "run_id": "plugins" }));
+    let discarded = engine.ask(7, "run.discard", &json!({ "run_id": "plugins" }));
     let (rest, exited) = engine.finish();
 
     assert_eq!(
         (
             &formats["result"]["text"],
             while_running,
+            released,
             &discarded["result"],
             found_in(env.home(), &canaries),
             (rest, exited),
@@ -412,10 +424,180 @@ fn a_secret_planted_through_a_plugin_is_found_nowhere_once_its_run_is_discarded(
         (
             &json!("%plugins.scripted.settings.token%"),
             BTreeSet::from([("endpoint_token", "token.txt".to_owned())]),
+            vec![json!({ "plugin": "scripted", "reference": "env:EXTRACT_SECRET" })],
             &json!({ "run_id": "plugins" }),
             BTreeSet::new(),
             (vec![], true)
         ),
-        "{formats}\n{discarded}"
+        "{formats}\n{audit}\n{discarded}"
+    );
+}
+
+/// Sets the endpoint `url` as the Plugin settings' `api` in the Operator
+/// policy of `home`, under the entry [`install_as`] wrote last: an
+/// Operator-configured endpoint, which a Plugin reaches on loopback, where
+/// one only a page could reach is refused.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the Operator policy by hand, before the engine starts"
+)]
+fn configure_endpoint(home: &Path, url: &str) {
+    let policy = HomeLayout::of(home).operator_policy();
+    let written = fs::read_to_string(&policy).unwrap();
+    fs::write(&policy, format!("{written}settings.api = {url:?}\n")).unwrap();
+}
+
+/// The file `name` the instances of the home of `env` hold, as JSON.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test reads a Plugin's instance folder on its own thread, never an async worker"
+)]
+fn kept_in_instances(env: &TestEnv, name: &str) -> Option<Value> {
+    let mut folders = vec![env.home().join(PLUGIN_INSTANCES)];
+    while let Some(folder) = folders.pop() {
+        for entry in fs::read_dir(&folder).ok()?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path.file_name().is_some_and(|file| file == name) {
+                return serde_json::from_slice(&fs::read(&path).unwrap()).ok();
+            }
+        }
+    }
+    None
+}
+
+/// Installs the Extractor `scripted` in the Plugin store of `home`, whose
+/// `extract.content` first sends a `net.fetch` to `record`, its
+/// Operator-configured endpoint, naming `env:EXTRACT_SECRET` as its
+/// `Authorization` header's Bearer token, keeps the reply in its
+/// instance's `fetched.json` and answers `Kettle`.
+fn install_fetching(home: &Path, record: &str) {
+    let fetch = json!({
+        "method": "GET",
+        "url": record,
+        "secrets": [{
+            "in": "header",
+            "name": "authorization",
+            "reference": "env:EXTRACT_SECRET",
+            "template": "Bearer {}",
+        }],
+    });
+    let answer = json!({ "call_back": {
+        "method": "net.fetch",
+        "params": fetch,
+        "keep": "fetched.json",
+        "then": { "result": {
+            "title": "Kettle",
+            "text": "Kettle",
+            "markdown": "# Kettle",
+            "metadata": {},
+        } },
+    } });
+    install_as(
+        home,
+        "scripted",
+        &answer,
+        &json!({
+            "settings_schema": {
+                "type": "object",
+                "properties": { "api": { "type": "string" } },
+            },
+            "permissions": { "secrets": ["env:EXTRACT_SECRET"] },
+        }),
+    );
+    configure_endpoint(home, record);
+}
+
+/// ADR 0001's reset gate, for a Secret canary a Plugin's `net.fetch` names
+/// by reference (issue 842): the engine inserts it as the `Authorization`
+/// header of the Plugin's request toward its Operator-configured endpoint,
+/// the Proving ground's on the domain the Run binds it to, which takes it
+/// (the positive control: it answers 200 only to the planted value), and
+/// the Plugin, which never held the value, keeps the reply in its
+/// instance's folder; the Proving
+/// ground sees the value only where it expects it, and once the Run
+/// finishes and is discarded the value is found nowhere in the home, raw or
+/// in any of Goodfetch's encodings.
+///
+/// Covers: story:7-43, operation:run.discard, setting:secrets.placeholders
+#[test]
+fn a_secret_a_plugin_fetches_with_by_reference_is_found_nowhere_once_its_run_is_discarded() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut canaries = Canaries::new(env.seed());
+    let value = canaries
+        .plant_through(&proving_ground, SecretKind::HeaderValue)
+        .unwrap()
+        .value()
+        .to_owned();
+    install_fetching(
+        env.home(),
+        &proving_ground.url("4.canaries.test", "/api/record"),
+    );
+    let settings = json!({ "secrets": { "placeholders": {
+        "record_token": { "reference": "env:EXTRACT_SECRET", "domains": ["canaries.test"] },
+    } } });
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "plugins",
+        settings.as_object().unwrap(),
+        |command| {
+            command.env("EXTRACT_SECRET", &value);
+        },
+    );
+    let page = opened(&engine.ask(
+        2,
+        "run.new_page",
+        &json!({ "run_id": "plugins", "settings": { "content": { "extractor": "scripted" } } }),
+    ));
+    engine.ask(
+        3,
+        "page.goto",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("extraction.test", "/markdown/mixed/product"),
+        }),
+    );
+    let formats = engine.ask(
+        4,
+        "page.formats",
+        &json!({ "page_id": page.page_id, "formats": { "text": true } }),
+    );
+    let kept = kept_in_instances(&env, "fetched.json").unwrap_or_default();
+    let while_running = found_in(&env.home().join(PLUGIN_INSTANCES), &canaries);
+    engine.ask(5, "run.finish", &json!({ "run_id": "plugins" }));
+    let discarded = engine.ask(6, "run.discard", &json!({ "run_id": "plugins" }));
+    let (rest, exited) = engine.finish();
+
+    let sightings: Vec<(Placement, String)> = canaries
+        .sightings(&proving_ground)
+        .unwrap()
+        .into_iter()
+        .map(|sighting| (sighting.placement, sighting.part))
+        .collect();
+    assert_eq!(
+        (
+            &formats["result"]["text"],
+            &kept["result"]["status"],
+            sightings,
+            while_running,
+            &discarded["result"],
+            found_in(env.home(), &canaries),
+            (rest, exited),
+        ),
+        (
+            &json!("Kettle"),
+            &json!(200),
+            vec![(Placement::Planted, "header:authorization".to_owned())],
+            BTreeSet::new(),
+            &json!({ "run_id": "plugins" }),
+            BTreeSet::new(),
+            (vec![], true)
+        ),
+        "{formats}\n{kept}\n{discarded}"
     );
 }

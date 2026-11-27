@@ -63,12 +63,13 @@ use goodfetch_engine::governor::Permit;
 use goodfetch_engine::lease::LeaseCheck;
 use goodfetch_engine::local_addresses::Unavailable;
 use goodfetch_engine::request_signing::{KeyError, RequestSigner};
-use goodfetch_engine::run::{secret_error, settings_error};
+use goodfetch_engine::run::settings_error;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_key::Sealed;
 use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, run_row};
 use goodfetch_engine::runs::{self, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
+use goodfetch_engine::secrets::secret_error;
 use goodfetch_engine::settings::{
     RunSettings, SettingsError, Values, check_session_source, setting,
 };
@@ -1677,7 +1678,7 @@ async fn open_proxy(
 /// Run's state as unavailable.
 fn no_source(run: &Arc<BrowserRun>, error: RunKeyError, context: &CallContext) -> CallError {
     match error {
-        RunKeyError::Secret(error) => goodfetch_engine::run::secret_error(&error),
+        RunKeyError::Secret(error) => secret_error(&error),
         error => unavailable(run, &error, context),
     }
 }

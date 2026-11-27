@@ -10,10 +10,9 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::hostile_input::check_header_value;
-use goodfetch_engine::run::secret_error;
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::runs::RunKeys;
-use goodfetch_engine::secrets::{self, Purpose, SecretError};
+use goodfetch_engine::secrets::{self, Purpose, SecretError, secret_error};
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::{CallError, named};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
@@ -391,6 +390,7 @@ fn bound(settings: Option<&Resolved>, placeholder: &str) -> Result<Bound, CallEr
         PlaceholderSource::Reference {
             reference,
             totp: false,
+            ..
         } => Ok(Bound {
             placeholder: placeholder.to_owned(),
             reference,

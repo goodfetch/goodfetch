@@ -13,7 +13,7 @@ use goodfetch_engine::plugin_kinds::Failure;
 use goodfetch_engine::plugin_kinds::extractor::ExtractorDriver;
 use goodfetch_engine::plugin_kinds::run_plugins::StartError;
 use goodfetch_engine::run::accounts::RunAccounts;
-use goodfetch_engine::run::secret_error;
+use goodfetch_engine::secrets::secret_error;
 use goodfetch_engine::settings::{Resolved, RunSettings, Values};
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;

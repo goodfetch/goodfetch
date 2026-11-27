@@ -22,8 +22,7 @@ use secrecy::{ExposeSecret as _, SecretString};
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
 use crate::request_signing::{self, DirectoryError};
-use crate::run::secret_error;
-use crate::secrets::{Purpose, RunSecrets, can_hold_a_signing_key};
+use crate::secrets::{Purpose, RunSecrets, can_hold_a_signing_key, secret_error};
 
 /// The shortest time an exported directory's signatures stay valid, in
 /// milliseconds, as `valid_for`'s schema bounds it.

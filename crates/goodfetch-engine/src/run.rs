@@ -61,9 +61,7 @@ use serde_json::{Map, Value};
 use goodfetch_protocol::connection::NOT_IN_PRODUCT;
 use goodfetch_protocol::daemon::{DAEMON_DRAINING, DaemonDrainingDetails};
 use goodfetch_protocol::secrets::{
-    RUN_KEY_MISMATCH, RUN_STATE_KEY_REFERENCE, RunKeyMismatchDetails, SECRET_DOMAIN_NOT_ALLOWED,
-    SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE, SECRET_UNBOUND, SecretDomainNotAllowedDetails,
-    SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails,
+    RUN_KEY_MISMATCH, RUN_STATE_KEY_REFERENCE, RunKeyMismatchDetails,
 };
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SETTING_INVALID,
@@ -82,7 +80,7 @@ use crate::runs::{
     Aborter, Behind, EndedBy, FixedSettingChanged, Forwarded, FromCheckpoint, ListError, Resume,
     Resumed, RollbackBy, RunError, Start, StartError, Started, StorageExhausted, UnsupportedFolder,
 };
-use crate::secrets::SecretError;
+use crate::secrets::secret_error;
 use crate::settings::{
     self, Opening, Resolved, RunSettings, SettingsError, beneath_connection, check_scope,
 };
@@ -323,73 +321,6 @@ pub fn start_error(error: StartError) -> CallError {
         StartError::Stopped => stopped(),
         StartError::Refused(refused) => *refused,
         StartError::FixedSetting(changed) => changed.into(),
-    }
-}
-
-/// The failure a call answers with for a Secret reference that gave no
-/// value: each names the placeholder and the reference, never a value
-/// (ADR 0092).
-pub fn secret_error(error: &SecretError) -> CallError {
-    let message = error.to_string();
-    match error {
-        SecretError::Unbound { placeholder, bound } => CallError::new(
-            &SECRET_UNBOUND,
-            message,
-            &SecretUnboundDetails {
-                placeholder: placeholder.clone(),
-                bound: bound.clone(),
-            },
-        ),
-        SecretError::Unavailable {
-            placeholder,
-            reference,
-            failure,
-            fix,
-        } => CallError::new(
-            &SECRET_UNAVAILABLE,
-            message,
-            &SecretUnavailableDetails {
-                placeholder: placeholder.clone(),
-                reference: reference.to_string(),
-                provider: reference.provider().as_str().to_owned(),
-                failure: *failure,
-                fix: fix.clone(),
-            },
-        ),
-        SecretError::DomainNotAllowed {
-            placeholder,
-            reference,
-            domain,
-            domains,
-        } => CallError::new(
-            &SECRET_DOMAIN_NOT_ALLOWED,
-            message,
-            &SecretDomainNotAllowedDetails {
-                placeholder: placeholder.clone(),
-                reference: reference.to_string(),
-                domain: domain.clone(),
-                domains: domains.clone(),
-            },
-        ),
-        SecretError::InputRefused {
-            placeholder,
-            reference,
-            domain,
-            reason,
-        } => CallError::new(
-            &SECRET_INPUT_REFUSED,
-            message,
-            &SecretInputRefusedDetails {
-                placeholder: placeholder.clone(),
-                reference: reference.to_string(),
-                domain: domain.clone(),
-                reason: *reason,
-            },
-        ),
-        SecretError::Unrecorded { .. } => {
-            tracing::error!("{error}");
-            internal(message)
-        }
     }
 }
 

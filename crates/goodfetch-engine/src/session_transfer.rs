@@ -18,8 +18,7 @@ use serde_json::{Value, json};
 use crate::audit::{AuditError, Origin};
 use crate::call_error::CallError;
 use crate::pinned_download::Digest;
-use crate::run::secret_error;
-use crate::secrets::{Purpose, RunSecrets, SecretError};
+use crate::secrets::{Purpose, RunSecrets, SecretError, secret_error};
 use crate::session_bundle::{self, Key, Limits, OpenError, PublicKey, To};
 
 #[cfg(test)]

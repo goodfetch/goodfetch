@@ -94,7 +94,7 @@ use goodfetch_engine::dns::{
 use goodfetch_engine::egress::{Gate, Policy, Refused, RequestKind};
 use goodfetch_engine::happy_eyeballs::Delays;
 use goodfetch_engine::local_addresses::SessionAddresses;
-use goodfetch_engine::run::secret_error;
+use goodfetch_engine::secrets::secret_error;
 use goodfetch_engine::tls::{
     CertificateExceptions, ClientCertificateFailure, ClientCertificates, Decision, SharedTrust,
     Trust, certificate_failure,

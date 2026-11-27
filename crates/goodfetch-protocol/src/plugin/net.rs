@@ -45,6 +45,68 @@ pub struct NetFetchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub body: Option<NetFetchBody>,
+    /// The Secrets the engine inserts, each by its reference, which the
+    /// Plugin's manifest declares and the operator approved; the engine
+    /// inserts a value only toward a domain the Run binds that reference
+    /// to (ADR 0033), and the Plugin never sees it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub secrets: Vec<NetFetchSecret>,
+}
+
+/// Where the engine inserts one Secret's value in a `net.fetch` request.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "in", rename_all = "snake_case", deny_unknown_fields)]
+pub enum NetFetchSecret {
+    /// As the value of the header `name`, which the request sets nowhere
+    /// else.
+    Header {
+        /// The header's name.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        name: String,
+        /// The Secret reference, as the manifest declares it.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        reference: String,
+        /// The text the value goes in, at its one `{}`, such as
+        /// `Bearer {}`; the value alone when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        template: Option<String>,
+    },
+    /// As the query parameter `name`, which the URL holds nowhere else; the
+    /// URL is masked wherever the engine writes it.
+    Query {
+        /// The parameter's name.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        name: String,
+        /// The Secret reference, as the manifest declares it.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        reference: String,
+        /// The text the value goes in, at its one `{}`; the value alone
+        /// when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        template: Option<String>,
+    },
+    /// As the form field the operator set for the reference's binding
+    /// (`secrets.placeholders.<name>.form_field`), appended to a body of
+    /// `application/x-www-form-urlencoded` that holds no such field.
+    Form {
+        /// The Secret reference, as the manifest declares it.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        reference: String,
+    },
+}
+
+impl NetFetchSecret {
+    /// The Secret reference it names.
+    pub fn reference(&self) -> &str {
+        match self {
+            Self::Header { reference, .. }
+            | Self::Query { reference, .. }
+            | Self::Form { reference } => reference,
+        }
+    }
 }
 
 /// One header of a `net.fetch` request or response.

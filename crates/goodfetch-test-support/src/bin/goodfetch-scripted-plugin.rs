@@ -34,7 +34,10 @@
 //!   into the engine first: it sends that request, its `params` given the
 //!   served call's id as `call_id` unless they name one, and answers the
 //!   call with the engine's
-//!   whole reply to it as its `result` once that reply arrives.
+//!   whole reply to it as its `result` once that reply arrives; with
+//!   `"keep": "<path>"` beside `method`, that reply is written to the file
+//!   instead, as a Plugin keeps what it fetched, and with `"then":
+//!   {answer}`, the call is answered with that answer.
 //!
 //! It records every message it reads and answers three methods of its own
 //! whatever the script says:
@@ -107,8 +110,9 @@ fn play() -> Result<(), String> {
     let script: Value = serde_json::from_str(&text)
         .map_err(|error| format!("{} is no JSON: {error}", path.display()))?;
     let mut calls: Vec<Value> = Vec::new();
-    // The calls it serves that wait on a call back, by the call back's id.
-    let mut calling_back: BTreeMap<String, Value> = BTreeMap::new();
+    // The calls it serves that wait on a call back, by the call back's id,
+    // each with the call back it made.
+    let mut calling_back: BTreeMap<String, (Value, Value)> = BTreeMap::new();
     let (stdin, mut stdout) = (io::stdin().lock(), io::stdout().lock());
     for line in stdin.lines() {
         let line = line.map_err(|error| error.to_string())?;
@@ -119,11 +123,11 @@ fn play() -> Result<(), String> {
             serde_json::from_str(&line).map_err(|error| format!("{line:?} is no JSON: {error}"))?;
         let mut sent = Vec::new();
         if message.get("method").is_none()
-            && let Some(served) = message["id"]
+            && let Some((served, call_back)) = message["id"]
                 .as_str()
                 .and_then(|id| calling_back.remove(id))
         {
-            sent.push(with_id(json!({ "result": message }), &served));
+            sent.push(with_id(replied(&call_back, &message), &served));
         }
         if let (Some(id), Some(method)) = (message.get("id"), message["method"].as_str()) {
             let answer = answer(&script, method, &message["params"], &calls);
@@ -139,7 +143,7 @@ fn play() -> Result<(), String> {
                     "method": call_back["method"],
                     "params": params,
                 }));
-                calling_back.insert(call_back_id, id.clone());
+                calling_back.insert(call_back_id, (id.clone(), call_back.clone()));
             } else if answer["silent"] != json!(true) {
                 sent.push(with_id(answer, id));
             }
@@ -195,6 +199,21 @@ fn answer(script: &Value, method: &str, params: &Value, calls: &[Value]) -> Valu
             Some(scripted) => scripted,
             None => error(METHOD_NOT_FOUND, &format!("no answer to `{method}`")),
         },
+    }
+}
+
+/// The answer to the call that made `call_back`, once the engine's `reply`
+/// to it arrived: the reply as its `result`, or, once the reply is written
+/// to the file `call_back`'s `keep` names, its `then`.
+fn replied(call_back: &Value, reply: &Value) -> Value {
+    if let Some(path) = call_back["keep"].as_str()
+        && let Err(refusal) = fs::write(path, reply.to_string())
+    {
+        return error(INTERNAL_ERROR, &format!("cannot write {path}: {refusal}"));
+    }
+    match call_back.get("then") {
+        Some(then) => then.clone(),
+        None => json!({ "result": reply }),
     }
 }
 

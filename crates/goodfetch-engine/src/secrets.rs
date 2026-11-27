@@ -39,13 +39,17 @@ use std::time::Duration;
 
 use goodfetch_protocol::audit::{Actor, SECRET_REFERENCE_USED};
 use goodfetch_protocol::catalog::SharedTypeValue;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::access_mode::IDENTIFIED_SIGNING_KEY;
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::{Provider, SecretReference};
 use goodfetch_protocol::secrets::placeholders::{BoundPlaceholder, SECRETS_PLACEHOLDERS};
 use goodfetch_protocol::secrets::{
     KEY_REFERENCE_IN_FILE, KEY_REFERENCE_IN_KEYCHAIN, RUN_STATE_KEY_REFERENCE,
-    SECRETS_RESOLVE_EACH_USE, SecretFailure, SecretInputRefusedReason, TIMEOUT_SECRET,
+    SECRET_DOMAIN_NOT_ALLOWED, SECRET_INPUT_REFUSED, SECRET_UNAVAILABLE, SECRET_UNBOUND,
+    SECRETS_RESOLVE_EACH_USE, SecretDomainNotAllowedDetails, SecretFailure,
+    SecretInputRefusedDetails, SecretInputRefusedReason, SecretUnavailableDetails,
+    SecretUnboundDetails, TIMEOUT_SECRET,
 };
 use goodfetch_protocol::security::SECURITY_REDACTION;
 use goodfetch_protocol::settings::SettingsLayer;
@@ -57,6 +61,7 @@ use subtle::ConstantTimeEq as _;
 pub use keychain::Keychain;
 
 use crate::audit::{AuditError, AuditLog, Origin};
+use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::entropy::Entropy;
 use crate::home::Home;
@@ -339,6 +344,73 @@ pub enum SecretError {
         #[source]
         source: AuditError,
     },
+}
+
+/// The failure a call answers with for a Secret reference that gave no
+/// value: each names the placeholder and the reference, never a value
+/// (ADR 0092).
+pub fn secret_error(error: &SecretError) -> CallError {
+    let message = error.to_string();
+    match error {
+        SecretError::Unbound { placeholder, bound } => CallError::new(
+            &SECRET_UNBOUND,
+            message,
+            &SecretUnboundDetails {
+                placeholder: placeholder.clone(),
+                bound: bound.clone(),
+            },
+        ),
+        SecretError::Unavailable {
+            placeholder,
+            reference,
+            failure,
+            fix,
+        } => CallError::new(
+            &SECRET_UNAVAILABLE,
+            message,
+            &SecretUnavailableDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                provider: reference.provider().as_str().to_owned(),
+                failure: *failure,
+                fix: fix.clone(),
+            },
+        ),
+        SecretError::DomainNotAllowed {
+            placeholder,
+            reference,
+            domain,
+            domains,
+        } => CallError::new(
+            &SECRET_DOMAIN_NOT_ALLOWED,
+            message,
+            &SecretDomainNotAllowedDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                domain: domain.clone(),
+                domains: domains.clone(),
+            },
+        ),
+        SecretError::InputRefused {
+            placeholder,
+            reference,
+            domain,
+            reason,
+        } => CallError::new(
+            &SECRET_INPUT_REFUSED,
+            message,
+            &SecretInputRefusedDetails {
+                placeholder: placeholder.clone(),
+                reference: reference.to_string(),
+                domain: domain.clone(),
+                reason: *reason,
+            },
+        ),
+        SecretError::Unrecorded { .. } => {
+            tracing::error!("{error}");
+            CallError::protocol(ProtocolFailure::InternalError, message)
+        }
+    }
 }
 
 /// A provider as the driver holds it.

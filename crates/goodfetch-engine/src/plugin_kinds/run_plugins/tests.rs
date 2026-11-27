@@ -230,7 +230,7 @@ fn a_plugin_the_policy_does_not_allow_is_refused(
 /// refused with `plugin_permission_denied`, naming the permission, and the
 /// Secret's value is never resolved.
 ///
-/// Covers: story:7-18, error:plugin_permission_denied
+/// Covers: story:7-18, story:7-45, error:plugin_permission_denied
 #[test]
 fn a_secret_value_not_approved_is_refused() {
     let env = TestEnv::new();
@@ -258,7 +258,7 @@ fn a_secret_value_not_approved_is_refused() {
 /// environment, and the release is in the Audit log, naming the Plugin and
 /// the reference and never the value.
 ///
-/// Covers: story:7-18, story:7-20
+/// Covers: story:7-18, story:7-20, story:7-45
 #[test]
 fn an_approved_secret_value_released_is_audited() {
     let env = TestEnv::new();

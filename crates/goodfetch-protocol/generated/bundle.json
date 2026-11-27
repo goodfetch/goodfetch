@@ -14817,6 +14817,14 @@
           "description": "The HTTP method, such as `GET`.",
           "type": "string"
         },
+        "secrets": {
+          "arrived_in": "0.1",
+          "description": "The Secrets the engine inserts, each by its reference, which the\nPlugin's manifest declares and the operator approved; the engine\ninserts a value only toward a domain the Run binds that reference\nto (ADR 0033), and the Plugin never sees it.",
+          "items": {
+            "$ref": "#/$defs/NetFetchSecret"
+          },
+          "type": "array"
+        },
         "url": {
           "arrived_in": "0.1",
           "description": "The absolute URL, `http` or `https`.",
@@ -14861,6 +14869,99 @@
         "body"
       ],
       "type": "object"
+    },
+    "NetFetchSecret": {
+      "description": "Where the engine inserts one Secret's value in a `net.fetch` request.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "As the value of the header `name`, which the request sets nowhere\nelse.",
+          "properties": {
+            "in": {
+              "const": "header",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The header's name.",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, as the manifest declares it.",
+              "type": "string"
+            },
+            "template": {
+              "arrived_in": "0.1",
+              "description": "The text the value goes in, at its one `{}`, such as\n`Bearer {}`; the value alone when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "in",
+            "name",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "As the query parameter `name`, which the URL holds nowhere else; the\nURL is masked wherever the engine writes it.",
+          "properties": {
+            "in": {
+              "const": "query",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The parameter's name.",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, as the manifest declares it.",
+              "type": "string"
+            },
+            "template": {
+              "arrived_in": "0.1",
+              "description": "The text the value goes in, at its one `{}`; the value alone\nwhen absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "in",
+            "name",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "As the form field the operator set for the reference's binding\n(`secrets.placeholders.<name>.form_field`), appended to a body of\n`application/x-www-form-urlencoded` that holds no such field.",
+          "properties": {
+            "in": {
+              "const": "form",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, as the manifest declares it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "in",
+            "reference"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "NetworkLevel": {
       "description": "What a process Plugin may reach on the network (ADR 0033), derived from\nits kinds rather than chosen: see [`NetworkLevel::allowed_for`].",
@@ -32982,6 +33083,11 @@
                               "minItems": 1,
                               "type": "array"
                             },
+                            "form_field": {
+                              "description": "The form field a Plugin's `net.fetch` may insert the value in; never beside `totp`.",
+                              "minLength": 1,
+                              "type": "string"
+                            },
                             "reference": {
                               "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
                               "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
@@ -33022,7 +33128,7 @@
                         }
                       ]
                     },
-                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `form_field`, the one form field a Plugin's `net.fetch` may insert the value in, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
                     "type": "object"
                   },
                   "resolve_each_use": {
@@ -37549,6 +37655,11 @@
                               "minItems": 1,
                               "type": "array"
                             },
+                            "form_field": {
+                              "description": "The form field a Plugin's `net.fetch` may insert the value in; never beside `totp`.",
+                              "minLength": 1,
+                              "type": "string"
+                            },
                             "reference": {
                               "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
                               "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
@@ -37589,7 +37700,7 @@
                         }
                       ]
                     },
-                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `form_field`, the one form field a Plugin's `net.fetch` may insert the value in, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
                     "type": "object"
                   },
                   "resolve_each_use": {
@@ -42132,6 +42243,11 @@
                               "minItems": 1,
                               "type": "array"
                             },
+                            "form_field": {
+                              "description": "The form field a Plugin's `net.fetch` may insert the value in; never beside `totp`.",
+                              "minLength": 1,
+                              "type": "string"
+                            },
                             "reference": {
                               "description": "The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`.",
                               "pattern": "^(?:(?:env|keychain|secretfile|caller|bw|vault|aws-sm|gcp-sm|azure-kv|plugin):|op://)[^\\s]+$",
@@ -42172,7 +42288,7 @@
                         }
                       ]
                     },
-                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+                    "description": "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `form_field`, the one form field a Plugin's `net.fetch` may insert the value in, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
                     "type": "object"
                   },
                   "resolve_each_use": {

@@ -37,6 +37,9 @@ pub enum PlaceholderSource {
         reference: SecretReference,
         /// Whether its value is a TOTP seed.
         totp: bool,
+        /// The form field a Plugin's `net.fetch` may insert its value in,
+        /// set by the operator alone (ADR 0033); none for a TOTP seed.
+        form_field: Option<String>,
     },
     /// One of ADR 0006's email or SMS code sources, by its name.
     CodeSource(String),
@@ -58,7 +61,7 @@ impl BoundPlaceholder {
             .find(|field| !FIELDS.contains(&field.as_str()))
         {
             return Err(format!(
-                "`{field}` is no field of a placeholder's binding; it takes `reference` and `totp`, or `code_source`, and `domains`"
+                "`{field}` is no field of a placeholder's binding; it takes `reference` with `totp` or `form_field`, or `code_source`, and `domains`"
             ));
         }
         let source = source(fields)?;
@@ -75,10 +78,17 @@ impl Serialize for BoundPlaceholder {
 
         let mut table = serializer.serialize_map(None)?;
         match &self.source {
-            PlaceholderSource::Reference { reference, totp } => {
+            PlaceholderSource::Reference {
+                reference,
+                totp,
+                form_field,
+            } => {
                 table.serialize_entry("reference", reference.as_str())?;
                 if *totp {
                     table.serialize_entry("totp", totp)?;
+                }
+                if let Some(form_field) = form_field {
+                    table.serialize_entry("form_field", form_field)?;
                 }
             }
             PlaceholderSource::CodeSource(name) => table.serialize_entry("code_source", name)?,
@@ -95,7 +105,7 @@ impl crate::catalog::SettingJson for BoundPlaceholder {
 }
 
 /// The fields a placeholder's binding takes.
-const FIELDS: [&str; 4] = ["reference", "totp", "code_source", "domains"];
+const FIELDS: [&str; 5] = ["reference", "totp", "form_field", "code_source", "domains"];
 
 fn source(fields: &Map<String, Value>) -> Result<PlaceholderSource, String> {
     let totp = match fields.get("totp") {
@@ -103,6 +113,17 @@ fn source(fields: &Map<String, Value>) -> Result<PlaceholderSource, String> {
         Some(Value::Bool(totp)) => Some(*totp),
         Some(_) => return Err("expected `totp` to be `true` or `false`".to_owned()),
     };
+    let form_field = match fields.get("form_field") {
+        None => None,
+        Some(Value::String(name)) if !name.is_empty() => Some(name.clone()),
+        Some(_) => return Err("expected `form_field` to name a form field".to_owned()),
+    };
+    if form_field.is_some() && (totp == Some(true) || fields.contains_key("code_source")) {
+        return Err(
+            "`form_field` goes with a `reference` to a Secret's value, never with a TOTP seed or a `code_source`"
+                .to_owned(),
+        );
+    }
     match (fields.get("reference"), fields.get("code_source")) {
         (Some(reference), None) => {
             let reference = reference
@@ -117,6 +138,7 @@ fn source(fields: &Map<String, Value>) -> Result<PlaceholderSource, String> {
             Ok(PlaceholderSource::Reference {
                 reference,
                 totp: totp.unwrap_or(false),
+                form_field,
             })
         }
         (None, Some(code_source)) => {
@@ -202,6 +224,11 @@ pub const BOUND_PLACEHOLDER_SHAPE: ValueShape = ValueShape {
                             "type": "boolean",
                             "description": "Whether the reference's value is a TOTP seed, whose current code is typed in its place.",
                         },
+                        "form_field": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The form field a Plugin's `net.fetch` may insert the value in; never beside `totp`.",
+                        },
                         "domains": domains,
                     },
                 },
@@ -225,6 +252,7 @@ pub const BOUND_PLACEHOLDER_SHAPE: ValueShape = ValueShape {
             json!({ "reference": "env:GITHUB_PASSWORD", "domains": ["github.com"] }),
             json!({ "reference": "op://Private/GitHub/otp", "domains": ["github.com"], "totp": true }),
             json!({ "code_source": "inbox", "domains": ["example.com"] }),
+            json!({ "reference": "env:WEATHER_API_KEY", "domains": ["example.com"], "form_field": "api_key" }),
         ]
     },
 };
@@ -236,7 +264,7 @@ fn no_placeholder() -> Value {
 /// `secrets.placeholders` (ADR 0092).
 pub const SECRETS_PLACEHOLDERS: Setting = Setting {
     name: "secrets.placeholders",
-    description: "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
+    description: "Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `form_field`, the one form field a Plugin's `net.fetch` may insert the value in, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret(\"name\")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.",
     kind: ValueKind::Map(&ValueKind::Shape(&BOUND_PLACEHOLDER_SHAPE)),
     default: no_placeholder,
     clearable: false,

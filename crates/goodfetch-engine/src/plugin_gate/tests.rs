@@ -186,6 +186,7 @@ fn a_request_a_plugin_may_not_send_is_refused_before_any_connection(
             })
             .collect(),
         body: None,
+        secrets: Vec::new(),
     };
 
     let error = goodfetch_test_support::runtime()

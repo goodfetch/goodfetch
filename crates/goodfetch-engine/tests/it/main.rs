@@ -66,6 +66,7 @@ mod nothing_leaves;
 mod operator_endpoints;
 mod plugin_add;
 mod plugin_install;
+mod plugin_secrets;
 mod plugin_traffic;
 #[cfg(target_os = "linux")]
 mod politeness_store;

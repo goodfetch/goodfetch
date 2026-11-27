@@ -21,7 +21,7 @@ use goodfetch_protocol::jsonrpc::{
     RequestId, RequestMeta, Response, Version,
 };
 use goodfetch_protocol::plugin::net::{
-    NET_FETCH, NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult,
+    NET_FETCH, NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult, NetFetchSecret,
 };
 use goodfetch_protocol::plugin::{
     CANCEL, DeclaredKind, HELLO, NetworkLevel, PING, PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_VERSION,
@@ -157,7 +157,8 @@ fn call(id: RequestId, method: &str, params: &impl Serialize) -> Message {
 }
 
 /// The Plugin's `net.fetch` call back `id`, within the engine's call
-/// `call_id`: a `PUT` of a JSON body to its store.
+/// `call_id`: a `PUT` of a JSON body to its store, authorized by a Secret
+/// the engine inserts.
 fn net_fetch(id: RequestId, call_id: RequestId) -> Message {
     Message::Request(Request {
         jsonrpc: Version,
@@ -169,6 +170,11 @@ fn net_fetch(id: RequestId, call_id: RequestId) -> Message {
             url: "https://store.example/titles".to_owned(),
             headers: vec![json_content()],
             body: Some(NetFetchBody::new(br#"{"title":"Dune"}"#.to_vec())),
+            secrets: vec![NetFetchSecret::Header {
+                name: "authorization".to_owned(),
+                reference: "env:STORE_TOKEN".to_owned(),
+                template: Some("Bearer {}".to_owned()),
+            }],
         })),
     })
 }

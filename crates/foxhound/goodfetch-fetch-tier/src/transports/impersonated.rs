@@ -48,7 +48,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use goodfetch_engine::run::secret_error;
+use goodfetch_engine::secrets::secret_error;
 use goodfetch_engine::tls::{
     ClientCertificateFailure, ClientCertificates, Decision, Examiner, IdentityFiles, Presented,
     SharedTrust, Verdict,

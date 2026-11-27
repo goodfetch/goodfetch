@@ -20,6 +20,7 @@ fn checked(bound: &Value) -> Result<(), String> {
 #[case::a_code_source(json!({ "code_source": "inbox", "domains": ["example.com"] }))]
 #[case::a_multi_label_suffix(json!({ "reference": "env:BANK", "domains": ["bank.co.uk", "shop.com.au"] }))]
 #[case::every_domain_when_written(json!({ "reference": "env:ANY", "domains": ["*"] }))]
+#[case::a_form_field(json!({ "reference": "env:API_KEY", "domains": ["example.com"], "form_field": "api_key" }))]
 fn a_placeholder_bound_to_registrable_domains_is_accepted(#[case] bound: Value) {
     assert_eq!(checked(&bound), Ok(()));
 }
@@ -36,6 +37,9 @@ fn a_placeholder_bound_to_registrable_domains_is_accepted(#[case] bound: Value) 
 #[case::a_value(json!({ "reference": "hunter2", "domains": ["github.com"] }), "Secret reference")]
 #[case::both_sources(json!({ "reference": "env:A", "code_source": "inbox", "domains": ["github.com"] }), "either")]
 #[case::totp_beside_a_code_source(json!({ "code_source": "inbox", "domains": ["github.com"], "totp": true }), "`totp`")]
+#[case::a_form_field_beside_a_code_source(json!({ "code_source": "inbox", "domains": ["github.com"], "form_field": "code" }), "`form_field`")]
+#[case::a_form_field_beside_totp(json!({ "reference": "env:SEED", "domains": ["github.com"], "totp": true, "form_field": "code" }), "`form_field`")]
+#[case::an_empty_form_field(json!({ "reference": "env:API_KEY", "domains": ["github.com"], "form_field": "" }), "`form_field`")]
 fn a_placeholder_bound_otherwise_is_refused(#[case] bound: Value, #[case] says: &str) {
     let refused = checked(&bound).expect_err("refused");
     assert!(refused.contains(says), "{refused}");
@@ -46,6 +50,7 @@ fn a_placeholder_bound_otherwise_is_refused(#[case] bound: Value, #[case] says: 
 #[case::a_reference(json!({ "reference": "env:GITHUB_PASSWORD", "domains": ["github.com"] }))]
 #[case::a_totp_seed(json!({ "reference": "op://vault/github/otp", "totp": true, "domains": ["github.com"] }))]
 #[case::a_code_source(json!({ "code_source": "inbox", "domains": ["example.com", "*"] }))]
+#[case::a_form_field(json!({ "reference": "env:API_KEY", "form_field": "api_key", "domains": ["example.com"] }))]
 fn a_bound_placeholder_sends_what_it_reads(#[case] bound: Value) {
     let read = BoundPlaceholder::read(&bound).expect("bound");
 
@@ -66,6 +71,7 @@ fn a_bound_placeholder_reads_as_its_source_and_domains() {
             source: PlaceholderSource::Reference {
                 reference: SecretReference::parse("op://vault/github/otp").expect("a reference"),
                 totp: true,
+                form_field: None,
             },
             domains: vec!["github.com".to_owned()],
         })

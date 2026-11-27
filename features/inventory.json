@@ -678,7 +678,7 @@
     {
       "id": "command:plugin.add",
       "kind": "command",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [
@@ -4627,7 +4627,7 @@
     {
       "id": "operation:plugin.add",
       "kind": "operation",
-      "area": null,
+      "area": 7,
       "milestone": null,
       "status": "active",
       "products": [

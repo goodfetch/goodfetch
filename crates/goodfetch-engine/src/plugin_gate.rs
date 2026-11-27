@@ -26,18 +26,28 @@
 //! header such as `X-HTTP-Method-Override` that asks for one, refused until
 //! the `effects` permission comes (issue 845).
 //!
+//! A request may name Secrets by reference, whose values the engine
+//! inserts ([`Inserting`]) only toward the domains the Run binds them to;
+//! the response then reaches the Plugin with every value the Run resolved
+//! masked, in each encoding the engine's masks know.
+//!
 //! A call back is admitted only inside the call it names, one its instance
 //! awaits the answer to, and while fewer than [`CALL_BACKS`] run; the
 //! credits and leases that will bound it come with issue 827.
+
+mod inserting;
 
 use std::collections::BTreeMap;
 
 use bytes::Bytes;
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::plugin::approvals::{
+    PLUGIN_PERMISSION_DENIED, Permission, PluginPermissionDeniedDetails, fix,
+};
 use goodfetch_protocol::plugin::net::{
-    NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult, PLUGIN_CALL_BACK_REFUSED,
-    PLUGIN_FETCH_FAILED,
+    NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult, NetFetchSecret,
+    PLUGIN_CALL_BACK_REFUSED, PLUGIN_FETCH_FAILED,
 };
 use goodfetch_protocol::plugin::settings::PLUGINS;
 use goodfetch_protocol::response_limits::{
@@ -45,10 +55,11 @@ use goodfetch_protocol::response_limits::{
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use hyper::header::{HeaderName, HeaderValue};
-use hyper::{Method, Request};
+use hyper::{HeaderMap, Method, Request};
 use serde_json::Value;
 use url::{Origin, Url};
 
+pub use self::inserting::Inserting;
 use crate::call_error::{CallError, named};
 use crate::clock::Clock;
 use crate::egress::{
@@ -56,6 +67,7 @@ use crate::egress::{
 };
 use crate::framing::MAX_MESSAGE_BYTES;
 use crate::http_client::{EndpointSettings, WholeFailure};
+use crate::mask::Scope;
 use crate::response_limits::{LimitExceeded, Limits};
 use crate::settings::Resolved;
 use crate::tasks::BlockingThreads;
@@ -124,6 +136,9 @@ pub struct PluginFetch {
     /// The authorities `tls.trusted_cas` lists, read on the first
     /// `net.fetch` and kept for the Plugin's others.
     trust: OnceCell<Trust>,
+    /// How it inserts the Secrets a request names, none where the Plugin
+    /// runs outside a Run, which then refuses them.
+    inserting: Option<Inserting>,
 }
 
 impl PluginFetch {
@@ -155,7 +170,18 @@ impl PluginFetch {
             settings: EndpointSettings::of(settings, clock, blocking),
             max_body_size: Limits::of(settings).max_body_size,
             trust: OnceCell::new(),
+            inserting: None,
         })
+    }
+
+    /// This `net.fetch`, inserting the Secrets a request names as
+    /// `inserting` says.
+    #[must_use]
+    pub fn inserting(self, inserting: Inserting) -> Self {
+        Self {
+            inserting: Some(inserting),
+            ..self
+        }
     }
 
     /// The egress class of `url`: Operator-configured when its origin is
@@ -167,14 +193,16 @@ impl PluginFetch {
         }
     }
 
-    /// Sends the request `params` asks for and answers its response,
-    /// whole.
+    /// Sends the request `params` asks for, with the Secrets it names
+    /// inserted, and answers its response, whole, every value the Run
+    /// resolved masked in it.
     ///
     /// # Errors
     ///
     /// `invalid_params` for a method or header that is none;
     /// `plugin_call_back_refused` for `CONNECT`, a header the engine sets
-    /// itself, or an Effect; `egress_refused` when the destination's
+    /// itself, an Effect, or Secrets named outside a Run; a Secret's
+    /// failure as [`Inserting::insert`] says; `egress_refused` when the destination's
     /// egress class refuses it; `certificate_invalid` for a certificate
     /// that failed; `plugin_fetch_failed` when no whole response came;
     /// `response_limit_exceeded` for a body past `network.max_body_size`
@@ -183,7 +211,7 @@ impl PluginFetch {
     /// # Cancel safety
     ///
     /// Dropping the future closes the connection it opened.
-    pub async fn fetch(&self, params: NetFetchParams) -> Result<NetFetchResult, CallError> {
+    pub async fn fetch(&self, mut params: NetFetchParams) -> Result<NetFetchResult, CallError> {
         let method = Method::from_bytes(params.method.as_bytes()).map_err(|_| {
             CallError::protocol(
                 ProtocolFailure::InvalidParams,
@@ -207,33 +235,22 @@ impl PluginFetch {
         }
         let class = self.class(url.as_ref());
         if class == EgressClass::PageReachable {
-            if method != Method::GET && method != Method::HEAD {
-                return Err(refused(&format!(
-                    "a `{method}` to {}, checked as a page's destination, is an Effect, which needs the `effects` permission (issue 845)",
-                    params.url
-                )));
-            }
-            if let Some(header) = params.headers.iter().find(|header| {
-                METHOD_OVERRIDES
-                    .iter()
-                    .any(|name| header.name.eq_ignore_ascii_case(name))
-            }) {
-                return Err(refused(&format!(
-                    "the header `{}` to {}, checked as a page's destination, asks for another method, an Effect, which needs the `effects` permission (issue 845)",
-                    header.name, params.url
-                )));
-            }
+            no_effect(&method, &params)?;
         }
-        let mut request = Request::new(
-            params
-                .body
-                .map_or_else(Bytes::new, |body| Bytes::from(body.into_bytes())),
-        );
+        let mut headers = HeaderMap::new();
+        for header in &params.headers {
+            let (name, value) = header_of(header)?;
+            headers.append(name, value);
+        }
+        let mut body = params
+            .body
+            .take()
+            .map(NetFetchBody::into_bytes)
+            .unwrap_or_default();
+        let sent_to = self.inserted(&params, url, &mut headers, &mut body).await?;
+        let mut request = Request::new(Bytes::from(body));
         *request.method_mut() = method;
-        for header in params.headers {
-            let (name, value) = header_of(&header)?;
-            request.headers_mut().append(name, value);
-        }
+        *request.headers_mut() = headers;
         let gate = match class {
             EgressClass::OperatorConfigured => Gate::PluginEndpoint(self.settings.policy()),
             EgressClass::PageReachable => Gate::Session {
@@ -248,34 +265,77 @@ impl PluginFetch {
                 ConfiguredKind::PluginEndpoint,
                 gate,
                 trust,
-                &params.url,
+                &sent_to,
                 request,
                 BODY_LIMIT,
             )
             .await
             .map_err(|failure| self.failed(&params.url, class, failure))?;
+        let masked = |bytes: &[u8]| match &self.inserting {
+            Some(inserting) => inserting
+                .masks()
+                .apply_bytes(bytes, Scope::Kept)
+                .into_owned(),
+            None => bytes.to_vec(),
+        };
         let headers = response
             .headers()
             .iter()
             .map(|(name, value)| NetFetchHeader {
                 name: name.as_str().to_owned(),
-                value: String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                value: String::from_utf8_lossy(&masked(value.as_bytes())).into_owned(),
             })
             .collect();
         Ok(NetFetchResult {
             status: response.status().as_u16(),
             headers,
-            body: NetFetchBody::new(response.into_body().to_vec()),
+            body: NetFetchBody::new(masked(response.body())),
         })
     }
 
+    /// The URL `params` sends to: `url`, as it parsed, with the Secrets it
+    /// names inserted in it, `headers` and `body`.
+    ///
+    /// # Errors
+    ///
+    /// `plugin_call_back_refused` for Secrets named outside a Run;
+    /// `invalid_params` for Secrets named beside a URL that is none; a
+    /// Secret's failure as [`Inserting::insert`] says.
+    async fn inserted(
+        &self,
+        params: &NetFetchParams,
+        url: Option<Url>,
+        headers: &mut HeaderMap,
+        body: &mut Vec<u8>,
+    ) -> Result<String, CallError> {
+        if params.secrets.is_empty() {
+            return Ok(params.url.clone());
+        }
+        let inserting = self
+            .inserting
+            .as_ref()
+            .ok_or_else(|| refused("a Plugin's `net.fetch` names Secrets only inside a Run"))?;
+        let mut inserted = url.ok_or_else(|| {
+            CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!("`{}` is no URL to insert a Secret in", params.url),
+            )
+        })?;
+        inserting
+            .insert(&params.secrets, &mut inserted, headers, body)
+            .await?;
+        Ok(String::from(inserted))
+    }
+
     /// The failure of a `net.fetch` to `url`, of `class`, that got no whole
-    /// response.
+    /// response: a refusal names `url`, the Plugin's own, never the one a
+    /// Secret was inserted in.
     fn failed(&self, url: &str, class: EgressClass, failure: WholeFailure) -> CallError {
         match failure {
             // The run's private ranges, which a refusal checked as a page's
             // names, never reach a Plugin.
             WholeFailure::Refused(refused) => Refused {
+                url: url.to_owned(),
                 setting: refused.setting.filter(|setting| {
                     !(class == EgressClass::PageReachable && *setting == PRIVATE_RANGES)
                 }),
@@ -342,6 +402,43 @@ const METHOD_OVERRIDES: [&str; 3] = [
     "x-method-override",
 ];
 
+/// Refuses the request `params` asks for with `method`, checked as a
+/// page's destination, when it is an Effect: a method other than `GET` and
+/// `HEAD`, or a header, its own or a Secret's, that asks for another.
+///
+/// # Errors
+///
+/// `plugin_call_back_refused` for an Effect.
+fn no_effect(method: &Method, params: &NetFetchParams) -> Result<(), CallError> {
+    if method != Method::GET && method != Method::HEAD {
+        return Err(refused(&format!(
+            "a `{method}` to {}, checked as a page's destination, is an Effect, which needs the `effects` permission (issue 845)",
+            params.url
+        )));
+    }
+    let secret_headers = params.secrets.iter().filter_map(|secret| match secret {
+        NetFetchSecret::Header { name, .. } => Some(name),
+        NetFetchSecret::Query { .. } | NetFetchSecret::Form { .. } => None,
+    });
+    if let Some(header) = params
+        .headers
+        .iter()
+        .map(|header| &header.name)
+        .chain(secret_headers)
+        .find(|header| {
+            METHOD_OVERRIDES
+                .iter()
+                .any(|name| header.eq_ignore_ascii_case(name))
+        })
+    {
+        return Err(refused(&format!(
+            "the header `{header}` to {}, checked as a page's destination, asks for another method, an Effect, which needs the `effects` permission (issue 845)",
+            params.url
+        )));
+    }
+    Ok(())
+}
+
 /// The name and value of `header`, a request's.
 ///
 /// # Errors
@@ -349,25 +446,55 @@ const METHOD_OVERRIDES: [&str; 3] = [
 /// `invalid_params` for a name or value that is none, and
 /// `plugin_call_back_refused` for a header the engine sets itself.
 fn header_of(header: &NetFetchHeader) -> Result<(HeaderName, HeaderValue), CallError> {
-    let invalid = |what: &str| {
-        CallError::protocol(
-            ProtocolFailure::InvalidParams,
-            format!("the header `{}` has no valid {what}", header.name),
-        )
-    };
-    let name = HeaderName::from_bytes(header.name.as_bytes()).map_err(|_| invalid("name"))?;
-    if ENGINE_HEADERS.contains(&name.as_str()) || name.as_str().starts_with("proxy-") {
+    let name = header_name(&header.name)?;
+    let value =
+        HeaderValue::from_str(&header.value).map_err(|_| invalid_header(&header.name, "value"))?;
+    Ok((name, value))
+}
+
+/// `name`, a request header's that the Plugin may set.
+///
+/// # Errors
+///
+/// `invalid_params` for a name that is none, and
+/// `plugin_call_back_refused` for a header the engine sets itself.
+fn header_name(name: &str) -> Result<HeaderName, CallError> {
+    let header =
+        HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid_header(name, "name"))?;
+    if ENGINE_HEADERS.contains(&header.as_str()) || header.as_str().starts_with("proxy-") {
         return Err(refused(&format!(
-            "the engine sets the header `{name}` itself"
+            "the engine sets the header `{header}` itself"
         )));
     }
-    let value = HeaderValue::from_str(&header.value).map_err(|_| invalid("value"))?;
-    Ok((name, value))
+    Ok(header)
+}
+
+/// `invalid_params` for the header `name`, whose `what` is none.
+fn invalid_header(name: &str, what: &str) -> CallError {
+    CallError::protocol(
+        ProtocolFailure::InvalidParams,
+        format!("the header `{name}` has no valid {what}"),
+    )
 }
 
 /// `plugin_call_back_refused`, with `message`.
 fn refused(message: &str) -> CallError {
     CallError::new(&PLUGIN_CALL_BACK_REFUSED, message, &())
+}
+
+/// `plugin_permission_denied` for the Plugin `name`'s `permission`.
+pub(crate) fn permission_denied(name: &str, permission: Permission) -> CallError {
+    let fix = fix(name, &format!("approved.{}", permission.field()));
+    let message = format!(
+        "the Operator policy has not approved the Plugin `{name}`'s permission `{}`",
+        permission.field()
+    );
+    let details = PluginPermissionDeniedDetails {
+        plugin: name.to_owned(),
+        permission,
+        fix,
+    };
+    CallError::new(&PLUGIN_PERMISSION_DENIED, message, &details)
 }
 
 /// Admits or refuses a Plugin's call back naming `call_id`, while its

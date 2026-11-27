@@ -314,6 +314,14 @@
           "description": "The HTTP method, such as `GET`.",
           "type": "string"
         },
+        "secrets": {
+          "arrived_in": "0.1",
+          "description": "The Secrets the engine inserts, each by its reference, which the\nPlugin's manifest declares and the operator approved; the engine\ninserts a value only toward a domain the Run binds that reference\nto (ADR 0033), and the Plugin never sees it.",
+          "items": {
+            "$ref": "#/$defs/NetFetchSecret"
+          },
+          "type": "array"
+        },
         "url": {
           "arrived_in": "0.1",
           "description": "The absolute URL, `http` or `https`.",
@@ -358,6 +366,99 @@
         "body"
       ],
       "type": "object"
+    },
+    "NetFetchSecret": {
+      "description": "Where the engine inserts one Secret's value in a `net.fetch` request.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "As the value of the header `name`, which the request sets nowhere\nelse.",
+          "properties": {
+            "in": {
+              "const": "header",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The header's name.",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, as the manifest declares it.",
+              "type": "string"
+            },
+            "template": {
+              "arrived_in": "0.1",
+              "description": "The text the value goes in, at its one `{}`, such as\n`Bearer {}`; the value alone when absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "in",
+            "name",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "As the query parameter `name`, which the URL holds nowhere else; the\nURL is masked wherever the engine writes it.",
+          "properties": {
+            "in": {
+              "const": "query",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The parameter's name.",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, as the manifest declares it.",
+              "type": "string"
+            },
+            "template": {
+              "arrived_in": "0.1",
+              "description": "The text the value goes in, at its one `{}`; the value alone\nwhen absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "in",
+            "name",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "As the form field the operator set for the reference's binding\n(`secrets.placeholders.<name>.form_field`), appended to a body of\n`application/x-www-form-urlencoded` that holds no such field.",
+          "properties": {
+            "in": {
+              "const": "form",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, as the manifest declares it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "in",
+            "reference"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "NetworkLevel": {
       "description": "What a process Plugin may reach on the network (ADR 0033), derived from\nits kinds rather than chosen: see [`NetworkLevel::allowed_for`].",

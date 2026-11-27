@@ -119,7 +119,7 @@ pub enum ClientCertificateFailure {
 impl ClientCertificateFailure {
     /// The `setting_invalid` the call that waited for the request answers
     /// a [`Self::Unusable`] failure with; a [`Self::Secret`] failure is
-    /// answered as the driver's own (`run::secret_error`), so none.
+    /// answered as the driver's own (`secrets::secret_error`), so none.
     pub fn setting_invalid(&self) -> Option<CallError> {
         let Self::Unusable { layer, .. } = self else {
             return None;

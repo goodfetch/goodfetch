@@ -1189,6 +1189,9 @@ class SecretsPlaceholdersEntry1(TypedDict):
     domains: list[str]
     """The registrable domains, each with its subdomains, its value may go to; `*` for every domain, only when written."""
 
+    form_field: NotRequired[str]
+    """The form field a Plugin's `net.fetch` may insert the value in; never beside `totp`."""
+
     reference: str
     """The Secret reference its value comes from, such as `env:GITHUB_PASSWORD`."""
 
@@ -1210,7 +1213,7 @@ class ConnectionSecretsSettings(TypedDict):
     """The `secrets` settings of `FoxhoundSettings`."""
 
     placeholders: NotRequired[Mapping[str, SecretsPlaceholdersEntry1 | SecretsPlaceholdersEntry2]]
-    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `form_field`, the one form field a Plugin's `net.fetch` may insert the value in, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
 
     `secrets.placeholders`.
     """
@@ -3073,7 +3076,7 @@ class RunSecretsSettings(TypedDict):
     """The `secrets` settings of `CrawlSettings`."""
 
     placeholders: NotRequired[Mapping[str, SecretsPlaceholdersEntry1 | SecretsPlaceholdersEntry2]]
-    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
+    """Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `form_field`, the one form field a Plugin's `net.fetch` may insert the value in, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
 
     `secrets.placeholders`.
     """

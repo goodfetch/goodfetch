@@ -21,8 +21,7 @@ use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::plugin::approvals::{
-    Origin, PLUGIN_NOT_ALLOWED, PLUGIN_PERMISSION_DENIED, Permission, PluginNotAllowedDetails,
-    PluginPermissionDeniedDetails, PluginRefusal, admit, fix,
+    Origin, PLUGIN_NOT_ALLOWED, PluginNotAllowedDetails, PluginRefusal, admit, fix,
 };
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::plugin::{PluginKindName, PluginManifest, Runtime};
@@ -33,7 +32,7 @@ use super::extractor::{ProcessExtractor, unavailable};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::home::Home;
-use crate::plugin_gate::PluginFetch;
+use crate::plugin_gate::{Inserting, PluginFetch, permission_denied};
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
@@ -192,7 +191,14 @@ impl RunPlugins {
                 ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
             })?;
         let fetch = PluginFetch::of(resolved, name, self.clock, self.owner.blocking_threads())
-            .map_err(|invalid| cannot_start(&invalid))?;
+            .map_err(|invalid| cannot_start(&invalid))?
+            .inserting(Inserting::new(
+                name,
+                (&installed.manifest, &entry.approved),
+                resolved,
+                secrets.clone(),
+                self.run_id.clone(),
+            ));
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
         let places = self.places.clone();
         let plugin = self
@@ -288,21 +294,6 @@ fn admitted(
         ))
     })?;
     Ok(entry)
-}
-
-/// `plugin_permission_denied` for the Plugin `name`'s `permission`.
-fn permission_denied(name: &str, permission: Permission) -> CallError {
-    let fix = fix(name, &format!("approved.{}", permission.field()));
-    let message = format!(
-        "the Operator policy has not approved the Plugin `{name}`'s permission `{}`",
-        permission.field()
-    );
-    let details = PluginPermissionDeniedDetails {
-        plugin: name.to_owned(),
-        permission,
-        fix,
-    };
-    CallError::new(&PLUGIN_PERMISSION_DENIED, message, &details)
 }
 
 /// What starts one instance, set up on the blocking policy.

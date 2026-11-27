@@ -70,7 +70,7 @@ fn a_placeholder_no_scope_binds_is_unbound_naming_the_bound_never_a_value() {
             .unwrap();
     }
 
-    let unbound = crate::run::secret_error(&binding(&settings, "gitlab").unwrap_err());
+    let unbound = crate::secrets::secret_error(&binding(&settings, "gitlab").unwrap_err());
 
     let object = serde_json::to_vec(&unbound.to_error_object()).unwrap();
     assert_eq!(

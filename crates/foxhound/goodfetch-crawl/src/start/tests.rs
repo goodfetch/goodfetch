@@ -314,7 +314,7 @@ pub(crate) fn configure(env: &TestEnv, policy: CrawlPolicy) {
     std::fs::write(
         folder.join("configuration.toml"),
         format!(
-            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.retry.engine_panicked = {}\ncrawl.handler.concurrency = {}\n",
+            "version = \"0.1\"\n\n[settings]\ntimeout.handler = {}\ncrawl.retry.max = {}\ncrawl.retry.handler_failed = {}\ncrawl.retry.engine_panicked = {}\ncrawl.handler.concurrency = {}\npoliteness.domain.concurrency = 64\npoliteness.domain.delay = 0\n",
             policy.handler_timeout.as_millis(),
             policy.retry_max,
             policy.retry_handler_failed,
@@ -943,7 +943,10 @@ fn a_late_commit_after_a_default_lease_ended_is_refused_and_the_retry_commits(
                         "labels": { "page": {} },
                         "run_id": "late",
                         "seeds": seeds(1),
-                        "settings": { "run_state": { "durability": level } },
+                        "settings": {
+                            "run_state": { "durability": level },
+                            "politeness": { "domain": { "delay": 0 } },
+                        },
                     }),
                     &mut |_| Reply::Silent,
                 )

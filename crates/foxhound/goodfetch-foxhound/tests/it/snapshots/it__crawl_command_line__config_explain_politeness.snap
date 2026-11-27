@@ -51,6 +51,18 @@ expression: "serde_json::to_string_pretty(&explained.documents[0]).unwrap()"
     },
     {
       "applied": true,
+      "key": "politeness.degraded_max",
+      "layer": "default",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": 600000,
+      "weakens": false
+    },
+    {
+      "applied": true,
       "key": "politeness.delegation",
       "layer": "default",
       "products": [
@@ -109,6 +121,17 @@ expression: "serde_json::to_string_pretty(&explained.documents[0]).unwrap()"
     {
       "applied": true,
       "key": "politeness.domain.rate",
+      "layer": "default",
+      "products": [
+        "foxhound"
+      ],
+      "user_settable": true,
+      "value": null,
+      "weakens": false
+    },
+    {
+      "applied": true,
+      "key": "politeness.ip.concurrency",
       "layer": "default",
       "products": [
         "foxhound"

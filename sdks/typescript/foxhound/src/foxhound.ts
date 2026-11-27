@@ -283,6 +283,12 @@ export class Foxhound implements Connection {
    * work item is done, or, with `crawl.keep_alive`, once `run.finish` lets
    * it and every work item is done. A Run ID works as `run.start`'s.
    *
+   * With nothing set, a crawl obeys `robots.txt`, keeps one request in flight
+   * per domain (`politeness.domain.concurrency: 1`) and waits at least one
+   * second between starts (`politeness.domain.delay: 1000`); pressing harder
+   * is set explicitly and recorded in the Run report's `weakened` and a
+   * warning (ADR 0086).
+   *
    * In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
    * no signal handler, and a signal that ends the process at once leaves
    * in-flight attempts counted as `handler_lost` against `crawl.retry.max`

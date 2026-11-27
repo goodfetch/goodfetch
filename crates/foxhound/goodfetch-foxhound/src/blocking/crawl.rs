@@ -408,6 +408,12 @@ impl Foxhound {
     /// A code-free crawl, a [`crate::CrawlDeclaration`] or a
     /// [`crate::CrawlExtraction`], starts the same way with no handler, as
     /// it does there.
+    ///
+    /// With nothing set, a crawl obeys `robots.txt`, keeps one request in
+    /// flight per domain (`politeness.domain.concurrency: 1`) and waits at
+    /// least one second between starts (`politeness.domain.delay: 1s`);
+    /// pressing harder is set explicitly and recorded in the Run report's
+    /// `weakened` and a warning (ADR 0086).
     pub fn start_crawl(
         &self,
         crawl: impl crate::CrawlTarget,

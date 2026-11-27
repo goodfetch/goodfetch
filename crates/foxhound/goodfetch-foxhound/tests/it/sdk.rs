@@ -28,6 +28,7 @@ mod foxhound_keys;
 mod label_declaration;
 mod limits;
 mod outcomes;
+mod politeness;
 mod public_items;
 mod resume;
 mod seeds;

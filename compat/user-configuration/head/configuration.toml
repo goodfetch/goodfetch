@@ -306,6 +306,7 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 delegation = true
+degraded_max = 30000
 store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [settings.politeness.proxy]
@@ -318,6 +319,9 @@ delay = 30000
 adaptive_delay = true
 rate = 4
 burst = 4
+
+[settings.politeness.ip]
+concurrency = 4
 
 [settings.politeness.backoff]
 enabled = true

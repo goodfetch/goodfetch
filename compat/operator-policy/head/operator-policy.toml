@@ -306,6 +306,7 @@ age_notice = true
 [settings.politeness]
 sharing = "shared"
 delegation = true
+degraded_max = 30000
 store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [settings.politeness.proxy]
@@ -318,6 +319,9 @@ delay = 30000
 adaptive_delay = true
 rate = 4
 burst = 4
+
+[settings.politeness.ip]
+concurrency = 4
 
 [settings.politeness.backoff]
 enabled = true
@@ -750,6 +754,7 @@ age_notice = true
 [lock.politeness]
 sharing = "shared"
 delegation = true
+degraded_max = 30000
 store = { addressing = { kind = "server", url = "rediss://valkey.example:6380" }, namespace = "crawl", password = "env:VALKEY_PASSWORD", username = "crawler" }
 
 [lock.politeness.proxy]
@@ -762,6 +767,9 @@ delay = 30000
 adaptive_delay = true
 rate = 4
 burst = 4
+
+[lock.politeness.ip]
+concurrency = 4
 
 [lock.politeness.backoff]
 enabled = true
@@ -1000,6 +1008,9 @@ max_requests_per_minute = 4
 [cap.usage]
 ledger_read_interval = 30000
 
+[cap.politeness]
+degraded_max = 30000
+
 [cap.politeness.proxy]
 concurrency = 4
 rate = 4
@@ -1009,6 +1020,9 @@ concurrency = 4
 delay = 30000
 rate = 4
 burst = 4
+
+[cap.politeness.ip]
+concurrency = 4
 
 [cap.politeness.backoff]
 initial = 30000

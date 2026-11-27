@@ -10612,6 +10612,17 @@
       ]
     },
     {
+      "id": "setting:politeness.degraded_max",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:politeness.delegation",
       "kind": "setting",
       "area": 3,
@@ -10664,6 +10675,16 @@
     },
     {
       "id": "setting:politeness.domain.rate",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:politeness.ip.concurrency",
       "kind": "setting",
       "area": 3,
       "milestone": null,

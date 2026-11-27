@@ -6,7 +6,7 @@ use goodfetch_protocol::page::ExtractorName;
 use goodfetch_protocol::settings::{SettingNotApplicableDetails, SettingsLayer};
 use serde_json::json;
 
-use super::{Settings, content, crawl, fetch, politeness, session, timeout};
+use super::{Settings, content, crawl, fetch, politeness, session, site_preferences, timeout};
 use crate::ErrorCode;
 
 #[test]
@@ -82,6 +82,51 @@ fn a_crawl_sets_collies_run_keys_beside_foxhounds() {
             },
             "fetch": { "tier": "auto" },
             "timeout": { "navigation": 30000 },
+        })
+    );
+}
+
+#[test]
+fn politeness_and_site_preferences_extend_collies_keys() {
+    let crawl = Settings::new()
+        // Collie's own Politeness & Site-preferences keys, re-exported in Foxhound's modules.
+        .set(politeness::SHARING, politeness::Sharing::Shared)
+        .set(politeness::DELEGATION, true)
+        .set(politeness::proxy::CONCURRENCY, 4)
+        .set(politeness::proxy::RATE, 10)
+        .set(site_preferences::RESPECT_USE_SIGNALS, false)
+        // Foxhound's own Politeness & Site-preferences keys beside them (ADRs 0086, 0118).
+        .set(politeness::domain::CONCURRENCY, 2)
+        .set(politeness::domain::DELAY, Duration::from_millis(500))
+        .set(politeness::backoff::ENABLED, true)
+        .set(politeness::backoff::INITIAL, Duration::from_secs(2))
+        .set(politeness::backoff::MAX, Duration::from_secs(60))
+        .set(politeness::ip::CONCURRENCY, 4)
+        .set(politeness::retry_after::MAX, Duration::from_mins(15))
+        .set(site_preferences::RESPECT_ROBOTS_TXT, true)
+        .set(site_preferences::MAX_CRAWL_DELAY, Duration::from_secs(30))
+        .set(site_preferences::ROBOTS_TXT_USER_AGENT, "operator-bot");
+
+    let sent = crawl.within(SettingScope::Run).unwrap();
+
+    assert_eq!(
+        serde_json::Value::Object(sent),
+        json!({
+            "politeness": {
+                "backoff": { "enabled": true, "initial": 2000, "max": 60000 },
+                "delegation": true,
+                "domain": { "concurrency": 2, "delay": 500 },
+                "ip": { "concurrency": 4 },
+                "proxy": { "concurrency": 4, "rate": 10 },
+                "retry_after": { "max": 900_000 },
+                "sharing": "shared",
+            },
+            "site_preferences": {
+                "max_crawl_delay": 30000,
+                "respect_robots_txt": true,
+                "respect_use_signals": false,
+                "robots_txt_user_agent": "operator-bot",
+            },
         })
     );
 }

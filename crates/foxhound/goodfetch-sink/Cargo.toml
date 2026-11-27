@@ -9,6 +9,10 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Encoded Export part bytes handed to `object_store`.
+bytes.workspace = true
+# Streaming object-store listing on probe.
+futures-util = { workspace = true, features = ["alloc", "std"] }
 # The committed Records a delivery reads, through the Dataset's own query.
 goodfetch-dataset.workspace = true
 # The Run a crawl's Sinks deliver from: its run file, its tasks and the
@@ -20,6 +24,8 @@ goodfetch-protocol.workspace = true
 hyper.workspace = true
 # A Record's commit time, written RFC 3339 into the destination.
 jiff.workspace = true
+# Object-store Sinks (S3, GCS, Azure Blob) in Files mode (ADR 0026).
+object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
 rusqlite.workspace = true
 # A destination's resolved Secret.
 secrecy.workspace = true
@@ -34,6 +40,7 @@ url.workspace = true
 goodfetch-workspace-hack.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 goodfetch-simulation.workspace = true
 goodfetch-test-support.workspace = true
 http-body-util.workspace = true
@@ -42,6 +49,8 @@ proptest.workspace = true
 proptest-state-machine.workspace = true
 rstest.workspace = true
 tempfile.workspace = true
+toml.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

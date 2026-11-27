@@ -622,6 +622,7 @@ fetch:
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh
+    ci/rustfs/fetch.sh
     ci/registry/fetch.sh
     ci/pypiserver/fetch.sh
 

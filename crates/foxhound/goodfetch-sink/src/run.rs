@@ -850,8 +850,17 @@ fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
     let Some(sink_type) = sink.sink_type else {
         return Some(("type", "program_sink".to_owned()));
     };
-    if !matches!(sink_type, SinkType::Sqlite | SinkType::Webhook) {
+    if !matches!(
+        sink_type,
+        SinkType::Sqlite | SinkType::Webhook | SinkType::S3
+    ) {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
+    }
+    if matches!(sink_type, SinkType::S3) {
+        return sink
+            .deliver
+            .filter(|deliver| *deliver != DeliveredAs::Files)
+            .map(|deliver| ("deliver", wire_name(serde_json::to_value(deliver))));
     }
     sink.deliver
         .filter(|deliver| *deliver != DeliveredAs::Records)

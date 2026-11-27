@@ -14,7 +14,9 @@
 mod contract;
 pub mod dead_letters;
 mod driver;
+pub mod files;
 mod guarantee;
+pub mod object_store_sink;
 pub mod report;
 mod run;
 pub mod schedule;
@@ -29,7 +31,13 @@ pub use contract::{
     Written,
 };
 pub use driver::{Driver, RedeliverOutcome, RetryOutcome, Status};
+pub use files::{
+    DEFAULT_MAX_AGE, DEFAULT_MAX_BYTES, DEFAULT_MAX_RECORDS, FileDestination, FileProbe,
+    FilesConfig, FilesError, FilesSink, ParsedPartKey, PutOutcome, format_part_key, parse_part_key,
+    part_extension,
+};
 pub use guarantee::{meets, require};
+pub use object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
 pub use report::{SinkReportPart, SinkStateRow};
 pub use run::{Delivery, Sinks, contribution};
 pub use schedule::{

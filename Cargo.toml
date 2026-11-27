@@ -153,6 +153,9 @@ csv = { version = "1.4.0", default-features = false }
 arrow-array = { version = "60.0.0", default-features = false }
 arrow-ipc = { version = "60.0.0", default-features = false }
 arrow-schema = { version = "60.0.0", default-features = false }
+# Object-store Sinks in Files mode (ADR 0026; issues 1152 and 1156): S3,
+# GCS and Azure Blob through `object_store` over reqwest + rustls.
+object_store = { version = "0.14.2", default-features = false }
 parquet = { version = "60.0.0", default-features = false, features = ["arrow", "snap", "zstd"] }
 # The Avro reader the Avro Exports are read back with in tests (spec #582).
 apache-avro = { version = "0.22.0", default-features = false }

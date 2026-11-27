@@ -202,5 +202,80 @@ pub fn write_export(
     Ok(encoding.finish())
 }
 
+/// One Record handed to [`PartColumns::encode`] for a Files-mode Sink Export
+/// part (ADR 0026).
+#[derive(Clone, Debug)]
+pub struct PartRecord<'a> {
+    /// Its number in its Dataset.
+    pub number: u64,
+    /// Its JSON value, serialized as JSON text.
+    pub value: &'a str,
+    /// When it was committed, RFC 3339 in UTC.
+    pub committed_at: &'a str,
+}
+
+/// Union of table columns seen across all parts of a Files-mode Sink Dataset
+/// (ADR 0026: every part carries the union of all fields seen so far).
+#[derive(Clone, Debug)]
+pub struct PartColumns {
+    columns: Columns,
+}
+
+impl PartColumns {
+    /// Creates an empty column union for `format` and `options`.
+    #[must_use]
+    pub fn new(format: ExportFormat, options: &ExportOptions) -> Self {
+        Self {
+            columns: Columns::new(options.nested(format)),
+        }
+    }
+
+    /// Incorporates every Record's fields from `records` into the union.
+    pub fn see(&mut self, records: &[PartRecord<'_>]) {
+        for record in records {
+            let exported = Exported {
+                number: record.number,
+                value: record.value,
+                wall: None,
+                committed_at: record.committed_at,
+            };
+            self.columns.see(&exported.marked());
+        }
+    }
+
+    /// Encodes `records` as one complete, valid Export part in `format` with
+    /// `options` and `compression`, using the union of columns seen so far.
+    ///
+    /// # Errors
+    ///
+    /// [`WriteExportError::Refused`] for an XLSX part exceeding Excel limits.
+    pub fn encode(
+        &self,
+        dataset: &str,
+        format: ExportFormat,
+        options: &ExportOptions,
+        compression: ExportCompression,
+        records: &[PartRecord<'_>],
+    ) -> Result<Vec<u8>, WriteExportError> {
+        if format == ExportFormat::Xlsx {
+            sheet_fits(&self.columns).map_err(|refused| sheet_refused(dataset, refused))?;
+        }
+        let mut encoder = ExportEncoder::new(format, options, self.columns.clone());
+        let mut compressor = Compressor::new(compression);
+        encoder.begin(compressor.input());
+        for record in records {
+            let exported = Exported {
+                number: record.number,
+                value: record.value,
+                wall: None,
+                committed_at: record.committed_at,
+            };
+            encoder.value(&exported, compressor.input());
+        }
+        encoder.end(compressor.input());
+        Ok(compressor.finish())
+    }
+}
+
 #[cfg(test)]
 mod tests;

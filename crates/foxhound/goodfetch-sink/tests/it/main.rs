@@ -10,6 +10,7 @@
 mod conformance;
 mod dead_letters;
 mod faults;
+mod files;
 mod model;
 mod outlive;
 mod retries;

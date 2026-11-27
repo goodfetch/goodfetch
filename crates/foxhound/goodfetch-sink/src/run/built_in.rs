@@ -18,6 +18,8 @@ use url::Url;
 
 use crate::contract::{Batch, Failure, Primitives, Probe, RunCopy, Written};
 use crate::driver::Driver;
+use crate::files::{FilesConfig, FilesError, FilesSink};
+use crate::object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
 use crate::sqlite::{SqliteError, SqliteSink};
 use crate::throughput::Throughput;
 use crate::webhook::{DEFAULT_MAX_BATCH_BYTES, WebhookConfig, WebhookError, WebhookSink};
@@ -29,12 +31,14 @@ const SQLITE_TARGET: &str = "records";
 pub(super) enum BuiltInSink {
     Sqlite(SqliteSink),
     Webhook(WebhookSink),
+    ObjectStore(FilesSink<ObjectStoreDestination>),
 }
 
 /// Errors from any [`BuiltInSink`].
 pub(super) enum BuiltInError {
     Sqlite(SqliteError),
     Webhook(WebhookError),
+    ObjectStore(FilesError<ObjectStoreError>),
 }
 
 impl Primitives for BuiltInSink {
@@ -44,6 +48,7 @@ impl Primitives for BuiltInSink {
         match self {
             Self::Sqlite(sink) => sink.probe(run).map_err(BuiltInError::Sqlite),
             Self::Webhook(sink) => sink.probe(run).map_err(BuiltInError::Webhook),
+            Self::ObjectStore(sink) => sink.probe(run).map_err(BuiltInError::ObjectStore),
         }
     }
 
@@ -51,6 +56,7 @@ impl Primitives for BuiltInSink {
         match self {
             Self::Sqlite(sink) => sink.write(batch).map_err(BuiltInError::Sqlite),
             Self::Webhook(sink) => sink.write(batch).map_err(BuiltInError::Webhook),
+            Self::ObjectStore(sink) => sink.write(batch).map_err(BuiltInError::ObjectStore),
         }
     }
 
@@ -66,6 +72,9 @@ impl Primitives for BuiltInSink {
             Self::Webhook(sink) => sink
                 .write_with_timeout(batch, timeout)
                 .map_err(BuiltInError::Webhook),
+            Self::ObjectStore(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::ObjectStore),
         }
     }
 
@@ -73,6 +82,7 @@ impl Primitives for BuiltInSink {
         match self {
             Self::Sqlite(sink) => sink.finish(run).map_err(BuiltInError::Sqlite),
             Self::Webhook(sink) => sink.finish(run).map_err(BuiltInError::Webhook),
+            Self::ObjectStore(sink) => sink.finish(run).map_err(BuiltInError::ObjectStore),
         }
     }
 
@@ -80,6 +90,7 @@ impl Primitives for BuiltInSink {
         match self {
             Self::Sqlite(sink) => sink.dedup_window(),
             Self::Webhook(sink) => sink.dedup_window(),
+            Self::ObjectStore(sink) => sink.dedup_window(),
         }
     }
 
@@ -87,6 +98,7 @@ impl Primitives for BuiltInSink {
         match (self, error) {
             (Self::Sqlite(sink), BuiltInError::Sqlite(err)) => sink.map_failure(err),
             (Self::Webhook(sink), BuiltInError::Webhook(err)) => sink.map_failure(err),
+            (Self::ObjectStore(sink), BuiltInError::ObjectStore(err)) => sink.map_failure(err),
             _ => unreachable!("invariant: error matches its BuiltInSink variant"),
         }
     }
@@ -156,6 +168,18 @@ impl Destination<'_> {
                     self.open_webhook(&resolved_dest, secrets, clock).await?;
                 throughput.batch.max_bytes = throughput.batch.max_bytes.min(max_bytes);
                 BuiltInSink::Webhook(webhook)
+            }
+            Some(SinkType::S3) => {
+                let dest = ObjectStoreDestination::from_url(
+                    ObjectStoreBackend::S3,
+                    self.name,
+                    &resolved_dest,
+                    self.settings.target.as_deref(),
+                )
+                .map_err(|err| err.to_string())?;
+                let config = FilesConfig::from_settings(self.settings.files.as_ref());
+                let prefix = self.settings.target.as_deref().unwrap_or_default();
+                BuiltInSink::ObjectStore(FilesSink::new(self.name, prefix, config, clock, dest))
             }
             other => {
                 return Err(format!(

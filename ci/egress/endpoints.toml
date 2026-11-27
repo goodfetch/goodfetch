@@ -394,3 +394,11 @@ job = "release-nightly.yml#smoke-channels-windows"
 [[outside]]
 job = "release-nightly.yml#smoke-channels-macos"
 reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "plugin-index-publish.yml#publish"
+reason = "It signs plugin-index/index.json with keyless Sigstore OIDC and publishes the signed index and bundle without running the product (ADR 0033; issue 1534)."
+
+[[outside]]
+job = "plugin-index-review.yml#validate"
+reason = "It validates submitted Plugin index entries by pinned digest, provenance attestation and confined plugins test with read-only permissions and zero secrets (ADRs 0033 and 0052; issue 1534)."

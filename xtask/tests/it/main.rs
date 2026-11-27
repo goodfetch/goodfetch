@@ -108,6 +108,7 @@ mod perf_run;
 mod perf_script;
 #[cfg(unix)]
 mod pgo;
+mod plugin_index_workflows;
 mod pre_merge;
 mod quarantine;
 mod quick;

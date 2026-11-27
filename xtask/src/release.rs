@@ -37,6 +37,7 @@ mod digests;
 mod gates;
 mod line;
 mod package;
+mod plugin_index;
 mod proving_ground;
 mod pull_request;
 mod python_index;
@@ -255,6 +256,11 @@ pub(crate) enum Command {
     /// Pins the newest passing Clean-up rules daily set for a release line
     /// (ADRs 0030, 0032 and 0047; issue 207).
     PinCleanUpRules(clean_up_pin::Arguments),
+    /// Prepares or validates Plugin index files and entries (ADRs 0033, 0052; issue 1534).
+    PluginIndex {
+        #[command(subcommand)]
+        command: plugin_index::Command,
+    },
 }
 
 #[expect(
@@ -283,6 +289,7 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::PinCleanUpRules(arguments) => {
             clean_up_pin::run(root, &arguments, environment.github_token.as_deref())
         }
+        Command::PluginIndex { command } => plugin_index::run(root, &command),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

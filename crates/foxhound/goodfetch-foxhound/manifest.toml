@@ -649,6 +649,15 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "CrawlRun"
+member = "started_as"
+entry = "run.started_as"
+only = "TypeScript's `CrawlRun` and Python's `AsyncCrawlRun`/`CrawlRun` inherit `startedAs`/`started_as` from `Run`."
+words = ["started", "as"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
 member = "run"
 entry = "none"
 reason = "The Run the crawl's Run is, with every member a Run has, such as `close`."
@@ -1518,6 +1527,15 @@ entry = "none"
 reason = "The Run's ID, read without a round trip."
 only = "TypeScript's `CrawlRun` is a `Run`, whose `id` it has."
 words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "started_as"
+entry = "run.started_as"
+only = "TypeScript's `CrawlRun` and Python's `AsyncCrawlRun`/`CrawlRun` inherit `startedAs`/`started_as` from `Run`."
+words = ["started", "as"]
 form = "read"
 
 [[member]]

@@ -14,7 +14,9 @@ use goodfetch_collie_client::{
 use goodfetch_protocol::foxhound::export::ExportFormat;
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::{RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams};
+use goodfetch_protocol::run::{
+    RUN_REPORT, RunFinishParams, RunId, RunParams, RunStopParams, StartedAs,
+};
 use serde_json::Value;
 
 use super::export::ExportDataset;
@@ -41,6 +43,16 @@ impl CrawlRun {
     /// The Run's ID.
     pub fn id(&self) -> &RunId {
         self.run.id()
+    }
+
+    /// Answers whether the start that opened the Run's handle began the Run,
+    /// `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102).
+    /// The handle answers it from that start's answer, without a message to
+    /// the engine.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn started_as(&self) -> StartedAs {
+        self.run.started_as()
     }
 
     /// The Run, with every member a Run has, such as `close`.

@@ -377,6 +377,25 @@ class AsyncFoxhound(AsyncConnection):
         `run.finish` lets it and every work item is done. A Run ID works as
         `run.start`'s.
 
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+        installs no signal handler, and a signal that ends the process at
+        once leaves in-flight attempts counted as `handler_lost` against
+        `crawl.retry.max` on resume, whereas `close()` returns them
+        uncounted (ADRs 0078, 0093).
+
+        Args:
+            crawl: The crawl to run, or a code-free crawl declaration or
+                extraction.
+            seeds: Initial requests or sitemap seeds, at least one.
+            run_id: Names the Run for good: a start with an existing Run ID
+                resumes the Run if it was interrupted, or returns it as it
+                ended (`started_as` says which); the engine generates one
+                when it is left out (ADR 0102).
+            tags: Opaque Run tags (at most 16, each at most 64 characters).
+            limits: The Run's own Limits (ADR 0080).
+            settings: The Run's own settings, Collie's and Foxhound's.
+            detached: On a Daemon, lets a code-free crawl outlive its program.
+
         Each work item goes to the handler of its Label, as a task beside
         this Connection's (ADR 0093). A seed is a `seed` request, or a
         `sitemap` seed of a sitemap's entries. Before anything is sent, a
@@ -759,6 +778,25 @@ class Foxhound(Connection):
         every work item is done, or, with `crawl.keep_alive`, once
         `run.finish` lets it and every work item is done. A Run ID works as
         `run.start`'s.
+
+        In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK
+        installs no signal handler, and a signal that ends the process at
+        once leaves in-flight attempts counted as `handler_lost` against
+        `crawl.retry.max` on resume, whereas `close()` returns them
+        uncounted (ADRs 0078, 0093).
+
+        Args:
+            crawl: The crawl to run, or a code-free crawl declaration or
+                extraction.
+            seeds: Initial requests or sitemap seeds, at least one.
+            run_id: Names the Run for good: a start with an existing Run ID
+                resumes the Run if it was interrupted, or returns it as it
+                ended (`started_as` says which); the engine generates one
+                when it is left out (ADR 0102).
+            tags: Opaque Run tags (at most 16, each at most 64 characters).
+            limits: The Run's own Limits (ADR 0080).
+            settings: The Run's own settings, Collie's and Foxhound's.
+            detached: On a Daemon, lets a code-free crawl outlive its program.
 
         As `AsyncFoxhound.start_crawl`, except that each work item's handler,
         a plain function, runs on the Connection's thread pool, so a handler

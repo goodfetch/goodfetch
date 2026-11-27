@@ -635,6 +635,16 @@ impl CrawlRun {
         self.inner.id()
     }
 
+    /// Answers whether the start that opened the Run's handle began the Run,
+    /// `new`, resumed it, `resumed`, or found it ended, `ended` (ADR 0102).
+    /// The handle answers it from that start's answer, without a message to
+    /// the engine.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn started_as(&self) -> goodfetch_protocol::run::StartedAs {
+        self.inner.started_as()
+    }
+
     /// The Run, with every member a blocking Run has, such as `close`.
     pub fn run(&self) -> &Run {
         &self.run

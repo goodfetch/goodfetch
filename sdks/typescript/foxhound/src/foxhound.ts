@@ -105,7 +105,7 @@ export interface FoxhoundHandlerlessStartOptions extends HandlerlessStartOptions
 export interface StartCrawlOptions {
   /** What the crawl starts from, at least one: `seed` requests and `sitemap` seeds. */
   readonly seeds: readonly [Seed, ...Seed[]];
-  /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
+  /** Names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or returns it as it ended (`startedAs()` says which); the engine generates one when it is left out (ADR 0102). */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
@@ -282,6 +282,11 @@ export class Foxhound implements Connection {
    * `crawl_request.handle` request, and the crawl's Run finishes once every
    * work item is done, or, with `crawl.keep_alive`, once `run.finish` lets
    * it and every work item is done. A Run ID works as `run.start`'s.
+   *
+   * In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+   * no signal handler, and a signal that ends the process at once leaves
+   * in-flight attempts counted as `handler_lost` against `crawl.retry.max`
+   * on resume, whereas `close()` returns them uncounted (ADRs 0078, 0093).
    *
    * Each work item goes to the handler of its Label, on this process's
    * event loop (ADR 0093). Before anything is sent, a Label without a

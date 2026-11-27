@@ -35,3 +35,17 @@ pub(crate) type Condvar = loom::sync::Condvar;
 /// A condition variable, loom's under `goodfetch_loom`.
 #[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) type Condvar = std::sync::Condvar;
+
+/// An atomic boolean, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type AtomicBool = loom::sync::atomic::AtomicBool;
+/// An atomic boolean, loom's under `goodfetch_loom`.
+#[cfg(not(all(test, goodfetch_loom)))]
+pub(crate) type AtomicBool = std::sync::atomic::AtomicBool;
+
+/// An atomic counter, loom's under `goodfetch_loom`.
+#[cfg(all(test, goodfetch_loom))]
+pub(crate) type AtomicUsize = loom::sync::atomic::AtomicUsize;
+/// An atomic counter, loom's under `goodfetch_loom`.
+#[cfg(all(test, not(goodfetch_loom)))]
+pub(crate) type AtomicUsize = std::sync::atomic::AtomicUsize;

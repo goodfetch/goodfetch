@@ -12,17 +12,25 @@ use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
 use goodfetch_confinement::deny_list::Places;
 use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
-use goodfetch_protocol::group::ErasureTarget;
+use goodfetch_protocol::daemon::DaemonToken;
+use goodfetch_protocol::events::{EventEnvelope, EventsSubscribeParams};
+use goodfetch_protocol::group::{ErasureTarget, PlacementRequest};
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::live_view::LiveViewScreen;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
+use goodfetch_protocol::run::RunId;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 use crate::audit::AuditLog;
 use crate::call_error::CallError;
@@ -41,7 +49,7 @@ use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::{Resolved, Settings};
-use crate::sync::Mutex;
+use crate::sync::{AtomicBool, Mutex};
 use crate::tasks::TaskOwner;
 use crate::user_store::{UserStore, UserStoreKind};
 
@@ -146,6 +154,141 @@ pub(crate) trait ErasureBroadcaster: Send + Sync {
     ) -> Pin<Box<dyn Future<Output = Result<Option<String>, CallError>> + Send>>;
 }
 
+/// One unary Client JSON-RPC call forwarded across a Daemon group peer link
+/// without decoding `params_raw` into a `Value` copy (ADRs 0055, 0132 and 0140).
+#[derive(Clone, Debug)]
+pub(crate) struct ForwardedCall {
+    /// The Client's JSON-RPC request ID.
+    pub(crate) id: RequestId,
+    /// The catalog operation method name.
+    pub(crate) method: String,
+    /// Raw JSON text of the call's params (preserving `_meta` Trace context).
+    pub(crate) params_raw: Option<String>,
+    /// The Client's surface.
+    pub(crate) surface: Surface,
+    /// The Client's error-name spelling form.
+    pub(crate) form: Form,
+    /// Whether the Client reached the receiving Group member behind a gateway.
+    pub(crate) behind_gateway: bool,
+    /// Whether the Client's Connection answers as a person.
+    pub(crate) answers_as_a_person: bool,
+}
+
+/// Executes a forwarded unary JSON-RPC call locally on the owning Group
+/// member and returns its raw JSON-RPC response line (ADR 0055).
+pub(crate) trait LocalDispatcher: Send + Sync {
+    /// Dispatches `call` locally, opening its `SERVER` span from `_meta` and
+    /// returning the encoded JSON-RPC reply line (newline-terminated).
+    fn dispatch(&self, call: ForwardedCall) -> Pin<Box<dyn Future<Output = Vec<u8>> + Send>>;
+}
+
+/// Outcome of routing a unary Client call in a Daemon group (ADR 0055).
+pub(crate) enum RoutedCall {
+    /// Handle the call locally on this Group member.
+    Local,
+    /// Handled by the owning Group member: exact JSON-RPC reply line bytes to
+    /// pass straight to the Client without decoding or encoding again (ADR 0140).
+    Forwarded(Vec<u8>),
+}
+
+/// Outcome of routing an `events.subscribe` stream in a Daemon group (ADR 0055).
+pub(crate) enum EventsRoute {
+    /// Serve locally on this Group member.
+    Local,
+    /// Redirect the Client to the owning Group member's `daemon.advertise_url`.
+    Redirect { url: String, owner: String },
+    /// Forward events over the peer link from the owning Group member.
+    Forward { owner: String, peer_address: String },
+}
+
+/// Outcome of routing a Live view channel in a Daemon group (ADRs 0055 and 0149).
+pub(crate) enum LiveViewRoute {
+    /// Serve locally (or no remote Group member owns this Session).
+    Local,
+    /// Redirect the viewer to the owning Group member's `daemon.advertise_url`
+    /// using the single-use channel token minted in that owner's memory.
+    Redirect {
+        url: String,
+        token: DaemonToken,
+        owner: String,
+    },
+    /// Relay the Live view channel over the peer link to the owning Group member.
+    Relay { owner: String, peer_address: String },
+}
+
+/// Bidirectional newline-JSON relay handle for a Live view channel forwarded
+/// over a peer link when the owning Group member has no `daemon.advertise_url`.
+pub(crate) struct LiveViewRelay {
+    /// Sends viewer JSON messages to the owning Group member.
+    pub(crate) to_owner: mpsc::Sender<String>,
+    /// Receives engine JSON messages and frames from the owning Group member.
+    pub(crate) from_owner: mpsc::Receiver<String>,
+}
+
+/// Shared type-erased slot holding the Daemon's `LiveView` driver once
+/// `daemon::serve` constructs it (avoids an `Arc` cycle back to `EngineContext`).
+pub(crate) type LiveViewSlot = Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>;
+
+/// Boxed future yielding a peer-forwarded event batch receiver.
+pub(crate) type ForwardedEventsFuture =
+    Pin<Box<dyn Future<Output = Result<mpsc::Receiver<Vec<EventEnvelope>>, CallError>> + Send>>;
+
+/// Routes unary Client calls, event streams, Live view channels and run
+/// placement across a Daemon group (ADRs 0055, 0056, 0132, 0140 and 0149).
+pub(crate) trait GroupRouter: Send + Sync {
+    /// Routes a unary call for `run_id` (or places a new/resumed run given
+    /// `placement`). Answers `RoutedCall::Local` when this Group member handles
+    /// it, or `RoutedCall::Forwarded(line)` with the owner's raw response line
+    /// (retrying once after a cache refresh on `run_moved`).
+    fn route_unary(
+        &self,
+        call: ForwardedCall,
+        run_id: Option<RunId>,
+        placement: Option<PlacementRequest>,
+    ) -> Pin<Box<dyn Future<Output = Result<RoutedCall, CallError>> + Send>>;
+
+    /// Resolves how `events.subscribe` for `run_id` should be served: locally,
+    /// redirected to `daemon.advertise_url`, or forwarded over the peer link.
+    fn route_events(
+        &self,
+        run_id: RunId,
+    ) -> Pin<Box<dyn Future<Output = Result<EventsRoute, CallError>> + Send>>;
+
+    /// Opens a forwarded event stream over the peer link from `owner` at
+    /// `peer_address` for `params`, retrying once after a cache refresh on
+    /// `run_moved`.
+    fn forward_events(
+        &self,
+        owner: String,
+        peer_address: String,
+        params: EventsSubscribeParams,
+    ) -> ForwardedEventsFuture;
+
+    /// Resolves how a Live view channel for `session` should be served when
+    /// not open locally: redirected with a single-use token or relayed over
+    /// the peer link.
+    fn route_live_view(
+        &self,
+        session: SessionId,
+    ) -> Pin<Box<dyn Future<Output = Result<LiveViewRoute, CallError>> + Send>>;
+
+    /// Opens a relayed Live view channel over the peer link to `owner`.
+    fn open_live_view_relay(
+        &self,
+        owner: String,
+        peer_address: String,
+        session: SessionId,
+        screen: LiveViewScreen,
+    ) -> Pin<Box<dyn Future<Output = Result<LiveViewRelay, CallError>> + Send>>;
+
+    /// Verifies and consumes a single-use Live view redirect token minted in
+    /// this Group member's memory for `session` (ADR 0149).
+    fn verify_live_view_token(&self, session: &SessionId, token: &str) -> bool;
+
+    /// This Group member's name.
+    fn member_name(&self) -> &str;
+}
+
 /// What the engine knows of its host beside its stores: the person it
 /// acts for, its time zone, the stream its handlers draw from and the
 /// person's folders a Plugin's confinement denies.
@@ -167,6 +310,8 @@ pub(crate) struct Host {
     pub(crate) events: Events,
     /// The engine's metrics instruments (ADR 0050).
     pub(crate) metrics: Metrics,
+    /// The engine's Resource governor (ADR 0040).
+    pub(crate) governor: Governor,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -277,7 +422,13 @@ struct Held {
     control_stores: Arc<ControlStateRegistry>,
     events: Events,
     metrics: Metrics,
+    governor: Governor,
     erasure: Mutex<Option<Arc<dyn ErasureBroadcaster>>>,
+    has_group_router: AtomicBool,
+    group_router: Mutex<Option<Arc<dyn GroupRouter>>>,
+    local_dispatcher: Mutex<Option<Arc<dyn LocalDispatcher>>>,
+    runs_handle: Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>,
+    live_view_handle: Arc<Mutex<Option<Arc<dyn std::any::Any + Send + Sync>>>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -318,6 +469,7 @@ impl EngineContext {
             control_stores,
             events,
             metrics,
+            governor,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -338,7 +490,13 @@ impl EngineContext {
                 control_stores,
                 events,
                 metrics,
+                governor,
                 erasure: Mutex::new(None),
+                has_group_router: AtomicBool::new(false),
+                group_router: Mutex::new(None),
+                local_dispatcher: Mutex::new(None),
+                runs_handle: Mutex::new(None),
+                live_view_handle: Arc::new(Mutex::new(None)),
             }),
         }
     }
@@ -527,6 +685,135 @@ impl EngineContext {
     /// The engine's metrics instruments (ADR 0050).
     pub(crate) fn metrics(&self) -> &Metrics {
         &self.held.metrics
+    }
+
+    /// The engine's Resource governor (ADR 0040).
+    pub(crate) fn governor(&self) -> &Governor {
+        &self.held.governor
+    }
+
+    /// Fast lock-free check for whether this engine is currently routing calls
+    /// as part of a Daemon group (ADR 0140's E1: zero cost for local calls
+    /// outside a group).
+    pub(crate) fn has_group_router(&self) -> bool {
+        self.held.has_group_router.load(Ordering::Relaxed)
+    }
+
+    /// Registers or clears the Daemon group Client router (ADR 0055).
+    pub(crate) fn set_group_router(&self, router: Option<Arc<dyn GroupRouter>>) {
+        let present = router.is_some();
+        *self
+            .held
+            .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = router;
+        self.held.has_group_router.store(present, Ordering::Release);
+    }
+
+    /// The running Daemon group router, if this engine is in a Daemon group.
+    pub(crate) fn group_router(&self) -> Option<Arc<dyn GroupRouter>> {
+        if !self.has_group_router() {
+            return None;
+        }
+        self.held
+            .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Registers the local RPC dispatcher used to execute forwarded unary peer
+    /// calls on the owning Group member (ADR 0055).
+    pub(crate) fn set_local_dispatcher(&self, dispatcher: Option<Arc<dyn LocalDispatcher>>) {
+        *self
+            .held
+            .local_dispatcher
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = dispatcher;
+    }
+
+    /// The local RPC dispatcher, if wired.
+    pub(crate) fn local_dispatcher(&self) -> Option<Arc<dyn LocalDispatcher>> {
+        self.held
+            .local_dispatcher
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Stores the engine's `Runs` registry handle for group peer handlers.
+    pub(crate) fn set_runs_handle<T: Send + Sync + 'static>(&self, handle: Option<Arc<T>>) {
+        *self
+            .held
+            .runs_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            handle.map(|h| h as Arc<dyn std::any::Any + Send + Sync>);
+    }
+
+    /// Retrieves the engine's `Runs` registry handle as `T`.
+    pub(crate) fn runs_handle<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.held
+            .runs_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|held| Arc::clone(held).downcast::<T>().ok())
+    }
+
+    /// Stores the Daemon's `LiveView` driver handle for group peer handlers.
+    pub(crate) fn set_live_view_handle<T: Send + Sync + 'static>(&self, handle: Option<Arc<T>>) {
+        *self
+            .held
+            .live_view_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) =
+            handle.map(|h| h as Arc<dyn std::any::Any + Send + Sync>);
+    }
+
+    /// Retrieves the Daemon's `LiveView` driver handle as `T`.
+    pub(crate) fn live_view_handle<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.held
+            .live_view_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|held| Arc::clone(held).downcast::<T>().ok())
+    }
+
+    /// Returns a shared slot handle for reading the Daemon's `LiveView` once
+    /// `daemon::serve` initializes it, without creating an `Arc` cycle back to
+    /// [`EngineContext`].
+    pub(crate) fn live_view_slot(&self) -> LiveViewSlot {
+        Arc::clone(&self.held.live_view_handle)
+    }
+
+    /// Clears the runtime handles (`group_router`, `local_dispatcher`,
+    /// `runs_handle`, `live_view_handle`) when an engine shuts down so no
+    /// `Arc` cycle keeps `Runs`, `Events`, or `EngineContext` alive past
+    /// shutdown.
+    pub(crate) fn clear_runtime_handles(&self) {
+        self.held.has_group_router.store(false, Ordering::Release);
+        *self
+            .held
+            .group_router
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .local_dispatcher
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .runs_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .live_view_handle
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
     }
 
     /// Registers or clears the Daemon group erasure broadcaster (ADR 0055).

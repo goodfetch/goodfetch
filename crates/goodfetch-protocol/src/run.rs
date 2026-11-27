@@ -721,6 +721,11 @@ pub struct RunStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub accept_plugin_change: Vec<String>,
+    /// Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon
+    /// places the Run on this named Group member when eligible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
 
 /// What a start did with its Run: began it, resumed it, or found it ended

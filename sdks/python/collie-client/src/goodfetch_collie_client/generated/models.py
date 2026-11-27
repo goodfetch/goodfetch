@@ -4014,6 +4014,8 @@ class RunResumeParams(BaseModel):
     becomes the Run's state in this engine's run folder; by default the
     Run resumes from its run file on this machine.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     project: ProjectSettings | None = None
     """The project configuration the Client found, layer 3 (ADR 0083)."""
     rollback: bool | None = None
@@ -5257,15 +5259,36 @@ class StorageLevel(StrEnum):
     """
 
 
-class SubscriptionEnded(BaseModel):
+class StreamRedirect(BaseModel):
     """
-    What `events.subscribe` answers when its subscription ends without the
-    Client cancelling it: the engine stopped.
+    Where a Client reconnects to receive a Run's event stream directly from its
+    owning Group member (ADR 0055).
     """
 
     model_config = ConfigDict(
         extra="allow",
     )
+    owner: str
+    """The owning Group member's name."""
+    url: str
+    """The owning Group member's `daemon.advertise_url`."""
+
+
+class SubscriptionEnded(BaseModel):
+    """
+    What `events.subscribe` answers when its subscription ends without the
+    Client cancelling it: the engine stopped, or the subscription redirected to
+    the Run's owning Group member (ADR 0055).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    redirect: StreamRedirect | None = None
+    """
+    Set when the Run is owned by another Group member advertising a
+    reachable `daemon.advertise_url` (ADR 0055).
+    """
 
 
 class Surface(StrEnum):
@@ -8462,6 +8485,11 @@ class RunStartParams(BaseModel):
     resumes the Run accepts (ADR 0033), where it would otherwise refuse
     the resume.
     """
+    group_member: str | None = None
+    """
+    Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon
+    places the Run on this named Group member when eligible.
+    """
     limits: list[RunLimit] | None = None
     """
     The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
@@ -9300,6 +9328,8 @@ class CatalogRunStartParams(BaseModel):
     then frees only the value, `run.finish` waits for its end and
     `run.stop` stops it.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     limits: list[RunLimit] | None = None
     """The Run's own Limits, as `run.start`'s."""
     project: ProjectSettings | None = None
@@ -9383,6 +9413,12 @@ class EventsSubscribeParams(BaseModel):
     subscription resumes after it, or starts with `events.resync` when
     the engine no longer holds it or another engine instance gave it, as
     after a Daemon restart. Absent, it starts with the next event.
+    """
+    run_id: RunId | None = None
+    """
+    The Run whose events are subscribed to in a Daemon group (ADR 0055):
+    when another Group member owns it, the stream redirects to its
+    `daemon.advertise_url` when set or forwards over the peer link.
     """
     system_info: bool | None = None
     """
@@ -9845,6 +9881,8 @@ class RecipeStartParams(BaseModel):
     then frees only the value, `run.finish` waits for its end and
     `run.stop` stops it.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     limits: list[RunLimit] | None = None
     """The Run's own Limits, as `run.start`'s."""
     project: ProjectSettings | None = None

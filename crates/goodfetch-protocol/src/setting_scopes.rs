@@ -9,7 +9,7 @@
 use crate::browser_cache::BROWSER_EXECUTABLE_PATH;
 use crate::catalog::SettingScope::{Connection, Label, Page, Run, Session};
 use crate::catalog::{Authority, Setting, SettingScope};
-use crate::daemon::{TLS_CERT_FILE, TLS_KEY_FILE, TLS_UPSTREAM};
+use crate::daemon::{ADVERTISE_URL, TLS_CERT_FILE, TLS_KEY_FILE, TLS_UPSTREAM};
 use crate::egress::{
     EGRESS_LOCAL_ADDRESSES, EGRESS_ROTATION_BLOCK_IPV4, EGRESS_ROTATION_BLOCK_IPV6,
 };
@@ -108,7 +108,7 @@ pub fn of(setting: &Setting) -> &'static [SettingScope] {
 /// 0055 and 0056; #1617): local addresses and their rotation blocks, TLS
 /// files, and browser executable and profile paths. Any other key set at
 /// `[group_member.<name>]` is refused with `setting_not_applicable`.
-pub const GROUP_MEMBER_SETTINGS: [&Setting; 10] = [
+pub const GROUP_MEMBER_SETTINGS: [&Setting; 11] = [
     &EGRESS_LOCAL_ADDRESSES,
     &EGRESS_ROTATION_BLOCK_IPV4,
     &EGRESS_ROTATION_BLOCK_IPV6,
@@ -119,6 +119,7 @@ pub const GROUP_MEMBER_SETTINGS: [&Setting; 10] = [
     &TLS_CLIENT_CERTIFICATES,
     &BROWSER_EXECUTABLE_PATH,
     &SESSION_SOURCE,
+    &ADVERTISE_URL,
 ];
 
 /// Whether the group-member scope may set the setting `key` names (ADRs

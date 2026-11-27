@@ -1,0 +1,42 @@
+{
+  "seed": 24401,
+  "generator_version": 1,
+  "steps": [
+    {
+      "at": 60,
+      "host": "receiver",
+      "action": {
+        "partition": {
+          "peer": "lead"
+        }
+      }
+    },
+    {
+      "at": 140,
+      "host": "receiver",
+      "action": {
+        "heal": {
+          "peer": "lead"
+        }
+      }
+    },
+    {
+      "at": 220,
+      "host": "receiver",
+      "action": {
+        "partition": {
+          "peer": "owner-a"
+        }
+      }
+    },
+    {
+      "at": 340,
+      "host": "receiver",
+      "action": {
+        "heal": {
+          "peer": "owner-a"
+        }
+      }
+    }
+  ]
+}

@@ -1321,6 +1321,14 @@ class RunLiveError(ProgramError):
         self.typed_details = details_of(RunDetails, self.details)
 
 
+class RunMovedError(UnavailableError):
+    """The Run moved to another Group member, so this Group member no longer owns it: the receiving Group member refreshes its cached group Run index and retries once, and a Client that followed a redirect reconnects through any Group member and retries once."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="run_moved", group="unavailable", retryable=True, **fields)
+
+
 class RunNotFoundError(ProgramError):
     """No Run has this Run ID: the Run index does not list it."""
 
@@ -1795,6 +1803,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_interrupted": RunInterruptedError,
     "run_key_mismatch": RunKeyMismatchError,
     "run_live": RunLiveError,
+    "run_moved": RunMovedError,
     "run_not_found": RunNotFoundError,
     "run_not_owned": RunNotOwnedError,
     "run_state_filesystem_unsupported": RunStateFilesystemUnsupportedError,

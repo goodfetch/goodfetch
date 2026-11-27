@@ -309,7 +309,7 @@ impl Engine {
                 dispatch: Arc::clone(&self.dispatch),
                 runs: runs.clone(),
                 events,
-                engine: context,
+                engine: context.clone(),
                 metrics: self.metrics.clone(),
             },
             listener,
@@ -317,6 +317,8 @@ impl Engine {
             &owner,
         )
         .await;
+        context.clear_runtime_handles();
+        drop(context);
         if matches!(
             ended,
             DaemonEnd::Drained | DaemonEnd::ListenerFailed | DaemonEnd::Panicked
@@ -456,10 +458,48 @@ impl Engine {
         let (context, secrets) = self.engine_context(
             &mut dependencies,
             settings,
-            (needs_you, sandbox_probe, stores, daemon, events.clone()),
+            (
+                needs_you,
+                sandbox_probe,
+                stores,
+                daemon,
+                events.clone(),
+                governor.clone(),
+            ),
             owner,
         );
-        let runs = Runs::start_registry(
+        let runs = self.start_runs_registry(
+            context.clone(),
+            secrets,
+            reached_at,
+            forwarder,
+            dependencies,
+            install,
+            events.clone(),
+            governor,
+            owner,
+        );
+        self.wire_group_handles(&context, &runs, &events);
+        (runs, events, context)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "constructs RunsSetup from the components assembled in start_runs"
+    )]
+    fn start_runs_registry(
+        &self,
+        context: EngineContext,
+        secrets: Secrets,
+        reached_at: Option<RunOwner>,
+        forwarder: Arc<ToOwner>,
+        dependencies: Dependencies,
+        install: Option<InstallDatabase>,
+        events: Events,
+        governor: Governor,
+        owner: &TaskOwner,
+    ) -> Runs {
+        Runs::start_registry(
             RunsSetup {
                 engine: context.clone(),
                 secrets,
@@ -486,19 +526,28 @@ impl Engine {
                 politeness: dependencies.politeness,
                 politeness_tables: self.politeness_tables.clone(),
                 entropy: dependencies.entropy,
-                events: events.clone(),
+                events,
                 metrics: self.metrics.clone(),
                 governor,
                 controls: self.controls.clone(),
                 masks: self.dispatch.masks.clone(),
             },
             Box::pin(write_managed(
-                context.clone(),
+                context,
                 self.identity().product_version.clone(),
             )),
             owner,
-        );
-        (runs, events, context)
+        )
+    }
+
+    fn wire_group_handles(&self, context: &EngineContext, runs: &Runs, events: &Events) {
+        context.set_runs_handle(Some(Arc::new(runs.clone())));
+        context.set_local_dispatcher(Some(rpc::local_dispatcher(
+            Arc::clone(&self.dispatch),
+            runs.clone(),
+            events.clone(),
+            context.clone(),
+        )));
     }
 
     /// What sends the calls the major's Daemon keeps to it, through the
@@ -527,12 +576,13 @@ impl Engine {
         &self,
         dependencies: &mut Dependencies,
         settings: Settings,
-        (needs_you, sandbox_probe, stores, daemon, events): (
+        (needs_you, sandbox_probe, stores, daemon, events, governor): (
             NeedsYou,
             SandboxProbe,
             Stores,
             Option<Arc<dyn ToTheDaemon>>,
             Events,
+            Governor,
         ),
         owner: &TaskOwner,
     ) -> (EngineContext, Secrets) {
@@ -570,6 +620,7 @@ impl Engine {
                 control_stores: Arc::clone(&self.control_stores),
                 events,
                 metrics: self.metrics.clone(),
+                governor,
             },
         );
         let secrets = Secrets::new(
@@ -594,6 +645,13 @@ impl Engine {
         (context, secrets)
     }
 
+    async fn parent_gone(parent: Option<ParentWatch>) {
+        match parent {
+            Some(parent) => parent.gone().await,
+            None => std::future::pending().await,
+        }
+    }
+
     /// Runs as an Attached engine in the per-install layout, which hands
     /// its Runs to the Daemon (`run_state.layout`, ADR 0002): relays the
     /// one Connection `network` gives it to `daemon`, the Daemon of its
@@ -614,12 +672,7 @@ impl Engine {
     ) -> Result<(), TransportError> {
         let parent = matches!(network, Network::Os).then(ParentWatch::start);
         let client = network.attached_connection().await?;
-        let gone = async {
-            match parent {
-                Some(parent) => parent.gone().await,
-                None => std::future::pending().await,
-            }
-        };
+        let gone = Self::parent_gone(parent);
         tokio::select! {
             () = relay(client, daemon, &token) => {}
             () = gone => tracing::warn!("the Attached engine's parent is gone: its Runs on the Daemon stop"),
@@ -706,8 +759,6 @@ impl Engine {
         );
         let connection_owner = owner.child_for(OwnerKind::Connection);
         let reported = private.as_ref().map(|(_, endpoint, _)| endpoint.clone());
-        // The private endpoint's Connections, which the stdio Connection
-        // does not wait for.
         let accepting = owner.part("private endpoint");
         serve_attached_ops(ops, &runs, &owner, &context);
         let stdio = rpc::serve(
@@ -719,14 +770,8 @@ impl Engine {
             Access::Attached(reported),
             context.clone(),
         );
-        let gone = async {
-            match parent {
-                Some(parent) => parent.gone().await,
-                None => std::future::pending().await,
-            }
-        };
-        let mut private_files = None;
-        if let Some((listener, _, files)) = private {
+        let gone = Self::parent_gone(parent);
+        let private_files = private.map(|(listener, _, files)| {
             serve_private_endpoint(
                 &accepting,
                 Arc::clone(&self.dispatch),
@@ -734,10 +779,10 @@ impl Engine {
                 Arc::from(files.token()),
                 runs.clone(),
                 events,
-                context,
+                context.clone(),
             );
-            private_files = Some(files);
-        }
+            files
+        });
         let panicked = owner.panicked();
         let ended = tokio::select! {
             () = stdio => EngineEvent::StdioEnded,
@@ -752,6 +797,8 @@ impl Engine {
             let _ = refused.logged();
         }
         accepting.stop().await;
+        context.clear_runtime_handles();
+        drop(context);
         match ended {
             EngineEvent::PartPanicked | EngineEvent::RegistryPanicked => {
                 // A panic in a part every Run shares stops the engine with

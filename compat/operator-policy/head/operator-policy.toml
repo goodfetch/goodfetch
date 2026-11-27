@@ -56,6 +56,7 @@ idle_timeout = 30000
 address = "example"
 drain_grace = 30000
 trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+advertise_url = "example"
 
 [settings.daemon.tls]
 cert_file = "example"
@@ -500,6 +501,7 @@ idle_timeout = 30000
 address = "example"
 drain_grace = 30000
 trusted_proxies = ["10.0.0.0/8", "192.0.2.7"]
+advertise_url = "example"
 
 [lock.daemon.tls]
 cert_file = "example"

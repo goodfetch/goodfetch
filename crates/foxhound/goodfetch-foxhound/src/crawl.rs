@@ -455,6 +455,7 @@ impl<'a> Crawl<'a> {
             // The program's crawl waits on it, so it never detaches (ADR
             // 0102).
             detached: false,
+            group_member: None,
         })
     }
 

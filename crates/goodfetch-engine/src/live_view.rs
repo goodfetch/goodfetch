@@ -30,7 +30,7 @@ use tokio::sync::watch;
 use crate::settings::{Settings, get_or_default};
 
 pub use channel::fuzz_viewer_message;
-pub(crate) use channel::{Admission, Channel, serve};
+pub(crate) use channel::{Admission, Channel, serve, serve_relayed};
 pub(crate) use driver::LiveView;
 use driver::{Frame, NotWatched, Tiers, Viewing};
 

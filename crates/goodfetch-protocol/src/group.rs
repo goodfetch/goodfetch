@@ -30,6 +30,7 @@
 
 mod control_state;
 mod limits;
+mod routing;
 
 use std::fmt;
 use std::time::SystemTime;
@@ -46,6 +47,14 @@ pub use limits::{
     PeerErasureResult, PeerLedgerAction, PeerLedgerParams, PeerLedgerReply, PeerLedgerResult,
     PeerTokenCheckParams, PeerTokenCheckResult, RedirectAction, RedirectConfig, RedirectReply,
     RedirectRequest, WireHolder, WireSlice, WireSliceSizing, WireStoredLimit,
+};
+pub use routing::{
+    GROUP_EVENTS_SUBSCRIBE, GROUP_HEADROOM_REPORT, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
+    GROUP_RPC_FORWARD, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE, MemberCapabilities, MemberHeadroom,
+    MemberRoute, PeerEventsSubscribeParams, PeerHeadroomReportParams, PeerHeadroomReportResult,
+    PeerLiveViewMintParams, PeerLiveViewMintResult, PeerLiveViewRelayParams, PeerRpcForwardParams,
+    PeerRpcForwardResult, PeerRunIndexLookupParams, PeerRunIndexLookupResult, PeerRunPlaceParams,
+    PeerRunPlaceResult, PlacementRequest, RUN_MOVED, RunMovedDetails,
 };
 
 use schemars::JsonSchema;
@@ -975,6 +984,7 @@ pub const ENTRIES: Entries = Entries {
         NOT_IN_A_GROUP,
         LEAD_UNCONFIRMED,
         GROUP_POLITENESS_UNSHARED,
+        RUN_MOVED,
     ],
     plugin_kinds: &[],
     metrics: &[],

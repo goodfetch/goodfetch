@@ -448,6 +448,10 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
 
 /// One work item of a crawl as its handler receives it (ADR 0093).

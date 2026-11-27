@@ -590,6 +590,21 @@ pub enum LiveViewEngineMessage {
         #[schemars(extend("arrived_in" = "0.1"))]
         reason: Option<String>,
     },
+    /// The Session is owned by another Group member that advertises a
+    /// reachable URL (ADRs 0055 and 0149): open a Live view channel at `url`
+    /// with the single-use channel `token`, then this channel ends.
+    Redirect {
+        /// The owning Group member's `daemon.advertise_url`.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        url: String,
+        /// The single-use channel token minted in the owning Group member's
+        /// memory for this Session.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        token: DaemonToken,
+        /// The owning Group member's name.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        owner: String,
+    },
     /// A message of the viewer's that the engine refused. When it answers
     /// `open`, the channel ends.
     Error {

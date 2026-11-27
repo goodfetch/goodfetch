@@ -619,6 +619,7 @@ fn channel(watched: &Watched, admission: Admission) -> Channel {
         admission,
         deadline: Some(watched.clock.now() + Duration::from_secs(5)),
         max_open_size: 4096,
+        group_router: None,
     }
 }
 

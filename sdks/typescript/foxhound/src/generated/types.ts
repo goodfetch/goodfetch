@@ -2151,6 +2151,10 @@ export interface CrawlStartParams {
    */
   extraction?: CrawlExtraction | null;
   /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
+  /**
    * The crawl's Hooks in code, in the order declared (ADR 0104). Never
    * kept in the Run's state: a start that resumes the Run declares them
    * again.

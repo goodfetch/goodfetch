@@ -3162,6 +3162,8 @@ class CrawlStartParams(BaseModel):
     `invalid_params`. None for a crawl whose program handles its
     requests.
     """
+    group_member: str | None = None
+    """Optional Group member pin in a Daemon group (ADR 0055)."""
     hooks: list[CrawlHookDeclaration] | None = None
     """
     The crawl's Hooks in code, in the order declared (ADR 0104). Never

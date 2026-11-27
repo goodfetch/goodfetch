@@ -316,6 +316,7 @@ fn resume_resumes_a_recipes_run_on_the_daemon() {
                 rollback: false,
                 settings: Map::new(),
                 project: None,
+                group_member: None,
             }
         ))]
     );

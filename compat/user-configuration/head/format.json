@@ -539,6 +539,17 @@
                 "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
                 "type": "string"
               },
+              "advertise_url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`."
+              },
               "drain_grace": {
                 "description": "How long `daemon run`, the foreground Daemon, drains on `SIGTERM` before it exits: 110 seconds, below the 120-second `terminationGracePeriodSeconds` of the Helm chart, which must exceed it. Each run that reaches its next safe point in that time stops with a Checkpoint, resumable by its Run ID; one that does not stays resumable from its run file. Any Daemon whose listener is closed for good drains the same way within it, then exits 1. An Attached engine that stops on a panic in a part every run shares waits as long for its runs to stop, leaving each one not stopped resumable from its run file, then exits 1. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_DRAIN_GRACE` in milliseconds.",
                 "minimum": 0,

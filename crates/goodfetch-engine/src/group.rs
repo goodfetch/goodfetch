@@ -34,6 +34,7 @@ mod leadership;
 mod operations;
 mod peer_tls;
 mod peering;
+pub mod placement;
 mod store;
 
 pub use crate::control_state::{

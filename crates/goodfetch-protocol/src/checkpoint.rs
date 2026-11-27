@@ -83,6 +83,10 @@ pub struct RunResumeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
 
 /// What a Run is bound to (ADR 0056), which a resume elsewhere checks.

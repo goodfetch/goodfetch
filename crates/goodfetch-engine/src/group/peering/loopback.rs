@@ -73,6 +73,15 @@ pub(super) struct Lead {
 /// The Lead Daemon `lead` of a group formed at `now()`, its certificate
 /// due for renewal at `renew_at`, serving at `clock`.
 pub(super) async fn lead(clock: Clock, renew_at: SystemTime) -> Lead {
+    lead_with_services(clock, renew_at, PeerServices::default()).await
+}
+
+/// As [`lead`], wired with custom `services` (such as a `RunIndex`).
+pub(super) async fn lead_with_services(
+    clock: Clock,
+    renew_at: SystemTime,
+    services: PeerServices,
+) -> Lead {
     let env = TestEnv::new();
     let store = opened(&env);
     let listener = listen_peer("127.0.0.1:0").await.unwrap();
@@ -94,7 +103,7 @@ pub(super) async fn lead(clock: Clock, renew_at: SystemTime) -> Lead {
             first,
             vec!["lead".to_owned()],
             clock,
-            PeerServices::default(),
+            services,
         )
         .unwrap(),
     );

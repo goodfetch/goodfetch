@@ -167,6 +167,7 @@ impl Connection {
                 position: self.last_read.unwrap_or(Position(u64::MAX)),
             }),
             system_info: self.system_info,
+            run_id: None,
         };
         send(
             &mut self.writer,

@@ -1011,6 +1011,9 @@ fn live_view_of(
         &owner.part("Live view"),
         clock,
     );
+    serving
+        .engine
+        .set_live_view_handle(Some(Arc::new(live_view.clone())));
     let address = at.as_ref().map(LiveViewAt::address);
     let accepts = match at {
         Some(LiveViewAt::Address(listener, address)) => Some((

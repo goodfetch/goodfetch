@@ -305,6 +305,23 @@ fn none_listed() -> serde_json::Value {
     serde_json::json!([])
 }
 
+/// `daemon.advertise_url` (ADR 0055): the reachable URL another Group member
+/// redirects Clients' event streams and Live view channels to when this Group
+/// member owns their Run or Session.
+pub const ADVERTISE_URL: Setting = Setting {
+    name: "daemon.advertise_url",
+    description: "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`.",
+    kind: ValueKind::Text,
+    default: unset,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `daemon.trusted_proxies` (ADR 0049): the proxies whose `X-Forwarded-*`
 /// an Exposed Daemon behind them reads.
 pub const TRUSTED_PROXIES: Setting = Setting {
@@ -676,6 +693,7 @@ pub const ENTRIES: Entries = Entries {
         TLS_KEY_FILE,
         TLS_UPSTREAM,
         TRUSTED_PROXIES,
+        ADVERTISE_URL,
     ],
     hook_stages: &[],
     shared_type_values: &[],

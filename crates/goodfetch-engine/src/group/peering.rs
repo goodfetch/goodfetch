@@ -25,11 +25,15 @@ use data_encoding::BASE64;
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
-    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_ERASURE, GROUP_LEDGER, GROUP_MEMBER_EXISTS,
+    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_ERASURE, GROUP_EVENTS_SUBSCRIBE,
+    GROUP_HEADROOM_REPORT, GROUP_LEDGER, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
+    GROUP_MEMBER_EXISTS, GROUP_RPC_FORWARD, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE,
     GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
-    PeerControlStatePushParams, PeerControlStateSyncParams, PeerErasureParams, PeerJoinParams,
-    PeerJoinResult, PeerLeaveParams, PeerLedgerParams, PeerRenewParams, PeerRunIndexReportParams,
-    PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
+    PeerControlStatePushParams, PeerControlStateSyncParams, PeerErasureParams,
+    PeerEventsSubscribeParams, PeerHeadroomReportParams, PeerJoinParams, PeerJoinResult,
+    PeerLeaveParams, PeerLedgerParams, PeerLiveViewMintParams, PeerLiveViewRelayParams,
+    PeerRenewParams, PeerRpcForwardParams, PeerRunIndexLookupParams, PeerRunIndexReportParams,
+    PeerRunPlaceParams, PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
@@ -52,16 +56,19 @@ use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::control_state::{ControlStateRegistry, ReplicatedState};
 use crate::endpoint::Refusals;
-use crate::engine_context::EngineContext;
+use crate::engine_context::{EngineContext, LocalDispatcher};
 use crate::events::Events;
 use crate::framing::{Call, Frame, Incoming, decode};
+use crate::governor::Governor;
 use crate::home::Home;
 use crate::ledger::Ledger;
+use crate::live_view::LiveView;
 use crate::metrics::Metrics;
 use crate::ops::connections_own;
 use crate::product::Identity;
 use crate::response_cache::ResponseCache;
 use crate::run_index::RunIndex;
+use crate::runs::Runs;
 use crate::settings::Settings;
 use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
@@ -91,6 +98,11 @@ pub(super) struct PeerServices {
     pub(super) metrics: Option<Metrics>,
     pub(super) home: Option<Home>,
     pub(super) owner: Option<Arc<TaskOwner>>,
+    pub(super) governor: Option<Governor>,
+    pub(super) runs: Option<Runs>,
+    pub(super) live_view: Option<LiveView>,
+    pub(super) live_view_slot: Option<crate::engine_context::LiveViewSlot>,
+    pub(super) local_dispatcher: Option<Arc<dyn LocalDispatcher>>,
 }
 
 impl Default for PeerServices {
@@ -106,6 +118,11 @@ impl Default for PeerServices {
             metrics: None,
             home: None,
             owner: None,
+            governor: None,
+            runs: None,
+            live_view: None,
+            live_view_slot: None,
+            local_dispatcher: None,
         }
     }
 }
@@ -123,7 +140,27 @@ impl PeerServices {
             metrics: Some(engine.metrics().clone()),
             home: Some(engine.home().clone()),
             owner: Some(Arc::clone(engine.owner())),
+            governor: Some(engine.governor().clone()),
+            runs: routing::runs_from_engine(engine),
+            live_view: routing::live_view_from_engine(engine),
+            live_view_slot: Some(engine.live_view_slot()),
+            local_dispatcher: engine.local_dispatcher(),
         }
+    }
+
+    pub(super) fn current_live_view(&self) -> Option<LiveView> {
+        if let Some(lv) = &self.live_view {
+            return Some(lv.clone());
+        }
+        self.live_view_slot
+            .as_ref()
+            .and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_ref()
+                    .and_then(|held| Arc::clone(held).downcast::<LiveView>().ok())
+            })
+            .map(|lv| (*lv).clone())
     }
 }
 
@@ -153,6 +190,15 @@ pub(super) struct Peering {
     token_cache: limits::TokenCheckCache,
     /// Erasures awaiting acknowledgement from temporarily offline Group members.
     pending_erasures: erasure::PendingErasures,
+    /// Cached Run and Session ownership routes (ADR 0055).
+    route_cache: routing::RouteCache,
+    /// Lead Daemon's view of every Group member's headroom, capabilities and
+    /// `daemon.advertise_url` (ADR 0055).
+    directory: routing::MemberDirectory,
+    /// In-memory single-use Live view redirect tokens (ADRs 0055 and 0149).
+    live_view_tokens: routing::LiveViewTokens,
+    /// Runs that have moved off this Group member (ADR 0055).
+    moved_runs: routing::MovedRuns,
     /// Engine services (settings, Run index, endpoint refusals, ledger, cache).
     services: PeerServices,
 }
@@ -232,6 +278,9 @@ pub(super) async fn start(
     engine.set_erasure_broadcaster(Some(Arc::new(erasure::GroupErasureBroadcaster::new(
         Arc::clone(&peering),
     ))));
+    engine.set_group_router(Some(Arc::new(routing::GroupRouterImpl::new(Arc::clone(
+        &peering,
+    )))));
     let local_redirect = limits::start_local_redirect(&peering).await;
     let group = engine.owner().part("daemon group");
     group.spawn(serve(
@@ -249,6 +298,10 @@ pub(super) async fn start(
     group.spawn(renewal::keep_renewed(
         Arc::clone(&peering),
         group.part("certificate renewal"),
+    ));
+    group.spawn(routing::push_headroom(
+        Arc::clone(&peering),
+        group.part("headroom push"),
     ));
     if peering.is_unconfirmed() {
         group.spawn(confirmation::confirm_majority(
@@ -292,6 +345,7 @@ pub(super) async fn stop(engine: &EngineContext) {
     let member = engine.ledger().own_redirect_member();
     let version = running(engine).map(|p| p.identity.product_version.clone());
     engine.stop_peer_link().await;
+    engine.set_group_router(None);
     engine.set_erasure_broadcaster(None);
     engine.ledger().set_authority(None);
     engine.ledger().set_own_redirect_member(None);
@@ -444,6 +498,10 @@ impl Peering {
             lead_reachability: limits::LeadReachability::default(),
             token_cache: limits::TokenCheckCache::default(),
             pending_erasures: erasure::PendingErasures::default(),
+            route_cache: routing::RouteCache::default(),
+            directory: routing::MemberDirectory::default(),
+            live_view_tokens: routing::LiveViewTokens::default(),
+            moved_runs: routing::MovedRuns::default(),
             services,
         })
     }
@@ -526,6 +584,7 @@ impl Peering {
 
     /// Records a removed Group member once confirmed.
     pub(super) fn on_member_removed(&self, member: &str) {
+        self.directory.remove(member);
         self.leadership
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -681,6 +740,27 @@ impl Peering {
                 Opening::Erasure(request) => Some(self.erasure_request(&presented, request).await),
                 Opening::TokenCheck(request) => {
                     Some(self.token_check_request(&presented, request).await)
+                }
+                Opening::HeadroomReport(request) => {
+                    Some(self.headroom_report(&presented, request).await)
+                }
+                Opening::RunIndexLookup(request) => {
+                    Some(self.run_index_lookup(&presented, request).await)
+                }
+                Opening::RunPlace(request) => Some(self.run_place(&presented, *request).await),
+                Opening::RpcForward(request) => Some(self.rpc_forward(&presented, *request).await),
+                Opening::LiveViewMint(request) => {
+                    Some(self.live_view_mint(&presented, request).await)
+                }
+                Opening::LiveViewRelay(request) => {
+                    self.live_view_relay_peer(&presented, request, &mut stream, &mut lines)
+                        .await;
+                    None
+                }
+                Opening::EventsSubscribe(request) => {
+                    self.events_subscribe_peer(&presented, request, &mut stream)
+                        .await;
+                    None
                 }
                 Opening::Refused(reply) => Some(reply),
                 Opening::Other(first) => {
@@ -931,6 +1011,20 @@ enum Opening {
     Erasure(Asked<PeerErasureParams>),
     /// A `group.token.check`, likewise.
     TokenCheck(Asked<PeerTokenCheckParams>),
+    /// A `group.headroom.report`, likewise.
+    HeadroomReport(Asked<PeerHeadroomReportParams>),
+    /// A `group.run_index.lookup`, likewise.
+    RunIndexLookup(Asked<PeerRunIndexLookupParams>),
+    /// A `group.run.place`, likewise.
+    RunPlace(Box<Asked<PeerRunPlaceParams>>),
+    /// A `group.rpc.forward`, likewise.
+    RpcForward(Box<Asked<PeerRpcForwardParams>>),
+    /// A `group.live_view.mint_token`, likewise.
+    LiveViewMint(Asked<PeerLiveViewMintParams>),
+    /// A `group.live_view.relay` stream, likewise.
+    LiveViewRelay(Asked<PeerLiveViewRelayParams>),
+    /// A `group.events.subscribe` stream, likewise.
+    EventsSubscribe(Asked<PeerEventsSubscribeParams>),
     /// The line refusing either.
     Refused(Vec<u8>),
     /// Another message, which opens a [`PeerLink`].
@@ -979,6 +1073,36 @@ fn opening(identity: &Identity, first: Frame) -> Opening {
             (params.product, params.protocol_version)
         })
         .map(Opening::TokenCheck),
+        GROUP_HEADROOM_REPORT => asked(identity, id, call, |params: &PeerHeadroomReportParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::HeadroomReport),
+        GROUP_RUN_INDEX_LOOKUP => asked(identity, id, call, |params: &PeerRunIndexLookupParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::RunIndexLookup),
+        GROUP_RUN_PLACE => asked(identity, id, call, |params: &PeerRunPlaceParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::RunPlace(Box::new(req))),
+        GROUP_RPC_FORWARD => asked(identity, id, call, |params: &PeerRpcForwardParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::RpcForward(Box::new(req))),
+        GROUP_LIVE_VIEW_MINT => asked(identity, id, call, |params: &PeerLiveViewMintParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::LiveViewMint),
+        GROUP_LIVE_VIEW_RELAY => asked(identity, id, call, |params: &PeerLiveViewRelayParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::LiveViewRelay),
+        GROUP_EVENTS_SUBSCRIBE => {
+            asked(identity, id, call, |params: &PeerEventsSubscribeParams| {
+                (params.product, params.protocol_version)
+            })
+            .map(Opening::EventsSubscribe)
+        }
         _ => return Opening::Other(Frame::Line(line)),
     };
     read.unwrap_or_else(Opening::Refused)
@@ -1096,6 +1220,7 @@ mod leaving;
 mod limits;
 mod politeness;
 mod renewal;
+mod routing;
 mod run_index;
 mod wire;
 

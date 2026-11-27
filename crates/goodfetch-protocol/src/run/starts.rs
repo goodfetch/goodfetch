@@ -95,6 +95,10 @@ pub struct RecipeStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
 
 /// What a code-free catalog run does (ADR 0036): its verbs come from the
@@ -157,6 +161,11 @@ impl CatalogTarget {
     }
 }
 
+// ADR 0038 requires each wire request struct to carry `#[serde(deny_unknown_fields)]`
+// with flat JSON Schema properties; serde's `#[serde(flatten)]` cannot be combined
+// with `deny_unknown_fields`, so `CatalogRunStartParams` repeats the run-start
+// fields beside `RecipeStartParams`.
+// jscpd:ignore-start
 /// What `catalog_run.start` takes.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -204,7 +213,12 @@ pub struct CatalogRunStartParams {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub detached: bool,
+    /// Optional Group member pin in a Daemon group (ADR 0055).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub group_member: Option<String>,
 }
+// jscpd:ignore-end
 
 /// `recipe.start`.
 pub const RECIPE_START: Operation = Operation {

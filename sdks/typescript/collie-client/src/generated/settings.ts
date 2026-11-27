@@ -1774,6 +1774,7 @@ const SPELLING: Spelling = {
   }],
   daemon: ["daemon", {
     address: "address",
+    advertiseURL: "advertise_url",
     drainGrace: "drain_grace",
     idleTimeout: "idle_timeout",
     tls: ["tls", {

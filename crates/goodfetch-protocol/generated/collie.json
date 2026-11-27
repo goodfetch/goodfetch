@@ -1313,6 +1313,14 @@
           "description": "Whether the Run outlives the program (ADR 0102): closing its value\nthen frees only the value, `run.finish` waits for its end and\n`run.stop` stops it.",
           "type": "boolean"
         },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limits": {
           "arrived_in": "0.1",
           "description": "The Run's own Limits, as `run.start`'s.",
@@ -3654,6 +3662,18 @@
           ],
           "arrived_in": "0.1",
           "description": "The last event the Client read, `{engine_instance, position}`: the\nsubscription resumes after it, or starts with `events.resync` when\nthe engine no longer holds it or another engine instance gave it, as\nafter a Daemon restart. Absent, it starts with the next event."
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Run whose events are subscribed to in a Daemon group (ADR 0055):\nwhen another Group member owns it, the stream redirects to its\n`daemon.advertise_url` when set or forwards over the peer link."
         },
         "system_info": {
           "arrived_in": "0.1",
@@ -9804,6 +9824,14 @@
           "description": "Whether the Run outlives the program (ADR 0102): closing its value\nthen frees only the value, `run.finish` waits for its end and\n`run.stop` stops it.",
           "type": "boolean"
         },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "limits": {
           "arrived_in": "0.1",
           "description": "The Run's own Limits, as `run.start`'s.",
@@ -12011,6 +12039,14 @@
             "null"
           ]
         },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "project": {
           "anyOf": [
             {
@@ -12145,6 +12181,14 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "group_member": {
+          "arrived_in": "0.1",
+          "description": "Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon\nplaces the Run on this named Group member when eligible.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "limits": {
           "arrived_in": "0.1",
@@ -14815,8 +14859,42 @@
         }
       ]
     },
+    "StreamRedirect": {
+      "description": "Where a Client reconnects to receive a Run's event stream directly from its\nowning Group member (ADR 0055).",
+      "properties": {
+        "owner": {
+          "arrived_in": "0.1",
+          "description": "The owning Group member's name.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "The owning Group member's `daemon.advertise_url`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "owner"
+      ],
+      "type": "object"
+    },
     "SubscriptionEnded": {
-      "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
+      "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped, or the subscription redirected to\nthe Run's owning Group member (ADR 0055).",
+      "properties": {
+        "redirect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StreamRedirect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Set when the Run is owned by another Group member advertising a\nreachable `daemon.advertise_url` (ADR 0055)."
+        }
+      },
       "type": "object"
     },
     "Surface": {
@@ -17695,6 +17773,16 @@
       "name": "run_live",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run moved to another Group member, so this Group member no longer owns it: the receiving Group member refreshes its cached group Run index and retries once, and a Client that followed a redirect reconnects through any Group member and retries once.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "run_moved",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -22102,6 +22190,27 @@
       "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
       "fixed_for_run": false,
       "name": "daemon.address",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The URL Clients reach this Group member at, such as a per-pod Ingress or a VM address. When set, another Group member redirects a Client's event stream (`events.subscribe`) and Live view channel to this URL instead of forwarding them over the peer link. Unset by default, in which case those streams are forwarded over the peer link. Set in user configuration or an Operator policy, including under `[group_member.<name>]`.",
+      "fixed_for_run": false,
+      "name": "daemon.advertise_url",
       "product": "collie",
       "products": [
         "collie",

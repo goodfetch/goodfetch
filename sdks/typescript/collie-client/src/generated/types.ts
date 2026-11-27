@@ -2681,6 +2681,10 @@ export interface CatalogRunStartParams {
    */
   detached?: boolean;
   /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
+  /**
    * The Run's own Limits, as `run.start`'s.
    */
   limits?: RunLimit[];
@@ -4434,6 +4438,12 @@ export interface EventsSubscribeParams {
    * after a Daemon restart. Absent, it starts with the next event.
    */
   after?: LastRead | null;
+  /**
+   * The Run whose events are subscribed to in a Daemon group (ADR 0055):
+   * when another Group member owns it, the stream redirects to its
+   * `daemon.advertise_url` when set or forwards over the peer link.
+   */
+  runId?: RunId | null;
   /**
    * Whether it also takes `engine.system_info`, the Resource governor's
    * periodic readings; false by default, so a subscription that reads
@@ -8097,6 +8107,10 @@ export interface RecipeStartParams {
    */
   detached?: boolean;
   /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
+  /**
    * The Run's own Limits, as `run.start`'s.
    */
   limits?: RunLimit[];
@@ -9388,6 +9402,10 @@ export interface RunResumeParams {
    */
   checkpoint?: string | null;
   /**
+   * Optional Group member pin in a Daemon group (ADR 0055).
+   */
+  groupMember?: string | null;
+  /**
    * The project configuration the Client found, layer 3 (ADR 0083).
    */
   project?: ProjectSettings | null;
@@ -9440,6 +9458,11 @@ export interface RunStartParams {
    * the resume.
    */
   acceptPluginChange?: string[];
+  /**
+   * Optional Group member pin in a Daemon group (ADR 0055): the Lead Daemon
+   * places the Run on this named Group member when eligible.
+   */
+  groupMember?: string | null;
   /**
    * The Run's own Limits (ADRs 0041 and 0080): at most one per Usage
    * kind and currency. A start that names the Run again lowers them and
@@ -10444,13 +10467,37 @@ export interface SitePreferencesRefusedDetails {
   reason: SitePreference;
 }
 /**
+ * Where a Client reconnects to receive a Run's event stream directly from its
+ * owning Group member (ADR 0055).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StreamRedirect".
+ */
+export interface StreamRedirect {
+  /**
+   * The owning Group member's name.
+   */
+  owner: string;
+  /**
+   * The owning Group member's `daemon.advertise_url`.
+   */
+  url: string;
+}
+/**
  * What `events.subscribe` answers when its subscription ends without the
- * Client cancelling it: the engine stopped.
+ * Client cancelling it: the engine stopped, or the subscription redirected to
+ * the Run's owning Group member (ADR 0055).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "SubscriptionEnded".
  */
-export interface SubscriptionEnded {}
+export interface SubscriptionEnded {
+  /**
+   * Set when the Run is owned by another Group member advertising a
+   * reachable `daemon.advertise_url` (ADR 0055).
+   */
+  redirect?: StreamRedirect | null;
+}
 /**
  * What the governor read and decided at one sample: the payload of
  * `engine.system_info`.

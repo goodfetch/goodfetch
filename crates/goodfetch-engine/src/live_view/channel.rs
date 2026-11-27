@@ -8,6 +8,7 @@
 
 use std::future::Future;
 use std::num::NonZeroU64;
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::stream::SplitSink;
@@ -22,6 +23,7 @@ use goodfetch_protocol::live_view::{
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
 use serde_json::Value;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::{Error, Message};
 
@@ -29,6 +31,7 @@ use super::{Frame, LiveView, NotWatched, Tiers, VideoOutput, Viewing, WatchFailu
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::endpoint::same_token;
+use crate::engine_context::{GroupRouter, LiveViewRelay, LiveViewRoute};
 use crate::mask::{Masks, Scope};
 use crate::settings::{Resolved, get_or_default};
 
@@ -93,6 +96,9 @@ pub(crate) struct Channel {
     pub(crate) deadline: Option<Instant>,
     /// How long `open` may be, from `network.max_hello_size`.
     pub(crate) max_open_size: usize,
+    /// Daemon group router for redirecting or relaying remote Sessions and
+    /// verifying single-use redirect tokens (ADRs 0055 and 0149).
+    pub(crate) group_router: Option<Arc<dyn GroupRouter>>,
 }
 
 /// How a viewer's first message opens its channel.
@@ -173,6 +179,11 @@ where
     );
     let mut viewing = match watched {
         Ok(viewing) => viewing,
+        Err(NotWatched::UnknownSession) if channel.group_router.is_some() => {
+            serve_remote_group_session(&channel, &session, screen, &mut sink, &mut stream, closing)
+                .await;
+            return Ok(());
+        }
         Err(not_watched) => {
             let last = refusal(not_watched, &session, admission);
             end(
@@ -270,11 +281,12 @@ where
     if bytes.len() > channel.max_open_size {
         return Opening::Refused(RefusalReason::HelloTooLarge);
     }
-    opened(&bytes, &channel.token)
+    opened(&bytes, &channel.token, channel.group_router.as_deref())
 }
 
-/// What the first message `bytes` opens, under the Daemon's `token`.
-fn opened(bytes: &[u8], token: &str) -> Opening {
+/// What the first message `bytes` opens, under the Daemon's `token` or a
+/// single-use redirect channel token minted by this Group member (ADR 0149).
+fn opened(bytes: &[u8], token: &str, group_router: Option<&dyn GroupRouter>) -> Opening {
     let Ok(value) = serde_json::from_slice::<Value>(bytes) else {
         return Opening::Refused(RefusalReason::HelloNotFirst);
     };
@@ -284,7 +296,16 @@ fn opened(bytes: &[u8], token: &str) -> Opening {
     let Some(given) = value.get("token").and_then(Value::as_str) else {
         return Opening::Refused(RefusalReason::TokenMissing);
     };
-    if !same_token(given, token) {
+    let daemon_token_ok = same_token(given, token);
+    let session_hint = value
+        .get("session")
+        .and_then(Value::as_str)
+        .map(|s| SessionId(s.to_owned()));
+    let redirect_token_ok = !daemon_token_ok
+        && session_hint.as_ref().is_some_and(|session| {
+            group_router.is_some_and(|router| router.verify_live_view_token(session, given))
+        });
+    if !daemon_token_ok && !redirect_token_ok {
         return Opening::Refused(RefusalReason::TokenWrong);
     }
     match serde_json::from_value::<LiveViewViewerMessage>(value) {
@@ -471,11 +492,204 @@ async fn sleep_until(clock: Clock, deadline: Option<Instant>) {
     }
 }
 
+/// Routes a Live view channel for a Session owned by another Group member:
+/// sends `Redirect` with a single-use token when the owner advertises a URL,
+/// or relays frames over the peer link otherwise (ADRs 0055 and 0149).
+async fn serve_remote_group_session<S>(
+    channel: &Channel,
+    session: &SessionId,
+    screen: LiveViewScreen,
+    sink: &mut SplitSink<S, Message>,
+    stream: &mut futures_util::stream::SplitStream<S>,
+    closing: impl Future<Output = ()>,
+) where
+    S: Stream<Item = Result<Message, Error>> + Sink<Message, Error = Error> + Unpin,
+{
+    if let Some(router) = &channel.group_router {
+        match router.route_live_view(session.clone()).await {
+            Ok(LiveViewRoute::Redirect { url, token, owner }) => {
+                let redirect = LiveViewEngineMessage::Redirect { url, token, owner };
+                end(
+                    sink,
+                    stream,
+                    channel.clock,
+                    Some((redirect, &channel.masks)),
+                )
+                .await;
+                return;
+            }
+            Ok(LiveViewRoute::Relay {
+                owner,
+                peer_address,
+            }) => {
+                if let Ok(relay) = router
+                    .open_live_view_relay(owner, peer_address, session.clone(), screen)
+                    .await
+                {
+                    relay_websocket(relay, sink, stream, &channel.masks, closing).await;
+                    return;
+                }
+            }
+            Ok(LiveViewRoute::Local) => {}
+            Err(error) => {
+                tracing::warn!(
+                    session = %session.0,
+                    %error,
+                    "failed to route remote Live view session"
+                );
+            }
+        }
+    }
+    let last = refusal(NotWatched::UnknownSession, session, &channel.admission);
+    end(sink, stream, channel.clock, Some((last, &channel.masks))).await;
+}
+
+/// Bridges a viewer WebSocket with a peer-link [`LiveViewRelay`] when the
+/// owning Group member has no `daemon.advertise_url` (ADR 0055).
+async fn relay_websocket<S>(
+    mut relay: LiveViewRelay,
+    sink: &mut SplitSink<S, Message>,
+    stream: &mut futures_util::stream::SplitStream<S>,
+    masks: &Masks,
+    closing: impl Future<Output = ()>,
+) where
+    S: Stream<Item = Result<Message, Error>> + Sink<Message, Error = Error> + Unpin,
+{
+    tokio::pin!(closing);
+    loop {
+        tokio::select! {
+            biased;
+            () = &mut closing => {
+                let last = LiveViewEngineMessage::Ended {
+                    reason: LiveViewEnd::DaemonStopping,
+                };
+                let _ = send(sink, masks, &last).await;
+                let _ = sink.close().await;
+                return;
+            }
+            from_owner = relay.from_owner.recv() => if let Some(text) = from_owner {
+                if sink.send(Message::text(text)).await.is_err() {
+                    return;
+                }
+            } else {
+                let _ = sink.close().await;
+                return;
+            },
+            from_viewer = stream.next() => match from_viewer {
+                Some(Ok(Message::Text(text))) => {
+                    if relay.to_owner.send(text.to_string()).await.is_err() {
+                        return;
+                    }
+                }
+                Some(Ok(Message::Binary(bytes))) => {
+                    let Ok(text) = String::from_utf8(bytes.to_vec()) else {
+                        return;
+                    };
+                    if relay.to_owner.send(text).await.is_err() {
+                        return;
+                    }
+                }
+                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
+                Some(Ok(Message::Close(_)) | Err(_)) | None => return,
+            }
+        }
+    }
+}
+
+/// Serves one Live view channel on the owning Group member for a peer-link
+/// relay (`group.live_view.relay`, ADR 0055): sends `LiveViewEngineMessage`
+/// JSON strings to `to_peer` and reads `LiveViewViewerMessage` JSON strings
+/// from `from_peer`.
+pub(crate) async fn serve_relayed(
+    live_view: LiveView,
+    session: SessionId,
+    screen: LiveViewScreen,
+    admission: Admission,
+    masks: Masks,
+    to_peer: mpsc::Sender<String>,
+    mut from_peer: mpsc::Receiver<String>,
+) {
+    let mut viewing = match live_view.watch(
+        &session,
+        screen,
+        admission.max_viewers.get(),
+        admission.tiers,
+    ) {
+        Ok(viewing) => viewing,
+        Err(not_watched) => {
+            let last = refusal(not_watched, &session, &admission);
+            let _ = send_relayed(&to_peer, &masks, &last).await;
+            return;
+        }
+    };
+    let opened = LiveViewEngineMessage::Opened {
+        session,
+        tier: viewing.tier(),
+    };
+    if send_relayed(&to_peer, &masks, &opened).await.is_err() {
+        return;
+    }
+    let mut output = RelayedOutput(&to_peer);
+    loop {
+        for news in viewing.news() {
+            if matches!(news, LiveViewEngineMessage::Ended { .. }) {
+                let _ = send_relayed(&to_peer, &masks, &news).await;
+                return;
+            }
+            if send_relayed(&to_peer, &masks, &news).await.is_err() {
+                return;
+            }
+        }
+        if viewing.send_due(&mut output).await.is_err() {
+            return;
+        }
+        let answer = tokio::select! {
+            biased;
+            () = viewing.changed() => None,
+            message = from_peer.recv() => match message {
+                Some(text) => received(&mut viewing, text.as_bytes()),
+                None => return,
+            }
+        };
+        if let Some(answer) = answer
+            && send_relayed(&to_peer, &masks, &error_message(&answer))
+                .await
+                .is_err()
+        {
+            return;
+        }
+    }
+}
+
+async fn send_relayed(
+    to_peer: &mpsc::Sender<String>,
+    masks: &Masks,
+    message: &LiveViewEngineMessage,
+) -> Result<(), ()> {
+    let line = serde_json::to_vec(message).expect("invariant: an engine message encodes");
+    let line = masks.apply_json_line(line, Scope::Returned);
+    let text = String::from_utf8(line).expect("invariant: a masked message is JSON");
+    to_peer.send(text).await.map_err(|_| ())
+}
+
+struct RelayedOutput<'a>(&'a mpsc::Sender<String>);
+
+impl VideoOutput for RelayedOutput<'_> {
+    fn send<'a>(&'a mut self, frame: &'a Frame) -> Watching<'a, Result<(), WatchFailure>> {
+        Box::pin(async move {
+            self.0
+                .send(frame.text().to_string())
+                .await
+                .map_err(|_| WatchFailure::ViewerGone)
+        })
+    }
+}
+
 /// The fuzz target's body (ADR 0067): reads `data` as a viewer's first
 /// message under a fixed token and as a later one; a message read must
 /// encode and read back. It panics only on a bug.
 pub fn fuzz_viewer_message(data: &[u8]) {
-    let _ = opened(data, "fuzz-token");
+    let _ = opened(data, "fuzz-token", None);
     let Ok(message) = read(data) else {
         return;
     };

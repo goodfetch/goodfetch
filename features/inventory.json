@@ -2805,6 +2805,17 @@
       ]
     },
     {
+      "id": "error:run_moved",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:run_not_found",
       "kind": "error",
       "area": 3,
@@ -9751,6 +9762,17 @@
     },
     {
       "id": "setting:daemon.address",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:daemon.advertise_url",
       "kind": "setting",
       "area": 3,
       "milestone": null,

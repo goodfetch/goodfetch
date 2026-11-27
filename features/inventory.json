@@ -4229,6 +4229,17 @@
       ]
     },
     {
+      "id": "operation:locator.scroll_collect",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:locator.wait_for",
       "kind": "operation",
       "area": 5,
@@ -5090,6 +5101,38 @@
       "id": "operation:usage.set",
       "kind": "operation",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "plugin-kind:extract",
+      "kind": "plugin-kind",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "plugin-kind:sample_page_filter",
+      "kind": "plugin-kind",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "plugin-kind:sample_store",
+      "kind": "plugin-kind",
+      "area": 1,
       "milestone": null,
       "status": "active",
       "products": [
@@ -11497,6 +11540,17 @@
       ]
     },
     {
+      "id": "setting:site_preferences.read_robots_txt_for_navigation",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:site_preferences.respect_robots_txt",
       "kind": "setting",
       "area": 6,
@@ -11940,6 +11994,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "sink:sqlite",
+      "kind": "sink",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

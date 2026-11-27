@@ -89,6 +89,12 @@ impl PausedRequest {
         post_data(&self.event.request, masks)
     }
 
+    /// Its body as it is sent, unmasked; none when it sends a body the
+    /// browser does not show, or none at all.
+    pub(crate) fn body(&self) -> Option<Vec<u8>> {
+        body(&self.event.request)
+    }
+
     /// What it loads, as Playwright's `resourceType()` names it.
     pub(crate) fn resource_type(&self) -> String {
         resource_type(self.event.resource_type)
@@ -546,6 +552,29 @@ impl CdpPage {
             .collect())
     }
 
+    /// The `Cookie` header the browser would send with a request to `url`,
+    /// which a paused request does not show: each cookie's `name=value`,
+    /// joined by `; `; empty for none.
+    ///
+    /// # Errors
+    ///
+    /// [`NotTaken`] when the page went first.
+    pub(crate) async fn cookie_header(&self, url: &str) -> Result<String, NotTaken> {
+        let found = self
+            .page
+            .command(&network::GetCookiesParams {
+                urls: Some(vec![url.to_owned()]),
+            })
+            .await
+            .map_err(NotTaken)?;
+        Ok(found
+            .cookies
+            .iter()
+            .map(|cookie| format!("{}={}", cookie.name, cookie.value))
+            .collect::<Vec<_>>()
+            .join("; "))
+    }
+
     /// Sends `command`, whose answer says nothing more than that the
     /// browser took it.
     pub(super) async fn taken<C: goodfetch_cdp::Command>(
@@ -600,16 +629,22 @@ fn error_reason(reason: AbortReason) -> network::ErrorReason {
 /// `%name%` before it is encoded: a Secret a form sent is masked in the
 /// body itself, however the form encoded it (ADR 0092).
 pub(crate) fn post_data(request: &network::Request, masks: &Masks) -> Option<String> {
-    let bytes = if let Some(entries) = &request.post_data_entries {
+    let bytes = body(request)?;
+    Some(BASE64.encode(&masks.apply_bytes(&bytes, Scope::Returned)))
+}
+
+/// A request's body as it is sent, from its entries' bytes or else its
+/// text; none when it has none the browser shows.
+fn body(request: &network::Request) -> Option<Vec<u8>> {
+    if let Some(entries) = &request.post_data_entries {
         let mut bytes = Vec::new();
         for entry in entries {
             bytes.extend(BASE64.decode(entry.bytes.as_deref()?.as_bytes()).ok()?);
         }
-        bytes
+        Some(bytes)
     } else {
-        request.post_data.as_ref()?.as_bytes().to_vec()
-    };
-    Some(BASE64.encode(&masks.apply_bytes(&bytes, Scope::Returned)))
+        Some(request.post_data.as_ref()?.as_bytes().to_vec())
+    }
 }
 
 /// What a request loads, as Playwright's `resourceType()` names it: the

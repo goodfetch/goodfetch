@@ -17,3 +17,8 @@ prefix = "sample_"
 number = 1
 kind = "format"
 prefix = "sample-"
+
+[[area]]
+number = 1
+kind = "plugin-kind"
+prefix = "sample_"

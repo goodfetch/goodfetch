@@ -623,6 +623,13 @@ export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
  */
 export type WaitedFor = string;
 /**
+ * The rows a list declares: a count, or `unknown` for `-1`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Declared".
+ */
+export type Declared = number | "unknown";
+/**
  * A dialog's kind, as Playwright's `dialog.type()` names it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1172,6 +1179,18 @@ export type LimitSetting = "network.max_body_size" | "network.max_decompression_
  * via the `definition` "LimitStanding".
  */
 export type LimitStanding = "held" | "foxhound" | "not_understood";
+/**
+ * How a scroll collection ended, open (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `end_of_list`: `idle_steps` steps in a row brought no new key.
+ * - `max_rows`: It kept `max_rows` rows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ListEnded".
+ */
+export type ListEnded = "end_of_list" | "max_rows" | (string & {});
 /**
  * A state the page's document reaches (Playwright's `LoadState`).
  *
@@ -5808,6 +5827,58 @@ export interface LocatorEvaluateAllParams {
   world?: World | null;
 }
 /**
+ * What `locator.scroll_collect` takes (#807): the locator, the page
+ * function reading each match, its argument and world, and when the
+ * collection ends.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorScrollCollectParams".
+ */
+export interface LocatorScrollCollectParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source, called with each matched
+   * element and `arg`: it answers the row's `{ key, value }`, `key` a
+   * string, or `null` to skip the element.
+   */
+  function: string;
+  /**
+   * The steps in a row without a new key at which it ends
+   * `end_of_list`, at least 1; 3 when absent.
+   */
+  idleSteps?: number | null;
+  /**
+   * The locator, whose every match the function reads, resolved again
+   * at each step.
+   */
+  locator: Locator;
+  /**
+   * The rows at which the collection ends `max_rows`, at least 1;
+   * 10,000 when absent.
+   */
+  maxRows?: number | null;
+  /**
+   * How long a step waits for an element with a new key after its
+   * scroll, in milliseconds, at least 1; 2,000 when absent.
+   */
+  stepWait?: number | null;
+  /**
+   * How long the whole collection may take, in milliseconds, at least
+   * 1: absent for `timeout.wait`, `null` for none, though an enclosing
+   * timeout still applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * Where it runs; the isolated world when absent.
+   */
+  world?: World | null;
+}
+/**
  * What `locator.wait_for_function` takes: the locator, the function's
  * source, its argument, its world, and how often it is checked.
  *
@@ -9911,6 +9982,29 @@ export interface SchemaValidatorFailedDetails {
    * The schema's JSON Schema `title`, or none when it has none.
    */
   schema?: string | null;
+}
+/**
+ * What `locator.scroll_collect` answers (#807): the rows, how the
+ * collection ended and what the list declares, so a short read is never
+ * silent.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScrollCollected".
+ */
+export interface ScrollCollected {
+  /**
+   * The rows the list declares through `aria-rowcount` or its items'
+   * `aria-setsize`; `null` when it declares none.
+   */
+  declared?: Declared | null;
+  /**
+   * How it ended.
+   */
+  ended: ListEnded;
+  /**
+   * Each new key's value, in the order its key was first seen.
+   */
+  rows: unknown[];
 }
 /**
  * What `secret_domain_not_allowed` details.

@@ -89,6 +89,7 @@ export type CollieWireType =
   | "ListField"
   | "Locator"
   | "LocatorEvaluateAllParams"
+  | "LocatorScrollCollectParams"
   | "LocatorWaitForFunctionParams"
   | "LocatorWaitForParams"
   | "LoggedOutDetails"
@@ -326,6 +327,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ListField": { fields: { "list": ["list", { type: "ValueField" }] } },
     "Locator": { fields: { "page_id": "pageId" } },
     "LocatorEvaluateAllParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
+    "LocatorScrollCollectParams": { fields: { "idle_steps": "idleSteps", "locator": ["locator", { type: "Locator" }], "max_rows": "maxRows", "step_wait": "stepWait" } },
     "LocatorWaitForFunctionParams": { fields: { "locator": ["locator", { type: "Locator" }], "polling_interval": "pollingInterval" } },
     "LocatorWaitForParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "LoggedOutDetails": { fields: { "judged_by": "judgedBy" } },
@@ -498,6 +500,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "locator.evaluate_all": { type: "LocatorEvaluateAllParams" },
     "locator.fill": { type: "FillParams" },
     "locator.press": { type: "PressParams" },
+    "locator.scroll_collect": { type: "LocatorScrollCollectParams" },
     "locator.wait_for": { type: "LocatorWaitForParams" },
     "locator.wait_for_count": { type: "WaitForCountParams" },
     "locator.wait_for_function": { type: "LocatorWaitForFunctionParams" },

@@ -264,6 +264,9 @@ rows! {
     ActionFillCommands => "C3.commands.fill", "action", "fill_commands";
     /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
     ActionPressCommands => "C3.commands.press", "action", "press_commands";
+    /// `C3.commands`, of a scroll collection's scroll: a CDP command a
+    /// scroll's attempt sent.
+    ActionScrollCollectCommands => "C3.commands.scroll_collect", "action", "scroll_collect_commands";
     /// `C3.owner_round_trips`: an ask an action's attempt sends its Page's
     /// owner and awaits the answer to (ADR 0146).
     ActionOwnerRoundTrips => "C3.owner_round_trips", "action", "owner_round_trips";

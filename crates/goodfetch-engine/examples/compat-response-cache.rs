@@ -85,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     country: "FR".to_owned(),
                     language: "fr-FR".to_owned(),
                     device: "mobile".to_owned(),
+                    ..Partition::default()
                 },
                 &CacheRequest::new(
                     "GET",

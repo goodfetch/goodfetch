@@ -297,6 +297,10 @@ const ACTIONS: [(&str, &str); 3] = [
     ("press", "locator.press"),
 ];
 
+/// How many fills the program sends at once on each page: two, which the
+/// page's Gesture order runs one after the other (ADR 0085).
+const FILLS: usize = 2;
+
 /// What one run of the scenario counted.
 pub(crate) struct Counted {
     /// The commands the browser read, each once.
@@ -1242,6 +1246,8 @@ pub(crate) struct Client {
     lines: tokio::io::Lines<BufReader<transport::ConnectionReader>>,
     writer: transport::ConnectionWriter,
     next_id: u64,
+    /// The answers that came before the one awaited, by their request's ID.
+    ahead: BTreeMap<u64, Value>,
 }
 
 impl Client {
@@ -1256,6 +1262,7 @@ impl Client {
             lines: BufReader::new(reader).lines(),
             writer,
             next_id: 0,
+            ahead: BTreeMap::new(),
         }
     }
 
@@ -1289,8 +1296,13 @@ impl Client {
             .unwrap_or_else(|| panic!("`{method}` failed: {message}"))
     }
 
-    /// The engine's answer, a result or an error, to the request `id`.
+    /// The engine's answer, a result or an error, to the request `id`. The
+    /// answers to other requests that come first are kept for their own
+    /// call, so requests sent at once can be answered in any order.
     pub(crate) async fn answer(&mut self, id: u64) -> Value {
+        if let Some(message) = self.ahead.remove(&id) {
+            return message;
+        }
         loop {
             let line = self
                 .lines
@@ -1300,8 +1312,15 @@ impl Client {
                 .expect("invariant: the engine answers before it closes");
             let message: Value =
                 serde_json::from_str(&line).expect("invariant: the engine writes JSON");
-            if message["id"] == json!(id) && message.get("method").is_none() {
-                return message;
+            if message.get("method").is_some() {
+                continue;
+            }
+            match message["id"].as_u64() {
+                Some(answered) if answered == id => return message,
+                Some(answered) => {
+                    self.ahead.insert(answered, message);
+                }
+                None => {}
             }
         }
     }
@@ -1668,8 +1687,21 @@ async fn on_page(
             "press" => json!({ "locator": locator, "key": "Enter" }),
             _ => json!({ "locator": locator }),
         };
-        client.call(operation, &params).await;
-        *attempts.entry(kind).or_insert(0) += 1;
+        // The fills go two at once, so the page's Gesture order takes the
+        // second in turn after the first.
+        let sent = if kind == "fill" { FILLS } else { 1 };
+        let mut started = Vec::with_capacity(sent);
+        for _ in 0..sent {
+            started.push(client.start(operation, &params).await);
+        }
+        for id in started {
+            let message = client.answer(id).await;
+            assert!(
+                message.get("result").is_some(),
+                "`{operation}` failed: {message}"
+            );
+            *attempts.entry(kind).or_insert(0) += 1;
+        }
     }
 }
 

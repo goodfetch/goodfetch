@@ -70,7 +70,6 @@ use goodfetch_protocol::settings::{
 };
 use serde_json::{Value, json};
 
-use self::guard::Step;
 use super::connection::{Connection, Gone, code_of};
 use super::fabricated;
 use super::target::{DEADLINE, EngineTarget};
@@ -135,14 +134,8 @@ pub(crate) enum Case {
     Extractor(formats::extractor::Case),
     HeadlessIdentity,
     BackgroundTimer,
-    ClickWaitsOutACover,
-    TransientDuplicateIsWaitedOut,
-    LocatorSurvivesARerender,
-    TypedTextReachesAControlledField,
-    KeyReachesAField,
-    StillAmbiguous,
-    NeverActionable,
-    BusyPage,
+    /// A guard case.
+    Guard(guard::Case),
     /// A Clean-up case.
     CleanUp(clean_up::Case),
     /// A Consent prompt case.
@@ -606,25 +599,10 @@ impl Case {
             }
             "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
             "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
-            "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
-            "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
-                Self::TransientDuplicateIsWaitedOut
-            }
-            "a-locator-survives-a-re-render-that-replaces-its-element" => {
-                Self::LocatorSurvivesARerender
-            }
-            "typed-text-reaches-a-controlled-field-as-trusted-input" => {
-                Self::TypedTextReachesAControlledField
-            }
-            "a-pressed-key-reaches-a-field-as-a-trusted-key" => Self::KeyReachesAField,
-            "a-target-still-ambiguous-raises-target-not-unique" => Self::StillAmbiguous,
-            "a-target-never-actionable-raises-deadline-exceeded-naming-the-step" => {
-                Self::NeverActionable
-            }
-            "an-action-on-a-busy-page-raises-deadline-exceeded-at-its-deadline" => Self::BusyPage,
             _ => {
                 return fetch_edge::Case::from_id(id)
                     .map(Self::FetchEdge)
+                    .or_else(|| guard::Case::from_id(id).map(Self::Guard))
                     .or_else(|| routes::Case::from_id(id).map(Self::Route))
                     .or_else(|| sessions::Case::from_id(id).map(Self::Session))
                     .or_else(|| clean_up::Case::from_id(id).map(Self::CleanUp))
@@ -745,49 +723,7 @@ impl Case {
             Self::Structured(case) => case.run(connection, site, checks),
             Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
             Self::BackgroundTimer => launch::background_timer(connection, site, checks),
-            Self::ClickWaitsOutACover => guard::lands(
-                connection,
-                site,
-                "actionability/2",
-                "conformance-cover",
-                &[Step::Click("#target")],
-                checks,
-            ),
-            Self::TransientDuplicateIsWaitedOut => guard::lands(
-                connection,
-                site,
-                "actionability/27",
-                "conformance-transient-duplicate",
-                &[Step::Click("#target")],
-                checks,
-            ),
-            Self::LocatorSurvivesARerender => guard::lands(
-                connection,
-                site,
-                "actionability/6",
-                "conformance-rerender",
-                &[Step::Click("#target")],
-                checks,
-            ),
-            Self::TypedTextReachesAControlledField => guard::lands(
-                connection,
-                site,
-                "actionability/28",
-                "conformance-controlled-field",
-                &[Step::Fill("#name", "Goodfetch"), Step::Click("#save")],
-                checks,
-            ),
-            Self::KeyReachesAField => guard::lands(
-                connection,
-                site,
-                "actionability/15",
-                "conformance-key",
-                &[Step::Press("#field", "Enter")],
-                checks,
-            ),
-            Self::StillAmbiguous => guard::still_ambiguous(connection, site, checks),
-            Self::NeverActionable => guard::never_actionable(connection, site, checks),
-            Self::BusyPage => guard::busy_page(connection, site, checks),
+            Self::Guard(case) => case.run(connection, site, checks),
             Self::Route(case) => case.run(connection, site, checks),
             Self::Session(case) => case.run(connection, target, site, checks),
             Self::CleanUp(case) => case.run(connection, target, site, checks),

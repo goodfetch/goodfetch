@@ -1,13 +1,16 @@
 //! A Gesture's input goes out as one burst (ADRs 0019 and 0146): no event of
 //! it waits for the browser's answer to the one before, and a Gesture cut at
-//! its deadline, or cancelled, leaves no key and no button down. The whole
-//! engine runs, on the paused clock, over a scripted browser's in-memory pipe,
-//! which withholds its answer to one event.
+//! its deadline, or cancelled, leaves no key and no button down. Two Gestures
+//! sent at once on one page take turns, while reads go out beside them
+//! (ADR 0085). The whole engine runs over a scripted browser's in-memory
+//! pipe, which withholds its answer to one event, on the paused clock where
+//! a Gesture is cut at its deadline.
 #![expect(
     clippy::disallowed_methods,
     reason = "the engine runs on the paused Clock, the Clock's test version (ADR 0059; TESTING.md, Time)"
 )]
 
+use std::sync::LazyLock;
 use std::time::{Duration, SystemTime};
 
 use goodfetch_engine::Dependencies;
@@ -18,7 +21,7 @@ use goodfetch_page::{Launcher, ScriptedBrowsers};
 use goodfetch_test_support::runtime;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use crate::session_counts::session::{Client, Page, RUN, Wire, answered, dependencies, engine};
 
@@ -30,38 +33,59 @@ const HEARD: Duration = Duration::from_secs(60);
 /// The action's window, in milliseconds.
 const WINDOW: u64 = 500;
 
-/// The input event `command` sends, by its type and its key, if any; none
-/// for any other command.
+/// What the browser tells it heard when it answers the withheld event.
+static RELEASED: LazyLock<Value> = LazyLock::new(|| json!({ "released": true }));
+
+/// The input event `command` sends, by its type and its key, if any, or the
+/// text it inserts; none for any other command.
 fn input(command: &Value) -> Option<String> {
     let params = &command["params"];
-    let kind = params["type"].as_str()?;
+    let kind = || params["type"].as_str();
     match command["method"].as_str()? {
-        "Input.dispatchMouseEvent" => Some(kind.to_owned()),
-        "Input.dispatchKeyEvent" => Some(format!("{kind} {}", params["key"].as_str()?)),
+        "Input.dispatchMouseEvent" => kind().map(str::to_owned),
+        "Input.dispatchKeyEvent" => Some(format!("{} {}", kind()?, params["key"].as_str()?)),
+        "Input.insertText" => Some(format!("insertText {}", params["text"].as_str()?)),
         _ => None,
     }
 }
 
-/// Plays the browser the engine launches: tells `heard` each input event it
-/// reads, and answers each command but the event `withheld`.
+/// The input events among `commands`, in the order the browser read them.
+fn inputs(commands: &[Value]) -> Vec<String> {
+    commands.iter().filter_map(input).collect()
+}
+
+/// Plays the browser the engine launches: tells `heard` each command it
+/// reads, and answers each but the input event `withheld`, which it answers
+/// once `released` is, if given, telling `heard` [`RELEASED`] then, and
+/// never otherwise.
 async fn browser(
     mut launched: ScriptedBrowsers,
     withheld: &str,
-    heard: &watch::Sender<Vec<String>>,
+    heard: &watch::Sender<Vec<Value>>,
+    mut released: Option<oneshot::Receiver<()>>,
 ) {
     let pipe = launched.next().await.expect("the engine launches it");
     let mut wire = Wire::pipe(pipe);
     let mut page = Page::blank();
-    while let Some(text) = wire.next().await {
-        let command: Value = serde_json::from_str(&text).expect("a command is JSON");
-        let method = command["method"].as_str().expect("it names its method");
-        if let Some(event) = input(&command) {
-            let withholds = event == withheld;
-            heard.send_modify(|events| events.push(event));
-            if withholds {
+    let mut held = None;
+    loop {
+        let text = tokio::select! {
+            text = wire.next() => text,
+            release = async { released.as_mut().expect("polled only while given").await },
+                if held.is_some() && released.is_some() =>
+            {
+                released = None;
+                heard.send_modify(|commands| commands.push(RELEASED.clone()));
+                if release.is_ok() && !wire.send(held.take().expect("checked above")).await {
+                    return;
+                }
                 continue;
             }
-        }
+        };
+        let Some(text) = text else { return };
+        let command: Value = serde_json::from_str(&text).expect("a command is JSON");
+        let method = command["method"].as_str().expect("it names its method");
+        heard.send_modify(|commands| commands.push(command.clone()));
         let mut answer = match answered(method, &command["params"], &mut page) {
             Ok((result, _)) => json!({ "result": result }),
             Err(error) => json!({ "error": error }),
@@ -69,6 +93,10 @@ async fn browser(
         answer["id"] = command["id"].clone();
         if let Some(session) = command.get("sessionId") {
             answer["sessionId"] = session.clone();
+        }
+        if input(&command).is_some_and(|event| event == withheld) {
+            held = Some(answer.to_string());
+            continue;
         }
         if !wire.send(answer.to_string()).await || method == "Browser.close" {
             return;
@@ -116,7 +144,8 @@ fn cut_gesture(
             params["locator"] = json!({ "page_id": opened["page_id"], "selector": "#target" });
             let id = client.start(operation, &params).await;
             if cut == Cut::Cancelled {
-                let sent = heard.wait_for(|events| events.iter().any(|event| event == withheld));
+                let sent = heard
+                    .wait_for(|commands| inputs(commands).iter().any(|event| event == withheld));
                 let _ = tokio::time::timeout(HEARD, sent)
                     .await
                     .expect("the withheld event is sent");
@@ -137,12 +166,12 @@ fn cut_gesture(
         let (ended, error, ()) = tokio::join!(
             engine.run_attached(Network::InMemory(network), dependencies),
             client,
-            browser(browsers, withheld, &telling),
+            browser(browsers, withheld, &telling, None),
         );
         ended.expect("the engine got its Connection");
         error
     });
-    (error, heard.borrow().clone())
+    (error, inputs(&heard.borrow()))
 }
 
 /// The events of a click.
@@ -220,4 +249,99 @@ fn a_cancelled_gesture_sent_all_its_input(
 
     assert_eq!(error["data"]["code"], "call_cancelled", "{error}");
     assert_eq!(heard, events);
+}
+
+/// How many reads the program sends while a fill waits on the browser.
+const READS: usize = 10;
+
+/// The function `page.read` calls in the page.
+const READ_FIELDS: &str = include_str!("../../src/fields/read.js");
+
+/// Two fills sent at once on one page take turns: the second's check and
+/// text go out only once the browser answered the first's text. Ten reads of
+/// an element's text, sent while the first waits, go out beside it, one
+/// command each, and answer.
+/// Covers: story:5-7, operation:locator.fill, operation:page.read
+#[test]
+fn two_fills_at_once_take_turns_while_reads_answer_beside_them() {
+    let home = tempfile::tempdir().expect("the OS gives a temporary folder");
+    let (launcher, browsers) = Launcher::scripted(None);
+    let engine = engine(Metrics::none(), launcher);
+    let (telling, mut heard) = watch::channel(Vec::new());
+    let (release, released) = oneshot::channel();
+    let settings = Map::from_iter([("timeout".to_owned(), json!({ "action": 30_000 }))]);
+    let withheld = "insertText one";
+    let (reads, fills, before) = runtime().block_on(async {
+        let (network, dialer) = transport::in_memory();
+        let client = async {
+            let mut client = Client::connected(&dialer).await;
+            client.start_run(settings).await;
+            let session = client
+                .call("run.new_session", &json!({ "run_id": RUN }))
+                .await;
+            let opened = client
+                .call(
+                    "session.new_page",
+                    &json!({ "session_id": session["session_id"] }),
+                )
+                .await;
+            let page = &opened["page_id"];
+            let fill = |selector: &str, value: &str| {
+                json!({ "locator": { "page_id": page, "selector": selector }, "value": value })
+            };
+            let first = client.start("locator.fill", &fill("#first", "one")).await;
+            let sent = heard
+                .wait_for(|commands| inputs(commands).iter().any(|event| event == withheld));
+            let sent = tokio::time::timeout(HEARD, sent).await.is_ok();
+            assert!(sent, "the first fill's text is sent: {:#?}", heard.borrow());
+            let before = heard.borrow().len();
+            let second = client.start("locator.fill", &fill("#second", "two")).await;
+            let mut started = Vec::new();
+            for index in 0..READS {
+                let field = json!({ "locator": { "kind": "css", "selector": format!("#item-{index}") } });
+                let read = json!({ "page_id": page, "fields": { "text": field } });
+                started.push(client.start("page.read", &read).await);
+            }
+            let mut reads = Vec::new();
+            for id in started {
+                reads.push(client.answer(id).await);
+            }
+            release.send(()).expect("the browser waits for it");
+            let fills = [client.answer(first).await, client.answer(second).await];
+            client.close().await;
+            (reads, fills, before)
+        };
+        let (ended, outcome, ()) = tokio::join!(
+            engine.run_attached(Network::InMemory(network), dependencies(home.path())),
+            client,
+            browser(browsers, withheld, &telling, Some(released)),
+        );
+        ended.expect("the engine got its Connection");
+        outcome
+    });
+    let heard = heard.borrow().clone();
+    let at = heard
+        .iter()
+        .position(|command| *command == *RELEASED)
+        .expect("the browser answered the first fill's text");
+    let meanwhile = &heard[before..at];
+
+    let unanswered: Vec<&Value> = reads
+        .iter()
+        .chain(&fills)
+        .filter(|answer| answer.get("result").is_none())
+        .collect();
+    assert!(unanswered.is_empty(), "{unanswered:?}");
+    let (read, worlds): (Vec<&Value>, Vec<&Value>) = meanwhile
+        .iter()
+        .partition(|command| command["params"]["functionDeclaration"] == READ_FIELDS);
+    assert_eq!(read.len(), READS, "{meanwhile:#?}");
+    // Each read still makes its world first: Exception X10, until #3237.
+    assert!(
+        worlds
+            .iter()
+            .all(|command| command["method"] == "Page.createIsolatedWorld"),
+        "{meanwhile:#?}"
+    );
+    assert_eq!(inputs(&heard), ["insertText one", "insertText two"]);
 }

@@ -343,6 +343,10 @@ covers = ["story:5-10", "operation:locator.fill", "operation:locator.click"]
 id = "a-pressed-key-reaches-a-field-as-a-trusted-key"
 covers = ["story:5-10", "operation:locator.press"]
 
+[[capability.case]]
+id = "two-fills-sent-at-once-type-their-own-text-while-reads-answer"
+covers = ["story:5-7", "operation:locator.fill", "operation:page.read"]
+
 [[capability]]
 name = "routes"
 

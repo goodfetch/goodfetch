@@ -182,31 +182,7 @@ impl PageDriver {
         let browser = &self.browser;
         if matches!(choice, ServiceWorkers::Block) || shown(browser, Some(&self.context)).is_some()
         {
-            browser
-                .state
-                .service_workers
-                .scripts
-                .get_or_try_init(|| async {
-                    browser
-                        .send(
-                            None,
-                            &fetch::EnableParams {
-                                patterns: Some(vec![fetch::RequestPattern {
-                                    url_pattern: Some("*".to_owned()),
-                                    // The kind the browser gives a worker's
-                                    // script, so no page's document, script
-                                    // or call pauses here.
-                                    resource_type: Some(network::ResourceType::Other),
-                                    request_stage: Some(fetch::RequestStage::Request),
-                                }]),
-                                handle_auth_requests: None,
-                            },
-                            &browser.opening(),
-                        )
-                        .await
-                        .map(drop)
-                })
-                .await?;
+            enable_scripts(browser, &browser.opening()).await?;
         }
         lock(&browser.state.service_workers.contexts)
             .entry(self.context.clone())
@@ -241,6 +217,43 @@ impl PageDriver {
 /// # Errors
 ///
 /// The code of opening a page when the browser refuses to attach.
+/// Turns on, once per browser, the browser's own interception of workers'
+/// scripts (`Other` requests at request stage), so a worker's script fetch
+/// can fail when blocked or send its context's identity instead of the
+/// headless browser's own.
+async fn enable_scripts(browser: &Browser, call: &crate::errors::Call) -> Result<(), CallError> {
+    browser
+        .state
+        .service_workers
+        .scripts
+        .get_or_try_init(|| async {
+            browser
+                .send(
+                    None,
+                    &fetch::EnableParams {
+                        patterns: Some(vec![fetch::RequestPattern {
+                            url_pattern: Some("*".to_owned()),
+                            // The kind the browser gives a worker's
+                            // script, so no page's document, script
+                            // or call pauses here.
+                            resource_type: Some(network::ResourceType::Other),
+                            request_stage: Some(fetch::RequestStage::Request),
+                        }]),
+                        handle_auth_requests: None,
+                    },
+                    call,
+                )
+                .await
+                .map(drop)
+        })
+        .await?;
+    Ok(())
+}
+
+/// Starts reading the browser's own events and attaches to its workers and
+/// popups. A headless browser (whose pages show a non-headless window
+/// identity) also turns on worker-script interception here at launch, once
+/// per browser rather than on its first page's opening (C7, ADR 0140).
 pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), CallError> {
     let events = browser.connection.subscribe(None);
     tasks.spawn(follow(events, browser.clone(), tasks.clone()));
@@ -274,7 +287,11 @@ pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), 
             &browser.launching(),
         )
         .await
-        .map(drop)
+        .map(drop)?;
+    if browser.identity.is_some() {
+        enable_scripts(browser, &browser.launching()).await?;
+    }
+    Ok(())
 }
 
 /// Reads the browser's own events until its connection ends: each worker

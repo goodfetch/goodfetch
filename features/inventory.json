@@ -3725,6 +3725,17 @@
       ]
     },
     {
+      "id": "format:warc",
+      "kind": "format",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:audit.export",
       "kind": "operation",
       "area": 4,

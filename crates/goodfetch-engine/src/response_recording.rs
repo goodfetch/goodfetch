@@ -40,8 +40,11 @@ use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
 use crate::warc::{self, HttpRequest, HttpResponse, Record, RecordType};
 
+mod record;
 #[cfg(test)]
 mod tests;
+
+pub use record::{Recorder, SanitizedExchange, TABLES};
 
 /// The most recorded URLs a [`Miss`] names.
 const NEAREST: usize = 5;
@@ -434,12 +437,19 @@ impl Recording for Replayed {
     }
 }
 
+/// What a live Run has attached for its Response recording.
+#[derive(Clone, Debug)]
+enum Attached {
+    Replay(Replayed),
+    Record(Arc<Recorder>),
+}
+
 /// Each live Run's Response recording, keyed by its [`RunId`]: opened once
 /// when the Run starts so every request of every tier and Session shares
-/// the same index without reopening the file (ADRs 0105 and 0140).
+/// the same index or recorder without reopening the file (ADRs 0105 and 0140).
 #[derive(Clone, Debug, Default)]
 pub struct Recordings {
-    runs: Arc<Mutex<HashMap<RunId, Replayed>>>,
+    runs: Arc<Mutex<HashMap<RunId, Attached>>>,
 }
 
 impl Recordings {
@@ -484,12 +494,20 @@ impl Recordings {
         }
     }
 
-    /// Attaches `replayed` to the live Run `run_id`.
+    /// Attaches a replaying recording to the live Run `run_id`.
     pub fn attach(&self, run_id: RunId, replayed: Replayed) {
         self.runs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .insert(run_id, replayed);
+            .insert(run_id, Attached::Replay(replayed));
+    }
+
+    /// Attaches a live [`Recorder`] (`mode: "record"`) to `run_id`.
+    pub fn attach_recorder(&self, run_id: RunId, recorder: Arc<Recorder>) {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(run_id, Attached::Record(recorder));
     }
 
     /// The Run's replay recording as a [`Recording`], if it replays one.
@@ -498,7 +516,24 @@ impl Recordings {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(run_id)
-            .map(|replayed| Arc::new(replayed.clone()) as Arc<dyn Recording>)
+            .and_then(|attached| match attached {
+                Attached::Replay(replayed) => {
+                    Some(Arc::new(replayed.clone()) as Arc<dyn Recording>)
+                }
+                Attached::Record(_) => None,
+            })
+    }
+
+    /// The Run's [`Recorder`], if it records one (`mode: "record"`).
+    pub fn recorder(&self, run_id: &RunId) -> Option<Arc<Recorder>> {
+        self.runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(run_id)
+            .and_then(|attached| match attached {
+                Attached::Record(recorder) => Some(Arc::clone(recorder)),
+                Attached::Replay(_) => None,
+            })
     }
 
     /// Whether `run_id` replays a Response recording.
@@ -506,17 +541,46 @@ impl Recordings {
         self.runs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(run_id)
+            .get(run_id)
+            .is_some_and(|attached| matches!(attached, Attached::Replay(_)))
     }
 
-    /// Removes `run_id`'s recording when the Run ends and returns its
-    /// [`RecordingReport`], if it had one.
+    /// Removes `run_id`'s recording (replay or record) without writing a file,
+    /// returning its replay [`RecordingReport`] if it was replaying.
     pub fn take_report_of(&self, run_id: &RunId) -> Option<RecordingReport> {
         self.runs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(run_id)
-            .map(|replayed| replayed.report())
+            .and_then(|attached| match attached {
+                Attached::Replay(replayed) => Some(replayed.report()),
+                Attached::Record(_) => None,
+            })
+    }
+
+    /// Finishes `run_id`'s recording when the Run ends: returns a replay
+    /// report, or writes a `mode: "record"` WARC file atomically from
+    /// `connection`'s `recorded_responses` table (ADRs 0105 and 0116).
+    ///
+    /// # Errors
+    ///
+    /// Returns any SQLite error from reading/flushing `recorded_responses`.
+    pub(crate) fn finish_run(
+        &self,
+        run_id: &RunId,
+        connection: &rusqlite::Connection,
+    ) -> rusqlite::Result<Option<Result<RecordingReport, goodfetch_protocol::run::EndingError>>>
+    {
+        let attached = self
+            .runs
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(run_id);
+        match attached {
+            Some(Attached::Replay(replayed)) => Ok(Some(Ok(replayed.report()))),
+            Some(Attached::Record(recorder)) => recorder.finish_and_write(connection).map(Some),
+            None => Ok(None),
+        }
     }
 }
 

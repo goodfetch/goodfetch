@@ -583,3 +583,71 @@ async fn a_recording_miss_never_falls_through_to_the_cache_or_network() {
         })
     );
 }
+
+#[derive(Debug, Default)]
+struct NoopCapture;
+
+impl super::Capture for NoopCapture {
+    fn capture(
+        &self,
+        _request: CacheRequest,
+        _head: ResponseHead,
+        _body: Bytes,
+        _truncated: bool,
+        _now: SystemTime,
+    ) -> super::Capturing<'_> {
+        Box::pin(async { 1 })
+    }
+
+    fn mark_truncated(&self, _sequence: u64) {}
+}
+
+/// A `record` Run reads no cache entry (even when fresh or under `replay`)
+/// while still allowing the cache to store what it fetched (ADR 0105).
+#[rstest]
+#[case::revalidate(CacheMode::Revalidate)]
+#[case::replay(CacheMode::Replay)]
+#[tokio::test]
+async fn a_record_run_reads_no_cache_entry_but_may_store_into_the_cache(#[case] mode: CacheMode) {
+    let env = TestEnv::new();
+    let work = CountedWork::default();
+    let cache = cache(&env, &work);
+    let cached = served("from-cache");
+    assert!(
+        cache
+            .store(
+                &ada(),
+                &page(),
+                &cached.head,
+                cached.body.clone(),
+                None,
+                start()
+            )
+            .await
+    );
+    let recording = ResponseSource::of(&cache, mode).capturing(Arc::new(NoopCapture));
+    let now = start() + Duration::from_secs(1);
+
+    let answer = recording.source(None, &ada(), &page(), None, now).await;
+
+    assert!(recording.recording_live());
+    assert!(!recording.replaying());
+    assert_eq!(answer, Source::Network);
+    assert_eq!(work.read(Row::CacheLookups), 0);
+    assert!(recording.may_store(&page(), None));
+    assert!(recording.stores(&ada(), &page(), &cached.head, None));
+    let fresh = served("fresh-from-site");
+    assert!(
+        recording
+            .store(
+                &ada(),
+                &page(),
+                &fresh.head,
+                fresh.body.clone(),
+                None,
+                None,
+                now
+            )
+            .await
+    );
+}

@@ -104,7 +104,8 @@ impl PageContext {
             return Ok(false);
         };
         let replaying = caching.replaying();
-        if !replaying && !self.consults_cache(held) {
+        let recording = caching.recording();
+        if !replaying && !recording && !self.consults_cache(held) {
             return Ok(false);
         }
         if !caching.takes(held.method()) {
@@ -253,16 +254,28 @@ impl PageContext {
         }
     }
 
-    /// Lets the response paused at `paused` go on, stored first when
-    /// `storing` waits for it and the cache stores it; a 304 answering a
-    /// stale entry's conditions is answered with the stored body instead.
+    /// Lets the response paused at `paused` go on, stored and/or recorded
+    /// first when `storing` waits for it; a 304 answering a stale entry's
+    /// conditions is answered with the stored body instead.
     pub(super) async fn stored_or_sent_on(&self, paused: &PausedRequest, storing: Option<Storing>) {
-        let storing =
-            storing.filter(|_| paused.responded() && !cdp_response::redirects(paused.status()));
         if let Some(storing) = storing
-            && self.answered_from_store(paused, storing).await
+            && paused.responded()
         {
-            return;
+            if cdp_response::redirects(paused.status()) {
+                if let Some(caching) = self.state.caching.as_ref()
+                    && caching.recording()
+                {
+                    let head = ResponseHead {
+                        status: paused.status(),
+                        headers: paused.response_header_list(),
+                    };
+                    caching
+                        .record(storing.request, head, Bytes::new(), false)
+                        .await;
+                }
+            } else if self.answered_from_store(paused, storing).await {
+                return;
+            }
         }
         self.continue_response(paused.id()).await;
     }
@@ -413,23 +426,58 @@ impl PageContext {
                 .answer(paused.id(), paused.url(), hit.head, &hit.body)
                 .await;
         }
-        if !caching.stores(&storing.request, &head, storing.kept_out) {
+        let recording = caching.recording();
+        let store_in_cache = caching.stores(&storing.request, &head, storing.kept_out);
+        if !recording && !store_in_cache {
             return false;
         }
         // The browser gives the body decoded: the head stored says so.
-        if let Some(body) = cdp_response::body_if_whole(&self.driver, paused.id().as_str()).await {
-            if self.is_blocked(paused.url(), &head, &body, storing.navigation)
-                && !caching.stores(&storing.request, &head, Some(KeptOut::Blocked))
-            {
-                return false;
+        match cdp_response::body_if_whole(&self.driver, paused.id().as_str()).await {
+            Some(body) => {
+                let short = short_of_declared_length(&storing.request.method, &head, body.len());
+                let decoded_head = ResponseHead {
+                    status,
+                    headers: without_codings(head.headers.clone()),
+                };
+                let body_bytes = Bytes::from(body);
+                if recording {
+                    let recorded_head = if short {
+                        head.clone()
+                    } else {
+                        decoded_head.clone()
+                    };
+                    if let Some(sequence) = caching
+                        .record(
+                            storing.request.clone(),
+                            recorded_head,
+                            body_bytes.clone(),
+                            short,
+                        )
+                        .await
+                        && !short
+                        && let Some(network_id) = storing.network_id.as_ref()
+                    {
+                        lock(&self.recorded_responses)
+                            .insert(network_id.as_str().to_owned(), sequence);
+                    }
+                }
+                if store_in_cache && !short {
+                    if self.is_blocked(paused.url(), &head, &body_bytes, storing.navigation)
+                        && !caching.stores(&storing.request, &head, Some(KeptOut::Blocked))
+                    {
+                        return false;
+                    }
+                    caching
+                        .store(&storing.request, &decoded_head, body_bytes)
+                        .await;
+                }
             }
-            let head = ResponseHead {
-                status,
-                headers: without_codings(head.headers),
-            };
-            caching
-                .store(&storing.request, &head, Bytes::from(body))
-                .await;
+            None if recording => {
+                caching
+                    .record(storing.request, head, Bytes::new(), true)
+                    .await;
+            }
+            None => {}
         }
         false
     }
@@ -577,6 +625,21 @@ fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
         .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// Whether a decoded response with no `Content-Encoding` is shorter than its
+/// declared `Content-Length`, so it is recorded as truncated (ADR 0118).
+fn short_of_declared_length(method: &str, head: &ResponseHead, received: usize) -> bool {
+    if method.eq_ignore_ascii_case("HEAD") || matches!(head.status, 100..=199 | 204 | 304) {
+        return false;
+    }
+    let has_coding = head.headers.iter().any(|(name, value)| {
+        name.eq_ignore_ascii_case(CONTENT_ENCODING) && !value.trim().is_empty()
+    });
+    if has_coding {
+        return false;
+    }
+    header_content_length(&head.headers).is_some_and(|declared| (received as u64) < declared)
 }
 
 /// The numeric `Content-Length` declared in `headers`, if any.

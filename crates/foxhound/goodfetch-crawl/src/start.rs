@@ -276,6 +276,11 @@ async fn start(
     // it, so the crawl opens with no work item to key (#2168).
     let keys = context.runs().keys(settings.resolved());
     let seeds: Vec<Seed> = params.seeds.iter().cloned().collect();
+    let record_path = params
+        .recording
+        .as_ref()
+        .filter(|r| r.mode == goodfetch_protocol::run::RecordingMode::Record)
+        .map(|r| r.path.clone());
     let inputs = seed_inputs(&seeds, params.recording.as_ref());
     let replayed = open_replay(params.recording.as_ref(), settings.resolved(), &context).await?;
     // A Run that exists goes on with its seeds admitted once (ADR 0102).
@@ -319,6 +324,7 @@ async fn start(
     finish_started(
         started,
         replayed,
+        record_path,
         context,
         crawls,
         tiers,
@@ -355,6 +361,7 @@ async fn open_replay(
 async fn finish_started(
     started: Started,
     replayed: Option<goodfetch_engine::response_recording::Replayed>,
+    record_path: Option<String>,
     context: CallContext,
     crawls: Crawls,
     tiers: FetchTiers,
@@ -372,6 +379,11 @@ async fn finish_started(
     ),
 ) -> Result<RunStarted, CallError> {
     let (opening, declared, serving, crawl, labels, hooks) = declarations;
+    let software = format!(
+        "{} {}",
+        context.identity().product.name(),
+        context.identity().product_version
+    );
     match started {
         Started::New(run) => {
             if let Some(replayed) = replayed {
@@ -379,6 +391,16 @@ async fn finish_started(
                     .engine()
                     .recordings()
                     .attach(run.identity.id().clone(), replayed);
+            } else if let Some(path) = record_path {
+                let recorder =
+                    context
+                        .engine()
+                        .new_recorder(path, run.identity.id().clone(), software, true);
+                recorder.attach_run_state(run.state.clone());
+                context
+                    .engine()
+                    .recordings()
+                    .attach_recorder(run.identity.id().clone(), recorder);
             }
             let run = CrawlRun::of(&run, &context);
             let started = RunStarted {
@@ -412,6 +434,14 @@ async fn finish_started(
                     .engine()
                     .recordings()
                     .attach(run_id.clone(), replayed);
+            } else if let Some(path) = record_path {
+                let recorder = context
+                    .engine()
+                    .new_recorder(path, run_id.clone(), software, true);
+                context
+                    .engine()
+                    .recordings()
+                    .attach_recorder(run_id.clone(), recorder);
             }
             let kept = (opening, declared, serving.payloads().clone(), crawl);
             // A crawl still ending the Run keeps nothing: the reopen is then

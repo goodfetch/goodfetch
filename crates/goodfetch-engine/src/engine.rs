@@ -336,6 +336,12 @@ impl Engine {
     /// loop stopped waiting for a panic, as it stopped: then
     /// [`DaemonEnd::Panicked`], which exits 1 like any other such panic
     /// (ADR 0148). A handover keeps its end, the next Daemon serving on.
+    fn run_tables(&self) -> Vec<RunStateTables> {
+        let mut tables = self.tables.clone();
+        tables.push(crate::response_recording::TABLES);
+        tables
+    }
+
     fn late_panic(&self, owner: &TaskOwner, ended: DaemonEnd) -> DaemonEnd {
         match ended {
             DaemonEnd::Idle
@@ -474,7 +480,7 @@ impl Engine {
                     None => dependencies.run_state,
                 },
                 install: install.map(Arc::new),
-                tables: self.tables.clone(),
+                tables: self.run_tables(),
                 driving: self.driving.clone(),
                 report_parts,
                 progress_parts: self.progress_parts.clone(),
@@ -1075,11 +1081,13 @@ struct RecordingReportPart(Recordings);
 impl ReportPart for RecordingReportPart {
     fn fill(
         &self,
-        _connection: &rusqlite::Connection,
+        connection: &rusqlite::Connection,
         report: &mut goodfetch_protocol::run::RunReport,
     ) -> rusqlite::Result<()> {
-        if let Some(recording) = self.0.take_report_of(&report.run_id) {
-            report.recording = Some(recording);
+        match self.0.finish_run(&report.run_id, connection)? {
+            Some(Ok(recording)) => report.recording = Some(recording),
+            Some(Err(error)) if report.error.is_none() => report.error = Some(error),
+            Some(Err(_)) | None => {}
         }
         Ok(())
     }

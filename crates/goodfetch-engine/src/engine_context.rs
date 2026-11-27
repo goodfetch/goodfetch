@@ -390,13 +390,36 @@ impl EngineContext {
     }
 
     /// As [`EngineContext::response_source`], with `run_id`'s Response
-    /// recording attached when the Run replays one (ADR 0105).
+    /// recording attached when the Run replays or records one (ADR 0105).
     pub fn response_source_for(&self, run_id: &RunId, settings: &Resolved) -> ResponseSource {
         let source = self.response_source(settings);
-        match self.stores.recordings.get(run_id) {
-            Some(recording) => source.recording(recording),
-            None => source,
+        if let Some(recording) = self.stores.recordings.get(run_id) {
+            source.recording(recording)
+        } else if let Some(recorder) = self.stores.recordings.recorder(run_id) {
+            source.capturing(recorder)
+        } else {
+            source
         }
+    }
+
+    /// Creates a [`Recorder`] (`mode: "record"`) for `run_id` using the
+    /// engine's masks, clock and entropy (ADR 0105).
+    pub fn new_recorder(
+        &self,
+        path: String,
+        run_id: RunId,
+        software: String,
+        stage_for_attempt: bool,
+    ) -> Arc<crate::response_recording::Recorder> {
+        crate::response_recording::Recorder::new(
+            path,
+            run_id,
+            software,
+            self.held.masks.clone(),
+            self.clock,
+            self.draw_u64(),
+            stage_for_attempt,
+        )
     }
 
     /// The live Runs' Response recordings (ADR 0105).

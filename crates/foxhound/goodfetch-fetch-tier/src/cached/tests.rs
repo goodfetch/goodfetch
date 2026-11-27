@@ -501,3 +501,152 @@ async fn a_replaying_http_tier_answers_recorded_fails_missing_and_truncates_cut(
     assert_eq!(report.responses_used, 2);
     assert_eq!(report.misses, vec!["GET https://cache.test/page?extra=1"]);
 }
+
+#[derive(Debug, Default)]
+struct CapturedList(Mutex<Vec<(String, bool, Bytes)>>);
+
+impl goodfetch_engine::response_cache::Capture for CapturedList {
+    fn capture(
+        &self,
+        request: goodfetch_engine::response_cache::CacheRequest,
+        _head: goodfetch_engine::response_cache::ResponseHead,
+        body: Bytes,
+        truncated: bool,
+        _now: std::time::SystemTime,
+    ) -> goodfetch_engine::response_cache::Capturing<'_> {
+        let mut guard = self.0.lock().unwrap();
+        guard.push((request.url, truncated, body));
+        let seq = guard.len() as u64;
+        Box::pin(async move { seq })
+    }
+
+    fn mark_truncated(&self, _sequence: u64) {}
+}
+
+fn recording_test_answers() -> Vec<Answer> {
+    vec![
+        Answer {
+            status: 200,
+            headers: vec![("content-type", "text/plain")],
+            body: b"live-0",
+            cut: false,
+        },
+        Answer {
+            status: 200,
+            headers: vec![("content-type", "text/plain")],
+            body: b"live-1",
+            cut: false,
+        },
+        Answer {
+            status: 200,
+            headers: vec![("content-length", "40")],
+            body: b"half",
+            cut: true,
+        },
+    ]
+}
+
+/// An HTTP tier in `mode: "record"` records both whole and cut responses,
+/// reads no cache entry while still storing into the cache (ADR 0105, #800).
+/// Covers: story:6-55, story:6-57
+#[tokio::test]
+async fn a_recording_http_tier_captures_whole_and_cut_responses_and_bypasses_cache_read() {
+    use goodfetch_engine::response_cache::Capture;
+
+    let env = TestEnv::new();
+    let cache = ResponseCache::of(
+        env.home().join("0.1").join("response-cache"),
+        None,
+        Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
+        CountedWork::default(),
+    );
+    let clock = Clock::paused(
+        goodfetch_protocol::point_in_time::from_rfc3339("2026-01-05T09:00:00Z").unwrap(),
+    );
+    let captured = Arc::new(CapturedList::default());
+    let source = ResponseSource::of(&cache, CacheMode::Replay)
+        .capturing(Arc::clone(&captured) as Arc<dyn Capture>);
+    let caching = Caching::of(source, "ada", RunId::parse("record-http").unwrap(), clock).unwrap();
+
+    let site = Site::answering(recording_test_answers());
+    let transport = over(&caching, Arc::clone(&site) as Arc<dyn Transport>);
+    let bounds = FetchBounds {
+        first_byte: Deadline::given(&TIMEOUT_FIRST_BYTE, 30_000, SettingsLayer::Run),
+        navigation: Deadline::given(&TIMEOUT_NAVIGATION, 30_000, SettingsLayer::Run),
+        limits: Limits::default(),
+    };
+
+    let live_url: url::Url = "https://cache.test/live".parse().unwrap();
+    let first = fetch(
+        transport.as_ref(),
+        &Hop::get(live_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(first.body.as_ref(), b"live-0");
+
+    // Second fetch in record mode bypasses the cache read and fetches live-1.
+    let second = fetch(
+        transport.as_ref(),
+        &Hop::get(live_url.clone()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(second.body.as_ref(), b"live-1");
+
+    // Cut response fails with response_truncated AND is recorded as truncated.
+    let cut_err = fetch(
+        transport.as_ref(),
+        &Hop::get("https://cache.test/cut".parse().unwrap()),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(cut_err.error().code(), "response_truncated");
+
+    assert_eq!(
+        captured.0.lock().unwrap().clone(),
+        vec![
+            (
+                "https://cache.test/live".to_owned(),
+                false,
+                Bytes::from_static(b"live-0"),
+            ),
+            (
+                "https://cache.test/live".to_owned(),
+                false,
+                Bytes::from_static(b"live-1"),
+            ),
+            (
+                "https://cache.test/cut".to_owned(),
+                true,
+                Bytes::from_static(b"half"),
+            ),
+        ]
+    );
+
+    // Meanwhile, a subsequent cache-replay Run serves what the record Run stored.
+    let cache_only = Caching::of(
+        ResponseSource::of(&cache, CacheMode::Replay),
+        "ada",
+        RunId::parse("after-record").unwrap(),
+        clock,
+    )
+    .unwrap();
+    let cached_transport = over(&cache_only, Arc::clone(&site) as Arc<dyn Transport>);
+    let hit = fetch(
+        cached_transport.as_ref(),
+        &Hop::get(live_url),
+        &bounds,
+        &clock,
+    )
+    .await
+    .unwrap();
+    assert_eq!(hit.body.as_ref(), b"live-1");
+    assert_eq!(site.received().len(), 3);
+}

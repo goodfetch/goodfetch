@@ -58,6 +58,31 @@ impl Caching {
         self.source.replaying()
     }
 
+    /// Whether the Run records its live responses into a Response recording
+    /// (`mode: "record"`, ADR 0105).
+    pub fn recording(&self) -> bool {
+        self.source.recording_live()
+    }
+
+    /// Records one captured response when in `mode: "record"`, returning its
+    /// sequence number for optional truncation updates.
+    pub async fn record(
+        &self,
+        request: CacheRequest,
+        head: ResponseHead,
+        body: Bytes,
+        truncated: bool,
+    ) -> Option<u64> {
+        self.source
+            .record(request, head, body, truncated, self.clock.wall())
+            .await
+    }
+
+    /// Marks an already-captured exchange as truncated.
+    pub fn mark_recorded_truncated(&self, sequence: u64) {
+        self.source.mark_recorded_truncated(sequence);
+    }
+
     /// Whether a request sent with `method` may be answered or stored, as
     /// [`ResponseSource::takes`] says.
     pub fn takes(&self, method: &str) -> bool {

@@ -10,6 +10,8 @@
 //! `recording_invalid` on an unreadable, non-WARC or unsupported-version
 //! file.
 
+mod record;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -43,6 +45,10 @@ pub(crate) enum Case {
     MissRaisesAndReports,
     RobotsTxtFromRecording,
     InvalidRecordingFailsStart,
+    RecordAtomicAndReplay,
+    RecordRedactsAndMasksCanaries,
+    RecordCutAndReplayTruncated,
+    RecordCacheAndKillResume,
 }
 
 impl Case {
@@ -60,6 +66,18 @@ impl Case {
             }
             "an-unreadable-non-warc-or-unsupported-version-recording-fails-run-start-with-recording-invalid" => {
                 Self::InvalidRecordingFailsStart
+            }
+            "a-record-run-replaces-its-warc-atomically-names-engine-and-run-in-warcinfo-and-replays-without-network" => {
+                Self::RecordAtomicAndReplay
+            }
+            "a-recorded-warc-drops-credentials-masks-set-cookie-and-holds-no-secret-canary" => {
+                Self::RecordRedactsAndMasksCanaries
+            }
+            "a-cut-response-is-recorded-with-warc-truncated-disconnect-and-replays-as-response-truncated" => {
+                Self::RecordCutAndReplayTruncated
+            }
+            "a-record-run-reads-no-cache-entry-may-store-into-cache-and-merges-both-halves-after-kill-and-resume" => {
+                Self::RecordCacheAndKillResume
             }
             _ => return None,
         })
@@ -83,6 +101,18 @@ impl Case {
             }
             Self::InvalidRecordingFailsStart => {
                 invalid_recording_fails_start(connection, target, site, checks)
+            }
+            Self::RecordAtomicAndReplay => {
+                record::record_atomic_and_replay(connection, target, site, checks)
+            }
+            Self::RecordRedactsAndMasksCanaries => {
+                record::record_redacts_and_masks_canaries(connection, target, site, checks)
+            }
+            Self::RecordCutAndReplayTruncated => {
+                record::record_cut_and_replay_truncated(connection, target, site, checks)
+            }
+            Self::RecordCacheAndKillResume => {
+                record::record_cache_and_kill_resume(connection, target, site, checks)
             }
         }
     }

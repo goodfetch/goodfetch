@@ -6,7 +6,10 @@ use sha2::{Digest as _, Sha256};
 
 use goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
 
-use super::{HttpRequest, HttpResponse, Record, RecordType, Unreadable};
+use super::{
+    HttpRequest, HttpResponse, Record, RecordType, RequestRecord, ResponseRecord, RevisitRecord,
+    TRUNCATED_DISCONNECT, Unreadable, WRITER_VERSION, WarcInfo, Writer, sha256_digest,
+};
 
 /// The records of `contents` under the catalog's default
 /// `network.max_decompression_ratio`.
@@ -349,8 +352,174 @@ proptest! {
         prop_assert_eq!(response.body.as_ref(), &body[..]);
         prop_assert!(!response.cut);
     }
+
+    #[test]
+    fn writer_round_trips_every_record_kind_plain_and_gzipped_per_record(
+        path in "/[a-z0-9_-]{1,16}",
+        method in prop_oneof![Just("GET"), Just("POST"), Just("PUT")],
+        status in prop_oneof![Just(200_u16), Just(201_u16), Just(404_u16), Just(500_u16)],
+        req_body in proptest::collection::vec(any::<u8>(), 0..64),
+        res_body in proptest::collection::vec(any::<u8>(), 0..128),
+        truncated in any::<bool>(),
+        gzip_per_record in any::<bool>(),
+    ) {
+        let date: jiff::Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
+        let target_uri = format!("https://example.test{path}");
+        let mut writer = Writer::new(Vec::new(), gzip_per_record);
+        writer
+            .write_warcinfo(&WarcInfo {
+                record_id: "urn:uuid:00000000-0000-4000-8000-000000000001".to_owned(),
+                date,
+                filename: Some("recording.warc".to_owned()),
+                software: "goodfetch-collie 0.1.0".to_owned(),
+                run_id: Some("run-1".to_owned()),
+                mode: Some("record".to_owned()),
+                recorded_from: Some(date),
+                recorded_to: Some(date),
+                writer_version: WRITER_VERSION.to_owned(),
+            })
+            .unwrap();
+        let req_id = "urn:uuid:00000000-0000-4000-8000-000000000002";
+        let res_id = "urn:uuid:00000000-0000-4000-8000-000000000003";
+        let rev_id = "urn:uuid:00000000-0000-4000-8000-000000000004";
+        let req_headers = vec![("accept".to_owned(), "*/*".to_owned())];
+        let res_headers = vec![("content-type".to_owned(), "application/octet-stream".to_owned())];
+        writer
+            .write_request(&RequestRecord {
+                record_id: req_id,
+                concurrent_to: Some(res_id),
+                target_uri: &target_uri,
+                date,
+                method,
+                headers: &req_headers,
+                body: &req_body,
+            })
+            .unwrap();
+        writer
+            .write_response(&ResponseRecord {
+                record_id: res_id,
+                concurrent_to: Some(req_id),
+                target_uri: &target_uri,
+                date,
+                status,
+                headers: &res_headers,
+                body: &res_body,
+                truncated: truncated.then_some(TRUNCATED_DISCONNECT),
+            })
+            .unwrap();
+        let payload_digest = sha256_digest(&res_body);
+        writer
+            .write_revisit(&RevisitRecord {
+                record_id: rev_id,
+                concurrent_to: None,
+                target_uri: &target_uri,
+                date,
+                refers_to: res_id,
+                refers_to_target_uri: Some(&target_uri),
+                refers_to_date: Some(date),
+                payload_digest: &payload_digest,
+                status: 304,
+                headers: &[("etag".to_owned(), "\"v1\"".to_owned())],
+            })
+            .unwrap();
+        let bytes = writer.into_inner();
+        let records = read(&Bytes::from(bytes.clone())).expect("written WARC reads back");
+        prop_assert_eq!(records.len(), 4);
+        prop_assert_eq!(records[0].record_type(), RecordType::Warcinfo);
+        prop_assert_eq!(records[1].record_type(), RecordType::Request);
+        prop_assert_eq!(records[2].record_type(), RecordType::Response);
+        prop_assert_eq!(records[3].record_type(), RecordType::Revisit);
+
+        let parsed_req = HttpRequest::parse(records[1].block()).expect("request HTTP parses");
+        prop_assert_eq!(parsed_req.method, method);
+        prop_assert_eq!(parsed_req.body.as_ref(), req_body.as_slice());
+
+        let parsed_res = HttpResponse::parse(records[2].block()).expect("response HTTP parses");
+        prop_assert_eq!(parsed_res.status, status);
+        prop_assert_eq!(parsed_res.body.as_ref(), res_body.as_slice());
+        prop_assert_eq!(
+            records[2].header("WARC-Truncated"),
+            truncated.then_some(TRUNCATED_DISCONNECT)
+        );
+        prop_assert_eq!(
+            records[2].header("WARC-Payload-Digest"),
+            Some(payload_digest.as_str())
+        );
+        let expected_refers_to = format!("<{res_id}>");
+        prop_assert_eq!(
+            records[3].header("WARC-Refers-To"),
+            Some(expected_refers_to.as_str())
+        );
+
+        if gzip_per_record {
+            // Each record must be its own standalone gzip member.
+            let mut cursor = std::io::Cursor::new(bytes.as_slice());
+            let mut members = 0usize;
+            while cursor.position() < u64::try_from(bytes.len()).unwrap() {
+                let mut decoder = flate2::bufread::GzDecoder::new(&mut cursor);
+                let mut member = Vec::new();
+                std::io::Read::read_to_end(&mut decoder, &mut member).unwrap();
+                let single = read(&Bytes::from(member)).expect("one gzip member holds one record");
+                prop_assert_eq!(single.len(), 1);
+                members += 1;
+            }
+            prop_assert_eq!(members, 4);
+        }
+    }
 }
 
 mod warc_reader {
     goodfetch_test_support::fuzz_replay!(crate::warc::fuzz_warc, "fuzz/warc");
+}
+
+#[test]
+fn reads_committed_compat_warc_head_fixtures_plain_and_gzipped() {
+    let plain = Bytes::from_static(include_bytes!(
+        "../../../../compat/warc/head/recording.warc"
+    ));
+    let gzipped = Bytes::from_static(include_bytes!(
+        "../../../../compat/warc/head/recording.warc.gz"
+    ));
+    assert!(gzipped.starts_with(&[0x1f, 0x8b]));
+
+    let plain_records = read(&plain).expect("compat/warc/head/recording.warc reads");
+    let gzip_records = read(&gzipped).expect("compat/warc/head/recording.warc.gz reads");
+    assert_eq!(plain_records.len(), 9);
+    assert_eq!(gzip_records.len(), 9);
+
+    let kinds: Vec<RecordType> = plain_records.iter().map(Record::record_type).collect();
+    assert_eq!(
+        kinds,
+        [
+            RecordType::Warcinfo,
+            RecordType::Request,
+            RecordType::Response,
+            RecordType::Request,
+            RecordType::Response,
+            RecordType::Request,
+            RecordType::Response,
+            RecordType::Request,
+            RecordType::Revisit,
+        ]
+    );
+    assert_eq!(
+        plain_records[6].header("WARC-Truncated"),
+        Some(TRUNCATED_DISCONNECT)
+    );
+    assert_eq!(
+        plain_records[8].header("WARC-Refers-To"),
+        plain_records[2].record_id()
+    );
+    // Every record in the gzipped fixture is its own gzip member.
+    let mut cursor = std::io::Cursor::new(gzipped.as_ref());
+    let mut members = 0usize;
+    while cursor.position() < u64::try_from(gzipped.len()).unwrap() {
+        let mut decoder = flate2::bufread::GzDecoder::new(&mut cursor);
+        let mut member = Vec::new();
+        std::io::Read::read_to_end(&mut decoder, &mut member).unwrap();
+        let single = read(&Bytes::from(member)).expect("single gzip member holds one record");
+        assert_eq!(single.len(), 1);
+        members += 1;
+    }
+    assert_eq!(members, 9);
 }

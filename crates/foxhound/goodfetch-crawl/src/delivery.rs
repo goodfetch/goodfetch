@@ -1723,7 +1723,8 @@ async fn open(
         within,
         (admission.keys(), run.identity.clock()),
         run.identity.metrics(),
-    );
+    )
+    .with_recorder(run.browser.engine.recordings().recorder(run.identity.id()));
     stored
         .fill_memory()
         .await

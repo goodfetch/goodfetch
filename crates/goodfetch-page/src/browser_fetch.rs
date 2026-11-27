@@ -40,6 +40,10 @@
 //! and stopped at the first limit, so neither the browser nor the engine
 //! holds more: the pinned Chromium reports no network or decoding failure
 //! of a body whose stream was taken (ADR 0067's #644 note).
+//!
+//! Size: one browser-backed document load (`Load`) driving redirect hops,
+//! body reading, cache/recording capture and browser failure translation
+//! over the same CDP interception state.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -250,6 +254,10 @@ struct Load<'a> {
     /// The permit the page's navigation gate gave the hop under way, held
     /// until its response arrives.
     permit: Option<Permit>,
+    /// The outgoing hop request being sent, kept for `mode: "record"` capture.
+    recording_request: Option<CacheRequest>,
+    /// Raw response header list of `answered`, for `mode: "record"` capture.
+    recording_headers: Vec<(String, String)>,
 }
 
 impl<'a> Load<'a> {
@@ -270,6 +278,8 @@ impl<'a> Load<'a> {
             answered: None,
             from_the_network: true,
             permit: None,
+            recording_request: None,
+            recording_headers: Vec::new(),
         }
     }
 
@@ -336,12 +346,16 @@ impl<'a> Load<'a> {
                     return None;
                 }
                 let (response, bytes) = self.answered.take()?;
-                if cut_though_finished(
+                let raw_headers = std::mem::take(&mut self.recording_headers);
+                let is_cut = cut_though_finished(
                     self.request.method,
                     response.status,
                     self.from_the_network,
                     encoded,
-                ) {
+                );
+                self.record_hop(response.status, raw_headers, &bytes, is_cut)
+                    .await;
+                if is_cut {
                     return Some(Ok(cut(response, &bytes)));
                 }
                 Some(
@@ -353,7 +367,17 @@ impl<'a> Load<'a> {
                 )
             }
             HopEvent::LoadingFailed(failed) if self.ours(failed.network_id()) => {
-                Some(self.failed(&failed.error()))
+                let raw_headers = std::mem::take(&mut self.recording_headers);
+                let error = failed.error();
+                if let Some((response, bytes)) = self.answered.as_ref()
+                    && cut_after_sent_on(&error)
+                {
+                    let status = response.status;
+                    let bytes_copy = bytes.clone();
+                    self.record_hop(status, raw_headers, &bytes_copy, true)
+                        .await;
+                }
+                Some(self.failed(&error))
             }
             HopEvent::LoadingFailed(_) => None,
         }
@@ -458,6 +482,7 @@ impl<'a> Load<'a> {
                     self.fail(paused.id(), AbortReason::BlockedByClient).await;
                     return Some(Err(refused));
                 }
+                self.capture_outgoing_request(&paused, &navigation, &command);
                 went(self.page.continue_request(command).await);
                 // The gate that admitted it hears it leave (ADR 0086).
                 self.driver.sent(&navigation.url).await;
@@ -695,8 +720,11 @@ impl<'a> Load<'a> {
             return None;
         }
         let response = self.response_of(&paused);
+        let raw_headers = paused.response_header_list();
         let redirect = redirects(response.status) && response.headers.contains_key("location");
         if redirect {
+            self.record_hop(response.status, raw_headers, &[], false)
+                .await;
             let followed = u32::try_from(self.chain.len().saturating_sub(1)).unwrap_or(u32::MAX);
             if self.request.max_redirects == 0 {
                 self.fail(paused.id(), AbortReason::Aborted).await;
@@ -730,7 +758,16 @@ impl<'a> Load<'a> {
             // Its body taken, the request cannot go on to the page: the
             // load ends here.
             self.fail(paused.id(), AbortReason::Aborted).await;
-            return Some(read.map(|bytes| self.streamed_fetched(response, bytes)));
+            let fetched = match read {
+                Ok(bytes) => {
+                    let is_cut = short_of_its_length(self.request.method, &response, bytes.len());
+                    self.record_hop(response.status, raw_headers, &bytes, is_cut)
+                        .await;
+                    Ok(self.streamed_fetched(response, bytes))
+                }
+                Err(error) => Err(error),
+            };
+            return Some(fetched);
         }
         let bytes = match self.whole(paused.id(), &response.url).await {
             Ok(bytes) => bytes,
@@ -741,6 +778,7 @@ impl<'a> Load<'a> {
             name: "Content-Type".to_owned(),
             value: "text/plain".to_owned(),
         });
+        self.recording_headers = raw_headers;
         self.answered = Some((response, bytes));
         if let Err(failure) = self.page.continue_response_with(&paused, headers).await {
             tracing::debug!(%failure, "the response went before it was sent on");
@@ -847,6 +885,62 @@ impl<'a> Load<'a> {
             .limits
             .judge_decoded(&response.url, decoded, received)
             .map_err(|exceeded| exceeded.error())
+    }
+
+    /// Captures the outgoing request for `mode: "record"` before it is sent on.
+    fn capture_outgoing_request(
+        &mut self,
+        paused: &PausedRequest,
+        navigation: &Navigation,
+        command: &ContinueRequest,
+    ) {
+        if self.sender.caching().is_some_and(|c| c.recording())
+            && let Ok(parsed_url) = url::Url::parse(&navigation.url)
+        {
+            let headers = replay_headers(paused, command);
+            let body = replay_body(paused, command, &navigation.url).unwrap_or_default();
+            self.recording_request = Some(CacheRequest::new(
+                &navigation.method,
+                &parsed_url,
+                &headers,
+                Bytes::from(body),
+            ));
+        }
+    }
+
+    /// Records one completed or cut hop when the Run runs in `mode: "record"`.
+    async fn record_hop(
+        &mut self,
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: &[u8],
+        truncated: bool,
+    ) {
+        let Some(request) = self.recording_request.take() else {
+            return;
+        };
+        let Some(caching) = self.sender.caching().filter(|c| c.recording()) else {
+            return;
+        };
+        let headers = if truncated {
+            headers
+        } else {
+            headers
+                .into_iter()
+                .filter(|(name, _)| {
+                    !name.eq_ignore_ascii_case("content-encoding")
+                        && !name.eq_ignore_ascii_case("content-length")
+                })
+                .collect()
+        };
+        caching
+            .record(
+                request,
+                ResponseHead { status, headers },
+                Bytes::copy_from_slice(body),
+                truncated,
+            )
+            .await;
     }
 
     /// `too_many_redirects` for the load's chain, past its count.

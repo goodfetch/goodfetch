@@ -45286,6 +45286,14 @@
       },
       "storage": "json",
       "version": "0.1"
+    },
+    {
+      "hello_from": [],
+      "name": "warc",
+      "rule": "default",
+      "schema": true,
+      "storage": "warc",
+      "version": "0.1"
     }
   ],
   "live_view": {

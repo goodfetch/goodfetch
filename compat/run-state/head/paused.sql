@@ -164,6 +164,8 @@ INSERT INTO "record_search_data" VALUES(1,X'');
 INSERT INTO "record_search_data" VALUES(10,X'00000000FF000001000000');
 CREATE TABLE 'record_search_docsize'(id INTEGER PRIMARY KEY, sz BLOB, origin INTEGER);
 CREATE TABLE 'record_search_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID;
+CREATE TABLE recorded_responses ( position INTEGER PRIMARY KEY AUTOINCREMENT, recorded_at TEXT NOT NULL, method TEXT NOT NULL, url TEXT NOT NULL, request_headers TEXT NOT NULL, request_body BLOB NOT NULL, status INTEGER NOT NULL, response_headers TEXT NOT NULL, response_body BLOB NOT NULL, truncated INTEGER NOT NULL CHECK (truncated IN (0, 1)) ) STRICT;
+INSERT INTO "recorded_responses" VALUES(1,'2026-01-05T09:00:00Z','GET','https://shop.test/','[["accept","text/html"]]',X'',200,'[["content-type","text/html"]]',X'3C68313E6F6B3C2F68313E',0);
 CREATE TABLE records (
             dataset TEXT NOT NULL,
             number INTEGER NOT NULL,

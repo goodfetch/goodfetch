@@ -1,3 +1,8 @@
+#![expect(
+    clippy::disallowed_methods,
+    reason = "unit tests use tokio::test, paused Clock and std::fs::read"
+)]
+
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -456,4 +461,174 @@ fn skips_records_that_answer_no_request() {
     let miss = body(replay.answer(&request("GET", A, &[], ""))).expect_err("a miss");
 
     assert_eq!(miss.nearest, Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn recording_redacts_credentials_masks_secrets_and_replays_both_halves_and_cut() {
+    let dir = tempfile::tempdir().unwrap();
+    let warc_path = dir.path().join("out.warc.gz");
+    let masks = Masks::new();
+    let run_mask = masks.for_run(Redaction::On);
+    let secret = "gf-secret-token-9876543210";
+    run_mask.join("api_key", &SecretString::from(secret), Reach::Value);
+
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    for statement in super::TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+
+    let first_at: SystemTime = "2026-01-05T09:00:00Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap()
+        .into();
+    let second_at: SystemTime = "2026-01-05T09:05:00Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap()
+        .into();
+
+    // First half before a simulated kill: redacts credentials & masks secret before SQLite insert.
+    let first = super::SanitizedExchange::from_raw(
+        &masks,
+        request(
+            "POST",
+            A,
+            &[
+                ("cookie", "sid=live-cookie-secret"),
+                ("authorization", "Bearer live-bearer-secret"),
+                ("proxy-authorization", "Basic cHJveHk6c2VjcmV0"),
+                ("x-custom", &format!("val-{secret}")),
+                ("content-type", "application/json"),
+            ],
+            &format!(r#"{{"token":"{secret}"}}"#),
+        ),
+        ResponseHead {
+            status: 200,
+            headers: vec![
+                ("content-type".to_owned(), "text/plain".to_owned()),
+                (
+                    "set-cookie".to_owned(),
+                    "sid=top-secret-session-cookie; Path=/; HttpOnly".to_owned(),
+                ),
+            ],
+        },
+        Bytes::from(format!("hello {secret}")),
+        false,
+        first_at,
+    );
+    assert!(!first.request_headers.iter().any(|(n, _)| matches!(
+        n.as_str(),
+        "cookie" | "authorization" | "proxy-authorization"
+    )));
+    assert_eq!(
+        first.response_headers[1],
+        (
+            "set-cookie".to_owned(),
+            "sid=[redacted]; Path=/; HttpOnly".to_owned()
+        )
+    );
+    assert!(!String::from_utf8_lossy(&first.request_body).contains(secret));
+    assert!(!String::from_utf8_lossy(&first.response_body).contains(secret));
+    super::record::insert_exchange(&connection, &first).unwrap();
+
+    // Second half after resume: records a cut response into the same SQLite table.
+    let recorder = super::Recorder::new(
+        warc_path.display().to_string(),
+        goodfetch_protocol::run::RunId::parse("run-resume-1").unwrap(),
+        "Collie 0.1.0".to_owned(),
+        masks.clone(),
+        crate::clock::Clock::paused(second_at),
+        42,
+        true,
+    );
+    let cut_exchange = super::SanitizedExchange::from_raw(
+        &masks,
+        request("GET", "https://example.test/cut", &[], ""),
+        ResponseHead {
+            status: 200,
+            headers: vec![("content-length".to_owned(), "100".to_owned())],
+        },
+        Bytes::from_static(b"partial"),
+        true,
+        second_at,
+    );
+    super::record::insert_exchange(&connection, &cut_exchange).unwrap();
+
+    let report = recorder
+        .finish_and_write(&connection)
+        .unwrap()
+        .expect("writes WARC");
+    assert_eq!(report.mode, "record");
+    assert_eq!(report.responses_used, 2);
+    assert_eq!(report.recorded_from, Some(first_at));
+    assert_eq!(report.recorded_to, Some(second_at));
+    assert_eq!(report.written_by.as_deref(), Some("Collie 0.1.0"));
+    assert_recorded_warc_redacted_and_replays(&warc_path, secret, masks);
+}
+
+fn assert_recorded_warc_redacted_and_replays(
+    warc_path: &std::path::Path,
+    secret: &str,
+    masks: Masks,
+) {
+    // Raw file bytes are gzipped per record and hold zero secrets or cookies.
+    let raw = std::fs::read(warc_path).unwrap();
+    assert!(raw.starts_with(&[0x1f, 0x8b]));
+    let records = warc::read(&Bytes::from(raw.clone()), DEFAULT_MAX_DECOMPRESSION_RATIO).unwrap();
+    assert_eq!(records.len(), 5); // warcinfo + 2*(request + response)
+    let warcinfo_text = String::from_utf8_lossy(records[0].block());
+    assert!(warcinfo_text.contains("software: Collie 0.1.0"));
+    assert!(warcinfo_text.contains("run-id: run-resume-1"));
+    assert!(warcinfo_text.contains("mode: record"));
+    assert!(warcinfo_text.contains("warc-writer-version: "));
+    for record in &records {
+        let block = String::from_utf8_lossy(record.block());
+        assert!(!block.contains(secret));
+        assert!(!block.contains("live-cookie-secret"));
+        assert!(!block.contains("live-bearer-secret"));
+        assert!(!block.contains("top-secret-session-cookie"));
+    }
+
+    // Replaying the written file answers the POST (matching masked secret) and cuts `/cut`.
+    let replayed = open(&Bytes::from(raw), masks).unwrap();
+    let answered = replayed.answer(&request(
+        "POST",
+        A,
+        &[("content-type", "application/json")],
+        &format!(r#"{{"token":"{secret}"}}"#),
+    ));
+    assert!(
+        matches!(answered, Answer::Answered(served) if served.body.as_ref() == b"hello %api_key%")
+    );
+    let cut_answer = replayed.answer(&request("GET", "https://example.test/cut", &[], ""));
+    assert!(matches!(cut_answer, Answer::Cut(_)));
+}
+
+#[tokio::test]
+async fn recording_to_directory_returns_path_not_writable_and_leaves_existing_untouched() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    for statement in super::TABLES.statements {
+        connection.execute_batch(statement).unwrap();
+    }
+    let now: SystemTime = "2026-01-05T09:00:00Z"
+        .parse::<jiff::Timestamp>()
+        .unwrap()
+        .into();
+    let recorder = super::Recorder::new(
+        dir.path().display().to_string(),
+        goodfetch_protocol::run::RunId::parse("run-bad-path").unwrap(),
+        "Collie 0.1.0".to_owned(),
+        Masks::new(),
+        crate::clock::Clock::paused(now),
+        7,
+        true,
+    );
+    let err = recorder
+        .finish_and_write(&connection)
+        .unwrap()
+        .expect_err("directory path must fail");
+    assert_eq!(
+        err.code,
+        goodfetch_protocol::checkpoint::PATH_NOT_WRITABLE.name
+    );
 }

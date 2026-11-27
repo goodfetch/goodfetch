@@ -39,7 +39,7 @@ pub(crate) fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc
 }
 
 /// `sent`, the answer to `request`, its body kept as it is read and stored
-/// in `caching` once it ended whole when the cache stores it.
+/// in `caching` (and/or recorded when in `mode: "record"`) once it ends.
 fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
     let head = ResponseHead {
         status: sent.status,
@@ -49,7 +49,9 @@ fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
         .certificate_exception
         .is_some()
         .then_some(KeptOut::CertificateException);
-    if sent.decoded || !caching.stores(&request, &head, kept_out) {
+    let store_in_cache = !sent.decoded && caching.stores(&request, &head, kept_out);
+    let record_live = caching.recording();
+    if !store_in_cache && !record_live {
         return sent;
     }
     Sent {
@@ -60,6 +62,8 @@ fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
                 caching: Arc::clone(caching),
                 request,
                 head,
+                store_in_cache,
+                record_live,
             }),
         }),
         ..sent
@@ -199,16 +203,18 @@ impl Body for Cut {
     }
 }
 
-/// What a body stores once it ended whole.
+/// What a body stores and/or records once it ends.
 struct Storing {
     caching: Arc<Caching>,
     request: CacheRequest,
     head: ResponseHead,
+    store_in_cache: bool,
+    record_live: bool,
 }
 
-/// A body read on, its bytes kept until it ends whole, when they are
-/// stored; dropped unended, as a cut or a read stopped early leaves it,
-/// it stores nothing.
+/// A body read on, its bytes kept until it ends whole (when they are stored
+/// and/or recorded) or breaks off (when a recording Run records the cut
+/// response with `WARC-Truncated: disconnect` and the cache stores nothing).
 struct Teed {
     body: Box<dyn Body>,
     read: BytesMut,
@@ -218,23 +224,47 @@ struct Teed {
 impl Body for Teed {
     fn chunk(&mut self) -> Sending<'_, Option<Bytes>> {
         Box::pin(async move {
-            let next = self.body.chunk().await?;
-            match &next {
-                Some(chunk) => self.read.extend_from_slice(chunk),
-                None => {
+            match self.body.chunk().await {
+                Ok(Some(chunk)) => {
+                    self.read.extend_from_slice(&chunk);
+                    Ok(Some(chunk))
+                }
+                Ok(None) => {
                     if let Some(storing) = self.storing.take() {
+                        let body = std::mem::take(&mut self.read).freeze();
+                        if storing.record_live {
+                            storing
+                                .caching
+                                .record(
+                                    storing.request.clone(),
+                                    storing.head.clone(),
+                                    body.clone(),
+                                    false,
+                                )
+                                .await;
+                        }
+                        if storing.store_in_cache {
+                            storing
+                                .caching
+                                .store(&storing.request, &storing.head, body)
+                                .await;
+                        }
+                    }
+                    Ok(None)
+                }
+                Err(error) => {
+                    if let Some(storing) = self.storing.take()
+                        && storing.record_live
+                    {
+                        let body = std::mem::take(&mut self.read).freeze();
                         storing
                             .caching
-                            .store(
-                                &storing.request,
-                                &storing.head,
-                                std::mem::take(&mut self.read).freeze(),
-                            )
+                            .record(storing.request, storing.head, body, true)
                             .await;
                     }
+                    Err(error)
                 }
             }
-            Ok(next)
         })
     }
 }

@@ -67,6 +67,29 @@ pub trait Recording: Send + Sync + std::fmt::Debug {
     fn recorded<'a>(&'a self, request: &'a CacheRequest) -> Replaying<'a>;
 }
 
+/// A boxed future a [`Capture`] answers, returning a sequence number for
+/// optional later truncation marking.
+pub type Capturing<'a> = Pin<Box<dyn Future<Output = u64> + Send + 'a>>;
+
+/// A Run's Response recording sink in `mode: "record"` (ADR 0105): redacts,
+/// masks and keeps each response received so the WARC file can be written at
+/// the Run's end.
+pub trait Capture: Send + Sync + std::fmt::Debug {
+    /// Captures one response exchange, returning its sequence number.
+    fn capture(
+        &self,
+        request: CacheRequest,
+        head: ResponseHead,
+        body: Bytes,
+        truncated: bool,
+        now: SystemTime,
+    ) -> Capturing<'_>;
+
+    /// Marks an already-captured exchange as truncated (when the browser
+    /// reports a disconnect after delivering partial bytes).
+    fn mark_truncated(&self, sequence: u64);
+}
+
 /// Where a request's response comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -125,6 +148,7 @@ impl KeptOut {
 pub struct ResponseSource {
     cache: Keeping,
     recording: Option<Arc<dyn Recording>>,
+    capture: Option<Arc<dyn Capture>>,
 }
 
 /// How a Run uses the cache, as its `cache.mode` says.
@@ -150,6 +174,7 @@ impl ResponseSource {
                 CacheMode::Replay => Keeping::Replay(cache.clone()),
             },
             recording: None,
+            capture: None,
         }
     }
 
@@ -163,9 +188,19 @@ impl ResponseSource {
         }
     }
 
-    /// Whether it only sends: no recording, and the cache off.
+    /// The source recording live responses into `capture` (`mode: "record"`):
+    /// reads no cache entry, while still allowing the cache to store.
+    #[must_use]
+    pub fn capturing(self, capture: Arc<dyn Capture>) -> Self {
+        Self {
+            capture: Some(capture),
+            ..self
+        }
+    }
+
+    /// Whether it only sends: no recording, no capture, and the cache off.
     pub fn sends_only(&self) -> bool {
-        matches!(self.cache, Keeping::Off) && self.recording.is_none()
+        matches!(self.cache, Keeping::Off) && self.recording.is_none() && self.capture.is_none()
     }
 
     /// Whether the Run replays a Response recording (ADR 0105): every
@@ -175,12 +210,20 @@ impl ResponseSource {
         self.recording.is_some()
     }
 
+    /// Whether the Run records its live responses into a Response recording
+    /// (`mode: "record"`, ADR 0105): reads no cache entry, records every
+    /// response, and may still store into the cache.
+    pub fn recording_live(&self) -> bool {
+        self.capture.is_some()
+    }
+
     /// Whether a request sent with `method` may be answered or stored at
     /// all, so a transport reads what asking about it needs only then: the
-    /// recording and `replay` take any method, `revalidate` a GET or a
-    /// HEAD.
+    /// recording, `record` mode and `replay` take any method, `revalidate` a
+    /// GET or a HEAD.
     pub fn takes(&self, method: &str) -> bool {
         self.recording.is_some()
+            || self.capture.is_some()
             || match &self.cache {
                 Keeping::Off => false,
                 Keeping::Revalidate(_) => freshness::revalidates_method(method),
@@ -188,11 +231,14 @@ impl ResponseSource {
             }
     }
 
-    /// Whether some response to `request` may be stored, before its head
-    /// is known, so a browser pauses only those responses: never while
-    /// replaying a recording, when the cache is off, when `kept_out` names
-    /// a reason, nor under `revalidate` for a method other than GET/HEAD.
+    /// Whether some response to `request` may be stored or recorded, before
+    /// its head is known, so a browser pauses only those responses: always
+    /// while recording, never while replaying a recording, and otherwise as
+    /// the cache allows.
     pub fn may_store(&self, request: &CacheRequest, kept_out: Option<KeptOut>) -> bool {
+        if self.capture.is_some() {
+            return true;
+        }
         self.recording.is_none()
             && kept_out.is_none()
             && match &self.cache {
@@ -202,12 +248,32 @@ impl ResponseSource {
             }
     }
 
+    /// Records one captured response when in `mode: "record"`, returning its
+    /// sequence number for optional truncation updates.
+    pub async fn record(
+        &self,
+        request: CacheRequest,
+        head: ResponseHead,
+        body: Bytes,
+        truncated: bool,
+        now: SystemTime,
+    ) -> Option<u64> {
+        let capture = self.capture.as_ref()?;
+        Some(capture.capture(request, head, body, truncated, now).await)
+    }
+
+    /// Marks an already-captured exchange as truncated.
+    pub fn mark_recorded_truncated(&self, sequence: u64) {
+        if let Some(capture) = &self.capture {
+            capture.mark_truncated(sequence);
+        }
+    }
+
     /// Where the response to `request` in `partition` comes from at `now`:
     /// `routed`, the response a route fulfilled it with, if any, then the
     /// recording (whose miss is refused and never falls through to the
-    /// cache or the network), then the cache, then the network. An earlier
-    /// source's answer leaves the later ones unasked. The cache is not
-    /// asked for a request `kept_out` says it does not answer: a Paid fetch.
+    /// cache or the network), then `Network` directly when in `mode: "record"`
+    /// (never reading the cache), then the cache, then the network.
     pub async fn source(
         &self,
         routed: Option<Served>,
@@ -225,6 +291,9 @@ impl ResponseSource {
                 Recorded::Cut(served) => Source::RecordedCut(served),
                 Recorded::Missed(miss) => Source::NotRecorded(miss),
             };
+        }
+        if self.capture.is_some() {
+            return Source::Network;
         }
         if kept_out.is_some_and(KeptOut::bars_serving) {
             return Source::Network;

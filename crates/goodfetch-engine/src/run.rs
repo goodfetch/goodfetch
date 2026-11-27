@@ -1119,11 +1119,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
                 .transpose()
         })
         .transpose()?;
-    let replay_path = params
-        .recording
-        .as_ref()
-        .filter(|recording| recording.mode == RecordingMode::Replay)
-        .map(|recording| recording.path.clone());
+    let recording_mode = params.recording.clone();
     let inputs = start_inputs(params.plan, params.recording);
     let limits = StartLimits::checked(params.limits, run_id.as_ref(), &context).await?;
     let (settings, _) = context
@@ -1141,15 +1137,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
-    let replayed = match replay_path.as_deref() {
-        Some(path) => Some(
-            context
-                .engine()
-                .open_replay(path, settings.resolved())
-                .await?,
-        ),
-        None => None,
-    };
+    let prepared = prepare_recording(recording_mode, settings.resolved(), &context).await?;
     let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()
@@ -1174,12 +1162,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .map_err(start_error)?;
     let started = match started {
         Started::New(run) => {
-            if let Some(replayed) = replayed {
-                context
-                    .engine()
-                    .recordings()
-                    .attach(run.identity.id().clone(), replayed);
-            }
+            prepared.attach(&context, run.identity.id(), Some(run.state.clone()));
             RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,
@@ -1190,18 +1173,82 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
         Started::Interrupted(run_id) => {
             let started = resume_run(&context, run_id, None, settings, timeout, true).await?;
-            if let Some(replayed) = replayed {
-                context
-                    .engine()
-                    .recordings()
-                    .attach(started.run_id.clone(), replayed);
-            }
+            let state = context
+                .runs()
+                .live(started.run_id.clone())
+                .await
+                .ok()
+                .map(|live| live.state.clone());
+            prepared.attach(&context, &started.run_id, state);
             started
         }
         Started::Ended(ended) => ended,
     };
     limits.give(&started, &context).await?;
     Ok(started)
+}
+
+struct PreparedRecording {
+    replayed: Option<crate::response_recording::Replayed>,
+    record_path: Option<String>,
+    software: String,
+}
+
+async fn prepare_recording(
+    recording: Option<Recording>,
+    settings: &crate::settings::Resolved,
+    context: &CallContext,
+) -> Result<PreparedRecording, CallError> {
+    let replayed = match recording.as_ref() {
+        Some(recording) if recording.mode == RecordingMode::Replay => Some(
+            context
+                .engine()
+                .open_replay(&recording.path, settings)
+                .await?,
+        ),
+        _ => None,
+    };
+    let record_path = recording
+        .filter(|recording| recording.mode == RecordingMode::Record)
+        .map(|recording| recording.path);
+    let software = format!(
+        "{} {}",
+        context.identity().product.name(),
+        context.identity().product_version
+    );
+    Ok(PreparedRecording {
+        replayed,
+        record_path,
+        software,
+    })
+}
+
+impl PreparedRecording {
+    fn attach(
+        self,
+        context: &CallContext,
+        run_id: &RunId,
+        state: Option<crate::run_state::RunState>,
+    ) {
+        if let Some(replayed) = self.replayed {
+            context
+                .engine()
+                .recordings()
+                .attach(run_id.clone(), replayed);
+        } else if let Some(path) = self.record_path {
+            let recorder =
+                context
+                    .engine()
+                    .new_recorder(path, run_id.clone(), self.software, false);
+            if let Some(state) = state {
+                recorder.attach_run_state(state);
+            }
+            context
+                .engine()
+                .recordings()
+                .attach_recorder(run_id.clone(), recorder);
+        }
+    }
 }
 
 /// A Collie Run's inputs, which a start naming it again gives unchanged

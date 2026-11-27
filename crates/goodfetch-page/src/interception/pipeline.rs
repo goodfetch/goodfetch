@@ -139,6 +139,9 @@ pub(super) struct PageContext {
     /// cache, by the interception's ID: a request that fails first, or a
     /// target that goes, drops it.
     storing: Mutex<BTreeMap<PausedId, cached::Storing>>,
+    /// Recorded response sequence numbers keyed by network ID so a late
+    /// `LoadingFailed` after a disconnect marks the recorded response cut.
+    recorded_responses: Mutex<BTreeMap<String, u64>>,
     /// A service worker's requests that carry a page's navigation, sent on
     /// with their response paused for the gate to judge, by the
     /// interception's ID: the page each carries a navigation of.
@@ -229,6 +232,7 @@ impl PageContext {
             refusals,
             responses: Mutex::new(BTreeMap::new()),
             storing: Mutex::new(BTreeMap::new()),
+            recorded_responses: Mutex::new(BTreeMap::new()),
             carried: Mutex::new(BTreeMap::new()),
             document: Mutex::new(Arc::from("")),
             authenticated: Mutex::new(Authenticated::default()),
@@ -281,6 +285,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
                     // The navigation's last hop ends with the page's `load`.
                     drop(lock(&context.permit).take());
                     drop(lock(&context.proxy_permit).take());
+                    lock(&context.recorded_responses).clear();
                     context.state.navigation.ended();
                 }
             }
@@ -315,6 +320,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
     // the reader answers itself ends as the browser fails its answers.
     lock(&context.responses).clear();
     lock(&context.storing).clear();
+    lock(&context.recorded_responses).clear();
     while answering.answers.next().await.is_some() {}
 }
 
@@ -1228,6 +1234,12 @@ impl PageContext {
             fetching.network_id.as_ref().map(NetworkId::as_str) != network_id
         });
         lock(&self.storing).retain(|_, storing| !storing.sent_as(failed.network_id()));
+        if let Some(sequence) = lock(&self.recorded_responses).remove(failed.network_id())
+            && crate::cdp::driver::cdp_response::cut_after_sent_on(&failed.error())
+            && let Some(caching) = self.state.caching.as_ref()
+        {
+            caching.mark_recorded_truncated(sequence);
+        }
         let mut permit = lock(&self.permit);
         if permit
             .as_ref()

@@ -27,7 +27,13 @@ from pydantic import BaseModel, ConfigDict, field_validator
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from goodfetch_foxhound import AsyncCrawlContext, AsyncCrawlRun, Dataset
+    from goodfetch_collie_client.json_values import JSONObject
+    from goodfetch_foxhound import (
+        AsyncCrawlContext,
+        AsyncCrawlRun,
+        Dataset,
+        DatasetRecord,
+    )
     from goodfetch_test_support import ProvingGround
 
 TASK = "catalog/1"
@@ -223,9 +229,19 @@ async def test_reads_records_as_a_readers_type_past_after_and_the_rejection_tabl
     run = await foxhound.start_crawl(
         shop, seeds=[seed(start, listing)], settings={"fetch": {"tier": "http"}}
     )
-    await run.finish()
-    async with run.records(products) as read:
-        numbers = {record.value.get("id"): record.number async for record in read}
+    kept: list[DatasetRecord[JSONObject]] = []
+
+    async def follow() -> None:
+        async with run.records(products) as read:
+            kept.extend([record async for record in read])
+
+    # Read while the Run is live: the read follows it until it ends.
+    async with anyio.create_task_group() as group:
+        group.start_soon(follow)
+        await run.finish()
+    numbers = {record.value.get("id"): record.number for record in kept}
+    # The one crawl request that pushed every Record, kept or rejected.
+    requests = {record.request_id for record in kept}
     # A reader's own declaration of the Dataset, whose schema wants a string price.
     typed = AsyncCrawl().dataset("products", schema=StrictProduct, key=["id"])
     stopped: RecordInvalidError | None = None
@@ -240,6 +256,7 @@ async def test_reads_records_as_a_readers_type_past_after_and_the_rejection_tabl
         rejected = [entry async for entry in read]
     await foxhound.close()
 
+    assert numbers == {"P-1": 1, "P-2": 2, "P-3": 3}
     assert stopped is not None
     assert stopped.typed_details is not None
     assert (stopped.typed_details.dataset, stopped.typed_details.number) == (
@@ -250,12 +267,26 @@ async def test_reads_records_as_a_readers_type_past_after_and_the_rejection_tabl
         (StrictProduct, {"id": "P-3", "name": "Green kettle", "price": "3.00"})
     ]
     assert resumed[0].model_extra == {"colour": "green"}
+    assert len(requests) == 1
     assert [
         (
             entry.number,
             entry.data,
+            bool(entry.reason.strip()),
             [issue.path for issue in entry.issues],
+            entry.hook,
+            {entry.request_id},
             entry.url,
         )
         for entry in rejected
-    ] == [(1, {"name": "Nameless kettle", "price": "1.00"}, ["/id"], start)]
+    ] == [
+        (
+            1,
+            {"name": "Nameless kettle", "price": "1.00"},
+            True,
+            ["/id"],
+            None,
+            requests,
+            start,
+        )
+    ]

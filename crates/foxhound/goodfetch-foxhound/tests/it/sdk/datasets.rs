@@ -11,12 +11,14 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::collections::BTreeSet;
+
 use futures_util::TryStreamExt as _;
 use goodfetch_foxhound::schemars::{self, JsonSchema};
 use goodfetch_foxhound::settings::crawl::{handler, retry};
 use goodfetch_foxhound::{
-    Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, Foxhound, Label, Schema,
-    Seed, error_code,
+    Crawl, CrawlContext, CrawlRun, Dataset, DatasetDeclaration, Error, Foxhound, Label,
+    RejectedRecord, Schema, Seed, error_code,
 };
 use goodfetch_protocol::foxhound::dataset::RecordInvalidDetails;
 use goodfetch_test_support::{ProvingGround, TestEnv, real_time_runtime};
@@ -311,11 +313,16 @@ fn reads_records_as_a_readers_type_past_after_and_the_rejection_table() {
                 .start_crawl(&crawl, [Seed::new(&start, &listing, ())])
                 .await
                 .unwrap();
-            crawl.serve(&run).await.unwrap();
-            let read: Vec<_> = run.records(&products).try_collect().await.unwrap();
+            // Read while the Run is live: the read follows it until it ends.
+            let (served, read) = tokio::join!(
+                crawl.serve(&run),
+                run.records(&products).try_collect::<Vec<_>>()
+            );
+            served.unwrap();
             let numbers: Vec<_> = read
+                .unwrap()
                 .into_iter()
-                .map(|record| (record.value["id"].clone(), record.number))
+                .map(|record| (record.value["id"].clone(), record.number, record.request_id))
                 .collect();
             let mut refusing = run.records(&typed).after(numbers[0].1);
             let stopped = (
@@ -342,10 +349,20 @@ fn reads_records_as_a_readers_type_past_after_and_the_rejection_table() {
             (numbers, stopped, resumed, rejected, past_rejected)
         });
 
+    // The one crawl request that pushed every Record, kept or rejected.
+    let requests: BTreeSet<_> = numbers
+        .iter()
+        .map(|(_, _, request)| request.clone())
+        .collect();
+    let numbers: Vec<_> = numbers
+        .into_iter()
+        .map(|(id, number, _)| (id, number))
+        .collect();
     assert_eq!(
         numbers,
         [(json!("P-1"), 1), (json!("P-2"), 2), (json!("P-3"), 3)]
     );
+    assert_eq!(requests.len(), 1, "{requests:?}");
     let (Some(Err(error)), true) = stopped else {
         panic!("the typed read did not stop at P-2: {stopped:?}");
     };
@@ -372,11 +389,30 @@ fn reads_records_as_a_readers_type_past_after_and_the_rejection_table() {
             other: serde_json::Map::from_iter([("colour".to_owned(), json!("green"))]),
         }]
     );
+    assert_the_keyless_kettle_rejected(rejected, requests, &start);
+    assert!(past_rejected.is_none(), "{past_rejected:?}");
+}
+
+/// The rejection table holds the keyless kettle alone, with a reason, the
+/// `/id` issue, no Hook, and the request and URL that pushed it.
+fn assert_the_keyless_kettle_rejected(
+    rejected: Vec<RejectedRecord>,
+    requests: BTreeSet<String>,
+    start: &str,
+) {
     let rejected: Vec<_> = rejected
         .into_iter()
         .map(|entry| {
             let paths: Vec<_> = entry.issues.into_iter().map(|issue| issue.path).collect();
-            (entry.number, entry.data, paths, entry.url)
+            (
+                entry.number,
+                entry.data,
+                !entry.reason.trim().is_empty(),
+                paths,
+                entry.hook,
+                BTreeSet::from([entry.request_id]),
+                entry.url,
+            )
         })
         .collect();
     assert_eq!(
@@ -384,9 +420,11 @@ fn reads_records_as_a_readers_type_past_after_and_the_rejection_table() {
         [(
             1,
             json!({"name": "Nameless kettle", "price": "1.00"}),
+            true,
             vec!["/id".to_owned()],
-            start.clone()
+            None,
+            requests,
+            start.to_owned()
         )]
     );
-    assert!(past_rejected.is_none(), "{past_rejected:?}");
 }

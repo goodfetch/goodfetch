@@ -22159,7 +22159,7 @@
         },
         "through": {
           "arrived_in": "0.1",
-          "description": "The number of the last entry to read, such as the `rejected` count\n`dataset.list` answers, the last entry's number since they have no\ngaps: no entry past it is read, and a page says `ended` once it\nreaches it, a live Run's included, without waiting. Absent, it\nfollows a live Run until the Run ends.",
+          "description": "The number of the last entry to read, such as the `rejected` count\n`dataset.list` answers: no entry past it is read, and the read never\nwaits, a live Run's included. A page says `ended` once it reaches\nthat number or has read every committed entry, as when an erase left\nfewer entries than the count. Absent, it follows a live Run until\nthe Run ends.",
           "format": "uint64",
           "minimum": 0,
           "type": [

@@ -3524,10 +3524,11 @@ export interface RunRejectedRecordsParams {
   runId: RunId;
   /**
    * The number of the last entry to read, such as the `rejected` count
-   * `dataset.list` answers, the last entry's number since they have no
-   * gaps: no entry past it is read, and a page says `ended` once it
-   * reaches it, a live Run's included, without waiting. Absent, it
-   * follows a live Run until the Run ends.
+   * `dataset.list` answers: no entry past it is read, and the read never
+   * waits, a live Run's included. A page says `ended` once it reaches
+   * that number or has read every committed entry, as when an erase left
+   * fewer entries than the count. Absent, it follows a live Run until
+   * the Run ends.
    */
   through?: number | null;
 }

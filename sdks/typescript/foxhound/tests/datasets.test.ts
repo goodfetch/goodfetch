@@ -152,10 +152,18 @@ describe("a handler's push on an Attached engine", () => {
         seeds: [seed(start, listing)],
         settings: { fetch: { tier: "http" } },
       });
-      await run.finish();
-
       const numbers = new Map<string | undefined, number>();
-      for await (const record of run.records(products)) numbers.set(record.value.id, record.number);
+      // The one crawl request that pushed every Record, kept or rejected.
+      const requests = new Set<string>();
+      // Read while the Run is live: the read follows it until it ends.
+      const following = (async () => {
+        for await (const record of run.records(products)) {
+          numbers.set(record.value.id, record.number);
+          requests.add(record.requestId);
+        }
+      })();
+      await run.finish();
+      await following;
       // A reader's own declaration of the Dataset, whose schema wants a string price.
       const typed = new Crawl().dataset("products", {
         schema: z.object({ id: z.string(), name: z.string(), price: z.string() }),
@@ -174,6 +182,11 @@ describe("a handler's push on an Attached engine", () => {
       for await (const entry of run.rejectedRecords(products)) rejected.push(entry);
       await foxhound.close();
 
+      expect([...numbers]).toEqual([
+        ["P-1", 1],
+        ["P-2", 2],
+        ["P-3", 3],
+      ]);
       expect(stopped).toBeInstanceOf(RecordInvalidError);
       expect(stopped).toMatchObject({
         typedDetails: { dataset: "products", number: numbers.get("P-2") },
@@ -181,13 +194,14 @@ describe("a handler's push on an Attached engine", () => {
       expect(resumed).toEqual([
         { id: "P-3", name: "Green kettle", price: "3.00", colour: "green" },
       ]);
+      expect(requests.size).toBe(1);
       expect(rejected).toEqual([
         {
           number: 1,
           data: { name: "Nameless kettle", price: "1.00" },
-          reason: expect.any(String),
+          reason: expect.stringMatching(/\S/),
           issues: [expect.objectContaining({ path: "/id" })],
-          requestId: expect.any(String),
+          requestId: [...requests][0],
           url: start,
         },
       ]);

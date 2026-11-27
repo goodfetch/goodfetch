@@ -6,7 +6,13 @@
 import { playScript, test } from "@goodfetch/test-support";
 import { describe, expect, expectTypeOf } from "vitest";
 import { crawl, listing } from "../tests/programs/two-page-types.ts";
-import { seed, type CrawlRun, type CrawlRunProgress, type CrawlRunReport } from "./index.ts";
+import {
+  seed,
+  type CrawlRun,
+  type CrawlRunProgress,
+  type CrawlRunReport,
+  type ResponseUnavailableError,
+} from "./index.ts";
 import { connectOver } from "./testing.ts";
 
 describe("a crawl's Run", () => {
@@ -69,5 +75,12 @@ describe("a crawl's Run", () => {
     expectTypeOf<CrawlRun["stop"]>().returns.resolves.toEqualTypeOf<CrawlRunReport>();
     expectTypeOf<CrawlRun["report"]>().returns.resolves.toEqualTypeOf<CrawlRunReport>();
     expectTypeOf<CrawlRun["progress"]>().returns.toExtend<AsyncIterable<CrawlRunProgress>>();
+  });
+
+  test("types each point in time as a Date", () => {
+    expectTypeOf<CrawlRunReport["startedAt"]>().toEqualTypeOf<Date>();
+    expectTypeOf<CrawlRunReport["endedAt"]>().toEqualTypeOf<Date>();
+    expectTypeOf<CrawlRunProgress["at"]>().toEqualTypeOf<Date>();
+    expectTypeOf<ResponseUnavailableError["retryAfter"]>().toEqualTypeOf<Date | null>();
   });
 });

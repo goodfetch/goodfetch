@@ -15,6 +15,7 @@ answers a crawl's report and progress (ADR 0120), each a Run's too.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, assert_type
 
 from goodfetch_foxhound import CrawlRun, seed, sitemap
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
         Foxhound,
         Label,
     )
+    from goodfetch_foxhound.generated.errors import ResponseUnavailableError
     from goodfetch_foxhound.generated.models import (
         CrawlRunProgress,
         CrawlRunReport,
@@ -320,3 +322,16 @@ async def types_a_crawls_report_and_progress_as_its_own(
     crawl_progress: Sequence[CrawlRunProgress] = sync_run.progress()
     narrowed: CrawlRunReport = await any_run.finish()  # type: ignore[assignment]
     del report, progress, crawl_progress, narrowed
+
+
+def types_each_point_in_time_as_a_datetime(
+    report: CrawlRunReport,
+    progress: CrawlRunProgress,
+    unavailable: ResponseUnavailableError,
+) -> None:
+    """A report's, a progress value's and a refusal's instants read as datetimes."""
+    assert_type(report.started_at, datetime)
+    assert_type(report.ended_at, datetime)
+    assert_type(progress.at, datetime)
+    assert_type(progress.checkpoint_at, "datetime | None")
+    assert_type(unavailable.retry_after, "datetime | None")

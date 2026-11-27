@@ -275,6 +275,8 @@ fn stop_stops_an_idle_keep_alive_crawl_with_a_checkpoint() {
             (idle, stopped)
         });
         let (idle, stopped) = idle;
+        // Each point in time of a crawl's progress is a `SystemTime`.
+        let _: (SystemTime, Option<SystemTime>) = (idle.progress.at, idle.progress.checkpoint_at);
         let served = served.unwrap();
         let tagged = foxhound
             .call("run.list")

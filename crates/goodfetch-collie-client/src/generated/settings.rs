@@ -1268,6 +1268,146 @@ pub mod sample {
     );
 }
 
+/// The `schedule.*` settings.
+pub mod schedule {
+
+    /// How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+    ///
+    /// `schedule.catch_up`.
+    pub const CATCH_UP: crate::settings::Setting<::goodfetch_protocol::schedule::ScheduleCatchUp> =
+        crate::settings::Setting::new(
+            "schedule.catch_up",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+    /// Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+    ///
+    /// `schedule.jitter`.
+    pub const JITTER: crate::settings::Setting<::std::time::Duration> =
+        crate::settings::Setting::new(
+            "schedule.jitter",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+    /// How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+    ///
+    /// `schedule.overlap`.
+    pub const OVERLAP: crate::settings::Setting<Overlap> = crate::settings::Setting::new(
+        "schedule.overlap",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
+    /// A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+    ///
+    /// `schedule.pause_timeout`. `None` clears it.
+    pub const PAUSE_TIMEOUT: crate::settings::Setting<
+        Option<::goodfetch_protocol::schedule::SchedulePauseTimeout>,
+    > = crate::settings::Setting::new(
+        "schedule.pause_timeout",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+        ],
+    );
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum Overlap {
+        /// `skip`.
+        Skip,
+        /// `queue_one`.
+        QueueOne,
+        /// `allow`.
+        Allow,
+        /// `replace`.
+        Replace,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for Overlap {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Skip => "skip",
+                Self::QueueOne => "queue_one",
+                Self::Allow => "allow",
+                Self::Replace => "replace",
+            }
+        }
+    }
+
+    /// The `schedule.auto_pause.*` settings.
+    pub mod auto_pause {
+
+        /// How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+        ///
+        /// `schedule.auto_pause.failures`.
+        pub const FAILURES: crate::settings::Setting<u64> = crate::settings::Setting::new(
+            "schedule.auto_pause.failures",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+    }
+
+    /// The `schedule.retention.*` settings.
+    pub mod retention {
+
+        /// How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+        ///
+        /// `schedule.retention.changed_watches`.
+        pub const CHANGED_WATCHES: crate::settings::Setting<u64> = crate::settings::Setting::new(
+            "schedule.retention.changed_watches",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+        ///
+        /// `schedule.retention.history`.
+        pub const HISTORY: crate::settings::Setting<::std::time::Duration> =
+            crate::settings::Setting::new(
+                "schedule.retention.history",
+                &[
+                    ::goodfetch_protocol::catalog::SettingScope::Connection,
+                    ::goodfetch_protocol::catalog::SettingScope::Run,
+                ],
+            );
+
+        /// How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+        ///
+        /// `schedule.retention.runs`.
+        pub const RUNS: crate::settings::Setting<u64> = crate::settings::Setting::new(
+            "schedule.retention.runs",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
+        /// How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+        ///
+        /// `schedule.retention.watch_runs`.
+        pub const WATCH_RUNS: crate::settings::Setting<u64> = crate::settings::Setting::new(
+            "schedule.retention.watch_runs",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+    }
+}
+
 /// The `secrets.*` settings.
 pub mod secrets {
 

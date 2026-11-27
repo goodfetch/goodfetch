@@ -93,8 +93,11 @@ pub use goodfetch_protocol::run::{
     CatalogTarget, Recording, RecordingMode, RunId, RunReport, StartedAs, Tags,
 };
 pub use goodfetch_protocol::schedule::{
-    EveryTrigger, RecipeTarget, RunTarget, ScheduleDefinition, ScheduleId, ScheduleInfo,
-    ScheduleState, ScheduleTarget, ScheduleTrigger, ScheduleWarning,
+    CronTrigger, EveryTrigger, PreviewOccurrence, RecipeTarget, RunTarget,
+    ScheduleCapExceededDetails, ScheduleCapKind, ScheduleCatchUp, ScheduleDefinition, ScheduleId,
+    ScheduleInfo, ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits, SchedulePreview,
+    ScheduleState, ScheduleTarget, ScheduleTrigger, ScheduleWarning, StructuredTriggerDescription,
+    TriggerDescription,
 };
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,

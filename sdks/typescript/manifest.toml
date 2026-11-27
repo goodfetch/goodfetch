@@ -3300,6 +3300,14 @@ form = "round_trip"
 
 [[member]]
 package = "@goodfetch/collie-client"
+receiver = "Schedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/collie-client"
 receiver = "(module)"
 member = "Schedule"
 entry = "none"
@@ -3345,6 +3353,16 @@ entry = "none"
 reason = "The options of a `Schedules` read: its own `timeout` and the `signal` that cancels it (ADR 0080)."
 only = "Python and Rust take `timeout` as a keyword argument and through `Call`, with no options type."
 words = ["schedule", "call", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SchedulePreviewOptions"
+entry = "none"
+reason = "The options of `schedules.preview`: `timeZone`, `after`, `count`, `timeout` and `signal` (spec 588)."
+only = "Python takes keyword arguments and Rust takes builder methods on `Call`, with no options type."
+words = ["schedule", "preview", "options"]
 form = "type"
 
 [[member]]

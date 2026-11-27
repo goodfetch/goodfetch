@@ -139,7 +139,7 @@ const config: ViteUserConfig = defineConfig({
           name: "unit",
           include: ["**/src/**/*.test.ts"],
           exclude: [...outside, visualTests, installTests],
-          testTimeout: 60_000,
+          testTimeout: 10_000,
         },
       },
       {

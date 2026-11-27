@@ -1222,6 +1222,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 299
+title = "As a user of both Products, I want `sinks.*` on a Collie engine refused with `not_in_product`, inactive for a Collie Run on a Foxhound engine, and listed as Foxhound's by `config explain`, so that one project file serves both Products (ADRs 0087, 0103)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 304
 title = "As a CLI user, I want `goodfetch-foxhound crawl start <url> --format markdown` and `--field name=selector` to crawl in scope with no code and fill one Dataset, `pages`, keyed by URL, so that a site becomes Markdown and fields from one command (J-002, J-011, ADR 0103)."
 milestone = "M1 Core"

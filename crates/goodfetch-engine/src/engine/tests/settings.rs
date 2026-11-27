@@ -216,6 +216,95 @@ fn a_foxhound_key_in_a_runs_settings_is_not_in_product_on_a_collie_engine() {
     );
 }
 
+/// A Sink's entry, as a project file sets it under `sinks.<name>`.
+fn a_sink() -> Value {
+    json!({
+        "mine": { "type": "sqlite", "datasets": ["pages"], "destination": "env:SINK_DATABASE" },
+    })
+}
+
+/// `sinks.*`, Foxhound's, given in a Collie engine's Run's settings is
+/// `not_in_product`, naming Foxhound (ADR 0087).
+///
+/// Covers: story:6-299, setting:sinks, error:not_in_product
+#[test]
+fn a_sinks_entry_in_a_runs_settings_is_not_in_product_on_a_collie_engine() {
+    let env = TestEnv::new();
+
+    let (started, _) = start_and_finish(
+        &env,
+        Product::Collie,
+        json!({ "run_id": "set", "settings": { "sinks": a_sink() } }),
+    );
+
+    assert_eq!(
+        (
+            &started["error"]["data"]["code"],
+            &started["error"]["data"]["needs"]
+        ),
+        (&json!("not_in_product"), &json!("foxhound")),
+        "{started}"
+    );
+}
+
+/// One project file serves both Products (ADR 0103): its `sinks.*`,
+/// Foxhound's, leaves a Collie Run starting on either Product's engine,
+/// and a Collie engine's `config explain` lists it as Foxhound's, kept
+/// aside.
+///
+/// Covers: story:6-299, setting:sinks, operation:config.explain, operation:run.start
+#[rstest]
+#[case::collie(Product::Collie)]
+#[case::foxhound(Product::Foxhound)]
+fn a_project_files_sinks_leave_a_collie_run_starting_on_either_products_engine(
+    #[case] product: Product,
+) {
+    let env = TestEnv::new();
+    let project = json!({ "path": "/work/goodfetch.toml", "settings": { "sinks": a_sink() } });
+
+    let (explained, started) =
+        attached_on(&engine_with(product, None), &env, |mut client| async move {
+            client.send(&[hello(product.as_str(), "0.1")]).await;
+            client.next().await;
+            let explained = call(
+                &mut client,
+                1,
+                "config.explain",
+                json!({ "project": project, "keys": ["sinks"] }),
+            )
+            .await;
+            let started = call(
+                &mut client,
+                2,
+                "run.start",
+                json!({ "run_id": "set", "project": project }),
+            )
+            .await;
+            call(&mut client, 3, "run.finish", json!({ "run_id": "set" })).await;
+            (explained, started)
+        });
+
+    assert!(started.get("result").is_some(), "{started}");
+    let sinks = explained["result"]["settings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|setting| setting["key"] == json!("sinks"));
+    let listed = sinks.map(|setting| (&setting["products"], &setting["layer"]));
+    assert_eq!(
+        listed,
+        Some((&json!(["foxhound"]), &json!("project_configuration"))),
+        "{explained}"
+    );
+    if product == Product::Collie {
+        assert_eq!(
+            sinks.map(|setting| &setting["applied"]),
+            Some(&json!(false)),
+            "{explained}"
+        );
+    }
+}
+
 /// Covers: story:3-143, error:setting_not_applicable
 #[test]
 fn a_crawls_key_on_a_collie_run_of_a_foxhound_engine_is_not_applicable() {

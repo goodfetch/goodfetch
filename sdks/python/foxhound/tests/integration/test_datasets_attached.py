@@ -252,8 +252,8 @@ async def test_reads_records_as_a_readers_type_past_after_and_the_rejection_tabl
             stopped = error
     async with run.records(typed, after=numbers["P-2"]) as read:
         resumed = [record.value async for record in read]
-    async with run.rejected_records(products) as read:
-        rejected = [entry async for entry in read]
+    async with run.rejected_records(products) as read_rejected:
+        rejected = [entry async for entry in read_rejected]
     await foxhound.close()
 
     assert numbers == {"P-1": 1, "P-2": 2, "P-3": 3}

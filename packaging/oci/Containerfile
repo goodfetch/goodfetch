@@ -1,0 +1,26 @@
+# One OCI image recipe shared by both Products (ADRs 0049 and 0094; issue 141).
+#
+# Both `ghcr.io/goodfetch/collie:<v>` and `ghcr.io/goodfetch/foxhound:<v>` build
+# from this file for `linux/amd64` and `linux/arm64`. Every base layer sits
+# above `ARG PRODUCT_EXECUTABLE` and the final `COPY`, so both Products' default
+# tags share every layer other than the executable itself.
+FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --gid 10001 goodfetch \
+ && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin goodfetch \
+ && printf '#!/bin/sh\nexec "/usr/local/bin/%s" "$@"\n' '${GOODFETCH_PRODUCT_EXECUTABLE}' >/usr/local/bin/goodfetch-entrypoint \
+ && chmod 0755 /usr/local/bin/goodfetch-entrypoint
+
+ENV GOODFETCH_HOME=/home/goodfetch/.goodfetch
+USER 10001:10001
+WORKDIR /home/goodfetch
+ENTRYPOINT ["/usr/local/bin/goodfetch-entrypoint"]
+
+# Final layer: only the Product's executable differs between Collie and Foxhound.
+ARG PRODUCT_EXECUTABLE=goodfetch-collie
+ARG TARGETARCH
+ENV GOODFETCH_PRODUCT_EXECUTABLE=${PRODUCT_EXECUTABLE}
+COPY --chmod=0755 bin/${TARGETARCH}/${PRODUCT_EXECUTABLE} /usr/local/bin/${PRODUCT_EXECUTABLE}

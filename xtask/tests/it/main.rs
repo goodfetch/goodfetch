@@ -122,6 +122,7 @@ mod release_build;
 mod release_digests;
 #[cfg(unix)]
 mod release_line;
+mod release_package;
 mod release_publish;
 mod release_suite;
 mod repeat;

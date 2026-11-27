@@ -33,6 +33,7 @@ mod chromium;
 mod digests;
 mod gates;
 mod line;
+mod package;
 mod proving_ground;
 mod pull_request;
 
@@ -211,6 +212,13 @@ pub(crate) enum Command {
     /// committed manifest after verifying input tree hashes and build and
     /// verdict attestations; never builds Chromium (ADR 0074).
     FetchChromium(chromium::FetchArguments),
+    /// Packages release archives, split debug symbols, CycloneDX SBOMs, npm
+    /// root and platform packages, `py3-none` Python wheels, and first-party
+    /// Plugin multi-platform OCI layouts from built binaries (ADRs 0090, 0094).
+    Package(package::PackageArguments),
+    /// Pushes an OCI Image Layout (multi-platform index, child manifests and
+    /// blobs) to an OCI Distribution registry.
+    OciPush(package::OciPushArguments),
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -221,6 +229,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::ProvingGroundDigests(arguments) => proving_ground::run(root, &arguments),
         Command::ChromiumTreeHashes => chromium::tree_hashes(root),
         Command::FetchChromium(arguments) => chromium::fetch(root, &arguments),
+        Command::Package(arguments) => package::run_package(root, &arguments),
+        Command::OciPush(arguments) => {
+            package::run_oci_push(root, &arguments, environment.github_token.as_deref())
+        }
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

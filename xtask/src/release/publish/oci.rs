@@ -22,7 +22,7 @@ use serde::Deserialize;
 use ureq::http::Response;
 use ureq::{Agent, Body};
 
-use super::super::{ProductVersion, Stage, Tree, name, toml};
+use super::super::{ProductVersion, Stage, assets};
 use super::{PackageState, Step};
 use crate::products::Product;
 
@@ -32,12 +32,6 @@ pub(super) const REGISTRY: &str = "https://ghcr.io";
 
 /// ADR 0049's tags of each image, after its version.
 const VARIANTS: [&str; 5] = ["", "-slim", "-full", "-node", "-python"];
-
-/// The first-party Plugins' crate names start with it (ADR 0033), and so do
-/// their repositories' names.
-const PLUGIN_PREFIX: &str = "goodfetch-plugin-";
-/// The workspace folders that hold crates, Plugins' included.
-const CRATE_FOLDERS: [&str; 2] = ["crates", "crates/foxhound"];
 
 /// The manifest kinds a tag's digest is asked for: an image's
 /// multi-platform index, a chart's or a Plugin's manifest.
@@ -93,7 +87,7 @@ pub(super) fn steps(
         }
     }
     if !nightly {
-        for plugin in plugins(root)? {
+        for plugin in assets::first_party_plugins(root)? {
             let repository = format!("goodfetch/{plugin}");
             let tags = registry.tags(&repository)?.unwrap_or_default();
             steps.push(step(&repository, &semver, &tags));
@@ -140,35 +134,6 @@ fn higher_stable(tags: &BTreeSet<String>, version: &ProductVersion) -> bool {
     tags.iter()
         .filter_map(|tag| tag.parse::<ProductVersion>().ok())
         .any(|tag| tag.stage == Stage::Stable && core(&tag) > core(version))
-}
-
-/// The first-party Plugins' crate names, in name order.
-fn plugins(root: &Path) -> Result<Vec<String>> {
-    let mut names = Vec::new();
-    for folder in CRATE_FOLDERS {
-        let Ok(entries) = std::fs::read_dir(root.join(folder)) else {
-            continue;
-        };
-        for entry in entries {
-            let entry = entry.with_context(|| format!("reading {folder}"))?;
-            let file_name = entry.file_name();
-            let Some(file_name) = file_name.to_str() else {
-                continue;
-            };
-            if !file_name.starts_with(PLUGIN_PREFIX) {
-                continue;
-            }
-            let path = format!("{folder}/{file_name}/Cargo.toml");
-            let manifest = toml(Tree::Workspace(root), &path)?;
-            let package = manifest
-                .get("package")
-                .and_then(toml_edit::Item::as_table)
-                .with_context(|| format!("{path} has no [package] table"))?;
-            names.push(name(package, &path)?);
-        }
-    }
-    names.sort();
-    Ok(names)
 }
 
 /// An OCI registry's read interface: `https://ghcr.io`, or a stand-in's

@@ -234,6 +234,51 @@ fn split(folder: &Path, file: &str, part_size: u64) -> Result<Vec<String>> {
     Ok(parts)
 }
 
+/// The first-party Plugins' crate names start with this prefix (ADR 0033).
+const PLUGIN_PREFIX: &str = "goodfetch-plugin-";
+/// Workspace folders that hold first-party Plugin crates (including Foxhound's
+/// sink processes).
+const PLUGIN_FOLDERS: [&str; 3] = ["crates", "crates/foxhound", "crates/foxhound/sinks"];
+
+/// The first-party Plugins' crate names in the workspace, in sorted order.
+pub(super) fn first_party_plugins(root: &Path) -> Result<Vec<String>> {
+    let mut names = Vec::new();
+    for folder in PLUGIN_FOLDERS {
+        let Ok(entries) = std::fs::read_dir(root.join(folder)) else {
+            continue;
+        };
+        for entry in entries {
+            let entry = entry.with_context(|| format!("reading {folder}"))?;
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            if !file_name.starts_with(PLUGIN_PREFIX) {
+                continue;
+            }
+            let manifest_path = root.join(folder).join(file_name).join("Cargo.toml");
+            if !manifest_path.is_file() {
+                continue;
+            }
+            let text = std::fs::read_to_string(&manifest_path)
+                .with_context(|| format!("reading {}", manifest_path.display()))?;
+            let manifest: toml_edit::DocumentMut = text
+                .parse()
+                .with_context(|| format!("parsing {}", manifest_path.display()))?;
+            let package_name = manifest
+                .get("package")
+                .and_then(toml_edit::Item::as_table)
+                .and_then(|table| table.get("name"))
+                .and_then(toml_edit::Item::as_str)
+                .with_context(|| format!("{} names no package", manifest_path.display()))?;
+            names.push(package_name.to_owned());
+        }
+    }
+    names.sort();
+    names.dedup();
+    Ok(names)
+}
+
 /// The SHA-256 of `path`, streamed without reading the whole file into memory.
 pub(super) fn sha256_file(path: &Path) -> Result<String> {
     let mut file = File::open(path).with_context(|| format!("opening {}", path.display()))?;

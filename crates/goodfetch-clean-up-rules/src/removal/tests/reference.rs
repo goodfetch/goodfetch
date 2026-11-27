@@ -28,7 +28,9 @@ fn collect_rules(
     let mut by_selector: BTreeMap<String, (String, List)> = BTreeMap::new();
     let mut procedurals = Vec::new();
     for &list in active {
-        let live = rules.lists.engine(list);
+        let Some(live) = rules.lists.engine_of(list) else {
+            continue;
+        };
         let live_res = live.url_cosmetic_resources(url);
         let rem = rules.lists.removal_only(list);
         let rem_res = rem.map(|extra| extra.url_cosmetic_resources(url));

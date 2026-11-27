@@ -58,6 +58,8 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         files: Mutex::new(None),
         own: Mutex::new(None),
         lists_on: false,
+        lists_version: None,
+        scriptlets: None,
         retrying: AtomicBool::new(false),
         lists_blocked: std::sync::atomic::AtomicU64::new(0),
         learned: Arc::new(Learned::default()),
@@ -86,7 +88,7 @@ pub(crate) fn hold_serving(
 /// The side of the interception of a Session `session-1`, held by its
 /// relay and unsigned.
 pub(crate) fn session_side() -> SessionInterception {
-    SessionInterception::new(SessionId("session-1".to_owned()), None, None, false)
+    SessionInterception::new(SessionId("session-1".to_owned()), None, None, false, false)
 }
 
 /// The page and the side of the Session the tests hold.

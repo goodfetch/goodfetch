@@ -1,20 +1,17 @@
 //! What a Run's settings ask of the Clean-up rules that this engine
 //! cannot do yet, refused when the Run starts, never ignored (ADR 0083):
 //! `clean_up.update = daily`, whose versions are used only once the
-//! channel's signature is checked (ADR 0033's verifier),
-//! `filter_lists.page_scriptlets` and `filter_lists.extra`.
+//! channel's signature is checked (ADR 0033's verifier).
 
 use goodfetch_engine::CallError;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CLEAN_UP_UPDATE, CapabilityUnavailableDetails, FILTER_LISTS_EXTRA,
-    FILTER_LISTS_PAGE_SCRIPTLETS, SettingsLayer,
+    CAPABILITY_UNAVAILABLE, CLEAN_UP_UPDATE, CapabilityUnavailableDetails, SettingsLayer,
 };
 use serde_json::json;
 
 /// Refuses a start whose `settings` ask for what this engine cannot do yet:
-/// `clean_up.update = daily` until the channel's signature is checked,
-/// `filter_lists.page_scriptlets` and `filter_lists.extra` until they run.
+/// `clean_up.update = daily` until the channel's signature is checked.
 ///
 /// # Errors
 ///
@@ -23,42 +20,16 @@ pub(super) fn refuse_unbuilt(settings: Option<&Resolved>) -> Result<(), CallErro
     let Some(settings) = settings else {
         return Ok(());
     };
-    let unbuilt = [
-        (
-            &CLEAN_UP_UPDATE,
-            json!("daily"),
+    if let Some(effective) = settings
+        .effective(&CLEAN_UP_UPDATE)
+        .filter(|effective| effective.value == json!("daily"))
+    {
+        return Err(unavailable(
+            CLEAN_UP_UPDATE.name,
+            effective.layer,
             "daily",
             "the daily channel's versions are used only once the engine checks their signature, which it cannot yet",
             "`clean_up.update: release` or `upstream`, or a `clean_up.version` pinned by its digest",
-        ),
-        (
-            &FILTER_LISTS_PAGE_SCRIPTLETS,
-            json!(true),
-            "page_scriptlets",
-            "this engine runs no Filter-list scriptlet yet",
-            "`filter_lists.page_scriptlets: false`",
-        ),
-    ];
-    for (key, refused, kind, why, fix) in unbuilt {
-        if let Some(effective) = settings
-            .effective(key)
-            .filter(|effective| effective.value == refused)
-        {
-            return Err(unavailable(key.name, effective.layer, kind, why, fix));
-        }
-    }
-    if let Some(effective) = settings.effective(&FILTER_LISTS_EXTRA).filter(|effective| {
-        effective
-            .value
-            .as_array()
-            .is_some_and(|lists| !lists.is_empty())
-    }) {
-        return Err(unavailable(
-            FILTER_LISTS_EXTRA.name,
-            effective.layer,
-            "extra",
-            "this engine fetches no extra Filter list yet",
-            "an empty `filter_lists.extra`",
         ));
     }
     Ok(())

@@ -216,7 +216,8 @@ fn the_generic_hide_bit_is_the_whole_engines(#[case] url: &str, #[case] ads: boo
         (
             EMBEDDED.generic_hide(list, url),
             EMBEDDED
-                .engine(list)
+                .engine_of(list)
+                .unwrap()
                 .url_cosmetic_resources(url)
                 .generichide,
         )
@@ -279,7 +280,7 @@ fn a_regular_expression_exception_is_read_per_url() {
 #[case::trackers(List::Trackers)]
 #[case::annoyances(List::Annoyances)]
 fn the_generic_probe_names_no_host_of_the_lists(#[case] list: List) {
-    let engine = EMBEDDED.engine(list);
+    let engine = EMBEDDED.engine_of(list).unwrap();
 
     let probe = engine.url_cosmetic_resources(GENERIC_PROBE);
     let other = engine.url_cosmetic_resources("https://another.example.invalid/");

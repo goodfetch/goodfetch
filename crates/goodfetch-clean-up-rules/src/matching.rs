@@ -84,6 +84,8 @@ pub struct Choices {
     pub trackers: bool,
     /// `filter_lists.annoyances`.
     pub annoyances: bool,
+    /// `filter_lists.extra` is non-empty for this Run.
+    pub extra: bool,
     /// `filter_lists.first_party_scripts`: a script of the document's own
     /// site passes every Filter list.
     pub first_party_scripts: bool,
@@ -94,16 +96,21 @@ pub struct Choices {
 impl Choices {
     /// Whether any Filter list is on, so that the embedded lists are needed.
     pub fn needs_lists(&self) -> bool {
-        self.ads || self.trackers || self.annoyances
+        self.ads || self.trackers || self.annoyances || self.extra
     }
 
     /// The Filter lists it turns on.
     pub(crate) fn lists(&self) -> ListSet {
-        LISTS
+        let built_in = LISTS
             .into_iter()
             .zip([self.ads, self.trackers, self.annoyances])
             .filter(|(_, on)| *on)
-            .fold(ListSet::default(), |set, (list, _)| set.with(list))
+            .fold(ListSet::default(), |set, (list, _)| set.with(list));
+        if self.extra {
+            built_in.with(List::Extra)
+        } else {
+            built_in
+        }
     }
 
     /// Whether any request may be blocked at all.

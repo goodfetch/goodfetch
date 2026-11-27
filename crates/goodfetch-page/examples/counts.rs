@@ -81,7 +81,15 @@ const IDENTIFIED: &str = "identified";
 /// as it opens.
 const ROUTED: &str = "route_and_listener";
 
-fn cells() -> [Cell; 9] {
+/// The cell whose `browser.block_resources` blocks image loads alongside the
+/// default Filter lists.
+const BLOCK_RESOURCES: &str = "block_resources";
+
+/// The cell with every Filter list and `browser.block_resources` off: nothing
+/// is matched or answered with a stand-in.
+const FILTER_LISTS_OFF: &str = "filter_lists_off";
+
+fn cells() -> [Cell; 10] {
     [
         // The cell with a viewer: a person watches its Session through a
         // Live view channel (C6).
@@ -94,14 +102,25 @@ fn cells() -> [Cell; 9] {
             counts_none_of: &[],
         },
         Cell {
-            name: "filter_lists_off",
+            name: FILTER_LISTS_OFF,
             browsers: session::Browsers::Borrowed,
             viewer: session::Viewer::Off,
-            settings: json!({ "filter_lists": {
-                "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
-            } }),
+            settings: json!({
+                "filter_lists": {
+                    "ads": false, "trackers": false, "annoyances": false, "first_party_scripts": false,
+                },
+                "browser": { "block_resources": [] },
+            }),
             removes: &[Row::CdpSends, Row::InterceptedMatches],
-            counts_none_of: &[],
+            counts_none_of: &[Row::InterceptedMatches, Row::InterceptedCompilations],
+        },
+        Cell {
+            name: BLOCK_RESOURCES,
+            browsers: session::Browsers::Borrowed,
+            viewer: session::Viewer::Off,
+            settings: json!({ "browser": { "block_resources": ["image"] } }),
+            removes: &[],
+            counts_none_of: &[Row::InterceptedCompilations],
         },
         Cell {
             name: "no_viewer",
@@ -214,7 +233,6 @@ fn bypass(bypass: &str, home: &Path, work: &CountedWork) -> session::Plant {
 /// What one cell counted.
 struct Counted {
     name: &'static str,
-    browsers: session::Browsers,
     viewer: session::Viewer,
     session: session::Counted,
     removes: &'static [Row],
@@ -246,7 +264,6 @@ fn run(cell: Cell, planted: Option<&str>, bypassed: Option<&str>) -> Counted {
     };
     Counted {
         name: cell.name,
-        browsers: cell.browsers,
         viewer: cell.viewer,
         session: session::counted(
             (cell.browsers, armed, cell.viewer),
@@ -325,30 +342,43 @@ fn fields_read(cell: &Counted, planted: Option<&str>) {
     );
 }
 
-/// Fails unless `cell`'s browser paused requests, refused some only when it
-/// is a Borrowed one, and was told to sign each only in the `identified`
-/// cell.
-fn requests_sent(cell: &Counted) {
+/// Fails unless `cell`'s browser paused requests, answered stand-ins when
+/// Filter lists are on (and none when all lists are off), refused more
+/// requests under `browser.block_resources`, and signed each continued
+/// request only in the `identified` cell.
+fn requests_sent(cell: &Counted, default_refused: u64) {
     let session = &cell.session;
-    // A launched browser's addresses are judged by its Session's egress
-    // relay as it connects, which the scripted browser never reaches: only a
-    // Borrowed browser's paused requests are refused here.
-    let refuses = cell.browsers == session::Browsers::Borrowed;
     assert!(
-        session.requests > 0 && (session.refused > 0) == refuses,
+        session.requests > 0 && session.refused > 0,
         "the cell {} paused {} requests and refused {}",
         cell.name,
         session.requests,
         session.refused
     );
+    let lists_on = cell.name != FILTER_LISTS_OFF;
+    assert_eq!(
+        session.fulfilled > 0,
+        lists_on,
+        "the cell {} answered {} stand-ins (lists_on={lists_on})",
+        cell.name,
+        session.fulfilled
+    );
+    if cell.name == BLOCK_RESOURCES {
+        assert!(
+            session.refused > default_refused,
+            "the cell {} refused {} requests against default's {default_refused}",
+            cell.name,
+            session.refused
+        );
+    }
     let signs = cell.name == IDENTIFIED;
     assert_eq!(
         session.signed,
-        if signs { session.requests } else { 0 },
-        "the cell {} signed {} of its {} requests",
+        if signs { session.continued } else { 0 },
+        "the cell {} signed {} of its {} continued requests",
         cell.name,
         session.signed,
-        session.requests
+        session.continued
     );
 }
 
@@ -407,7 +437,7 @@ fn main() {
             "the cell {} opened no page",
             cell.name
         );
-        requests_sent(cell);
+        requests_sent(cell, default.refused);
         assert!(
             session.navigations > 0,
             "the cell {} navigated nowhere",

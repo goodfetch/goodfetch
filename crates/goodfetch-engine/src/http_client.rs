@@ -354,11 +354,27 @@ impl ConfiguredEndpoint<'_> {
     /// Dropping the future closes any connection it opened.
     pub(crate) async fn send<B: RequestBody>(
         &self,
+        request: Request<B>,
+    ) -> Result<Response, EndpointFailure> {
+        self.send_gated(request, Gate::Endpoint(self.policy)).await
+    }
+
+    /// Sends `request` once `gate` allows its URL and resolved addresses
+    /// (ADR 0017): used directly by [`Self::send`] with [`Gate::Endpoint`] and
+    /// by `filter_lists.extra` URLs set in a Recipe or Run with
+    /// [`Gate::Session`] (ADR 0047).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future closes any connection it opened.
+    pub(crate) async fn send_gated<B: RequestBody>(
+        &self,
         mut request: Request<B>,
+        gate: Gate<'_>,
     ) -> Result<Response, EndpointFailure> {
         let failed = |failure| EndpointFailure::Failed(failure);
         let url = request.uri().to_string();
-        let passed = Gate::Endpoint(self.policy)
+        let passed = gate
             .pass(&url, async |host, port| {
                 let server = Server {
                     host,

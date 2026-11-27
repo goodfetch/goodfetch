@@ -18,8 +18,9 @@ use goodfetch_engine::settings::{
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::{BROWSER_BLOCK_RESOURCES, LIVE_VIEW_HIDING};
 use goodfetch_protocol::settings::{
-    CONSENT_HANDLING, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_FIRST_PARTY_SCRIPTS,
-    FILTER_LISTS_TRACKERS,
+    CONSENT_HANDLING, FILTER_LISTS_ADS, FILTER_LISTS_ANNOYANCES, FILTER_LISTS_EXTRA,
+    FILTER_LISTS_FIRST_PARTY_SCRIPTS, FILTER_LISTS_PAGE_SCRIPTLETS, FILTER_LISTS_TRACKERS,
+    SettingsLayer,
 };
 use serde_json::Value;
 use tokio::sync::OnceCell;
@@ -75,23 +76,24 @@ impl CleanUp {
     }
 
     /// Step 4 as `choices` make it for a page of `run`, its parts loaded
-    /// through the Run's blocking tasks if no page loaded them yet, and the
-    /// digest of the Filter lists' version, when any list is on.
+    /// through the Run's blocking tasks if no page loaded them yet, the
+    /// digest of the Filter lists' version when any list is on, and the layer
+    /// that set `filter_lists.extra` when non-empty.
     pub(super) async fn blocking(
         &self,
         choices: Choices,
         run: &ListsRun,
-    ) -> (Blocking, Option<String>) {
+    ) -> (Blocking, Option<String>, Option<SettingsLayer>) {
         let owner = run.identity.owner();
         let never_block = self
             .never_block
             .get_or_init(|| async { Arc::new(owner.blocking(NeverBlock::new).await) })
             .await;
-        let (lists, version) = if choices.needs_lists() {
+        let (lists, version, extra_layer) = if choices.needs_lists() {
             let held = self.versions.lists(run).await;
-            (Some(held.lists), Some(held.digest))
+            (Some(held.lists), Some(held.digest), held.extra_layer)
         } else {
-            (None, None)
+            (None, None, None)
         };
         (
             Blocking {
@@ -101,6 +103,7 @@ impl CleanUp {
                 work: run.identity.metrics().counted_work().clone(),
             },
             version,
+            extra_layer,
         )
     }
 }
@@ -135,10 +138,22 @@ pub(super) fn live_hiding(run: Option<&Resolved>, own: &Values) -> String {
     value_as::<&str>(&LIVE_VIEW_HIDING, effective(run, own, &LIVE_VIEW_HIDING)).to_owned()
 }
 
+/// Whether `filter_lists.page_scriptlets` is enabled for a Session with `own`
+/// settings over `run`'s resolved settings.
+pub(super) fn page_scriptlets(run: Option<&Resolved>, own: &Values) -> bool {
+    value_as(
+        &FILTER_LISTS_PAGE_SCRIPTLETS,
+        effective(run, own, &FILTER_LISTS_PAGE_SCRIPTLETS),
+    )
+}
+
 /// What a Session's own settings `own`, over `run`, its Run's resolved
 /// settings, choose of the Clean-up rules; the defaults without either.
 pub(super) fn choices(run: Option<&Resolved>, own: &Values) -> Choices {
     let boolean = |setting: &Setting| value_as(setting, effective(run, own, setting));
+    let extra = run
+        .and_then(|run| run.value(&FILTER_LISTS_EXTRA).as_array())
+        .is_some_and(|lists| !lists.is_empty());
     let block_resources = effective(run, own, &BROWSER_BLOCK_RESOURCES)
         .as_array()
         .into_iter()
@@ -155,6 +170,7 @@ pub(super) fn choices(run: Option<&Resolved>, own: &Values) -> Choices {
         ads: boolean(&FILTER_LISTS_ADS),
         trackers: boolean(&FILTER_LISTS_TRACKERS),
         annoyances: boolean(&FILTER_LISTS_ANNOYANCES),
+        extra,
         first_party_scripts: boolean(&FILTER_LISTS_FIRST_PARTY_SCRIPTS),
         block_resources,
     }

@@ -117,8 +117,9 @@ use goodfetch_protocol::page::{
     BROWSER_BLOCK_RESOURCES, BROWSER_SERVICE_WORKERS, NAVIGATION_FAILED, NavigationFailedDetails,
     PageId, SessionId,
 };
-use goodfetch_protocol::run::warning::BLOCK_RESOURCES_VISIBLE;
+use goodfetch_protocol::run::warning::{BLOCK_RESOURCES_VISIBLE, FINGERPRINT_JS_INJECTION};
 use goodfetch_protocol::run::{RunId, RunWarning};
+use goodfetch_protocol::settings::{FILTER_LISTS_PAGE_SCRIPTLETS, SettingsLayer};
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -135,7 +136,9 @@ use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
 use crate::cdp::driver::{OnWorker, PageDriver, ServiceWorkers};
-use crate::cdp::{CdpPage, ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
+use crate::cdp::{
+    CdpPage, ContinueRequest, Fulfill, Header, InitScriptId, PausedId, RequestHeaders,
+};
 use crate::clean_up_versions::{ListsRun, Versions};
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_events::Refusals;
@@ -316,6 +319,12 @@ pub(crate) struct SessionInterception {
     pending: Arc<Pending>,
     /// Set once its Run was warned that `browser.block_resources` shows.
     warned: AtomicBool,
+    /// Set once its Run was warned that `filter_lists.page_scriptlets` injects
+    /// into the main world.
+    warned_scriptlets: AtomicBool,
+    /// Whether this Session's Access mode is `identified`, which exempts it
+    /// from the `block_resources_visible` warning (ADR 0047).
+    identified: bool,
     /// On a Borrowed browser, or launched with no relay, the lookups its
     /// requests' hosts are resolved through: no relay is under it, so the
     /// interception alone holds it to the policy (ADR 0056; #2435).
@@ -334,19 +343,23 @@ pub(crate) struct SessionInterception {
 impl SessionInterception {
     /// The side of the Session `id`: held by interception alone through
     /// `lookups` when no relay is under it, its requests signed by
-    /// `signing` when it is `identified`, and `Sec-GPC: 1` added in step 7
-    /// when `send_gpc_header` is set.
+    /// `signing` when it is `identified`, `Sec-GPC: 1` added in step 7
+    /// when `send_gpc_header` is set, and exempt from `block_resources_visible`
+    /// warnings when `identified` is true.
     pub(crate) fn new(
         id: SessionId,
         lookups: Option<Lookups>,
         signing: Option<Arc<RequestSigner>>,
         send_gpc_header: bool,
+        identified: bool,
     ) -> Self {
         Self {
             id,
             routes: Arc::default(),
             pending: Arc::default(),
             warned: AtomicBool::new(false),
+            warned_scriptlets: AtomicBool::new(false),
+            identified,
             lookups: lookups.map(Arc::new),
             signing,
             send_gpc_header,
@@ -403,6 +416,11 @@ pub(super) struct PageState {
     own: Mutex<Option<OwnSent>>,
     /// Whether its Session turns any Filter list on.
     lists_on: bool,
+    /// The Clean-up rules version digest held by this page when lists are on.
+    lists_version: Option<String>,
+    /// Present only when `filter_lists.page_scriptlets` is enabled for this
+    /// page's Session (ADR 0047).
+    scriptlets: Option<ScriptletsState>,
     /// Whether it is loading once more with blocking off.
     retrying: AtomicBool,
     /// How many of its requests the Filter lists blocked.
@@ -412,6 +430,25 @@ pub(super) struct PageState {
     /// What it does with each document its main frame receives, when a
     /// program opened it; none for a service worker's own.
     on_document: Option<Arc<dyn OnDocument>>,
+}
+
+/// Per-page state for `filter_lists.page_scriptlets: true`.
+struct ScriptletsState {
+    session_id: SessionId,
+    /// The layer that set `filter_lists.extra`, when non-empty.
+    extra_layer: Option<SettingsLayer>,
+    /// The init-script identifier installed for the previous document, so the
+    /// next navigation removes it before installing its own.
+    installed: Mutex<Option<InitScriptId>>,
+}
+
+/// Filter-list scriptlets installed for an upcoming navigation, to record in
+/// Provenance once the document arrives (ADR 0047).
+pub(crate) struct AppliedScriptlets {
+    pub(crate) session_id: SessionId,
+    pub(crate) extra_layer: Option<SettingsLayer>,
+    pub(crate) built_in: Vec<String>,
+    pub(crate) extra: Vec<String>,
 }
 
 /// What a crawl request's own document fetch sends in place of the
@@ -692,16 +729,26 @@ impl Interception {
         let policy = policy_of(run.identity())?;
         let resolved = run.identity().settings().map(RunSettings::resolved);
         let choices = clean_up::choices(resolved, own);
+        let page_scriptlets = clean_up::page_scriptlets(resolved, own);
         let blocked = (!choices.block_resources.is_empty())
             .then(|| clean_up::effective(resolved, own, &BROWSER_BLOCK_RESOURCES).to_string());
-        let (blocking, version) = self.shared.clean_up.blocking(choices, &run.lists).await;
+        let (blocking, version, extra_layer) =
+            self.shared.clean_up.blocking(choices, &run.lists).await;
         let clean_up = PageCleanUp {
-            cosmetic: Cosmetic::of(&blocking, version, run, &self.shared.hosts),
+            cosmetic: Cosmetic::of(&blocking, version.clone(), run, &self.shared.hosts),
             live_hiding: clean_up::live_hiding(resolved, own),
         };
         if let Some(blocked) = blocked {
             Self::warn_of_blocked_resources(session, run, &blocked).await;
         }
+        if page_scriptlets {
+            Self::warn_of_page_scriptlets(session, run).await;
+        }
+        let scriptlets = page_scriptlets.then(|| ScriptletsState {
+            session_id: session.id.clone(),
+            extra_layer,
+            installed: Mutex::new(None),
+        });
         let (state, lookups) = self.page_state(
             session,
             NavigatingPage {
@@ -709,7 +756,7 @@ impl Interception {
                 refusals: refusals.clone(),
             },
             run,
-            (&policy, &blocking),
+            (&policy, &blocking, version, scriptlets),
             (clean_up.cosmetic.clone(), on_document),
         );
         let (page, cdp) = (
@@ -785,7 +832,12 @@ impl Interception {
         session: &SessionInterception,
         navigating: NavigatingPage,
         run: &RunPowers,
-        (policy, blocking): (&Policy, &steps::Blocking),
+        (policy, blocking, lists_version, scriptlets): (
+            &Policy,
+            &steps::Blocking,
+            Option<String>,
+            Option<ScriptletsState>,
+        ),
         (cosmetic, on_document): (Option<Cosmetic>, Option<Arc<dyn OnDocument>>),
     ) -> (Arc<PageState>, Option<Arc<Lookups>>) {
         let state = Arc::new(PageState {
@@ -799,6 +851,8 @@ impl Interception {
             files: Mutex::new(None),
             own: Mutex::new(None),
             lists_on: blocking.lists.is_some(),
+            lists_version,
+            scriptlets,
             retrying: AtomicBool::new(false),
             lists_blocked: AtomicU64::new(0),
             learned: self.shared.learned(run.identity().id()),
@@ -946,6 +1000,8 @@ impl Interception {
                         files: Mutex::new(None),
                         own: Mutex::new(None),
                         lists_on: blocking.lists.is_some(),
+                        lists_version: None,
+                        scriptlets: None,
                         retrying: AtomicBool::new(false),
                         lists_blocked: AtomicU64::new(0),
                         learned: shared.learned(run.identity().id()),
@@ -1022,7 +1078,7 @@ impl Interception {
                 identity.settings().map(RunSettings::resolved),
                 &Values::default(),
             );
-            let (blocking, version) = self.shared.clean_up.blocking(choices, &run.lists).await;
+            let (blocking, version, _) = self.shared.clean_up.blocking(choices, &run.lists).await;
             Cosmetic::of(&blocking, version, run, &self.shared.hosts)
         })
         .await
@@ -1032,14 +1088,13 @@ impl Interception {
     /// Warns `run`, once for the Session whose side is `session`, that its
     /// `browser.block_resources`, `blocked`, blocks loads the site can see missing,
     /// since few people block images or fonts (ADRs 0047, 0117). It warns
-    /// in `standard` and `stealth`, never in `identified`; until area 8's
-    /// Access mode setting, every Session is `standard`.
+    /// in `standard` and `stealth`, never in `identified`.
     async fn warn_of_blocked_resources(
         session: &SessionInterception,
         run: &RunPowers,
         blocked: &str,
     ) {
-        if session.warned.swap(true, Ordering::Relaxed) {
+        if session.identified || session.warned.swap(true, Ordering::Relaxed) {
             return;
         }
         let session = &session.id;
@@ -1054,6 +1109,28 @@ impl Interception {
         };
         if let Err(error) = run.lists.warnings.warn(warning).await {
             tracing::warn!(%error, "the warning of `browser.block_resources` was not kept");
+        }
+    }
+
+    /// Warns `run`, once for the Session whose side is `session`, that
+    /// `filter_lists.page_scriptlets` injects Filter-list scriptlets into
+    /// each page's main world (ADR 0047, using ADR 0035's `js_injection`
+    /// warning code).
+    async fn warn_of_page_scriptlets(session: &SessionInterception, run: &RunPowers) {
+        if session.warned_scriptlets.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        let warning = RunWarning {
+            code: FINGERPRINT_JS_INJECTION.to_owned(),
+            message: format!(
+                "The Session's `{}` runs Filter-list scriptlets in the page's main world, which a site can detect.",
+                FILTER_LISTS_PAGE_SCRIPTLETS.name
+            ),
+            sessions: vec![session.id.0.clone()],
+            folder: None,
+        };
+        if let Err(error) = run.lists.warnings.warn(warning).await {
+            tracing::warn!(%error, "the warning of `filter_lists.page_scriptlets` was not kept");
         }
     }
 
@@ -1118,7 +1195,7 @@ impl Interception {
     ) -> Result<EngineRequests, CallError> {
         let policy = policy_of(run.identity())?;
         let choices = clean_up::choices(run.identity().settings().map(RunSettings::resolved), own);
-        let (blocking, _) = self.shared.clean_up.blocking(choices, &run.lists).await;
+        let (blocking, _, _) = self.shared.clean_up.blocking(choices, &run.lists).await;
         Ok(EngineRequests {
             policy,
             blocking,
@@ -1166,6 +1243,12 @@ impl PageInterception {
             .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
     }
 
+    /// The Clean-up rules version digest held by its page when Filter lists
+    /// are on; `None` when no Filter list is on.
+    pub(crate) fn blocking_version(&self) -> Option<String> {
+        self.held()?.lists_version.clone()
+    }
+
     /// Turns the Filter lists off for every request of its page, as it
     /// loads once more with blocking off, until the [`ListsOff`] answered
     /// goes.
@@ -1190,6 +1273,82 @@ impl PageInterception {
     /// lists is on.
     pub(crate) fn cosmetic(&self) -> Option<Cosmetic> {
         self.held()?.cosmetic.clone()
+    }
+
+    /// When `filter_lists.page_scriptlets` is enabled on this page, replaces
+    /// any scriptlet installed for a prior navigation with the `+js(...)`
+    /// scriptlets matching `url` (ADR 0047). Runs before `Page.navigate` so
+    /// Chromium's renderer answers `Page.addScriptToEvaluateOnNewDocument`
+    /// without blocking on an in-flight navigation.
+    pub(crate) async fn prepare_page_scriptlets(
+        &self,
+        cdp: &CdpPage,
+        url: &str,
+    ) -> Option<AppliedScriptlets> {
+        let state = self.held()?;
+        let scriptlets = state.scriptlets.as_ref()?;
+        let previous = lock(&scriptlets.installed).take();
+        if let Some(previous) = previous {
+            cdp.remove_init_script(previous).await;
+        }
+        if state.lists_off(url) {
+            return None;
+        }
+        let lists = state.engine_requests.blocking.lists.as_ref()?;
+        let allow_extra = scriptlets
+            .extra_layer
+            .is_some_and(crate::clean_up_versions::scriptlets_allowed);
+        let matched = goodfetch_clean_up_rules::cosmetic::PageScriptlets::of(
+            lists,
+            &state.engine_requests.blocking.choices,
+            url,
+            allow_extra,
+        );
+        if matched.is_empty() {
+            return None;
+        }
+        let mut combined = String::new();
+        if !matched.built_in.is_empty() {
+            combined.push_str(&matched.built_in.script);
+            combined.push('\n');
+        }
+        if !matched.extra.is_empty() {
+            combined.push_str(&matched.extra.script);
+            combined.push('\n');
+        }
+        let source = match url::Url::parse(url)
+            .ok()
+            .and_then(|parsed| parsed.host_str().map(str::to_owned))
+            .and_then(|host| serde_json::to_string(&host).ok())
+        {
+            Some(host_json) => {
+                format!(
+                    "(() => {{ if (location.hostname !== {host_json}) return;\n{combined}}})();"
+                )
+            }
+            None => format!("(() => {{\n{combined}}})();"),
+        };
+        match cdp
+            .add_init_script(source, "filter_lists.page_scriptlets")
+            .await
+        {
+            Ok(id) => {
+                *lock(&scriptlets.installed) = Some(id);
+                Some(AppliedScriptlets {
+                    session_id: scriptlets.session_id.clone(),
+                    extra_layer: scriptlets.extra_layer,
+                    built_in: matched.built_in.invocations,
+                    extra: matched.extra.invocations,
+                })
+            }
+            Err(failure) => {
+                tracing::debug!(
+                    %failure,
+                    "the page went before its Filter-list scriptlets were installed"
+                );
+                None
+            }
+        }
     }
 
     /// Steps 3 to 8 of its page's pipeline, for a request the engine sends

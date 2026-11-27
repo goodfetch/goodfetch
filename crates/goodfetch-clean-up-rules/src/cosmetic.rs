@@ -96,6 +96,86 @@ impl<'a> PageRules<'a> {
     }
 }
 
+/// A batch of resolved `+js(...)` scriptlets for one document, together with
+/// the invocation lines `adblock` emitted (for Provenance recording).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScriptletBatch {
+    /// JavaScript to evaluate in the document's main world before page scripts.
+    pub script: String,
+    /// Each scriptlet invocation emitted inside `try { … } catch ( e ) { }`.
+    pub invocations: Vec<String>,
+}
+
+impl ScriptletBatch {
+    /// Whether no scriptlet matched.
+    pub fn is_empty(&self) -> bool {
+        self.script.trim().is_empty()
+    }
+}
+
+/// The scriptlets matching a page's URL, split between the built-in Filter
+/// lists and `filter_lists.extra` so Provenance attributes extra-list
+/// scriptlets to the configuration layer that added them (ADR 0047).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PageScriptlets {
+    /// Scriptlets from the built-in Filter lists that are on.
+    pub built_in: ScriptletBatch,
+    /// Scriptlets from `filter_lists.extra` (empty unless `allow_extra` was
+    /// true for this Run's layer).
+    pub extra: ScriptletBatch,
+}
+
+impl PageScriptlets {
+    /// Resolves scriptlets for the page at `url` from `lists` under `choices`.
+    /// Extra-list scriptlets are included only when `allow_extra` is `true`
+    /// (Operator policy, user or project configuration, never Recipe/Run/agent
+    /// surfaces; ADR 0047).
+    pub fn of(lists: &FilterLists, choices: &Choices, url: &str, allow_extra: bool) -> Self {
+        let mut built_in_script = String::new();
+        let mut built_in_invocations = Vec::new();
+        let on = choices.lists();
+        for (list, engine) in lists.engines() {
+            if !on.contains(list) {
+                continue;
+            }
+            let injected = engine.url_cosmetic_resources(url).injected_script;
+            if !injected.trim().is_empty() {
+                built_in_invocations.extend(FilterLists::scriptlet_invocations(&injected));
+                built_in_script.push_str(&injected);
+                built_in_script.push('\n');
+            }
+        }
+        let mut extra_script = String::new();
+        let mut extra_invocations = Vec::new();
+        if allow_extra
+            && choices.extra
+            && let Some(engine) = lists.extra_engine()
+        {
+            let injected = engine.url_cosmetic_resources(url).injected_script;
+            if !injected.trim().is_empty() {
+                extra_invocations.extend(FilterLists::scriptlet_invocations(&injected));
+                extra_script.push_str(&injected);
+                extra_script.push('\n');
+            }
+        }
+        Self {
+            built_in: ScriptletBatch {
+                script: built_in_script,
+                invocations: built_in_invocations,
+            },
+            extra: ScriptletBatch {
+                script: extra_script,
+                invocations: extra_invocations,
+            },
+        }
+    }
+
+    /// Whether neither built-in nor extra lists produced any scriptlet.
+    pub fn is_empty(&self) -> bool {
+        self.built_in.is_empty() && self.extra.is_empty()
+    }
+}
+
 /// The procedural rules `resources` hold, each read from the JSON `adblock`
 /// keeps them in; one it cannot read is left out.
 pub(crate) fn procedural(

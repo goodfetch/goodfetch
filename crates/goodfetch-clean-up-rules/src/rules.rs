@@ -4,13 +4,14 @@
 //! [`FilterLists`] is `Send + Sync` (`adblock` without its `single-thread`
 //! feature), so every Session shares one behind an `Arc` with no lock.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use adblock::Engine;
 
 use crate::filter_set;
 use crate::generic::Generic;
 use crate::list::{LISTS, List, ListSet};
+use crate::scriptlets;
 use crate::stand_ins;
 
 /// One embedded engine as the build wrote it.
@@ -79,7 +80,7 @@ impl RemovalOnly {
     }
 }
 
-pub struct FilterLists {
+struct BaseLists {
     ads: Engine,
     trackers: Engine,
     annoyances: Engine,
@@ -95,6 +96,54 @@ pub struct FilterLists {
     /// [`List`] order, when any exist.
     removal_generic_hide: [Option<Engine>; 3],
     generic: Generic,
+}
+
+/// User-configured extra Filter lists (`filter_lists.extra`, ADR 0047),
+/// compiled with Brave's unbreak list and with any EasyList Cookie sections
+/// split into a removal-only cosmetic engine so cookie sections never block
+/// requests, hide on the live page, or run scriptlets.
+pub struct ExtraLists {
+    live: Engine,
+    removal_only: Option<Engine>,
+    generic_hide: Engine,
+    removal_generic_hide: Option<Engine>,
+}
+
+impl ExtraLists {
+    /// Compiles `texts` from `filter_lists.extra` together with `unbreak`
+    /// (Brave's unbreak list). Blocking for large lists, so callers run it on
+    /// a blocking task (ADR 0060).
+    pub fn compile(texts: &[&str], unbreak: &str) -> Self {
+        let mut live_text = String::new();
+        let mut cookie_text = String::new();
+        for text in texts {
+            let split = filter_set::split_cookie_sections(text);
+            live_text.push_str(&split.live);
+            live_text.push('\n');
+            if !split.cookies.is_empty() {
+                cookie_text.push_str(&split.cookies);
+                cookie_text.push('\n');
+            }
+        }
+        let unbreak_gh = filter_set::generic_hide_lines(unbreak);
+        let live_gh = generic_hide(filter_set::generic_hide_lines(&live_text), unbreak_gh);
+        let removal_gh = optional_generic_hide(&filter_set::generic_hide_lines(&cookie_text));
+        let removal_only =
+            filter_set::removal_only(&cookie_text, unbreak).map(Engine::new_with_filter_set);
+        let mut live = Engine::new_with_filter_set(filter_set::of(live_text, unbreak.to_owned()));
+        live.use_resources(all_resources());
+        Self {
+            live,
+            removal_only,
+            generic_hide: live_gh,
+            removal_generic_hide: removal_gh,
+        }
+    }
+}
+
+pub struct FilterLists {
+    base: Arc<BaseLists>,
+    extra: Option<Arc<ExtraLists>>,
 }
 
 /// Why the embedded Filter lists did not load: never once the build
@@ -251,10 +300,26 @@ impl FilterLists {
         let live = splits.map(|split| {
             let set = filter_set::of(split.live, texts.unbreak.to_owned());
             let mut engine = Engine::new_with_filter_set(set);
-            engine.use_resources(stand_ins::resources());
+            engine.use_resources(all_resources());
             engine
         });
         Self::of(live, removal_only, live_generic, removal_generic)
+    }
+
+    /// Shares these base Filter lists and attaches `extra` (`filter_lists.extra`),
+    /// copying no built-in engine.
+    #[must_use]
+    pub fn with_extra(&self, extra: Arc<ExtraLists>) -> Self {
+        Self {
+            base: Arc::clone(&self.base),
+            extra: Some(extra),
+        }
+    }
+
+    /// Whether `filter_lists.extra` is attached to these lists.
+    #[must_use]
+    pub fn has_extra(&self) -> bool {
+        self.extra.is_some()
     }
 
     /// The lists of the engines `[ads, trackers, annoyances]`, their
@@ -272,84 +337,140 @@ impl FilterLists {
             (List::Annoyances, &annoyances),
         ]);
         Self {
-            ads,
-            trackers,
-            annoyances,
-            removal_only,
-            generic_hide,
-            removal_generic_hide,
-            generic,
+            base: Arc::new(BaseLists {
+                ads,
+                trackers,
+                annoyances,
+                removal_only,
+                generic_hide,
+                removal_generic_hide,
+                generic,
+            }),
+            extra: None,
         }
     }
 
-    /// Each list's engine, in [`List`] order.
+    /// Each built-in list's engine, in [`List`] order.
     pub(crate) fn engines(&self) -> [(List, &Engine); 3] {
         [
-            (List::Ads, &self.ads),
-            (List::Trackers, &self.trackers),
-            (List::Annoyances, &self.annoyances),
+            (List::Ads, &self.base.ads),
+            (List::Trackers, &self.base.trackers),
+            (List::Annoyances, &self.base.annoyances),
         ]
     }
 
-    /// The engine of each list of `on`, in [`List`] order.
+    /// The engine of each list of `on`, built-in first and `List::Extra` last
+    /// when attached.
     pub(crate) fn on(&self, on: ListSet) -> impl Iterator<Item = (List, &Engine)> {
+        let extra = self
+            .extra
+            .as_deref()
+            .filter(|_| on.contains(List::Extra))
+            .map(|extra| (List::Extra, &extra.live));
         self.engines()
             .into_iter()
             .filter(move |(list, _)| on.contains(*list))
+            .chain(extra)
     }
 
-    /// The engine of `list`.
-    pub(crate) fn engine(&self, list: List) -> &Engine {
+    /// The engine of `list`, when present (`List::Extra` is present only when
+    /// attached).
+    pub(crate) fn engine_of(&self, list: List) -> Option<&Engine> {
         match list {
-            List::Ads => &self.ads,
-            List::Trackers => &self.trackers,
-            List::Annoyances => &self.annoyances,
+            List::Ads => Some(&self.base.ads),
+            List::Trackers => Some(&self.base.trackers),
+            List::Annoyances => Some(&self.base.annoyances),
+            List::Extra => self.extra.as_deref().map(|extra| &extra.live),
         }
+    }
+
+    /// The extra lists' live engine, when attached.
+    pub(crate) fn extra_engine(&self) -> Option<&Engine> {
+        self.extra.as_deref().map(|extra| &extra.live)
     }
 
     /// The removal-only cookie-section engines and their generic set, loaded
     /// on first call for the embedded part.
     pub(crate) fn removal(&self) -> &RemovalOnly {
-        self.removal_only.get_or_init(RemovalOnly::load_embedded)
+        self.base
+            .removal_only
+            .get_or_init(RemovalOnly::load_embedded)
     }
 
     /// The removal-only cookie-section engine of `list`, when it has one.
     pub(crate) fn removal_only(&self, list: List) -> Option<&Engine> {
-        self.removal().engine(list)
+        match list {
+            List::Extra => self
+                .extra
+                .as_deref()
+                .and_then(|extra| extra.removal_only.as_ref()),
+            built_in => self.removal().engine(built_in),
+        }
     }
 
     /// Whether a `$generichide` exception of `list`, or of the unbreak
     /// list, turns the list's generic rules off for the page at `url`, as
     /// the list's engine answers it.
     pub(crate) fn generic_hide(&self, list: List, url: &str) -> bool {
-        self.generic_hide[at(list)]
-            .url_cosmetic_resources(url)
-            .generichide
+        match list {
+            List::Extra => self
+                .extra
+                .as_deref()
+                .is_some_and(|extra| extra.generic_hide.url_cosmetic_resources(url).generichide),
+            built_in => {
+                self.base.generic_hide[at(built_in)]
+                    .url_cosmetic_resources(url)
+                    .generichide
+            }
+        }
     }
 
     /// Whether a `$generichide` exception of `list`, its cookie sections,
     /// or the unbreak list turns the list's removal-only generic rules off
     /// for the page at `url`.
     pub(crate) fn removal_generic_hide(&self, list: List, url: &str) -> bool {
-        self.generic_hide(list, url)
-            || self.removal_generic_hide[at(list)]
+        if self.generic_hide(list, url) {
+            return true;
+        }
+        match list {
+            List::Extra => self
+                .extra
+                .as_deref()
+                .and_then(|extra| extra.removal_generic_hide.as_ref())
+                .is_some_and(|engine| engine.url_cosmetic_resources(url).generichide),
+            built_in => self.base.removal_generic_hide[at(built_in)]
                 .as_ref()
-                .is_some_and(|engine| engine.url_cosmetic_resources(url).generichide)
+                .is_some_and(|engine| engine.url_cosmetic_resources(url).generichide),
+        }
     }
 
     /// The generic set removal reads every page with.
     pub(crate) fn generic(&self) -> &Generic {
-        &self.generic
+        &self.base.generic
+    }
+
+    /// Extracts the scriptlet invocations `adblock` emitted into `script`.
+    pub(crate) fn scriptlet_invocations(script: &str) -> Vec<String> {
+        scriptlets::invocations(script)
     }
 }
 
-/// Where `list` stands in [`List`] order.
+/// Where a built-in `list` stands in [`LISTS`] order.
 fn at(list: List) -> usize {
     match list {
         List::Ads => 0,
         List::Trackers => 1,
         List::Annoyances => 2,
+        List::Extra => unreachable!("invariant: built-in list arrays never index List::Extra"),
     }
+}
+
+/// Redirect stand-ins and MIT scriptlet templates together, as every live
+/// `adblock::Engine` registers them.
+fn all_resources() -> Vec<adblock::resources::Resource> {
+    let mut resources = stand_ins::resources();
+    resources.extend(scriptlets::resources());
+    resources
 }
 
 /// The engine of `lines`, a list's `$generichide` exceptions, and
@@ -393,12 +514,17 @@ pub const EMBEDDED_DIGEST: &str = EMBEDDED_DIGEST_OF_BUILD;
 /// The embedded part's `manifest.json`, as the crate carries it.
 pub const EMBEDDED_MANIFEST: &str = include_str!("../rules/manifest.json");
 
+/// Brave's unbreak list bundled with the embedded part, compiled beside
+/// `filter_lists.extra` lists so their unbreak exceptions apply too.
+pub const EMBEDDED_UNBREAK: &str = include_str!("../rules/brave-unbreak.txt");
+
 /// The compressed form of `list`.
 fn compressed(list: List) -> &'static Compressed {
     match list {
         List::Ads => &ADS,
         List::Trackers => &TRACKERS,
         List::Annoyances => &ANNOYANCES,
+        List::Extra => unreachable!("invariant: List::Extra is never embedded"),
     }
 }
 
@@ -409,18 +535,19 @@ fn removal_compressed(list: List) -> Option<&'static Compressed> {
         List::Ads => ADS_REMOVAL_ONLY.as_ref(),
         List::Trackers => TRACKERS_REMOVAL_ONLY.as_ref(),
         List::Annoyances => ANNOYANCES_REMOVAL_ONLY.as_ref(),
+        List::Extra => None,
     }
 }
 
 /// Loads the engine of `list` from `compressed`, decompressed into
-/// `buffer`, with the stand-ins.
+/// `buffer`, with the stand-ins and scriptlet templates.
 fn load(
     list: &'static str,
     compressed: &Compressed,
     buffer: &mut Vec<u8>,
 ) -> Result<Engine, LoadError> {
     let mut engine = load_cosmetic(list, compressed, buffer)?;
-    engine.use_resources(stand_ins::resources());
+    engine.use_resources(all_resources());
     Ok(engine)
 }
 

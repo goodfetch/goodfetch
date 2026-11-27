@@ -20,11 +20,14 @@
 //!
 //! What the engine cannot do yet is refused when the Run starts, never
 //! ignored (ADR 0083): `clean_up.update = daily`, whose versions are used
-//! only once the channel's signature is checked (ADR 0033's verifier),
-//! `filter_lists.page_scriptlets` and `filter_lists.extra`.
+//! only once the channel's signature is checked (ADR 0033's verifier).
 //!
 //! This release pins no full set (#207 pins the first), so `release` holds
 //! to the embedded part.
+//!
+//! Size: one concern — choosing, holding, caching, compiling and retiring a
+//! Run's Clean-up rules version and its attached `filter_lists.extra` sets
+//! share the `CleanUpVersions` tables and the `RunRules` engine seam.
 #![expect(
     clippy::disallowed_methods,
     reason = "a version's files are read on the tasks module's blocking policy, never on an async worker"
@@ -42,7 +45,8 @@ use std::time::{Duration, SystemTime};
 use futures_util::StreamExt as _;
 use goodfetch_clean_up_rules::list::List;
 use goodfetch_clean_up_rules::rules::{
-    EMBEDDED_DIGEST, EMBEDDED_MANIFEST, EmbeddedList, FilterLists, ListTexts, LoadError,
+    EMBEDDED_DIGEST, EMBEDDED_MANIFEST, EMBEDDED_UNBREAK, EmbeddedList, ExtraLists, FilterLists,
+    ListTexts, LoadError,
 };
 use goodfetch_engine::CallError;
 use goodfetch_engine::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
@@ -74,10 +78,12 @@ use tokio_util::sync::CancellationToken;
 use crate::trace;
 
 mod daily;
+mod extra;
 mod failures;
 mod unbuilt;
 mod upstream;
 
+pub(crate) use self::extra::scriptlets_allowed;
 pub(crate) use self::failures::Unobtained;
 use self::failures::{fallback, refusal};
 use self::unbuilt::refuse_unbuilt;
@@ -117,6 +123,10 @@ pub(crate) struct Versions {
     /// each stays loaded once no Run holds it, for the next Run.
     kept: Mutex<VecDeque<(String, Arc<FilterLists>)>>,
     holding: Mutex<BTreeMap<RunId, Held>>,
+    /// Extra Filter lists fetched during `choose_version`, awaiting `record`.
+    pending_extra: Mutex<BTreeMap<(Vec<String>, SettingsLayer), extra::FetchedExtra>>,
+    /// Compiled `filter_lists.extra` sets, by their content digest.
+    loaded_extra: Mutex<BTreeMap<String, Arc<OnceCell<Arc<ExtraLists>>>>>,
     /// The fetches of the Filter lists from their authors' URLs.
     upstream: upstream::Fetches,
 }
@@ -132,6 +142,7 @@ struct Held {
     live: CancellationToken,
     digest: String,
     artifact: Option<Arc<HeldArtifact>>,
+    extra: Option<extra::FetchedExtra>,
 }
 
 /// Locks `mutex`, whose holders never panic while they hold it.
@@ -147,6 +158,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) struct HeldLists {
     pub(crate) digest: String,
     pub(crate) lists: Arc<FilterLists>,
+    /// The layer that configured `filter_lists.extra`, when non-empty.
+    pub(crate) extra_layer: Option<SettingsLayer>,
 }
 
 /// What loading a live Run's Filter lists uses of it (ADR 0145): its
@@ -290,6 +303,22 @@ impl Kept {
             },
             held,
         ))
+    }
+
+    /// Keeps `filter_lists.extra` files in the Browser cache and returns
+    /// their content digest and held artifact.
+    pub(crate) async fn keep_extra(
+        &self,
+        files: Vec<(String, Vec<u8>)>,
+        now: jiff::Timestamp,
+    ) -> Result<(String, HeldArtifact), Unobtained> {
+        let cache = self.cache.clone();
+        let (digest, held) = self
+            .owner
+            .blocking(move || cache.keep(ArtifactKind::CleanUpRules, "extra", &files, now))
+            .await
+            .map_err(|error| Unobtained::NotKept(error.to_string()))?;
+        Ok((digest.to_string(), held))
     }
 
     /// The version of `digest` the cache holds, whatever its source, held.
@@ -525,6 +554,8 @@ impl Versions {
             loaded: Mutex::default(),
             kept: Mutex::default(),
             holding: Mutex::default(),
+            pending_extra: Mutex::default(),
+            loaded_extra: Mutex::default(),
             upstream: upstream::Fetches::default(),
         })
     }
@@ -541,7 +572,7 @@ impl Versions {
         refuse_unbuilt(resolved)?;
         let asked = Asked::of(resolved);
         let now = now_of(context.clock);
-        if let Some((digest, layer)) = &asked.version {
+        let chosen = if let Some((digest, layer)) = &asked.version {
             let sources = Sources::of(&context).await;
             let obtained = within(
                 context.clock,
@@ -549,38 +580,71 @@ impl Versions {
                 obtain(digest, &asked, true, &sources, now),
             )
             .await;
-            return match obtained {
-                Ok((version, _)) => Ok(Chosen {
+            match obtained {
+                Ok((version, _)) => Chosen {
                     digest: version.digest,
                     fallback: None,
-                }),
-                Err(failure) => Err(refusal((digest, *layer), &failure, &context)),
-            };
-        }
-        let embedded = Chosen {
-            digest: EMBEDDED_DIGEST.to_owned(),
-            fallback: None,
-        };
-        match asked.update {
-            Update::Upstream => {
-                let sources = Sources::of(&context).await;
-                let newest = self
-                    .upstream
-                    .newest(&sources, now, context.clock, asked.timeout)
-                    .await;
-                Ok(match newest {
-                    Ok(version) => Chosen {
-                        digest: version.digest,
-                        fallback: None,
-                    },
-                    Err(failure) => Chosen {
-                        fallback: Some(fallback("the Filter lists from their authors", &failure)),
-                        ..embedded
-                    },
-                })
+                },
+                Err(failure) => return Err(refusal((digest, *layer), &failure, &context)),
             }
-            // Refused above until the channel's signature is checked.
-            Update::Daily | Update::Release => Ok(embedded),
+        } else {
+            let embedded = Chosen {
+                digest: EMBEDDED_DIGEST.to_owned(),
+                fallback: None,
+            };
+            match asked.update {
+                Update::Upstream => {
+                    let sources = Sources::of(&context).await;
+                    let newest = self
+                        .upstream
+                        .newest(&sources, now, context.clock, asked.timeout)
+                        .await;
+                    match newest {
+                        Ok(version) => Chosen {
+                            digest: version.digest,
+                            fallback: None,
+                        },
+                        Err(failure) => Chosen {
+                            fallback: Some(fallback(
+                                "the Filter lists from their authors",
+                                &failure,
+                            )),
+                            ..embedded
+                        },
+                    }
+                }
+                // Refused above until the channel's signature is checked.
+                Update::Daily | Update::Release => embedded,
+            }
+        };
+        if let Some(extra_asked) = extra::asked(resolved) {
+            let sources = Sources::of(&context).await;
+            let fetched = extra::fetch(&extra_asked, resolved, &sources, &context, now).await?;
+            lock(&self.pending_extra).insert((extra_asked.entries, extra_asked.layer), fetched);
+        }
+        Ok(chosen)
+    }
+
+    /// Claims the extra Filter lists fetched in `choose_version` for this Run,
+    /// or fetches them on resume.
+    async fn claim_extra(
+        &self,
+        resolved: Option<&Resolved>,
+        context: &RulesContext<'_>,
+        now: jiff::Timestamp,
+    ) -> Option<extra::FetchedExtra> {
+        let asked = extra::asked(resolved)?;
+        let key = (asked.entries.clone(), asked.layer);
+        if let Some(fetched) = lock(&self.pending_extra).get(&key).cloned() {
+            return Some(fetched);
+        }
+        let sources = Sources::of(context).await;
+        match extra::fetch(&asked, resolved, &sources, context, now).await {
+            Ok(fetched) => Some(fetched),
+            Err(error) => {
+                tracing::warn!(%error, "the Run's `filter_lists.extra` could not be loaded on resume");
+                None
+            }
         }
     }
 
@@ -621,7 +685,10 @@ impl Versions {
                 (Version::embedded(), None, Some(fallback))
             }
         };
-        self.hold(run, &version.digest, artifact);
+        let extra = self
+            .claim_extra(context.settings.map(RunSettings::resolved), &context, now)
+            .await;
+        self.hold(run, &version.digest, artifact, extra.clone());
         // A program's pages all match the lists; a crawl's may read none of
         // them, so its crawl asks for them once it knows (#2573).
         if context.kind == RunKind::Collie {
@@ -639,6 +706,13 @@ impl Versions {
             ),
             "resumed": resumed,
         });
+        if let Some(extra) = &extra {
+            entry["extra"] = json!({
+                "digest": extra.digest,
+                "sources": extra.entries,
+                "layer": extra.layer,
+            });
+        }
         if let Some(fallback) = &fallback {
             entry["fallback"] = json!({ "reason": fallback.reason, "message": fallback.message });
             entry["recorded"] = json!(recorded);
@@ -667,8 +741,20 @@ impl Versions {
     /// `run` holds to the version of `digest`, whose files `artifact` holds
     /// in the Browser cache, until it ends; the Runs that ended let theirs
     /// go.
-    fn hold(&self, run: &ListsRun, digest: &str, artifact: Option<HeldArtifact>) {
-        held_by(&mut lock(&self.holding), &run.identity, digest, artifact);
+    fn hold(
+        &self,
+        run: &ListsRun,
+        digest: &str,
+        artifact: Option<HeldArtifact>,
+        extra: Option<extra::FetchedExtra>,
+    ) {
+        held_by(
+            &mut lock(&self.holding),
+            &run.identity,
+            digest,
+            artifact,
+            extra,
+        );
     }
 
     /// Starts loading the Filter lists `run` holds to on one of its tasks
@@ -700,7 +786,10 @@ impl Versions {
         {
             return false;
         }
-        held_by(&mut holding, &run.identity, EMBEDDED_DIGEST, None);
+        let extra = holding
+            .get(run.identity.id())
+            .and_then(|held| held.extra.clone());
+        held_by(&mut holding, &run.identity, EMBEDDED_DIGEST, None, extra);
         true
     }
 
@@ -711,23 +800,53 @@ impl Versions {
     /// longer read. Each comes with its digest.
     pub(crate) async fn lists(&self, run: &ListsRun) -> HeldLists {
         let owner = run.identity.owner();
-        let held = lock(&self.holding)
-            .get(run.identity.id())
-            .map(|held| (held.digest.clone(), held.artifact.clone()));
-        let (digest, artifact) = match held {
+        let held = lock(&self.holding).get(run.identity.id()).map(|held| {
+            (
+                held.digest.clone(),
+                held.artifact.clone(),
+                held.extra.clone(),
+            )
+        });
+        let (digest, artifact, extra) = match held {
             Some(held) => held,
             None => (
                 recorded_digest(run)
                     .await
                     .unwrap_or_else(|| EMBEDDED_DIGEST.to_owned()),
                 None,
+                None,
             ),
         };
+        let (base_digest, base_lists) = self.load_base(run, &digest, artifact, owner).await;
+        match extra {
+            Some(extra) => {
+                let compiled = self.compile_extra(&extra, owner).await;
+                HeldLists {
+                    digest: format!("{base_digest}+{}", extra.digest),
+                    lists: Arc::new(base_lists.with_extra(compiled)),
+                    extra_layer: Some(extra.layer),
+                }
+            }
+            None => HeldLists {
+                digest: base_digest,
+                lists: base_lists,
+                extra_layer: None,
+            },
+        }
+    }
+
+    async fn load_base(
+        &self,
+        run: &ListsRun,
+        digest: &str,
+        artifact: Option<Arc<HeldArtifact>>,
+        owner: &TaskStarter,
+    ) -> (String, Arc<FilterLists>) {
         if digest != EMBEDDED_DIGEST {
-            let loading = || self.load(&digest, artifact.clone(), run, owner);
-            match self.loaded_once(&digest, loading).await {
-                Ok(lists) => return HeldLists { digest, lists },
-                Err(failure) if self.fall_back(run, &digest) => {
+            let loading = || self.load(digest, artifact.clone(), run, owner);
+            match self.loaded_once(digest, loading).await {
+                Ok(lists) => return (digest.to_owned(), lists),
+                Err(failure) if self.fall_back(run, digest) => {
                     let fallback =
                         fallback(&format!("the Run's Clean-up rules, {digest},"), &failure);
                     trace::provenance(
@@ -756,10 +875,31 @@ impl Versions {
             .loaded_once(EMBEDDED_DIGEST, embedded)
             .await
             .expect("invariant: the embedded part's loads never fail");
-        HeldLists {
-            digest: EMBEDDED_DIGEST.to_owned(),
-            lists,
-        }
+        (EMBEDDED_DIGEST.to_owned(), lists)
+    }
+
+    async fn compile_extra(
+        &self,
+        extra: &extra::FetchedExtra,
+        owner: &TaskStarter,
+    ) -> Arc<ExtraLists> {
+        let cell = Arc::clone(
+            lock(&self.loaded_extra)
+                .entry(extra.digest.clone())
+                .or_default(),
+        );
+        let texts = Arc::clone(&extra.texts);
+        Arc::clone(
+            cell.get_or_init(|| async move {
+                owner
+                    .blocking(move || {
+                        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+                        Arc::new(ExtraLists::compile(&refs, EMBEDDED_UNBREAK))
+                    })
+                    .await
+            })
+            .await,
+        )
     }
 
     /// The version of `digest`, loaded by `load` unless a Run still holds
@@ -874,6 +1014,7 @@ fn held_by(
     run: &RunIdentity,
     digest: &str,
     artifact: Option<HeldArtifact>,
+    extra: Option<extra::FetchedExtra>,
 ) {
     holding.retain(|_, held| !held.live.is_cancelled());
     holding.insert(
@@ -882,6 +1023,7 @@ fn held_by(
             live: run.owner().child_token(),
             digest: digest.to_owned(),
             artifact: artifact.map(Arc::new),
+            extra,
         },
     );
 }

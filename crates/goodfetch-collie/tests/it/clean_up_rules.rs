@@ -679,44 +679,17 @@ fn refused(answer: &Value) -> (Value, Value) {
 
 /// `clean_up.update = daily` is refused when the Run starts, as
 /// `capability_unavailable` naming the setting, until the engine checks the
-/// channel's signature; and `filter_lists.page_scriptlets` and
-/// `filter_lists.extra`, which no code reads yet, are refused too, never
-/// ignored.
-/// Covers: story:5-97, setting:clean_up.update, setting:filter_lists.page_scriptlets, setting:filter_lists.extra, error:capability_unavailable
+/// channel's signature.
+/// Covers: story:5-97, setting:clean_up.update, error:capability_unavailable
 #[test]
 fn what_the_engine_cannot_do_yet_is_refused_when_the_run_starts() {
     let env = TestEnv::new();
-    let asked = [
-        ("daily", json!({ "clean_up": { "update": "daily" } })),
-        (
-            "scriptlets",
-            json!({ "filter_lists": { "page_scriptlets": true } }),
-        ),
-        (
-            "extra",
-            json!({ "filter_lists": { "extra": ["https://lists.test/extra.txt"] } }),
-        ),
-    ];
-
-    let answers: Vec<(Value, Value)> = asked
-        .iter()
-        .map(|(run_id, settings)| {
-            let answer = start(&env, run_id, settings);
-            let data = &answer["error"]["data"];
-            (data["code"].clone(), data["key"].clone())
-        })
-        .collect();
+    let answer = start(&env, "daily", &json!({ "clean_up": { "update": "daily" } }));
+    let data = &answer["error"]["data"];
 
     assert_eq!(
-        answers,
-        vec![
-            (json!("capability_unavailable"), json!("clean_up.update")),
-            (
-                json!("capability_unavailable"),
-                json!("filter_lists.page_scriptlets")
-            ),
-            (json!("capability_unavailable"), json!("filter_lists.extra")),
-        ]
+        (data["code"].clone(), data["key"].clone()),
+        (json!("capability_unavailable"), json!("clean_up.update"))
     );
 }
 
@@ -1063,4 +1036,362 @@ fn a_version_whose_files_went_before_the_first_page_falls_back_with_a_warning() 
             true,
         )
     );
+}
+
+/// Every Provenance entry of `run_id` in `home` whose `action` is `action`.
+#[cfg(unix)]
+fn provenance_action(home: &Path, run_id: &str, action: &str) -> Vec<Value> {
+    std::fs::read_to_string(run_folder(home, run_id).join(RUN_TRACE_PROVENANCE))
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|entry| entry["action"] == json!(action))
+        .collect()
+}
+
+/// Evaluates `document.getElementById("result").textContent` on `page_id`.
+#[cfg(unix)]
+fn read_result_text(
+    engine: &mut Attached,
+    id: i64,
+    page_id: &goodfetch_protocol::page::PageId,
+) -> String {
+    let evaluated = result(engine.ask(
+        id,
+        "page.evaluate",
+        &json!({
+            "page_id": page_id,
+            "function": "() => document.getElementById('result').textContent",
+        }),
+    ));
+    evaluated["value"].as_str().unwrap_or_default().to_owned()
+}
+
+/// Starts a Run with `filter_lists.extra` pointing at the Proving ground's
+/// `/extra-list.txt`: the Run starts and blocks `/js/extra-only.js` on
+/// `/extra` while `/js/site.js` and its cookie-section URL
+/// `/js/cookie-section-only.js` still load.
+/// Covers: setting:filter_lists.extra
+#[cfg(unix)]
+#[test]
+fn filter_lists_extra_fetches_proving_ground_list_and_blocks_its_rules() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = engine_with_browser(&env, &cache);
+    let extra_url = proving_ground.url("clean-up.test", "/extra-list.txt");
+    let mut run_settings = settings(Some(&proving_ground), json!({}));
+    run_settings.insert("filter_lists".to_owned(), json!({ "extra": [extra_url] }));
+    result(engine.ask(
+        1,
+        "run.start",
+        &json!({ "run_id": "extra-block", "settings": run_settings }),
+    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "extra-block" })));
+    let before = requests(&proving_ground);
+    let loaded = result(engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("clean-up.test", "/extra") }),
+    ));
+    assert_eq!(loaded["response"]["status"], json!(200));
+    let after = requests(&proving_ground);
+    let during: Vec<&String> = after.iter().skip(before.len()).collect();
+    result(engine.ask(4, "run.finish", &json!({ "run_id": "extra-block" })));
+    let _ = engine.finish();
+
+    assert!(during.iter().any(|t| *t == "/js/site.js"), "{during:?}");
+    assert!(
+        during.iter().any(|t| *t == "/js/cookie-section-only.js"),
+        "cookie section must not block: {during:?}"
+    );
+    assert!(
+        !during.iter().any(|t| *t == "/js/extra-only.js"),
+        "extra list must block /js/extra-only.js: {during:?}"
+    );
+}
+
+/// `filter_lists.page_scriptlets: true` runs a built-in list's scriptlet and
+/// runs an `extra` list's scriptlet ONLY when set in Operator policy, user or
+/// project configuration (recording Provenance as that configuration's), never
+/// when set on the Run itself; cookie-section scriptlets never run either way.
+/// Covers: setting:filter_lists.page_scriptlets, setting:filter_lists.extra
+#[cfg(unix)]
+#[test]
+fn filter_lists_page_scriptlets_runs_extra_scriptlets_only_when_configured_and_records_provenance()
+{
+    // 1) `filter_lists.extra` in user configuration: scriptlet runs and is attributed.
+    let configured_env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&configured_env, SEED).unwrap();
+    let extra_url = proving_ground.url("clean-up.test", "/extra-list.txt");
+    configured_env.user_configuration(&format!(
+        "[settings.filter_lists]\nextra = [\"{extra_url}\"]\n"
+    ));
+    let cache = browser_cache(&configured_env).unwrap();
+    let mut engine = engine_with_browser(&configured_env, &cache);
+    let mut run_settings = settings(Some(&proving_ground), json!({}));
+    run_settings.insert(
+        "filter_lists".to_owned(),
+        json!({ "page_scriptlets": true }),
+    );
+    result(engine.ask(
+        1,
+        "run.start",
+        &json!({ "run_id": "scriptlets-user", "settings": run_settings }),
+    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "scriptlets-user" })));
+    let goto = result(engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("clean-up.test", "/scriptlet") }),
+    ));
+    assert_eq!(goto["response"]["status"], json!(200));
+    let user_text = read_result_text(&mut engine, 4, &page.page_id);
+    let user_report = result(engine.ask(5, "run.finish", &json!({ "run_id": "scriptlets-user" })));
+    let _ = engine.finish();
+
+    let user_entries =
+        provenance_action(configured_env.home(), "scriptlets-user", "page_scriptlets");
+    assert_eq!(user_text, "extra=from_extra;cookie=none;builtin=none");
+    assert!(
+        warning_codes(&user_report).contains(&"fingerprint_js_injection".to_owned()),
+        "{user_report}"
+    );
+    assert_eq!(user_entries.len(), 1, "{user_entries:?}");
+    assert_eq!(user_entries[0]["source"], json!("extra"));
+    assert_eq!(
+        user_entries[0]["configured_by"],
+        json!("user_configuration")
+    );
+    assert!(
+        user_entries[0]["invocations"]
+            .as_array()
+            .is_some_and(|list| list.iter().any(|v| v
+                .as_str()
+                .is_some_and(|s| s.contains("__goodfetchExtraScriptlet")))),
+        "{user_entries:?}"
+    );
+
+    // 2) `filter_lists.extra` in Run settings: scriptlet does NOT run, while blocking still works.
+    let run_env = TestEnv::new();
+    let run_cache = browser_cache(&run_env).unwrap();
+    let mut engine = engine_with_browser(&run_env, &run_cache);
+    let mut run_layer_settings = settings(Some(&proving_ground), json!({}));
+    run_layer_settings.insert(
+        "filter_lists".to_owned(),
+        json!({ "extra": [extra_url], "page_scriptlets": true }),
+    );
+    result(engine.ask(
+        1,
+        "run.start",
+        &json!({ "run_id": "scriptlets-run", "settings": run_layer_settings }),
+    ));
+    let page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "scriptlets-run" })));
+    let goto = result(engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("clean-up.test", "/scriptlet") }),
+    ));
+    assert_eq!(goto["response"]["status"], json!(200));
+    let run_text = read_result_text(&mut engine, 4, &page.page_id);
+    result(engine.ask(5, "run.finish", &json!({ "run_id": "scriptlets-run" })));
+    let _ = engine.finish();
+
+    assert_eq!(run_text, "extra=none;cookie=none;builtin=none");
+    assert_eq!(
+        provenance_action(run_env.home(), "scriptlets-run", "page_scriptlets"),
+        Vec::<Value>::new()
+    );
+}
+
+/// `filter_lists.page_scriptlets: true` also runs a built-in Filter list's
+/// scriptlet and records it in Provenance under `source: "filter_lists"`.
+/// Covers: setting:filter_lists.page_scriptlets
+#[cfg(unix)]
+#[test]
+fn filter_lists_page_scriptlets_runs_built_in_list_scriptlet() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let stand_in = StandIn::start(&[REGISTRY, LISTS]);
+    configure(&env, &stand_in, &lists_configuration(&stand_in));
+    stand_in.serve(
+        "/easylist.txt",
+        b"[Adblock Plus 2.0]\n! Expires: 4 days\nclean-up.test##+js(set, __goodfetchBuiltInScriptlet, from_builtin)\n".to_vec(),
+    );
+    for list in [
+        "/easyprivacy.txt",
+        "/fanboy-annoyance.txt",
+        "/brave-unbreak.txt",
+    ] {
+        stand_in.serve(list, b"[Adblock Plus 2.0]\n! Expires: 4 days\n".to_vec());
+    }
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = engine_with_browser(&env, &cache);
+    let mut run_settings = settings(Some(&proving_ground), json!({ "update": "upstream" }));
+    run_settings.insert(
+        "filter_lists".to_owned(),
+        json!({ "page_scriptlets": true }),
+    );
+    result(engine.ask(
+        1,
+        "run.start",
+        &json!({ "run_id": "scriptlets-builtin", "settings": run_settings }),
+    ));
+    let page = opened(&engine.ask(
+        2,
+        "run.new_page",
+        &json!({ "run_id": "scriptlets-builtin" }),
+    ));
+    let goto = result(engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": proving_ground.url("clean-up.test", "/scriptlet") }),
+    ));
+    assert_eq!(goto["response"]["status"], json!(200));
+    let text = read_result_text(&mut engine, 4, &page.page_id);
+    result(engine.ask(5, "run.finish", &json!({ "run_id": "scriptlets-builtin" })));
+    let _ = engine.finish();
+
+    let entries = provenance_action(env.home(), "scriptlets-builtin", "page_scriptlets");
+    assert_eq!(text, "extra=none;cookie=none;builtin=from_builtin");
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(entries[0]["source"], json!("filter_lists"));
+}
+
+/// An `identified` Session with `browser.block_resources: ["image"]` receives
+/// no `block_resources_visible` warning, while `standard` and `stealth`
+/// Sessions with the same setting each receive one.
+/// Covers: setting:browser.block_resources, setting:browser.access_mode
+#[cfg(unix)]
+#[test]
+fn identified_session_gets_no_block_resources_visible_warning_while_standard_and_stealth_do() {
+    const RFC_KEY: &str = r#"{"kty":"OKP","crv":"Ed25519","d":"n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU","x":"JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"}"#;
+
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = Attached::start_with(&env, COLLIE, BROWSER_DEADLINE, |command| {
+        command
+            .env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache)
+            .env("TEST_BOT_SIGNING_KEY", RFC_KEY);
+    });
+    engine.send(&hello(Product::Collie));
+    let _ = engine.next();
+
+    let modes = [
+        (
+            "mode-identified",
+            json!({
+                "browser": { "access_mode": "identified", "block_resources": ["image"] },
+                "identified": {
+                    "signing_key": "env:TEST_BOT_SIGNING_KEY",
+                    "signature_agent": "https://bot.example",
+                },
+            }),
+        ),
+        (
+            "mode-standard",
+            json!({
+                "browser": { "access_mode": "standard", "block_resources": ["image"] },
+            }),
+        ),
+        (
+            "mode-stealth",
+            json!({
+                "browser": { "access_mode": "stealth", "block_resources": ["image"], "headless": true },
+                "stealth": {
+                    "fingerprint_method": "basic",
+                    "generated_identity": false,
+                    "human_input": false,
+                },
+            }),
+        ),
+    ];
+    let mut id = 1_i64;
+    let mut warned = Vec::new();
+    for (run_id, run_settings) in modes {
+        result(engine.ask(
+            id,
+            "run.start",
+            &json!({ "run_id": run_id, "settings": run_settings }),
+        ));
+        id += 1;
+        let _page = opened(&engine.ask(id, "run.new_page", &json!({ "run_id": run_id })));
+        id += 1;
+        let report = result(engine.ask(id, "run.finish", &json!({ "run_id": run_id })));
+        id += 1;
+        warned.push((
+            run_id,
+            warning_codes(&report).contains(&"block_resources_visible".to_owned()),
+        ));
+    }
+    let _ = engine.finish();
+
+    assert_eq!(
+        warned,
+        vec![
+            ("mode-identified", false),
+            ("mode-standard", true),
+            ("mode-stealth", true),
+        ]
+    );
+}
+
+/// Each navigated page's Provenance (`page_blocking`) records whether blocking
+/// was on, the Clean-up rules version digest, and how many requests the Filter
+/// lists blocked during its load.
+/// Covers: story:5-97
+#[cfg(unix)]
+#[test]
+fn page_provenance_records_whether_blocking_was_on_and_blocked_request_count() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = engine_with_browser(&env, &cache);
+    let run_settings = settings(Some(&proving_ground), json!({}));
+    result(engine.ask(
+        1,
+        "run.start",
+        &json!({ "run_id": "prov-blocking", "settings": run_settings }),
+    ));
+    let on_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "prov-blocking" })));
+    let ads_url = proving_ground.url("clean-up.test", "/ads");
+    let loaded = result(engine.ask(
+        3,
+        "page.goto",
+        &json!({ "page_id": on_page.page_id, "url": ads_url }),
+    ));
+    assert_eq!(loaded["response"]["status"], json!(200));
+
+    let off_session = result(engine.ask(
+        4,
+        "run.new_session",
+        &json!({
+            "run_id": "prov-blocking",
+            "settings": {
+                "filter_lists": { "ads": false, "trackers": false, "annoyances": false }
+            },
+        }),
+    ));
+    let off_page = opened(&engine.ask(
+        5,
+        "session.new_page",
+        &json!({ "session_id": off_session["session_id"] }),
+    ));
+    let loaded_off = result(engine.ask(
+        6,
+        "page.goto",
+        &json!({ "page_id": off_page.page_id, "url": ads_url }),
+    ));
+    assert_eq!(loaded_off["response"]["status"], json!(200));
+    result(engine.ask(7, "run.finish", &json!({ "run_id": "prov-blocking" })));
+    let _ = engine.finish();
+
+    let entries = provenance_action(env.home(), "prov-blocking", "page_blocking");
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    assert_eq!(entries[0]["blocking"], json!(true));
+    assert_eq!(entries[0]["clean_up_rules"], json!(EMBEDDED));
+    assert_eq!(entries[0]["blocked_requests"], json!(3));
+    assert_eq!(entries[1]["blocking"], json!(false));
+    assert_eq!(entries[1]["clean_up_rules"], Value::Null);
+    assert_eq!(entries[1]["blocked_requests"], json!(0));
 }

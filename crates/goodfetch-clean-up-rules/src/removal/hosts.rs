@@ -217,10 +217,7 @@ impl Host {
         let mut excepted: HashMap<usize, ListSet> = HashMap::new();
         let mut removal_excepted: HashMap<usize, ListSet> = HashMap::new();
         let mut exceptions = Vec::new();
-        for (list, engine) in lists.engines() {
-            if !key.on.contains(list) {
-                continue;
-            }
+        for (list, engine) in lists.on(key.on) {
             let resources = engine.url_cosmetic_resources(url);
             let removal_resources = lists
                 .removal_only(list)

@@ -281,6 +281,23 @@ const PAGES_RANGE: &str = "192.0.2.0/24";
 /// egress policy refuses it.
 const REFUSED: &str = "http://198.51.100.7/pixel.png";
 
+/// A tracker script each page loads on the pages' allowed address: EasyPrivacy
+/// blocks it when Filter lists are on, and leaves it alone when all lists are
+/// off.
+const LIST_BLOCKED: &str = "http://192.0.2.1/js/adobe-analytics.js";
+
+/// A script each page loads that EasyPrivacy redirects to its Chartbeat
+/// stand-in when Filter lists are on, and leaves alone when all lists are off.
+const STAND_IN: &str = "https://static.chartbeat.com/js/chartbeat.js";
+
+/// Host mapped to the pages' allowed address in `network.resolve` so B2 never
+/// touches DNS while testing stand-in redirection.
+const STAND_IN_HOST: &str = "static.chartbeat.com";
+
+/// A plain image on the pages' allowed address: allowed by the Filter lists,
+/// blocked only when `browser.block_resources` includes `image`.
+const ALLOWED_IMAGE: &str = "http://192.0.2.1/img/photo.gif";
+
 /// The guard's check and its disarm, as the engine sends them: the browser
 /// answers each by its source.
 const CHECK: &str = include_str!("../src/guard/check.js");
@@ -346,6 +363,11 @@ pub(crate) struct Counted {
     pub(crate) paused: u64,
     /// The requests the browser was told to fail, each once.
     pub(crate) refused: u64,
+    /// The requests the browser was told to continue (`Fetch.continueRequest`).
+    pub(crate) continued: u64,
+    /// The requests the browser was told to fulfill with a stand-in
+    /// (`Fetch.fulfillRequest`).
+    pub(crate) fulfilled: u64,
     /// The requests the browser was told to continue with a `Signature`
     /// header, each once.
     pub(crate) signed: u64,
@@ -481,6 +503,8 @@ struct Units {
     requests: AtomicU64,
     paused: AtomicU64,
     refused: AtomicU64,
+    continued: AtomicU64,
+    fulfilled: AtomicU64,
     /// The requests continued with a `Signature` header, which no row is
     /// held per.
     signed: AtomicU64,
@@ -618,16 +642,30 @@ impl Requests {
             "Fetch.continueResponse" if request.kind == "Document" => {
                 let url = request.url.clone();
                 let mut events = navigated(&url, &request.network_id);
-                // The page's image, before its `load`.
-                let image = self.pause(REFUSED, "Image", &url, units);
+                // The page's subresources, before its `load`: an egress-refused
+                // image, a Filter-list-blocked script, a redirect stand-in
+                // script, and a plain image that `browser.block_resources`
+                // blocks when configured.
+                let subresources = [
+                    (REFUSED, "Image"),
+                    (LIST_BLOCKED, "Script"),
+                    (STAND_IN, "Script"),
+                    (ALLOWED_IMAGE, "Image"),
+                ];
                 let at = events
                     .iter()
                     .position(|event| event["params"]["name"] == "load")
                     .expect("invariant: a navigation loads");
                 let load = events.split_off(at);
-                events.extend(image);
+                for (sub_url, kind) in subresources {
+                    events.extend(self.pause(sub_url, kind, &url, units));
+                }
                 events.extend(load);
                 events
+            }
+            "Fetch.fulfillRequest" => {
+                units.fulfilled.fetch_add(1, Ordering::Relaxed);
+                Vec::new()
             }
             "Fetch.failRequest" if !request.failed => {
                 request.failed = true;
@@ -876,8 +914,11 @@ fn moved_on(method: &str, params: &Value, requests: &mut Requests, units: &Units
         }
         return requests.pause(url, "Document", url, units);
     }
-    if method == "Fetch.continueRequest" && signed(params) {
-        units.signed.fetch_add(1, Ordering::Relaxed);
+    if method == "Fetch.continueRequest" {
+        units.continued.fetch_add(1, Ordering::Relaxed);
+        if signed(params) {
+            units.signed.fetch_add(1, Ordering::Relaxed);
+        }
     }
     match params["requestId"].as_str() {
         Some(id) if method.starts_with("Fetch.") => requests.answered(method, id, units),
@@ -1968,6 +2009,10 @@ pub(crate) fn counted(
         "egress".to_owned(),
         json!({ "private_ranges": [PAGES_RANGE] }),
     );
+    settings.insert(
+        "network".to_owned(),
+        json!({ "resolve": { STAND_IN_HOST: ["192.0.2.1"] } }),
+    );
     let work = metrics.counted_work().clone();
     // The pool reads its scripted browser's memory from this process's.
     let (launcher, started) = Launcher::scripted(Some(std::process::id()));
@@ -2053,6 +2098,8 @@ pub(crate) fn counted(
         requests,
         paused,
         refused,
+        continued: heard.units.continued.load(Ordering::Relaxed),
+        fulfilled: heard.units.fulfilled.load(Ordering::Relaxed),
         signed: heard.units.signed.load(Ordering::Relaxed),
         frames,
         work,

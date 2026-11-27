@@ -14,7 +14,7 @@ use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::{Request, StatusCode, Uri};
 
-use crate::egress::{ConfiguredKind, Refused};
+use crate::egress::{ConfiguredKind, Gate, Policy, Refused, RequestKind};
 use crate::http_client::{self, EndpointFailure};
 use crate::pinned_download::{Fetching, USER_AGENT};
 
@@ -86,14 +86,52 @@ pub async fn get(
     fetching: &Fetching,
     limit: usize,
 ) -> Result<Fetched, SourceFailure> {
+    get_inner(url, headers, fetching, None, false, limit).await
+}
+
+/// GETs a `filter_lists.extra` URL (`http` or `https`) under `fetching`
+/// (ADR 0047): when `page_policy` is `None` (Operator policy, user or project
+/// configuration), judged as an Operator-configured endpoint; when `Some`,
+/// judged as a page-reachable address under that Run's egress policy.
+///
+/// # Errors
+///
+/// As [`SourceFailure`] says.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes the connection.
+pub async fn get_extra(
+    url: &str,
+    fetching: &Fetching,
+    page_policy: Option<&Policy>,
+    limit: usize,
+) -> Result<Fetched, SourceFailure> {
+    get_inner(url, &[], fetching, page_policy, true, limit).await
+}
+
+async fn get_inner(
+    url: &str,
+    headers: &[(&str, String)],
+    fetching: &Fetching,
+    page_policy: Option<&Policy>,
+    allow_http: bool,
+    limit: usize,
+) -> Result<Fetched, SourceFailure> {
     if fetching.offline.is_some() {
         return Err(SourceFailure::Offline);
     }
-    let first = parse(url)?;
+    let first = parse(url, allow_http)?;
     let mut uri = first.clone();
     for _ in 0..=MAX_REDIRECTS {
         let own_host = uri.host() == first.host();
-        let mut response = send(&uri, if own_host { headers } else { &[] }, fetching).await?;
+        let mut response = send(
+            &uri,
+            if own_host { headers } else { &[] },
+            fetching,
+            page_policy,
+        )
+        .await?;
         let host = uri.host().unwrap_or_default().to_owned();
         if response.status.is_redirection() && response.status != StatusCode::NOT_MODIFIED {
             let location = response
@@ -101,7 +139,7 @@ pub async fn get(
                 .get(hyper::header::LOCATION)
                 .and_then(|location| location.to_str().ok())
                 .ok_or_else(|| SourceFailure::Redirects { host: host.clone() })?;
-            uri = parse(&joined(&uri, location))?;
+            uri = parse(&joined(&uri, location), allow_http)?;
             continue;
         }
         let authenticate = response
@@ -131,12 +169,14 @@ pub async fn get(
     })
 }
 
-/// `url` read as an `https` URL with a host.
-fn parse(url: &str) -> Result<Uri, SourceFailure> {
+/// `url` read as an `https` (or `http` when `allow_http`) URL with a host.
+fn parse(url: &str, allow_http: bool) -> Result<Uri, SourceFailure> {
     let uri: Uri = url
         .parse()
         .map_err(|_| SourceFailure::NotHttps(url.to_owned()))?;
-    if uri.scheme_str() != Some("https") || uri.host().is_none_or(str::is_empty) {
+    let scheme_ok =
+        uri.scheme_str() == Some("https") || (allow_http && uri.scheme_str() == Some("http"));
+    if !scheme_ok || uri.host().is_none_or(str::is_empty) {
         return Err(SourceFailure::NotHttps(url.to_owned()));
     }
     Ok(uri)
@@ -147,13 +187,14 @@ fn joined(base: &Uri, location: &str) -> String {
     if location.starts_with("https://") || location.starts_with("http://") {
         return location.to_owned();
     }
+    let scheme = base.scheme_str().unwrap_or("https");
     let authority = base.authority().map_or("", |authority| authority.as_str());
     if location.starts_with('/') {
-        return format!("https://{authority}{location}");
+        return format!("{scheme}://{authority}{location}");
     }
     let path = base.path();
     let folder = path.rsplit_once('/').map_or("", |(folder, _)| folder);
-    format!("https://{authority}{folder}/{location}")
+    format!("{scheme}://{authority}{folder}/{location}")
 }
 
 /// Sends one GET of `uri` with `headers`.
@@ -161,6 +202,7 @@ async fn send(
     uri: &Uri,
     headers: &[(&str, String)],
     fetching: &Fetching,
+    page_policy: Option<&Policy>,
 ) -> Result<http_client::Response, SourceFailure> {
     let host = uri
         .host()
@@ -175,11 +217,16 @@ async fn send(
         request = request.header(*name, value.as_str());
     }
     let request = request.body(Empty::<Bytes>::new()).map_err(|_| failed())?;
-    // A source is an Operator-configured endpoint (ADRs 0017 and 0047):
-    // `egress.no_private_endpoints` judges where it resolves.
-    fetching
-        .endpoint(ConfiguredKind::CleanUpRulesSource)
-        .send(request)
+    let endpoint = fetching.endpoint(ConfiguredKind::CleanUpRulesSource);
+    let gate = match page_policy {
+        Some(policy) => Gate::Session {
+            policy,
+            kind: RequestKind::Page,
+        },
+        None => Gate::Endpoint(fetching.endpoints),
+    };
+    endpoint
+        .send_gated(request, gate)
         .await
         .map_err(|failure| match failure {
             EndpointFailure::Refused(refused) => SourceFailure::Refused(refused),

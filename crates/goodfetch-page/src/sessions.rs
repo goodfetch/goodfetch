@@ -659,6 +659,7 @@ impl Sessions {
                 (relay.is_some(), proxy.is_some()),
                 signing,
                 gpc.header_only(),
+                identity.mode == crate::access_mode::AccessMode::Identified,
             );
             let open = Arc::new(Session {
                 owner,
@@ -840,6 +841,7 @@ impl Sessions {
             (relay.is_some(), proxy.is_some()),
             signing,
             gpc.header_only(),
+            identity.mode == crate::access_mode::AccessMode::Identified,
         );
         let held = Arc::new(Session {
             owner,
@@ -1961,10 +1963,10 @@ async fn reopened_session(
         context,
     )
     .await;
-    let ((signing, fingerprint), reopen_failed) =
+    let ((signing, fingerprint, identified), reopen_failed) =
         match reopened_identity(run, &settings, borrowed.is_some(), context).await {
             Ok(identity) => (identity, reopen_failed),
-            Err(error) => ((None, None), reopen_failed.or(Some(error))),
+            Err(error) => ((None, None, false), reopen_failed.or(Some(error))),
         };
     let session = session_id(run.identity.id(), position);
     let gpc = GpcPlan::of(
@@ -1998,6 +2000,7 @@ async fn reopened_session(
         (relay.is_some(), proxy.is_some()),
         signing,
         gpc.header_only(),
+        identified,
     );
     warn_gpc(run, &session, gpc).await;
     Ok(Session {
@@ -2323,13 +2326,14 @@ async fn reopened_identity(
     settings: &Values,
     borrowed: bool,
     context: &CallContext,
-) -> Result<(Option<Arc<RequestSigner>>, Option<FingerprintPlan>), CallError> {
+) -> Result<(Option<Arc<RequestSigner>>, Option<FingerprintPlan>, bool), CallError> {
     if borrowed {
-        return Ok((None, None));
+        return Ok((None, None, false));
     }
     let identity = access_mode_opens(settings, &run.identity, None, context).await?;
+    let identified = identity.mode == crate::access_mode::AccessMode::Identified;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
-    Ok((signing, FingerprintPlan::of(&identity)))
+    Ok((signing, FingerprintPlan::of(&identity), identified))
 }
 
 /// Takes a seat in `pool`: a Borrowed seat when `borrowed` names a browser,
@@ -2408,6 +2412,7 @@ fn session_interception(
     (relayed, proxied): (bool, bool),
     signing: Option<Arc<RequestSigner>>,
     send_gpc_header: bool,
+    identified: bool,
 ) -> Arc<SessionInterception> {
     let lookups = held_browser(borrowed, relayed, proxied).map(|browser| {
         Lookups::new(
@@ -2420,6 +2425,7 @@ fn session_interception(
         lookups,
         signing,
         send_gpc_header,
+        identified,
     ))
 }
 

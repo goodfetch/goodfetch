@@ -1278,18 +1278,7 @@ impl Pages {
             accounts: false,
         };
         if let Destination::Url(url) = destination {
-            match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
-                egress::Destination::JavaScript => {
-                    let document = page_reads::document_url(&CdpPage::of(&page.driver)).await?;
-                    page.owner.interception().judge_javascript(url, &document)?;
-                }
-                egress::Destination::Network if charge == Charge::OneRequest => {
-                    charge_request(&page.run, context).await?;
-                }
-                egress::Destination::Network
-                | egress::Destination::Blank
-                | egress::Destination::Local => {}
-            }
+            check_destination(&page, url, navigator, charge, context).await?;
         }
         let _files = navigator
             .reads_files()
@@ -1297,6 +1286,7 @@ impl Pages {
         let events = context.events();
         let deadline = page.driver.navigation_deadline(timeout)?;
         let blocked_before = page.owner.interception().lists_blocked();
+        let applied_scriptlets = prepare_navigation_scriptlets(&page, destination).await;
         if navigating == Navigating::Program {
             page.sending(destination.operation()).await?;
         }
@@ -1365,6 +1355,14 @@ impl Pages {
         // A consent wall the runner found on the navigation's document is
         // the navigation's, once the runner judged it (ADR 0048).
         self.consent_verdict(page_id, &page, true).await?;
+        record_navigation_provenance(
+            page_id,
+            &page,
+            &navigated,
+            blocked_before,
+            applied_scriptlets,
+        )
+        .await;
         self.sessions.persist_page_state(&page).await;
         Ok(navigated)
     }
@@ -1937,5 +1935,135 @@ impl Pages {
             values: read.values,
             unread: read.unread,
         })
+    }
+}
+
+/// Judges `url`'s scheme and charges a network navigation under `charge`.
+async fn check_destination(
+    page: &OpenPage,
+    url: &str,
+    navigator: Navigator,
+    charge: Charge,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
+        egress::Destination::JavaScript => {
+            let document = page_reads::document_url(&CdpPage::of(&page.driver)).await?;
+            page.owner.interception().judge_javascript(url, &document)?;
+        }
+        egress::Destination::Network if charge == Charge::OneRequest => {
+            charge_request(&page.run, context).await?;
+        }
+        egress::Destination::Network | egress::Destination::Blank | egress::Destination::Local => {}
+    }
+    Ok(())
+}
+
+/// Installs matching Filter-list scriptlets for `destination` when
+/// `filter_lists.page_scriptlets` is enabled on `page`.
+async fn prepare_navigation_scriptlets(
+    page: &OpenPage,
+    destination: Destination<'_>,
+) -> Option<crate::interception::AppliedScriptlets> {
+    match destination {
+        Destination::Url(url) => {
+            page.owner
+                .interception()
+                .prepare_page_scriptlets(&CdpPage::of(&page.driver), url)
+                .await
+        }
+        _ => None,
+    }
+}
+
+/// Records Filter-list blocking and scriptlet Provenance for `navigated`.
+async fn record_navigation_provenance(
+    page_id: &PageId,
+    page: &OpenPage,
+    navigated: &Navigated,
+    blocked_before: u64,
+    applied_scriptlets: Option<crate::interception::AppliedScriptlets>,
+) {
+    record_page_blocking(page_id, page, navigated, blocked_before).await;
+    record_page_scriptlets(page_id, page, navigated, applied_scriptlets).await;
+}
+
+/// Records in Provenance whether Filter-list blocking was on for `navigated`'s
+/// document, which Clean-up rules version applied, and how many requests the
+/// Filter lists blocked during its load (ADR 0047).
+async fn record_page_blocking(
+    page_id: &PageId,
+    page: &OpenPage,
+    navigated: &Navigated,
+    blocked_before: u64,
+) {
+    let Some(response) = &navigated.response else {
+        return;
+    };
+    let interception = page.owner.interception();
+    let blocking = interception.lists_for(&response.url) == crate::interception::Lists::On;
+    let blocked_requests = if blocking {
+        interception.lists_blocked().saturating_sub(blocked_before)
+    } else {
+        0
+    };
+    trace::provenance(
+        &page.run.trace,
+        serde_json::json!({
+            "action": "page_blocking",
+            "page_id": page_id,
+            "session_id": &page.session,
+            "url": &response.url,
+            "blocking": blocking,
+            "clean_up_rules": blocking.then(|| interception.blocking_version()).flatten(),
+            "blocked_requests": blocked_requests,
+        }),
+    )
+    .await;
+}
+
+/// Records in Provenance the Filter-list scriptlets installed for `navigated`'s
+/// document, attributing extra-list scriptlets to the configuration layer that
+/// set `filter_lists.extra` (ADR 0047).
+async fn record_page_scriptlets(
+    page_id: &PageId,
+    page: &OpenPage,
+    navigated: &Navigated,
+    applied: Option<crate::interception::AppliedScriptlets>,
+) {
+    let (Some(response), Some(applied)) = (&navigated.response, applied) else {
+        return;
+    };
+    if !applied.built_in.is_empty() {
+        trace::provenance(
+            &page.run.trace,
+            serde_json::json!({
+                "action": "page_scriptlets",
+                "page_id": page_id,
+                "session_id": &applied.session_id,
+                "url": &response.url,
+                "source": "filter_lists",
+                "invocations": applied.built_in,
+            }),
+        )
+        .await;
+    }
+    if !applied.extra.is_empty()
+        && let Some(layer) = applied.extra_layer
+    {
+        trace::provenance(
+            &page.run.trace,
+            serde_json::json!({
+                "action": "page_scriptlets",
+                "page_id": page_id,
+                "session_id": &applied.session_id,
+                "url": &response.url,
+                "source": "extra",
+                "configured_by": layer.as_str(),
+                "layer": layer,
+                "invocations": applied.extra,
+            }),
+        )
+        .await;
     }
 }

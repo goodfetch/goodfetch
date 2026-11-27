@@ -326,6 +326,55 @@ const FRAMED: &str = "<!DOCTYPE html>
 </html>
 ";
 
+/// `/extra-list.txt`: an extra Filter list blocking `/js/extra-only.js`,
+/// declaring a live `+js(set, ...)` scriptlet, and holding an EasyList Cookie
+/// section whose network rule and scriptlet must stay inactive.
+const EXTRA_LIST: &[u8] = b"! Proving ground extra Filter list\n/js/extra-only.js\nclean-up.test##+js(set, __goodfetchExtraScriptlet, from_extra)\n! *** easylist:easylist_cookie/easylist_cookie_general_hide.txt ***\n/js/cookie-section-only.js\nclean-up.test##+js(set, __goodfetchCookieScriptlet, leaked)\n";
+
+/// `/extra`: loads its own script, `/js/extra-only.js` (blocked by
+/// `/extra-list.txt`), and `/js/cookie-section-only.js` (must load because
+/// cookie sections never block).
+const EXTRA_PAGE: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>Extra Filter list page</title>
+<script src=\"/js/site.js\"></script>
+<script src=\"/js/extra-only.js\"></script>
+<script src=\"/js/cookie-section-only.js\"></script>
+</head>
+<body>
+<main>
+<h1>Extra Filter list page</h1>
+<p>Checks that an extra list blocks its rule while cookie sections stay inactive.</p>
+</main>
+</body>
+</html>
+";
+
+/// `/scriptlet`: reads the scriptlet markers synchronously during parse so a
+/// test proves `+js(...)` ran before the page's own scripts.
+const SCRIPTLET_PAGE: &str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+<meta charset=\"utf-8\">
+<title>Page scriptlets</title>
+</head>
+<body>
+<main>
+<h1>Page scriptlets</h1>
+<p id=\"result\"></p>
+<script>
+const extra = window.__goodfetchExtraScriptlet ?? \"none\";
+const cookie = window.__goodfetchCookieScriptlet ?? \"none\";
+const builtIn = window.__goodfetchBuiltInScriptlet ?? \"none\";
+document.getElementById(\"result\").textContent = `extra=${extra};cookie=${cookie};builtin=${builtIn}`;
+</script>
+</main>
+</body>
+</html>
+";
+
 /// A live-hiding page with its report sent to `report`.
 fn reporting(page: &str, report: &str) -> String {
     page.replace("REPORT_SCRIPT", &REPORT.replace("REPORT", report))
@@ -356,6 +405,9 @@ pub(crate) fn respond(name: &str, request: &Request<'_>) -> Option<Reply> {
     Some(match path {
         "/cross-site" => Reply::html(CROSS_SITE.to_owned()),
         "/ads" => Reply::html(ADS.to_owned()),
+        "/extra" => Reply::html(EXTRA_PAGE.to_owned()),
+        "/extra-list.txt" => asset("text/plain; charset=utf-8", EXTRA_LIST),
+        "/scriptlet" => Reply::html(SCRIPTLET_PAGE.to_owned()),
         "/challenge" => Reply::html(CHALLENGE.to_owned()),
         "/stand-in" => Reply::html(STAND_IN.to_owned()),
         "/hiding" => Reply::html(reporting(HIDING, "/hiding/seen")),

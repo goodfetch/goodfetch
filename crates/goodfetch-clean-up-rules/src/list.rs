@@ -1,7 +1,7 @@
 //! The embedded Filter lists, one by one, and sets of them: what the other
 //! modules name a list by, and credit a rule to.
 
-/// One of the embedded Filter lists.
+/// One Filter list (built-in or from `filter_lists.extra`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum List {
@@ -11,6 +11,8 @@ pub enum List {
     Trackers,
     /// Fanboy Annoyance (`filter_lists.annoyances`).
     Annoyances,
+    /// User-configured extra Filter lists (`filter_lists.extra`).
+    Extra,
 }
 
 impl List {
@@ -21,13 +23,17 @@ impl List {
             Self::Ads => "ads",
             Self::Trackers => "trackers",
             Self::Annoyances => "annoyances",
+            Self::Extra => "extra",
         }
     }
 }
 
-/// The lists, in the order a selector held by several is credited to the
-/// first.
+/// The three built-in lists, in the order a selector held by several is
+/// credited to the first.
 pub(crate) const LISTS: [List; 3] = [List::Ads, List::Trackers, List::Annoyances];
+
+/// Every list, built-in first and `filter_lists.extra` after.
+pub(crate) const ALL_LISTS: [List; 4] = [List::Ads, List::Trackers, List::Annoyances, List::Extra];
 
 /// A set of the Filter lists, one bit each.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -39,6 +45,7 @@ impl ListSet {
             List::Ads => 1,
             List::Trackers => 2,
             List::Annoyances => 4,
+            List::Extra => 8,
         }
     }
 
@@ -62,13 +69,15 @@ impl ListSet {
         Self(self.0 & !other.0)
     }
 
-    /// The first of the set's lists, in [`LISTS`]'s order.
+    /// The first of the set's lists, in [`ALL_LISTS`]'s order.
     pub(crate) fn first(self) -> Option<List> {
-        LISTS.into_iter().find(|list| self.contains(*list))
+        ALL_LISTS.into_iter().find(|list| self.contains(*list))
     }
 
-    /// The set's lists, in [`LISTS`]'s order.
+    /// The set's lists, in [`ALL_LISTS`]'s order.
     pub(crate) fn lists(self) -> impl Iterator<Item = List> {
-        LISTS.into_iter().filter(move |list| self.contains(*list))
+        ALL_LISTS
+            .into_iter()
+            .filter(move |list| self.contains(*list))
     }
 }

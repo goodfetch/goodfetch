@@ -22,4 +22,5 @@ pub mod matching;
 pub mod never_block;
 pub mod removal;
 pub mod rules;
+mod scriptlets;
 mod stand_ins;

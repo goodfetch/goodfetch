@@ -419,13 +419,14 @@ fn a_session_counts_each_intercepted_requests_work() {
         requests,
         paused,
         refused,
+        fulfilled,
         work,
         ..
     } = run(None);
 
     assert!(
-        refused > 0 && requests > refused && paused > requests,
-        "{requests} requests, {paused} pauses, {refused} refused"
+        refused == 6 && fulfilled == 3 && requests > refused && paused > requests,
+        "{requests} requests, {paused} pauses, {refused} refused, {fulfilled} stand-ins"
     );
     assert_eq!(
         [
@@ -442,6 +443,81 @@ fn a_session_counts_each_intercepted_requests_work() {
     );
 }
 
+/// A Session with `browser.block_resources: ["image"]` blocks every allowed
+/// image beside the Filter lists' blocks and stand-ins, with zero spawns,
+/// zero file opens and zero compilations per request (C5).
+#[test]
+fn a_session_with_block_resources_blocks_its_images_with_no_compilations_or_spawns() {
+    let settings = Map::from_iter([(
+        "browser".to_owned(),
+        json!({ "block_resources": ["image"] }),
+    )]);
+    let Counted {
+        requests,
+        paused,
+        refused,
+        fulfilled,
+        work,
+        ..
+    } = run_with(settings, None);
+
+    assert_eq!((refused, fulfilled), (9, 3));
+    assert_eq!(
+        [
+            Row::InterceptedFetchMessages,
+            Row::InterceptedAnswers,
+            Row::InterceptedMatches,
+            Row::InterceptedSpawns,
+            Row::InterceptedEntries,
+            Row::InterceptedFileOpens,
+            Row::InterceptedCompilations,
+        ]
+        .map(|row| work.read(row)),
+        [2 * paused + 1, paused, requests, 0, refused, 0, 0]
+    );
+}
+
+/// With every Filter list and `browser.block_resources` off, nothing is
+/// matched against the lists, no stand-in is answered and zero compilations
+/// happen (C5).
+#[test]
+fn an_all_off_session_counts_no_filter_list_matches_or_stand_ins() {
+    let settings = Map::from_iter([
+        (
+            "filter_lists".to_owned(),
+            json!({
+                "ads": false,
+                "trackers": false,
+                "annoyances": false,
+                "first_party_scripts": false,
+            }),
+        ),
+        ("browser".to_owned(), json!({ "block_resources": [] })),
+    ]);
+    let Counted {
+        paused,
+        refused,
+        fulfilled,
+        work,
+        ..
+    } = run_with(settings, None);
+
+    assert_eq!((refused, fulfilled), (3, 0));
+    assert_eq!(
+        [
+            Row::InterceptedFetchMessages,
+            Row::InterceptedAnswers,
+            Row::InterceptedMatches,
+            Row::InterceptedSpawns,
+            Row::InterceptedEntries,
+            Row::InterceptedFileOpens,
+            Row::InterceptedCompilations,
+        ]
+        .map(|row| work.read(row)),
+        [2 * paused + 1, paused, 0, 0, refused, 0, 0]
+    );
+}
+
 /// An `identified` Session signs each request it continues (#1551): its key
 /// was resolved as it opened, so signing compiles nothing and each pause is
 /// still answered once (C5). A Session that is not identified signs none.
@@ -453,12 +529,17 @@ fn an_identified_session_signs_each_request_with_one_answer_and_nothing_compiled
     let Counted {
         requests,
         paused,
+        continued,
+        fulfilled,
         signed,
         work,
         ..
     } = run_in(Browsers::Pool, identified(), None);
 
-    assert!(requests > 0, "the Session paused no request");
+    assert!(
+        requests > 0 && continued > 0 && fulfilled == 3,
+        "requests={requests} continued={continued} fulfilled={fulfilled}"
+    );
     assert_eq!(
         (
             standard.signed,
@@ -466,7 +547,7 @@ fn an_identified_session_signs_each_request_with_one_answer_and_nothing_compiled
             work.read(Row::InterceptedAnswers),
             work.read(Row::InterceptedCompilations),
         ),
-        (0, requests, paused, 0)
+        (0, continued, paused, 0)
     );
 }
 

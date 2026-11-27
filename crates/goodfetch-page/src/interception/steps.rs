@@ -66,6 +66,7 @@ impl Blocking {
                 ads: false,
                 trackers: false,
                 annoyances: false,
+                extra: false,
                 ..self.choices.clone()
             },
             work: self.work.clone(),

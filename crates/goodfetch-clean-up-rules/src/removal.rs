@@ -256,8 +256,7 @@ fn class_and_id_rules(
     if !host.exceptions.is_empty() {
         let (classes, ids) = classes_and_ids(roots.iter().map(|(root, _)| root));
         for (list, live_cid, rem_cid, exceptions) in &host.exceptions {
-            if *live_cid {
-                let engine = lists.engine(*list);
+            if *live_cid && let Some(engine) = lists.engine_of(*list) {
                 rules.extend(
                     engine
                         .hidden_class_id_selectors(classes.iter(), ids.iter(), exceptions)

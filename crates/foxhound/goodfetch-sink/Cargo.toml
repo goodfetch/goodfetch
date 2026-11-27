@@ -35,10 +35,14 @@ mysql_async.workspace = true
 # Object-store Sinks (S3, GCS, Azure Blob) in Files mode (ADR 0026).
 object_store = { workspace = true, features = ["aws", "gcp", "azure"] }
 rusqlite.workspace = true
+# SFTP and FTP Files-mode Sinks (ADR 0026; issue 1159).
+russh.workspace = true
+russh-sftp.workspace = true
 # A destination's resolved Secret.
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+suppaftp.workspace = true
 thiserror.workspace = true
 # A Sink's driver opens once, whichever delivery reaches it first, and its
 # delivery task waits for a commit, a retry or its stop, whichever comes first.

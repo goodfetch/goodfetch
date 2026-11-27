@@ -1,0 +1,5 @@
+# The pinned FTP image the FTP Sink conformance tests run
+# (ADRs 0026 and 0043).
+repository = "docker.io/delfer/alpine-ftp-server"
+tag = "latest"
+digest = "sha256:8bb646a1dca7b0e796650c138c6318a369afa5a0399b8e6410188d245b7c7a5a"

@@ -627,6 +627,8 @@ fetch:
     ci/azurite/fetch.sh
     ci/postgres/fetch.sh
     ci/mariadb/fetch.sh
+    ci/sftp/fetch.sh
+    ci/ftp/fetch.sh
     ci/registry/fetch.sh
     ci/pypiserver/fetch.sh
 

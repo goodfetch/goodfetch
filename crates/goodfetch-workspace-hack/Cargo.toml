@@ -40,6 +40,7 @@ idna = { version = "1" }
 memchr = { version = "2" }
 minimal-lexical = { version = "0.2", default-features = false, features = ["std"] }
 nom = { version = "7", default-features = false, features = ["std"] }
+once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 phf_shared = { version = "0.11" }
 postcard = { version = "1", features = ["use-std"] }
@@ -48,7 +49,7 @@ proc-macro2 = { version = "1" }
 psl = { version = "2" }
 quick-xml = { version = "0.41" }
 quote = { version = "1" }
-rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", default-features = false, features = ["small_rng"] }
 regex = { version = "1" }
 regex-automata = { version = "0.4", default-features = false, features = ["dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8" }

@@ -16,6 +16,7 @@ pub mod dead_letters;
 mod driver;
 pub mod duckdb_sink;
 pub mod files;
+pub mod ftp;
 mod guarantee;
 pub mod mysql;
 pub mod object_store_sink;
@@ -24,6 +25,7 @@ pub mod report;
 mod run;
 pub mod schedule;
 pub mod schema;
+pub mod sftp;
 pub mod smtp_sink;
 mod sqlite;
 mod sync;
@@ -41,6 +43,7 @@ pub use files::{
     FilesConfig, FilesError, FilesSink, ParsedPartKey, PutOutcome, format_part_key, parse_part_key,
     part_extension,
 };
+pub use ftp::{FtpDestination, FtpSinkError, map_ftp_error};
 pub use guarantee::{meets, require};
 pub use mysql::{DEFAULT_MYSQL_TARGET, MySqlError, MySqlSink, map_mysql_error};
 pub use object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
@@ -51,6 +54,7 @@ pub use schedule::{
     PAUSE_AFTER, PauseReason, RetryDecision, RetryState, SCHEDULE, SinkNotification,
     SinkNotificationEvent, next_retry,
 };
+pub use sftp::{SftpDestination, SftpError, map_sftp_error};
 pub use smtp_sink::{SmtpError, SmtpSink, map_smtp_error};
 pub use sqlite::{SqliteError, SqliteSink};
 pub use throughput::{

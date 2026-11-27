@@ -862,12 +862,14 @@ fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
             | SinkType::Mysql
             | SinkType::Duckdb
             | SinkType::Smtp
+            | SinkType::Sftp
+            | SinkType::Ftp
     ) {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
     }
     if matches!(
         sink_type,
-        SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob
+        SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob | SinkType::Sftp | SinkType::Ftp
     ) {
         return sink
             .deliver

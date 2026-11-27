@@ -516,3 +516,36 @@ pub fn parse_part_key(
         through,
     })
 }
+
+/// Builds a [`GuaranteeClass::Keyed`] [`FileProbe`] from the listed relative
+/// part keys under `{prefix}/{run_id}/{sink_name}/`.
+#[must_use]
+pub fn probe_from_keys(
+    prefix: &str,
+    run: &RunCopy,
+    sink_name: &str,
+    keys: impl IntoIterator<Item = String>,
+) -> FileProbe {
+    let mut delivered: BTreeMap<String, u64> = BTreeMap::new();
+    let mut next_parts: BTreeMap<String, u64> = BTreeMap::new();
+    for key in keys {
+        if let Some(parsed) = parse_part_key(prefix, &run.run_id, sink_name, &key)
+            && parsed.run_epoch == run.run_epoch
+        {
+            delivered
+                .entry(parsed.dataset.clone())
+                .and_modify(|max| *max = (*max).max(parsed.through))
+                .or_insert(parsed.through);
+            next_parts
+                .entry(parsed.dataset)
+                .and_modify(|next| *next = (*next).max(parsed.part_number + 1))
+                .or_insert(parsed.part_number + 1);
+        }
+    }
+    FileProbe {
+        class: GuaranteeClass::Keyed,
+        delivered,
+        next_parts,
+        superseded_by: None,
+    }
+}

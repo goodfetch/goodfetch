@@ -20,9 +20,11 @@ use crate::contract::{Batch, Failure, Primitives, Probe, RunCopy, Written};
 use crate::driver::Driver;
 use crate::duckdb_sink::{DEFAULT_DUCKDB_TARGET, DuckDbError, DuckDbSink};
 use crate::files::{FilesConfig, FilesError, FilesSink};
+use crate::ftp::{FtpDestination, FtpSinkError};
 use crate::mysql::{DEFAULT_MYSQL_TARGET, MySqlError, MySqlSink};
 use crate::object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
 use crate::postgres::{DEFAULT_POSTGRES_TARGET, PostgresError, PostgresSink};
+use crate::sftp::{SftpDestination, SftpError};
 use crate::smtp_sink::{SmtpError, SmtpSink};
 use crate::sqlite::{SqliteError, SqliteSink};
 use crate::throughput::Throughput;
@@ -40,6 +42,8 @@ pub(super) enum BuiltInSink {
     MySql(MySqlSink),
     DuckDb(DuckDbSink),
     Smtp(SmtpSink),
+    Sftp(FilesSink<SftpDestination>),
+    Ftp(FilesSink<FtpDestination>),
 }
 
 /// Errors from any [`BuiltInSink`].
@@ -51,6 +55,8 @@ pub(super) enum BuiltInError {
     MySql(MySqlError),
     DuckDb(DuckDbError),
     Smtp(SmtpError),
+    Sftp(FilesError<SftpError>),
+    Ftp(FilesError<FtpSinkError>),
 }
 
 impl Primitives for BuiltInSink {
@@ -65,6 +71,8 @@ impl Primitives for BuiltInSink {
             Self::MySql(sink) => sink.probe(run).map_err(BuiltInError::MySql),
             Self::DuckDb(sink) => sink.probe(run).map_err(BuiltInError::DuckDb),
             Self::Smtp(sink) => sink.probe(run).map_err(BuiltInError::Smtp),
+            Self::Sftp(sink) => sink.probe(run).map_err(BuiltInError::Sftp),
+            Self::Ftp(sink) => sink.probe(run).map_err(BuiltInError::Ftp),
         }
     }
 
@@ -77,6 +85,8 @@ impl Primitives for BuiltInSink {
             Self::MySql(sink) => sink.write(batch).map_err(BuiltInError::MySql),
             Self::DuckDb(sink) => sink.write(batch).map_err(BuiltInError::DuckDb),
             Self::Smtp(sink) => sink.write(batch).map_err(BuiltInError::Smtp),
+            Self::Sftp(sink) => sink.write(batch).map_err(BuiltInError::Sftp),
+            Self::Ftp(sink) => sink.write(batch).map_err(BuiltInError::Ftp),
         }
     }
 
@@ -107,6 +117,12 @@ impl Primitives for BuiltInSink {
             Self::Smtp(sink) => sink
                 .write_with_timeout(batch, timeout)
                 .map_err(BuiltInError::Smtp),
+            Self::Sftp(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::Sftp),
+            Self::Ftp(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::Ftp),
         }
     }
 
@@ -119,6 +135,8 @@ impl Primitives for BuiltInSink {
             Self::MySql(sink) => sink.finish(run).map_err(BuiltInError::MySql),
             Self::DuckDb(sink) => sink.finish(run).map_err(BuiltInError::DuckDb),
             Self::Smtp(sink) => sink.finish(run).map_err(BuiltInError::Smtp),
+            Self::Sftp(sink) => sink.finish(run).map_err(BuiltInError::Sftp),
+            Self::Ftp(sink) => sink.finish(run).map_err(BuiltInError::Ftp),
         }
     }
 
@@ -131,6 +149,8 @@ impl Primitives for BuiltInSink {
             Self::MySql(sink) => sink.dedup_window(),
             Self::DuckDb(sink) => sink.dedup_window(),
             Self::Smtp(sink) => sink.dedup_window(),
+            Self::Sftp(sink) => sink.dedup_window(),
+            Self::Ftp(sink) => sink.dedup_window(),
         }
     }
 
@@ -143,6 +163,8 @@ impl Primitives for BuiltInSink {
             (Self::MySql(sink), BuiltInError::MySql(err)) => sink.map_failure(err),
             (Self::DuckDb(sink), BuiltInError::DuckDb(err)) => sink.map_failure(err),
             (Self::Smtp(sink), BuiltInError::Smtp(err)) => sink.map_failure(err),
+            (Self::Sftp(sink), BuiltInError::Sftp(err)) => sink.map_failure(err),
+            (Self::Ftp(sink), BuiltInError::Ftp(err)) => sink.map_failure(err),
             _ => unreachable!("invariant: error matches its BuiltInSink variant"),
         }
     }
@@ -254,26 +276,13 @@ impl Destination<'_> {
                 throughput.batch.max_bytes = throughput.batch.max_bytes.min(max_bytes);
                 Ok(BuiltInSink::Webhook(webhook))
             }
-            Some(sink_type @ (SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob)) => {
-                let backend = match sink_type {
-                    SinkType::S3 => ObjectStoreBackend::S3,
-                    SinkType::Gcs => ObjectStoreBackend::Gcs,
-                    SinkType::AzureBlob => ObjectStoreBackend::AzureBlob,
-                    _ => unreachable!("invariant: matched above"),
-                };
-                let dest = ObjectStoreDestination::from_url(
-                    backend,
-                    self.name,
-                    &resolved_dest,
-                    self.settings.target.as_deref(),
-                )
-                .map_err(|err| err.to_string())?;
-                let config = FilesConfig::from_settings(self.settings.files.as_ref());
-                let prefix = self.settings.target.as_deref().unwrap_or_default();
-                Ok(BuiltInSink::ObjectStore(FilesSink::new(
-                    self.name, prefix, config, clock, dest,
-                )))
-            }
+            Some(
+                sink_type @ (SinkType::S3
+                | SinkType::Gcs
+                | SinkType::AzureBlob
+                | SinkType::Sftp
+                | SinkType::Ftp),
+            ) => self.open_files_sink(sink_type, &resolved_dest, clock),
             Some(SinkType::Postgres | SinkType::Supabase) => {
                 let table = self
                     .settings
@@ -317,6 +326,51 @@ impl Destination<'_> {
             other => Err(format!(
                 "Sink type `{other:?}` is not deliverable by this engine"
             )),
+        }
+    }
+
+    fn open_files_sink(
+        &self,
+        sink_type: SinkType,
+        resolved_dest: &str,
+        clock: Clock,
+    ) -> Result<BuiltInSink, String> {
+        let prefix = self.settings.target.as_deref().unwrap_or_default();
+        let config = FilesConfig::from_settings(self.settings.files.as_ref());
+        match sink_type {
+            SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob => {
+                let backend = match sink_type {
+                    SinkType::S3 => ObjectStoreBackend::S3,
+                    SinkType::Gcs => ObjectStoreBackend::Gcs,
+                    SinkType::AzureBlob => ObjectStoreBackend::AzureBlob,
+                    _ => unreachable!("invariant: matched above"),
+                };
+                let dest = ObjectStoreDestination::from_url(
+                    backend,
+                    self.name,
+                    resolved_dest,
+                    self.settings.target.as_deref(),
+                )
+                .map_err(|err| err.to_string())?;
+                Ok(BuiltInSink::ObjectStore(FilesSink::new(
+                    self.name, prefix, config, clock, dest,
+                )))
+            }
+            SinkType::Sftp => {
+                let dest = SftpDestination::from_url(self.name, resolved_dest, Some(prefix))
+                    .map_err(|err| err.to_string())?;
+                Ok(BuiltInSink::Sftp(FilesSink::new(
+                    self.name, prefix, config, clock, dest,
+                )))
+            }
+            SinkType::Ftp => {
+                let dest = FtpDestination::from_url(self.name, resolved_dest, Some(prefix))
+                    .map_err(|err| err.to_string())?;
+                Ok(BuiltInSink::Ftp(FilesSink::new(
+                    self.name, prefix, config, clock, dest,
+                )))
+            }
+            _ => unreachable!("invariant: open_files_sink called only for files SinkTypes"),
         }
     }
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Proves that the live audit's own tools still refuse a published advisory
-# (`just audit-live`, the daily Live check of ADR 0064), on fixtures under
+# (`just audit-live`, the Live check of ADR 0064), on fixtures under
 # ci/proofs/ that lock a vulnerable version: pnpm audit and pip-audit, which
 # read their registries' newest advisories online. The gate's tools, over
 # the pinned snapshot, have their proofs in ci/proofs/run.sh, which runs

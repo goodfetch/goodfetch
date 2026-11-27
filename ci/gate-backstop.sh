@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # `just gate-backstop [ref]`: the incremental gate's backstop (ADR 0135),
-# daily from the gate host's cron, on `main`'s head by default. In a gate
+# started by hand, since no cron or timer runs tests (ADR 0135's note of
+# 2026-11-26), on `main`'s head by default. In a gate
 # worktree of its own (ci/gate-worktree.sh's `gate-backstop`), so it never
 # holds `just merge`'s, it runs `just pre-merge all` in full
 # (`GOODFETCH_GATE_FULL=1`), then compares that run with each incremental
@@ -113,9 +114,9 @@ fi
 # The re-stress refuses a selected `lazyfs::` test without a LazyFS build (xtask's
 # `repeat`), and which tests it selects takes a build to find, so a run on Linux,
 # the one system LazyFS runs on, asks for one first, as `just merge`'s full gate
-# does. Cron's entry names it (ci/gate-backstop.crontab).
+# does.
 if [[ "$(uname -s)" == Linux && ! (-f ${GOODFETCH_LAZYFS:-} && -x ${GOODFETCH_LAZYFS:-}) ]]; then
-  echo "error: the backstop's re-stress needs GOODFETCH_LAZYFS to name an executable LazyFS build, and it is ${GOODFETCH_LAZYFS:-not set}; build one with \`just lazyfs-build\`, copy its target/lazyfs/bin/ outside every checkout and name it in the crontab (ci/gate-backstop.crontab)" >&2
+  echo "error: the backstop's re-stress needs GOODFETCH_LAZYFS to name an executable LazyFS build, and it is ${GOODFETCH_LAZYFS:-not set}; build one with \`just lazyfs-build\`, copy its target/lazyfs/bin/ outside every checkout and name its lazyfs executable in GOODFETCH_LAZYFS" >&2
   result "skipped (no LazyFS build: GOODFETCH_LAZYFS is ${GOODFETCH_LAZYFS:-not set})"
   exit 1
 fi

@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Sets up, on the gate host, the user the nightly fuzzing's untrusted steps
-# run as (TESTING.md, Fuzzing; `untrusted` in ci/fuzz-nightly.sh, #2564).
-# Run it once as the job's user, the one whose crontab holds the entry of
-# ci/fuzz-nightly.crontab, before that entry goes in; it needs sudo, and runs
-# again with nothing to change. It spends nothing.
+# Sets up, on the gate host, the user the fuzzing run's untrusted steps run
+# as (TESTING.md, Fuzzing; `untrusted` in ci/fuzz-nightly.sh, #2564). Run it
+# once as the user who runs `just fuzz-nightly`, before its first run; it
+# needs sudo, and runs again with nothing to change. It spends nothing.
 #
 #   - The system user GOODFETCH_FUZZ_USER (goodfetch-fuzz), in a group of its
 #     own, with no login shell, no password, no home and no sudo.

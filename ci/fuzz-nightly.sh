@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# `just fuzz-nightly [ref]`: the nightly fuzzing the gate host's cron starts
-# (TESTING.md, Fuzzing; the entry in ci/fuzz-nightly.crontab), on `main`'s
-# head by default, in a worktree of its own (ci/gate-worktree.sh's
-# `fuzz-nightly`, whose lock it takes).
+# `just fuzz-nightly [ref]`: the fuzzing run (TESTING.md, Fuzzing), started
+# by hand on the gate host, since no cron or timer runs tests (ADR 0135's
+# note of 2026-11-26), on `main`'s head by default, in a worktree of its own
+# (ci/gate-worktree.sh's `fuzz-nightly`, whose lock it takes).
 #
 # It runs every target of every fuzz crate (a tracked `fuzz/Cargo.toml` whose
 # package carries `cargo-fuzz = true`, as ci/fuzz-check.sh finds them) with

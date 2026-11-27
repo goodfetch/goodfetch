@@ -11,6 +11,7 @@ listeners.daemon_socket = { expect = "closed" }
 listeners.private_endpoint = { expect = "closed" }
 listeners.ops_listener = { expect = "status", status = 401 }
 listeners.daemon_websocket = { expect = "closed" }
+listeners.live_view = { expect = "closed" }
 listeners.exposed_daemon = { expect = "closed" }
 listeners.proxy_relay = { expect = "challenge" }
 "#;

@@ -42,6 +42,7 @@ mod inline_value;
 pub mod journey;
 pub mod jsonrpc;
 pub mod key_value_store;
+pub mod live_view;
 pub mod log;
 pub mod milliseconds;
 pub mod model;

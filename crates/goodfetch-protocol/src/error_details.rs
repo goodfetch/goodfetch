@@ -162,6 +162,7 @@ details! {
     crate::hostile_input::HeaderValueInvalidDetails => ErrorCode::HEADER_VALUE_INVALID,
     crate::hostile_input::PathUnsafeDetails => ErrorCode::PATH_UNSAFE,
     crate::key_value_store::ValueInvalidDetails => ErrorCode::VALUE_INVALID,
+    crate::live_view::LiveViewViewerLimitDetails => ErrorCode::LIVE_VIEW_VIEWER_LIMIT,
     crate::model::ModelUnavailableDetails => ErrorCode::MODEL_UNAVAILABLE,
     crate::notifications::WebhookInvalidDetails => ErrorCode::WEBHOOK_INVALID,
     crate::page::BodyNotFoundDetails => ErrorCode::BODY_NOT_FOUND,

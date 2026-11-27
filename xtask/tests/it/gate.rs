@@ -460,7 +460,7 @@ fn add_xtask(workspace: &Workspace, records: &Path) {
 }
 
 /// The steps of `plan` that run whatever a change reaches.
-const EVERY_RUN: [&str; 13] = [
+const EVERY_RUN: [&str; 14] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -470,6 +470,7 @@ const EVERY_RUN: [&str; 13] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -672,10 +673,11 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
 }
 
 /// The checks a run on the tree of their green result reuses.
-const TREE_ONLY: [&str; 5] = [
+const TREE_ONLY: [&str; 6] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
 ];
@@ -1384,7 +1386,7 @@ fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinis
 }
 
 /// The full form's steps the hosted tier owns (spec 3373's Step ownership):
-/// a finishing spec pull request's hosted run holds those its change
+/// a hosted run in the full form holds those its change
 /// reaches.
 const HOSTED_OWNED_FULL: [&str; 8] = [
     "visual",
@@ -1402,7 +1404,7 @@ const HOSTED_OWNED_FULL: [&str; 8] = [
 /// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
 /// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
 /// (#3382), and the Simulation, built under a cfg of its own (issue 359).
-const RUN_BY_THE_FULL_GATE: [&str; 16] = [
+const RUN_BY_THE_FULL_GATE: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1418,6 +1420,7 @@ const RUN_BY_THE_FULL_GATE: [&str; 16] = [
     "windows",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
 ];
 
@@ -1459,7 +1462,7 @@ fn preflight_run(workspace: &Workspace, records: &Path, ran: &mut Ran) -> Plan {
     preflight
 }
 
-/// The no-double-run walk of a finishing spec pull request (#3382):
+/// The no-double-run walk of a full gate's pull request (#3382):
 /// `just preflight` records the stress run and the counts on the head, the
 /// hosted run in the full form runs each hosted-owned step its change
 /// reaches, and `just merge`'s full gate reads both. It reuses every unit

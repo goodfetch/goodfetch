@@ -9,21 +9,25 @@
 //! only a Secret reference: a value given in its place is refused, so a
 //! secret is never written into a settings layer. The engine resolves the
 //! reference only to value a variable, and only for a Plugin whose
-//! manifest's `permissions.grants` holds `secret_value`, the value then
-//! joining the Run's mask as any resolved Secret does. Operator policy's
-//! approval of that grant is issue 900's.
+//! manifest's `permissions.grants` holds `secret_value` and whose Operator
+//! policy entry approves that reference's value (issue 900), the value
+//! then joining the Run's mask as any resolved Secret does and its release
+//! recorded in the Audit log.
 
 use std::collections::BTreeMap;
 
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::ValueKind;
+use goodfetch_protocol::plugin::approvals::{Approvals, PLUGIN_SECRET_VALUE_RELEASED, Permission};
 use goodfetch_protocol::plugin::settings::{PLUGINS, SECRET_KEYWORD};
 use goodfetch_protocol::plugin::{Grant, PluginManifest};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{SETTING_INVALID, SettingInvalidDetails, SettingsLayer};
 use secrecy::ExposeSecret as _;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
+use crate::audit::Origin;
 use crate::call_error::CallError;
 use crate::secrets::{Purpose, RunSecrets, SecretError};
 use crate::settings::{Resolved, SettingsError};
@@ -145,7 +149,9 @@ impl PluginSettings {
     /// declares, each valued from the field it names: a string as it is,
     /// another value as its JSON text, and none for a field left out or
     /// `null`. A secret field's reference is resolved by `secrets` for the
-    /// Run `run_id`, under its key, from `layer`.
+    /// Run `run_id`, under its key, from `layer`, only when the Operator
+    /// policy's `approved` covers its value, and each release is recorded
+    /// in the Audit log as `plugin_secret_value_released`.
     ///
     /// # Errors
     ///
@@ -153,7 +159,7 @@ impl PluginSettings {
     pub async fn environment(
         &self,
         name: &str,
-        manifest: &PluginManifest,
+        (manifest, approved): (&PluginManifest, &Approvals),
         secrets: &RunSecrets,
         (run_id, layer): (&RunId, Option<SettingsLayer>),
     ) -> Result<BTreeMap<String, String>, EnvironmentError> {
@@ -174,6 +180,12 @@ impl PluginSettings {
                     .as_str()
                     .and_then(|text| SecretReference::parse(text).ok())
                     .expect("invariant: a secret field holds a Secret reference once checked");
+                let released = Permission::SecretValue {
+                    reference: reference.as_str().to_owned(),
+                };
+                if !approved.covers(&released) {
+                    return Err(EnvironmentError::Denied(released));
+                }
                 let placeholder = key(name, &path);
                 let purpose = Purpose {
                     placeholder: &placeholder,
@@ -182,12 +194,30 @@ impl PluginSettings {
                     layer,
                     run_id: Some(run_id),
                 };
-                secrets
+                let text = secrets
                     .resolve(&reference, &purpose)
                     .await
                     .map_err(EnvironmentError::Secret)?
                     .expose_secret()
-                    .to_owned()
+                    .to_owned();
+                let origin = Origin {
+                    actor: Actor::Engine,
+                    surface: None,
+                    layer,
+                    run_id: Some(run_id.clone()),
+                };
+                let details = json!({ "plugin": name, "reference": reference.as_str() });
+                secrets
+                    .audit(&origin, &PLUGIN_SECRET_VALUE_RELEASED, details)
+                    .await
+                    .map_err(|source| {
+                        EnvironmentError::Secret(SecretError::Unrecorded {
+                            placeholder,
+                            reference,
+                            source,
+                        })
+                    })?;
+                text
             } else {
                 match value {
                     Value::String(text) => text.clone(),
@@ -248,7 +278,12 @@ pub enum EnvironmentError {
         /// The field.
         field: String,
     },
-    /// A secret field's reference gave no value.
+    /// The Operator policy has not approved the release of a secret field's
+    /// value to the Plugin: `plugin_permission_denied`.
+    #[error("the Operator policy has not approved its permission {0:?}")]
+    Denied(Permission),
+    /// A secret field's reference gave no value, or its release could not
+    /// be recorded.
     #[error(transparent)]
     Secret(SecretError),
 }

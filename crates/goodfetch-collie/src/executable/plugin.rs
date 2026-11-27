@@ -3,10 +3,15 @@
 //! prompt only, never as a command generated from the catalog. It asks at
 //! the terminal and calls `plugin.add` only when the person answers yes,
 //! with the project configuration found from the working folder upward,
-//! beside which the lockfile goes. Under `--json`, or when stdin is no
+//! beside which the lockfile goes. It then prints, once, each permission
+//! the Plugin's manifest declares with its limits, and asks the person to
+//! approve the Plugin and those permissions; a yes calls `plugin.add` again
+//! with `approve`, which writes them in the Operator policy, or prints the
+//! entry to add to a policy managed elsewhere (issue 900). Under `--json`, or when stdin is no
 //! terminal, as under a script, an agent or CI, it is refused with
 //! `person_required` before any engine call.
 
+use std::fmt::Write as _;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -14,9 +19,10 @@ use clap::Subcommand;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, find_project, project_settings};
 use goodfetch_engine::{Dependencies, Engine};
-use goodfetch_protocol::plugin::add::{PLUGIN_ADD, PluginAddParams};
+use goodfetch_protocol::plugin::add::{PLUGIN_ADD, PluginAddParams, PluginAdded, PluginApproval};
 use goodfetch_protocol::settings::ProjectSettings;
 
+use super::certs::forked;
 use super::daemon::Machine;
 use super::engine_choice::{EngineChoice, EngineFlags};
 use super::exit_codes;
@@ -72,10 +78,13 @@ pub(super) fn run(
 }
 
 /// Asks the person at the terminal to install the Plugin `reference` names
-/// and pin it, and calls `plugin.add` on `engine` when they answer yes.
+/// and pin it, and calls `plugin.add` on `engine` when they answer yes;
+/// then states each permission the Plugin's manifest declares, with its
+/// limits, once, and asks the person to approve the Plugin and those
+/// permissions, which a second `plugin.add` writes in the Operator policy.
 fn add(
     engine: &Engine,
-    dependencies: Dependencies,
+    mut dependencies: Dependencies,
     reach: &EngineChoice<'_>,
     reference: String,
     json: bool,
@@ -111,11 +120,63 @@ fn add(
         output::line("Nothing was installed.");
         return ExitCode::from(exit_codes::SUCCESS);
     }
-    let params = serde_json::to_value(PluginAddParams { reference, project })
-        .expect("invariant: the params serialize");
-    // A person-only command takes no `--json`: its failure prints on
-    // stderr, as every command's does.
-    match run_operation(
+    let mut params = PluginAddParams {
+        reference,
+        project,
+        approve: false,
+    };
+    let added = match plugin_add(engine, forked(&mut dependencies), reach, &params, human) {
+        Ok(added) => added,
+        Err(exit) => return exit,
+    };
+    output::line(&format!(
+        "Installed the Plugin {} {}, pinned in {}.",
+        added.name, added.version, added.lockfile
+    ));
+    let yes = match ADD.ask(&approval_question(&added), Some(&stated(&added)), human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
+    };
+    if !yes {
+        output::line(&format!(
+            "The Plugin {} was not approved: a Run refuses it with `plugin_not_allowed` until it is.",
+            added.name
+        ));
+        return ExitCode::from(exit_codes::SUCCESS);
+    }
+    params.approve = true;
+    let approved = match plugin_add(engine, dependencies, reach, &params, human) {
+        Ok(approved) => approved,
+        Err(exit) => return exit,
+    };
+    match approved.approval {
+        Some(PluginApproval::Written { policy }) => output::line(&format!(
+            "Approved the Plugin {} in the Operator policy {policy}.",
+            approved.name
+        )),
+        Some(PluginApproval::Managed { entry }) => {
+            human.warning(
+                "The Operator policy is managed elsewhere, so nothing was written: add this entry there.",
+            );
+            output::line(&entry);
+        }
+        None => {}
+    }
+    ExitCode::from(exit_codes::SUCCESS)
+}
+
+/// Calls `plugin.add` with `params` and reads its answer. A person-only
+/// command takes no `--json`: its failure prints on stderr, as every
+/// command's does.
+fn plugin_add(
+    engine: &Engine,
+    dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    params: &PluginAddParams,
+    human: &Human,
+) -> Result<PluginAdded, ExitCode> {
+    let params = serde_json::to_value(params).expect("invariant: the params serialize");
+    let result = run_operation(
         engine,
         dependencies,
         reach,
@@ -123,13 +184,50 @@ fn add(
         params,
         false,
         human,
-    ) {
-        Ok(result) => {
-            output::fields(&result, human);
-            ExitCode::from(exit_codes::SUCCESS)
-        }
-        Err(exit) => exit,
+    )?;
+    serde_json::from_value(result).map_err(|error| {
+        tracing::error!(%error, "the engine's `plugin.add` answer does not read");
+        ExitCode::FAILURE
+    })
+}
+
+/// The question that approves the Plugin `added` in the Operator policy.
+fn approval_question(added: &PluginAdded) -> String {
+    let permissions = if added.permissions.is_empty() {
+        String::new()
+    } else {
+        " and each permission above".to_owned()
+    };
+    format!(
+        "Approve the Plugin {} at {}{permissions} in the Operator policy?",
+        added.name, added.digest
+    )
+}
+
+/// Each permission the Plugin `added` declares, with what it lets the
+/// Plugin do and what the engine cannot check, as the prompt's warning
+/// prints them once before its question.
+fn stated(added: &PluginAdded) -> String {
+    if added.permissions.is_empty() {
+        return format!(
+            "The Plugin {} declares no permission: it may run, and nothing more.",
+            added.name
+        );
     }
+    let mut text = format!(
+        "The Plugin {} asks for {} permissions, each approved on its own:",
+        added.name,
+        added.permissions.len()
+    );
+    for stated in &added.permissions {
+        write!(
+            text,
+            "\n  - it may {}.\n    The engine cannot check {}.",
+            stated.lets, stated.cannot_check
+        )
+        .expect("invariant: writing into a String cannot fail");
+    }
+    text
 }
 
 /// The project configuration found from `folder` upward, none outside a

@@ -10,6 +10,13 @@
 //! it pins to the same digest that the store holds is answered again
 //! without a pull. The lockfile is written only once the Plugin is in the
 //! store.
+//!
+//! The answer states each permission the Plugin's manifest declares. With
+//! `approve` (issue 900), given once the person saw them, the Operator
+//! policy's `plugins.<name>` entry allows the Plugin, pins it to the
+//! digest and approves each permission, recorded in the Audit log as
+//! `plugin_approved`; a policy managed elsewhere is left as it is and the
+//! answer carries the entry to add there.
 #![expect(
     clippy::disallowed_methods,
     reason = "the lockfile is read and written on the engine's blocking policy, never on an async worker"
@@ -27,13 +34,17 @@ use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::plugin::add::{
     PLUGIN_ADD, PLUGIN_ARTIFACT_REFUSED, PLUGIN_DIGEST_MISMATCH, PLUGIN_INSTALLED, PluginAddParams,
-    PluginAdded, PluginDigestMismatchDetails,
+    PluginAdded, PluginApproval, PluginDigestMismatchDetails,
 };
+use goodfetch_protocol::plugin::approvals::{Approvals, PLUGIN_APPROVED, Permission, stated};
 use goodfetch_protocol::plugin::lockfile::{LOCKFILE_NAME, LockedPlugin, PluginLockfile};
+use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::settings::{SettingLimit, SettingsLayer};
+use serde_json::{Map, Value, json};
 
 use crate::call_error::CallError;
 use crate::composition::{CallContext, Handler};
+use crate::config;
 use crate::durable;
 use crate::pinned_download::Fetching;
 use crate::plugin_install::{self, InstallError, PullFailure};
@@ -42,7 +53,8 @@ use crate::plugin_oci::Reference;
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::run::settings_error;
 use crate::run_files::{os_code, reason_of};
-use crate::settings::Opening;
+use crate::settings::{Opening, rewrite};
+use crate::settings_editor::{self, Change, SettingsEditor};
 use crate::tasks::BlockingThreads;
 
 /// The `plugin.*` handlers.
@@ -81,7 +93,77 @@ async fn add_operation(
     let fetching = Fetching::of(settings.resolved(), engine.clock(), engine.owner()).await;
     let blocking = engine.owner().blocking_threads();
     let store = PluginStore::new(engine.home().plugins());
-    add(&reference, &fetching, &blocking, &store, &lockfile).await
+    let mut added = add(&reference, &fetching, &blocking, &store, &lockfile).await?;
+    if params.approve {
+        added.approval = Some(approve(&added, &context).await?);
+    }
+    Ok(added)
+}
+
+/// Writes the person's approval of the Plugin `added` into the Operator
+/// policy's `plugins.<name>` entry (ADR 0033): allowed, pinned to its
+/// digest and each permission it declares approved, the entry's own
+/// `settings` kept, recorded in the Audit log as `plugin_approved`. A
+/// policy managed elsewhere is left as it is, and the entry to add there
+/// is answered instead.
+///
+/// # Errors
+///
+/// The settings editor's refusals: `setting_invalid` for a policy that
+/// does not read, and an internal error for a file that cannot be read or
+/// written, or an approval written that the Audit log cannot record.
+async fn approve(added: &PluginAdded, context: &CallContext) -> Result<PluginApproval, CallError> {
+    let name = added.name.clone();
+    let digest = added.digest.clone();
+    let mut approved = Approvals::default();
+    for stated in &added.permissions {
+        approved.approve(&stated.permission);
+    }
+    let details = json!({
+        "plugin": name,
+        "digest": digest,
+        "permissions": added.permissions,
+    });
+    let path = context.engine().settings().files().operator_policy();
+    let policy = path.display().to_string();
+    SettingsEditor::of(context)
+        .edit(move |draft| {
+            let layer = SettingsLayer::OperatorPolicy;
+            let held = draft.operator_policy()?;
+            let mut plugins = match held.settings.get(PLUGINS.name) {
+                Some(Value::Object(plugins)) => plugins.clone(),
+                _ => Map::new(),
+            };
+            let settings = plugins
+                .get(&name)
+                .and_then(|entry| PluginEntry::read(entry).ok())
+                .map(|entry| entry.settings)
+                .unwrap_or_default();
+            let entry = PluginEntry {
+                settings,
+                allow: Some(true),
+                digest: Some(digest),
+                approved,
+            };
+            let entry = serde_json::to_value(&entry)
+                .expect("invariant: a Plugin's entry serializes to JSON");
+            if held.managed.is_some() {
+                let key = format!("{}.{name}", PLUGINS.name);
+                return Ok(Change::Kept(PluginApproval::Managed {
+                    entry: rewrite("", "settings", &key, &entry)?,
+                }));
+            }
+            plugins.insert(name, entry);
+            draft.set(layer, "settings", PLUGINS.name, &Value::Object(plugins))?;
+            Ok::<_, settings_editor::Refused>(Change::Made {
+                answer: PluginApproval::Written { policy },
+                layer,
+                kind: &PLUGIN_APPROVED,
+                details,
+            })
+        })
+        .await
+        .map_err(|refused| config::edit_error(refused, context))
 }
 
 /// Installs the Plugin `reference` pins into `store` and pins it in the
@@ -185,11 +267,17 @@ fn write_lockfile(path: &Path, text: &str) -> io::Result<()> {
 /// What `plugin.add` answers for the Plugin `held`, pinned to `digest` in
 /// `lockfile`.
 fn added(held: Installed, digest: String, lockfile: &Path) -> PluginAdded {
+    let permissions = Permission::needed_by(&held.manifest)
+        .into_iter()
+        .map(stated)
+        .collect();
     PluginAdded {
         name: held.manifest.name,
         version: held.manifest.version,
         digest,
         lockfile: lockfile.display().to_string(),
+        permissions,
+        approval: None,
     }
 }
 

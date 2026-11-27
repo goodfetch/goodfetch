@@ -876,8 +876,42 @@ class ConnectionPaidFetchSettings(TypedDict):
     """
 
 
+class PluginsEntryApproved(TypedDict):
+    """The permissions the Operator policy approved for the Plugin, each on its own. Only an Operator policy sets it."""
+
+    browsers: NotRequired[list[str]]
+    """The digests of the browser downloads it may add."""
+
+    direct: NotRequired[bool]
+    """Whether it may reach the network directly."""
+
+    effects: NotRequired[list[str]]
+    """The domains it may cause Effects on."""
+
+    page_script: NotRequired[list[str]]
+    """The domains whose pages it may run script in."""
+
+    secret_values: NotRequired[list[str]]
+    """The Secret references whose value it may receive."""
+
+    secrets: NotRequired[list[str]]
+    """The Secret references it may use."""
+
+    session_credentials: NotRequired[list[str]]
+    """The domains whose logged-in Session's credentials it may use."""
+
+
 class PluginsEntry(TypedDict):
     """A value of `PluginsEntry`."""
+
+    allow: NotRequired[bool]
+    """Whether the Operator policy allows the Plugin to load (`true`) or denies it (`false`); left out, only a first-party Plugin loads. Only an Operator policy sets it."""
+
+    approved: NotRequired[PluginsEntryApproved]
+    """The permissions the Operator policy approved for the Plugin, each on its own. Only an Operator policy sets it."""
+
+    digest: NotRequired[str]
+    """The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it."""
 
     settings: NotRequired[Mapping[str, object]]
     """The Plugin's settings, which its manifest's `settings_schema` validates."""
@@ -1903,7 +1937,7 @@ class FoxhoundSettings(TypedDict):
     paid_fetch: NotRequired[ConnectionPaidFetchSettings]
 
     plugins: NotRequired[Mapping[str, PluginsEntry]]
-    """Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.
+    """Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.
 
     `plugins`.
     """
@@ -3431,7 +3465,7 @@ class CrawlSettings(TypedDict):
     paid_fetch: NotRequired[RunPaidFetchSettings]
 
     plugins: NotRequired[Mapping[str, PluginsEntry]]
-    """Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.
+    """Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `"secret": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.
 
     `plugins`.
     """

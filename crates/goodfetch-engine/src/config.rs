@@ -194,6 +194,12 @@ async fn blocking<T: Send + 'static>(
         .map_err(|refused| call_error(refused, context))
 }
 
+/// The call's error for the settings editor's `refused`, as another
+/// operation that edits the machine's settings files answers it.
+pub(crate) fn edit_error(refused: settings_editor::Refused, context: &CallContext) -> CallError {
+    call_error(refused.into(), context)
+}
+
 /// The call's error for `refused`.
 fn call_error(refused: Refused, context: &CallContext) -> CallError {
     let engine = context.engine();

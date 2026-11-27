@@ -31,6 +31,7 @@ use crate::run::RunId;
 use crate::security::SandboxEnvironment;
 
 pub mod add;
+pub mod approvals;
 pub mod extractor;
 mod fuzz;
 pub mod lockfile;

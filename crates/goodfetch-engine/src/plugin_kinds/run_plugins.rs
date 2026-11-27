@@ -7,9 +7,10 @@
 //! `instances`, which the Plugin's process deletes as it stops. Its
 //! settings in the Run's `plugins` are checked against its manifest's
 //! schema as it starts, and its environment holds only the variables its
-//! manifest declares, valued from them ([`plugin_settings`]). A Plugin on
-//! a runtime waits for the runtime cache (issue 895), and the approvals in
-//! Operator policy for issue 900.
+//! manifest declares, valued from them ([`plugin_settings`]). It starts
+//! only once the Operator policy lets it load and approves each Secret
+//! value its environment holds (issue 900). A Plugin on a runtime waits for the runtime cache
+//! (issue 895).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -19,8 +20,14 @@ use goodfetch_confinement::deny_list::Places;
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::plugin::approvals::{
+    Origin, PLUGIN_NOT_ALLOWED, PLUGIN_PERMISSION_DENIED, Permission, PluginNotAllowedDetails,
+    PluginPermissionDeniedDetails, PluginRefusal, admit, fix,
+};
+use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::plugin::{PluginKindName, PluginManifest, Runtime};
 use goodfetch_protocol::run::RunId;
+use serde_json::Value;
 
 use super::extractor::{ProcessExtractor, unavailable};
 use crate::call_error::CallError;
@@ -94,7 +101,10 @@ impl RunPlugins {
     /// # Errors
     ///
     /// [`StartError::Secret`] for a secret field whose reference gives no
-    /// value; otherwise [`StartError::Refused`]: `setting_invalid` naming
+    /// value; otherwise [`StartError::Refused`]: `plugin_not_allowed` when
+    /// the Operator policy does not let the Plugin load,
+    /// `plugin_permission_denied` for a permission it needs as it starts
+    /// that the policy has not approved, `setting_invalid` naming
     /// the field for settings the Plugin's schema refuses,
     /// `confinement_unavailable` naming the environment and its fix where
     /// this host cannot confine the instance, and
@@ -150,20 +160,6 @@ impl RunPlugins {
             .blocking(move || store.resolve(&named, &PluginKindName::EXTRACT))
             .await
             .map_err(|error| cannot_start(&error))?;
-        let probe = probe.clone();
-        if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
-            tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
-            return Err(StartError::Refused(refusal));
-        }
-        let (given, layer) = plugin_settings::given(settings, name);
-        let environment = PluginSettings::checked(name, &installed.manifest, given, layer)
-            .map_err(|invalid| StartError::Refused(invalid.into()))?
-            .environment(name, &installed.manifest, secrets, (&self.run_id, layer))
-            .await
-            .map_err(|error| match error {
-                EnvironmentError::Secret(error) => StartError::Secret(error),
-                ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
-            })?;
         let defaults;
         let resolved = if let Some(settings) = settings {
             settings
@@ -172,6 +168,29 @@ impl RunPlugins {
                 .expect("invariant: the built-in defaults resolve");
             &defaults
         };
+        let entry = admitted(resolved, name, &installed)?;
+        let probe = probe.clone();
+        if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
+            tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
+            return Err(StartError::Refused(refusal));
+        }
+        let (given, layer) = plugin_settings::given(settings, name);
+        let environment = PluginSettings::checked(name, &installed.manifest, given, layer)
+            .map_err(|invalid| StartError::Refused(invalid.into()))?
+            .environment(
+                name,
+                (&installed.manifest, &entry.approved),
+                secrets,
+                (&self.run_id, layer),
+            )
+            .await
+            .map_err(|error| match error {
+                EnvironmentError::Secret(error) => StartError::Secret(error),
+                EnvironmentError::Denied(permission) => {
+                    StartError::Refused(permission_denied(name, permission))
+                }
+                ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
+            })?;
         let fetch = PluginFetch::of(resolved, name, self.clock, self.owner.blocking_threads())
             .map_err(|invalid| cannot_start(&invalid))?;
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
@@ -218,6 +237,72 @@ pub enum StartError {
     /// A secret field's reference gave no value, which the caller answers
     /// as any Secret's failure.
     Secret(SecretError),
+}
+
+/// The Operator policy's entry for the Plugin `name` in `resolved`, a Run's
+/// settings, once it lets `installed` load: a Plugin from the store counts
+/// as third-party until its origin is recorded (issue 911), so it loads
+/// only when the entry allows it, at the digest the entry pins. An
+/// Extractor's network level is always `none`, so it never needs `direct`.
+///
+/// # Errors
+///
+/// `plugin_not_allowed` naming why.
+fn admitted(
+    resolved: &Resolved,
+    name: &str,
+    installed: &Installed,
+) -> Result<PluginEntry, StartError> {
+    let entry = match &resolved.value(&PLUGINS)[name] {
+        Value::Null => PluginEntry::default(),
+        entry => PluginEntry::read(entry).map_err(|reason| {
+            tracing::warn!(extractor = name, %reason, "an Extractor's Plugin entry does not read");
+            StartError::Refused(unavailable(name))
+        })?,
+    };
+    let found = installed.digest.as_deref();
+    admit(
+        Origin::ThirdParty,
+        entry.allow,
+        entry.digest.as_deref(),
+        found,
+    )
+    .map_err(|refusal| {
+        let (pinned, found, field) = match &refusal {
+            PluginRefusal::Digest { pinned } => {
+                (Some(pinned.clone()), found.map(str::to_owned), "digest")
+            }
+            PluginRefusal::NotAllowed | PluginRefusal::Denied => (None, None, "allow"),
+        };
+        let details = PluginNotAllowedDetails {
+            plugin: name.to_owned(),
+            reason: refusal.reason(),
+            pinned,
+            found,
+            fix: fix(name, field),
+        };
+        StartError::Refused(CallError::new(
+            &PLUGIN_NOT_ALLOWED,
+            format!("the Plugin `{name}` cannot load: {refusal}"),
+            &details,
+        ))
+    })?;
+    Ok(entry)
+}
+
+/// `plugin_permission_denied` for the Plugin `name`'s `permission`.
+fn permission_denied(name: &str, permission: Permission) -> CallError {
+    let fix = fix(name, &format!("approved.{}", permission.field()));
+    let message = format!(
+        "the Operator policy has not approved the Plugin `{name}`'s permission `{}`",
+        permission.field()
+    );
+    let details = PluginPermissionDeniedDetails {
+        plugin: name.to_owned(),
+        permission,
+        fix,
+    };
+    CallError::new(&PLUGIN_PERMISSION_DENIED, message, &details)
 }
 
 /// What starts one instance, set up on the blocking policy.

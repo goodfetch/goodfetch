@@ -13798,6 +13798,26 @@
       ],
       "open": true
     },
+    "NotAllowedReason": {
+      "description": "Why `plugin_not_allowed` refused a Plugin.",
+      "oneOf": [
+        {
+          "const": "not_allowed",
+          "description": "The Operator policy does not allow it.",
+          "type": "string"
+        },
+        {
+          "const": "denied",
+          "description": "The Operator policy denies it.",
+          "type": "string"
+        },
+        {
+          "const": "digest",
+          "description": "The Operator policy pins it to another digest.",
+          "type": "string"
+        }
+      ]
+    },
     "NotCleaned": {
       "description": "Why the clean-up did not run.",
       "oneOf": [
@@ -15741,6 +15761,157 @@
         }
       ]
     },
+    "Permission": {
+      "description": "One permission a Plugin's manifest asks for, which the Operator policy\napproves on its own.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Causing Effects on one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "The domain.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "effects",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Running script in the pages of one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "The domain.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "page_script",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The logged-in Session's credentials for one domain.",
+          "properties": {
+            "domain": {
+              "arrived_in": "0.1",
+              "description": "The domain.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "session_credentials",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "domain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One Secret reference, whose value the engine inserts on the way out.",
+          "properties": {
+            "permission": {
+              "const": "secret",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference, such as `env:TOKEN`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One Secret reference's value itself, released to the Plugin.",
+          "properties": {
+            "permission": {
+              "const": "secret_value",
+              "type": "string"
+            },
+            "reference": {
+              "arrived_in": "0.1",
+              "description": "The Secret reference.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "reference"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A browser the Plugin adds, for one platform, by its digest.",
+          "properties": {
+            "digest": {
+              "arrived_in": "0.1",
+              "description": "The download's digest, `sha256:<hex>`.",
+              "type": "string"
+            },
+            "name": {
+              "arrived_in": "0.1",
+              "description": "The browser's name.",
+              "type": "string"
+            },
+            "permission": {
+              "const": "browser",
+              "type": "string"
+            },
+            "platform": {
+              "arrived_in": "0.1",
+              "description": "The platform, such as `linux-x64`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission",
+            "name",
+            "platform",
+            "digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The network directly, at the `direct` level.",
+          "properties": {
+            "permission": {
+              "const": "direct",
+              "type": "string"
+            }
+          },
+          "required": [
+            "permission"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Permissions": {
       "additionalProperties": false,
       "description": "What a Plugin may do beyond its kinds' calls (ADR 0033), each held to\nwhat Operator policy approved for it.",
@@ -16036,6 +16207,11 @@
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
+        "approve": {
+          "arrived_in": "0.1",
+          "description": "Whether the person approved the Plugin and each permission its\nmanifest declares, as they were shown before the call (ADR 0033):\nthe engine then allows it, pins it to its digest and approves those\npermissions in the Operator policy, or answers the entry to put in\na policy managed elsewhere.",
+          "type": "boolean"
+        },
         "project": {
           "anyOf": [
             {
@@ -16062,6 +16238,18 @@
     "PluginAdded": {
       "description": "What `plugin.add` answers once the Plugin is installed and pinned.",
       "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Where the person's approval went, when they gave one."
+        },
         "digest": {
           "arrived_in": "0.1",
           "description": "The digest of its multi-platform image index, `sha256:<hex>`, which\nthe lockfile pins.",
@@ -16077,6 +16265,14 @@
           "description": "The Plugin's name.",
           "type": "string"
         },
+        "permissions": {
+          "arrived_in": "0.1",
+          "description": "Each permission its manifest declares, with what it lets the Plugin\ndo and what the engine cannot check.",
+          "items": {
+            "$ref": "#/$defs/StatedPermission"
+          },
+          "type": "array"
+        },
         "version": {
           "arrived_in": "0.1",
           "description": "Its version, as its manifest names it.",
@@ -16090,6 +16286,51 @@
         "lockfile"
       ],
       "type": "object"
+    },
+    "PluginApproval": {
+      "description": "Where a person's approval of a Plugin went.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Written into the Operator policy, and recorded in the Audit log.",
+          "properties": {
+            "outcome": {
+              "const": "written",
+              "type": "string"
+            },
+            "policy": {
+              "arrived_in": "0.1",
+              "description": "The Operator policy file.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "policy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Not written: the Operator policy is managed elsewhere, by a device\nmanager or a configuration tool, so the person adds this entry\nthere.",
+          "properties": {
+            "entry": {
+              "arrived_in": "0.1",
+              "description": "The policy's `plugins.<name>` entry, as TOML.",
+              "type": "string"
+            },
+            "outcome": {
+              "const": "managed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "entry"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PluginCancelParams": {
       "description": "What `$/cancel` names: the call the engine no longer awaits, whose late\nresult it refuses.",
@@ -16481,6 +16722,74 @@
         "kinds",
         "protocol",
         "entrypoint"
+      ],
+      "type": "object"
+    },
+    "PluginNotAllowedDetails": {
+      "description": "What `plugin_not_allowed` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What lifts the refusal.",
+          "type": "string"
+        },
+        "found": {
+          "arrived_in": "0.1",
+          "description": "The digest installed, for a pin, when the store records one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pinned": {
+          "arrived_in": "0.1",
+          "description": "The digest the Operator policy pins it to, for a pin.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotAllowedReason",
+          "arrived_in": "0.1",
+          "description": "Why it is refused."
+        }
+      },
+      "required": [
+        "plugin",
+        "reason",
+        "fix"
+      ],
+      "type": "object"
+    },
+    "PluginPermissionDeniedDetails": {
+      "description": "What `plugin_permission_denied` details.",
+      "properties": {
+        "fix": {
+          "arrived_in": "0.1",
+          "description": "What lifts the refusal.",
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "#/$defs/Permission",
+          "arrived_in": "0.1",
+          "description": "The permission it needs."
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "permission",
+        "fix"
       ],
       "type": "object"
     },
@@ -24986,6 +25295,32 @@
         }
       ]
     },
+    "StatedPermission": {
+      "description": "A permission with what it lets the Plugin do and what the engine cannot\ncheck, in plain words, as an approval states them.",
+      "properties": {
+        "cannot_check": {
+          "arrived_in": "0.1",
+          "description": "What the engine cannot check once it is approved.",
+          "type": "string"
+        },
+        "lets": {
+          "arrived_in": "0.1",
+          "description": "What it lets the Plugin do.",
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "#/$defs/Permission",
+          "arrived_in": "0.1",
+          "description": "The permission."
+        }
+      },
+      "required": [
+        "permission",
+        "lets",
+        "cannot_check"
+      ],
+      "type": "object"
+    },
     "Status": {
       "description": "Whether a Journey is still run.",
       "oneOf": [
@@ -30281,6 +30616,67 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
+                    "allow": {
+                      "description": "Whether the Operator policy allows the Plugin to load (`true`) or denies it (`false`); left out, only a first-party Plugin loads. Only an Operator policy sets it.",
+                      "type": "boolean"
+                    },
+                    "approved": {
+                      "additionalProperties": false,
+                      "description": "The permissions the Operator policy approved for the Plugin, each on its own. Only an Operator policy sets it.",
+                      "properties": {
+                        "browsers": {
+                          "description": "The digests of the browser downloads it may add.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "direct": {
+                          "description": "Whether it may reach the network directly.",
+                          "type": "boolean"
+                        },
+                        "effects": {
+                          "description": "The domains it may cause Effects on.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "page_script": {
+                          "description": "The domains whose pages it may run script in.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "secret_values": {
+                          "description": "The Secret references whose value it may receive.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "secrets": {
+                          "description": "The Secret references it may use.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "session_credentials": {
+                          "description": "The domains whose logged-in Session's credentials it may use.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "digest": {
+                      "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
+                      "type": "string"
+                    },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
                       "type": "object"
@@ -30288,7 +30684,7 @@
                   },
                   "type": "object"
                 },
-                "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.",
+                "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.",
                 "type": "object"
               },
               "politeness": {
@@ -34755,6 +35151,67 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
+                    "allow": {
+                      "description": "Whether the Operator policy allows the Plugin to load (`true`) or denies it (`false`); left out, only a first-party Plugin loads. Only an Operator policy sets it.",
+                      "type": "boolean"
+                    },
+                    "approved": {
+                      "additionalProperties": false,
+                      "description": "The permissions the Operator policy approved for the Plugin, each on its own. Only an Operator policy sets it.",
+                      "properties": {
+                        "browsers": {
+                          "description": "The digests of the browser downloads it may add.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "direct": {
+                          "description": "Whether it may reach the network directly.",
+                          "type": "boolean"
+                        },
+                        "effects": {
+                          "description": "The domains it may cause Effects on.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "page_script": {
+                          "description": "The domains whose pages it may run script in.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "secret_values": {
+                          "description": "The Secret references whose value it may receive.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "secrets": {
+                          "description": "The Secret references it may use.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "session_credentials": {
+                          "description": "The domains whose logged-in Session's credentials it may use.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "digest": {
+                      "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
+                      "type": "string"
+                    },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
                       "type": "object"
@@ -34762,7 +35219,7 @@
                   },
                   "type": "object"
                 },
-                "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.",
+                "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.",
                 "type": "object"
               },
               "politeness": {
@@ -39245,6 +39702,67 @@
                 "additionalProperties": {
                   "additionalProperties": false,
                   "properties": {
+                    "allow": {
+                      "description": "Whether the Operator policy allows the Plugin to load (`true`) or denies it (`false`); left out, only a first-party Plugin loads. Only an Operator policy sets it.",
+                      "type": "boolean"
+                    },
+                    "approved": {
+                      "additionalProperties": false,
+                      "description": "The permissions the Operator policy approved for the Plugin, each on its own. Only an Operator policy sets it.",
+                      "properties": {
+                        "browsers": {
+                          "description": "The digests of the browser downloads it may add.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "direct": {
+                          "description": "Whether it may reach the network directly.",
+                          "type": "boolean"
+                        },
+                        "effects": {
+                          "description": "The domains it may cause Effects on.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "page_script": {
+                          "description": "The domains whose pages it may run script in.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "secret_values": {
+                          "description": "The Secret references whose value it may receive.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "secrets": {
+                          "description": "The Secret references it may use.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "session_credentials": {
+                          "description": "The domains whose logged-in Session's credentials it may use.",
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "digest": {
+                      "description": "The digest the Operator policy pins the Plugin to, `sha256:<hex>`: a Plugin of another digest is refused. Only an Operator policy sets it.",
+                      "type": "string"
+                    },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
                       "type": "object"
@@ -39252,7 +39770,7 @@
                   },
                   "type": "object"
                 },
-                "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema.",
+                "description": "Each Plugin's settings, by its name, as `plugins.<name>.settings`: the fields its manifest's `settings_schema` declares, which the engine checks as it starts the Plugin, a value the schema refuses being `setting_invalid` naming its key, as `plugins.<name>.settings.<field>`, and a field left out taking the schema's `default`. A field the schema marks `\"secret\": true` takes only a Secret reference, such as `env:NAME`, a value given in its place being refused with `setting_invalid`; the engine resolves it, and passes it into the Plugin's environment only for a Plugin whose manifest's `permissions.grants` holds `secret_value`. The nearest layer's entry for a Plugin wins, and a Plugin it leaves out keeps the entry beneath. The engine reads a Plugin's settings from the Run's settings as the first call naming the Plugin starts it, and they hold for the rest of the Run: the setting is fixed for the Run's life, a start under the Run's ID that changes it being refused, and a page's value changes nothing. None by default. `config explain` returns each installed Plugin's schema. An Operator policy's entry also says whether the Plugin loads, as `plugins.<name>.allow` and `plugins.<name>.digest`, and approves each permission its manifest asks for on its own, as `plugins.<name>.approved`: a Plugin that is not first-party loads only when `allow` is `true`, `false` refuses any Plugin, and a pin refuses another digest, each with `plugin_not_allowed`; a call that needs a permission not approved fails with `plugin_permission_denied`. Those three fields are set in an Operator policy only, a lower layer that sets them being refused with `setting_not_applicable`, and a lower layer's entry for the Plugin keeps them. `goodfetch plugin add` writes them after a person approves the Plugin.",
                 "type": "object"
               },
               "politeness": {

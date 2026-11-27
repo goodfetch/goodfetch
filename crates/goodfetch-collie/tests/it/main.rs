@@ -103,6 +103,7 @@ mod page_ends;
 mod page_events;
 mod parent_death;
 mod plugin;
+mod plugin_approval;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod plugin_extractor;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

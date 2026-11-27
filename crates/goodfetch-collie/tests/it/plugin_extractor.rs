@@ -36,12 +36,24 @@ fn install(home: &Path, answer: &Value) {
 
 /// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
 /// the Extractor `name`, which answers `extract.content` with `answer`,
-/// its manifest's fields `more` added.
+/// its manifest's fields `more` added; the Operator policy allows it, and
+/// approves the release of `env:EXTRACT_SECRET`, the one Secret these
+/// tests give a Plugin (issue 900).
 #[expect(
     clippy::disallowed_methods,
     reason = "the test lays out the Plugin store by hand, before the engine starts"
 )]
 fn install_as(home: &Path, name: &str, answer: &Value, more: &Value) {
+    let policy = HomeLayout::of(home).operator_policy();
+    fs::create_dir_all(policy.parent().unwrap()).unwrap();
+    let written = fs::read_to_string(&policy).unwrap_or_else(|_| "version = \"0.1\"\n".to_owned());
+    fs::write(
+        &policy,
+        format!(
+            "{written}\n[settings.plugins.{name}]\nallow = true\napproved.secret_values = [\"env:EXTRACT_SECRET\"]\n"
+        ),
+    )
+    .unwrap();
     let bundle = home.join("plugins").join(name).join("1.0.0");
     fs::create_dir_all(&bundle).unwrap();
     let scripted = tools()

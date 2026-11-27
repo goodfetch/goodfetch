@@ -1988,6 +1988,7 @@ proptest! {
 
 mod operator_policy;
 mod placeholders;
+mod plugin_approvals;
 mod presets;
 mod scopes;
 mod unbuilt;

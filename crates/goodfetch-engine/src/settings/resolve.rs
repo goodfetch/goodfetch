@@ -18,6 +18,7 @@ use goodfetch_protocol::catalog::{Authority, Product, Setting, ValueKind};
 use goodfetch_protocol::entries::YIELDING;
 use goodfetch_protocol::governor::{THREAD_COUNT_SHAPE, ThreadCount};
 use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
+use goodfetch_protocol::plugin::settings::PLUGINS;
 use goodfetch_protocol::recipe::RecipeManifest;
 use goodfetch_protocol::run::durability::{
     BATCH_THRESHOLD_SHAPE, BatchThreshold, durability_preset,
@@ -36,7 +37,7 @@ use serde_json::Value;
 use super::error::SettingsError;
 use super::hosts;
 use super::keys::{self, Key};
-use super::values::{Given, Values, by_entry, over};
+use super::values::{Given, Values, by_entry, check_plugin_entries, over};
 
 /// An Operator policy: what it sets, locks and caps.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1299,6 +1300,9 @@ fn authority(
     refused: &dyn Fn(SettingLimit, String) -> SettingsError,
 ) -> Result<(), SettingsError> {
     let name = key.setting.name;
+    if name == PLUGINS.name && layer != SettingsLayer::OperatorPolicy {
+        check_plugin_entries(value, layer)?;
+    }
     let for_model = given.for_model;
     let above_configuration =
         given.run_authority || matches!(layer, SettingsLayer::Recipe | SettingsLayer::Run);

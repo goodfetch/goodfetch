@@ -2307,6 +2307,28 @@
       ]
     },
     {
+      "id": "error:plugin_not_allowed",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_permission_denied",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_protocol_unsupported",
       "kind": "error",
       "area": 7,

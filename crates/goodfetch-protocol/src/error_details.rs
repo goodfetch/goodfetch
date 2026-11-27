@@ -192,6 +192,8 @@ details! {
     crate::page::route::RouteAlreadyHandledDetails => ErrorCode::ROUTE_ALREADY_HANDLED,
     crate::plugin::ConfinementUnavailableDetails => ErrorCode::CONFINEMENT_UNAVAILABLE,
     crate::plugin::add::PluginDigestMismatchDetails => ErrorCode::PLUGIN_DIGEST_MISMATCH,
+    crate::plugin::approvals::PluginNotAllowedDetails => ErrorCode::PLUGIN_NOT_ALLOWED,
+    crate::plugin::approvals::PluginPermissionDeniedDetails => ErrorCode::PLUGIN_PERMISSION_DENIED,
     crate::plugin::extractor::ExtractHandlerFailedDetails => ErrorCode::EXTRACT_HANDLER_FAILED,
     crate::plugin::extractor::ExtractorUnavailableDetails => ErrorCode::EXTRACTOR_UNAVAILABLE,
     crate::recipe::RecipeInvalidDetails => ErrorCode::RECIPE_INVALID,

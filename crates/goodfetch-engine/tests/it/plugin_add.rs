@@ -86,6 +86,8 @@ fn a_plugin_added_is_installed_and_pinned_and_a_repeat_pulls_nothing() {
             version: "1.0.0".to_owned(),
             digest: digest.clone(),
             lockfile: lockfile.display().to_string(),
+            permissions: vec![],
+            approval: None,
         }
     );
     assert_eq!(pulled.len(), 3);

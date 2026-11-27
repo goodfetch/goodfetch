@@ -2,4 +2,4 @@ version = "0.1"
 lowest_minor = 0
 
 [settings]
-plugins = { "example.test" = {} }
+plugins = { "example.test" = { allow = true, approved = { effects = ["shop.example"], secrets = ["env:SHOP_TOKEN"] }, digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000" } }

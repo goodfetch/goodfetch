@@ -232,6 +232,7 @@ pub async fn install(
         return Err(PullFailure::DigestMismatch.into());
     }
     let name = reference.plugin().to_owned();
+    let digest = reference.index().to_string();
     let store = store.clone();
     blocking
         .run(move || {
@@ -240,7 +241,9 @@ pub async fn install(
             let file = fs::File::open(&archive).map_err(InstallError::Staging)?;
             plugin_bundle::unpack(BufReader::new(file), layer.compression, &bundle)
                 .map_err(InstallError::Bundle)?;
-            store.add(&name, &bundle).map_err(InstallError::Store)
+            store
+                .add(&name, &bundle, &digest)
+                .map_err(InstallError::Store)
         })
         .await
 }

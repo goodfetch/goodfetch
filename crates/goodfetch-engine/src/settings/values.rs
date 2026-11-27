@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::{Product, Setting};
 use goodfetch_protocol::entries::others_part;
-use goodfetch_protocol::plugin::settings::PLUGINS;
+use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::secrets::placeholders::SECRETS_PLACEHOLDERS;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{RunOrigin, SESSION_SOURCE, SettingsLayer};
@@ -283,16 +283,70 @@ pub fn check_session_source(
     })
 }
 
+/// Refuses `plugins`' entries, given in `layer`, which is no Operator
+/// policy, that set what only an Operator policy decides: whether a Plugin
+/// loads, the digest it is pinned to, or the permissions approved for it
+/// (ADR 0033, issue 900). Resolve checks it, not the reader: a file of
+/// such a layer reads, and the layer refuses the field once resolved, as
+/// it refuses any other key it has no authority over.
+///
+/// # Errors
+///
+/// [`SettingsError::NotApplicable`] naming the first such field.
+pub(super) fn check_plugin_entries(value: &Value, layer: SettingsLayer) -> Result<(), SettingsError> {
+    let Some(entries) = value.as_object() else {
+        return Ok(());
+    };
+    for (plugin, entry) in entries {
+        let Some(entry) = entry.as_object() else {
+            continue;
+        };
+        if let Some(field) = PluginEntry::POLICY_FIELDS
+            .into_iter()
+            .find(|field| entry.contains_key(*field))
+        {
+            let key = format!("{}.{plugin}.{field}", PLUGINS.name);
+            return Err(SettingsError::NotApplicable {
+                fix: format!(
+                    "set `{key}` in an Operator policy, or run `goodfetch plugin add` as a person to approve the Plugin"
+                ),
+                key,
+                layer,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// `value`, given for `setting` by a nearer layer or scope, over `below`,
 /// the value beneath it: `value` whole, but for `secrets.placeholders`,
 /// which binds each placeholder on its own, nearest winning (ADR 0092),
 /// so a placeholder `value` leaves out keeps `below`'s binding, and for
-/// `plugins`, whose entry for each Plugin wins on its own the same way.
+/// `plugins`, whose entry for each Plugin wins on its own the same way and
+/// keeps the Operator policy's decision on it: the `allow`, `digest` and
+/// `approved` of `below`'s entry that the nearer one leaves out.
 pub(crate) fn over(setting: &Setting, below: &Value, value: &Value) -> Value {
     match (below, value) {
         (Value::Object(below), Value::Object(nearer)) if by_entry(setting) => {
             let mut bound = below.clone();
-            bound.extend(nearer.clone());
+            for (name, entry) in nearer {
+                let mut entry = entry.clone();
+                if setting.name == PLUGINS.name
+                    && let (Some(kept), Some(fields)) = (
+                        below.get(name).and_then(Value::as_object),
+                        entry.as_object_mut(),
+                    )
+                {
+                    for field in PluginEntry::POLICY_FIELDS {
+                        if let (false, Some(decided)) =
+                            (fields.contains_key(field), kept.get(field))
+                        {
+                            fields.insert(field.to_owned(), decided.clone());
+                        }
+                    }
+                }
+                bound.insert(name.clone(), entry);
+            }
             Value::Object(bound)
         }
         _ => value.clone(),

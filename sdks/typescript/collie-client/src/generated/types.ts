@@ -1345,6 +1345,13 @@ export type SessionSource =
  */
 export type StateFileFormat = "storage_state" | "cookies_txt" | "cdp_cookies" | "session_export";
 /**
+ * Why `plugin_not_allowed` refused a Plugin.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotAllowedReason".
+ */
+export type NotAllowedReason = "not_allowed" | "denied" | "digest";
+/**
  * Whether a Run's own checks prove what it committed (ADR 0029).
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -1538,12 +1545,94 @@ export type PathHazard =
  */
 export type PatternConstruct = "look_around" | "backreference" | "nested_braces" | "unmatched_brace" | "other";
 /**
+ * One permission a Plugin's manifest asks for, which the Operator policy
+ * approves on its own.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Permission".
+ */
+export type Permission =
+  | {
+      /**
+       * The domain.
+       */
+      domain: string;
+      permission: "effects";
+    }
+  | {
+      /**
+       * The domain.
+       */
+      domain: string;
+      permission: "page_script";
+    }
+  | {
+      /**
+       * The domain.
+       */
+      domain: string;
+      permission: "session_credentials";
+    }
+  | {
+      permission: "secret";
+      /**
+       * The Secret reference, such as `env:TOKEN`.
+       */
+      reference: string;
+    }
+  | {
+      permission: "secret_value";
+      /**
+       * The Secret reference.
+       */
+      reference: string;
+    }
+  | {
+      /**
+       * The download's digest, `sha256:<hex>`.
+       */
+      digest: string;
+      /**
+       * The browser's name.
+       */
+      name: string;
+      permission: "browser";
+      /**
+       * The platform, such as `linux-x64`.
+       */
+      platform: string;
+    }
+  | {
+      permission: "direct";
+    };
+/**
  * What became of a Run's new Plan versions (ADR 0091).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "PlanStatus".
  */
 export type PlanStatus = "unchanged" | "promoted" | "pending_review" | "frozen";
+/**
+ * Where a person's approval of a Plugin went.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginApproval".
+ */
+export type PluginApproval =
+  | {
+      outcome: "written";
+      /**
+       * The Operator policy file.
+       */
+      policy: string;
+    }
+  | {
+      /**
+       * The policy's `plugins.<name>` entry, as TOML.
+       */
+      entry: string;
+      outcome: "managed";
+    };
 /**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
@@ -7320,6 +7409,14 @@ export interface PlanReport {
  */
 export interface PluginAddParams {
   /**
+   * Whether the person approved the Plugin and each permission its
+   * manifest declares, as they were shown before the call (ADR 0033):
+   * the engine then allows it, pins it to its digest and approves those
+   * permissions in the Operator policy, or answers the entry to put in
+   * a policy managed elsewhere.
+   */
+  approve?: boolean;
+  /**
    * The project configuration the Client found, layer 3 (ADR 0083): the
    * lockfile goes beside it, else in the Goodfetch home's configuration
    * folder.
@@ -7341,6 +7438,10 @@ export interface PluginAddParams {
  */
 export interface PluginAdded {
   /**
+   * Where the person's approval went, when they gave one.
+   */
+  approval?: PluginApproval | null;
+  /**
    * The digest of its multi-platform image index, `sha256:<hex>`, which
    * the lockfile pins.
    */
@@ -7354,9 +7455,35 @@ export interface PluginAdded {
    */
   name: string;
   /**
+   * Each permission its manifest declares, with what it lets the Plugin
+   * do and what the engine cannot check.
+   */
+  permissions?: StatedPermission[];
+  /**
    * Its version, as its manifest names it.
    */
   version: string;
+}
+/**
+ * A permission with what it lets the Plugin do and what the engine cannot
+ * check, in plain words, as an approval states them.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StatedPermission".
+ */
+export interface StatedPermission {
+  /**
+   * What the engine cannot check once it is approved.
+   */
+  cannotCheck: string;
+  /**
+   * What it lets the Plugin do.
+   */
+  lets: string;
+  /**
+   * The permission.
+   */
+  permission: Permission;
 }
 /**
  * What `plugin_digest_mismatch` details.
@@ -7381,6 +7508,46 @@ export interface PluginDigestMismatchDetails {
    * The Plugin's name.
    */
   name: string;
+}
+/**
+ * What `plugin_not_allowed` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginNotAllowedDetails".
+ */
+export interface PluginNotAllowedDetails {
+  /**
+   * The digest installed, for a pin, when the store records one.
+   */
+  found?: string | null;
+  /**
+   * The digest the Operator policy pins it to, for a pin.
+   */
+  pinned?: string | null;
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+  /**
+   * Why it is refused.
+   */
+  reason: NotAllowedReason;
+}
+/**
+ * What `plugin_permission_denied` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginPermissionDeniedDetails".
+ */
+export interface PluginPermissionDeniedDetails {
+  /**
+   * The permission it needs.
+   */
+  permission: Permission;
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
 }
 /**
  * A Plugin that ran in a Run (ADRs 0016 and 0033).

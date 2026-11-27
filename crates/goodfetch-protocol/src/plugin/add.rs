@@ -11,6 +11,7 @@ use crate::catalog::{
     Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
     ProtocolVersion, Reach, Stability, schema_of,
 };
+use crate::plugin::approvals::{StatedPermission, is_false};
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -31,6 +32,34 @@ pub struct PluginAddParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub project: Option<ProjectSettings>,
+    /// Whether the person approved the Plugin and each permission its
+    /// manifest declares, as they were shown before the call (ADR 0033):
+    /// the engine then allows it, pins it to its digest and approves those
+    /// permissions in the Operator policy, or answers the entry to put in
+    /// a policy managed elsewhere.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub approve: bool,
+}
+
+/// Where a person's approval of a Plugin went.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PluginApproval {
+    /// Written into the Operator policy, and recorded in the Audit log.
+    Written {
+        /// The Operator policy file.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        policy: String,
+    },
+    /// Not written: the Operator policy is managed elsewhere, by a device
+    /// manager or a configuration tool, so the person adds this entry
+    /// there.
+    Managed {
+        /// The policy's `plugins.<name>` entry, as TOML.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        entry: String,
+    },
 }
 
 /// What `plugin.add` answers once the Plugin is installed and pinned.
@@ -49,12 +78,21 @@ pub struct PluginAdded {
     /// The lockfile that pins it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lockfile: String,
+    /// Each permission its manifest declares, with what it lets the Plugin
+    /// do and what the engine cannot check.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub permissions: Vec<StatedPermission>,
+    /// Where the person's approval went, when they gave one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub approval: Option<PluginApproval>,
 }
 
 /// `plugin.add`.
 pub const PLUGIN_ADD: Operation = Operation {
     name: "plugin.add",
-    description: "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+    description: "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. The answer states each permission the Plugin's manifest declares, with what it lets the Plugin do and what the engine cannot check. With `approve`, given once the person saw those, the engine allows the Plugin, pins it to the index's digest and approves each of those permissions in the Operator policy's `plugins.<name>` entry, recorded in the Audit log as `plugin_approved`; an Operator policy managed elsewhere is left as it is and the answer carries the entry to add there. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,

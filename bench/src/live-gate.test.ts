@@ -60,7 +60,7 @@ test("exits at step 1 without any call when the repository variable is unset", a
   expect(logs.join("\n")).toContain("GOODFETCH_LIVE_PROVIDER_CHECK");
 });
 
-test("prints plan and worst case before the first call and refuses when worst case exceeds cap", async () => {
+test("refuses to start without calling models when worst case exceeds cap", async () => {
   const events: string[] = [];
   const overCap = await runLiveJob({
     job: "provider-check",
@@ -78,20 +78,22 @@ test("prints plan and worst case before the first call and refuses when worst ca
   expect(overCap.status).toBe("refused_over_cap");
   expect(overCap.exitCode).toBe(1);
   expect(overCap.callsMade).toBe(0);
-  expect(events.some((entry) => entry === "call")).toBe(false);
+  expect(events.includes("call")).toBe(false);
   expect(events.join("\n")).toContain("worst case");
   expect(events.join("\n")).toContain("openai/gpt-5.2");
+});
 
-  const okEvents: string[] = [];
+test("prints plan and worst case before the first model call when under cap", async () => {
+  const events: string[] = [];
   const underCap = await runLiveJob({
     job: "provider-check",
     env: { GOODFETCH_LIVE_PROVIDER_CHECK: "1", AI_GATEWAY_API_KEY: FAKE_GATEWAY_KEY },
     trials: [
       { model: "openai/gpt-5.4-nano", count: 3, maxInputTokens: 1_000, maxOutputTokens: 500 },
     ],
-    writeLog: (line) => okEvents.push(`log:${line}`),
+    writeLog: (line) => events.push(`log:${line}`),
     execute: async (ctx) => {
-      okEvents.push("call");
+      events.push("call");
       ctx.recordCall(0.001);
       return "ok";
     },
@@ -99,8 +101,8 @@ test("prints plan and worst case before the first call and refuses when worst ca
 
   expect(underCap.status).toBe("completed");
   expect(underCap.exitCode).toBe(0);
-  expect(okEvents[0]).toMatch(/^log:/);
-  expect(okEvents.indexOf("call")).toBeGreaterThan(0);
+  expect(events[0]).toMatch(/^log:/);
+  expect(events.indexOf("call")).toBeGreaterThan(0);
 });
 
 test("stops a run when it reaches its currency Limit", async () => {
@@ -130,13 +132,26 @@ test("stops a run when it reaches its currency Limit", async () => {
   expect(outcome.spentUsd).toBeCloseTo(0.4, 9);
 });
 
-test("reports a 429 or exhausted free credit as inconclusive (exit 75)", async () => {
+test("reports HTTP 429 rate limits as inconclusive (exit 75)", async () => {
   expect(classifyGatewayResponse({ status: 429, retryAfterSeconds: 30 })).toEqual({
     kind: "inconclusive",
     reason: "rate_limit",
     status: 429,
     retryAfterSeconds: 30,
   });
+
+  const rateLimited = await runLiveJob({
+    job: "provider-check",
+    env: { GOODFETCH_LIVE_PROVIDER_CHECK: "1", AI_GATEWAY_API_KEY: FAKE_GATEWAY_KEY },
+    trials: [{ model: "openai/gpt-5.4-nano", count: 1, maxInputTokens: 500, maxOutputTokens: 200 }],
+    writeLog: () => {},
+    execute: async (ctx) => ctx.inconclusiveFromGateway({ status: 429, retryAfterSeconds: 12 }),
+  });
+  expect(rateLimited.status).toBe("inconclusive");
+  expect(rateLimited.exitCode).toBe(INCONCLUSIVE_EXIT_CODE);
+});
+
+test("reports exhausted free credit (HTTP 402) as inconclusive (exit 75)", async () => {
   expect(
     classifyGatewayResponse({
       status: 402,
@@ -149,16 +164,6 @@ test("reports a 429 or exhausted free credit as inconclusive (exit 75)", async (
     status: 402,
     retryAfterSeconds: null,
   });
-
-  const rateLimited = await runLiveJob({
-    job: "provider-check",
-    env: { GOODFETCH_LIVE_PROVIDER_CHECK: "1", AI_GATEWAY_API_KEY: FAKE_GATEWAY_KEY },
-    trials: [{ model: "openai/gpt-5.4-nano", count: 1, maxInputTokens: 500, maxOutputTokens: 200 }],
-    writeLog: () => {},
-    execute: async (ctx) => ctx.inconclusiveFromGateway({ status: 429, retryAfterSeconds: 12 }),
-  });
-  expect(rateLimited.status).toBe("inconclusive");
-  expect(rateLimited.exitCode).toBe(INCONCLUSIVE_EXIT_CODE);
 
   const exhausted = await runLiveJob({
     job: "provider-check",
@@ -195,7 +200,7 @@ test("reports inconclusive when a planned model is not in the gateway free tier"
   expect(outcome.callsMade).toBe(0);
 });
 
-test("builds isolated environments for Claude Code and Codex without nonessential traffic", () => {
+test("builds isolated Claude Code environment without nonessential traffic", () => {
   const claude = claudeCodeLiveEnv({ apiKey: FAKE_GATEWAY_KEY, maxBudgetUsd: 2 });
   expect(claude["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]).toBe("1");
   expect(claude["DISABLE_AUTOUPDATER"]).toBe("1");
@@ -203,7 +208,9 @@ test("builds isolated environments for Claude Code and Codex without nonessentia
   expect(claude["DISABLE_ERROR_REPORTING"]).toBe("1");
   expect(claude["ANTHROPIC_BASE_URL"]).toBe("https://ai-gateway.vercel.sh");
   expect(claude["GOODFETCH_MAX_BUDGET_USD"]).toBe("2");
+});
 
+test("builds isolated Codex environment and config without updates or analytics", () => {
   const codex = codexLiveEnv({ apiKey: FAKE_GATEWAY_KEY });
   expect(codex["CODEX_DISABLE_UPDATE_CHECK"]).toBe("1");
   expect(codex["CODEX_DISABLE_ANALYTICS"]).toBe("1");
@@ -216,17 +223,18 @@ test("builds isolated environments for Claude Code and Codex without nonessentia
   expect(config).toContain('env_key = "AI_GATEWAY_API_KEY"');
 });
 
-test("estimates worst case accurately and tracks currency limits monotonically", () => {
+test("estimates worst case accurately from the committed price table", () => {
   const caps = loadCapsTable();
   const est = estimateWorstCaseUsd(
     "recorder",
     [{ model: "openai/gpt-5.4-nano", count: 10, maxInputTokens: 10_000, maxOutputTokens: 2_000 }],
     caps,
   );
-  // 10 * (10_000 * 0.20 / 1e6 + 2_000 * 1.25 / 1e6) = 10 * (0.002 + 0.0025) = 0.045
   expect(est.worstCaseUsd).toBeCloseTo(0.045, 9);
   expect(est.exceedsCap).toBe(false);
+});
 
+test("tracks currency Limit monotonically and refuses overspend", () => {
   const tracker = new CurrencyLimitTracker(0.5);
   expect(tracker.canAfford(0.3)).toBe(true);
   expect(tracker.recordSpend(0.3)).toBe(true);

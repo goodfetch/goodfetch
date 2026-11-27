@@ -1,16 +1,11 @@
 # Skill Evaluations promptfoo configuration (ADRs 0065, 0076, 0090 and 0094; issue 423).
 #
 # Called from `bench/src/skill-evals.ts` under `#413`'s shared live-gate
-# (`GOODFETCH_LIVE_SKILLS`, disabled until #425). Compares each Product's
+# (`GOODFETCH_LIVE_SKILLS`, disabled until M4). Compares each Product's
 # generated skills (`goodfetch-collie` and `goodfetch-foxhound`) with and
 # without skills across 3 trials per model tier (`small`, `mid`, `large`)
 # against the local Proving ground, graded solely by the Proving ground oracle
 # with `skill-used` recorded as a triggering signal.
-#
-# All model traffic routes exclusively through Vercel AI Gateway's free tier
-# (`AI_GATEWAY_API_KEY`, https://ai-gateway.vercel.sh) with Claude Code
-# nonessential traffic/telemetry/updater disabled and Codex update checks and
-# analytics disabled.
 description: "Goodfetch Skill Evaluations (Collie and Foxhound, with vs without skills)"
 
 prompts:
@@ -64,11 +59,14 @@ providers:
       analyticsEnabled: false
 
 defaultTest:
+  vars:
+    model: "openai/gpt-5.4-nano"
+    oracle_url: "http://127.0.0.1:0/oracle/judge"
   options:
     repeat: 3
 
 tests:
-  - description: "Collie CLI task against local Proving ground"
+  - description: "collie CLI task against local Proving ground"
     vars:
       product: collie
       executable: goodfetch-collie
@@ -76,10 +74,10 @@ tests:
       task_prompt: "Use goodfetch-collie to start a Run, read the title from the local Proving ground page, and finish the Run."
     assert:
       - type: javascript
-        value: "context.vars.oracleVerified === true"
+        value: "async (output, context) => { const res = await fetch(context.vars.oracle_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ product: context.vars.product, output }) }); const verdict = await res.json(); return verdict.status === 'verified'; }"
       - type: skill-used
 
-  - description: "Foxhound CLI task against local Proving ground"
+  - description: "foxhound CLI task against local Proving ground"
     vars:
       product: foxhound
       executable: goodfetch-foxhound
@@ -87,5 +85,5 @@ tests:
       task_prompt: "Use goodfetch-foxhound to start a Run, crawl the local Proving ground article links, and finish the Run."
     assert:
       - type: javascript
-        value: "context.vars.oracleVerified === true"
+        value: "async (output, context) => { const res = await fetch(context.vars.oracle_url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ product: context.vars.product, output }) }); const verdict = await res.json(); return verdict.status === 'verified'; }"
       - type: skill-used

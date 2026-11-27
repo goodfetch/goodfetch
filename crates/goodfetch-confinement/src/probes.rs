@@ -485,52 +485,5 @@ pub fn check(table: &ProbeTable, rules: &[Rule], denied: &[&Denied]) -> Vec<Mism
     mismatches
 }
 
-/// Failure reported by [`run_call_case`] when a probe's positive control
-/// (unconfined) or confined call does not return its expected outcome.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CaseFailure {
-    /// The unconfined call did not produce its positive-control outcome, so
-    /// the probe cannot pass even if the confined call returned its refusal.
-    PositiveControl {
-        rule: String,
-        expected: Outcome,
-        found: Outcome,
-    },
-    /// The confined call did not produce its expected outcome.
-    Confined {
-        rule: String,
-        expected: Outcome,
-        found: Outcome,
-    },
-}
-
-/// Runs `case`'s positive control unconfined first, then confined: fails on
-/// [`CaseFailure::PositiveControl`] whenever the unconfined outcome differs
-/// from `case.unconfined`, before accepting any confined refusal (ADR 0067).
-pub fn run_call_case(
-    case: &CallCase,
-    expected_confined: Outcome,
-    mut exec_unconfined: impl FnMut() -> Outcome,
-    mut exec_confined: impl FnMut() -> Outcome,
-) -> Result<(), CaseFailure> {
-    let unconfined = exec_unconfined();
-    if unconfined != case.unconfined {
-        return Err(CaseFailure::PositiveControl {
-            rule: case.rule.clone(),
-            expected: case.unconfined,
-            found: unconfined,
-        });
-    }
-    let confined = exec_confined();
-    if confined != expected_confined {
-        return Err(CaseFailure::Confined {
-            rule: case.rule.clone(),
-            expected: expected_confined,
-            found: confined,
-        });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests;

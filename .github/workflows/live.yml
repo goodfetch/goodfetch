@@ -83,7 +83,9 @@ jobs:
 
   provider:
     name: provider
-    if: inputs.checks == 'provider'
+    if: >-
+      inputs.checks == 'provider' &&
+      (vars.GOODFETCH_LIVE_PROVIDER_CHECK == '1' || vars.GOODFETCH_LIVE_PROVIDER_CHECK == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -108,6 +110,7 @@ jobs:
       - name: "Test: the job's Live checks"
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          GOODFETCH_LIVE_PROVIDER_CHECK: ${{ vars.GOODFETCH_LIVE_PROVIDER_CHECK }}
         run: >-
           ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
           results live-run --job live.yml#provider --junit target/junit/live.xml

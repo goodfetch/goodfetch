@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 
 use crate::check::Finding;
 
@@ -106,10 +106,13 @@ fn verdict_outcome(verdict: Verdict, unconfined: &str) -> &str {
 
 fn call_template(rule: &SeccompRule) -> Result<CallTemplate> {
     if let Some(request) = rule.ioctl_request {
-        return Ok(tpl(
-            [num(-1), num(i64::try_from(request).unwrap_or(0)), num(0)],
-            "EBADF",
-        ));
+        let req = i64::try_from(request).with_context(|| {
+            format!(
+                "ioctl request {request:#x} for `{}` overflows i64",
+                rule.name
+            )
+        })?;
+        return Ok(tpl([num(-1), num(req), num(0)], "EBADF"));
     }
     let template = match rule.name.as_str() {
         "brk" | "set_tid_address" | "unshare" => tpl([num(0)], "ok"),
@@ -484,7 +487,14 @@ fn check_paths(prefix: &str, table: &ProbeTable, policy: &PolicySpec, findings: 
 
 fn path_inside_entry(probe_path: &str, entry: &DenyEntry) -> bool {
     match entry.base {
-        DenyBase::GoodfetchHome => probe_path.starts_with("{goodfetch_home}/"),
+        DenyBase::GoodfetchHome => {
+            if entry.path.is_empty() {
+                probe_path.starts_with("{goodfetch_home}/")
+            } else {
+                let prefix = format!("{{goodfetch_home}}/{}", entry.path);
+                probe_path == prefix || probe_path.starts_with(&format!("{prefix}/"))
+            }
+        }
         DenyBase::Home => {
             let prefix = format!("{{home}}/{}", entry.path);
             probe_path == prefix || probe_path.starts_with(&format!("{prefix}/"))

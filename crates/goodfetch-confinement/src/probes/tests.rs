@@ -4,8 +4,8 @@ use goodfetch_protocol::plugin::NetworkLevel;
 use rstest::rstest;
 
 use super::{
-    Arg, CallCase, CaseFailure, Errno, Mismatch, Outcome, PathCase, Placed, Placeholder,
-    ProbeTable, ProcessArg, check, committed, run_call_case,
+    Arg, CallCase, Errno, Mismatch, Outcome, PathCase, Placed, Placeholder, ProbeTable, ProcessArg,
+    check, committed,
 };
 use crate::deny_list::{self, Denied, Host};
 use crate::seccomp::{Call, rules};
@@ -201,48 +201,4 @@ fn only_linux_at_none_has_a_table_so_far() {
         .collect();
 
     assert_eq!(with_table, vec![(Host::Linux, NetworkLevel::None)]);
-}
-
-#[test]
-fn a_case_fails_when_its_positive_control_fails_even_if_confined_refuses() {
-    let case = refusal_of_ptrace();
-    let mut confined_ran = false;
-
-    let result = run_call_case(
-        &case,
-        case.confined,
-        // Positive control returns EPERM (the refusal) instead of ESRCH.
-        || Outcome::Errno(Errno::Eperm),
-        || {
-            confined_ran = true;
-            Outcome::Errno(Errno::Eperm)
-        },
-    );
-
-    assert_eq!(
-        result,
-        Err(CaseFailure::PositiveControl {
-            rule: "ptrace".to_owned(),
-            expected: Outcome::Errno(Errno::Esrch),
-            found: Outcome::Errno(Errno::Eperm),
-        })
-    );
-    assert!(
-        !confined_ran,
-        "confined phase must not mask a failed positive control"
-    );
-}
-
-#[test]
-fn a_case_passes_when_both_positive_control_and_confined_outcome_match() {
-    let case = refusal_of_ptrace();
-
-    let result = run_call_case(
-        &case,
-        case.confined,
-        || Outcome::Errno(Errno::Esrch),
-        || Outcome::Errno(Errno::Eperm),
-    );
-
-    assert_eq!(result, Ok(()));
 }

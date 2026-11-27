@@ -33,10 +33,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Compute input tree hashes and check fast path
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
         run: >-
           cargo run --quiet --locked --bin xtask --
           chromium gate check
-          --event "${{ github.event_name }}"
+          --event "$EVENT_NAME"
           --junit target/junit/chromium-build.xml
       - name: Record the job's context beside its JUnit files
         if: always()

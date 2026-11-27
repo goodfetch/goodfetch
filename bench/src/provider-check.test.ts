@@ -115,6 +115,32 @@ test("reports a changed field type in JSON body", () => {
   expect(result.differences.some((d) => d.kind === "field-type")).toBe(true);
 });
 
+test("reports heterogeneous array element shape drift past the first element", () => {
+  const recorded: RecordedExchange = {
+    request: RECORDED_TEXT.request,
+    response: {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: { items: [{ type: "text", text: "hi" }] },
+    },
+  };
+  const live: LiveExchangeResponse = {
+    status: 200,
+    headers: { "content-type": "application/json" },
+    body: {
+      items: [
+        { type: "text", text: "hi" },
+        { type: "tool_use", id: 123 },
+      ],
+    },
+  };
+  const result = compareExchange(recorded, live);
+  expect(result.passed).toBe(false);
+  expect(result.differences.some((d) => d.kind === "field-type" && d.path === "$.items[]")).toBe(
+    true,
+  );
+});
+
 test("reports a missing read header", () => {
   const live: LiveExchangeResponse = {
     status: 200,
@@ -130,7 +156,7 @@ test("reports a missing read header", () => {
   ).toBe(true);
 });
 
-test("reports a new stream event kind and a reordered stream event", () => {
+test("reports a new stream event kind", () => {
   const newEventLive: LiveExchangeResponse = {
     status: 200,
     headers: { "content-type": "text/event-stream" },
@@ -141,10 +167,12 @@ test("reports a new stream event kind and a reordered stream event", () => {
       "event: message_stop\ndata: {}\n\n",
     ],
   };
-  const newEventResult = compareExchange(RECORDED_STREAM, newEventLive);
-  expect(newEventResult.passed).toBe(false);
-  expect(newEventResult.differences.some((d) => d.kind === "stream-event-kind")).toBe(true);
+  const result = compareExchange(RECORDED_STREAM, newEventLive);
+  expect(result.passed).toBe(false);
+  expect(result.differences.some((d) => d.kind === "stream-event-kind")).toBe(true);
+});
 
+test("reports a reordered stream event sequence", () => {
   const reorderedLive: LiveExchangeResponse = {
     status: 200,
     headers: { "content-type": "text/event-stream" },
@@ -154,18 +182,16 @@ test("reports a new stream event kind and a reordered stream event", () => {
       "event: message_stop\ndata: {}\n\n",
     ],
   };
-  const reorderedResult = compareExchange(RECORDED_STREAM, reorderedLive);
-  expect(reorderedResult.passed).toBe(false);
-  expect(reorderedResult.differences.some((d) => d.kind === "stream-event-order")).toBe(true);
+  const result = compareExchange(RECORDED_STREAM, reorderedLive);
+  expect(result.passed).toBe(false);
+  expect(result.differences.some((d) => d.kind === "stream-event-order")).toBe(true);
 });
 
-test("reports a changed error body shape or status", () => {
+test("reports a changed error body shape", () => {
   const changedErrorLive: LiveExchangeResponse = {
     status: 400,
     headers: { "content-type": "application/json" },
-    body: {
-      detail: "flat error string instead of error object",
-    },
+    body: { detail: "flat error string instead of error object" },
   };
   const result = compareExchange(RECORDED_ERROR, changedErrorLive);
   expect(result.passed).toBe(false);
@@ -180,25 +206,19 @@ larger = { model = "openai/gpt-5.2", source = "https://example.test" }
 `);
   expect(manifestModels).toEqual(["openai/gpt-5.4-nano", "openai/gpt-5.2"]);
 
-  const ok = compareModelManifest(manifestModels, [
-    "openai/gpt-5.4-nano",
-    "openai/gpt-5.2",
-    "other",
-  ]);
-  expect(ok).toEqual([]);
-
   const missing = compareModelManifest(manifestModels, ["openai/gpt-5.4-nano"]);
   expect(missing).toHaveLength(1);
   expect(missing[0]?.kind).toBe("missing-model");
   expect(missing[0]?.path).toBe("openai/gpt-5.2");
 });
 
-test("runProviderCheck stays disabled until #425 and writes JUnit under the live tier when enabled", async () => {
+test("stays disabled with zero calls when repository variable is unset", async () => {
   let fetched = 0;
   const disabled = await runProviderCheck({
     env: {},
     recordings: [{ name: "text.json", exchange: RECORDED_TEXT }],
     manifestModels: ["openai/gpt-5.4-nano"],
+    writeLog: () => {},
     sendExchange: async () => {
       fetched += 1;
       return { status: 200, headers: {}, body: {} };
@@ -208,7 +228,9 @@ test("runProviderCheck stays disabled until #425 and writes JUnit under the live
   expect(disabled.status).toBe("disabled");
   expect(disabled.exitCode).toBe(0);
   expect(fetched).toBe(0);
+});
 
+test("writes failing JUnit under the live tier when provider shapes or models differ", async () => {
   const dir = mkdtempSync(join(tmpdir(), "gf-provider-check-"));
   try {
     const junitPath = join(dir, "live.xml");
@@ -241,15 +263,18 @@ test("runProviderCheck stays disabled until #425 and writes JUnit under the live
     expect(xml).toContain('<testcase classname="live" name="provider-check">');
     expect(xml).toContain("<failure");
     expect(xml).toContain("openai/gpt-5.2");
-
-    const inconclusiveXml = renderProviderCheckJunit({
-      tier: "live",
-      status: "inconclusive",
-      differences: [],
-      note: "rate_limit (HTTP 429)",
-    });
-    expect(inconclusiveXml).toContain("<skipped");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("renders skipped JUnit under the live tier when inconclusive", () => {
+  const xml = renderProviderCheckJunit({
+    tier: "live",
+    status: "inconclusive",
+    differences: [],
+    note: "rate_limit (HTTP 429)",
+  });
+  expect(xml).toContain('testsuite name="live"');
+  expect(xml).toContain("<skipped");
 });

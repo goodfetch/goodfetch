@@ -186,15 +186,15 @@ export interface EvaluationReport {
 export interface RunEvaluationOptions {
   readonly size: EvaluationSize;
   readonly tasks: readonly EvaluationTask[];
-  readonly models?: readonly string[];
-  readonly baseline?: Readonly<Record<string, TaskTrials>>;
-  readonly deltaPp?: number;
-  readonly deltaApproved?: boolean;
-  readonly homeRoot?: string;
+  readonly models?: readonly string[] | undefined;
+  readonly baseline?: Readonly<Record<string, TaskTrials>> | undefined;
+  readonly deltaPp?: number | undefined;
+  readonly deltaApproved?: boolean | undefined;
+  readonly homeRoot?: string | undefined;
   readonly provenance: EvaluationProvenanceInput;
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly caps?: LiveCapsTable;
-  readonly writeLog?: (line: string) => void;
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly caps?: LiveCapsTable | undefined;
+  readonly writeLog?: ((line: string) => void) | undefined;
   readonly runTrial: (input: TrialExecutionInput) => Promise<TrialObservation>;
 }
 
@@ -203,7 +203,7 @@ export interface EvaluationRunResult {
   readonly outcome: "passed" | "failed" | "inconclusive" | "disabled";
   readonly exitCode: number;
   readonly report: EvaluationReport | null;
-  readonly reason?: string;
+  readonly reason?: string | undefined;
 }
 
 /** Resolves the single Product for a campaign's tasks (Foxhound if any task needs it). */
@@ -233,7 +233,7 @@ function validateSeeds(size: EvaluationSize, tasks: readonly EvaluationTask[]): 
 }
 
 function evaluateRegression(
-  perTaskCounts: ReadonlyMap<string, { verified: number; trials: number }>,
+  perModelTask: ReadonlyMap<string, { readonly taskId: string; verified: number; trials: number }>,
   baseline: Readonly<Record<string, TaskTrials>> | undefined,
   deltaPp: number,
   deltaApproved: boolean,
@@ -251,10 +251,14 @@ function evaluateRegression(
     };
   }
   const paired: PairedTask[] = [];
-  for (const [taskId, runCounts] of perTaskCounts) {
-    const base = baseline[taskId];
+  for (const [key, entry] of perModelTask) {
+    const base = baseline[key] ?? baseline[entry.taskId];
     if (base !== undefined) {
-      paired.push({ task: taskId, run: runCounts, baseline: base });
+      paired.push({
+        task: key,
+        run: { verified: entry.verified, trials: entry.trials },
+        baseline: base,
+      });
     }
   }
   if (paired.length === 0) {
@@ -303,9 +307,9 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
 
   const liveOutcome = await runLiveJob<EvaluationReport>({
     job: options.size,
-    ...(options.env !== undefined ? { env: options.env } : {}),
+    env: options.env,
     caps,
-    ...(options.writeLog !== undefined ? { writeLog: options.writeLog } : {}),
+    writeLog: options.writeLog,
     trials: models.map((model) => ({
       model,
       count: options.tasks.length * spec.trialsPerTask,
@@ -321,11 +325,17 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
       let totalDollars = 0;
       let successCheckDisagreements = 0;
       let groundingDisagreements = 0;
-      const perTask = new Map<string, { verified: number; trials: number }>();
+      // Key by `(model, task.id)` so multi-model `eval-weekly` computes pass^3
+      // over 3-trial groups per model without pooling trials across models.
+      const perModelTask = new Map<
+        string,
+        { readonly taskId: string; verified: number; trials: number }
+      >();
 
       for (const model of models) {
         for (const task of options.tasks) {
-          const taskEntry = perTask.get(task.id) ?? { verified: 0, trials: 0 };
+          const key = `${model}::${task.id}`;
+          const taskEntry = perModelTask.get(key) ?? { taskId: task.id, verified: 0, trials: 0 };
           for (let trialIndex = 0; trialIndex < spec.trialsPerTask; trialIndex += 1) {
             const goodfetchHome = join(
               homeRoot,
@@ -360,15 +370,18 @@ export async function runEvaluation(options: RunEvaluationOptions): Promise<Eval
               groundingDisagreements += 1;
             }
           }
-          perTask.set(task.id, taskEntry);
+          perModelTask.set(key, taskEntry);
         }
       }
 
       const rate = wilson(verified, trials);
-      const taskTrialList: TaskTrials[] = [...perTask.values()];
+      const taskTrialList: TaskTrials[] = [...perModelTask.values()].map((entry) => ({
+        trials: entry.trials,
+        verified: entry.verified,
+      }));
       const absolutePassed = falseSuccesses === 0 && safetyViolations === 0;
       const regressionRule = evaluateRegression(
-        perTask,
+        perModelTask,
         options.baseline,
         deltaPp,
         deltaApproved,

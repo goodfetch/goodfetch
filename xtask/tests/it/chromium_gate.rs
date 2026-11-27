@@ -284,3 +284,61 @@ fn fast_path_fails_when_verdict_or_build_attestation_mismatches() {
         bad_build.findings()
     );
 }
+
+#[test]
+#[expect(
+    clippy::disallowed_types,
+    reason = "loopback stand-in for GitHub's attestations REST API in integration test"
+)]
+fn fetches_github_attestations_via_api_when_attestations_flag_is_omitted() {
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
+
+    let (workspace, digest, build_hash, test_hash) = setup_attested_workspace();
+    let build_stmt = serde_json::json!({
+        "predicate": { "build_inputs": build_hash }
+    })
+    .to_string();
+    let verdict_stmt = serde_json::json!({
+        "predicate": { "build_inputs": build_hash, "test_inputs": test_hash }
+    })
+    .to_string();
+    let api_body = serde_json::json!({
+        "attestations": [
+            { "bundle": { "dsseEnvelope": { "payload": data_encoding::BASE64.encode(build_stmt.as_bytes()) } } },
+            { "bundle": { "dsseEnvelope": { "payload": data_encoding::BASE64.encode(verdict_stmt.as_bytes()) } } }
+        ]
+    })
+    .to_string();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let expected_digest = digest.clone();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = [0u8; 4096];
+        let n = stream.read(&mut buf).unwrap_or(0);
+        let req = String::from_utf8_lossy(&buf[..n]);
+        assert!(req.contains(&expected_digest), "unexpected request: {req}");
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            api_body.len(),
+            api_body
+        );
+        stream.write_all(resp.as_bytes()).unwrap();
+    });
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .current_dir(workspace.path())
+        .env("GITHUB_API_URL", format!("http://{addr}"))
+        .env("GITHUB_REPOSITORY", "goodfetch/goodfetch")
+        .args(["chromium", "gate", "check", "--event", "pull_request"])
+        .output()
+        .unwrap();
+    server.join().unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stdout}{stderr}");
+    assert!(stdout.contains("fast_path=hit"), "{stdout}");
+}

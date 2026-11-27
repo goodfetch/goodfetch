@@ -45,6 +45,19 @@ function verifiedObservation(): TrialObservation {
   };
 }
 
+async function oneOfThreeVerified(input: {
+  readonly trialIndex: number;
+}): Promise<TrialObservation> {
+  return {
+    oracleVerdict: input.trialIndex === 0 ? "verified" : "failed",
+    safetyViolation: false,
+    successCheckAgreed: true,
+    groundingAgreed: true,
+    tokens: 300,
+    dollars: 0.001,
+  };
+}
+
 test("declares eval-pr, eval-nightly and eval-weekly with 3 trials per task and ADR 0094 products", () => {
   expect(EVALUATION_SIZES["eval-pr"].trialsPerTask).toBe(3);
   expect(EVALUATION_SIZES["eval-pr"].seedSplit).toBe("development");
@@ -59,7 +72,7 @@ test("declares eval-pr, eval-nightly and eval-weekly with 3 trials per task and 
   expect(productForCapability("ai-crawls")).toBe("foxhound");
 });
 
-test("runs declared 3 trials per task from distinct clean Goodfetch homes and rejects held-out seeds in eval-pr", async () => {
+test("runs declared 3 trials per task from distinct clean Goodfetch homes", async () => {
   const seenHomes: string[] = [];
   const run = await runEvaluation({
     size: "eval-pr",
@@ -77,7 +90,9 @@ test("runs declared 3 trials per task from distinct clean Goodfetch homes and re
   expect(run.outcome).toBe("passed");
   expect(seenHomes).toHaveLength(DEV_TASKS.length * 3);
   expect(new Set(seenHomes).size).toBe(seenHomes.length);
+});
 
+test("rejects held-out seeds in eval-pr", async () => {
   await expect(
     runEvaluation({
       size: "eval-pr",
@@ -90,9 +105,9 @@ test("runs declared 3 trials per task from distinct clean Goodfetch homes and re
   ).rejects.toThrow(/held-out seed.*eval-pr/i);
 });
 
-test("fails at any size on a false success or safety violation (absolute rule)", async () => {
+test("fails at any size on a false success (absolute rule)", async () => {
   let index = 0;
-  const falseSuccessRun = await runEvaluation({
+  const run = await runEvaluation({
     size: "eval-pr",
     env: { GOODFETCH_LIVE_EVAL_PR: "1", AI_GATEWAY_API_KEY: FAKE_GATEWAY_KEY },
     tasks: DEV_TASKS.slice(0, 1),
@@ -114,11 +129,13 @@ test("fails at any size on a false success or safety violation (absolute rule)",
     },
   });
 
-  expect(falseSuccessRun.outcome).toBe("failed");
-  expect(falseSuccessRun.report?.rules.absoluteRule.passed).toBe(false);
-  expect(falseSuccessRun.report?.rules.absoluteRule.falseSuccesses).toBe(1);
+  expect(run.outcome).toBe("failed");
+  expect(run.report?.rules.absoluteRule.passed).toBe(false);
+  expect(run.report?.rules.absoluteRule.falseSuccesses).toBe(1);
+});
 
-  const safetyRun = await runEvaluation({
+test("fails at any size on a safety violation (absolute rule)", async () => {
+  const run = await runEvaluation({
     size: "eval-nightly",
     env: { GOODFETCH_LIVE_EVAL_NIGHTLY: "1", AI_GATEWAY_API_KEY: FAKE_GATEWAY_KEY },
     tasks: HELD_OUT_TASKS.slice(0, 1),
@@ -133,24 +150,11 @@ test("fails at any size on a false success or safety violation (absolute rule)",
       dollars: 0.001,
     }),
   });
-  expect(safetyRun.outcome).toBe("failed");
-  expect(safetyRun.report?.rules.absoluteRule.safetyViolations).toBe(3);
+  expect(run.outcome).toBe("failed");
+  expect(run.report?.rules.absoluteRule.safetyViolations).toBe(3);
 });
 
-async function oneOfThreeVerified(input: {
-  readonly trialIndex: number;
-}): Promise<TrialObservation> {
-  return {
-    oracleVerdict: input.trialIndex === 0 ? "verified" : "failed",
-    safetyViolation: false,
-    successCheckAgreed: true,
-    groundingAgreed: true,
-    tokens: 300,
-    dollars: 0.001,
-  };
-}
-
-test("regression opens a live-check issue and fails nothing while delta is unapproved, then fails once approved", async () => {
+test("regression opens a live-check issue and fails nothing while delta is unapproved", async () => {
   const baseline = Object.fromEntries(
     HELD_OUT_TASKS.map((t) => [t.id, { verified: 3, trials: 3 }]),
   );
@@ -172,6 +176,12 @@ test("regression opens a live-check issue and fails nothing while delta is unapp
   expect(unapproved.report?.rules.regressionRule.blocksRelease).toBe(false);
   expect(unapproved.report?.product).toBe("foxhound");
   expect(unapproved.report?.executable).toBe("goodfetch-foxhound");
+});
+
+test("regression fails the evaluation once delta is approved", async () => {
+  const baseline = Object.fromEntries(
+    HELD_OUT_TASKS.map((t) => [t.id, { verified: 3, trials: 3 }]),
+  );
 
   const approved = await runEvaluation({
     size: "eval-nightly",
@@ -186,6 +196,27 @@ test("regression opens a live-check issue and fails nothing while delta is unapp
   });
   expect(approved.outcome).toBe("failed");
   expect(approved.report?.rules.regressionRule.blocksRelease).toBe(true);
+});
+
+test("computes multi-model eval-weekly pass^3 per (model, task) without pooling trials across models", async () => {
+  const run = await runEvaluation({
+    size: "eval-weekly",
+    env: { GOODFETCH_LIVE_EVAL_WEEKLY: "1", AI_GATEWAY_API_KEY: FAKE_GATEWAY_KEY },
+    tasks: HELD_OUT_TASKS.slice(0, 1),
+    provenance: PROVENANCE,
+    writeLog: () => {},
+    runTrial: async ({ model }) => ({
+      oracleVerdict: model === "openai/gpt-5.2" ? "verified" : "failed",
+      safetyViolation: false,
+      successCheckAgreed: true,
+      groundingAgreed: true,
+      tokens: 200,
+      dollars: 0.001,
+    }),
+  });
+  // Model A gets 0/3 (pass^3 = 0), Model B gets 3/3 (pass^3 = 1); mean = 0.5 (not pooled 3/6 = 0.05).
+  expect(run.outcome).toBe("passed");
+  expect(run.report?.statistics.pass3).toBeCloseTo(0.5, 9);
 });
 
 test("reports inconclusive when a campaign model is not in the Vercel AI Gateway free tier", async () => {

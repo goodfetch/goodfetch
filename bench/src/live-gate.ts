@@ -80,9 +80,9 @@ export interface WorstCaseEstimate {
 /** Gateway response fields inspected for rate-limit / exhausted-credit signals. */
 export interface GatewayResponseSignal {
   readonly status: number;
-  readonly errorCode?: string;
-  readonly body?: string;
-  readonly retryAfterSeconds?: number | null;
+  readonly errorCode?: string | undefined;
+  readonly body?: string | undefined;
+  readonly retryAfterSeconds?: number | null | undefined;
 }
 
 /** Classification of a Vercel AI Gateway response. */
@@ -366,11 +366,72 @@ export interface LiveJobContext {
 export interface LiveJobRunOptions<T> {
   readonly job: LiveJobId;
   readonly trials: readonly PlannedTrial[];
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly caps?: LiveCapsTable;
-  readonly requireFreeTier?: boolean;
-  readonly writeLog?: (line: string) => void;
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly caps?: LiveCapsTable | undefined;
+  readonly requireFreeTier?: boolean | undefined;
+  readonly writeLog?: ((line: string) => void) | undefined;
   readonly execute: (context: LiveJobContext) => Promise<T>;
+}
+
+/** Pre-call gate decision shared between `runLiveJob` and the `bench live-gate` CLI. */
+export type PreCallGateDecision =
+  | { readonly status: "disabled"; readonly exitCode: 0; readonly variable: string }
+  | {
+      readonly status: "inconclusive";
+      readonly exitCode: typeof INCONCLUSIVE_EXIT_CODE;
+      readonly reason: string;
+      readonly estimate: WorstCaseEstimate;
+    }
+  | {
+      readonly status: "refused_over_cap";
+      readonly exitCode: 1;
+      readonly estimate: WorstCaseEstimate;
+    }
+  | {
+      readonly status: "ready";
+      readonly exitCode: 0;
+      readonly estimate: WorstCaseEstimate;
+    };
+
+/**
+ * Evaluates all pre-call gates in order: repository enablement variable,
+ * pre-call worst-case plan printing, free-tier availability, and per-run cap.
+ */
+export function evaluateLiveGate(options: {
+  readonly job: LiveJobId;
+  readonly trials: readonly PlannedTrial[];
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly caps?: LiveCapsTable | undefined;
+  readonly requireFreeTier?: boolean | undefined;
+  readonly writeLog?: ((line: string) => void) | undefined;
+}): PreCallGateDecision {
+  const caps = options.caps ?? loadCapsTable();
+  const env = options.env ?? process.env;
+  const writeLog = options.writeLog ?? ((line: string) => process.stdout.write(`${line}\n`));
+
+  const enablement = isJobEnabled(options.job, env, caps);
+  if (!enablement.enabled) {
+    writeLog(`live-gate[${options.job}]: ${enablement.reason}; exiting with 0 calls`);
+    return { status: "disabled", exitCode: 0, variable: enablement.variable };
+  }
+
+  const estimate = estimateWorstCaseUsd(options.job, options.trials, caps);
+  writeLog(formatRunPlan(estimate));
+
+  if ((options.requireFreeTier ?? true) && estimate.nonFreeTierModels.length > 0) {
+    const reason = `models not in Vercel AI Gateway free tier: ${estimate.nonFreeTierModels.join(", ")}`;
+    writeLog(`live-gate[${options.job}]: inconclusive (${reason})`);
+    return { status: "inconclusive", exitCode: INCONCLUSIVE_EXIT_CODE, reason, estimate };
+  }
+
+  if (estimate.exceedsCap) {
+    writeLog(
+      `live-gate[${options.job}]: refused — worst case $${estimate.worstCaseUsd.toFixed(4)} exceeds cap $${estimate.capUsd.toFixed(2)}`,
+    );
+    return { status: "refused_over_cap", exitCode: 1, estimate };
+  }
+
+  return { status: "ready", exitCode: 0, estimate };
 }
 
 /** Structured outcome of a live AI job run. */
@@ -425,46 +486,43 @@ export async function runLiveJob<T>(options: LiveJobRunOptions<T>): Promise<Live
   const env = options.env ?? process.env;
   const writeLog = options.writeLog ?? ((line: string) => process.stdout.write(`${line}\n`));
 
-  const enablement = isJobEnabled(options.job, env, caps);
-  if (!enablement.enabled) {
-    writeLog(`live-gate[${options.job}]: ${enablement.reason}; exiting with 0 calls`);
+  const gate = evaluateLiveGate({
+    job: options.job,
+    trials: options.trials,
+    env,
+    caps,
+    requireFreeTier: options.requireFreeTier,
+    writeLog,
+  });
+  if (gate.status === "disabled") {
     return {
       status: "disabled",
       exitCode: 0,
-      variable: enablement.variable,
+      variable: gate.variable,
       callsMade: 0,
       spentUsd: 0,
     };
   }
-
-  const estimate = estimateWorstCaseUsd(options.job, options.trials, caps);
-  writeLog(formatRunPlan(estimate));
-
-  if ((options.requireFreeTier ?? true) && estimate.nonFreeTierModels.length > 0) {
-    const reason = `models not in Vercel AI Gateway free tier: ${estimate.nonFreeTierModels.join(", ")}`;
-    writeLog(`live-gate[${options.job}]: inconclusive (${reason})`);
+  if (gate.status === "inconclusive") {
     return {
       status: "inconclusive",
       exitCode: INCONCLUSIVE_EXIT_CODE,
-      reason,
+      reason: gate.reason,
       callsMade: 0,
       spentUsd: 0,
     };
   }
-
-  if (estimate.exceedsCap) {
-    writeLog(
-      `live-gate[${options.job}]: refused — worst case $${estimate.worstCaseUsd.toFixed(4)} exceeds cap $${estimate.capUsd.toFixed(2)}`,
-    );
+  if (gate.status === "refused_over_cap") {
     return {
       status: "refused_over_cap",
       exitCode: 1,
-      estimate,
+      estimate: gate.estimate,
       callsMade: 0,
       spentUsd: 0,
     };
   }
 
+  const estimate = gate.estimate;
   const apiKey = env[caps.apiKeyEnv]?.trim() ?? "";
   if (apiKey.length === 0) {
     const reason = `missing ${caps.apiKeyEnv}`;
@@ -547,7 +605,7 @@ export async function runLiveJob<T>(options: LiveJobRunOptions<T>): Promise<Live
  */
 export function claudeCodeLiveEnv(options: {
   readonly apiKey: string;
-  readonly gatewayBaseUrl?: string;
+  readonly gatewayBaseUrl?: string | undefined;
   readonly maxBudgetUsd: number;
 }): Record<string, string> {
   const gateway = options.gatewayBaseUrl ?? "https://ai-gateway.vercel.sh";
@@ -569,7 +627,7 @@ export function claudeCodeLiveEnv(options: {
  */
 export function codexLiveEnv(options: {
   readonly apiKey: string;
-  readonly gatewayBaseUrl?: string;
+  readonly gatewayBaseUrl?: string | undefined;
 }): Record<string, string> {
   const gateway = options.gatewayBaseUrl ?? "https://ai-gateway.vercel.sh";
   const baseUrl = gateway.endsWith("/v1") ? gateway : `${gateway}/v1`;

@@ -118,7 +118,7 @@ pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCo
             }
             let attestations = match attestations {
                 Some(path) => read_attestations(&environment.path(path))?,
-                None => AttestationsFile::default(),
+                None => fetch_github_attestations(&manifest.builds),
             };
             let findings = verify_builds(
                 root,
@@ -227,6 +227,91 @@ fn read_attestations(path: &Path) -> Result<AttestationsFile> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+}
+
+/// Fetches GitHub artifact attestations for each committed digest via the
+/// GitHub REST API (`GET {GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/attestations/{digest}`),
+/// decoding each DSSE in-toto statement's `build_inputs` and `test_inputs` fields.
+fn fetch_github_attestations(builds: &[PublishedBuild]) -> AttestationsFile {
+    let api_base =
+        std::env::var("GITHUB_API_URL").unwrap_or_else(|_| "https://api.github.com".to_owned());
+    let repo = std::env::var("GITHUB_REPOSITORY").unwrap_or_default();
+    if repo.is_empty() {
+        return AttestationsFile::default();
+    }
+    let token = std::env::var("GH_TOKEN")
+        .or_else(|_| std::env::var("GITHUB_TOKEN"))
+        .unwrap_or_default();
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+
+    let mut result = AttestationsFile::default();
+    for build in builds {
+        let url = format!(
+            "{}/repos/{repo}/attestations/{}",
+            api_base.trim_end_matches('/'),
+            build.digest
+        );
+        let mut req = agent
+            .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "goodfetch-xtask");
+        if !token.is_empty() {
+            req = req.header("Authorization", &format!("Bearer {token}"));
+        }
+        let Ok(mut resp) = req.call() else {
+            continue;
+        };
+        if resp.status().as_u16() != 200 {
+            continue;
+        }
+        let Ok(body) = resp.body_mut().read_to_string() else {
+            continue;
+        };
+        parse_github_attestation_response(&build.digest, &body, &mut result);
+    }
+    result
+}
+
+fn parse_github_attestation_response(digest: &str, body: &str, out: &mut AttestationsFile) {
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(body) else {
+        return;
+    };
+    let Some(items) = doc["attestations"].as_array() else {
+        return;
+    };
+    for item in items {
+        let Some(payload_b64) = item["bundle"]["dsseEnvelope"]["payload"].as_str() else {
+            continue;
+        };
+        let Ok(bytes) = data_encoding::BASE64.decode(payload_b64.as_bytes()) else {
+            continue;
+        };
+        let Ok(statement) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
+        let predicate = &statement["predicate"];
+        let Some(build_inputs) = predicate["build_inputs"]
+            .as_str()
+            .or_else(|| predicate["invocation"]["parameters"]["build_inputs"].as_str())
+        else {
+            continue;
+        };
+        if let Some(test_inputs) = predicate["test_inputs"].as_str() {
+            out.verdicts.push(VerdictAttestation {
+                digest: digest.to_owned(),
+                build_inputs: build_inputs.to_owned(),
+                test_inputs: test_inputs.to_owned(),
+            });
+        } else {
+            out.builds.push(BuildAttestation {
+                digest: digest.to_owned(),
+                build_inputs: build_inputs.to_owned(),
+            });
+        }
+    }
 }
 
 /// Computes the two genuine Git tree hashes for build inputs and test inputs.

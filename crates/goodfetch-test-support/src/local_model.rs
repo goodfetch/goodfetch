@@ -125,6 +125,7 @@ pub struct LocalModelConfig {
     pub kind: LocalModelKind,
     pub executable: PathBuf,
     pub version: String,
+    pub model_name: String,
     pub model_path: PathBuf,
     pub expected_model_sha256: String,
     pub extra_args: Vec<String>,
@@ -170,6 +171,7 @@ pub struct LocalModel {
     kind: LocalModelKind,
     address: SocketAddr,
     version: String,
+    model_name: String,
     model_digest: String,
     process: Process,
 }
@@ -231,6 +233,7 @@ impl LocalModel {
                 kind,
                 executable,
                 version: server_pin.version.clone(),
+                model_name: pins.model.name,
                 model_path,
                 expected_model_sha256: pins.model.sha256,
                 extra_args: Vec::new(),
@@ -240,13 +243,15 @@ impl LocalModel {
     }
 
     /// Verifies `config.model_path`'s SHA-256 against `config.expected_model_sha256`
-    /// and starts the server on a free loopback port.
+    /// and starts the server on a free loopback port. For [`LocalModelKind::Ollama`],
+    /// registers the GGUF model via `ollama create <model_name> -f Modelfile`
+    /// once the server answers its health endpoint.
     ///
     /// # Errors
     ///
     /// Returns [`LocalModelError::DigestMismatch`] before spawning if the model
     /// bytes do not match, or [`LocalModelError::NotReady`] if the server fails
-    /// to answer its health endpoint.
+    /// to answer its health endpoint or register the model.
     pub fn start_with(env: &TestEnv, config: LocalModelConfig) -> Result<Self, LocalModelError> {
         let verified_hex = verify_model_digest(&config.model_path, &config.expected_model_sha256)?;
         let model_digest = format!("sha256:{verified_hex}");
@@ -264,10 +269,17 @@ impl LocalModel {
             let process = spawn_server(env, &config, address, &log_path)?;
             match wait_ready(&process, address, health_path, config.kind) {
                 Ok(()) => {
+                    if config.kind == LocalModelKind::Ollama
+                        && let Err(error) = register_ollama_model(env, &config, address)
+                    {
+                        let _ = process.stop();
+                        return Err(error);
+                    }
                     return Ok(Self {
                         kind: config.kind,
                         address,
                         version: config.version,
+                        model_name: config.model_name,
                         model_digest,
                         process,
                     });
@@ -303,6 +315,12 @@ impl LocalModel {
     #[must_use]
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    /// Registered model name (`SmolLM2-135M-Instruct-Q4_K_M`, …).
+    #[must_use]
+    pub fn model_name(&self) -> &str {
+        &self.model_name
     }
 
     /// Verified model SHA-256 digest (`sha256:<hex>`) reported for result records.
@@ -402,10 +420,10 @@ fn spawn_server(
             .arg(&config.model_path);
         }
         LocalModelKind::Ollama => {
-            let models_dir = config
-                .model_path
-                .parent()
-                .map_or_else(|| env.folder().to_path_buf(), Path::to_path_buf);
+            // Isolate Ollama's manifest/blob store inside the test folder rather
+            // than pointing OLLAMA_MODELS at a raw `.gguf` folder; the GGUF model
+            // is registered right after readiness via `ollama create -f Modelfile`.
+            let models_dir = env.folder().join("ollama-models");
             fs::create_dir_all(&models_dir)?;
             cmd.arg("serve")
                 .env("OLLAMA_HOST", address.to_string())
@@ -417,6 +435,43 @@ fn spawn_server(
         .stdout(Stdio::from(output))
         .stderr(Stdio::from(stderr));
     Ok(env.spawn_with_streams(&mut cmd)?)
+}
+
+fn register_ollama_model(
+    env: &TestEnv,
+    config: &LocalModelConfig,
+    address: SocketAddr,
+) -> Result<(), LocalModelError> {
+    let modelfile = env.folder().join("Modelfile");
+    fs::write(
+        &modelfile,
+        format!("FROM {}\n", config.model_path.display()),
+    )?;
+    let mut cmd = env.process_command(&config.executable);
+    if let Ok(path_env) = std::env::var("PATH") {
+        cmd.env("PATH", path_env);
+    }
+    let output = cmd
+        .arg("create")
+        .arg(&config.model_name)
+        .arg("-f")
+        .arg(&modelfile)
+        .env("OLLAMA_HOST", address.to_string())
+        .stdin(Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        return Err(LocalModelError::NotReady {
+            kind: LocalModelKind::Ollama.name(),
+            address,
+            detail: format!(
+                "ollama create {} failed ({}): {}",
+                config.model_name,
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn wait_ready(

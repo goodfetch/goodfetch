@@ -103,8 +103,8 @@ jobs:
           RECORDER_CELLS: ${{ inputs.cells }}
           RECORDER_MODELS: ${{ inputs.models }}
         run: >-
-          ci/egress/under-deny.sh bash -euo pipefail -c
-          'cargo run --quiet --locked --bin xtask -- recordings check'
+          ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
+          recordings record --models "$RECORDER_MODELS" --cells "$RECORDER_CELLS"
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check

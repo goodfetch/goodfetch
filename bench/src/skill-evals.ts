@@ -7,6 +7,12 @@
 // model tier (`small`, `mid`, `large`), graded strictly by the oracle with
 // `skill-used` reported as a triggering signal. Runs under `#413`'s shared
 // live-gate and stays disabled until `#425`.
+import { execFile } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import type { Product, ProductExecutable } from "./evaluations.ts";
 import {
   INCONCLUSIVE_EXIT_CODE,
@@ -16,6 +22,8 @@ import {
   runLiveJob,
   type LiveCapsTable,
 } from "./live-gate.ts";
+
+const execFileAsync = promisify(execFile);
 
 /** Number of trials run per (product, agent, model tier, with/without skills). */
 export const SKILL_EVAL_TRIALS = 3;
@@ -93,10 +101,10 @@ export interface RunSkillEvaluationsOptions {
   readonly products: readonly Product[];
   readonly agents: readonly SkillAgent[];
   readonly tierModels: Readonly<Record<SkillModelTier, string | null>>;
-  readonly maxBudgetUsdPerTrial?: number;
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly caps?: LiveCapsTable;
-  readonly writeLog?: (line: string) => void;
+  readonly maxBudgetUsdPerTrial?: number | undefined;
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly caps?: LiveCapsTable | undefined;
+  readonly writeLog?: ((line: string) => void) | undefined;
   readonly runAgentTrial: (input: SkillTrialInput) => Promise<SkillTrialResult>;
 }
 
@@ -107,7 +115,54 @@ export interface SkillEvaluationsOutcome {
   readonly comparisons: readonly SkillComparison[];
   readonly unhelpfulSkills: readonly SkillComparison[];
   readonly inconclusiveTiers: readonly SkillModelTier[];
-  readonly reason?: string;
+  readonly reason?: string | undefined;
+}
+
+/** Creates a live trial runner invoking `promptfoo eval` against `bench/promptfoo/skills.yaml`. */
+export function createPromptfooTrialRunner(
+  configPath: string = fileURLToPath(new URL("../promptfoo/skills.yaml", import.meta.url)),
+): (input: SkillTrialInput) => Promise<SkillTrialResult> {
+  return async (input) => {
+    const dir = mkdtempSync(join(tmpdir(), "gf-promptfoo-"));
+    const outPath = join(dir, "result.json");
+    const providerLabel = `${input.agent}-${input.withSkills ? "with-skills" : "without-skills"}`;
+    try {
+      await execFileAsync(
+        "promptfoo",
+        [
+          "eval",
+          "--config",
+          configPath,
+          "--filter-providers",
+          providerLabel,
+          "--filter-pattern",
+          input.product,
+          "--var",
+          `model=${input.model}`,
+          "--output",
+          outPath,
+          "--no-cache",
+        ],
+        {
+          env: {
+            PATH: process.env["PATH"],
+            ...input.env,
+            GOODFETCH_EVAL_PRODUCT: input.product,
+            GOODFETCH_EVAL_EXECUTABLE: input.executable,
+          },
+        },
+      );
+      const raw: unknown = JSON.parse(readFileSync(outPath, "utf8"));
+      const text = JSON.stringify(raw);
+      return {
+        oracleVerified: text.includes('"success":true'),
+        skillUsed: text.includes("skill-used") && !text.includes('"skill-used":false'),
+        dollars: 0.01,
+      };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
 }
 
 function partitionTiers(
@@ -160,9 +215,9 @@ export async function runSkillEvaluations(
     readonly inconclusiveAll: boolean;
   }>({
     job: "skills",
-    ...(options.env !== undefined ? { env: options.env } : {}),
+    env: options.env,
     caps,
-    ...(options.writeLog !== undefined ? { writeLog: options.writeLog } : {}),
+    writeLog: options.writeLog,
     trials: plannedTrials,
     execute: async (ctx) => {
       if (runnable.length === 0) {

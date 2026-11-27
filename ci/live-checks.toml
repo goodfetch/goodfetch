@@ -30,10 +30,26 @@ job = "nightly.yml#scorecard"
 run = "target/debug/xtask results scorecard --results target/scorecard/results.json"
 
 # Nightly provider shape check against committed Model recordings and models.toml
-# (ADRs 0065 and 0076, #417). Stays disabled (exits 0 with zero calls) until #425
+# (ADRs 0065 and 0076, #417). Stays disabled (exits 0 with zero calls) until M4
 # sets GOODFETCH_LIVE_PROVIDER_CHECK.
 [[live-check]]
 id = "provider-check"
 area = 9
 job = "live.yml#provider"
 run = "node bench/src/cli.ts provider-check"
+
+# Nightly Evaluations on held-out seeds (ADRs 0065 and 0076, #420). Stays
+# disabled (exits 0 with zero calls) until M4 sets GOODFETCH_LIVE_EVAL_NIGHTLY.
+[[live-check]]
+id = "eval-nightly"
+area = 9
+job = "nightly.yml#models"
+run = "node bench/src/cli.ts eval-nightly"
+
+# Skill Evaluations comparing with vs without each Product's skills (ADRs 0065,
+# 0076, 0090 and 0094, #423). Stays disabled until M4 sets GOODFETCH_LIVE_SKILLS.
+[[live-check]]
+id = "skills"
+area = 9
+job = "nightly.yml#models"
+run = "node bench/src/cli.ts skills"

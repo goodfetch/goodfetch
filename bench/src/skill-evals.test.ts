@@ -10,23 +10,31 @@ import {
 
 const FAKE_GATEWAY_KEY = ["vck", "test", "00000000000000000000"].join("_");
 
-test("promptfoo config and generated skill targets cover both Products with isolation flags", () => {
+test("promptfoo config declares both Products, both isolated agents, repeat=3 and skill-used", () => {
   const promptfooPath = fileURLToPath(new URL("../promptfoo/skills.yaml", import.meta.url));
   expect(existsSync(promptfooPath)).toBe(true);
-  const yaml = readFileSync(promptfooPath, "utf8");
-  expect(yaml).toContain("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC");
-  expect(yaml).toContain("maxBudgetUsd");
-  expect(yaml).toContain("AI_GATEWAY_API_KEY");
-  expect(yaml).toContain("skill-used");
-  expect(yaml).toContain("goodfetch-collie");
-  expect(yaml).toContain("goodfetch-foxhound");
+  // Strip YAML comments so assertions check active configuration keys, never prose comments.
+  const activeLines = readFileSync(promptfooPath, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+
+  expect(activeLines).toMatch(/^\s*label:\s*claude-code-with-skills$/m);
+  expect(activeLines).toMatch(/^\s*label:\s*codex-with-skills$/m);
+  expect(activeLines).toMatch(/^\s*CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC:\s*"1"$/m);
+  expect(activeLines).toMatch(/^\s*maxBudgetUsd:\s*2$/m);
+  expect(activeLines).toMatch(/^\s*apiKeyEnvar:\s*AI_GATEWAY_API_KEY$/m);
+  expect(activeLines).toMatch(/^\s*repeat:\s*3$/m);
+  expect(activeLines).toMatch(/^\s*-\s*type:\s*skill-used$/m);
+  expect(activeLines).toMatch(/^\s*executable:\s*goodfetch-collie$/m);
+  expect(activeLines).toMatch(/^\s*executable:\s*goodfetch-foxhound$/m);
 
   expect(SKILL_EVAL_TRIALS).toBe(3);
   expect(SKILL_TARGETS.collie.executable).toBe("goodfetch-collie");
   expect(SKILL_TARGETS.foxhound.executable).toBe("goodfetch-foxhound");
 });
 
-test("stays disabled until #425 when GOODFETCH_LIVE_SKILLS is unset", async () => {
+test("stays disabled with zero calls when GOODFETCH_LIVE_SKILLS is unset", async () => {
   let called = 0;
   const result = await runSkillEvaluations({
     env: {},
@@ -66,7 +74,6 @@ test("compares with and without each Product's skills over 3 trials per model, g
           : input.env["CODEX_DISABLE_ANALYTICS"] === "1" &&
               input.env["CODEX_DISABLE_UPDATE_CHECK"] === "1",
       );
-      // Collie skills help (3/3 with vs 1/3 without); Foxhound on codex small does not help (1/3 vs 2/3).
       const isUnhelpfulCase =
         input.product === "foxhound" && input.agent === "codex" && input.tier === "small";
       if (isUnhelpfulCase) {
@@ -90,7 +97,6 @@ test("compares with and without each Product's skills over 3 trials per model, g
     "collie:goodfetch-collie",
     "foxhound:goodfetch-foxhound",
   ]);
-  // 2 products * 2 agents * 2 free-tier models (small, large; mid is inconclusive) * 2 variants * 3 trials = 48
   expect(seenVariants).toHaveLength(48);
   expect(isolatedFlagsOk.every(Boolean)).toBe(true);
   expect(result.inconclusiveTiers).toEqual(["mid"]);

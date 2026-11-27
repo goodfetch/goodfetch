@@ -277,9 +277,6 @@ fn the_workspace_s_committed_confinement_and_browser_sandbox_probes_pass_check()
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask sits under the workspace root");
-    let workspace = Workspace::from_fixture("empty");
-    // Run against the real workspace root through GOODFETCH_WORKSPACE_ROOT? No,
-    // xtask runs in its cwd, so run the binary directly in `root`.
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_xtask"))
         .current_dir(root)
         .args(["probes", "check"])
@@ -292,5 +289,4 @@ fn the_workspace_s_committed_confinement_and_browser_sandbox_probes_pass_check()
         Some(0),
         "stdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    let _ = workspace;
 }

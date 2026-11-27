@@ -3,9 +3,9 @@
 // and compares response shapes (JSON field types, stream event kinds and
 // order, error bodies, read headers) and the provider's model list against
 // `test-support/fixtures/models.toml`, never content. Writes results under the
-// `live` tier and stays disabled until #425 via `#413`'s shared live-gate.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+// `live` tier and stays disabled until M4 via `#413`'s shared live-gate.
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   INCONCLUSIVE_EXIT_CODE,
@@ -28,14 +28,14 @@ export interface RecordedResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
   readonly body?: unknown;
-  readonly chunks?: readonly string[];
+  readonly chunks?: readonly string[] | undefined;
 }
 
 /** One recorded Model exchange (matches `goodfetch-test-support`'s `ModelRecording`). */
 export interface RecordedExchange {
   readonly request: RecordedRequest;
   readonly response: RecordedResponse;
-  readonly synthetic?: boolean;
+  readonly synthetic?: boolean | undefined;
 }
 
 /** One live response received from the Vercel AI Gateway during the check. */
@@ -43,9 +43,9 @@ export interface LiveExchangeResponse {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
   readonly body?: unknown;
-  readonly chunks?: readonly string[];
-  readonly errorCode?: string;
-  readonly retryAfterSeconds?: number | null;
+  readonly chunks?: readonly string[] | undefined;
+  readonly errorCode?: string | undefined;
+  readonly retryAfterSeconds?: number | null | undefined;
 }
 
 /** Kind of shape difference reported by `provider-check`. */
@@ -103,7 +103,10 @@ function shapeOf(value: unknown): JsonShape {
       const itemShape = shapeOf(item);
       unique.set(JSON.stringify(itemShape), itemShape);
     }
-    return { array: [...unique.values()] };
+    const sorted = [...unique.entries()]
+      .toSorted(([a], [b]) => a.localeCompare(b))
+      .map(([, shape]) => shape);
+    return { array: sorted };
   }
   if (isRecord(value)) {
     const object: Record<string, JsonShape> = {};
@@ -136,6 +139,8 @@ function diffShapes(
   kind: "field-type" | "error-body",
   out: ShapeDifference[],
 ): void {
+  // Matches `proving-ground/tests/it/model_recordings.rs`: null on either side
+  // represents an unset optional provider field.
   if (recorded === "null" || live === "null") {
     return;
   }
@@ -146,10 +151,26 @@ function diffShapes(
     return;
   }
   if (isArrayShape(recorded) && isArrayShape(live)) {
-    const recFirst = recorded.array[0];
-    const liveFirst = live.array[0];
-    if (recFirst !== undefined && liveFirst !== undefined) {
-      diffShapes(`${path}[]`, recFirst, liveFirst, kind, out);
+    if (recorded.array.length === 0 || live.array.length === 0) {
+      return;
+    }
+    if (recorded.array.length === 1 && live.array.length === 1) {
+      const recFirst = recorded.array[0];
+      const liveFirst = live.array[0];
+      if (recFirst !== undefined && liveFirst !== undefined) {
+        diffShapes(`${path}[]`, recFirst, liveFirst, kind, out);
+      }
+      return;
+    }
+    const recSet = recorded.array.map(describeShape);
+    const liveSet = live.array.map(describeShape);
+    if (recSet.join("|") !== liveSet.join("|")) {
+      out.push({
+        kind,
+        path: `${path}[]`,
+        recorded: `[${recSet.join(", ")}]`,
+        live: `[${liveSet.join(", ")}]`,
+      });
     }
     return;
   }
@@ -257,7 +278,6 @@ function compareStreamChunks(
     }
   }
 
-  // Deduplicated sequence preserves ordering even when delta repeats differently.
   const recOrder = deduplicateConsecutive(recKinds);
   const liveOrder = deduplicateConsecutive(liveKinds);
   if (
@@ -367,6 +387,182 @@ export function compareModelManifest(
   return missing;
 }
 
+const SKIPPED_DIRS = new Set([".git", "target", "node_modules", ".venv", "rnd"]);
+
+function parseStringRecord(value: unknown): Readonly<Record<string, string>> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (typeof v === "string") {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+function parseRecordedExchange(raw: unknown): RecordedExchange | null {
+  if (!isRecord(raw) || !isRecord(raw["request"]) || !isRecord(raw["response"])) {
+    return null;
+  }
+  const req = raw["request"];
+  const resp = raw["response"];
+  if (
+    typeof req["method"] !== "string" ||
+    typeof req["path"] !== "string" ||
+    typeof resp["status"] !== "number"
+  ) {
+    return null;
+  }
+  const chunksRaw = resp["chunks"];
+  const chunks =
+    Array.isArray(chunksRaw) && chunksRaw.every((c) => typeof c === "string")
+      ? chunksRaw
+      : undefined;
+  return {
+    request: {
+      method: req["method"],
+      path: req["path"],
+      headers: parseStringRecord(req["headers"]),
+      body: req["body"],
+    },
+    response: {
+      status: resp["status"],
+      headers: parseStringRecord(resp["headers"]),
+      body: resp["body"],
+      chunks,
+    },
+    synthetic: raw["synthetic"] === true,
+  };
+}
+
+/** Discovers every committed Model recording (`recordings/<file>.json`) under `repoRoot`. */
+export function discoverRecordings(
+  repoRoot: string = fileURLToPath(new URL("../..", import.meta.url)),
+): readonly NamedRecording[] {
+  const found: NamedRecording[] = [];
+  function walk(dir: string, insideRecordings: boolean): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).toSorted((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      if (entry.isDirectory()) {
+        if (!SKIPPED_DIRS.has(entry.name)) {
+          walk(join(dir, entry.name), insideRecordings || entry.name === "recordings");
+        }
+      } else if (insideRecordings && entry.name.toLowerCase().endsWith(".json")) {
+        const fullPath = join(dir, entry.name);
+        const rel = relative(repoRoot, fullPath).replaceAll("\\", "/");
+        const parsed: unknown = JSON.parse(readFileSync(fullPath, "utf8"));
+        const rawList =
+          isRecord(parsed) && Array.isArray(parsed["exchanges"])
+            ? parsed["exchanges"]
+            : Array.isArray(parsed)
+              ? parsed
+              : [parsed];
+        for (const [index, item] of rawList.entries()) {
+          const exchange = parseRecordedExchange(item);
+          if (exchange !== null) {
+            found.push({ name: `${rel}#${index + 1}`, exchange });
+          }
+        }
+      }
+    }
+  }
+  walk(repoRoot, false);
+  return found;
+}
+
+/** Builds the live HTTP transport against Vercel AI Gateway for `provider-check`. */
+export function createGatewayTransport(
+  gatewayBaseUrl: string,
+  apiKey: string,
+): {
+  readonly sendExchange: (
+    exchange: RecordedExchange,
+    model: string,
+  ) => Promise<LiveExchangeResponse>;
+  readonly listModels: () => Promise<readonly string[]>;
+} {
+  const base = gatewayBaseUrl.replace(/\/+$/, "");
+  return {
+    sendExchange: async (exchange, model) => {
+      const url = `${base}${exchange.request.path}`;
+      const headers: Record<string, string> = {
+        ...exchange.request.headers,
+        authorization: `Bearer ${apiKey}`,
+      };
+      const rawBody = isRecord(exchange.request.body)
+        ? { ...exchange.request.body, model }
+        : exchange.request.body;
+      const response = await fetch(url, {
+        method: exchange.request.method,
+        headers,
+        ...(rawBody !== undefined ? { body: JSON.stringify(rawBody) } : {}),
+      });
+      const respHeaders: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        respHeaders[key.toLowerCase()] = value;
+      });
+      const retryHeader = respHeaders["retry-after"];
+      const retryAfterSeconds =
+        retryHeader !== undefined && Number.isFinite(Number(retryHeader))
+          ? Number(retryHeader)
+          : null;
+      const contentType = respHeaders["content-type"] ?? "";
+      const text = await response.text();
+      if (contentType.includes("text/event-stream")) {
+        return {
+          status: response.status,
+          headers: respHeaders,
+          chunks: [text],
+          retryAfterSeconds,
+        };
+      }
+      let body: unknown = text;
+      let errorCode: string | undefined;
+      try {
+        body = JSON.parse(text);
+        if (
+          isRecord(body) &&
+          isRecord(body["error"]) &&
+          typeof body["error"]["code"] === "string"
+        ) {
+          errorCode = body["error"]["code"];
+        }
+      } catch {
+        // Non-JSON response preserved as text.
+      }
+      return {
+        status: response.status,
+        headers: respHeaders,
+        body,
+        errorCode,
+        retryAfterSeconds,
+      };
+    },
+    listModels: async () => {
+      const response = await fetch(`${base}/v1/models`, {
+        headers: { authorization: `Bearer ${apiKey}` },
+      });
+      if (!response.ok) {
+        return [];
+      }
+      const parsed: unknown = await response.json();
+      if (!isRecord(parsed) || !Array.isArray(parsed["data"])) {
+        return [];
+      }
+      const ids: string[] = [];
+      for (const item of parsed["data"]) {
+        if (isRecord(item) && typeof item["id"] === "string") {
+          ids.push(item["id"]);
+        }
+      }
+      return ids;
+    },
+  };
+}
+
 function escapeXml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -381,7 +577,7 @@ export function renderProviderCheckJunit(input: {
   readonly tier: "live";
   readonly status: "passed" | "failed" | "inconclusive" | "disabled";
   readonly differences: readonly ShapeDifference[];
-  readonly note?: string;
+  readonly note?: string | undefined;
 }): string {
   const failures = input.status === "failed" ? 1 : 0;
   const skipped = input.status === "inconclusive" ? 1 : 0;
@@ -414,13 +610,13 @@ export interface NamedRecording {
 
 /** Options for `runProviderCheck` (Seam D accepts scripted `sendExchange` / `listModels`). */
 export interface ProviderCheckOptions {
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly caps?: LiveCapsTable;
-  readonly model?: string;
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly caps?: LiveCapsTable | undefined;
+  readonly model?: string | undefined;
   readonly recordings: readonly NamedRecording[];
   readonly manifestModels: readonly string[];
-  readonly junitPath?: string;
-  readonly writeLog?: (line: string) => void;
+  readonly junitPath?: string | undefined;
+  readonly writeLog?: ((line: string) => void) | undefined;
   readonly sendExchange: (
     exchange: RecordedExchange,
     model: string,
@@ -434,8 +630,11 @@ export interface ProviderCheckOutcome {
   readonly status: "disabled" | "passed" | "failed" | "inconclusive" | "refused_over_cap";
   readonly exitCode: number;
   readonly differences: readonly ShapeDifference[];
-  readonly note?: string;
+  readonly note?: string | undefined;
 }
+
+const CHECK_INPUT_TOKENS = 2_000;
+const CHECK_OUTPUT_TOKENS = 500;
 
 /** Runs ADR 0065's `provider-check` campaign under `#413`'s shared live-gate. */
 export async function runProviderCheck(
@@ -444,20 +643,27 @@ export async function runProviderCheck(
   const model = options.model ?? "openai/gpt-5.4-nano";
   const caps = options.caps ?? loadCapsTable();
   const nonSynthetic = options.recordings.filter((item) => item.exchange.synthetic !== true);
+  const price = caps.models[model];
+  const perCallCostUsd =
+    price !== undefined
+      ? (CHECK_INPUT_TOKENS * price.inputPerMillionUsd +
+          CHECK_OUTPUT_TOKENS * price.outputPerMillionUsd) /
+        1_000_000
+      : 0.01;
 
   const jobOutcome = await runLiveJob<{
     readonly differences: readonly ShapeDifference[];
   }>({
     job: "provider-check",
-    ...(options.env !== undefined ? { env: options.env } : {}),
+    env: options.env,
     caps,
-    ...(options.writeLog !== undefined ? { writeLog: options.writeLog } : {}),
+    writeLog: options.writeLog,
     trials: [
       {
         model,
         count: Math.max(1, nonSynthetic.length),
-        maxInputTokens: 2_000,
-        maxOutputTokens: 500,
+        maxInputTokens: CHECK_INPUT_TOKENS,
+        maxOutputTokens: CHECK_OUTPUT_TOKENS,
       },
     ],
     execute: async (ctx) => {
@@ -466,17 +672,15 @@ export async function runProviderCheck(
         const live = await options.sendExchange(item.exchange, model);
         const signal = {
           status: live.status,
-          ...(live.errorCode !== undefined ? { errorCode: live.errorCode } : {}),
+          errorCode: live.errorCode,
           body: typeof live.body === "string" ? live.body : JSON.stringify(live.body ?? ""),
-          ...(live.retryAfterSeconds !== undefined
-            ? { retryAfterSeconds: live.retryAfterSeconds }
-            : {}),
+          retryAfterSeconds: live.retryAfterSeconds,
         };
         const classified = classifyGatewayResponse(signal);
         if (classified.kind === "inconclusive") {
           return ctx.inconclusiveFromGateway(signal);
         }
-        ctx.recordCall(0.001);
+        ctx.recordCall(perCallCostUsd);
         const compared = compareExchange(item.exchange, live);
         for (const diff of compared.differences) {
           differences.push({ ...diff, path: `${item.name}:${diff.path}` });
@@ -526,7 +730,7 @@ export async function runProviderCheck(
         tier: "live",
         status: outcome.status === "refused_over_cap" ? "failed" : outcome.status,
         differences: outcome.differences,
-        ...(outcome.note !== undefined ? { note: outcome.note } : {}),
+        note: outcome.note,
       }),
       "utf8",
     );

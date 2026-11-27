@@ -1483,6 +1483,9 @@ class _Crawl:
 
     labels: dict[str, _Declared] = field(default_factory=dict[str, _Declared])
     datasets: list[DatasetDeclaration] = field(default_factory=list[DatasetDeclaration])
+    defined_module: str | None = None
+    defined_file: str | None = None
+    defined_at_module: bool = False
 
     def declared(self, label: Label[Any]) -> _Declared:
         """The declaration of `label`, the very Label this crawl's `label` returned.
@@ -1523,7 +1526,27 @@ class _Declaration:
     """What `AsyncCrawl` and `Crawl` declare alike: Labels and Datasets."""
 
     def __init__(self) -> None:
-        _crawls[self] = _Crawl()
+        defined_module: str | None = None
+        defined_file: str | None = None
+        defined_at_module = False
+        frame = inspect.currentframe()
+        try:
+            caller = None if frame is None else frame.f_back
+            if caller is not None:
+                mod = caller.f_globals.get("__name__")
+                if isinstance(mod, str):
+                    defined_module = mod
+                filename = caller.f_globals.get("__file__")
+                if isinstance(filename, str):
+                    defined_file = filename
+                defined_at_module = caller.f_code.co_name == "<module>"
+        finally:
+            del frame
+        _crawls[self] = _Crawl(
+            defined_module=defined_module,
+            defined_file=defined_file,
+            defined_at_module=defined_at_module,
+        )
 
     @overload
     def label(
@@ -2025,6 +2048,24 @@ def handler_of(crawl: AsyncCrawl | Crawl, label: str) -> Callable[..., object] |
     """The handler attached to the Label named `label` in `crawl`, if any."""
     declared = _crawls[crawl].labels.get(label)
     return None if declared is None else declared.handler
+
+
+def crawl_origin(
+    crawl: AsyncCrawl | Crawl,
+) -> tuple[str | None, str | None, bool, tuple[Callable[..., object], ...]]:
+    """Where `crawl` was created and its attached handler callables."""
+    state = _crawls[crawl]
+    handlers = tuple(
+        declared.handler
+        for declared in state.labels.values()
+        if declared.handler is not None
+    )
+    return (
+        state.defined_module,
+        state.defined_file,
+        state.defined_at_module,
+        handlers,
+    )
 
 
 def payload_of(crawl: AsyncCrawl | Crawl, label: str, payload: JSONValue) -> object:

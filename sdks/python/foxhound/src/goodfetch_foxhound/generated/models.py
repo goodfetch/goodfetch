@@ -187,6 +187,21 @@ class CrawlHookHandled(BaseModel):
     )
 
 
+class CrawlNotImportableDetails(BaseModel):
+    """What `crawl_not_importable` details (ADR 0024)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    export: str | None = None
+    """The export or attribute name looked up on `module`, if any."""
+    module: str | None = None
+    """
+    The module named for workers to import, or the module where the crawl
+    was created when none was named.
+    """
+
+
 class CrawlRequestEnqueueLinksParams(BaseModel):
     """
     What `crawl_request.enqueue_links` takes: every link a locator matches,

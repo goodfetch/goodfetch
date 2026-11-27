@@ -1487,6 +1487,16 @@
       ]
     },
     {
+      "id": "error:crawl_not_importable",
+      "kind": "error",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:daemon_draining",
       "kind": "error",
       "area": 3,

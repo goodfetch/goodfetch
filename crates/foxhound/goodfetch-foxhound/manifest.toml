@@ -347,6 +347,16 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "workers"
+entry = "crawl.serve"
+reason = "Runs `count` serving loops on the Connection's runtime, joining extra loops via `crawl.serve` (ADR 0024)."
+only = "TypeScript's `startCrawl` takes it as its options' `workers`, and Python's `start_crawl` as `workers`."
+words = ["workers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "CrawlTarget"
 entry = "none"
@@ -1710,6 +1720,16 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::StartCrawl"
+member = "workers"
+entry = "crawl.serve"
+reason = "Runs `count` serving loops on the Connection's runtime, as `crate::StartCrawl::workers` does (ADR 0024)."
+only = "TypeScript's `startCrawl` takes it as its options' `workers`, and Python's `start_crawl` as `workers`."
+words = ["workers"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
 member = "send"
 entry = "none"
 reason = "Sends `crawl.start` and blocks the calling thread until the crawl's Run is started."
@@ -2659,10 +2679,6 @@ form = "constant"
 [[unreached]]
 entries = ["sample.crawl"]
 reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."
-
-[[unreached]]
-entries = ["crawl.serve"]
-reason = "A handler process of `workers=N` offers its handler with it (ADR 0024); issue 2804 adds `serve`."
 
 [[unreached]]
 entries = ["crawl_request.links"]

@@ -5,6 +5,7 @@
 // with exactly the program's environment map; finishes `hello`, naming the
 // Product; and logs the engine reached at info. The other Product's
 // variable is never read here.
+import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { AttachedEngine } from "./attached-engine.ts";
@@ -13,10 +14,13 @@ import {
   connectLimit,
   type EngineInfo,
   type Reached,
+  type WorkerTarget,
 } from "./client-connection.ts";
 import { checkDeploymentVariables } from "./deployment-variables.ts";
 import {
   handedOverTo,
+  openEndpoint,
+  openRemoteTransport,
   reachEngine,
   type DaemonReach,
   type EngineChoice,
@@ -30,6 +34,7 @@ import {
   type OperationNames,
 } from "./goodfetch-error.ts";
 import {
+  DaemonUnreachableError,
   EngineNotFoundError,
   PRODUCT_VERSION,
   SettingInvalidError,
@@ -409,9 +414,14 @@ function openDaemon<S>(
   common: Opening,
   connectStartedAt: number,
 ): Promise<ClientConnection> {
+  const workerTarget: WorkerTarget =
+    reach.kind === "remote"
+      ? { kind: "remote", url: reach.url, token: reach.token }
+      : { kind: "daemon", address: reach.endpoint, token: reach.token };
   return ClientConnection.open({
     transport: reach.transport,
     reached: { kind: reach.kind, home: reach.home, url: reach.url },
+    workerTarget,
     daemon: { token: reach.token, closedAtHello: reach.closedAtHello },
     // A remote Daemon is reached again once its link drops (spec 606); this
     // machine's ends the Connection, as an Attached engine's exit does.
@@ -442,6 +452,56 @@ function reachedText<S>(product: ProductPackage<S>, engine: EngineInfo): string 
       return unknown;
     }
   }
+}
+
+/**
+ * Opens a worker process's Connection to the Attached engine's private
+ * endpoint or Daemon `target` names (ADR 0024).
+ */
+export async function openWorkerConnection<S>(
+  product: ProductPackage<S>,
+  target: WorkerTarget,
+  options: { readonly signal?: AbortSignal | undefined } = {},
+): Promise<ClientConnection> {
+  let transport: Transport;
+  let token: string;
+  let reached: Reached;
+  if (target.kind === "private") {
+    token = (await readFile(target.tokenFile, "utf8")).trim();
+    transport = await openEndpoint(target.address, options.signal);
+    reached = { kind: "attached", home: null, url: null };
+  } else if (target.kind === "daemon") {
+    token = target.token;
+    transport = await openEndpoint(target.address, options.signal);
+    const url = "unix" in target.address ? target.address.unix : target.address.tcp;
+    reached = { kind: "daemon", home: null, url };
+  } else {
+    token = target.token;
+    transport = await openRemoteTransport(target.url, options.signal);
+    reached = { kind: "remote", home: null, url: target.url };
+  }
+  return ClientConnection.open({
+    transport,
+    reached,
+    workerTarget: target,
+    daemon: {
+      token,
+      closedAtHello: () =>
+        new DaemonUnreachableError(
+          "The engine closed the worker Connection before answering hello",
+          {
+            fix: "Check that the engine or Daemon that started the crawl is still running.",
+            details: {
+              fix: "Check that the engine or Daemon that started the crawl is still running.",
+            },
+          },
+        ),
+    },
+    needs: product.needs,
+    errorClasses: product.errorClasses,
+    operationNames: product.operationNames,
+    signal: options.signal,
+  });
 }
 
 /**

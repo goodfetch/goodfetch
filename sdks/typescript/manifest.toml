@@ -907,6 +907,33 @@ form = "runtime"
 [[member]]
 package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
+member = "openWorkerConnection"
+entry = "none"
+reason = "Opens a worker process's Connection to an Attached engine's private endpoint or Daemon (ADR 0024)."
+words = ["open", "worker", "connection"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "WorkerTarget"
+entry = "none"
+reason = "The private endpoint or Daemon reach details a worker process connects to (ADR 0024)."
+words = ["worker", "target"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "ClientConnection"
+member = "workerTarget"
+entry = "none"
+reason = "Returns the Attached engine's private endpoint or Daemon reach details for extra worker processes (ADR 0024)."
+words = ["worker", "target"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
 member = "attemptStoreOf"
 entry = "none"
 reason = "The Run's Key-value store a Product's handler is served, bound to its attempt and its signal (ADR 0093)."
@@ -3175,6 +3202,16 @@ form = "type"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "(module)"
+member = "CrawlWorkers"
+entry = "crawl.serve"
+reason = "Multi-process worker configuration `{ count, module, export? }` for `Foxhound.startCrawl` (ADR 0024)."
+only = "Python takes `workers: int` directly on `start_crawl`, and Rust takes `.workers(count)` on `StartCrawl`."
+words = ["crawl", "workers"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
 member = "CodeFreeCrawl"
 entry = "none"
 reason = "A crawl `Foxhound.startCrawl` starts with no handler: a `CrawlDeclaration` or an `extraction` (ADR 0093)."
@@ -3646,10 +3683,6 @@ reason = "A Client that cannot read a page body's file streams it through `page.
 [[unreached]]
 entries = ["key_value_store.keys"]
 reason = "Issue 1284 adds the Key-value store's `keys` to `RunView`."
-
-[[unreached]]
-entries = ["crawl.serve"]
-reason = "A handler process of `workers=N` offers its handler with it (ADR 0024), and the SDK starts none yet; issue 2804 adds Rust's `serve`."
 
 [[unreached]]
 entries = ["crawl_request.links"]

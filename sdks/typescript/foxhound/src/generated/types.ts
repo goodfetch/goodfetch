@@ -1159,6 +1159,23 @@ export interface PushedRecord {
  */
 export interface CrawlHookHandled {}
 /**
+ * What `crawl_not_importable` details (ADR 0024).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlNotImportableDetails".
+ */
+export interface CrawlNotImportableDetails {
+  /**
+   * The export or attribute name looked up on `module`, if any.
+   */
+  export?: string | null;
+  /**
+   * The module named for workers to import, or the module where the crawl
+   * was created when none was named.
+   */
+  module?: string | null;
+}
+/**
  * What `crawl_request.enqueue_links` takes: every link a locator matches,
  * to add from one attempt under one Label (ADR 0093).
  *

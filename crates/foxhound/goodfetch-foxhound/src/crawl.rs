@@ -23,7 +23,7 @@ use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt as _, StreamExt as _};
 use goodfetch_collie_client::{BoxError, ClientConnection, Error, EventStream, HandlerCall, Run};
 use goodfetch_protocol::foxhound::crawl::{
-    CRAWL_REQUEST_HANDLE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
+    CRAWL_REQUEST_HANDLE, CRAWL_SERVE, CRAWL_START, CrawlRequestHandleParams, CrawlRequestHandled,
     CrawlStartParams, HANDLER_FAILED, HandlerFailedDetails, HandlerSkip, LABEL_DUPLICATE,
     LABEL_UNHANDLED, LABEL_UNKNOWN, LabelDeclaration as WireLabel, LabelUnknownDetails,
     Seed as SeedRequest, Seeds, SitemapSeed,
@@ -33,7 +33,7 @@ use goodfetch_protocol::foxhound::dataset::{
 };
 use goodfetch_protocol::foxhound::error_code;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
-use goodfetch_protocol::run::{RunId, Tags};
+use goodfetch_protocol::run::{RunId, RunParams, Tags};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize as _, Serialize};
 use serde_json::{Value, json};
@@ -337,21 +337,49 @@ impl<'a> Crawl<'a> {
         };
         let declared: Arc<[String]> = self.declared().into();
         let mut report = run.ended();
-        let mut attempts = FuturesUnordered::new();
-        let mut reading = true;
+        let mut extra_serves = FuturesUnordered::new();
+        for _ in 1..run.workers {
+            let connection = run.connection.clone();
+            let params = RunParams {
+                run_id: run_id.clone(),
+            };
+            extra_serves.push(async move {
+                let _result: Result<CrawlRunReport, Error> =
+                    connection.call(CRAWL_SERVE.name, &params).await;
+            });
+        }
+        let mut loops = FuturesUnordered::new();
+        for _ in 0..run.workers {
+            loops.push(self.serve_loop(&run_id, run, &declared));
+        }
         let ended = loop {
             tokio::select! {
                 biased;
                 ended = &mut report => break ended,
+                Some(()) = extra_serves.next(), if !extra_serves.is_empty() => {}
+                Some(()) = loops.next(), if !loops.is_empty() => {}
+            }
+        };
+        drop(loops);
+        drop(extra_serves);
+        ended
+    }
+
+    /// One serving loop polling `run.requests` and driving attempts until the
+    /// stream closes.
+    async fn serve_loop(&self, run_id: &RunId, run: &CrawlRun, declared: &Arc<[String]>) {
+        let mut attempts = FuturesUnordered::new();
+        let mut reading = true;
+        while reading || !attempts.is_empty() {
+            tokio::select! {
+                biased;
                 Some(()) = attempts.next(), if !attempts.is_empty() => {}
-                call = run.requests.next(&run_id), if reading => match call {
-                    Some(call) => attempts.push(self.attempt(call, run, &declared)),
+                call = run.requests.next(run_id), if reading => match call {
+                    Some(call) => attempts.push(self.attempt(call, run, declared)),
                     None => reading = false,
                 },
             }
-        };
-        drop(attempts);
-        ended
+        }
     }
 
     /// Runs one attempt with its Label's handler and answers the engine:

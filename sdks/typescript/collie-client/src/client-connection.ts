@@ -26,6 +26,7 @@ import {
   PROTOCOL_VERSION,
   ProtocolVersionUnsupportedError,
   type CollieOperationTypes,
+  type DaemonEndpoint,
   type GoodfetchError,
   type HelloParams,
   type HelloResult,
@@ -221,6 +222,12 @@ export interface HandlerlessStartOptions extends CommonStartOptions {
   readonly detached?: boolean | undefined;
 }
 
+/** How an extra worker process reaches this Connection's engine (ADR 0024). */
+export type WorkerTarget =
+  | { readonly kind: "private"; readonly address: DaemonEndpoint; readonly tokenFile: string }
+  | { readonly kind: "daemon"; readonly address: DaemonEndpoint; readonly token: string }
+  | { readonly kind: "remote"; readonly url: string; readonly token: string };
+
 /** What opening a Connection takes. */
 export interface ClientConnectionOptions {
   /** The bytes to the engine. */
@@ -229,6 +236,8 @@ export interface ClientConnectionOptions {
   readonly engine?: AttachedEngine | undefined;
   /** How the engine was reached; an Attached engine with no home known when left out. */
   readonly reached?: Reached | undefined;
+  /** How an extra worker process reaches the same Daemon, when connected to one. */
+  readonly workerTarget?: WorkerTarget | undefined;
   /** The Daemon's token and what its closing at `hello` fails with, when the engine is a Daemon. */
   readonly daemon?: DaemonHello | undefined;
   /** How a remote Daemon is reached again once the link drops; a dropped link ends the Connection when left out. */
@@ -308,6 +317,8 @@ export class ClientConnection implements AsyncDisposable {
   readonly #project: ProjectFile | undefined;
   readonly #operationNames: OperationNames;
   #info: EngineInfo | undefined;
+  /** How an extra worker process reaches this Connection's engine (ADR 0024). */
+  #workerTarget: WorkerTarget | undefined;
   /** The engine instance the last `hello` answered, which the events read since were published by. */
   #engineInstance: string | undefined;
   /** Aborted once the Connection closes its link, which then ends it rather than reaching the engine again. */
@@ -322,6 +333,7 @@ export class ClientConnection implements AsyncDisposable {
   private constructor(options: ClientConnectionOptions) {
     this.#engine = options.engine;
     this.#reached = options.reached ?? { kind: "attached", home: null, url: null };
+    this.#workerTarget = options.workerTarget;
     this.#project = options.project;
     this.#logger = options.logger;
     this.#logLevel = logLevelOf(options.logger);
@@ -464,6 +476,11 @@ export class ClientConnection implements AsyncDisposable {
       throw new TypeError("invariant: an open Connection has finished its hello");
     }
     return this.#info;
+  }
+
+  /** How an extra worker process reaches this Connection's engine, if available (ADR 0024). */
+  workerTarget(): WorkerTarget | undefined {
+    return this.#workerTarget;
   }
 
   /**
@@ -874,6 +891,13 @@ export class ClientConnection implements AsyncDisposable {
     // longer than its setting's value (ADR 0038; issue 3193).
     this.#channel.boundByTimeoutSettings(result.timeouts ?? []);
     this.#engineInstance = result.engineInstance;
+    if (result.privateEndpoint !== undefined && result.privateEndpoint !== null) {
+      this.#workerTarget = {
+        kind: "private",
+        address: result.privateEndpoint.address,
+        tokenFile: result.privateEndpoint.tokenFile,
+      };
+    }
     this.#info = {
       kind: this.#reached.kind,
       product: result.product,

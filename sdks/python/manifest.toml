@@ -2939,6 +2939,15 @@ form = "runtime"
 
 [[member]]
 package = "goodfetch_collie_client.connection"
+receiver = "ClientConnection"
+member = "worker_target"
+entry = "none"
+reason = "Describes the engine endpoint (Attached private endpoint, Daemon or remote) that extra worker processes connect to (ADR 0024)."
+words = ["worker", "target"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.connection"
 receiver = "(module)"
 member = "closed_error"
 entry = "none"
@@ -3621,7 +3630,7 @@ reason = "A Client that cannot read a page body's file streams it through `page.
 
 [[unreached]]
 entries = ["crawl.serve"]
-reason = "A handler process of `workers=N` offers its handler with it (ADR 0024), and the SDK starts none yet; issue 2804 adds Rust's `serve`."
+reason = "What each extra worker process started by `start_crawl(..., workers=N)` sends internally to offer its handlers (ADR 0024), so it has no separate member of its own."
 
 [[unreached]]
 entries = ["crawl_request.links"]

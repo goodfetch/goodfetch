@@ -37,6 +37,7 @@ mod resume;
 mod seeds;
 mod settings;
 mod test_values;
+mod workers;
 
 /// What a connection opens with: the test's environment, which names its
 /// Goodfetch home.

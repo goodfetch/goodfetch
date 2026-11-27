@@ -738,6 +738,31 @@ pub const LABEL_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A crawl started with `workers > 1` that an extra worker process cannot
+/// import (ADR 0024).
+pub const CRAWL_NOT_IMPORTABLE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "crawl_not_importable",
+    description: "A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.",
+    group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `crawl_not_importable` details (ADR 0024).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CrawlNotImportableDetails {
+    /// The module named for workers to import, or the module where the crawl
+    /// was created when none was named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub module: Option<String>,
+    /// The export or attribute name looked up on `module`, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub export: Option<String>,
+}
+
 /// What `response_unavailable` details (ADR 0118).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ResponseUnavailableDetails {
@@ -1091,6 +1116,7 @@ pub const ENTRIES: Entries = Entries {
         LABEL_DUPLICATE,
         LABEL_UNHANDLED,
         LABEL_UNKNOWN,
+        CRAWL_NOT_IMPORTABLE,
         EFFECT_STAGING_REFUSED,
         STAGING_FULL,
     ],

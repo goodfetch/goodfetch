@@ -74,7 +74,11 @@ from goodfetch_foxhound.crawl import (
     read_record,
 )
 from goodfetch_foxhound.export import AsyncExport, Export
-from goodfetch_foxhound.generated.errors import HandlerFailedError, RecordInvalidError
+from goodfetch_foxhound.generated.errors import (
+    CrawlNotImportableError,
+    HandlerFailedError,
+    RecordInvalidError,
+)
 from goodfetch_foxhound.generated.models import (
     CrawlDeclaration,
     CrawlExtraction,
@@ -116,6 +120,7 @@ from goodfetch_foxhound.generated.operations import (
     FoxhoundOperations,
 )
 from goodfetch_foxhound.seed_stream import SeedStreamReading
+from goodfetch_foxhound.workers import WorkerPool, prepare_workers, spawn_workers
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping
@@ -235,6 +240,7 @@ class AsyncCrawlRun(AsyncRun):
         self._crawls = crawls
         self._seeds: list[Enqueued] = list(seeds or [])
         self._attempts: set[_Attempt] = set()
+        self._workers: WorkerPool | None = None
         self._stopping = False
         crawls.hold(self, self._handle)
 
@@ -817,7 +823,10 @@ class AsyncCrawlRun(AsyncRun):
         answer = await self._host.call(
             "run.finish", params, timeout_setting="timeout.run"
         )
-        return result_of(CrawlRunReport, answer)
+        report = result_of(CrawlRunReport, answer)
+        if self._workers is not None:
+            await self._workers.stop()
+        return report
 
     async def stop(
         self, *, timeout: timedelta | NotGiven | None = not_given
@@ -840,7 +849,10 @@ class AsyncCrawlRun(AsyncRun):
         answer = await self._host.call(
             "run.stop", params, timeout_setting="timeout.close"
         )
-        return result_of(CrawlRunReport, answer)
+        report = result_of(CrawlRunReport, answer)
+        if self._workers is not None:
+            await self._workers.stop()
+        return report
 
     async def report(self) -> CrawlRunReport:
         """Reads the crawl's Run report, a crawl's.
@@ -897,7 +909,11 @@ class AsyncCrawlRun(AsyncRun):
         try:
             await super()._close()
         finally:
-            await self._crawls.forget(self)
+            try:
+                if self._workers is not None:
+                    await self._workers.stop()
+            finally:
+                await self._crawls.forget(self)
 
     async def _handle(
         self, request: CrawlRequestHandleParams, attempt: _Attempt
@@ -1767,12 +1783,15 @@ class CrawlRuns:
         limits: Limits | None,
         settings: CrawlSettings | None,
         detached: bool,
+        workers: int = 1,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`: `AsyncFoxhound.start_crawl`.
 
         Raises:
             LabelUnhandledError: A Label has no handler; nothing is sent.
             LabelUnknownError: A seed names a Label `crawl` does not declare.
+            CrawlNotImportableError: `workers > 1` on a Crawl not defined at
+                module level.
             ClosedError: The Connection is closed; nothing is sent.
         """
         served = (
@@ -1787,6 +1806,7 @@ class CrawlRuns:
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
 
     async def start_threaded(
@@ -1800,12 +1820,15 @@ class CrawlRuns:
         limits: Limits | None,
         settings: CrawlSettings | None,
         detached: bool,
+        workers: int = 1,
     ) -> CrawlRun:
         """Starts the sync `crawl` from `seeds` on `loop`: `Foxhound.start_crawl`.
 
         Raises:
             LabelUnhandledError: A Label has no handler; nothing is sent.
             LabelUnknownError: A seed names a Label `crawl` does not declare.
+            CrawlNotImportableError: `workers > 1` on a Crawl not defined at
+                module level.
             ClosedError: The Connection is closed; nothing is sent.
         """
         threaded: list[CrawlRun] = []
@@ -1827,6 +1850,7 @@ class CrawlRuns:
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
         return threaded[0]
 
@@ -1841,13 +1865,31 @@ class CrawlRuns:
         limits: Limits | None,
         settings: CrawlSettings | None,
         detached: bool,
+        workers: int = 1,
     ) -> AsyncCrawlRun:
         """Sends `crawl.start`, and `opened` builds the Run it answers.
 
         Raises:
             SettingInvalidError: A `limits` amount the SDK cannot turn
-                exactly; nothing is sent.
+                exactly, or `workers < 1`; nothing is sent.
+            CrawlNotImportableError: `workers > 1` on a Crawl not defined at
+                module level; nothing is sent.
         """
+        handler_crawl = (
+            None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
+        )
+        plan = prepare_workers(handler_crawl, workers)
+        target = None if plan is None else self._connection.worker_target
+        if plan is not None and target is None:
+            raise CrawlNotImportableError(
+                "this Connection has no private endpoint or Daemon address for "
+                "extra worker processes",
+                fix=(
+                    "Connect to an Attached engine or a Daemon before starting a "
+                    "crawl with workers > 1."
+                ),
+                details={"module": plan.module, "export": plan.export},
+            )
         sent_seeds = list(seeds)
         fields = _crawl_shape(crawl, sent_seeds)
         fields["seeds"] = [_wire(sent) for sent in sent_seeds]
@@ -1883,15 +1925,36 @@ class CrawlRuns:
                 needs=crawl_started.needs,
             )
 
+        pool = (
+            await spawn_workers(plan, target)
+            if plan is not None and target is not None
+            else None
+        )
         try:
-            return await self._connection.start_run(
+            run = await self._connection.start_run(
                 "crawl.start",
                 start_crawl,
                 lambda started: opened(started, started_seeds),
             )
+        except BaseException:
+            if pool is not None:
+                await pool.stop()
+            raise
         finally:
             self._starting.discard(starting)
             starting.set()
+        if pool is not None:
+            if run.started_as == "ended":
+                await pool.stop()
+            else:
+                try:
+                    await pool.join(run.id)
+                    run._workers = pool  # pyright: ignore[reportPrivateUsage]
+                except BaseException:
+                    await pool.stop()
+                    await run.close()
+                    raise
+        return run
 
     async def forget(self, run: AsyncCrawlRun) -> None:
         """Forgets a closed crawl's Run; a later start of its Run ID holds its own.

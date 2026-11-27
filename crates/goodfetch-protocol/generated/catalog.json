@@ -365,6 +365,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`.",
+      "details": {
+        "$ref": "#/$defs/CrawlNotImportableDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "crawl_not_importable",
+      "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The foreground Daemon is draining on `SIGTERM`: it takes no run and checkpoints every live run as resumable, then exits. Start or resume the run on the Daemon that replaces it.",
       "details": {
         "$ref": "#/$defs/DaemonDrainingDetails"

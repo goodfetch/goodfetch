@@ -42,6 +42,8 @@ pub struct CrawlRun {
     pub(super) declared: Arc<[String]>,
     /// Each seed's original answer from `crawl.start`, read without a round trip.
     pub(super) seeds: Arc<[Enqueued]>,
+    /// How many serving loops `Crawl::serve` runs for this crawl (ADR 0024).
+    pub(super) workers: usize,
 }
 
 impl CrawlRun {

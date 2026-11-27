@@ -3653,6 +3653,28 @@
       ],
       "open": true
     },
+    "CrawlNotImportableDetails": {
+      "description": "What `crawl_not_importable` details (ADR 0024).",
+      "properties": {
+        "export": {
+          "arrived_in": "0.1",
+          "description": "The export or attribute name looked up on `module`, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "module": {
+          "arrived_in": "0.1",
+          "description": "The module named for workers to import, or the module where the crawl\nwas created when none was named.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "CrawlRequest": {
       "description": "One work item of a crawl as its handler receives it (ADR 0093).",
       "properties": {

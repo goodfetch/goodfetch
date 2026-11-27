@@ -123,6 +123,11 @@ Collie's variable is another Product's and is never read here.
 """
 
 
+def product_package() -> ProductPackage:
+    """Returns Foxhound's internal `ProductPackage` for worker processes."""
+    return _FOXHOUND
+
+
 class AsyncFoxhound(AsyncConnection):
     """A Connection to a Foxhound engine: the entry point of the async API.
 
@@ -344,6 +349,7 @@ class AsyncFoxhound(AsyncConnection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+        workers: int = 1,
     ) -> AsyncCrawlRun: ...
     @overload
     async def start_crawl(
@@ -367,6 +373,7 @@ class AsyncFoxhound(AsyncConnection):
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
         detached: bool = False,
+        workers: int = 1,
     ) -> AsyncCrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -401,6 +408,7 @@ class AsyncFoxhound(AsyncConnection):
             limits: The Run's own Limits (ADR 0080).
             settings: The Run's own settings, Collie's and Foxhound's.
             detached: On a Daemon, lets a code-free crawl outlive its program.
+            workers: Total handler processes serving the crawl (default 1, ADR 0024).
 
         Each work item goes to the handler of its Label, as a task beside
         this Connection's (ADR 0093). A seed is a `seed` request, or a
@@ -438,6 +446,7 @@ class AsyncFoxhound(AsyncConnection):
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
 
     async def open_run(self, run_id: str) -> AsyncRunView:
@@ -752,6 +761,7 @@ class Foxhound(Connection):
         tags: Iterable[str] | None = None,
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
+        workers: int = 1,
     ) -> CrawlRun: ...
     @overload
     def start_crawl(
@@ -775,6 +785,7 @@ class Foxhound(Connection):
         limits: Limits | None = None,
         settings: CrawlSettings | None = None,
         detached: bool = False,
+        workers: int = 1,
     ) -> CrawlRun:
         """Starts `crawl` from `seeds`, at least one, and serves its handlers.
 
@@ -809,6 +820,7 @@ class Foxhound(Connection):
             limits: The Run's own Limits (ADR 0080).
             settings: The Run's own settings, Collie's and Foxhound's.
             detached: On a Daemon, lets a code-free crawl outlive its program.
+            workers: Total handler processes serving the crawl (default 1, ADR 0024).
 
         As `AsyncFoxhound.start_crawl`, except that each work item's handler,
         a plain function, runs on the Connection's thread pool, so a handler
@@ -834,6 +846,7 @@ class Foxhound(Connection):
             limits=limits,
             settings=settings,
             detached=detached,
+            workers=workers,
         )
         try:
             return self._loop.call(starting)

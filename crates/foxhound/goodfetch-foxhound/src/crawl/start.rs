@@ -14,6 +14,7 @@ use goodfetch_protocol::foxhound::crawl::{
 };
 use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;
 use goodfetch_protocol::run::{RunId, Tags};
+use goodfetch_protocol::settings::SettingInvalidDetails;
 
 use super::{Crawl, CrawlId, CrawlRun, code_free_params};
 use crate::Seed;
@@ -112,6 +113,8 @@ pub struct StartCrawl {
     params: Result<CrawlStartParams, Error>,
     /// The Run's own settings, which its params carry once checked.
     settings: Settings,
+    /// How many serving loops serve this crawl's handlers (default 1, ADR 0024).
+    workers: usize,
 }
 
 impl StartCrawl {
@@ -136,6 +139,7 @@ impl StartCrawl {
             declared: declared.into(),
             params,
             settings: Settings::new(),
+            workers: 1,
         }
     }
 
@@ -191,6 +195,26 @@ impl StartCrawl {
         self.settings = settings;
         self
     }
+
+    /// Offers this Connection's handler to a live crawl another Connection
+    /// started, as each of `workers=N` handler processes does (ADR 0024): the
+    /// engine leases the crawl's work items to it as `crawl_request.handle`
+    /// requests too, as many at once as `crawl.handler.concurrency` allows on
+    /// each Connection. Answers the crawl's Run report once the Run ends;
+    /// cancelling the call stops new work items, while those already sent still
+    /// expect their answers. A Run this engine does not run as a crawl fails
+    /// with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Runs `count` serving loops on the Connection's runtime for this crawl
+    /// (default 1, ADR 0024), multiplying `crawl.handler.concurrency` by
+    /// `count` via `crawl.serve` without requiring an importable module.
+    /// `0` fails the start with `setting_invalid` before anything is sent.
+    pub fn workers(mut self, count: usize) -> Self {
+        self.workers = count;
+        self
+    }
 }
 
 impl IntoFuture for StartCrawl {
@@ -208,8 +232,21 @@ impl IntoFuture for StartCrawl {
             declared,
             params,
             settings,
+            workers,
         } = self;
         let started = params.and_then(|mut params| {
+            if workers == 0 {
+                return Err(Error::setting_invalid(
+                    "workers must be 1 or more".to_owned(),
+                    &SettingInvalidDetails {
+                        fix: Some("Pass 1 or more to `workers()`.".to_owned()),
+                        key: "workers".to_owned(),
+                        layer: None,
+                        reason: "workers must be 1 or more".to_owned(),
+                        limit: None,
+                    },
+                ));
+            }
             params.settings = settings.within(SettingScope::Run)?;
             params.project = connection.project().cloned();
             requests.open(&connection)?;
@@ -230,6 +267,7 @@ impl IntoFuture for StartCrawl {
                 crawl,
                 declared,
                 seeds: seeds.into(),
+                workers,
             })
         })
     }

@@ -176,10 +176,15 @@ let handleIn: (
   signal: AbortSignal,
 ) => Promise<CrawlRequestHandled>;
 
+let attachWorkersIn: (run: CrawlRun, stop: () => Promise<void>) => void;
+
 /** A crawl's Run, opened by `Foxhound.startCrawl` (ADR 0102). */
 export class CrawlRun extends Run {
   static {
     handleIn = (run, request, signal) => run.#handle(request, signal);
+    attachWorkersIn = (run, stop) => {
+      run.#stopWorkers = stop;
+    };
   }
 
   /** Its crawl, whose handlers its attempts run; none for a code-free crawl. */
@@ -189,6 +194,8 @@ export class CrawlRun extends Run {
   readonly #seeds: readonly Enqueued[];
   /** The attempts running, each stopped when the Run is closed. */
   readonly #attempts = new Set<AbortController>();
+  /** Stops extra worker processes when the Run ends or closes; none for single-process crawls. */
+  #stopWorkers: (() => Promise<void>) | undefined;
   /** Whether `close()` was called: it stops the attempts and forgets the Run once. */
   #closed = false;
 
@@ -724,14 +731,16 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  override finish(
+  override async finish(
     options: {
       readonly timeout?: RunFinishParams["timeout"] | undefined;
       readonly signal?: AbortSignal | undefined;
     } = {},
   ): Promise<CrawlRunReport> {
     // A crawl's Run reads `run.finish`'s answer as a crawl's report (`crawlRunHost`).
-    return super.finish(options);
+    const report = await super.finish(options);
+    await this.#stopWorkers?.();
+    return report;
   }
 
   /**
@@ -747,14 +756,16 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  override stop(
+  override async stop(
     options: {
       readonly timeout?: RunStopParams["timeout"] | undefined;
       readonly signal?: AbortSignal | undefined;
     } = {},
   ): Promise<CrawlRunReport> {
     // A crawl's Run reads `run.stop`'s answer as a crawl's report (`crawlRunHost`).
-    return super.stop(options);
+    const report = await super.stop(options);
+    await this.#stopWorkers?.();
+    return report;
   }
 
   /**
@@ -819,9 +830,13 @@ export class CrawlRun extends Run {
    *
    * @experimental
    */
-  override close(): Promise<void> {
+  override async close(): Promise<void> {
     warnEntry(collieOperations, "run.abort");
-    if (this.#closed) return super.close();
+    if (this.#closed) {
+      await super.close();
+      await this.#stopWorkers?.();
+      return;
+    }
     this.#closed = true;
     for (const attempt of this.#attempts) {
       attempt.abort(
@@ -832,7 +847,11 @@ export class CrawlRun extends Run {
     }
     this.#attempts.clear();
     this.#crawlHost.forget(this);
-    return super.close();
+    try {
+      await super.close();
+    } finally {
+      await this.#stopWorkers?.();
+    }
   }
 
   async #handle(
@@ -1020,6 +1039,11 @@ export function handleRequest(
   signal: AbortSignal,
 ): Promise<CrawlRequestHandled> {
   return handleIn(run, request, signal);
+}
+
+/** Attaches worker-process shutdown to `run` when `workers > 1` (ADR 0024). */
+export function attachWorkers(run: CrawlRun, stop: () => Promise<void>): void {
+  attachWorkersIn(run, stop);
 }
 
 /**

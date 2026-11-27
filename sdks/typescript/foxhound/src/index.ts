@@ -35,6 +35,7 @@ export {
   type StartCodeFreeCrawlOptions,
   type StartCrawlOptions,
 } from "./foxhound.ts";
+export type { CrawlWorkers } from "./workers.ts";
 export {
   Crawl,
   Dataset,

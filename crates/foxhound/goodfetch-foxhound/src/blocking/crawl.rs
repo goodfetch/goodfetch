@@ -543,6 +543,26 @@ impl StartCrawl {
         }
     }
 
+    /// Offers this Connection's handler to a live crawl another Connection
+    /// started, as each of `workers=N` handler processes does (ADR 0024): the
+    /// engine leases the crawl's work items to it as `crawl_request.handle`
+    /// requests too, as many at once as `crawl.handler.concurrency` allows on
+    /// each Connection. Answers the crawl's Run report once the Run ends;
+    /// cancelling the call stops new work items, while those already sent still
+    /// expect their answers. A Run this engine does not run as a crawl fails
+    /// with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// Runs `count` serving loops on the Connection's runtime, as
+    /// [`crate::StartCrawl::workers`] does (ADR 0024).
+    pub fn workers(self, count: usize) -> Self {
+        Self {
+            start: self.start.workers(count),
+            ..self
+        }
+    }
+
     /// Starts the crawl's Run and blocks the calling thread until it is
     /// started.
     ///

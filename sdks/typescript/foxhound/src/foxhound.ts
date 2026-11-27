@@ -38,7 +38,8 @@ import {
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import { checkCrawlStartable, checkSeedPayloads, Crawl, crawlDeclaration } from "./crawl.ts";
-import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
+import { attachWorkers, CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
+import { CrawlNotImportableError } from "./generated/errors.ts";
 import {
   FoxhoundOperations,
   foxhoundOperations,
@@ -54,6 +55,7 @@ import { settingsOnWire, type CrawlSettings, type FoxhoundSettings } from "./gen
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 import type { FetchBackendHandler, SinkHandler } from "./handlers.ts";
 import { foxhound } from "./product.ts";
+import { prepareWorkers, spawnWorkers, type CrawlWorkers } from "./workers.ts";
 
 /**
  * Foxhound's Limits (ADR 0080): Collie's, and Paid fetches, which only
@@ -117,6 +119,15 @@ export interface StartCrawlOptions {
    * 0093).
    */
   readonly settings?: CrawlSettings | undefined;
+  /**
+   * Spreads the crawl's handlers across `count` Node processes (default 1,
+   * ADR 0024): `{ count, module, export? }` forks `count - 1` extra Node
+   * processes that import `module` and read the `Crawl` from `export` (the
+   * default export if omitted), each joining the Run via `crawl.serve`.
+   * Starting more than 1 worker for a `Crawl` that cannot be imported fails
+   * with `crawl_not_importable`.
+   */
+  readonly workers?: number | CrawlWorkers | undefined;
 }
 
 /**
@@ -325,6 +336,17 @@ export class Foxhound implements Connection {
   ): Promise<CrawlRun> {
     warnEntry(foxhoundOperations, "crawl.start");
     const crawl = target instanceof Crawl ? target : undefined;
+    const workerPlan = await prepareWorkers(options.workers);
+    const workerTarget = workerPlan === undefined ? undefined : this.#connection.workerTarget();
+    if (workerPlan !== undefined && workerTarget === undefined) {
+      throw new CrawlNotImportableError(
+        "this Connection has no private endpoint or Daemon address for extra worker processes",
+        {
+          fix: "Connect to an Attached engine or a Daemon before starting a crawl with workers > 1.",
+          details: { module: workerPlan.module, export: workerPlan.exportName },
+        },
+      );
+    }
     if (crawl !== undefined) {
       refuseHandlersOnEdge({
         operation: "crawl.start",
@@ -349,6 +371,10 @@ export class Foxhound implements Connection {
       ...(project === undefined ? {} : { project }),
       ...(detached ? { detached } : {}),
     };
+    const pool =
+      workerPlan !== undefined && workerTarget !== undefined
+        ? await spawnWorkers(workerPlan, workerTarget)
+        : undefined;
     const starting = this.#connection.startRun(
       "crawl.start",
       () => this.#operations.crawlStart(params),
@@ -359,11 +385,30 @@ export class Foxhound implements Connection {
       },
     );
     this.#starting.add(starting);
+    let run: CrawlRun;
     try {
-      return await starting;
+      run = await starting;
+    } catch (error) {
+      await pool?.stop();
+      throw error;
     } finally {
       this.#starting.delete(starting);
     }
+    if (pool !== undefined) {
+      if (run.startedAs() === "ended") {
+        await pool.stop();
+      } else {
+        try {
+          await pool.join(run.id());
+          attachWorkers(run, () => pool.stop());
+        } catch (error) {
+          await pool.stop();
+          await run.close();
+          throw error;
+        }
+      }
+    }
+    return run;
   }
 
   /**

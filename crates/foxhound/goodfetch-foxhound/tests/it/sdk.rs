@@ -27,6 +27,7 @@ mod exports;
 mod foxhound_keys;
 mod label_declaration;
 mod limits;
+mod outcomes;
 mod public_items;
 mod resume;
 mod seeds;

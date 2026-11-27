@@ -410,73 +410,107 @@ fn parsed<I: DeserializeOwned>(dataset: &str, read: RecordRead) -> Result<Datase
     })
 }
 
-/// The entries of one Dataset's rejection table, read page after page
-/// from `run.rejected_records` until a page says the table ended.
-pub(super) fn rejected(
+/// Reads pages from `method` until a page reports `ended`, advancing the next
+/// page's params with `advance`. Used by both `run.rejected_records` and
+/// `run.outcomes`.
+pub(super) fn paged_pages<Params, Page, Item, Advance>(
     connection: ClientConnection,
-    params: RunRejectedRecordsParams,
-) -> EventStream<RejectedRecord> {
-    EventStream::from_items(Rejected {
+    method: &'static str,
+    params: Params,
+    advance: Advance,
+) -> EventStream<Item>
+where
+    Params: serde::Serialize + Send + Sync + Unpin + 'static,
+    Page: DeserializeOwned + Send + 'static,
+    Item: Send + Sync + Unpin + 'static,
+    Advance: FnMut(&mut Params, Page) -> (Vec<Item>, bool) + Send + Sync + Unpin + 'static,
+{
+    EventStream::from_items(Paged {
         connection,
+        method,
         params,
+        advance,
         page: VecDeque::new(),
         asked: None,
         ended: false,
     })
 }
 
-/// The stream [`rejected`] returns.
-struct Rejected {
+/// The stream [`paged_pages`] returns.
+struct Paged<Params, Page, Item, Advance> {
     connection: ClientConnection,
-    /// The next page's read, its `after` the last page's `next`.
-    params: RunRejectedRecordsParams,
-    /// The entries of the last page not handed out yet.
-    page: VecDeque<RejectedRecord>,
-    /// The next page, once asked for. The lock only makes the stream
-    /// `Sync`: the page is polled through `get_mut`, never locked.
-    asked: Option<Mutex<Reply<RejectedRecords>>>,
+    method: &'static str,
+    params: Params,
+    advance: Advance,
+    page: VecDeque<Item>,
+    /// The next page, once asked for. The lock only makes the stream `Sync`:
+    /// the page is polled through `get_mut`, never locked.
+    asked: Option<Mutex<Reply<Page>>>,
     /// Whether no page follows: the last said so, or failed.
     ended: bool,
 }
 
-impl Stream for Rejected {
-    type Item = Result<RejectedRecord, Error>;
+impl<Params, Page, Item, Advance> Stream for Paged<Params, Page, Item, Advance>
+where
+    Params: serde::Serialize + Unpin,
+    Page: DeserializeOwned + Send + 'static,
+    Item: Unpin,
+    Advance: FnMut(&mut Params, Page) -> (Vec<Item>, bool) + Unpin,
+{
+    type Item = Result<Item, Error>;
 
     fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let rejected = self.get_mut();
+        let paged = self.get_mut();
         loop {
-            if let Some(entry) = rejected.page.pop_front() {
+            if let Some(entry) = paged.page.pop_front() {
                 return Poll::Ready(Some(Ok(entry)));
             }
-            if rejected.ended {
+            if paged.ended {
                 return Poll::Ready(None);
             }
-            let (connection, params) = (&rejected.connection, &rejected.params);
-            let asked = rejected.asked.get_or_insert_with(|| {
+            let (connection, method, params) = (&paged.connection, paged.method, &paged.params);
+            let asked = paged.asked.get_or_insert_with(|| {
                 // While the Run is live, the engine waits for the next
                 // commit: the read has no deadline, and dropping it
                 // cancels it.
                 Mutex::new(
                     connection
-                        .call::<RejectedRecords>(RUN_REJECTED_RECORDS.name, params)
+                        .call::<Page>(method, params)
                         .no_timeout()
                         .into_future(),
                 )
             });
             let page = asked.get_mut().unwrap_or_else(PoisonError::into_inner);
             let page = ready!(page.as_mut().poll(context));
-            rejected.asked = None;
+            paged.asked = None;
             match page {
                 Ok(page) => {
-                    rejected.params.after = Some(page.next);
-                    rejected.ended = page.ended;
-                    rejected.page.extend(page.records);
+                    let (items, ended) = (paged.advance)(&mut paged.params, page);
+                    paged.ended = ended;
+                    paged.page.extend(items);
                 }
                 Err(error) => {
-                    rejected.ended = true;
+                    paged.ended = true;
                     return Poll::Ready(Some(Err(error)));
                 }
             }
         }
     }
+}
+
+/// The entries of one Dataset's rejection table, read page after page
+/// from `run.rejected_records` until a page says the table ended.
+pub(super) fn rejected(
+    connection: ClientConnection,
+    params: RunRejectedRecordsParams,
+) -> EventStream<RejectedRecord> {
+    paged_pages(
+        connection,
+        RUN_REJECTED_RECORDS.name,
+        params,
+        |next_params: &mut RunRejectedRecordsParams, page: RejectedRecords| {
+            next_params.after = Some(page.next);
+            (page.records, page.ended)
+        },
+    )
 }

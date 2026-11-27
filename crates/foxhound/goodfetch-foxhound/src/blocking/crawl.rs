@@ -624,9 +624,9 @@ impl EnqueueLinks {
 /// Cloning it is cheap.
 #[derive(Clone, Debug)]
 pub struct CrawlRun {
-    inner: crate::CrawlRun,
+    pub(super) inner: crate::CrawlRun,
     run: Run,
-    connection: blocking::ClientConnection,
+    pub(super) connection: blocking::ClientConnection,
 }
 
 impl CrawlRun {

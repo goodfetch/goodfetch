@@ -56,7 +56,8 @@ pub use composition::{composition, composition_with};
 pub use crawl::{
     AttemptRun, Crawl, CrawlCall, CrawlContext, CrawlRun, CrawlTarget, Dataset, DatasetDeclaration,
     DatasetRecord, Enqueue, EnqueueLinks, Export, ExportDataset, Label, LabelDeclaration,
-    LinkPayload, ReadRecords, ReadRejectedRecords, Seed, StartCrawl,
+    LinkPayload, ReadFailedRequests, ReadOutcomes, ReadRecords, ReadRejectedRecords, RetryFailed,
+    Seed, StartCrawl,
 };
 pub use foxhound::{ConnectOptions, Foxhound, PAID_FETCHES};
 pub use goodfetch_collie::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
@@ -78,6 +79,10 @@ pub use goodfetch_protocol::foxhound::export::{
 };
 pub use goodfetch_protocol::foxhound::frontier::{
     Enqueued, EnqueuedLink, EnqueuedLinks, HttpMethod, MatchedLink, NotAddedReason,
+};
+pub use goodfetch_protocol::foxhound::outcomes::{
+    AttemptError, CrawlRequestOutcome, NothingCommitted, OutcomeKind, OutcomeRequest,
+    OutcomesAfter, SkipReason,
 };
 pub use goodfetch_protocol::foxhound::progress::{CrawlRunProgress, RequestProgress};
 pub use goodfetch_protocol::foxhound::provenance::RecordProvenance;

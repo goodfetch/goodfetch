@@ -2233,6 +2233,30 @@ form = "round_trip"
 
 [[member]]
 package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "retry_failed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
 receiver = "(module)"
 member = "AsyncExport"
 entry = "none"
@@ -2402,6 +2426,30 @@ receiver = "CrawlRun"
 member = "export"
 entry = "run.export"
 words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "retry_failed"
+entry = "run.retry_failed"
+words = ["retry", "failed"]
 form = "round_trip"
 
 [[member]]
@@ -3586,10 +3634,6 @@ reason = "No member reads a Run's Datasets yet."
 [[unreached]]
 entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
 reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
-
-[[unreached]]
-entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
-reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
 
 [[logger]]
 package = "goodfetch-collie-client"

@@ -59,7 +59,14 @@ export {
   type RecordSchema,
   type RequestOptions,
 } from "./crawl.ts";
-export { CrawlRun, type RecordsOptions, type RejectedRecordsOptions } from "./crawl-run.ts";
+export {
+  CrawlRun,
+  type FailedRequestsOptions,
+  type OutcomesOptions,
+  type RecordsOptions,
+  type RejectedRecordsOptions,
+  type RetryFailedOptions,
+} from "./crawl-run.ts";
 export {
   Export,
   type ExportOptions,
@@ -74,8 +81,10 @@ export type {
   SinkHandler,
 } from "./handlers.ts";
 export type {
+  AttemptError,
   CrawlDeclaration,
   CrawlExtraction,
+  CrawlRequestOutcome,
   CrawlRunProgress,
   CrawlRunReport,
   CrawlSettings,
@@ -90,6 +99,10 @@ export type {
   FoxhoundSettings,
   LabelSettings,
   MatchedLink,
+  NothingCommitted,
+  OutcomeKind,
+  OutcomeRequest,
+  OutcomesAfter,
   RecordIssue,
   RejectedRecord,
   RequestCounts,
@@ -98,4 +111,5 @@ export type {
   Seed,
   SitemapRule,
   SitemapSeed,
+  SkipReason,
 } from "./generated/index.ts";

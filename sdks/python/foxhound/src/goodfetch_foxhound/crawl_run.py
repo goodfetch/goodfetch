@@ -24,6 +24,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
+    Literal,
     Protocol,
     TypeAlias,
     TypeVar,
@@ -62,6 +63,7 @@ from goodfetch_foxhound.crawl import (
     CrawlRequest,
     DatasetRecord,
     HandlerAttempt,
+    Label,
     check_startable,
     crawl_declaration,
     handler_of,
@@ -74,6 +76,8 @@ from goodfetch_foxhound.generated.models import (
     CrawlDeclaration,
     CrawlExtraction,
     CrawlRequestHandleParams,
+    CrawlRequestOutcome,
+    CrawlRequestOutcomes,
     CrawlRunProgress,
     CrawlRunReport,
     CrawlStartParams,
@@ -82,10 +86,18 @@ from goodfetch_foxhound.generated.models import (
     DatasetPageParams,
     ExportCompression,
     ExportFormat,
+    FailedRequests,
+    Now,
+    OutcomesAfter,
+    OutcomesAfter1,
     RejectedRecord,
     RejectedRecords,
+    RetriedFailed,
     RunExportParams,
+    RunFailedRequestsParams,
+    RunOutcomesParams,
     RunRejectedRecordsParams,
+    RunRetryFailedParams,
 )
 from goodfetch_foxhound.generated.models import (
     Export as WireExport,
@@ -117,6 +129,7 @@ if TYPE_CHECKING:
 
     from goodfetch_foxhound.crawl import AsyncCrawl, Dataset
     from goodfetch_foxhound.generated.models import RequestSeed, SitemapSeed
+    from goodfetch_foxhound.generated.open_values import OutcomeKind
     from goodfetch_foxhound.generated.settings import CrawlSettings
 
     _Handle: TypeAlias = Callable[
@@ -367,6 +380,143 @@ class AsyncCrawlRun(AsyncRun):
         answer = await self._host.call("run.export", params)
         descriptor = result_of(WireExport, answer)
         return AsyncExport(self._client, descriptor, self._read)
+
+    def outcomes(
+        self,
+        *,
+        kinds: Iterable[OutcomeKind] | None = None,
+        labels: Iterable[str | Label[Any]] | None = None,
+        codes: Iterable[str] | None = None,
+        after: int | Literal["now"] | None = None,
+    ) -> AsyncSequence[CrawlRequestOutcome]:
+        """A log of endings, not current state; retries supersede by `request.id`.
+
+        Reads a crawl's outcomes from its committed state, in commit order: from the
+        first, after a position, or with `after: "now"` from the next commit. Its
+        filters, `kinds`, `labels` and `codes` (an Error code any of the request's
+        failed attempts failed with), run in the engine. While the Run is live and
+        nothing new matches, it waits for the next commit; a page says `ended` once
+        the Run has ended, or has no live writer, and nothing more matches. A reader
+        never slows the Run. A request `run.retry_failed` re-admits ends again, and
+        its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+            RuntimeError: No asyncio or Trio loop runs on this thread.
+        """
+        warn_entry("run.outcomes", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        host = self._host
+        kind_list: list[OutcomeKind] | None = None if kinds is None else list(kinds)
+        label_list = (
+            None
+            if labels is None
+            else [lbl.name if isinstance(lbl, Label) else lbl for lbl in labels]
+        )
+        code_list = None if codes is None else list(codes)
+        initial_after: OutcomesAfter | None = (
+            None
+            if after is None
+            else (
+                OutcomesAfter(Now.now)
+                if after == "now"
+                else OutcomesAfter(OutcomesAfter1(after))
+            )
+        )
+
+        async def read(position: int | None) -> CrawlRequestOutcomes:
+            cursor = (
+                initial_after
+                if position is None
+                else OutcomesAfter(OutcomesAfter1(position))
+            )
+            params = RunOutcomesParams(
+                run_id=host.id,
+                kinds=kind_list,
+                labels=label_list,
+                codes=code_list,
+                after=cursor,
+            )
+            answer = await host.call("run.outcomes", params)
+            return result_of(CrawlRequestOutcomes, answer)
+
+        return self._paged(
+            "run.outcomes",
+            read,
+            items=lambda page: page.outcomes,
+            position=lambda page: page.next,
+            last=lambda page: page.ended,
+            credits=CREDITS,
+            regrant=REGRANT,
+        )
+
+    async def failed_requests(
+        self, *, blocked: bool = False
+    ) -> list[CrawlRequestOutcome]:
+        """Lists the requests `retry_failed` would re-admit, each with its outcome.
+
+        Reads from a crawl's committed state the requests whose latest outcome is
+        `failed`, and with `blocked` also `blocked`, each with that outcome: exactly
+        those `run.retry_failed` re-admits with the same option. A skip is a decision
+        and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        warn_entry(
+            "run.failed_requests", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS
+        )
+        params = RunFailedRequestsParams(run_id=self._host.id, blocked=blocked)
+        answer = await self._host.call("run.failed_requests", params)
+        return list(result_of(FailedRequests, answer).requests)
+
+    async def retry_failed(
+        self,
+        *,
+        blocked: bool = False,
+        settings: CrawlSettings | None = None,
+    ) -> int:
+        """Re-admits the requests `failed_requests` lists and answers how many.
+
+        Re-admits, in the same Run and its Datasets, every request of a crawl whose
+        latest outcome is `failed`, and with `blocked` also `blocked`: exactly those
+        `run.failed_requests` lists with the same option. Each keeps its ID, Label,
+        Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A
+        skip is a decision and is never re-admitted. It answers how many it
+        re-admitted, 0 when there was nothing to retry. On a crawl this engine runs,
+        the requests join its work at once, unless the crawl is already ending its
+        Run: the call then waits for that end and re-admits them as on an ended Run.
+        On an ended Run with requests to retry, the Run returns to `running` under
+        `settings`, as a resume does, its Verdict and Completeness given anew when it
+        ends, and the calling Connection serves its handlers. A Run with no writer
+        that has not ended fails with `run_interrupted`: resume it first. A request
+        to retry whose Label the crawl no longer declares, which a resume may drop,
+        fails the call with `label_unknown`, naming that Label and those declared,
+        and nothing is re-admitted: on an ended Run, against the Labels its latest
+        start declared, before the Run returns to `running`. It is not sent again
+        after a lost Connection, which fails it with `connection_lost`:
+        `run.failed_requests` then lists the requests still to retry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            RunInterruptedError: The Run has no live writer and has not ended.
+            LabelUnknownError: A request to retry names a Label no longer declared.
+            ClosedError: The Run is closed; nothing is sent.
+        """
+        warn_entry("run.retry_failed", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {"run_id": self._host.id, "blocked": blocked}
+        if settings is not None:
+            fields["settings"] = settings_on_wire(settings)
+        project = self._client.project
+        if project is not None:
+            fields["project"] = project
+        params = RunRetryFailedParams.model_validate(fields)
+        answer = await self._host.call("run.retry_failed", params)
+        return result_of(RetriedFailed, answer).readmitted
 
     def _committed_records(
         self, dataset: Dataset[R], after: int | None
@@ -883,6 +1033,104 @@ class CrawlRun(Run):
         except LoopStopped:
             raise closed_error("run.export") from None
         return Export(self._loop, async_export)
+
+    def outcomes(
+        self,
+        *,
+        kinds: Iterable[OutcomeKind] | None = None,
+        labels: Iterable[str | Label[Any]] | None = None,
+        codes: Iterable[str] | None = None,
+        after: int | Literal["now"] | None = None,
+    ) -> Sequence[CrawlRequestOutcome]:
+        """A log of endings, not current state; retries supersede by `request.id`.
+
+        Reads a crawl's outcomes from its committed state, in commit order: from the
+        first, after a position, or with `after: "now"` from the next commit. Its
+        filters, `kinds`, `labels` and `codes` (an Error code any of the request's
+        failed attempts failed with), run in the engine. While the Run is live and
+        nothing new matches, it waits for the next commit; a page says `ended` once
+        the Run has ended, or has no live writer, and nothing more matches. A reader
+        never slows the Run. A request `run.retry_failed` re-admits ends again, and
+        its later outcome supersedes the earlier one by `request.id`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        warn_entry("run.outcomes", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        run = self._crawl_run
+        kind_list = None if kinds is None else list(kinds)
+        label_list = None if labels is None else list(labels)
+        code_list = None if codes is None else list(codes)
+
+        async def reading() -> AsyncSequence[CrawlRequestOutcome]:
+            return run.outcomes(
+                kinds=kind_list, labels=label_list, codes=code_list, after=after
+            )
+
+        return _on_thread(self._loop, "run.outcomes", reading)
+
+    def failed_requests(self, *, blocked: bool = False) -> list[CrawlRequestOutcome]:
+        """Lists the requests `retry_failed` would re-admit, each with its outcome.
+
+        Reads from a crawl's committed state the requests whose latest outcome is
+        `failed`, and with `blocked` also `blocked`, each with that outcome: exactly
+        those `run.retry_failed` re-admits with the same option. A skip is a decision
+        and is never listed.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        run = self._crawl_run
+        try:
+            return self._loop.call(lambda: run.failed_requests(blocked=blocked))
+        except LoopStopped:
+            raise closed_error("run.failed_requests") from None
+
+    def retry_failed(
+        self,
+        *,
+        blocked: bool = False,
+        settings: CrawlSettings | None = None,
+    ) -> int:
+        """Re-admits the requests `failed_requests` lists and answers how many.
+
+        Re-admits, in the same Run and its Datasets, every request of a crawl whose
+        latest outcome is `failed`, and with `blocked` also `blocked`: exactly those
+        `run.failed_requests` lists with the same option. Each keeps its ID, Label,
+        Payload and depth; its attempts count on, with a fresh `crawl.retry.max`. A
+        skip is a decision and is never re-admitted. It answers how many it
+        re-admitted, 0 when there was nothing to retry. On a crawl this engine runs,
+        the requests join its work at once, unless the crawl is already ending its
+        Run: the call then waits for that end and re-admits them as on an ended Run.
+        On an ended Run with requests to retry, the Run returns to `running` under
+        `settings`, as a resume does, its Verdict and Completeness given anew when it
+        ends, and the calling Connection serves its handlers. A Run with no writer
+        that has not ended fails with `run_interrupted`: resume it first. A request
+        to retry whose Label the crawl no longer declares, which a resume may drop,
+        fails the call with `label_unknown`, naming that Label and those declared,
+        and nothing is re-admitted: on an ended Run, against the Labels its latest
+        start declared, before the Run returns to `running`. It is not sent again
+        after a lost Connection, which fails it with `connection_lost`:
+        `run.failed_requests` then lists the requests still to retry.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+
+        Raises:
+            RunInterruptedError: The Run has no live writer and has not ended.
+            LabelUnknownError: A request to retry names a Label no longer declared.
+            ClosedError: The Run or its Connection is closed; nothing is sent.
+        """
+        run = self._crawl_run
+        try:
+            return self._loop.call(
+                lambda: run.retry_failed(blocked=blocked, settings=settings)
+            )
+        except LoopStopped:
+            raise closed_error("run.retry_failed") from None
 
     def finish(
         self, *, timeout: timedelta | NotGiven | None = not_given

@@ -58,6 +58,7 @@ import {
   type CrawlContext,
   type Dataset,
   type DatasetRecord,
+  type Label,
 } from "./crawl.ts";
 import { makeExport, type Export, type ExportOptions } from "./export.ts";
 import {
@@ -70,13 +71,20 @@ import {
   type CrawlRequestEnqueueLinksParams,
   type CrawlRequestHandleParams,
   type CrawlRequestHandled,
+  type CrawlRequestOutcome,
+  type CrawlRequestOutcomes,
   type CrawlRunProgress,
   type CrawlRunReport,
+  type CrawlSettings,
   type DatasetRecord as WireDatasetRecord,
   type FoxhoundOperationTypes,
+  type OutcomeKind,
+  type OutcomesAfter,
   type RejectedRecord,
   type RejectedRecords,
   type RunExportParams,
+  type RunOutcomesParams,
+  type RunRetryFailedParams,
 } from "./generated/index.ts";
 import { settingsOnWire } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
@@ -118,6 +126,38 @@ export interface RejectedRecordsOptions {
   /** The number of the last entry a reader handled, read past; absent, from the first. */
   readonly after?: number | undefined;
   /** Stops reading: the reads are cancelled and the iteration fails with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What `outcomes()` takes. */
+export interface OutcomesOptions {
+  /** Only outcomes of these kinds; absent, every kind. */
+  readonly kinds?: readonly OutcomeKind[] | undefined;
+  /** Only outcomes of requests of these Labels (names or Label handles); absent, every Label. */
+  readonly labels?: readonly (string | Label<object | undefined>)[] | undefined;
+  /** Only outcomes of requests one of whose failed attempts failed with one of these Error codes. */
+  readonly codes?: readonly string[] | undefined;
+  /** Where to start: after this commit position, or `"now"` for the next commit on; absent, from the first. */
+  readonly after?: OutcomesAfter | undefined;
+  /** Stops reading: the reads are cancelled and the iteration fails with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What `failedRequests()` takes. */
+export interface FailedRequestsOptions {
+  /** Also lists requests whose latest outcome is `blocked`; `false` by default. */
+  readonly blocked?: boolean | undefined;
+  /** Cancels the call with the signal's reason. */
+  readonly signal?: AbortSignal | undefined;
+}
+
+/** What `retryFailed()` takes. */
+export interface RetryFailedOptions {
+  /** Also re-admits requests whose latest outcome is `blocked`; `false` by default. */
+  readonly blocked?: boolean | undefined;
+  /** Settings from the retry on, read when the retry returns an ended Run to `running`. */
+  readonly settings?: CrawlSettings | undefined;
+  /** Cancels the call with the signal's reason. */
   readonly signal?: AbortSignal | undefined;
 }
 
@@ -335,6 +375,127 @@ export class CrawlRun extends Run {
       signal: options.signal,
     });
     return makeExport(this.#crawlHost.connection, descriptor);
+  }
+
+  /**
+   * A log of endings, not current state: a re-admitted request's new outcome
+   * supersedes the old by `request.id` (ADRs 0102, 0117).
+   *
+   * Reads a crawl's outcomes from its committed state, in commit order: from
+   * the first, after a position, or with `after: "now"` from the next commit.
+   * Its filters, `kinds`, `labels` and `codes` (an Error code any of the
+   * request's failed attempts failed with), run in the engine. While the Run
+   * is live and nothing new matches, it waits for the next commit; a page says
+   * `ended` once the Run has ended, or has no live writer, and nothing more
+   * matches. A reader never slows the Run. A request `run.retry_failed`
+   * re-admits ends again, and its later outcome supersedes the earlier one by
+   * `request.id`.
+   *
+   * @experimental
+   */
+  outcomes(options: OutcomesOptions = {}): Sequence<CrawlRequestOutcome> {
+    warnEntry(foxhoundOperations, "run.outcomes");
+    ensureRunOpen(this, "run.outcomes");
+    const calls = this.#crawlHost.calls;
+    const runId = this.id();
+    const kinds = options.kinds === undefined ? undefined : [...options.kinds];
+    const labels =
+      options.labels === undefined
+        ? undefined
+        : options.labels.map((label) => (typeof label === "string" ? label : label.name));
+    const codes = options.codes === undefined ? undefined : [...options.codes];
+    let take: (() => CrawlRequestOutcome | undefined) | undefined;
+    return new Sequence({
+      open: (opened) => {
+        const reading = paged<CrawlRequestOutcomes, CrawlRequestOutcome>(
+          {
+            read: async (read, signal) => {
+              ensureRunOpen(this, "run.outcomes");
+              const after: OutcomesAfter | undefined = read ?? options.after;
+              const params: RunOutcomesParams = {
+                runId,
+                ...(kinds === undefined ? {} : { kinds }),
+                ...(labels === undefined ? {} : { labels }),
+                ...(codes === undefined ? {} : { codes }),
+                ...(after === undefined ? {} : { after }),
+              };
+              return calls.call("run.outcomes", params, { signal });
+            },
+            position: (page) => page.next,
+            last: (page) => page.ended,
+            items: (page) => page.outcomes,
+          },
+          opened,
+        );
+        take = reading.take;
+        return reading.stream;
+      },
+      itemOf: (method) => (method === FOLLOWED_VALUE ? take?.() : undefined),
+      credits: REJECTED_CREDITS,
+      regrant: REJECTED_REGRANT,
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * Reads from a crawl's committed state the requests whose latest outcome is
+   * `failed`, and with `blocked` also `blocked`, each with that outcome:
+   * exactly those `run.retry_failed` re-admits with the same option. A skip is
+   * a decision and is never listed.
+   *
+   * @experimental
+   */
+  async failedRequests(
+    options: FailedRequestsOptions = {},
+  ): Promise<readonly CrawlRequestOutcome[]> {
+    warnEntry(foxhoundOperations, "run.failed_requests");
+    ensureRunOpen(this, "run.failed_requests");
+    const result = await this.#crawlHost.calls.call(
+      "run.failed_requests",
+      { runId: this.id(), blocked: options.blocked === true },
+      { signal: options.signal },
+    );
+    return result.requests;
+  }
+
+  /**
+   * Re-admits, in the same Run and its Datasets, every request of a crawl
+   * whose latest outcome is `failed`, and with `blocked` also `blocked`:
+   * exactly those `run.failed_requests` lists with the same option. Each keeps
+   * its ID, Label, Payload and depth; its attempts count on, with a fresh
+   * `crawl.retry.max`. A skip is a decision and is never re-admitted. It
+   * answers how many it re-admitted, 0 when there was nothing to retry. On a
+   * crawl this engine runs, the requests join its work at once, unless the
+   * crawl is already ending its Run: the call then waits for that end and
+   * re-admits them as on an ended Run. On an ended Run with requests to retry,
+   * the Run returns to `running` under `settings`, as a resume does, its
+   * Verdict and Completeness given anew when it ends, and the calling
+   * Connection serves its handlers. A Run with no writer that has not ended
+   * fails with `run_interrupted`: resume it first. A request to retry whose
+   * Label the crawl no longer declares, which a resume may drop, fails the
+   * call with `label_unknown`, naming that Label and those declared, and
+   * nothing is re-admitted: on an ended Run, against the Labels its latest
+   * start declared, before the Run returns to `running`. It is not sent again
+   * after a lost Connection, which fails it with `connection_lost`:
+   * `run.failed_requests` then lists the requests still to retry.
+   *
+   * @experimental
+   */
+  async retryFailed(options: RetryFailedOptions = {}): Promise<number> {
+    warnEntry(foxhoundOperations, "run.retry_failed");
+    ensureRunOpen(this, "run.retry_failed");
+    const settings = settingsOnWire(options.settings);
+    const project = this.#crawlHost.connection.project();
+    const params: RunRetryFailedParams = {
+      runId: this.id(),
+      blocked: options.blocked === true,
+      ...(settings === undefined ? {} : { settings }),
+      ...(project === undefined ? {} : { project }),
+    };
+    const result = await this.#crawlHost.calls.call("run.retry_failed", params, {
+      signal: options.signal,
+    });
+    return result.readmitted;
   }
 
   #rejectedRecords<I extends object, O>(

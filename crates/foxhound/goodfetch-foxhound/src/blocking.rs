@@ -24,12 +24,14 @@ pub use goodfetch_collie_client::blocking::{
     Call, Connection, CreatedSchedule, EventIter, Exchange, HandlerlessStart, KeyValueStore,
     Locator, Page, Query, RawCall, Response, Run, SaveFile, Schedule, Schedules, Session, Start,
 };
+pub use outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
 
 use crate::crawl_requests::CrawlRequests;
 use crate::foxhound::{ConnectOptions, ENGINE};
 
 mod crawl;
 mod export;
+mod outcomes;
 
 /// A connection to Foxhound whose calls block: `foxhound.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same

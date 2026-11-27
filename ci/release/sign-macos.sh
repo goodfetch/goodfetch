@@ -105,18 +105,81 @@ for target in aarch64-apple-darwin x86_64-apple-darwin; do
   notarize_zip "$zip_path"
 done
 
-# Sign and notarize Goodfetch Chromium `.app` bundles fetched by digest (ADR 0074;
-# never rebuild Chromium here).
+# Sign and notarize Goodfetch Chromium `.app` bundles fetched by digest (ADRs
+# 0039 and 0074; never rebuild Chromium here). Unpacks fetched `.tar.xz`/`.zip`
+# archives, signs renderer/GPU helpers with Chrome's entitlement scheme
+# (`allow-jit` without library validation) and every other part with full
+# hardened runtime, notarizes, staples, validates, and repacks the archive.
+sign_chromium_app() {
+  local app_bundle=$1
+  local helper_plist="$scratch/chromium-helper.entitlements.plist"
+  cat >"$helper_plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+  # Sign nested frameworks and helpers inside-out (ADR 0039): renderer and GPU
+  # helpers carry `allow-jit` without library validation; all other helpers and
+  # the main `.app` carry full hardened runtime with no `allow-jit`.
+  while IFS= read -r -d '' helper; do
+    case "$(basename "$helper")" in
+      *"Helper (Renderer).app"|*"Helper (GPU).app")
+        codesign --force --timestamp --options runtime \
+          --entitlements "$helper_plist" \
+          --keychain "$keychain" \
+          --sign "$APPLE_SIGNING_IDENTITY" \
+          "$helper"
+        ;;
+      *)
+        codesign --force --timestamp --options runtime \
+          --keychain "$keychain" \
+          --sign "$APPLE_SIGNING_IDENTITY" \
+          "$helper"
+        ;;
+    esac
+  done < <(find "$app_bundle/Contents" -type d -name '*.app' -print0 2>/dev/null || true)
+
+  codesign --force --timestamp --options runtime \
+    --keychain "$keychain" \
+    --sign "$APPLE_SIGNING_IDENTITY" \
+    "$app_bundle"
+  local app_zip
+  app_zip="$scratch/$(basename "$app_bundle").zip"
+  ditto -c -k --keepParent "$app_bundle" "$app_zip"
+  notarize_zip "$app_zip"
+  xcrun stapler staple "$app_bundle"
+  xcrun stapler validate "$app_bundle"
+}
+
 if [[ "$mode" == "artifacts" && -n "$chromium_dir" && -d "$chromium_dir" ]]; then
+  while IFS= read -r -d '' archive; do
+    unpack_dir="$scratch/chromium-unpack-$(basename "$archive")"
+    rm -rf "$unpack_dir" && mkdir -p "$unpack_dir"
+    case "$archive" in
+      *.tar.xz) tar -xJf "$archive" -C "$unpack_dir" ;;
+      *.zip) ditto -x -k "$archive" "$unpack_dir" ;;
+    esac
+    signed_any=0
+    while IFS= read -r -d '' app_bundle; do
+      sign_chromium_app "$app_bundle"
+      signed_any=1
+    done < <(find "$unpack_dir" -maxdepth 4 -type d -name '*.app' -print0)
+    if [[ $signed_any -eq 1 ]]; then
+      case "$archive" in
+        *.tar.xz) tar -cJf "$archive" -C "$unpack_dir" . ;;
+        *.zip) rm -f "$archive" && ditto -c -k "$unpack_dir" "$archive" ;;
+      esac
+    fi
+  done < <(find "$chromium_dir" -maxdepth 3 -type f \( -name '*darwin*.tar.xz' -o -name '*darwin*.zip' -o -name '*macos*.tar.xz' -o -name '*macos*.zip' \) -print0)
+
   while IFS= read -r -d '' app_bundle; do
-    codesign --force --deep --timestamp --options runtime \
-      --keychain "$keychain" \
-      --sign "$APPLE_SIGNING_IDENTITY" \
-      "$app_bundle"
-    app_zip="$scratch/$(basename "$app_bundle").zip"
-    ditto -c -k --keepParent "$app_bundle" "$app_zip"
-    notarize_zip "$app_zip"
-    xcrun stapler staple "$app_bundle"
-    xcrun stapler validate "$app_bundle"
+    sign_chromium_app "$app_bundle"
   done < <(find "$chromium_dir" -maxdepth 4 -type d -name '*.app' -print0)
 fi

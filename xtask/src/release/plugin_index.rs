@@ -121,20 +121,12 @@ pub(super) fn run(root: &Path, command: &Command) -> Result<ExitCode> {
     }
 }
 
-fn resolve(root: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    }
-}
-
 fn parse_now(raw: Option<&str>) -> Result<Timestamp> {
     match raw {
         Some(text) => text
             .parse::<Timestamp>()
             .with_context(|| format!("parsing --now timestamp {text:?}")),
-        None => Ok(Timestamp::now()),
+        None => Ok(super::now()),
     }
 }
 
@@ -144,7 +136,7 @@ fn prepare(root: &Path, args: &PrepareArguments) -> Result<ExitCode> {
         "--min-age-days must be non-negative (got {})",
         args.min_age_days
     );
-    let path = resolve(root, &args.index);
+    let path = root.join(&args.index);
     let raw =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let mut index: PluginIndex =
@@ -152,7 +144,7 @@ fn prepare(root: &Path, args: &PrepareArguments) -> Result<ExitCode> {
 
     let published = match args.published.as_deref() {
         Some(rel) => {
-            let published_path = resolve(root, rel);
+            let published_path = root.join(rel);
             if published_path.is_file() {
                 let text = std::fs::read_to_string(&published_path)
                     .with_context(|| format!("reading {}", published_path.display()))?;
@@ -204,7 +196,7 @@ fn prepare(root: &Path, args: &PrepareArguments) -> Result<ExitCode> {
 }
 
 fn validate(root: &Path, args: &ValidateArguments) -> Result<ExitCode> {
-    let path = resolve(root, &args.entry);
+    let path = root.join(&args.entry);
     let raw =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
     let mut entry: PluginEntry =
@@ -236,7 +228,7 @@ fn validate(root: &Path, args: &ValidateArguments) -> Result<ExitCode> {
 
     // 3. Verify provenance attestation by digest.
     let att_out = if let Some(verifier) = args.attestation_verify.as_deref() {
-        let verifier = resolve(root, verifier);
+        let verifier = root.join(verifier);
         Process::new(&verifier)
             .args([&entry.repository, &entry.digest])
             .output()
@@ -267,7 +259,7 @@ fn validate(root: &Path, args: &ValidateArguments) -> Result<ExitCode> {
 
     // 4. Run the entry's kind suite through `plugins test` inside confinement.
     let test_out = if let Some(tester) = args.plugins_test.as_deref() {
-        let tester = resolve(root, tester);
+        let tester = root.join(tester);
         Process::new(&tester)
             .args(["--kind", &entry.kind, "--digest", &entry.digest])
             .output()

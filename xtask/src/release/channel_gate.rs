@@ -246,6 +246,16 @@ fn verify_asset_attestations(
         }
         let file_path = assets_dir.join(file_name);
         if !file_path.is_file() {
+            // Split archives list the reassembled name in SHA256SUMS while
+            // publishing `.part-001`, `.part-002`, ... as the actual files.
+            if assets_dir.join(format!("{file_name}.part-001")).is_file() {
+                continue;
+            }
+            findings.push(Finding::new(
+                "missing-asset",
+                file_name,
+                "listed in SHA256SUMS but missing from assets directory",
+            ));
             continue;
         }
         if let Some(pub_key) = pub_key_full.as_deref() {

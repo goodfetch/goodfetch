@@ -974,10 +974,32 @@ fn plan_publishes_neither_crates_nor_wheels_for_a_nightly() {
     assert_eq!(
         oci,
         [
+            "oci goodfetch/charts/collie 1.5.0-dev.7",
+            "oci goodfetch/charts/collie nightly",
+            "oci goodfetch/charts/foxhound 1.5.0-dev.7",
+            "oci goodfetch/charts/foxhound nightly",
             "oci goodfetch/collie 1.5.0-dev.7",
+            "oci goodfetch/collie 1.5.0-dev.7-full",
+            "oci goodfetch/collie 1.5.0-dev.7-node",
+            "oci goodfetch/collie 1.5.0-dev.7-python",
+            "oci goodfetch/collie 1.5.0-dev.7-slim",
             "oci goodfetch/collie nightly",
+            "oci goodfetch/collie nightly-full",
+            "oci goodfetch/collie nightly-node",
+            "oci goodfetch/collie nightly-python",
+            "oci goodfetch/collie nightly-slim",
             "oci goodfetch/foxhound 1.5.0-dev.7",
+            "oci goodfetch/foxhound 1.5.0-dev.7-full",
+            "oci goodfetch/foxhound 1.5.0-dev.7-node",
+            "oci goodfetch/foxhound 1.5.0-dev.7-python",
+            "oci goodfetch/foxhound 1.5.0-dev.7-slim",
             "oci goodfetch/foxhound nightly",
+            "oci goodfetch/foxhound nightly-full",
+            "oci goodfetch/foxhound nightly-node",
+            "oci goodfetch/foxhound nightly-python",
+            "oci goodfetch/foxhound nightly-slim",
+            "oci goodfetch/goodfetch-plugin-archive 1.5.0-dev.7",
+            "oci goodfetch/goodfetch-plugin-archive nightly",
         ]
     );
     assert_eq!(registries.pypi.requests(), Vec::<Request>::new());

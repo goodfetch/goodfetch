@@ -109,7 +109,8 @@ pub(crate) struct PackageArguments {
 
 #[derive(clap::Args)]
 pub(crate) struct OciPushArguments {
-    /// OCI Image Layout folder containing `oci-layout`, `index.json` and `blobs/`.
+    /// OCI Image Layout folder (or `.oci.tar` archive) containing `oci-layout`,
+    /// `index.json` and `blobs/`.
     #[arg(long)]
     layout: PathBuf,
     /// OCI registry base URL (`https://ghcr.io` or local `registry:2`).
@@ -121,6 +122,10 @@ pub(crate) struct OciPushArguments {
     /// Tag to apply to the pushed multi-platform index.
     #[arg(long)]
     tag: String,
+    /// Optional path where the pushed top-level manifest digest (`sha256:...`)
+    /// is written for `actions/attest-build-provenance`.
+    #[arg(long)]
+    digest_out: Option<PathBuf>,
 }
 
 pub(super) fn run_package(root: &Path, arguments: &PackageArguments) -> Result<ExitCode> {
@@ -208,13 +213,22 @@ pub(super) fn run_oci_push(
     token: Option<&str>,
 ) -> Result<ExitCode> {
     let layout = root.join(&arguments.layout);
-    oci_layout::push_layout(
+    let digest = oci_layout::push_layout(
         &layout,
         &arguments.registry,
         &arguments.repository,
         &arguments.tag,
         token,
     )?;
+    if let Some(digest_out) = &arguments.digest_out {
+        let dest = root.join(digest_out);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        std::fs::write(&dest, format!("{digest}\n"))
+            .with_context(|| format!("writing {}", dest.display()))?;
+    }
     output::line(&format!(
         "{}/{}:{}",
         arguments.registry.trim_end_matches('/'),
@@ -315,9 +329,10 @@ fn write_tar_xz(source: &Path, archive: &Path) -> Result<()> {
 }
 
 fn package_sboms(root: &Path, semver: &str, assets_dir: &Path) -> Result<()> {
-    let lock_components = read_lock_components(root)?;
+    let graph = read_lock_graph(root)?;
     for product in Product::ALL {
         let executable = product.names().executable;
+        let components = product_components(&graph, executable);
         let sbom = json!({
             "bomFormat": "CycloneDX",
             "specVersion": "1.5",
@@ -330,7 +345,7 @@ fn package_sboms(root: &Path, semver: &str, assets_dir: &Path) -> Result<()> {
                     "purl": format!("pkg:cargo/{executable}@{semver}"),
                 }
             },
-            "components": lock_components,
+            "components": components,
         });
         let path = assets_dir.join(format!("{executable}.cdx.json"));
         std::fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&sbom)?))
@@ -339,14 +354,20 @@ fn package_sboms(root: &Path, semver: &str, assets_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn read_lock_components(root: &Path) -> Result<Vec<Value>> {
+struct LockPackage {
+    name: String,
+    version: String,
+    dependencies: Vec<String>,
+}
+
+fn read_lock_graph(root: &Path) -> Result<Vec<LockPackage>> {
     let lock_path = root.join("Cargo.lock");
     let Ok(text) = std::fs::read_to_string(&lock_path) else {
         return Ok(Vec::new());
     };
     let doc: toml::Table =
         toml::from_str(&text).with_context(|| format!("parsing {}", lock_path.display()))?;
-    let mut components = Vec::new();
+    let mut out = Vec::new();
     if let Some(packages) = doc.get("package").and_then(toml::Value::as_array) {
         for pkg in packages {
             let Some(name) = pkg.get("name").and_then(toml::Value::as_str) else {
@@ -355,15 +376,88 @@ fn read_lock_components(root: &Path) -> Result<Vec<Value>> {
             let Some(version) = pkg.get("version").and_then(toml::Value::as_str) else {
                 continue;
             };
-            components.push(json!({
+            let dependencies = pkg
+                .get("dependencies")
+                .and_then(toml::Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(toml::Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default();
+            out.push(LockPackage {
+                name: name.to_owned(),
+                version: version.to_owned(),
+                dependencies,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Returns the transitive `Cargo.lock` dependency closure of `root_crate` (never
+/// leaking `xtask` or Foxhound-only crates into Collie's SBOM). Falls back to
+/// every lock entry only when `root_crate` is absent from a synthetic fixture lock.
+fn product_components(packages: &[LockPackage], root_crate: &str) -> Vec<Value> {
+    let mut by_name: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+    for (idx, pkg) in packages.iter().enumerate() {
+        by_name.entry(pkg.name.as_str()).or_default().push(idx);
+    }
+    let Some(roots) = by_name.get(root_crate) else {
+        return packages
+            .iter()
+            .map(|pkg| {
+                json!({
+                    "type": "library",
+                    "name": pkg.name,
+                    "version": pkg.version,
+                    "purl": format!("pkg:cargo/{}@{}", pkg.name, pkg.version),
+                })
+            })
+            .collect();
+    };
+    let mut visited = std::collections::BTreeSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    for &idx in roots {
+        if visited.insert(idx) {
+            queue.push_back(idx);
+        }
+    }
+    while let Some(idx) = queue.pop_front() {
+        for dep in &packages[idx].dependencies {
+            let mut parts = dep.split_whitespace();
+            let Some(dep_name) = parts.next() else {
+                continue;
+            };
+            let dep_ver = parts.next();
+            let Some(candidates) = by_name.get(dep_name) else {
+                continue;
+            };
+            for &cand in candidates {
+                if dep_ver.is_none_or(|ver| packages[cand].version == ver) && visited.insert(cand) {
+                    queue.push_back(cand);
+                }
+            }
+        }
+    }
+    let mut selected: Vec<(&str, &str)> = visited
+        .into_iter()
+        .map(|idx| (packages[idx].name.as_str(), packages[idx].version.as_str()))
+        .collect();
+    selected.sort_unstable();
+    selected
+        .into_iter()
+        .map(|(name, version)| {
+            json!({
                 "type": "library",
                 "name": name,
                 "version": version,
                 "purl": format!("pkg:cargo/{name}@{version}"),
-            }));
-        }
-    }
-    Ok(components)
+            })
+        })
+        .collect()
 }
 
 fn package_npm(
@@ -373,12 +467,11 @@ fn package_npm(
     targets: &[String],
     npm_dir: &Path,
 ) -> Result<()> {
-    stage_npm_package(
-        root,
-        "collie-client",
-        semver,
-        None,
-        &npm_dir.join("collie-client"),
+    let client_dir = npm_dir.join("collie-client");
+    stage_npm_package(root, "collie-client", semver, None, &client_dir)?;
+    pack_npm_tarball(
+        &client_dir,
+        &npm_dir.join(format!("goodfetch-collie-client-{semver}.tgz")),
     )?;
 
     for product in Product::ALL {
@@ -423,9 +516,34 @@ fn package_npm(
                 pkg_dir.join("package.json"),
                 format!("{}\n", serde_json::to_string_pretty(&manifest)?),
             )?;
+            pack_npm_tarball(
+                &pkg_dir,
+                &npm_dir.join(format!("goodfetch-{key}-{}-{semver}.tgz", spec.npm_suffix)),
+            )?;
         }
-        stage_npm_package(root, key, semver, Some(optional), &npm_dir.join(key))?;
+        let root_dir = npm_dir.join(key);
+        stage_npm_package(root, key, semver, Some(optional), &root_dir)?;
+        pack_npm_tarball(
+            &root_dir,
+            &npm_dir.join(format!("goodfetch-{key}-{semver}.tgz")),
+        )?;
     }
+    Ok(())
+}
+
+/// Packs a staged npm package directory into a standard npm `.tgz` archive
+/// rooted at `package/` so `xtask release size-manifest` measures real packed
+/// npm tarballs and `npm install <tarball>` works offline.
+fn pack_npm_tarball(pkg_dir: &Path, dest: &Path) -> Result<()> {
+    let file = std::fs::File::create(dest)
+        .with_context(|| format!("creating npm tarball {}", dest.display()))?;
+    let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+    let mut builder = tar::Builder::new(encoder);
+    builder
+        .append_dir_all("package", pkg_dir)
+        .with_context(|| format!("packing npm directory {}", pkg_dir.display()))?;
+    let encoder = builder.into_inner()?;
+    encoder.finish()?;
     Ok(())
 }
 

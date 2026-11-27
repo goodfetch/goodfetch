@@ -147,7 +147,13 @@ fn compare_version(
         return Ok(());
     }
     let changes = entries.entry(subject.to_owned()).or_default();
-    if current.major != previous.major || current.minor < previous.minor {
+    // ADR 0030: during 0.y previews each 0.y counts as its own major, so any
+    // change involving major == 0 breaks compatibility.
+    if previous.major == 0
+        || current.major == 0
+        || current.major != previous.major
+        || current.minor < previous.minor
+    {
         changes.breaks("version", format!("changed from {previous} to {current}"));
     } else {
         changes.adds("version", format!("bumped from {previous} to {current}"));

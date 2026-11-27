@@ -58,6 +58,7 @@ pub struct PublishedCatalog {
 }
 
 /// Why reading a published Operation catalog failed.
+#[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum PublishedCatalogError {
     /// The file is not valid JSON or lacks a valid `format_version` or required

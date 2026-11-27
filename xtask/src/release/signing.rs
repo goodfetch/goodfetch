@@ -116,7 +116,11 @@ struct MacosAppCheck {
     codesign_deep: bool,
     spctl_ok: bool,
     stapler_valid: bool,
-    allow_jit: bool,
+    /// ADR 0039 allows `allow-jit` only on Chromium renderer/GPU helpers (signed
+    /// without library validation), never on the main `.app` binary or any
+    /// other part.
+    #[serde(alias = "allow_jit")]
+    allow_jit_outside_helpers: bool,
 }
 
 #[derive(Deserialize)]
@@ -259,14 +263,7 @@ fn check_macos_binaries(entries: &[MacosBinaryCheck], findings: &mut Vec<Finding
 }
 
 fn check_macos_apps(entries: &[MacosAppCheck], findings: &mut Vec<Finding>) {
-    if entries.is_empty() {
-        findings.push(Finding::new(
-            "missing-target-verification",
-            "macos-app-bundles",
-            "at least one signed macOS Goodfetch Chromium `.app` bundle must be verified",
-        ));
-        return;
-    }
+    let mut seen_targets = BTreeMap::new();
     for app in entries {
         let key = format!("{}/{}", app.target, app.bundle);
         if !app.codesign_deep {
@@ -290,11 +287,23 @@ fn check_macos_apps(entries: &[MacosAppCheck], findings: &mut Vec<Finding>) {
                 "`xcrun stapler validate` failed on `.app` bundle",
             ));
         }
-        if app.allow_jit {
+        if app.allow_jit_outside_helpers {
             findings.push(Finding::new(
                 "forbidden-entitlement",
                 &key,
-                format!("`.app` bundle carries forbidden `{FORBIDDEN_ENTITLEMENT}` entitlement"),
+                format!(
+                    "`.app` bundle carries `{FORBIDDEN_ENTITLEMENT}` outside renderer/GPU helpers (ADR 0039)"
+                ),
+            ));
+        }
+        seen_targets.insert(app.target.as_str(), true);
+    }
+    for target in MACOS_TARGETS {
+        if !seen_targets.contains_key(target) {
+            findings.push(Finding::new(
+                "missing-target-verification",
+                format!("{target}/Goodfetch Chromium.app"),
+                "signed macOS Goodfetch Chromium `.app` bundle was not verified for this target",
             ));
         }
     }

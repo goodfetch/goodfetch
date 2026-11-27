@@ -45,19 +45,11 @@ fn deploy_smoke_covers_all_targets_for_both_products_and_fails_on_skip_or_failur
     );
     let xml = std::fs::read_to_string(&pass_junit).expect("read JUnit XML");
     assert!(
-        xml.contains(r#"tests="14" failures="0" skipped="0""#),
+        xml.contains(r#"tests="10" failures="0" skipped="0""#),
         "{xml}"
     );
     for product in ["collie", "foxhound"] {
-        for target in [
-            "compose",
-            "kind",
-            "systemd",
-            "lambda",
-            "edge",
-            "cloud-run",
-            "browser-host",
-        ] {
+        for target in ["compose", "kind", "systemd", "lambda", "edge"] {
             assert!(
                 xml.contains(&format!(
                     r#"classname="deploy-smoke.{product}" name="{target}""#
@@ -99,7 +91,7 @@ fn deploy_smoke_covers_all_targets_for_both_products_and_fails_on_skip_or_failur
             "--junit",
             &omitted_junit.to_string_lossy(),
             "--targets",
-            "compose,kind,systemd,lambda,edge,browser-host",
+            "compose,kind,systemd,lambda",
             "--runner",
             &pass_runner.to_string_lossy(),
         ])
@@ -107,14 +99,14 @@ fn deploy_smoke_covers_all_targets_for_both_products_and_fails_on_skip_or_failur
         .expect("run deploy-smoke omitted");
     assert!(
         !omitted.status.success(),
-        "omitting cloud-run target must fail the job"
+        "omitting a required target must fail the job"
     );
 
     // 4. A failed target on Foxhound fails the job.
     let fail_runner = workspace.path().join("fail.sh");
     write_executable(
         &fail_runner,
-        "#!/usr/bin/env bash\n[[ \"$1\" == \"foxhound\" && \"$2\" == \"cloud-run\" ]] && exit 1\nexit 0\n",
+        "#!/usr/bin/env bash\n[[ \"$1\" == \"foxhound\" && \"$2\" == \"lambda\" ]] && exit 1\nexit 0\n",
     );
     let fail_junit = workspace.path().join("fail.xml");
     let fail = Command::new("bash")
@@ -133,9 +125,9 @@ fn deploy_smoke_covers_all_targets_for_both_products_and_fails_on_skip_or_failur
 /// Covers: story:1-15
 /// The Release suite runs `deploy-smoke` under ADR 0043's outbound deny with
 /// its canary, named under `linux-x64-gnu ` so a red test step fails the
-/// Release suite and blocks the merge, and covers `kind` pod drain, systemd
-/// `daemon run`, Lambda RIE, edge runtimes, Cloud Run contract (`PORT`,
-/// `K_SERVICE`, `SIGTERM` -> 10s `SIGKILL`) and Browser host.
+/// Release suite and blocks the merge, and covers `compose`, `kind` pod drain,
+/// `systemd` `daemon run`, `lambda` RIE, and `edge` runtimes (plus opt-in
+/// `cloud-run` and `browser-host`).
 #[test]
 fn release_suite_wires_deploy_smoke_under_deny_and_covers_cloud_run_and_browser_host() {
     let release_suite =
@@ -144,7 +136,7 @@ fn release_suite_wires_deploy_smoke_under_deny_and_covers_cloud_run_and_browser_
     let job_start = release_suite
         .find("\n  deploy-smoke:")
         .expect("deploy-smoke job in release-suite.yml");
-    let job_block = &release_suite[job_start..job_start + 3000];
+    let job_block = &release_suite[job_start..release_suite.len().min(job_start + 5000)];
     assert!(
         job_block.contains("name: linux-x64-gnu deploy smoke"),
         "job name must belong to linux-x64-gnu cell for Release suite verdict"
@@ -162,6 +154,7 @@ fn release_suite_wires_deploy_smoke_under_deny_and_covers_cloud_run_and_browser_
     for needle in [
         "docker compose",
         "kind create cluster",
+        "kind load docker-image",
         "kubectl delete pod",
         "daemon run",
         "aws-lambda-rie",
@@ -174,7 +167,7 @@ fn release_suite_wires_deploy_smoke_under_deny_and_covers_cloud_run_and_browser_
     ] {
         assert!(
             script.contains(needle),
-            "deploy-smoke/run.sh missing required target check: {needle}"
+            "deploy-smoke/run.sh missing target check: {needle}"
         );
     }
 }

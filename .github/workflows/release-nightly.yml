@@ -107,13 +107,20 @@ jobs:
           path: target/release-packaged
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Resolve main's newest passing Clean-up rules set at build time (without writing to main)
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           cargo run --quiet --locked --bin xtask -- release pin-clean-up-rules \
             --line main \
-            --out-assets target/release-packaged/assets
+            --registry https://ghcr.io \
+            --out-assets target/release-packaged/assets \
+            --out-notes target/release-packaged/clean-up-rules-notes.md
+          # Refresh SHA256SUMS so the pinned Clean-up rules assets are hashed and verified by channel-gate.
+          cargo run --quiet --locked --bin xtask -- release assets \
+            --folder target/release-packaged/assets
       - name: Install cosign for keyless Sigstore signatures
         uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Attest release assets, SBOMs, debug symbols, wheels, OCI images, charts and catalog
@@ -174,9 +181,11 @@ jobs:
       - name: "Test: verify every Linux file of both Products from its own bytes"
         env:
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
-        run: >-
-          ci/egress/under-deny.sh ci/release/verify-bytes.sh
-          target/release-attested x86_64-unknown-linux-musl "$RELEASE_VERSION"
+        run: |
+          ci/egress/under-deny.sh ci/release/verify-bytes.sh \
+            target/release-attested x86_64-unknown-linux-musl "$RELEASE_VERSION"
+          ci/egress/under-deny.sh ci/release/verify-bytes.sh \
+            target/release-attested x86_64-unknown-linux-gnu "$RELEASE_VERSION"
       - name: Check that the deny refused nothing else
         if: always()
         run: ci/egress/egress.sh check
@@ -274,6 +283,8 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download signed binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -351,6 +362,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
+      attestations: write
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -358,56 +370,90 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
+      - name: Install cosign for keyless OCI image and Helm chart signatures
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
       - name: Download attested release outputs
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-attested
           path: target/release-attested
-      - name: Push both Products' nightly OCI images and first-party Plugin OCI artifacts to GHCR
+      - name: Push and sign both Products' nightly OCI images, Helm charts and first-party Plugins on GHCR
         env:
           GITHUB_TOKEN: ${{ github.token }}
           OCI_REGISTRY: ghcr.io
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
         run: |
+          mkdir -p target/oci-digests
           echo "$GITHUB_TOKEN" | docker login "$OCI_REGISTRY" -u "$GITHUB_ACTOR" --password-stdin
           for plugin_dir in target/release-attested/oci/plugins/*; do
             [[ -d "$plugin_dir" ]] || continue
             plugin=$(basename "$plugin_dir")
+            digest_file="target/oci-digests/plugin-${plugin}.digest"
             cargo run --quiet --locked --bin xtask -- release oci-push \
               --layout "$plugin_dir" \
               --registry "https://${OCI_REGISTRY}" \
               --repository "goodfetch/$plugin" \
-              --tag "$RELEASE_VERSION"
+              --tag "$RELEASE_VERSION" \
+              --digest-out "$digest_file"
             cargo run --quiet --locked --bin xtask -- release oci-push \
               --layout "$plugin_dir" \
               --registry "https://${OCI_REGISTRY}" \
               --repository "goodfetch/$plugin" \
               --tag nightly
+            digest=$(cat "$digest_file")
+            cosign sign --yes "${OCI_REGISTRY}/goodfetch/${plugin}@${digest}"
           done
           for product in collie foxhound; do
             for variant in "" -slim -full -node -python; do
               oci_tar="target/release-attested/oci/images/${product}-${RELEASE_VERSION}${variant}.oci.tar"
               if [[ -f "$oci_tar" ]]; then
-                docker buildx imagetools create \
-                  --tag "${OCI_REGISTRY}/goodfetch/${product}:${RELEASE_VERSION}${variant}" \
-                  --tag "${OCI_REGISTRY}/goodfetch/${product}:nightly${variant}" \
-                  "oci-archive://${oci_tar}"
+                digest_file="target/oci-digests/${product}${variant}.digest"
+                cargo run --quiet --locked --bin xtask -- release oci-push \
+                  --layout "$oci_tar" \
+                  --registry "https://${OCI_REGISTRY}" \
+                  --repository "goodfetch/${product}" \
+                  --tag "${RELEASE_VERSION}${variant}" \
+                  --digest-out "$digest_file"
+                cargo run --quiet --locked --bin xtask -- release oci-push \
+                  --layout "$oci_tar" \
+                  --registry "https://${OCI_REGISTRY}" \
+                  --repository "goodfetch/${product}" \
+                  --tag "nightly${variant}"
+                digest=$(cat "$digest_file")
+                cosign sign --yes "${OCI_REGISTRY}/goodfetch/${product}@${digest}"
               fi
             done
             chart_dir="target/release-attested/oci/charts/${product}"
             if [[ -d "$chart_dir" ]]; then
+              digest_file="target/oci-digests/chart-${product}.digest"
               cargo run --quiet --locked --bin xtask -- release oci-push \
                 --layout "$chart_dir" \
                 --registry "https://${OCI_REGISTRY}" \
                 --repository "goodfetch/charts/${product}" \
-                --tag "$RELEASE_VERSION"
+                --tag "$RELEASE_VERSION" \
+                --digest-out "$digest_file"
               cargo run --quiet --locked --bin xtask -- release oci-push \
                 --layout "$chart_dir" \
                 --registry "https://${OCI_REGISTRY}" \
                 --repository "goodfetch/charts/${product}" \
                 --tag nightly
+              digest=$(cat "$digest_file")
+              cosign sign --yes "${OCI_REGISTRY}/goodfetch/charts/${product}@${digest}"
             fi
           done
+      - name: Scan OCI digest outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/oci-digests
+      - name: Upload pushed OCI image digests for pinned smoke pulls
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-oci-digests
+          path: target/oci-digests
+          if-no-files-found: ignore
 
   publish-github-prerelease:
     name: publish-github-prerelease
@@ -434,8 +480,8 @@ jobs:
         run: |
           {
             printf 'Nightly pre-release of Goodfetch Collie and Foxhound (%s).\n\n' "$RELEASE_VERSION"
-            if [[ -f target/release-attested/assets/clean-up-rules-notes.md ]]; then
-              cat target/release-attested/assets/clean-up-rules-notes.md
+            if [[ -f target/release-attested/clean-up-rules-notes.md ]]; then
+              cat target/release-attested/clean-up-rules-notes.md
               printf '\n'
             fi
             printf '## Sizes\n\n'
@@ -462,6 +508,8 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Build static PEP 503 and PEP 691 nightly Python index (last 30 nightlies)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -511,12 +559,17 @@ jobs:
         with:
           target: x86_64-unknown-linux-gnu
           runtimes: release-linux
+      - name: Download pushed OCI image digests before outbound-traffic deny
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: nightly-oci-digests
+          path: target/channel-staged/oci-digests
       - name: Stage published nightly channels before outbound-traffic deny
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.nightly-version.outputs.version }}
         run: |
-          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index
+          mkdir -p target/channel-staged/github target/channel-staged/wheels target/channel-staged/npm target/channel-staged/python-index target/channel-staged/oci
           gh release download "v${RELEASE_VERSION}" -p '*x86_64-unknown-linux-musl.tar.xz' -D target/channel-staged/github
           gh release download "v${RELEASE_VERSION}" -p '*.whl' -D target/channel-staged/wheels
           npm pack --pack-destination target/channel-staged/npm \
@@ -525,6 +578,12 @@ jobs:
             "@goodfetch/collie@${RELEASE_VERSION}" \
             "@goodfetch/foxhound-linux-x64@${RELEASE_VERSION}" \
             "@goodfetch/foxhound@${RELEASE_VERSION}"
+          for product in collie foxhound; do
+            digest=$(cat "target/channel-staged/oci-digests/${product}.digest")
+            image_ref="ghcr.io/goodfetch/${product}@${digest}"
+            docker pull "$image_ref"
+            docker save -o "target/channel-staged/oci/goodfetch-${product}-nightly.tar" "$image_ref"
+          done
       - name: Download nightly Python simple index before outbound-traffic deny
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

@@ -41,11 +41,15 @@ spec:
               drop:
                 {{- toYaml .Values.securityContext.capabilities.drop | nindent 16 }}
           volumeMounts:
+            - name: goodfetch-home
+              mountPath: /home/goodfetch/.goodfetch
             - name: tmp
               mountPath: /tmp
             - name: dshm
               mountPath: /dev/shm
       volumes:
+        - name: goodfetch-home
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
         - name: dshm

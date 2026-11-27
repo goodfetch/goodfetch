@@ -42,7 +42,8 @@ fn valid_report() -> Value {
             { "target": "x86_64-apple-darwin", "binary": "goodfetch-proving-ground", "codesign_strict": true, "notarized": true, "allow_jit": false }
         ],
         "macos_apps": [
-            { "target": "aarch64-apple-darwin", "bundle": "Goodfetch Chromium.app", "codesign_deep": true, "spctl_ok": true, "stapler_valid": true, "allow_jit": false }
+            { "target": "aarch64-apple-darwin", "bundle": "Goodfetch Chromium.app", "codesign_deep": true, "spctl_ok": true, "stapler_valid": true, "allow_jit_outside_helpers": false },
+            { "target": "x86_64-apple-darwin", "bundle": "Goodfetch Chromium.app", "codesign_deep": true, "spctl_ok": true, "stapler_valid": true, "allow_jit_outside_helpers": false }
         ],
         "windows": [
             { "target": "x86_64-pc-windows-msvc", "binary": "goodfetch-collie.exe", "signtool_pa": true, "rfc3161_timestamp": true },
@@ -262,14 +263,24 @@ fn only_signing_jobs_use_release_environment_and_run_in_fixed_order() {
         assert!(needs_of(&jobs["package-and-digests"]).contains(smoke));
     }
 
-    // Scripts enforce hardened runtime without allow-jit, single-ZIP notarization,
-    // RFC 3161 timestamps, and signed-bundle smoke without `--no-sandbox`.
+    // Scripts enforce hardened runtime without allow-jit on Product executables,
+    // Chrome's helper entitlement scheme on Chromium `.app` bundles (ADR 0039),
+    // single-ZIP notarization, RFC 3161 timestamps, and signed-bundle smoke
+    // without `--no-sandbox`.
     let macos_script = std::fs::read_to_string(root().join("ci/release/sign-macos.sh")).unwrap();
     assert!(macos_script.contains("--options runtime"));
     assert!(macos_script.contains("notarytool submit"));
     assert!(macos_script.contains("create-keychain"));
     assert!(macos_script.contains("delete-keychain"));
-    assert!(!macos_script.contains("--entitlements"));
+    let sign_binary_fn = macos_script
+        .split("sign_binary()")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("sign_binary function in sign-macos.sh");
+    assert!(
+        !sign_binary_fn.contains("--entitlements"),
+        "Product executables must never receive --entitlements"
+    );
 
     let win_script = std::fs::read_to_string(root().join("ci/release/sign-windows.ps1")).unwrap();
     assert!(win_script.contains("timestamp.acs.microsoft.com"));

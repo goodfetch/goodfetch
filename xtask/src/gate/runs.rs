@@ -97,7 +97,14 @@ impl Key {
                 std::fs::create_dir_all(folder)
                     .with_context(|| format!("creating {}", folder.display()))?;
             }
-            let tmp_name = format!(".gate-key.{}.{}.tmp", std::process::id(), &digits[..8]);
+            let mut nonce = [0_u8; 8];
+            getrandom::fill(&mut nonce)
+                .map_err(|error| anyhow::anyhow!("reading random nonce: {error}"))?;
+            let nonce_hex = nonce.iter().fold(String::new(), |mut out, byte| {
+                let _ = write!(out, "{byte:02x}");
+                out
+            });
+            let tmp_name = format!(".gate-key.{}.{nonce_hex}.tmp", std::process::id());
             let tmp = path.with_file_name(tmp_name);
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create_new(true);

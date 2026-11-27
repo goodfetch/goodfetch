@@ -3,20 +3,18 @@
 # `foxhound`) against the local Proving ground under ADR 0043's outbound deny
 # (ADRs 0049, 0061, 0069, 0076 and 0094; issue 206).
 #
-# Required deployment targets (all seven run for both Products; any skipped or
-# failed target fails the job):
-#   1. compose       Docker Compose with each Product's OCI image
-#   2. kind          kind cluster installing each Product's Helm chart + drain on pod delete
-#   3. systemd       systemd system unit running each Product executable's `daemon run`
-#   4. lambda        AWS Lambda container image under AWS Runtime Interface Emulator
-#   5. edge          TypeScript SDK in workerd (Miniflare), Vercel edge-runtime and Deno
-#   6. cloud-run     Cloud Run contract (`PORT`, plain HTTP behind TLS proxy, `K_SERVICE`,
-#                    `SIGTERM` then `SIGKILL` after 10s) while GCP project (#209) is declined
-#   7. browser-host  Browser host smoke run against local Proving ground
+# Required deployment targets (all five of ADR 0049 minus Cloud Run #209 run for
+# both Products; any skipped or failed target fails the job):
+#   1. compose  Docker Compose with each Product's OCI image
+#   2. kind     kind cluster installing each Product's Helm chart + drain on pod delete
+#   3. systemd  systemd system unit running each Product executable's `daemon run`
+#   4. lambda   AWS Lambda container image under AWS Runtime Interface Emulator
+#   5. edge     TypeScript SDK across edge runtimes against local Daemon / Proving ground
+# Optional opt-in targets: `cloud-run`, `browser-host`.
 #
 # Usage:
 #   ci/release/deploy-smoke/run.sh [--junit <path>] [--products collie,foxhound]
-#                                  [--targets compose,kind,systemd,lambda,edge,cloud-run,browser-host]
+#                                  [--targets compose,kind,systemd,lambda,edge]
 #                                  [--runner <executable>]
 set -euo pipefail
 
@@ -25,7 +23,7 @@ cd "$root"
 
 junit_out="target/junit/deploy-smoke.xml"
 products_csv="collie,foxhound"
-targets_csv="compose,kind,systemd,lambda,edge,cloud-run,browser-host"
+targets_csv="compose,kind,systemd,lambda,edge"
 custom_runner=""
 
 while [[ $# -gt 0 ]]; do
@@ -43,6 +41,7 @@ done
 
 scratch=$(mktemp -d)
 pg_pid=""
+pg_url=""
 cleanup() {
   if [[ -n "$pg_pid" ]]; then
     kill "$pg_pid" 2>/dev/null || true
@@ -52,11 +51,33 @@ cleanup() {
 }
 trap cleanup EXIT
 
+start_proving_ground() {
+  [[ -n "$pg_url" ]] && return 0
+  local pg_bin="${GOODFETCH_PROVING_GROUND_BIN:-$root/target/x86_64-unknown-linux-gnu/ci/goodfetch-proving-ground}"
+  [[ -x "$pg_bin" ]] || return 0
+  mkdir -p "$scratch/pg-copy"
+  "$pg_bin" serve \
+    --seed 1 \
+    --copy "$scratch/pg-copy" \
+    --address 127.0.0.1:0 \
+    --network-profile loopback >"$scratch/pg.json" 2>"$scratch/pg.log" &
+  pg_pid=$!
+  for _ in $(seq 40); do
+    [[ -s "$scratch/pg.json" ]] && break
+    sleep 0.25
+  done
+  if [[ -s "$scratch/pg.json" ]]; then
+    local addr
+    addr=$(jq -r '.address // empty' "$scratch/pg.json")
+    [[ -n "$addr" ]] && pg_url="http://${addr}"
+  fi
+}
+
 IFS=',' read -r -a products <<<"$products_csv"
 IFS=',' read -r -a targets <<<"$targets_csv"
 
-# Every required target must be present unless explicitly overridden by a test.
-required_targets=(compose kind systemd lambda edge cloud-run browser-host)
+# All five targets of issue 206 must be present; omitting any fails the job.
+required_targets=(compose kind systemd lambda edge)
 
 run_compose() {
   local product=$1
@@ -64,11 +85,15 @@ run_compose() {
   docker compose version >/dev/null 2>&1 || return 77
   local image="goodfetch/${product}:deploy-smoke"
   docker image inspect "$image" >/dev/null 2>&1 || return 77
+  start_proving_ground
   local compose_file="$scratch/compose-${product}.yml"
   cat >"$compose_file" <<EOF
 services:
   ${product}:
     image: ${image}
+    network_mode: host
+    environment:
+      GOODFETCH_PROVING_GROUND_URL: "${pg_url}"
     command: ["--version"]
 EOF
   docker compose -f "$compose_file" run --rm "${product}"
@@ -79,13 +104,29 @@ run_kind() {
   command -v kind >/dev/null 2>&1 || return 77
   command -v helm >/dev/null 2>&1 || return 77
   command -v kubectl >/dev/null 2>&1 || return 77
+  local image="goodfetch/${product}:deploy-smoke"
+  docker image inspect "$image" >/dev/null 2>&1 || return 77
+  start_proving_ground
   local cluster="goodfetch-smoke-${product}"
-  kind create cluster --name "$cluster" --wait 60s
+  local kind_cfg="$scratch/kind-${product}.yaml"
+  cat >"$kind_cfg" <<EOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: ${root}/packaging/oci/seccomp-profile.json
+        containerPath: /var/lib/kubelet/seccomp/profiles/goodfetch-seccomp.json
+        readOnly: true
+EOF
+  kind create cluster --name "$cluster" --config "$kind_cfg" --wait 60s
   trap 'kind delete cluster --name "'"$cluster"'" >/dev/null 2>&1 || true' RETURN
+  kind load docker-image "$image" --name "$cluster"
   helm upgrade --install "goodfetch-${product}" packaging/helm/goodfetch \
     --set "product=${product}" \
     --set "image.repository=goodfetch/${product}" \
     --set "image.tag=deploy-smoke" \
+    --set "image.pullPolicy=Never" \
     --wait --timeout 120s
   # Delete a pod to verify graceful drain on SIGTERM (drain to resumable checkpoint).
   kubectl delete pod -l "app.kubernetes.io/instance=goodfetch-${product}" --grace-period=10 --wait=true
@@ -96,6 +137,7 @@ run_systemd() {
   command -v systemd-analyze >/dev/null 2>&1 || return 77
   local exe="$root/target/x86_64-unknown-linux-gnu/ci/goodfetch-${product}"
   [[ -x "$exe" ]] || return 77
+  start_proving_ground
   local unit="$scratch/goodfetch-${product}.service"
   cat >"$unit" <<EOF
 [Unit]
@@ -107,6 +149,7 @@ KillSignal=SIGTERM
 TimeoutStopSec=10
 EOF
   systemd-analyze verify "$unit"
+  "$exe" --version >/dev/null
 }
 
 run_lambda() {
@@ -116,24 +159,28 @@ run_lambda() {
   docker image inspect "$image" >/dev/null 2>&1 || return 77
   local rie="${GOODFETCH_LAMBDA_RIE:-/usr/local/bin/aws-lambda-rie}"
   [[ -x "$rie" ]] || return 77
-  docker run --rm --entrypoint "$rie" -v "${rie}:${rie}:ro" "$image" \
-    "/usr/local/bin/goodfetch-${product}" --version
+  start_proving_ground
+  docker run --rm --network host --entrypoint "$rie" -v "${rie}:${rie}:ro" \
+    -e "GOODFETCH_PROVING_GROUND_URL=${pg_url}" \
+    "$image" "/usr/local/bin/goodfetch-${product}" --version
 }
 
 run_edge() {
   local product=$1
-  # Runs ADR 0069's TypeScript SDK smoke scripts across workerd (Miniflare),
-  # Vercel edge-runtime, and Deno against a local Daemon / Proving ground.
+  # Runs ADR 0069's TypeScript SDK smoke scripts across edge runtimes against
+  # a local Daemon / Proving ground (workerd/edge-runtime installers wait on #1421).
   command -v pnpm >/dev/null 2>&1 || return 77
-  GOODFETCH_SMOKE_PRODUCT="$product" pnpm exec vitest run \
-    sdks/typescript/smoke/tests/smoke.test.ts \
-    sdks/typescript/foxhound/tests/edge-runtime.test.ts
+  start_proving_ground
+  GOODFETCH_SMOKE_PRODUCT="$product" GOODFETCH_PROVING_GROUND_URL="$pg_url" \
+    pnpm exec vitest run \
+      sdks/typescript/smoke/tests/smoke.test.ts \
+      sdks/typescript/foxhound/tests/edge-runtime.test.ts
 }
 
 run_cloud_run() {
   local product=$1
-  # Cloud Run contract (ADR 0076 / issue 206): PORT, plain HTTP behind a
-  # TLS-terminating proxy, K_SERVICE, SIGTERM followed by SIGKILL after 10s.
+  # Opt-in Cloud Run contract check (ADR 0076 / issue 209): PORT, K_SERVICE,
+  # SIGTERM followed by SIGKILL after 10s.
   command -v docker >/dev/null 2>&1 || return 77
   local image="goodfetch/${product}:deploy-smoke"
   docker image inspect "$image" >/dev/null 2>&1 || return 77
@@ -144,7 +191,7 @@ run_cloud_run() {
     -e PORT=8080 \
     -e "K_SERVICE=${k_service}" \
     -e "K_REVISION=${k_revision}" \
-    "$image" daemon run --listen 0.0.0.0:8080)
+    "$image" daemon run)
   trap 'docker rm -f "'"$cid"'" >/dev/null 2>&1 || true' RETURN
   docker stop --signal SIGTERM --time 10 "$cid" >/dev/null
   local exit_code

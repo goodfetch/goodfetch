@@ -142,8 +142,8 @@ fn fetch_chromium_verifies_tree_hashes_attestations_and_digests_before_saving() 
     workspace.write("chromium/patches/001-stealth.patch", b"patch-bytes\n");
     workspace.write("chromium/expectations/linux.toml", b"pass = true\n");
     workspace.write(
-        ".github/workflows/chromium-gate.yml",
-        b"name: chromium-gate\n",
+        ".github/workflows/chromium-build-gate.yml",
+        b"name: chromium-build-gate\n",
     );
 
     let hashes = workspace.xtask(&["release", "chromium-tree-hashes"]);
@@ -164,37 +164,41 @@ fn fetch_chromium_verifies_tree_hashes_attestations_and_digests_before_saving() 
         2,
     );
 
-    let manifest = format!(
-        r#"workflow = ".github/workflows/chromium-gate.yml"
-build_input_tree = "{build_tree}"
-test_input_tree = "{test_tree}"
-
-[[artifact]]
-target = "x86_64-unknown-linux-gnu"
-kind = "bundle"
-filename = "goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz"
-url = "{base_url}/bundle.tar.xz"
-sha256 = "{bundle_sha}"
-
-[[artifact]]
-target = "x86_64-unknown-linux-gnu"
-kind = "chromedriver"
-filename = "goodfetch-chromedriver-x86_64-unknown-linux-gnu.tar.xz"
-url = "{base_url}/chromedriver.tar.xz"
-sha256 = "{driver_sha}"
-"#
+    let manifest = serde_json::json!({
+        "workflow": ".github/workflows/chromium-build-gate.yml",
+        "build_input_tree": build_tree,
+        "test_input_tree": test_tree,
+        "artifact": [
+            {
+                "target": "x86_64-unknown-linux-gnu",
+                "kind": "bundle",
+                "filename": "goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz",
+                "url": format!("{base_url}/bundle.tar.xz"),
+                "sha256": bundle_sha,
+            },
+            {
+                "target": "x86_64-unknown-linux-gnu",
+                "kind": "chromedriver",
+                "filename": "goodfetch-chromedriver-x86_64-unknown-linux-gnu.tar.xz",
+                "url": format!("{base_url}/chromedriver.tar.xz"),
+                "sha256": driver_sha,
+            },
+        ],
+    });
+    workspace.write(
+        "chromium/manifest.json",
+        serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
     );
-    workspace.write("chromium/manifest.toml", manifest.as_bytes());
 
     for digest in [&bundle_sha, &driver_sha] {
         let build_att = serde_json::json!({
             "subject_sha256": digest,
-            "workflow": ".github/workflows/chromium-gate.yml",
+            "workflow": ".github/workflows/chromium-build-gate.yml",
             "build_input_tree": build_tree,
         });
         let verdict_att = serde_json::json!({
             "subject_sha256": digest,
-            "workflow": ".github/workflows/chromium-gate.yml",
+            "workflow": ".github/workflows/chromium-build-gate.yml",
             "build_input_tree": build_tree,
             "test_input_tree": test_tree,
             "verdict": "pass",
@@ -239,20 +243,24 @@ fn fetch_chromium_refuses_input_tree_mismatch() {
     let tree: Value = serde_json::from_str(&hashes.stdout).unwrap();
     let test_tree = tree["test_input_tree"].as_str().unwrap().to_owned();
 
-    let stale_manifest = format!(
-        r#"workflow = ".github/workflows/chromium-gate.yml"
-build_input_tree = "0000000000000000000000000000000000000000000000000000000000000000"
-test_input_tree = "{test_tree}"
-
-[[artifact]]
-target = "x86_64-unknown-linux-gnu"
-kind = "bundle"
-filename = "goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz"
-url = "http://127.0.0.1:1/unused"
-sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
-"#
+    let stale_manifest = serde_json::json!({
+        "workflow": ".github/workflows/chromium-build-gate.yml",
+        "build_input_tree": "0000000000000000000000000000000000000000000000000000000000000000",
+        "test_input_tree": test_tree,
+        "artifact": [{
+            "target": "x86_64-unknown-linux-gnu",
+            "kind": "bundle",
+            "filename": "goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz",
+            "url": "http://127.0.0.1:1/unused",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        }],
+    });
+    workspace.write(
+        "chromium/manifest.json",
+        serde_json::to_string_pretty(&stale_manifest)
+            .unwrap()
+            .as_bytes(),
     );
-    workspace.write("chromium/manifest.toml", stale_manifest.as_bytes());
     let mismatch = workspace.xtask(&[
         "release",
         "fetch-chromium",
@@ -264,7 +272,7 @@ sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
     assert_eq!(mismatch.code, 1);
     assert_eq!(
         mismatch.findings(),
-        [finding("input-tree-mismatch", "chromium/manifest.toml")]
+        [finding("input-tree-mismatch", "chromium/manifest.json")]
     );
 }
 
@@ -282,25 +290,27 @@ fn fetch_chromium_refuses_bad_attestation_and_tampered_bytes() {
     let good_sha = sha256(&good_bytes);
     let (base_url, server) =
         serve_http(vec![("/bundle.tar.xz".to_owned(), b"tampered".to_vec())], 1);
-    let manifest = format!(
-        r#"workflow = ".github/workflows/chromium-gate.yml"
-build_input_tree = "{build_tree}"
-test_input_tree = "{test_tree}"
-
-[[artifact]]
-target = "x86_64-unknown-linux-gnu"
-kind = "bundle"
-filename = "goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz"
-url = "{base_url}/bundle.tar.xz"
-sha256 = "{good_sha}"
-"#
+    let manifest = serde_json::json!({
+        "workflow": ".github/workflows/chromium-build-gate.yml",
+        "build_input_tree": build_tree,
+        "test_input_tree": test_tree,
+        "artifact": [{
+            "target": "x86_64-unknown-linux-gnu",
+            "kind": "bundle",
+            "filename": "goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz",
+            "url": format!("{base_url}/bundle.tar.xz"),
+            "sha256": good_sha,
+        }],
+    });
+    workspace.write(
+        "chromium/manifest.json",
+        serde_json::to_string_pretty(&manifest).unwrap().as_bytes(),
     );
-    workspace.write("chromium/manifest.toml", manifest.as_bytes());
     workspace.write(
         &format!("attestations/{good_sha}.build.json"),
         serde_json::json!({
             "subject_sha256": good_sha,
-            "workflow": ".github/workflows/chromium-gate.yml",
+            "workflow": ".github/workflows/chromium-build-gate.yml",
             "build_input_tree": build_tree,
         })
         .to_string()
@@ -310,7 +320,7 @@ sha256 = "{good_sha}"
         &format!("attestations/{good_sha}.verdict.json"),
         serde_json::json!({
             "subject_sha256": good_sha,
-            "workflow": ".github/workflows/chromium-gate.yml",
+            "workflow": ".github/workflows/chromium-build-gate.yml",
             "build_input_tree": build_tree,
             "test_input_tree": test_tree,
             "verdict": "fail",
@@ -339,7 +349,7 @@ sha256 = "{good_sha}"
         &format!("attestations/{good_sha}.verdict.json"),
         serde_json::json!({
             "subject_sha256": good_sha,
-            "workflow": ".github/workflows/chromium-gate.yml",
+            "workflow": ".github/workflows/chromium-build-gate.yml",
             "build_input_tree": build_tree,
             "test_input_tree": test_tree,
             "verdict": "pass",
@@ -367,5 +377,46 @@ sha256 = "{good_sha}"
     assert_eq!(
         workspace.read("dist/goodfetch-chromium-x86_64-unknown-linux-gnu.tar.xz"),
         None
+    );
+}
+
+#[test]
+fn fetch_chromium_refuses_path_traversal_filename() {
+    let workspace = Workspace::from_fixture("release");
+    workspace.write("chromium/version.txt", b"156.0.8078.4\n");
+    let hashes = workspace.xtask(&["release", "chromium-tree-hashes"]);
+    assert_eq!(hashes.code, 0, "{}", hashes.stderr);
+    let tree: Value = serde_json::from_str(&hashes.stdout).unwrap();
+    let build_tree = tree["build_input_tree"].as_str().unwrap().to_owned();
+    let test_tree = tree["test_input_tree"].as_str().unwrap().to_owned();
+
+    let traversal = serde_json::json!({
+        "workflow": ".github/workflows/chromium-build-gate.yml",
+        "build_input_tree": build_tree,
+        "test_input_tree": test_tree,
+        "artifact": [{
+            "target": "x86_64-unknown-linux-gnu",
+            "kind": "bundle",
+            "filename": "../escape.tar.xz",
+            "url": "http://127.0.0.1:1/unused",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        }],
+    });
+    workspace.write(
+        "chromium/manifest.json",
+        serde_json::to_string_pretty(&traversal).unwrap().as_bytes(),
+    );
+    let escaped = workspace.xtask(&[
+        "release",
+        "fetch-chromium",
+        "--attestations",
+        "attestations",
+        "--out",
+        "dist",
+    ]);
+    assert_eq!(escaped.code, 1);
+    assert_eq!(
+        escaped.findings(),
+        [finding("invalid-filename", "../escape.tar.xz")]
     );
 }

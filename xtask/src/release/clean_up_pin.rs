@@ -28,7 +28,6 @@ const USER_AGENT: &str = "goodfetch-xtask (https://github.com/goodfetch/goodfetc
 const SEED_DIR: &str = "crates/goodfetch-clean-up-rules/rules";
 const FULL_ASSET: &str = "goodfetch-clean-up-rules-full.tar.xz";
 const EMBEDDED_ASSET: &str = "goodfetch-clean-up-rules-embedded.txt";
-const NOTES_FILE: &str = "clean-up-rules-notes.md";
 
 const ANN_LINE: &str = "dev.goodfetch.clean-up-rules.line";
 const ANN_VERSION: &str = "dev.goodfetch.clean-up-rules.version";
@@ -49,10 +48,15 @@ pub(crate) struct Arguments {
     /// Optional pin file written on a release branch; refused on `main`.
     #[arg(long)]
     pin_file: Option<PathBuf>,
-    /// Optional assets folder where the full set, embedded rule text, and
-    /// release-notes snippet are written.
+    /// Optional assets folder where the full set and embedded rule text are
+    /// written.
     #[arg(long)]
     out_assets: Option<PathBuf>,
+    /// Optional path where the Markdown release-notes snippet (version +
+    /// SHA-256 digests) is written (kept separate from `--out-assets` so notes
+    /// are never uploaded or attested as a release asset).
+    #[arg(long)]
+    out_notes: Option<PathBuf>,
 }
 
 #[derive(Deserialize)]
@@ -106,6 +110,30 @@ struct ResolvedSet {
     embedded_bytes: Vec<u8>,
 }
 
+/// Default committed pin path on a release branch (never written on `main`).
+pub(super) const DEFAULT_PIN_FILE: &str = "crates/goodfetch-clean-up-rules/pin.json";
+const DEFAULT_REPOSITORY: &str = "goodfetch/clean-up-rules";
+
+/// Pins `line`'s newest passing Clean-up rules daily set from `registry` into
+/// `DEFAULT_PIN_FILE` (refusing if `line == "main"` or `HEAD` is `main`).
+pub(super) fn pin_release_line(
+    root: &Path,
+    line: &str,
+    registry: &str,
+    token: Option<&str>,
+) -> Result<()> {
+    let args = Arguments {
+        line: line.to_owned(),
+        registry: Some(registry.to_owned()),
+        repository: DEFAULT_REPOSITORY.to_owned(),
+        pin_file: Some(PathBuf::from(DEFAULT_PIN_FILE)),
+        out_assets: None,
+        out_notes: None,
+    };
+    let _ = run(root, &args, token)?;
+    Ok(())
+}
+
 pub(super) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Result<ExitCode> {
     let line = normalize_line(&arguments.line);
     ensure!(!line.is_empty(), "--line must not be empty");
@@ -136,14 +164,22 @@ pub(super) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
         None => resolve_from_seed(root, &line)?,
     };
 
-    let full_sha = sha256_hex(&resolved.full_bytes);
-    let embedded_sha = sha256_hex(&resolved.embedded_bytes);
+    let full_sha = format!("{:x}", Sha256::digest(&resolved.full_bytes));
+    let embedded_sha = format!("{:x}", Sha256::digest(&resolved.embedded_bytes));
 
     if let Some(out_assets) = &arguments.out_assets {
-        let dir = resolve_path(root, out_assets);
+        let dir = root.join(out_assets);
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         std::fs::write(dir.join(FULL_ASSET), &resolved.full_bytes)?;
         std::fs::write(dir.join(EMBEDDED_ASSET), &resolved.embedded_bytes)?;
+    }
+
+    if let Some(out_notes) = &arguments.out_notes {
+        let notes_path = root.join(out_notes);
+        if let Some(parent) = notes_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
         let notes = format!(
             "## Clean-up rules\n\n\
              - Version: `{}` (line `{}`, source `{}`)\n\
@@ -151,11 +187,12 @@ pub(super) fn run(root: &Path, arguments: &Arguments, token: Option<&str>) -> Re
              - Embedded rule text (`{EMBEDDED_ASSET}`): `sha256:{embedded_sha}`\n",
             resolved.version, resolved.line, resolved.source
         );
-        std::fs::write(dir.join(NOTES_FILE), notes)?;
+        std::fs::write(&notes_path, notes)
+            .with_context(|| format!("writing {}", notes_path.display()))?;
     }
 
     if let Some(pin_file) = &arguments.pin_file {
-        let path = resolve_path(root, pin_file);
+        let path = root.join(pin_file);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("creating {}", parent.display()))?;
@@ -193,29 +230,49 @@ fn normalize_line(raw: &str) -> String {
         .to_owned()
 }
 
-fn resolve_path(root: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let mut out = String::with_capacity(64);
-    for byte in hasher.finalize() {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
 fn version_sort_key(version: &str) -> Vec<u64> {
     version
         .split(['.', '-', '+'])
         .map(|part| part.parse::<u64>().unwrap_or(0))
         .collect()
+}
+
+struct OciPullAuth<'a> {
+    agent: &'a Agent,
+    repository: &'a str,
+    github_token: Option<&'a str>,
+    bearer: Option<String>,
+}
+
+impl OciPullAuth<'_> {
+    fn get(&mut self, url: &str, accept: Option<&str>) -> Result<ureq::http::Response<ureq::Body>> {
+        let send = |bearer: Option<&str>| {
+            let mut req = with_auth(self.agent.get(url), bearer);
+            if let Some(accept) = accept {
+                req = req.header("Accept", accept);
+            }
+            req.call()
+        };
+        let mut resp = send(self.bearer.as_deref().or(self.github_token))?;
+        if resp.status() == 401
+            && let Some(header) = resp
+                .headers()
+                .get("www-authenticate")
+                .and_then(|v| v.to_str().ok())
+        {
+            let scope = format!("repository:{}:pull", self.repository);
+            let exchanged = super::publish::oci::exchange_bearer_token(
+                self.agent,
+                header,
+                self.repository,
+                &scope,
+                self.github_token,
+            )?;
+            self.bearer = Some(exchanged);
+            resp = send(self.bearer.as_deref())?;
+        }
+        Ok(resp)
+    }
 }
 
 fn resolve_from_registry(
@@ -230,18 +287,39 @@ fn resolve_from_registry(
         .user_agent(USER_AGENT)
         .build()
         .into();
+    let mut auth = OciPullAuth {
+        agent: &agent,
+        repository,
+        github_token: token,
+        bearer: None,
+    };
 
-    let tags_url = format!("{base}/v2/{repository}/tags/list");
-    let mut resp = with_auth(agent.get(&tags_url), token).call()?;
-    if resp.status() == 404 {
-        return Ok(None);
+    let mut tags = Vec::new();
+    let mut next_url = Some(format!("{base}/v2/{repository}/tags/list"));
+    while let Some(url) = next_url {
+        let mut resp = auth.get(&url, None)?;
+        if resp.status() == 404 {
+            return Ok(None);
+        }
+        if resp.status() != 200 {
+            bail!("{url} answered {}", resp.status());
+        }
+        next_url = resp
+            .headers()
+            .get("link")
+            .and_then(|v| v.to_str().ok())
+            .and_then(super::publish::oci::next_page)
+            .map(|next| {
+                if next.starts_with("http://") || next.starts_with("https://") {
+                    next.to_owned()
+                } else {
+                    format!("{base}{next}")
+                }
+            });
+        let list: TagsList = serde_json::from_str(&resp.body_mut().read_to_string()?)
+            .with_context(|| format!("parsing tags list from {url}"))?;
+        tags.extend(list.tags.unwrap_or_default());
     }
-    if resp.status() != 200 {
-        bail!("{tags_url} answered {}", resp.status());
-    }
-    let list: TagsList = serde_json::from_str(&resp.body_mut().read_to_string()?)
-        .with_context(|| format!("parsing tags list from {tags_url}"))?;
-    let tags = list.tags.unwrap_or_default();
     if tags.is_empty() {
         return Ok(None);
     }
@@ -249,9 +327,7 @@ fn resolve_from_registry(
     let mut best: Option<(Vec<u64>, String, String, OciManifest)> = None;
     for tag in tags {
         let manifest_url = format!("{base}/v2/{repository}/manifests/{tag}");
-        let mut mresp = with_auth(agent.get(&manifest_url), token)
-            .header("Accept", MANIFEST_ACCEPT)
-            .call()?;
+        let mut mresp = auth.get(&manifest_url, Some(MANIFEST_ACCEPT))?;
         if mresp.status() != 200 {
             continue;
         }
@@ -295,9 +371,8 @@ fn resolve_from_registry(
         .find(|layer| layer.annotations.get(ANN_PART).map(String::as_str) == Some("embedded"))
         .with_context(|| format!("manifest {tag} missing `embedded` layer"))?;
 
-    let full_bytes = fetch_verified_blob(&agent, base, repository, &full_layer.digest, token)?;
-    let embedded_bytes =
-        fetch_verified_blob(&agent, base, repository, &embedded_layer.digest, token)?;
+    let full_bytes = fetch_verified_blob(&mut auth, base, repository, &full_layer.digest)?;
+    let embedded_bytes = fetch_verified_blob(&mut auth, base, repository, &embedded_layer.digest)?;
 
     Ok(Some(ResolvedSet {
         line: line.to_owned(),
@@ -310,14 +385,13 @@ fn resolve_from_registry(
 }
 
 fn fetch_verified_blob(
-    agent: &Agent,
+    auth: &mut OciPullAuth<'_>,
     base: &str,
     repository: &str,
     digest: &str,
-    token: Option<&str>,
 ) -> Result<Vec<u8>> {
     let url = format!("{base}/v2/{repository}/blobs/{digest}");
-    let mut resp = with_auth(agent.get(&url), token).call()?;
+    let mut resp = auth.get(&url, None)?;
     if resp.status() != 200 {
         bail!("{url} answered {}", resp.status());
     }
@@ -325,7 +399,7 @@ fn fetch_verified_blob(
     let expected = digest
         .strip_prefix("sha256:")
         .with_context(|| format!("unsupported digest format {digest}"))?;
-    let actual = sha256_hex(&bytes);
+    let actual = format!("{:x}", Sha256::digest(&bytes));
     ensure!(
         actual == expected,
         "blob {digest} digest mismatch: expected {expected}, got {actual}"
@@ -357,25 +431,34 @@ fn resolve_from_seed(root: &Path, line: &str) -> Result<ResolvedSet> {
         }
     }
 
-    // Build deterministic tar archive of the committed seed set.
-    let mut tar_bytes = Vec::new();
-    {
-        let mut builder = tar::Builder::new(&mut tar_bytes);
-        let mut header = tar::Header::new_gnu();
-        header.set_size(embedded.len() as u64);
-        header.set_mode(0o644);
-        header.set_mtime(0);
-        header.set_cksum();
-        builder.append_data(&mut header, EMBEDDED_ASSET, embedded.as_bytes())?;
-        builder.finish()?;
-    }
+    // Build an XZ-compressed deterministic `.tar.xz` archive of the committed seed set.
+    let staging = tempfile::tempdir().context("creating Clean-up rules seed staging folder")?;
+    let embedded_path = staging.path().join(EMBEDDED_ASSET);
+    std::fs::write(&embedded_path, embedded.as_bytes())
+        .with_context(|| format!("writing {}", embedded_path.display()))?;
+    let archive_path = staging.path().join(FULL_ASSET);
+    let status = std::process::Command::new("tar")
+        .args(["-cJf"])
+        .arg(&archive_path)
+        .args(["-C"])
+        .arg(staging.path())
+        .arg(EMBEDDED_ASSET)
+        .status()
+        .with_context(|| format!("running `tar -cJf {}`", archive_path.display()))?;
+    anyhow::ensure!(
+        status.success(),
+        "`tar -cJf {}` exited with {status}",
+        archive_path.display()
+    );
+    let full_bytes = std::fs::read(&archive_path)
+        .with_context(|| format!("reading {}", archive_path.display()))?;
 
     Ok(ResolvedSet {
         line: line.to_owned(),
         version: format!("seed-{}", manifest.published_at),
         source: "committed-seed".to_owned(),
         oci_tag: None,
-        full_bytes: tar_bytes,
+        full_bytes,
         embedded_bytes: embedded.into_bytes(),
     })
 }

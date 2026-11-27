@@ -4,13 +4,14 @@
 //!
 //! - **An image** gets ADR 0049's five tags, `<v>`, `<v>-slim`, `<v>-full`,
 //!   `<v>-node` and `<v>-python`, then `latest` for a stable version no
-//!   higher stable tag of the image passes; a nightly gets `<v>` and
-//!   `nightly` only (ADR 0030).
-//! - **A moving tag** (`latest`, `nightly`) is out once it points at the
-//!   manifest `<v>` points at.
+//!   higher stable tag of the image passes; a nightly gets all five
+//!   versioned tags plus `nightly`, `nightly-slim`, `nightly-full`,
+//!   `nightly-node` and `nightly-python` (ADRs 0030 and 0049; issues 143 and 202).
+//! - **A moving tag** (`latest`, `nightly`, `nightly-<variant>`) is out once
+//!   it points at the manifest its versioned tag points at.
 //! - **The Helm chart** (`goodfetch/charts/<product>`) and **each Plugin**
 //!   (`goodfetch/goodfetch-plugin-*`, the workspace crates of that name) get
-//!   `<v>`, for a stable version and a release candidate.
+//!   `<v>`, plus moving `nightly` on nightlies (issues 143 and 202).
 //! - A repository the registry does not have yet is planned as `publish`:
 //!   the registry makes it on the first push, so no first publish by hand.
 
@@ -52,27 +53,35 @@ pub(super) fn steps(
     for product in Product::ALL {
         let image = repository(product.names().image)?;
         let tags = registry.tags(image)?.unwrap_or_default();
-        let variants = if nightly {
-            &VARIANTS[..1]
-        } else {
-            &VARIANTS[..]
-        };
-        for variant in variants {
+        for variant in VARIANTS {
             steps.push(step(image, &format!("{semver}{variant}"), &tags));
         }
-        let moving = match version.stage {
-            Stage::Nightly(_) => Some("nightly"),
-            Stage::Stable if !higher_stable(&tags, version) => Some("latest"),
-            Stage::Stable | Stage::Candidate(_) => None,
-        };
-        if let Some(moving) = moving {
-            let out = tags.contains(moving)
+        if nightly {
+            for variant in VARIANTS {
+                let versioned = format!("{semver}{variant}");
+                let moving = format!("nightly{variant}");
+                let out = tags.contains(&moving)
+                    && tags.contains(&versioned)
+                    && registry.digest(image, &moving)? == registry.digest(image, &versioned)?;
+                steps.push(Step::Package {
+                    registry: "oci",
+                    name: image.to_owned(),
+                    version: moving,
+                    state: if out {
+                        PackageState::Published
+                    } else {
+                        PackageState::Publish
+                    },
+                });
+            }
+        } else if matches!(version.stage, Stage::Stable) && !higher_stable(&tags, version) {
+            let out = tags.contains("latest")
                 && tags.contains(&semver)
-                && registry.digest(image, moving)? == registry.digest(image, &semver)?;
+                && registry.digest(image, "latest")? == registry.digest(image, &semver)?;
             steps.push(Step::Package {
                 registry: "oci",
                 name: image.to_owned(),
-                version: moving.to_owned(),
+                version: "latest".to_owned(),
                 state: if out {
                     PackageState::Published
                 } else {
@@ -80,17 +89,44 @@ pub(super) fn steps(
                 },
             });
         }
-        if !nightly {
-            let chart = chart(image)?;
-            let tags = registry.tags(&chart)?.unwrap_or_default();
-            steps.push(step(&chart, &semver, &tags));
+        let chart = chart(image)?;
+        let chart_tags = registry.tags(&chart)?.unwrap_or_default();
+        steps.push(step(&chart, &semver, &chart_tags));
+        if nightly {
+            let out = chart_tags.contains("nightly")
+                && chart_tags.contains(&semver)
+                && registry.digest(&chart, "nightly")? == registry.digest(&chart, &semver)?;
+            steps.push(Step::Package {
+                registry: "oci",
+                name: chart,
+                version: "nightly".to_owned(),
+                state: if out {
+                    PackageState::Published
+                } else {
+                    PackageState::Publish
+                },
+            });
         }
     }
-    if !nightly {
-        for plugin in assets::first_party_plugins(root)? {
-            let repository = format!("goodfetch/{plugin}");
-            let tags = registry.tags(&repository)?.unwrap_or_default();
-            steps.push(step(&repository, &semver, &tags));
+    for plugin in assets::first_party_plugins(root)? {
+        let repository = format!("goodfetch/{plugin}");
+        let tags = registry.tags(&repository)?.unwrap_or_default();
+        steps.push(step(&repository, &semver, &tags));
+        if nightly {
+            let out = tags.contains("nightly")
+                && tags.contains(&semver)
+                && registry.digest(&repository, "nightly")?
+                    == registry.digest(&repository, &semver)?;
+            steps.push(Step::Package {
+                registry: "oci",
+                name: repository,
+                version: "nightly".to_owned(),
+                state: if out {
+                    PackageState::Published
+                } else {
+                    PackageState::Publish
+                },
+            });
         }
     }
     Ok(steps)
@@ -263,48 +299,75 @@ impl<'a> Registry<'a> {
     /// A pull token of `repository` from the challenge's realm, asked with
     /// the GitHub token when there is one.
     fn pull_token(&self, challenge: &Challenge, repository: &str) -> Result<String> {
-        let scope = challenge
-            .scope
-            .clone()
-            .unwrap_or_else(|| format!("repository:{repository}:pull"));
-        let request = self
-            .agent
-            .get(&challenge.realm)
-            .query("scope", &scope)
-            .header("User-Agent", USER_AGENT);
-        let request = match &challenge.service {
-            Some(service) => request.query("service", service),
-            None => request,
-        };
-        let request = match self.token {
-            Some(token) => request.header(
-                "Authorization",
-                format!(
-                    "Basic {}",
-                    data_encoding::BASE64.encode(format!("x-access-token:{token}").as_bytes())
-                ),
-            ),
-            None => request,
-        };
-        let mut response = request
-            .call()
-            .with_context(|| format!("asking {} for a pull token", challenge.realm))?;
-        let status = response.status();
-        if status != 200 {
-            bail!(
-                "{} answered {status} to a pull token of {repository}",
-                challenge.realm
-            );
-        }
-        let answer: PullToken = response
-            .body_mut()
-            .read_json()
-            .with_context(|| format!("reading {}'s pull token", challenge.realm))?;
-        answer
-            .token
-            .or(answer.access_token)
-            .with_context(|| format!("{} answered no token", challenge.realm))
+        request_bearer_token(
+            &self.agent,
+            challenge,
+            repository,
+            &format!("repository:{repository}:pull"),
+            self.token,
+        )
     }
+}
+
+/// Exchanges a `401` response's `WWW-Authenticate: Bearer ...` challenge for
+/// an OCI registry bearer token (pull or push), authenticating with `token`
+/// (e.g. `GITHUB_TOKEN`) via Basic auth when supplied.
+pub(in crate::release) fn exchange_bearer_token(
+    agent: &Agent,
+    www_authenticate: &str,
+    repository: &str,
+    default_scope: &str,
+    token: Option<&str>,
+) -> Result<String> {
+    let challenge = bearer_challenge(www_authenticate)
+        .with_context(|| format!("401 with no Bearer challenge ({www_authenticate:?})"))?;
+    request_bearer_token(agent, &challenge, repository, default_scope, token)
+}
+
+fn request_bearer_token(
+    agent: &Agent,
+    challenge: &Challenge,
+    repository: &str,
+    default_scope: &str,
+    token: Option<&str>,
+) -> Result<String> {
+    let scope = challenge.scope.as_deref().unwrap_or(default_scope);
+    let request = agent
+        .get(&challenge.realm)
+        .query("scope", scope)
+        .header("User-Agent", USER_AGENT);
+    let request = match &challenge.service {
+        Some(service) => request.query("service", service),
+        None => request,
+    };
+    let request = match token {
+        Some(token) if !token.is_empty() => request.header(
+            "Authorization",
+            format!(
+                "Basic {}",
+                data_encoding::BASE64.encode(format!("x-access-token:{token}").as_bytes())
+            ),
+        ),
+        _ => request,
+    };
+    let mut response = request
+        .call()
+        .with_context(|| format!("asking {} for an OCI token", challenge.realm))?;
+    let status = response.status();
+    if status != 200 {
+        bail!(
+            "{} answered {status} to a token request for {repository}",
+            challenge.realm
+        );
+    }
+    let answer: PullToken = response
+        .body_mut()
+        .read_json()
+        .with_context(|| format!("reading {}'s OCI token", challenge.realm))?;
+    answer
+        .token
+        .or(answer.access_token)
+        .with_context(|| format!("{} answered no token", challenge.realm))
 }
 
 /// A `WWW-Authenticate: Bearer …` challenge's parameters.
@@ -352,7 +415,7 @@ fn bearer_challenge(header: &str) -> Option<Challenge> {
 
 /// The target of a `Link` header's `rel="next"` entry, which a registry
 /// sends while more tags are left.
-fn next_page(header: &str) -> Option<&str> {
+pub(in crate::release) fn next_page(header: &str) -> Option<&str> {
     header.split(',').find_map(|link| {
         let (target, parameters) = link.split_once(';')?;
         parameters

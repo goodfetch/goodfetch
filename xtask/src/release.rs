@@ -22,6 +22,10 @@
 //! The publish: `assets` makes the GitHub Release's files ready to upload,
 //! `digests` writes each Product crate's table of its archives before
 //! `cargo package`, and `plan` lists both Products' publish steps.
+//!
+//! Size: 1,030 lines — the single release command entrypoint, Product version
+//! parser, and manifest/lockfile version rewriter; each workflow stage lives in
+//! its own submodule under `xtask/src/release/`.
 #![expect(
     clippy::disallowed_methods,
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
@@ -105,6 +109,11 @@ pub(crate) enum Command {
         /// nightly `x.y.z-dev.N`, published under npm's `nightly` tag.
         #[arg(long)]
         version: ProductVersion,
+        /// Optional OCI registry URL to pin the release line's newest passing
+        /// Clean-up rules daily set into `crates/goodfetch-clean-up-rules/pin.json`
+        /// (refused on `main` or nightlies, ADR 0047).
+        #[arg(long)]
+        clean_up_registry: Option<String>,
     },
     /// Cuts minor `x.y` from `origin`'s `main`, once its release gates
     /// pass: pushes the `release/x.y` branch and the `x.y-branch` tag at
@@ -118,6 +127,10 @@ pub(crate) enum Command {
         /// (`xtask features report`'s `features.json`).
         #[arg(long)]
         feature_report: PathBuf,
+        /// Optional OCI registry URL to pin `minor`'s newest passing Clean-up
+        /// rules daily set on `release/x.y` after cutting (never on `main`).
+        #[arg(long)]
+        clean_up_registry: Option<String>,
         #[command(flatten)]
         github: github::Arguments,
     },
@@ -295,7 +308,10 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             &arguments,
             environment.github_token.as_deref(),
         ),
-        Command::Prepare { version } => {
+        Command::Prepare {
+            version,
+            clean_up_registry,
+        } => {
             let findings = gates::patch(root, "HEAD", &version)?;
             if !findings.is_empty() {
                 return Ok(crate::check::report(&findings));
@@ -305,11 +321,22 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
                     .with_context(|| format!("writing {path}"))?;
                 output::line(&path);
             }
+            if let Some(registry) = clean_up_registry {
+                let line = format!("{}.{}", version.major, version.minor);
+                clean_up_pin::pin_release_line(
+                    root,
+                    &line,
+                    &registry,
+                    environment.github_token.as_deref(),
+                )?;
+                output::line(clean_up_pin::DEFAULT_PIN_FILE);
+            }
             Ok(ExitCode::SUCCESS)
         }
         Command::Cut {
             minor,
             feature_report,
+            clean_up_registry,
             github,
         } => {
             let findings = gates::release(root, &feature_report)?;
@@ -319,6 +346,14 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
             pull_request::require_clean(root)?;
             let api = github.authenticated(environment.token())?;
             let candidate = line::cut(root, minor)?;
+            if let Some(registry) = clean_up_registry {
+                clean_up_pin::pin_release_line(
+                    root,
+                    &minor.to_string(),
+                    &registry,
+                    environment.github_token.as_deref(),
+                )?;
+            }
             releaser(environment, &github, api)
                 .open(&candidate)
                 .with_context(|| {

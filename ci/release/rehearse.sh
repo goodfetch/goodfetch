@@ -15,7 +15,7 @@ cd "$root"
 
 packaged=""
 binaries=""
-version="0.0.0"
+version=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --packaged) packaged=$2; shift 2 ;;
@@ -27,11 +27,16 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+if [[ -z "$version" ]]; then
+  version=$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)
+fi
 
 export GOODFETCH_REHEARSE_PACKAGED="$packaged"
 export GOODFETCH_REHEARSE_VERSION="$version"
+export GOODFETCH_TEST_SUITE="release"
 
-# 0. Published Operation catalog and debug symbol signature/attestation rehearsal (issues 1662, 203).
+# 0. Published Operation catalog, debug symbols, Ceilings, Helm chart OCI push,
+#    and packaged wheel/npm offline install rehearsal (issues 141, 1662, 202, 203).
 if [[ -n "$packaged" ]]; then
   key_dir="$packaged/rehearsal-keys"
   for asset in "$packaged/assets/goodfetch-catalog.json" "$packaged"/assets/*-debug.tar.xz; do
@@ -55,6 +60,36 @@ if [[ -n "$packaged" ]]; then
   fi
   cargo run --quiet --bin xtask -- release size-manifest "${size_args[@]}"
   cargo run --quiet --bin xtask -- size ceilings --files "$manifest" >"$packaged/release-size-table.md"
+
+  # Rehearse Helm chart OCI push and install against local `registry:2` when configured (issue 202).
+  if [[ -n "${GOODFETCH_REHEARSE_OCI_REGISTRY:-}" && -d "$packaged/oci/charts" ]]; then
+    chart_scratch=$(mktemp -d)
+    for product in collie foxhound; do
+      chart_dir="$packaged/oci/charts/$product"
+      [[ -d "$chart_dir" ]] || continue
+      cargo run --quiet --bin xtask -- release oci-push \
+        --layout "$chart_dir" \
+        --registry "$GOODFETCH_REHEARSE_OCI_REGISTRY" \
+        --repository "goodfetch/charts/$product" \
+        --tag "$version"
+      if command -v helm >/dev/null 2>&1; then
+        reg_host="${GOODFETCH_REHEARSE_OCI_REGISTRY#http://}"
+        reg_host="${reg_host#https://}"
+        helm pull "oci://${reg_host}/goodfetch/charts/${product}" \
+          --version "$version" --plain-http --destination "$chart_scratch"
+        helm template "goodfetch-${product}" "$chart_scratch/goodfetch-${product}-${version}.tgz" >/dev/null
+      fi
+    done
+    rm -rf "$chart_scratch"
+  fi
+
+  # Rehearse actual packaged wheels and npm `.tgz` tarballs when host-matching files exist.
+  if ls "$packaged"/npm/*.tgz >/dev/null 2>&1 && ls "$packaged"/wheels/*.whl >/dev/null 2>&1; then
+    host_target=$(rustc -vV | awk '/^host:/ {print $2}')
+    if [[ -f "$packaged/assets/goodfetch-collie-${host_target}.tar.xz" ]]; then
+      ci/release/verify-bytes.sh "$packaged" "$host_target" "$version"
+    fi
+  fi
 fi
 
 # 1. TypeScript installed-package rehearsal against local Verdaccio (ADR 0069).

@@ -896,3 +896,24 @@ fn published_catalog_breakage_check_allows_additive_entry() {
 
     assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
 }
+
+#[test]
+fn published_catalog_zero_y_preview_bump_is_classified_as_breaking() {
+    let workspace = released_with(write_published_catalog, "");
+
+    edit_json(&workspace, PUBLISHED_CATALOG, |doc| {
+        doc["format_version"] = json!("0.2");
+    });
+
+    let outcome = workspace.xtask(&["api-check"]);
+    assert_eq!(outcome.code, 1, "{}\n{}", outcome.stdout, outcome.stderr);
+    let findings = outcome.findings();
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.kind == "unannounced-break"
+                && f.subject == "published-catalog format_version"),
+        "expected 0.1 -> 0.2 format_version break under ADR 0030 in {findings:?}\n{}",
+        outcome.stdout
+    );
+}

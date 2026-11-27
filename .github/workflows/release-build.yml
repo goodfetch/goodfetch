@@ -127,6 +127,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download built macOS Proving ground binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -169,12 +171,24 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install gitleaks
+        shell: bash
+        run: ci/host/gitleaks.sh
       - name: Download built Windows Proving ground binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: proving-ground-*-windows-msvc
           merge-multiple: true
           path: target/proving-ground-windows
+      - name: Install Azure Artifact Signing client dlib
+        shell: pwsh
+        run: |
+          $dlibDir = Join-Path $env:RUNNER_TEMP "azure-signing-client"
+          New-Item -ItemType Directory -Force -Path $dlibDir | Out-Null
+          nuget install Microsoft.Trusted.Signing.Client -Version 1.0.60 -OutputDirectory $dlibDir
+          $dlib = Get-ChildItem -Path $dlibDir -Recurse -Filter "Azure.CodeSigning.Dlib.dll" | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found" }
+          "AZURE_SIGNING_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Platform-sign Windows Proving ground binaries through Azure Artifact Signing OIDC
         shell: pwsh
         env:
@@ -219,6 +233,8 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download built Proving ground binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -268,6 +284,8 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Fetch verified Goodfetch Chromium bundles and chromedriver by digest
         env:
           GH_TOKEN: ${{ github.token }}
@@ -351,10 +369,77 @@ jobs:
           path: target/built-binaries
           if-no-files-found: error
 
+  signing-reuse-check:
+    name: signing-reuse-check
+    needs: [build-targets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.reuse.outputs.version }}
+      reuse_key: ${{ steps.reuse.outputs.reuse_key }}
+      reused: ${{ steps.reuse.outputs.reused }}
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Download built target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*
+          merge-multiple: true
+          path: target/unsigned-binaries
+      - name: Compute deterministic signing reuse key over unsigned binaries
+        id: compute
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
+          cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
+            --version "$version" \
+            --binaries target/unsigned-binaries \
+            --out target/unsigned-signing-reuse.json
+          key=$(jq -er '.reuse_key' target/unsigned-signing-reuse.json)
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "reuse_key=$key" >>"$GITHUB_OUTPUT"
+      - name: Look up prior signed artifacts for this version and unsigned digests
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/reused-signed
+          key: signed-artifacts-${{ steps.compute.outputs.version }}-${{ steps.compute.outputs.reuse_key }}
+      - name: Verify cached reuse manifest matches unsigned digests
+        id: reuse
+        env:
+          COMPUTED_VERSION: ${{ steps.compute.outputs.version }}
+          COMPUTED_KEY: ${{ steps.compute.outputs.reuse_key }}
+          CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        run: |
+          reused=false
+          if [[ "$CACHE_HIT" == "true" && -f target/reused-signed/signing-reuse.json ]]; then
+            status=$(cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
+              --version "$COMPUTED_VERSION" \
+              --binaries target/unsigned-binaries \
+              --existing target/reused-signed/signing-reuse.json \
+              --out target/reused-signed/signing-reuse.verified.json)
+            if [[ "$status" == reuse* ]]; then
+              reused=true
+            fi
+          fi
+          {
+            echo "version=$COMPUTED_VERSION"
+            echo "reuse_key=$COMPUTED_KEY"
+            echo "reused=$reused"
+          } >>"$GITHUB_OUTPUT"
+
   sign-macos:
     name: sign-macos
-    needs: [build-targets, fetch-chromium]
-    if: inputs.accounts_open == true
+    needs: [build-targets, fetch-chromium, signing-reuse-check]
+    if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
     runs-on: macos-15
     environment: release
     timeout-minutes: 60
@@ -365,6 +450,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download built macOS target binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -406,8 +493,8 @@ jobs:
 
   sign-windows:
     name: sign-windows
-    needs: [build-targets, fetch-chromium]
-    if: inputs.accounts_open == true
+    needs: [build-targets, fetch-chromium, signing-reuse-check]
+    if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
     runs-on: windows-2025
     environment: release
     timeout-minutes: 60
@@ -419,6 +506,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install gitleaks
+        shell: bash
+        run: ci/host/gitleaks.sh
       - name: Download built Windows target binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -430,6 +520,15 @@ jobs:
         with:
           name: chromium-fetched
           path: target/signed-chromium-windows
+      - name: Install Azure Artifact Signing client dlib
+        shell: pwsh
+        run: |
+          $dlibDir = Join-Path $env:RUNNER_TEMP "azure-signing-client"
+          New-Item -ItemType Directory -Force -Path $dlibDir | Out-Null
+          nuget install Microsoft.Trusted.Signing.Client -Version 1.0.60 -OutputDirectory $dlibDir
+          $dlib = Get-ChildItem -Path $dlibDir -Recurse -Filter "Azure.CodeSigning.Dlib.dll" | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $dlib) { throw "Azure.CodeSigning.Dlib.dll not found" }
+          "AZURE_SIGNING_DLIB=$dlib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Platform-sign Windows x64 and arm64 files through Azure Artifact Signing OIDC
         shell: pwsh
         env:
@@ -464,11 +563,12 @@ jobs:
 
   sign-artifacts:
     name: sign-artifacts
-    needs: [build-targets, fetch-chromium, sign-macos, sign-windows]
+    needs: [build-targets, fetch-chromium, signing-reuse-check, sign-macos, sign-windows]
     if: >-
       !cancelled()
       && needs.build-targets.result == 'success'
       && needs.fetch-chromium.result == 'success'
+      && needs.signing-reuse-check.result == 'success'
       && (needs.sign-macos.result == 'success' || needs.sign-macos.result == 'skipped')
       && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped')
     runs-on: ubuntu-24.04
@@ -482,6 +582,8 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download built target binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -493,38 +595,64 @@ jobs:
         with:
           name: chromium-fetched
           path: target/signed-chromium
-      - name: Overlay signed macOS binaries when accounts are open
-        if: inputs.accounts_open == true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: signed-macos-binaries
-          path: target/signed-binaries
-      - name: Overlay signed macOS Chromium when accounts are open
-        if: inputs.accounts_open == true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: signed-macos-chromium
-          path: target/signed-chromium
-      - name: Overlay signed Windows binaries when accounts are open
-        if: inputs.accounts_open == true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: signed-windows-binaries
-          path: target/signed-binaries
-      - name: Overlay signed Windows Chromium when accounts are open
-        if: inputs.accounts_open == true
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: signed-windows-chromium
-          path: target/signed-chromium
-      - name: Compute deterministic signing reuse manifest for this version
+      - name: Record unsigned reuse manifest before overlaying signed bytes
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          RELEASE_VERSION: ${{ needs.signing-reuse-check.outputs.version }}
         run: |
           cargo run --quiet --locked --bin xtask -- release signing-reuse-key \
             --version "$RELEASE_VERSION" \
             --binaries target/signed-binaries \
             --out target/signed-binaries/signing-reuse.json
+      - name: Restore reused signed artifacts when unsigned digests match
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/reused-signed
+          key: signed-artifacts-${{ needs.signing-reuse-check.outputs.version }}-${{ needs.signing-reuse-check.outputs.reuse_key }}
+      - name: Apply reused signed artifacts when cache hit
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused == 'true'
+        run: |
+          cp -R target/reused-signed/binaries/. target/signed-binaries/
+          if [[ -d target/reused-signed/chromium ]]; then
+            cp -R target/reused-signed/chromium/. target/signed-chromium/
+          fi
+      - name: Overlay signed macOS binaries when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-macos-binaries
+          path: target/signed-binaries
+      - name: Overlay signed macOS Chromium when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-macos-chromium
+          path: target/signed-chromium
+      - name: Overlay signed Windows binaries when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-windows-binaries
+          path: target/signed-binaries
+      - name: Overlay signed Windows Chromium when accounts are open
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-windows-chromium
+          path: target/signed-chromium
+      - name: Stage signed artifacts for cache reuse on re-runs
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        run: |
+          mkdir -p target/reused-signed/binaries target/reused-signed/chromium
+          cp target/signed-binaries/signing-reuse.json target/reused-signed/signing-reuse.json
+          cp -R target/signed-binaries/. target/reused-signed/binaries/
+          cp -R target/signed-chromium/. target/reused-signed/chromium/ 2>/dev/null || true
+      - name: Save signed artifacts in cache for deterministic re-runs
+        if: inputs.accounts_open == true && needs.signing-reuse-check.outputs.reused != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/reused-signed
+          key: signed-artifacts-${{ needs.signing-reuse-check.outputs.version }}-${{ needs.signing-reuse-check.outputs.reuse_key }}
       - name: Scan signed staging directory for secrets
         id: leaks
         if: always()
@@ -557,6 +685,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download signed binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -599,6 +729,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install gitleaks
+        shell: bash
+        run: ci/host/gitleaks.sh
       - name: Download signed binaries
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -627,9 +760,10 @@ jobs:
 
   platform-signature-gate:
     name: platform-signature-gate
-    needs: [sign-artifacts, verify-macos-signatures, verify-windows-signatures]
+    needs: [signing-reuse-check, sign-artifacts, verify-macos-signatures, verify-windows-signatures]
     if: >-
       !cancelled()
+      && needs.signing-reuse-check.result == 'success'
       && needs.sign-artifacts.result == 'success'
       && (needs.verify-macos-signatures.result == 'success' || needs.verify-macos-signatures.result == 'skipped')
       && (needs.verify-windows-signatures.result == 'success' || needs.verify-windows-signatures.result == 'skipped')
@@ -637,6 +771,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - name: Check out the commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -644,6 +779,8 @@ jobs:
           persist-credentials: false
       - name: Install xtask
         uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Install gitleaks
+        run: ci/host/gitleaks.sh
       - name: Download macOS signature verification report
         if: inputs.accounts_open == true
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -658,9 +795,10 @@ jobs:
           path: target/sig-reports
       - name: Run Platform signature gate
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          RELEASE_VERSION: ${{ needs.signing-reuse-check.outputs.version }}
           ACCOUNTS_OPEN: ${{ inputs.accounts_open == true }}
         run: |
+          mkdir -p target/sig-reports
           args=(--version "$RELEASE_VERSION" --pr-comment target/sig-reports/gate-status.txt)
           if [[ "$ACCOUNTS_OPEN" == "true" ]]; then
             jq -s '{macos: (.[0].macos // []), macos_apps: (.[0].macos_apps // []), windows: (.[1].windows // [])}' \
@@ -668,6 +806,28 @@ jobs:
             args+=(--accounts-open --report target/sig-reports/combined.json)
           fi
           cargo run --quiet --locked --bin xtask -- release signature-gate "${args[@]}"
+      - name: Report Platform signature gate status on release pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -f target/sig-reports/gate-status.txt ]]; then
+            pr_number=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0].number // empty' 2>/dev/null || true)
+            if [[ -n "$pr_number" ]]; then
+              gh pr comment "$pr_number" --body-file target/sig-reports/gate-status.txt
+            fi
+          fi
+      - name: Scan Platform signature gate status for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/sig-reports
+      - name: Upload Platform signature gate status
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: platform-signature-gate-status
+          path: target/sig-reports/gate-status.txt
+          if-no-files-found: ignore
 
   signed-bundle-smoke-linux:
     name: signed-bundle-smoke-linux
@@ -835,8 +995,9 @@ jobs:
           path: target/release-chromium
       - name: Package archives, npm, py3-none wheels, Plugin OCI layouts and SHA256SUMS
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
+          RELEASE_VERSION="${INPUT_VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
           cargo run --quiet --locked --bin xtask -- release package \
             --version "$RELEASE_VERSION" \
             --binaries target/release-binaries \
@@ -851,13 +1012,18 @@ jobs:
             --version "$RELEASE_VERSION"
       - name: Build all five OCI image tags for both Products from one shared recipe
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
+          RELEASE_VERSION="${INPUT_VERSION:-$(awk -F'"' '/^version = / {print $2; exit}' Cargo.toml)}"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-user-static
+          docker buildx create --name goodfetch-multiarch --driver docker-container --use --bootstrap
           mkdir -p target/oci-ctx/bin/amd64 target/oci-ctx/bin/arm64 \
             target/oci-ctx/clean-up-rules target/oci-ctx/browsers/default target/oci-ctx/browsers/full \
             target/oci-ctx/sdk/npm/collie target/oci-ctx/sdk/npm/foxhound \
             target/oci-ctx/sdk/wheels/collie target/oci-ctx/sdk/wheels/foxhound \
             target/release-packaged/oci/images
+          cp -R crates/goodfetch-clean-up-rules/rules/. target/oci-ctx/clean-up-rules/
           cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/amd64/goodfetch-collie
           cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/amd64/goodfetch-foxhound
           cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/arm64/goodfetch-collie
@@ -931,7 +1097,7 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: rehearse publishing and installed-package runs on Linux"
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: ci/egress/under-deny.sh ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"
       - name: Check that the deny refused nothing else
         if: always()
@@ -972,7 +1138,7 @@ jobs:
         run: ci/egress/egress.sh canary
       - name: "Test: rehearse publishing and installed-package runs on Windows"
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: ci/egress/under-deny.sh ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"
       - name: Check that the deny refused nothing else
         if: always()
@@ -1004,5 +1170,5 @@ jobs:
         run: ci/os-services.sh setup
       - name: "Test: rehearse publishing and installed-package runs on macOS"
         env:
-          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+          RELEASE_VERSION: ${{ inputs.version }}
         run: ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"

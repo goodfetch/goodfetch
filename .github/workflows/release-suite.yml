@@ -207,6 +207,7 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         env:
+          GH_TOKEN: ${{ github.token }}
           GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       # The counted performance gates on the gnu cells (ADR 0071).
@@ -494,6 +495,7 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         env:
+          GH_TOKEN: ${{ github.token }}
           GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       # The counted performance gates on the gnu cells (ADR 0071).
@@ -666,6 +668,7 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         env:
+          GH_TOKEN: ${{ github.token }}
           GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
@@ -763,6 +766,7 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         env:
+          GH_TOKEN: ${{ github.token }}
           GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
@@ -848,6 +852,7 @@ jobs:
       - name: Measure both Products' sizes
         id: size
         env:
+          GH_TOKEN: ${{ github.token }}
           GOODFETCH_SIZE_MODE: ${{ github.event_name == 'merge_group' && 'increase' || 'estimate' }}
         run: ci/release/cell.sh size
       - name: Set up the OS services the tests use
@@ -1007,22 +1012,47 @@ jobs:
         with:
           shared-key: release-suite-linux-x64-gnu
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Build both Products' executables and local Proving ground before the deny
+      - name: Build both Products' executables, local Proving ground, OCI images and smoke tools before the deny
         run: |
           cargo build --locked --profile ci --target x86_64-unknown-linux-gnu \
             -p goodfetch-collie --bin goodfetch-collie --features executable \
             -p goodfetch-foxhound --bin goodfetch-foxhound --features executable \
             -p goodfetch-proving-ground --bin goodfetch-proving-ground
+          oci_ctx="target/deploy-smoke-oci-ctx"
+          rm -rf "$oci_ctx"
+          mkdir -p "$oci_ctx/bin/amd64" "$oci_ctx/clean-up-rules" \
+            "$oci_ctx/browsers/default" "$oci_ctx/browsers/full" \
+            "$oci_ctx/sdk/npm/collie" "$oci_ctx/sdk/npm/foxhound" \
+            "$oci_ctx/sdk/wheels/collie" "$oci_ctx/sdk/wheels/foxhound"
+          cp target/x86_64-unknown-linux-gnu/ci/goodfetch-collie "$oci_ctx/bin/amd64/goodfetch-collie"
+          cp target/x86_64-unknown-linux-gnu/ci/goodfetch-foxhound "$oci_ctx/bin/amd64/goodfetch-foxhound"
+          cp -R crates/goodfetch-clean-up-rules/rules/. "$oci_ctx/clean-up-rules/"
           for product in collie foxhound; do
             docker buildx build \
               --load \
+              --platform linux/amd64 \
               --file packaging/oci/Containerfile \
               --target slim \
               --build-arg "PRODUCT_EXECUTABLE=goodfetch-${product}" \
-              --build-arg "BINARY_DIR=target/x86_64-unknown-linux-gnu/ci" \
+              --build-arg "PRODUCT_KEY=${product}" \
               --tag "goodfetch/${product}:deploy-smoke" \
-              .
+              "$oci_ctx"
           done
+          # Install deployment-smoke tools (`kind`, `helm`, `kubectl`, `aws-lambda-rie`) before egress deny.
+          mkdir -p "$RUNNER_TEMP/deploy-tools"
+          curl -fsSLo "$RUNNER_TEMP/deploy-tools/kind" \
+            "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64"
+          chmod +x "$RUNNER_TEMP/deploy-tools/kind"
+          curl -fsSLo "$RUNNER_TEMP/deploy-tools/kubectl" \
+            "https://dl.k8s.io/release/v1.32.2/bin/linux/amd64/kubectl"
+          chmod +x "$RUNNER_TEMP/deploy-tools/kubectl"
+          curl -fsSL "https://get.helm.sh/helm-v3.17.1-linux-amd64.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP/deploy-tools" --strip-components=1 linux-amd64/helm
+          curl -fsSLo "$RUNNER_TEMP/deploy-tools/aws-lambda-rie" \
+            "https://github.com/aws/aws-lambda-runtime-interface-emulator/releases/download/v1.22/aws-lambda-rie"
+          chmod +x "$RUNNER_TEMP/deploy-tools/aws-lambda-rie"
+          echo "$RUNNER_TEMP/deploy-tools" >>"$GITHUB_PATH"
+          echo "GOODFETCH_LAMBDA_RIE=$RUNNER_TEMP/deploy-tools/aws-lambda-rie" >>"$GITHUB_ENV"
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic

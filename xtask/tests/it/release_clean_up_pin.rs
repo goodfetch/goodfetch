@@ -261,6 +261,8 @@ fn registry_2_daily_channel_pins_newest_passing_set_of_own_line_and_never_writes
         "clean-up-rules-pin.json",
         "--out-assets",
         "release-assets",
+        "--out-notes",
+        "release-notes/clean-up-rules-notes.md",
     ]);
     assert_eq!(pinned.code, 0, "{}", pinned.stderr);
     let pin: Value =
@@ -271,7 +273,14 @@ fn registry_2_daily_channel_pins_newest_passing_set_of_own_line_and_never_writes
         workspace.read_text("release-assets/goodfetch-clean-up-rules-embedded.txt"),
         "||winner-1.0.example^\n"
     );
-    let notes = workspace.read_text("release-assets/clean-up-rules-notes.md");
+    assert!(
+        !workspace
+            .path()
+            .join("release-assets/clean-up-rules-notes.md")
+            .exists(),
+        "notes snippet must stay outside --out-assets so it is never uploaded as an asset"
+    );
+    let notes = workspace.read_text("release-notes/clean-up-rules-notes.md");
     assert!(
         notes.contains("2026.11.26.1")
             && notes.contains("goodfetch-clean-up-rules-full.tar.xz")
@@ -312,6 +321,14 @@ fn seed_fallback_and_nightly_attestation_wiring_work_offline() {
         workspace
             .read_text("seed-assets/goodfetch-clean-up-rules-embedded.txt")
             .contains("||ads.example^")
+    );
+    let full_archive = workspace
+        .read("seed-assets/goodfetch-clean-up-rules-full.tar.xz")
+        .expect("read full tar.xz");
+    assert_eq!(
+        &full_archive[..6],
+        b"\xfd7zXZ\0",
+        "full Clean-up rules asset must be genuine XZ-compressed tar.xz"
     );
 
     // Build script never downloads anything over the network.

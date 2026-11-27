@@ -220,16 +220,18 @@ fn release_nightly_workflow_enforces_fixed_order_oidc_and_channel_exclusions() {
     assert!(raw.contains("--tag nightly"));
     assert!(raw.contains("--prerelease"));
     assert!(raw.contains("OCI_REGISTRY: ghcr.io"));
-    assert!(raw.contains("/goodfetch/${product}:nightly"));
+    assert!(raw.contains("--tag \"nightly${variant}\""));
+    assert!(raw.contains("cosign sign --yes"));
     assert!(raw.contains("actions/attest-build-provenance@"));
     assert!(!raw.contains("cargo publish"));
     assert!(!raw.contains("twine upload"));
     assert!(!raw.contains("uv publish"));
     assert!(!raw.contains("homebrew-tap"));
 
-    // 5. verify-bytes.sh checks --version, hello handshake, wheels and npm.
+    // 5. verify-bytes.sh checks --version, attached-engine hello handshake, wheels and npm.
     let verify_script = std::fs::read_to_string(root().join("ci/release/verify-bytes.sh")).unwrap();
-    assert!(verify_script.contains("\"method\":\"hello\""));
+    assert!(verify_script.contains("attached-engine"));
+    assert!(verify_script.contains("method:\"hello\""));
     assert!(verify_script.contains("goodfetch-collie"));
     assert!(verify_script.contains("goodfetch-foxhound"));
 }

@@ -39,15 +39,24 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          mkdir -p target/plugin-index-review
+          set -euo pipefail
+          mkdir -p target/plugin-index-review/entries
           git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" -- 'plugin-index/entries/*.json' \
             > target/plugin-index-review/changed.txt
           while IFS= read -r entry; do
             [[ -n "$entry" ]] || continue
             cargo run --quiet --locked --bin xtask -- release plugin-index validate \
               --entry "$entry" | tee -a target/plugin-index-review/validation.log
+            cp "$entry" "target/plugin-index-review/entries/$(basename "$entry")"
           done < target/plugin-index-review/changed.txt
       - name: Scan review outputs for secrets
         id: leaks
         if: always()
         run: ci/leaks.sh target/plugin-index-review
+      - name: Upload validation results
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: plugin-index-review-${{ github.event.pull_request.number }}
+          path: target/plugin-index-review
+          if-no-files-found: ignore

@@ -336,3 +336,31 @@ fn debug_symbols_are_attested_in_rehearsal_and_nightly_publishes_size_table() {
         "local rehearsal must verify debug symbols and enforce ceilings before install/publish"
     );
 }
+
+#[test]
+fn size_manifest_treats_prerelease_root_npm_tarball_as_root_not_target() {
+    let workspace = Workspace::from_fixture("release");
+    workspace.write("packaged/npm/goodfetch-collie-1.0.0-rc.1.tgz", b"root-tgz");
+    workspace.write(
+        "packaged/npm/goodfetch-collie-linux-x64-1.0.0-rc.1.tgz",
+        b"platform-tgz",
+    );
+    let out = workspace.xtask(&[
+        "release",
+        "size-manifest",
+        "--packaged",
+        "packaged",
+        "--out",
+        "manifest.toml",
+    ]);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    let manifest = workspace.read_text("manifest.toml");
+    assert!(
+        !manifest.contains(r#"target = "1.0.0-rc.1""#),
+        "pre-release version must not be parsed as npm platform target:\n{manifest}"
+    );
+    assert!(
+        manifest.contains(r#"target = "linux-x64""#),
+        "platform npm tarball must carry its platform target:\n{manifest}"
+    );
+}

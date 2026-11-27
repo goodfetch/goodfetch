@@ -79,7 +79,22 @@ foreach ($target in @('x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc')) {
 }
 
 # Sign fetched Goodfetch Chromium executables/DLLs by digest (never rebuild, ADR 0074).
+# Unpacks any fetched Windows `.zip` archives, signs `.exe`/`.dll` inside, and repacks.
 if ($Mode -eq 'artifacts' -and $ChromiumDir -and (Test-Path $ChromiumDir)) {
+  $zips = Get-ChildItem -Path $ChromiumDir -Filter '*windows*.zip' -File -ErrorAction SilentlyContinue
+  foreach ($zip in $zips) {
+    $extractDir = Join-Path ([System.IO.Path]::GetTempPath()) ("gf-chromium-" + [System.Guid]::NewGuid().ToString("N"))
+    Expand-Archive -Path $zip.FullName -DestinationPath $extractDir -Force
+    $innerFiles = Get-ChildItem -Path $extractDir -Recurse -Include '*.exe', '*.dll' -File |
+      Select-Object -ExpandProperty FullName
+    if ($innerFiles.Count -gt 0) {
+      Invoke-ArtifactSigning -Files $innerFiles
+      Remove-Item -Path $zip.FullName -Force
+      Compress-Archive -Path (Join-Path $extractDir '*') -DestinationPath $zip.FullName -Force
+    }
+    Remove-Item -Path $extractDir -Recurse -Force
+  }
+
   $chromiumFiles = Get-ChildItem -Path $ChromiumDir -Recurse -Include '*.exe', '*.dll' -File |
     Select-Object -ExpandProperty FullName
   if ($chromiumFiles.Count -gt 0) {

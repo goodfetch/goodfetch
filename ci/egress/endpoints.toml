@@ -313,6 +313,10 @@ job = "release-build.yml#build-targets"
 reason = "It compiles both Products' executables and shared helpers for each target and runs none of the product."
 
 [[outside]]
+job = "release-build.yml#signing-reuse-check"
+reason = "It hashes unsigned built binaries to check cached signed artifacts and runs none of the product (ADR 0039)."
+
+[[outside]]
 job = "release-build.yml#sign-macos"
 reason = "It signs and notarizes macOS executables and Goodfetch Chromium bundles with Apple Developer ID and runs none of the product (ADR 0039)."
 

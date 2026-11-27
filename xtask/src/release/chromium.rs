@@ -18,12 +18,17 @@ use crate::check::{self, Finding};
 use crate::output;
 
 /// Default path of the committed Goodfetch Chromium digest manifest (ADR 0074).
-const DEFAULT_MANIFEST: &str = "chromium/manifest.toml";
+const DEFAULT_MANIFEST: &str = "chromium/manifest.json";
 /// Default workflow file for the Chromium build gate, part of the test inputs.
-const GATE_WORKFLOW: &str = ".github/workflows/chromium-gate.yml";
+const GATE_WORKFLOW: &str = ".github/workflows/chromium-build-gate.yml";
 /// Files under `chromium/` that are outputs of the gate, never build inputs.
-const OUTPUT_FILES: [&str; 2] = ["chromium/manifest.toml", "chromium/protocol.json"];
+const OUTPUT_FILES: [&str; 3] = [
+    "chromium/manifest.json",
+    "chromium/manifest.toml",
+    "chromium/protocol.json",
+];
 const EXPECTATIONS_PREFIX: &str = "chromium/expectations/";
+const HTTP_PROFILES_PREFIX: &str = "chromium/http-profiles/";
 
 #[derive(clap::Args)]
 pub(crate) struct FetchArguments {
@@ -113,11 +118,7 @@ pub(super) fn fetch(root: &Path, arguments: &FetchArguments) -> Result<ExitCode>
     }
 
     let manifest_rel = arguments.manifest.display().to_string();
-    let text = std::fs::read_to_string(&manifest_path)
-        .with_context(|| format!("reading {}", manifest_path.display()))?;
-    let manifest: Manifest =
-        toml::from_str(&text).with_context(|| format!("parsing {}", manifest_path.display()))?;
-
+    let manifest = parse_manifest(&manifest_path)?;
     if manifest.artifact.is_empty() {
         output::line(
             "no Goodfetch Chromium artifacts are listed in manifest: nothing fetched, nothing built",
@@ -125,39 +126,12 @@ pub(super) fn fetch(root: &Path, arguments: &FetchArguments) -> Result<ExitCode>
         return Ok(ExitCode::SUCCESS);
     }
 
-    let actual = compute_tree_hashes(root)?;
-    if manifest.build_input_tree != actual.build_input_tree
-        || manifest.test_input_tree != actual.test_input_tree
-    {
-        return Ok(check::report(&[Finding::new(
-            "input-tree-mismatch",
-            &manifest_rel,
-            format!(
-                "manifest tree hashes (build={}, test={}) do not match this commit's inputs (build={}, test={})",
-                manifest.build_input_tree,
-                manifest.test_input_tree,
-                actual.build_input_tree,
-                actual.test_input_tree
-            ),
-        )]));
-    }
-
-    let mut findings = Vec::new();
-    for artifact in &manifest.artifact {
-        if let Err(reason) = verify_attestations(
-            root,
-            &manifest,
-            artifact,
-            arguments.attestations.as_deref(),
-            &arguments.repository,
-        ) {
-            findings.push(Finding::new(
-                "attestation-invalid",
-                &artifact.filename,
-                reason,
-            ));
-        }
-    }
+    let mut findings = validate_manifest_preconditions(
+        root,
+        &manifest_rel,
+        &manifest,
+        arguments.attestations.as_deref(),
+    )?;
     if !findings.is_empty() {
         return Ok(check::report(&findings));
     }
@@ -177,15 +151,112 @@ pub(super) fn fetch(root: &Path, arguments: &FetchArguments) -> Result<ExitCode>
                     artifact.sha256, actual_digest
                 ),
             ));
-        } else {
-            output::line(&dest.display().to_string());
+            continue;
         }
+        if arguments.attestations.is_none()
+            && let Err(reason) = verify_live_attestations(&dest, &manifest, &arguments.repository)
+        {
+            let _ = std::fs::remove_file(&dest);
+            findings.push(Finding::new(
+                "attestation-invalid",
+                &artifact.filename,
+                reason,
+            ));
+            continue;
+        }
+        output::line(&dest.display().to_string());
     }
 
     if !findings.is_empty() {
         return Ok(check::report(&findings));
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn parse_manifest(manifest_path: &Path) -> Result<Manifest> {
+    let text = std::fs::read_to_string(manifest_path)
+        .with_context(|| format!("reading {}", manifest_path.display()))?;
+    if manifest_path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+    {
+        serde_json::from_str(&text).with_context(|| format!("parsing {}", manifest_path.display()))
+    } else {
+        toml::from_str(&text).with_context(|| format!("parsing {}", manifest_path.display()))
+    }
+}
+
+fn validate_manifest_preconditions(
+    root: &Path,
+    manifest_rel: &str,
+    manifest: &Manifest,
+    local_attestations: Option<&Path>,
+) -> Result<Vec<Finding>> {
+    if manifest.workflow != GATE_WORKFLOW {
+        return Ok(vec![Finding::new(
+            "unexpected-workflow",
+            manifest_rel,
+            format!(
+                "manifest workflow {:?} must match Chromium build gate workflow {:?}",
+                manifest.workflow, GATE_WORKFLOW
+            ),
+        )]);
+    }
+
+    let actual = compute_tree_hashes(root)?;
+    if manifest.build_input_tree != actual.build_input_tree
+        || manifest.test_input_tree != actual.test_input_tree
+    {
+        return Ok(vec![Finding::new(
+            "input-tree-mismatch",
+            manifest_rel,
+            format!(
+                "manifest tree hashes (build={}, test={}) do not match this commit's inputs (build={}, test={})",
+                manifest.build_input_tree,
+                manifest.test_input_tree,
+                actual.build_input_tree,
+                actual.test_input_tree
+            ),
+        )]);
+    }
+
+    let mut findings = Vec::new();
+    for artifact in &manifest.artifact {
+        if !is_safe_filename(&artifact.filename) {
+            findings.push(Finding::new(
+                "invalid-filename",
+                &artifact.filename,
+                "artifact filename must be a plain file name without path separators or `..`",
+            ));
+        }
+    }
+    if !findings.is_empty() {
+        return Ok(findings);
+    }
+
+    if let Some(local_dir) = local_attestations {
+        for artifact in &manifest.artifact {
+            if let Err(reason) = verify_local_attestations(root, manifest, artifact, local_dir) {
+                findings.push(Finding::new(
+                    "attestation-invalid",
+                    &artifact.filename,
+                    reason,
+                ));
+            }
+        }
+    }
+    Ok(findings)
+}
+
+fn is_safe_filename(name: &str) -> bool {
+    if name.is_empty() || name.contains('/') || name.contains('\\') {
+        return false;
+    }
+    let mut components = Path::new(name).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    )
 }
 
 /// Computes deterministic SHA-256 tree hashes of the Chromium build inputs
@@ -197,7 +268,7 @@ fn compute_tree_hashes(root: &Path) -> Result<TreeHashes> {
     let chromium_dir = root.join("chromium");
     if chromium_dir.is_dir() {
         collect_files(root, &chromium_dir, &mut |rel, path| {
-            if OUTPUT_FILES.contains(&rel.as_str()) {
+            if OUTPUT_FILES.contains(&rel.as_str()) || rel.starts_with(HTTP_PROFILES_PREFIX) {
                 return Ok(());
             }
             if rel.starts_with(EXPECTATIONS_PREFIX) {
@@ -261,66 +332,106 @@ fn hash_tree(files: &BTreeMap<String, PathBuf>) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn verify_attestations(
+fn verify_local_attestations(
     root: &Path,
     manifest: &Manifest,
     artifact: &Artifact,
-    local_dir: Option<&Path>,
-    repository: &str,
+    local_dir: &Path,
 ) -> std::result::Result<(), String> {
-    if let Some(dir) = local_dir {
-        let base = root.join(dir);
-        let build_path = base.join(format!("{}.build.json", artifact.sha256));
-        let build_text = std::fs::read_to_string(&build_path)
-            .map_err(|_| format!("missing build attestation {}", build_path.display()))?;
-        let build: BuildAttestation = serde_json::from_str(&build_text)
-            .map_err(|error| format!("invalid build attestation: {error}"))?;
-        if build.subject_sha256 != artifact.sha256
-            || build.workflow != manifest.workflow
-            || build.build_input_tree != manifest.build_input_tree
-        {
-            return Err(
-                "build attestation does not match digest, workflow, or build input tree".to_owned(),
-            );
-        }
-
-        let verdict_path = base.join(format!("{}.verdict.json", artifact.sha256));
-        let verdict_text = std::fs::read_to_string(&verdict_path)
-            .map_err(|_| format!("missing verdict attestation {}", verdict_path.display()))?;
-        let verdict: VerdictAttestation = serde_json::from_str(&verdict_text)
-            .map_err(|error| format!("invalid verdict attestation: {error}"))?;
-        if verdict.subject_sha256 != artifact.sha256
-            || verdict.workflow != manifest.workflow
-            || verdict.build_input_tree != manifest.build_input_tree
-            || verdict.test_input_tree != manifest.test_input_tree
-            || verdict.verdict != "pass"
-        {
-            return Err(
-                "verdict attestation is not a passing verdict for this commit's input trees"
-                    .to_owned(),
-            );
-        }
-        return Ok(());
+    let base = root.join(local_dir);
+    let build_path = base.join(format!("{}.build.json", artifact.sha256));
+    let build_text = std::fs::read_to_string(&build_path)
+        .map_err(|_| format!("missing build attestation {}", build_path.display()))?;
+    let build: BuildAttestation = serde_json::from_str(&build_text)
+        .map_err(|error| format!("invalid build attestation: {error}"))?;
+    if build.subject_sha256 != artifact.sha256
+        || build.workflow != GATE_WORKFLOW
+        || build.build_input_tree != manifest.build_input_tree
+    {
+        return Err(
+            "build attestation does not match digest, workflow, or build input tree".to_owned(),
+        );
     }
 
-    // Live CI path: verify via `gh attestation verify` against the Chromium build gate workflow.
-    let status = Command::new("gh")
+    let verdict_path = base.join(format!("{}.verdict.json", artifact.sha256));
+    let verdict_text = std::fs::read_to_string(&verdict_path)
+        .map_err(|_| format!("missing verdict attestation {}", verdict_path.display()))?;
+    let verdict: VerdictAttestation = serde_json::from_str(&verdict_text)
+        .map_err(|error| format!("invalid verdict attestation: {error}"))?;
+    if verdict.subject_sha256 != artifact.sha256
+        || verdict.workflow != GATE_WORKFLOW
+        || verdict.build_input_tree != manifest.build_input_tree
+        || verdict.test_input_tree != manifest.test_input_tree
+        || verdict.verdict != "pass"
+    {
+        return Err(
+            "verdict attestation is not a passing verdict for this commit's input trees".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+/// Live CI path: verifies both build and verdict attestations on the fetched
+/// artifact file via `gh attestation verify <file> --repo <repo> --signer-workflow ... --format json`
+/// and checks their predicates against this commit's input trees (ADR 0074).
+fn verify_live_attestations(
+    artifact_file: &Path,
+    manifest: &Manifest,
+    repository: &str,
+) -> std::result::Result<(), String> {
+    let signer_workflow = format!("{repository}/{GATE_WORKFLOW}");
+    let out = Command::new("gh")
+        .args(["attestation", "verify"])
+        .arg(artifact_file)
         .args([
-            "attestation",
-            "verify",
             "--repo",
             repository,
             "--signer-workflow",
-            &format!("{repository}/{}", manifest.workflow),
-            "--digest",
-            &format!("sha256:{}", artifact.sha256),
+            &signer_workflow,
+            "--format",
+            "json",
         ])
         .output()
         .map_err(|error| format!("running `gh attestation verify`: {error}"))?;
-    if !status.status.success() {
+    if !out.status.success() {
         return Err(format!(
             "`gh attestation verify` failed: {}",
-            String::from_utf8_lossy(&status.stderr).trim()
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout)
+        .map_err(|error| format!("parsing `gh attestation verify --format json`: {error}"))?;
+    let mut build_ok = false;
+    let mut verdict_ok = false;
+    for entry in &entries {
+        let Some(predicate) = entry
+            .pointer("/verificationResult/statement/predicate")
+            .or_else(|| entry.pointer("/bundle/dsseEnvelope/payload/predicate"))
+        else {
+            continue;
+        };
+        let build_match = predicate
+            .get("build_input_tree")
+            .and_then(serde_json::Value::as_str)
+            == Some(manifest.build_input_tree.as_str());
+        if !build_match {
+            continue;
+        }
+        let test_match = predicate
+            .get("test_input_tree")
+            .and_then(serde_json::Value::as_str)
+            == Some(manifest.test_input_tree.as_str());
+        let verdict_pass =
+            predicate.get("verdict").and_then(serde_json::Value::as_str) == Some("pass");
+        if test_match && verdict_pass {
+            verdict_ok = true;
+        } else {
+            build_ok = true;
+        }
+    }
+    if !build_ok || !verdict_ok {
+        return Err(format!(
+            "`gh attestation verify` did not return both matching build (found={build_ok}) and passing verdict (found={verdict_ok}) attestations for this commit's input trees"
         ));
     }
     Ok(())

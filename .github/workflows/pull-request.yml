@@ -702,10 +702,15 @@ jobs:
         with:
           target: x86_64-unknown-linux-gnu
       - name: Build both Products' ci executables on Linux x64
-        run: >-
-          cargo build --locked --profile ci --target x86_64-unknown-linux-gnu
-          -p goodfetch-collie --bin goodfetch-collie --features executable
-          -p goodfetch-foxhound --bin goodfetch-foxhound --features executable
+        run: |
+          cargo build --locked --profile ci --target x86_64-unknown-linux-gnu \
+            -p goodfetch-collie --bin goodfetch-collie --features executable \
+            -p goodfetch-foxhound --bin goodfetch-foxhound --features executable
+          mkdir -p target/release-suite/archives
+          for product in collie foxhound; do
+            tar -cJf "target/release-suite/archives/goodfetch-${product}-x86_64-unknown-linux-gnu.tar.xz" \
+              -C target/x86_64-unknown-linux-gnu/ci "goodfetch-${product}"
+          done
       - name: Estimate sizes and update sticky pull-request comment
         env:
           GH_TOKEN: ${{ github.token }}

@@ -88,12 +88,16 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends python3 python3-pip \
  && rm -rf /var/lib/apt/lists/*
 ARG PRODUCT_KEY=collie
+ARG TARGETARCH
 COPY sdk/wheels/${PRODUCT_KEY}/ /tmp/goodfetch-wheels/
-RUN pip3 install --no-cache-dir --break-system-packages --no-deps --no-index \
-      --find-links /tmp/goodfetch-wheels /tmp/goodfetch-wheels/*.whl \
+RUN arch_tag=$([ "${TARGETARCH}" = "arm64" ] && echo "aarch64" || echo "x86_64") \
+ && wheels=$(find /tmp/goodfetch-wheels -maxdepth 1 -name "*-py3-none-any.whl" -o -name "*-linux_${arch_tag}.whl" -o -name "*_${arch_tag}.whl") \
+ && if [ -n "${wheels}" ]; then \
+      pip3 install --no-cache-dir --break-system-packages --no-deps --no-index \
+        --find-links /tmp/goodfetch-wheels ${wheels}; \
+    fi \
  && rm -rf /tmp/goodfetch-wheels
 USER 10001:10001
 ARG PRODUCT_EXECUTABLE=goodfetch-collie
-ARG TARGETARCH
 ENV GOODFETCH_PRODUCT_EXECUTABLE=${PRODUCT_EXECUTABLE}
 COPY --chmod=0755 bin/${TARGETARCH}/${PRODUCT_EXECUTABLE} /usr/local/bin/${PRODUCT_EXECUTABLE}

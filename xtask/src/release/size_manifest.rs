@@ -188,6 +188,17 @@ fn append_wheels(root: &Path, wheels_dir: &Path, out: &mut String) -> Result<()>
     Ok(())
 }
 
+const NPM_TARGETS: [&str; 8] = [
+    "linux-x64-gnu",
+    "linux-arm64-gnu",
+    "linux-x64",
+    "linux-arm64",
+    "darwin-arm64",
+    "darwin-x64",
+    "win32-x64",
+    "win32-arm64",
+];
+
 fn append_npm_tarballs(root: &Path, npm_dir: &Path, out: &mut String) -> Result<()> {
     for path in sorted_files(npm_dir)? {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -206,17 +217,19 @@ fn append_npm_tarballs(root: &Path, npm_dir: &Path, out: &mut String) -> Result<
         if rest.starts_with("client-") {
             continue;
         }
-        // `goodfetch-collie-linux-x64-1.0.0.tgz` -> target `linux-x64`.
-        let mut parts = rest.split('-');
-        let target = match (parts.next(), parts.next()) {
-            (Some(os), Some(arch)) => format!("{os}-{arch}"),
-            _ => continue,
-        };
+        // Match known `<os>-<arch>` platform prefixes (e.g.
+        // `goodfetch-collie-linux-x64-1.0.0.tgz` -> `Some("linux-x64")`).
+        // Root packages (`goodfetch-collie-1.0.0-rc.1.tgz`,
+        // `goodfetch-collie-0.0.0-dev.0.tgz`) have no platform suffix.
+        let target = NPM_TARGETS
+            .iter()
+            .copied()
+            .find(|suffix| rest.starts_with(&format!("{suffix}-")));
         push_entry(
             out,
             product,
             "npm-package",
-            Some(&target),
+            target,
             name,
             &display_path(root, &path),
         );

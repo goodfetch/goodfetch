@@ -310,133 +310,184 @@ fn append_tar_bytes<W: std::io::Write>(
         .with_context(|| format!("adding {path} to Helm chart archive"))
 }
 
-/// Pushes an OCI Image Layout (blobs, child manifests, and multi-platform
-/// index) to `registry` under `repository:tag`.
+/// Pushes an OCI Image Layout directory (or `.oci.tar` tarball) to an OCI
+/// Distribution registry (`registry` / `repository`:`tag`), exchanging GHCR
+/// `401 WWW-Authenticate: Bearer` challenges when needed, and returns the
+/// pushed top-level manifest digest (`sha256:...`).
 pub(super) fn push_layout(
     layout: &Path,
     registry: &str,
     repository: &str,
     tag: &str,
     token: Option<&str>,
-) -> Result<()> {
-    let base = registry.trim_end_matches('/');
-    let blobs_dir = layout.join("blobs").join("sha256");
-    let index_bytes = std::fs::read(layout.join("index.json"))
-        .with_context(|| format!("reading {}/index.json", layout.display()))?;
-    let index: OciIndex = serde_json::from_slice(&index_bytes).context("parsing index.json")?;
+) -> Result<String> {
+    let _extracted;
+    let effective_dir = if layout.is_file() {
+        let dir = tempfile::tempdir().context("creating OCI archive extraction directory")?;
+        let file = std::fs::File::open(layout)
+            .with_context(|| format!("opening OCI archive {}", layout.display()))?;
+        let mut archive = tar::Archive::new(file);
+        archive
+            .unpack(dir.path())
+            .with_context(|| format!("extracting OCI archive {}", layout.display()))?;
+        let path = dir.path().to_path_buf();
+        _extracted = Some(dir);
+        path
+    } else {
+        _extracted = None;
+        layout.to_path_buf()
+    };
 
+    let base = registry.trim_end_matches('/');
     let agent: Agent = Agent::config_builder()
         .http_status_as_error(false)
         .build()
         .into();
-
-    let read_blob = |digest: &str| -> Result<Vec<u8>> {
-        let hex = digest
-            .strip_prefix("sha256:")
-            .with_context(|| format!("unsupported OCI digest {digest}"))?;
-        let path = blobs_dir.join(hex);
-        std::fs::read(&path).with_context(|| format!("reading OCI blob {}", path.display()))
+    let mut auth = OciPushAuth {
+        agent: &agent,
+        repository,
+        github_token: token,
+        bearer: None,
     };
 
-    // Single-manifest OCI artifact (such as a Helm chart): upload its config
-    // and layer blobs, then push the manifest directly at `tag`.
+    let blobs_dir = effective_dir.join("blobs").join("sha256");
+    let index_bytes = std::fs::read(effective_dir.join("index.json"))
+        .with_context(|| format!("reading {}/index.json", effective_dir.display()))?;
+    let index: OciIndex = serde_json::from_slice(&index_bytes).context("parsing index.json")?;
+
+    // Single-entry OCI layout (Helm chart manifest, or `docker buildx --output type=oci`
+    // pointing to a nested multi-platform image index).
     if index.manifests.len() == 1 && index.manifests[0].platform.is_none() {
         let entry = &index.manifests[0];
-        let manifest_bytes = read_blob(&entry.digest)?;
-        let manifest: OciManifest = serde_json::from_slice(&manifest_bytes)
-            .with_context(|| format!("parsing artifact manifest {}", entry.digest))?;
-        upload_blob(
-            &agent,
-            base,
-            repository,
-            &manifest.config.digest,
-            &read_blob(&manifest.config.digest)?,
-            token,
-        )?;
-        for layer in &manifest.layers {
-            upload_blob(
-                &agent,
-                base,
-                repository,
-                &layer.digest,
-                &read_blob(&layer.digest)?,
-                token,
-            )?;
+        let entry_bytes = read_blob_file(&blobs_dir, &entry.digest)?;
+        if entry.media_type == INDEX_MEDIA_TYPE
+            || entry.media_type == "application/vnd.docker.distribution.manifest.list.v2+json"
+        {
+            let nested: OciIndex = serde_json::from_slice(&entry_bytes)
+                .with_context(|| format!("parsing nested OCI index {}", entry.digest))?;
+            push_index_children(&mut auth, base, &blobs_dir, &nested)?;
+            put_manifest(&mut auth, base, tag, &entry.media_type, &entry_bytes)?;
+            return Ok(format!("sha256:{:x}", Sha256::digest(&entry_bytes)));
         }
-        put_manifest(
-            &agent,
-            base,
-            repository,
-            tag,
-            &entry.media_type,
-            &manifest_bytes,
-            token,
-        )?;
-        return Ok(());
+        let manifest: OciManifest = serde_json::from_slice(&entry_bytes)
+            .with_context(|| format!("parsing artifact manifest {}", entry.digest))?;
+        push_manifest_blobs(&mut auth, base, &blobs_dir, &manifest)?;
+        put_manifest(&mut auth, base, tag, &entry.media_type, &entry_bytes)?;
+        return Ok(format!("sha256:{:x}", Sha256::digest(&entry_bytes)));
     }
 
+    push_index_children(&mut auth, base, &blobs_dir, &index)?;
+    put_manifest(&mut auth, base, tag, &index.media_type, &index_bytes)?;
+    Ok(format!("sha256:{:x}", Sha256::digest(&index_bytes)))
+}
+
+struct OciPushAuth<'a> {
+    agent: &'a Agent,
+    repository: &'a str,
+    github_token: Option<&'a str>,
+    bearer: Option<String>,
+}
+
+impl OciPushAuth<'_> {
+    fn current_bearer(&self) -> Option<&str> {
+        self.bearer.as_deref().or(self.github_token)
+    }
+
+    fn refresh_from_challenge(
+        &mut self,
+        response: &ureq::http::Response<ureq::Body>,
+    ) -> Result<bool> {
+        if response.status() != 401 {
+            return Ok(false);
+        }
+        let Some(header) = response
+            .headers()
+            .get("www-authenticate")
+            .and_then(|value| value.to_str().ok())
+        else {
+            return Ok(false);
+        };
+        let default_scope = format!("repository:{}:pull,push", self.repository);
+        let exchanged = crate::release::publish::oci::exchange_bearer_token(
+            self.agent,
+            header,
+            self.repository,
+            &default_scope,
+            self.github_token,
+        )?;
+        self.bearer = Some(exchanged);
+        Ok(true)
+    }
+}
+
+fn read_blob_file(blobs_dir: &Path, digest: &str) -> Result<Vec<u8>> {
+    let hex = digest
+        .strip_prefix("sha256:")
+        .with_context(|| format!("unsupported OCI digest {digest}"))?;
+    let path = blobs_dir.join(hex);
+    std::fs::read(&path).with_context(|| format!("reading OCI blob {}", path.display()))
+}
+
+fn push_index_children(
+    auth: &mut OciPushAuth<'_>,
+    base: &str,
+    blobs_dir: &Path,
+    index: &OciIndex,
+) -> Result<()> {
     for entry in &index.manifests {
-        let manifest_bytes = read_blob(&entry.digest)?;
+        let manifest_bytes = read_blob_file(blobs_dir, &entry.digest)?;
         let manifest: OciManifest = serde_json::from_slice(&manifest_bytes)
             .with_context(|| format!("parsing child manifest {}", entry.digest))?;
-
-        upload_blob(
-            &agent,
-            base,
-            repository,
-            &manifest.config.digest,
-            &read_blob(&manifest.config.digest)?,
-            token,
-        )?;
-        for layer in &manifest.layers {
-            upload_blob(
-                &agent,
-                base,
-                repository,
-                &layer.digest,
-                &read_blob(&layer.digest)?,
-                token,
-            )?;
-        }
+        push_manifest_blobs(auth, base, blobs_dir, &manifest)?;
         put_manifest(
-            &agent,
+            auth,
             base,
-            repository,
             &entry.digest,
             &entry.media_type,
             &manifest_bytes,
-            token,
         )?;
     }
-
-    put_manifest(
-        &agent,
-        base,
-        repository,
-        tag,
-        &index.media_type,
-        &index_bytes,
-        token,
-    )?;
     Ok(())
 }
 
-fn upload_blob(
-    agent: &Agent,
+fn push_manifest_blobs(
+    auth: &mut OciPushAuth<'_>,
     base: &str,
-    repository: &str,
-    digest: &str,
-    bytes: &[u8],
-    token: Option<&str>,
+    blobs_dir: &Path,
+    manifest: &OciManifest,
 ) -> Result<()> {
-    let head_url = format!("{base}/v2/{repository}/blobs/{digest}");
-    let head = with_auth(agent.head(&head_url), token).call()?;
+    upload_blob(
+        auth,
+        base,
+        &manifest.config.digest,
+        &read_blob_file(blobs_dir, &manifest.config.digest)?,
+    )?;
+    for layer in &manifest.layers {
+        upload_blob(
+            auth,
+            base,
+            &layer.digest,
+            &read_blob_file(blobs_dir, &layer.digest)?,
+        )?;
+    }
+    Ok(())
+}
+
+fn upload_blob(auth: &mut OciPushAuth<'_>, base: &str, digest: &str, bytes: &[u8]) -> Result<()> {
+    let head_url = format!("{base}/v2/{}/blobs/{digest}", auth.repository);
+    let mut head = with_auth(auth.agent.head(&head_url), auth.current_bearer()).call()?;
+    if auth.refresh_from_challenge(&head)? {
+        head = with_auth(auth.agent.head(&head_url), auth.current_bearer()).call()?;
+    }
     if head.status() == 200 {
         return Ok(());
     }
 
-    let start_url = format!("{base}/v2/{repository}/blobs/uploads/");
-    let started = with_auth(agent.post(&start_url), token).send_empty()?;
+    let start_url = format!("{base}/v2/{}/blobs/uploads/", auth.repository);
+    let mut started = with_auth(auth.agent.post(&start_url), auth.current_bearer()).send_empty()?;
+    if auth.refresh_from_challenge(&started)? {
+        started = with_auth(auth.agent.post(&start_url), auth.current_bearer()).send_empty()?;
+    }
     let status = started.status().as_u16();
     if status != 202 {
         bail!("{start_url} answered {status} starting upload of {digest}");
@@ -453,9 +504,14 @@ fn upload_blob(
     };
     let sep = if put_base.contains('?') { '&' } else { '?' };
     let put_url = format!("{put_base}{sep}digest={digest}");
-    let put = with_auth(agent.put(&put_url), token)
+    let mut put = with_auth(auth.agent.put(&put_url), auth.current_bearer())
         .header("Content-Type", "application/octet-stream")
         .send(bytes)?;
+    if auth.refresh_from_challenge(&put)? {
+        put = with_auth(auth.agent.put(&put_url), auth.current_bearer())
+            .header("Content-Type", "application/octet-stream")
+            .send(bytes)?;
+    }
     let put_status = put.status().as_u16();
     if put_status != 201 && put_status != 202 {
         bail!("{put_url} answered {put_status} uploading {digest}");
@@ -464,18 +520,21 @@ fn upload_blob(
 }
 
 fn put_manifest(
-    agent: &Agent,
+    auth: &mut OciPushAuth<'_>,
     base: &str,
-    repository: &str,
     reference: &str,
     media_type: &str,
     bytes: &[u8],
-    token: Option<&str>,
 ) -> Result<()> {
-    let url = format!("{base}/v2/{repository}/manifests/{reference}");
-    let response = with_auth(agent.put(&url), token)
+    let url = format!("{base}/v2/{}/manifests/{reference}", auth.repository);
+    let mut response = with_auth(auth.agent.put(&url), auth.current_bearer())
         .header("Content-Type", media_type)
         .send(bytes)?;
+    if auth.refresh_from_challenge(&response)? {
+        response = with_auth(auth.agent.put(&url), auth.current_bearer())
+            .header("Content-Type", media_type)
+            .send(bytes)?;
+    }
     let status = response.status().as_u16();
     if status != 201 && status != 200 {
         bail!("{url} answered {status} pushing manifest {reference}");

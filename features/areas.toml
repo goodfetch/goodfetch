@@ -1009,6 +1009,11 @@ number = 5
 kind = "setting"
 prefix = "browser."
 
+[[area]]
+number = 5
+kind = "setting"
+prefix = "network.throttle"
+
 # Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
 # `live_view.hiding`.
 [[area]]
@@ -1530,6 +1535,11 @@ prefix = "schedule."
 number = 10
 kind = "error"
 prefix = "schedule_"
+
+[[area]]
+number = 10
+kind = "setting"
+prefix = "schedule."
 
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and

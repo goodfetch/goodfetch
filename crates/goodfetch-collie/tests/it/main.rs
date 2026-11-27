@@ -133,6 +133,8 @@ mod sdk;
 mod secrets;
 mod security_controls;
 mod service_manager;
+mod session_emulation;
+mod session_permissions;
 mod sessions;
 mod settings_flags;
 #[cfg(unix)]

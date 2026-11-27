@@ -30,6 +30,7 @@ max_hello_size = 4
 max_body_size = 4
 max_decompression_ratio = 4
 max_json_depth = 4
+throttle = { download_bytes_per_second = 50000, latency = 150, offline = false, upload_bytes_per_second = 20000 }
 resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.connection]
@@ -121,6 +122,16 @@ cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
 access_mode = "standard"
+viewport = { height = 720, width = 1280 }
+device_scale_factor = 1.5
+locale = "example"
+timezone_id = "example"
+color_scheme = "light"
+java_script_enabled = true
+geolocation = { accuracy = 10.0, latitude = 48.8566, longitude = 2.3522 }
+has_touch = true
+is_mobile = true
+permissions = ["geolocation"]
 
 [settings.resolver]
 resolution_delay = 30000
@@ -257,6 +268,26 @@ redaction = true
 
 [settings.sample]
 echo_repeats = 4
+
+[settings.schedule]
+overlap = "skip"
+catch_up = "until_next"
+jitter = 30000
+pause_timeout = "next_occurrence"
+tick = 30000
+wake_threshold = 30000
+max_count = 4
+min_interval = 30000
+limits_max = { day = [{ amount = 500, usage_kind = "pages" }, { amount = 5000000, currency = "USD", usage_kind = "ai_tokens" }], month = [{ amount = 10000, usage_kind = "pages" }, { amount = 50000000, currency = "USD", usage_kind = "ai_tokens" }], week = [{ amount = 2500, usage_kind = "pages" }, { amount = 20000000, currency = "USD", usage_kind = "ai_tokens" }] }
+
+[settings.schedule.auto_pause]
+failures = 4
+
+[settings.schedule.retention]
+runs = 4
+watch_runs = 4
+changed_watches = 4
+history = 30000
 
 [settings.consent]
 handling = "answer"

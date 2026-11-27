@@ -1512,11 +1512,12 @@ Calls the catalog's `schedule` operations
 Usage: goodfetch-collie schedule [OPTIONS] <COMMAND>
 
 Commands:
-  create  Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits
-  list    Lists every Schedule of the Schedule store, by ID
-  get     Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`
-  info    Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`
-  delete  Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits
+  create   Records a Schedule in the Schedule store, which the Daemon keeps, and answers its ID, as given or made (`s` and a lowercase ULID), with warnings. Nothing fires yet. A taken ID fails with `schedule_exists`, a trigger that does not parse with `schedule_trigger_invalid`. Its time zone is the Daemon host's when the definition names none. One store transaction: a cancel stops it only before it commits
+  list     Lists every Schedule of the Schedule store, by ID
+  get      Reads the Schedule of an ID. An ID the store does not hold fails with `schedule_not_found`
+  preview  Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`
+  info     Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`
+  delete   Deletes the Schedule from its store, so it never fires again, and answers whether it did: false when the store held none of that ID, as after a resent delete. One store transaction: a cancel stops it only before it commits
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1562,6 +1563,23 @@ Options:
       --daemon              Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>        When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help                Print help
+
+$ goodfetch-collie schedule preview --help
+Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`
+
+Usage: goodfetch-collie schedule preview [OPTIONS] --trigger <TRIGGER>
+
+Options:
+      --after <AFTER>          The instant strictly after which occurrences are listed; now when absent
+      --count <COUNT>          How many occurrences to list; 5 when absent, at most 100
+      --time-zone <TIME_ZONE>  The IANA time zone, such as `Europe/Paris`; the Daemon host's when absent, never "local"
+      --timeout <DURATION>     How long the call may take, in milliseconds, at least 1: absent for `timeout.wait`, `null` for none (ADR 0080)
+      --trigger <TRIGGER>      The trigger to preview
+      --json                   Prints the result as JSON
+      --attached               Runs the call on an Attached engine in this process, even when a Daemon runs
+      --color <WHEN>           When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+      --daemon                 Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+  -h, --help                   Print help
 
 $ goodfetch-collie schedule info --help
 Reads the Schedule as its store holds it now. One the store no longer holds fails with `schedule_not_found`

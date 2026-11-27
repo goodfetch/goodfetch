@@ -1640,6 +1640,14 @@ form = "round_trip"
 
 [[member]]
 crate = "goodfetch-collie-client"
+receiver = "Schedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
 receiver = "(crate)"
 member = "CreatedSchedule"
 entry = "none"
@@ -2603,6 +2611,14 @@ receiver = "blocking::Schedules"
 member = "get"
 entry = "schedule.get"
 words = ["get"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::Schedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
 form = "round_trip"
 
 [[member]]

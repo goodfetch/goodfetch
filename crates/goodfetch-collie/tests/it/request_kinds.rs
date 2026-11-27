@@ -27,8 +27,8 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::home::RUN_TRACE_REQUESTS;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{
-    Answer, BROWSERS_PATH_VARIABLE, Family, Outcome, ProvingGround, Refusal, Runner, SsrfCase,
-    SsrfTable, TestEnv, browser_cache,
+    Answer, BROWSERS_PATH_VARIABLE, Outcome, ProvingGround, Refusal, Runner, SsrfCase, SsrfTable,
+    TestEnv, browser_cache,
 };
 use rstest::rstest;
 use serde_json::{Map, Value, json};
@@ -424,9 +424,9 @@ fn reached_from(proving_ground: &ProvingGround, kind: &str, from: usize) -> (usi
 #[rstest]
 #[case::subresource("fetch", PAGES, Unjudged::Unspecified)]
 #[case::out_of_process_frame("frame", PAGES, Unjudged::Unparsed)]
-#[case::dedicated_worker("dedicated_worker", PAGES, Unjudged::UnspecifiedAndPolicy)]
+#[case::dedicated_worker("dedicated_worker", PAGES, Unjudged::Unspecified)]
 #[case::shared_worker("shared_worker", PAGES, Unjudged::Unspecified)]
-#[case::service_worker("service_worker", FRAME, Unjudged::Policy)]
+#[case::service_worker("service_worker", FRAME, Unjudged::Unparsed)]
 #[case::websocket("websocket", PAGES, Unjudged::Unparsed)]
 fn every_address_case_of_the_ssrf_table_is_refused_for_each_kind_of_request_on_chromium(
     #[case] kind: &str,
@@ -558,14 +558,6 @@ enum Unjudged {
     /// `fetch` itself, before its proxy, the Session's egress relay, sees
     /// the request.
     Unspecified,
-    /// The URLs the WHATWG parser refuses, and the domain policy's cases:
-    /// interception refuses a service worker's request, but no record sees
-    /// the refusal (#632's gap).
-    Policy,
-    /// The unspecified addresses too, and the domain policy's cases, which
-    /// interception refuses for a dedicated worker but no record sees
-    /// (#632's gap).
-    UnspecifiedAndPolicy,
 }
 
 impl Unjudged {
@@ -575,12 +567,9 @@ impl Unjudged {
         let unspecified = case
             .target_address(PUBLIC_STAND_IN)
             .is_some_and(|target| target.to_canonical().is_unspecified());
-        let policy = case.family == Family::DomainPolicy;
         match self {
             Self::Unparsed => unparsed,
             Self::Unspecified => unparsed || unspecified,
-            Self::Policy => unparsed || policy,
-            Self::UnspecifiedAndPolicy => unparsed || unspecified || policy,
         }
     }
 }

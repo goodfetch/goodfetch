@@ -1418,11 +1418,13 @@ impl PageContext {
     /// else the Run trace records.
     async fn refuse_redirect(&self, paused: &PausedRequest, refused: &Refused) {
         let navigation = self.main_document(paused);
-        if self.sender.records_at_once() {
+        if self.sender.records_at_once() || matches!(self.sender, Sender::ServiceWorker { .. }) {
             self.record_refusal(paused.url(), paused.method(), refused.failure());
         } else if let Some(network_id) = paused.network_id() {
             self.refusals
                 .leave(network_id.as_str(), refused.failure(), !navigation);
+        } else {
+            self.record_refusal(paused.url(), paused.method(), refused.failure());
         }
         if navigation {
             self.state.leave(refused.error());
@@ -1693,14 +1695,17 @@ impl PageContext {
                 held,
                 Some(RequestFailure {
                     error_text: NetError::BlockedByClient.name().to_owned(),
-                    error: Some(refusal),
+                    error: Some(refusal.clone()),
                 }),
             );
+            self.record_refusal(held.url(), held.method(), refusal);
         } else if let Some(network_id) = held.paused.network_id() {
             // A navigation the page sent itself, which no call waits on, is
             // recorded too.
             let recorded = !held.navigation || !self.driver.navigation_waits();
             self.refusals.leave(network_id.as_str(), refusal, recorded);
+        } else {
+            self.record_refusal(held.url(), held.method(), refusal);
         }
     }
 

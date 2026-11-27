@@ -60,6 +60,12 @@ export {
   type RequestOptions,
 } from "./crawl.ts";
 export { CrawlRun, type RecordsOptions, type RejectedRecordsOptions } from "./crawl-run.ts";
+export {
+  Export,
+  type ExportOptions,
+  type ExportSaveOptions,
+  type ExportStreamOptions,
+} from "./export.ts";
 export type {
   BackendRequest,
   BackendResponse,
@@ -77,6 +83,10 @@ export type {
   Enqueued,
   EnqueuedLink,
   EnqueuedLinks,
+  ExportCompression,
+  ExportFormat,
+  ExportId,
+  ExportSaved,
   FoxhoundSettings,
   LabelSettings,
   MatchedLink,

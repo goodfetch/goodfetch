@@ -44,8 +44,16 @@ from goodfetch_foxhound.crawl import (
     sitemap,
 )
 from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CodeFreeCrawl, CrawlRun
+from goodfetch_foxhound.export import AsyncExport, Export
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
-from goodfetch_foxhound.generated.models import CrawlDeclaration, CrawlExtraction
+from goodfetch_foxhound.generated.models import (
+    CrawlDeclaration,
+    CrawlExtraction,
+    ExportCompression,
+    ExportFormat,
+    ExportId,
+    ExportSaved,
+)
 from goodfetch_foxhound.handlers import (
     AsyncFetchBackendHandler,
     AsyncSinkHandler,
@@ -61,6 +69,7 @@ __all__ = [
     "AsyncCrawl",
     "AsyncCrawlContext",
     "AsyncCrawlRun",
+    "AsyncExport",
     "AsyncFetchBackendHandler",
     "AsyncFoxhound",
     "AsyncSinkHandler",
@@ -78,6 +87,11 @@ __all__ = [
     "Dataset",
     "DatasetRecord",
     "ExperimentalWarning",
+    "Export",
+    "ExportCompression",
+    "ExportFormat",
+    "ExportId",
+    "ExportSaved",
     "FetchBackendHandler",
     "Foxhound",
     "Label",

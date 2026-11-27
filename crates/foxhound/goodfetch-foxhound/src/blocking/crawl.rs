@@ -10,6 +10,7 @@ use std::future::IntoFuture as _;
 use std::sync::Arc;
 
 use goodfetch_collie_client::{Answer, BoxError, Error, Limits};
+use goodfetch_protocol::foxhound::export::ExportFormat;
 use goodfetch_protocol::foxhound::frontier::{Enqueued, EnqueuedLinks, HttpMethod};
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::rejections::RejectedRecord;
@@ -786,6 +787,49 @@ impl CrawlRun {
             self.inner.rejected_records(dataset),
             self.connection.clone(),
         )
+    }
+
+    /// Writes an Export of one Dataset of a crawl's Run: the Records it
+    /// committed when the call is made, in number order, in the format named,
+    /// as its `format` value says: a table (`csv`, `xlsx`, `html_table`,
+    /// `markdown`, and typed, `parquet`, `avro` and `arrow_ipc`) has one
+    /// column per field seen in any of its Records, in first-seen order, and
+    /// one row per Record. Every text Export is UTF-8 with no BOM unless
+    /// `export.csv.bom` puts one on CSV, characters written as themselves (a
+    /// character XML 1.0 cannot hold as U+FFFD in XML and feeds) and each
+    /// value as it was committed: a table cell holds a string as its text, a
+    /// number, `true` or `false` as JSON writes it, nothing for `null` or a
+    /// field its Record lacks, and an object or array as its JSON text, or, in
+    /// CSV under `export.csv.nested: flatten`, an object's fields in dotted
+    /// columns. A Record whose page was read past a Wall carries its Wall
+    /// marker, `{kind, vendor?}` as its Provenance holds it, as a `#wall`
+    /// field in every format but the feeds, where it is a category of the
+    /// scheme `urn:goodfetch:wall` naming its kind; `wall` set to `true`
+    /// writes only those Records, `false` only the others. `compression`
+    /// `gzip` or `zstd` compresses the whole file. Its `settings` and
+    /// `project` are the run layer and the project configuration its
+    /// `export.*` settings resolve under; a value the format cannot take fails
+    /// with `setting_invalid`. Answers the Export, with its Record count, its
+    /// last Record's number, its size, its SHA-256 and the run epoch of the
+    /// Run's state it was written from, only once its file is whole in the
+    /// Run's folder, where `export.save_as` and `export.stream` read it.
+    /// Records committed after the call starts are not in it. A write the
+    /// engine's storage refuses fails with `file_write_failed`, side `engine`,
+    /// leaving no unfinished file, as does a call while that storage is at the
+    /// `critical` level, before any byte is written. A Dataset the crawl does
+    /// not declare fails with `dataset_unknown`; an `xlsx` sheet past Excel's
+    /// limits, with `sheet_capacity_exceeded`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// The Export of `dataset` in `format`, as [`crate::CrawlRun::export`],
+    /// which `send()` sends.
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::CrawlRun::export`].
+    pub fn export<I>(&self, dataset: &Dataset<I>, format: ExportFormat) -> super::ExportDataset {
+        super::ExportDataset::new(self.inner.export(dataset, format), self.connection.clone())
     }
 }
 

@@ -675,6 +675,161 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ExportDataset"
+entry = "none"
+reason = "The builder `CrawlRun::export` returns to configure `run.export` before awaiting it (ADRs 0081 and 0103)."
+only = "Rust's `IntoFuture` builder for `CrawlRun::export` (ADR 0081); TypeScript and Python pass export options directly to `export()`."
+words = ["export", "dataset"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "compression"
+entry = "none"
+reason = "Sets the Export's compression (`none`, `gzip` or `zstd`)."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `compression` on `export()`."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "wall"
+entry = "none"
+reason = "Filters the Export by Wall Provenance (ADR 0052)."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `wall` on `export()`."
+words = ["wall"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "settings"
+entry = "none"
+reason = "Sets the Export's own settings (such as `export.csv.bom`) over the connection's settings (ADR 0083)."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `settings` on `export()`."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ExportDataset"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.export` to answer."
+only = "Rust's `ExportDataset` builder option; TypeScript and Python take `timeout` on `export()`."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "Export"
+entry = "none"
+reason = "A completed Dataset Export handle returned by `CrawlRun::export`, holding its descriptor with `save_as` and `stream` (ADRs 0103 and 0116)."
+words = ["export"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "last_number"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "save_as"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -1394,6 +1549,171 @@ form = "opener"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ExportDataset"
+entry = "none"
+reason = "The blocking twin of `ExportDataset` (ADR 0081)."
+only = "Rust's blocking builder for `CrawlRun::export` (ADR 0081)."
+words = ["export", "dataset"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "compression"
+entry = "none"
+reason = "Sets the Export's compression (`none`, `gzip` or `zstd`)."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "wall"
+entry = "none"
+reason = "Filters the Export by Wall Provenance (ADR 0052)."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["wall"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "settings"
+entry = "none"
+reason = "Sets the Export's own settings (such as `export.csv.bom`)."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "timeout"
+entry = "none"
+reason = "Bounds the wait for `run.export` to answer."
+only = "Rust's blocking `ExportDataset` builder option."
+words = ["timeout"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ExportDataset"
+member = "send"
+entry = "none"
+reason = "Sends `run.export` and blocks until the Export's file is whole."
+only = "Rust's blocking `ExportDataset` terminator (ADR 0081)."
+words = ["send"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "Export"
+entry = "none"
+reason = "The blocking twin of `Export` (ADR 0081)."
+words = ["export"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "last_number"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "run_epoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "save_as"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -1797,10 +2117,6 @@ reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
-
-[[unreached]]
-entries = ["run.export", "export.save_as", "export.stream"]
-reason = "Issue 1488 adds `run.export`, whose `Export` has `save_as` and `stream`."
 
 [[unreached]]
 entries = ["run.seeds", "run.add_seed", "run.add_seeds"]

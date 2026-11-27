@@ -373,6 +373,141 @@ form = "opener"
 [[member]]
 package = "@goodfetch/foxhound"
 receiver = "CrawlRun"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "Export"
+entry = "none"
+reason = "A completed Dataset Export handle returned by `CrawlRun.export`, holding its descriptor with `saveAs` and `stream` (ADRs 0103 and 0116)."
+words = ["export"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "ExportOptions"
+entry = "none"
+reason = "The options object `CrawlRun.export` takes (ADR 0103)."
+only = "TypeScript passes options as an object type; Python takes keyword arguments and Rust uses `ExportDataset` builder methods."
+words = ["export", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "ExportSaveOptions"
+entry = "none"
+reason = "The options object `Export.saveAs` takes (ADR 0116)."
+only = "TypeScript passes cancellation via an options object; Python cancels via task scope and Rust drops the `SaveFile` future."
+words = ["export", "save", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "(module)"
+member = "ExportStreamOptions"
+entry = "none"
+reason = "The options object `Export.stream` takes (ADR 0116)."
+only = "TypeScript passes cancellation via an options object; Python cancels via task scope and Rust drops the `EventStream`."
+words = ["export", "stream", "options"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "id"
+entry = "none"
+reason = "The Export's ID."
+words = ["id"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "format"
+entry = "none"
+reason = "The Export's format."
+words = ["format"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "compression"
+entry = "none"
+reason = "The Export's compression."
+words = ["compression"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "records"
+entry = "none"
+reason = "How many Records the Export holds."
+words = ["records"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "lastNumber"
+entry = "none"
+reason = "The number of the last Record the Export holds, 0 when empty."
+words = ["last", "number"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "size"
+entry = "none"
+reason = "The Export's file size in bytes."
+words = ["size"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "sha256"
+entry = "none"
+reason = "The SHA-256 of the Export's bytes in lowercase hexadecimal."
+words = ["sha256"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "runEpoch"
+entry = "none"
+reason = "The run epoch of the Run's state the Export was written from (ADR 0003)."
+words = ["run", "epoch"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "saveAs"
+entry = "export.save_as"
+words = ["save", "as"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "Export"
+member = "stream"
+entry = "export.stream"
+words = ["stream"]
+form = "opener"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
 member = "finish"
 entry = "run.finish"
 words = ["finish"]
@@ -3432,10 +3567,6 @@ reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
-
-[[unreached]]
-entries = ["run.export", "export.save_as", "export.stream"]
-reason = "Issue 1488 adds `run.export`, whose `Export` has `saveAs` and `stream`."
 
 [[unreached]]
 entries = ["run.seeds", "run.add_seed", "run.add_seeds"]

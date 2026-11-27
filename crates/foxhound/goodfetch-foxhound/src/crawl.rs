@@ -49,6 +49,7 @@ use crate::sync::AtomicU64;
 
 mod context;
 mod declaration;
+mod export;
 mod handles;
 mod records;
 mod run;
@@ -58,6 +59,7 @@ mod tests;
 use context::{Attempt, Ending, retry_requested};
 pub use context::{AttemptRun, CrawlContext, Enqueue, EnqueueLinks, LinkPayload};
 pub use declaration::{DatasetDeclaration, LabelDeclaration};
+pub use export::{Export, ExportDataset};
 use handles::Seeded;
 pub use handles::{Dataset, Label, Seed};
 pub use records::{DatasetRecord, ReadRecords, ReadRejectedRecords};
@@ -983,6 +985,9 @@ const _: () = {
     send_sync_static::<Label<()>>();
     send_sync_static::<LabelDeclaration<'static, ()>>();
     send_sync_static::<Dataset<()>>();
+    send_sync_static::<Export>();
+    send_static::<ExportDataset>();
+    send_static::<<ExportDataset as IntoFuture>::IntoFuture>();
     send_static::<Seed>();
     send_static::<StartCrawl>();
     send_static::<<StartCrawl as IntoFuture>::IntoFuture>();

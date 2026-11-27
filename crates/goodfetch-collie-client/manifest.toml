@@ -252,6 +252,15 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "stream_chunks"
+entry = "none"
+reason = "Sends a sequence call whose items arrive in `$/chunk` notifications carrying Base64-encoded bytes, decoded in order under `$/credit` backpressure."
+words = ["stream", "chunks"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "handler_requests"
 entry = "none"
 reason = "The engine's requests of `method`, such as the Crawl requests a crawl's handlers answer (ADR 0093), from now until the Connection ends or the stream is dropped."

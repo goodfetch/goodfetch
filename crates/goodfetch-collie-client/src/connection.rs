@@ -412,6 +412,19 @@ impl ClientConnection {
         )
     }
 
+    /// Sends the call of `method` with `params`, a sequence whose items
+    /// arrive in `$/chunk` notifications carrying Base64-encoded bytes (such
+    /// as `export.stream`), decoded in order under `$/credit` backpressure.
+    pub fn stream_chunks(&self, method: &str, params: &impl Serialize) -> EventStream<Vec<u8>> {
+        EventStream::open(
+            self.sender(),
+            method,
+            typed_params(method, params),
+            CHUNK,
+            Box::new(decode_chunk),
+        )
+    }
+
     /// Fails unless the calling process opened the Connection, as each
     /// use of it does: a Product crate's connection checks it before it
     /// waits on tasks of its own.
@@ -528,12 +541,7 @@ impl ClientConnection {
                 Ok(())
             }
             Heard::Notified { method, params } if method == CHUNK => {
-                let chunk: Chunk = serde_json::from_value(params).map_err(Error::shape)?;
-                let bytes = BASE64.decode(chunk.data.as_bytes()).map_err(|error| {
-                    Error::shape(serde_json::Error::custom(format!(
-                        "a chunk's data is no Base64: {error}"
-                    )))
-                })?;
+                let bytes = decode_chunk(params)?;
                 let (given, path, call, file) = (
                     saving.given.clone(),
                     saving.path.clone(),
@@ -870,6 +878,16 @@ impl<T: DeserializeOwned + Send + 'static> IntoFuture for SaveFile<T> {
             serde_json::from_value(result).map_err(Error::shape)
         })
     }
+}
+
+/// Decodes one `$/chunk` notification's Base64 payload into its bytes.
+fn decode_chunk(params: Value) -> Result<Vec<u8>, Error> {
+    let chunk: Chunk = serde_json::from_value(params).map_err(Error::shape)?;
+    BASE64.decode(chunk.data.as_bytes()).map_err(|error| {
+        Error::shape(serde_json::Error::custom(format!(
+            "a chunk's data is no Base64: {error}"
+        )))
+    })
 }
 
 /// A save under way: the path as given and resolved, the call that writes

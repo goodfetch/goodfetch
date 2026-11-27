@@ -23,6 +23,7 @@ mod crawl;
 mod crawl_report;
 mod datasets;
 mod enqueue;
+mod exports;
 mod foxhound_keys;
 mod label_declaration;
 mod limits;

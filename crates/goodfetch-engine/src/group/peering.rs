@@ -3,9 +3,11 @@
 //!
 //! The listener speaks mutual TLS 1.3 (ADR 0060). A Group member that
 //! presents a certificate the group's authority signed opens a
-//! [`PeerLink`]; a Daemon that presents none may send one `group.join`,
-//! which the Lead Daemon answers before it closes the link. Each opening
-//! message is checked in ADR 0095's order, the Product first.
+//! [`PeerLink`], or sends one `group.renew` to have that certificate
+//! renewed; a Daemon that presents none may send one `group.join`. The
+//! Lead Daemon answers either before it closes the link. Each opening
+//! message is checked in ADR 0095's order, the Product first. Every Group
+//! member keeps its certificate renewed ([`renewal`]).
 
 use std::collections::VecDeque;
 use std::sync::{Arc, PoisonError};
@@ -20,17 +22,20 @@ use goodfetch_protocol::group::{
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, ServerName};
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
+use self::renewal::Opening;
+use super::identity::KeptIdentity;
 use super::operations::{internal, not_lead, store_failed};
 use super::peer_tls::key_hash_of;
 use super::store::{self, Admission, Joining};
 use super::{
-    Answer, GroupAuthority, GroupMemberName, GroupMemberPublicKey, LeadEpochs, PeerIdentity,
-    PeerLink, PeerTlsError, PeerTrust, accepting, failure_line, joining, opening_refusal,
-    result_line,
+    Answer, GroupAuthority, GroupMemberName, GroupMemberPublicKey, LeadEpochs, PeerLink,
+    PeerTlsError, accepting, failure_line, joining, opening_refusal, result_line,
 };
 use crate::call_error::CallError;
 use crate::clock::Clock;
@@ -71,6 +76,10 @@ const LEAD: &str = "lead-daemon";
 struct Peering {
     /// The Daemon's identity, whose Product the group's is.
     identity: Identity,
+    /// Its Group member name.
+    name: String,
+    /// The TLS side of the listener, presenting its latest certificate.
+    acceptor: Mutex<TlsAcceptor>,
     /// The group store.
     store: UserStore,
     clock: Clock,
@@ -80,10 +89,10 @@ struct Peering {
     epochs: Mutex<LeadEpochs>,
 }
 
-/// Starts the peer listener on `listener`, presenting `presented` and
-/// trusting `trust`, for the Daemon `identity` of the group whose store is
-/// `store` and whose highest lead epoch it recorded is `lead_epoch`; it
-/// serves until the engine stops.
+/// Starts the peer listener on `listener`, presenting `kept`'s
+/// certificate, for the Daemon `identity` of the group whose store is
+/// `store` and whose highest lead epoch it recorded is `lead_epoch`, and
+/// keeps that certificate renewed; both run until the engine stops.
 ///
 /// # Errors
 ///
@@ -94,21 +103,26 @@ pub(super) fn start(
     identity: Identity,
     store: UserStore,
     listener: PeerListener,
-    presented: PeerIdentity,
-    trust: PeerTrust,
+    kept: &KeptIdentity,
     lead_epoch: LeadEpoch,
 ) -> Result<(), PeerTlsError> {
-    let clock = engine.clock();
-    let acceptor = TlsAcceptor::from(Arc::new(accepting(presented, &trust, clock)?));
-    let peering = Arc::new(Peering {
+    let peering = Arc::new(Peering::new(
         identity,
         store,
-        clock,
-        revocations: trust.revocations,
-        epochs: Mutex::new(LeadEpochs::new(lead_epoch)),
-    });
+        kept,
+        lead_epoch,
+        engine.clock(),
+    )?);
     let owner = engine.owner();
-    owner.spawn(serve(listener, acceptor, peering, owner.part("peer link")));
+    owner.spawn(serve(
+        listener,
+        Arc::clone(&peering),
+        owner.part("peer link"),
+    ));
+    owner.spawn(renewal::keep_renewed(
+        peering,
+        owner.part("certificate renewal"),
+    ));
     Ok(())
 }
 
@@ -134,15 +148,7 @@ pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
             return;
         }
     };
-    if let Err(error) = start(
-        &engine,
-        identity,
-        store,
-        listener,
-        kept.presented(),
-        kept.trust(),
-        lead_epoch,
-    ) {
+    if let Err(error) = start(&engine, identity, store, listener, &kept, lead_epoch) {
         tracing::warn!(%error, "the peer listener cannot present the kept identity");
     }
 }
@@ -154,12 +160,7 @@ pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
 ///
 /// Dropping the future stops accepting; the links are `owner`'s, which its
 /// stop ends.
-async fn serve(
-    listener: PeerListener,
-    acceptor: TlsAcceptor,
-    peering: Arc<Peering>,
-    owner: TaskOwner,
-) {
+async fn serve(listener: PeerListener, peering: Arc<Peering>, owner: TaskOwner) {
     let open = Arc::new(Semaphore::new(OPEN_AT_MOST));
     loop {
         let accepted = tokio::select! {
@@ -173,7 +174,7 @@ async fn serve(
                     continue;
                 };
                 let stopping = owner.token().clone();
-                let acceptor = acceptor.clone();
+                let acceptor = peering.acceptor();
                 let peering = Arc::clone(&peering);
                 owner.spawn(async move {
                     let _permit = permit;
@@ -197,8 +198,58 @@ async fn serve(
 }
 
 impl Peering {
+    /// What the Daemon `identity`, the Group member `kept` of the group
+    /// whose store is `store` and whose highest lead epoch it recorded is
+    /// `lead_epoch`, answers with, at `clock`.
+    ///
+    /// # Errors
+    ///
+    /// [`PeerTlsError`] when the kept certificate, key or authority is
+    /// unusable.
+    fn new(
+        identity: Identity,
+        store: UserStore,
+        kept: &KeptIdentity,
+        lead_epoch: LeadEpoch,
+        clock: Clock,
+    ) -> Result<Self, PeerTlsError> {
+        let trust = kept.trust();
+        let acceptor = TlsAcceptor::from(Arc::new(accepting(kept.presented(), &trust, clock)?));
+        Ok(Self {
+            identity,
+            name: kept.name.clone(),
+            acceptor: Mutex::new(acceptor),
+            store,
+            clock,
+            revocations: trust.revocations,
+            epochs: Mutex::new(LeadEpochs::new(lead_epoch)),
+        })
+    }
+
+    /// The group's certificate authority, which the Lead Daemon alone
+    /// keeps.
+    ///
+    /// # Errors
+    ///
+    /// `not_lead_daemon` on another Group member, and the store's.
+    async fn authority(&self) -> Result<GroupAuthority, CallError> {
+        let kept = store::authority(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+            .ok_or_else(not_lead)?;
+        GroupAuthority::restore(kept).map_err(|error| internal(&error))
+    }
+
+    /// The TLS side of the listener as it stands.
+    fn acceptor(&self) -> TlsAcceptor {
+        self.acceptor
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     /// Answers the peer link `stream` until it closes: a Group member's
-    /// messages, or a Daemon's one `group.join`.
+    /// messages or its one `group.renew`, or a Daemon's one `group.join`.
     async fn answer(&self, acceptor: &TlsAcceptor, stream: PeerStream) {
         let mut lines = Lines::new();
         let opened = tokio::select! {
@@ -220,8 +271,23 @@ impl Peering {
                 return;
             }
         };
-        if stream.get_ref().1.peer_certificates().is_some() {
-            self.member(&mut stream, &mut lines, first).await;
+        let presented = stream
+            .get_ref()
+            .1
+            .peer_certificates()
+            .and_then(|chain| chain.first())
+            .cloned();
+        if let Some(presented) = presented {
+            match renewal::opening(&self.identity, first) {
+                Opening::Renew(request) => {
+                    let reply = self.renewal(&presented, request).await;
+                    write(&mut stream, &reply).await;
+                }
+                Opening::Refused(reply) => {
+                    write(&mut stream, &reply).await;
+                }
+                Opening::Other(first) => self.member(&mut stream, &mut lines, first).await,
+            }
         } else if let Some(reply) = self.join(first).await {
             write(&mut stream, &reply).await;
         }
@@ -291,21 +357,8 @@ impl Peering {
         let name = GroupMemberName::new(&params.name).map_err(|error| {
             CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
         })?;
-        let public_key = BASE64
-            .decode(params.public_key.as_bytes())
-            .ok()
-            .and_then(|raw| GroupMemberPublicKey::from_raw(raw).ok())
-            .ok_or_else(|| {
-                CallError::protocol(
-                    ProtocolFailure::InvalidParams,
-                    "`public_key` is an uncompressed P-256 point in standard base64",
-                )
-            })?;
-        let kept = store::authority(&self.store)
-            .await
-            .map_err(|error| store_failed(&error))?
-            .ok_or_else(not_lead)?;
-        let authority = GroupAuthority::restore(kept).map_err(|error| internal(&error))?;
+        let public_key = public_key_of(&params.public_key)?;
+        let authority = self.authority().await?;
         let now = self.clock.wall();
         let signed = authority
             .sign(&name, &public_key, now)
@@ -319,6 +372,7 @@ impl Peering {
             .map_err(|error| store_failed(&error))?
         {
             Admission::Admitted => Ok(PeerJoinResult {
+                lead_name: self.name.clone(),
                 protocol_version: settled,
                 lead_epoch: self
                     .epochs
@@ -348,6 +402,25 @@ impl Peering {
             )),
         }
     }
+}
+
+/// The public key a Daemon sent as `text` for the Lead Daemon to sign.
+///
+/// # Errors
+///
+/// `invalid_params` when it is no uncompressed P-256 point in standard
+/// base64.
+fn public_key_of(text: &str) -> Result<GroupMemberPublicKey, CallError> {
+    BASE64
+        .decode(text.as_bytes())
+        .ok()
+        .and_then(|raw| GroupMemberPublicKey::from_raw(raw).ok())
+        .ok_or_else(|| {
+            CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                "`public_key` is an uncompressed P-256 point in standard base64",
+            )
+        })
 }
 
 /// A `group.join` a Daemon without a certificate sent, accepted for its
@@ -419,6 +492,8 @@ pub(super) struct Asking<'a> {
 #[derive(Debug)]
 pub(super) struct Admitted {
     pub(super) lead_epoch: LeadEpoch,
+    /// The Lead Daemon's Group member name.
+    pub(super) lead_name: String,
     pub(super) certificate: CertificateDer<'static>,
     pub(super) certificate_expires_at: std::time::SystemTime,
     pub(super) authority: CertificateDer<'static>,
@@ -458,6 +533,7 @@ pub(super) async fn ask_to_join(
     }
     Ok(Admitted {
         lead_epoch: answered.lead_epoch,
+        lead_name: answered.lead_name,
         certificate: CertificateDer::from(decoded(&answered.certificate)?),
         certificate_expires_at: answered.certificate_expires_at,
         authority,
@@ -490,36 +566,46 @@ async fn exchange(
                 unreachable(asking.lead, &error)
             }
         })?;
-    let request = request_line(
-        &RequestId::Number(1),
-        JOIN,
-        &PeerJoinParams {
-            protocol_version: PEER_PROTOCOL_VERSION,
-            product: identity.product,
-            product_version: identity.product_version.clone(),
-            token: asking.token.clone(),
-            name: asking.name.as_str().to_owned(),
-            public_key: BASE64.encode(asking.public_key.raw()),
-            peer_address: asking.peer_address.to_owned(),
-        },
-    )
-    .map_err(|error| internal(&error))?;
-    if !write(&mut stream, &request).await {
+    let params = PeerJoinParams {
+        protocol_version: PEER_PROTOCOL_VERSION,
+        product: identity.product,
+        product_version: identity.product_version.clone(),
+        token: asking.token.clone(),
+        name: asking.name.as_str().to_owned(),
+        public_key: BASE64.encode(asking.public_key.raw()),
+        peer_address: asking.peer_address.to_owned(),
+    };
+    ask(&mut stream, asking.lead, JOIN, &params).await
+}
+
+/// Sends the Lead Daemon at `lead` the one request `method` with `params`
+/// on the peer link `stream` and reads its answer.
+///
+/// # Errors
+///
+/// `group_lead_unreachable` when the link closes first, and the Lead
+/// Daemon's own refusal.
+async fn ask<T: DeserializeOwned>(
+    stream: &mut (impl AsyncRead + AsyncWrite + Unpin),
+    lead: &str,
+    method: &str,
+    params: &impl Serialize,
+) -> Result<T, CallError> {
+    let request =
+        request_line(&RequestId::Number(1), method, params).map_err(|error| internal(&error))?;
+    if !write(stream, &request).await {
         return Err(unreachable(
-            asking.lead,
+            lead,
             "the link closed before the request was sent",
         ));
     }
-    let Some(Frame::Line(reply)) = Lines::new().next(&mut stream).await else {
-        return Err(unreachable(
-            asking.lead,
-            "the link closed before its answer",
-        ));
+    let Some(Frame::Line(reply)) = Lines::new().next(stream).await else {
+        return Err(unreachable(lead, "the link closed before its answer"));
     };
     let unexpected = || {
         CallError::protocol(
             ProtocolFailure::InternalError,
-            "the Lead Daemon's answer to `group.join` is not the peer protocol's",
+            format!("the Lead Daemon's answer to `{method}` is not the peer protocol's"),
         )
     };
     match decode(reply) {
@@ -624,6 +710,8 @@ impl Lines {
         }
     }
 }
+
+mod renewal;
 
 #[cfg(test)]
 mod tests;

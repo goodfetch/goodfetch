@@ -22,7 +22,9 @@
 //! A Daemon that joins has no certificate yet: it opens a peer link to the
 //! Lead Daemon without one, checks that the Lead Daemon's certificate
 //! authority has the public key [`GROUP_JOIN`] pins, and sends [`JOIN`] in
-//! place of `hello`, the only message such a link carries.
+//! place of `hello`, the only message such a link carries. A Group member
+//! whose certificate nears its expiry opens a peer link to the Lead Daemon
+//! with it and sends [`RENEW`] in place of `hello`, likewise alone.
 
 use std::fmt;
 use std::time::SystemTime;
@@ -52,6 +54,11 @@ pub const LEAD_EPOCH: &str = "group.lead_epoch";
 /// The method a Daemon that joins sends the Lead Daemon, on a peer link it
 /// opens without a certificate, in place of [`HELLO`].
 pub const JOIN: &str = "group.join";
+
+/// The method a Group member sends the Lead Daemon, on a peer link it
+/// opens with its certificate, in place of [`HELLO`], to have its
+/// certificate renewed before it expires.
+pub const RENEW: &str = "group.renew";
 
 /// A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
 /// promoted takes a higher one, and a Group member refuses a peer message
@@ -182,6 +189,58 @@ pub struct PeerJoinResult {
     /// base64.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub authority: String,
+    /// The authority's latest revocation list, DER in standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revocations: String,
+    /// The Lead Daemon's Group member name, which its certificate names
+    /// and a Group member checks when it dials it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_name: String,
+}
+
+/// What a Group member sends the Lead Daemon to have its certificate
+/// renewed, the one message of a peer link it opens with that certificate:
+/// the name the certificate names and a new public key, which the Lead
+/// Daemon signs a new certificate for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRenewParams {
+    /// The peer protocol version the Group member speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The highest lead epoch it has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// Its Group member name, which the certificate it presents names.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// Its new P-256 public key, an uncompressed SEC1 point in standard
+    /// base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub public_key: String,
+}
+
+/// What the Lead Daemon answers to a `group.renew` it accepts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRenewResult {
+    /// The peer protocol version both speak: the lower of the two.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the Lead Daemon has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The new Group member certificate, DER in standard base64.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub certificate: String,
+    /// When it stops being valid, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub certificate_expires_at: SystemTime,
     /// The authority's latest revocation list, DER in standard base64.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub revocations: String,
@@ -479,6 +538,18 @@ pub struct StoredIdentity {
     /// Lead Daemon.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lead_address: String,
+    /// The Lead Daemon's Group member name, its own on the Lead Daemon.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_name: String,
+    /// When its certificate stops being valid, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub certificate_expires_at: SystemTime,
+    /// When it asks for a new certificate: two thirds of the way from
+    /// receiving this one to its expiry, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub renew_at: SystemTime,
 }
 
 impl std::fmt::Debug for StoredIdentity {
@@ -492,6 +563,9 @@ impl std::fmt::Debug for StoredIdentity {
             .field("revocations", &self.revocations)
             .field("peer_address", &self.peer_address)
             .field("lead_address", &self.lead_address)
+            .field("lead_name", &self.lead_name)
+            .field("certificate_expires_at", &self.certificate_expires_at)
+            .field("renew_at", &self.renew_at)
             .finish()
     }
 }

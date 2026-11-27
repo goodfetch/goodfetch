@@ -14,7 +14,7 @@ use goodfetch_protocol::group::{
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use secrecy::ExposeSecret;
 
-use super::identity::KeptIdentity;
+use super::identity::{KeptIdentity, renew_at};
 use super::peering::{self, Asking};
 use super::{GroupAuthority, GroupMemberKey, GroupMemberName, JoinToken, store};
 use crate::composition::{CallContext, Contribution, Handler};
@@ -50,8 +50,7 @@ async fn init(params: GroupInitParams, context: CallContext) -> Result<GroupForm
     let authority_key = authority.key_hash().to_string();
     let lead = KeptIdentity::lead(&mut authority, &name, peer_address.clone(), now)
         .map_err(|error| internal(&error))?;
-    let (presented, trust) = (lead.presented(), lead.trust());
-    let Some(lead_epoch) = store::form(&store, authority.kept(), lead, now)
+    let Some(lead_epoch) = store::form(&store, authority.kept(), lead.clone(), now)
         .await
         .map_err(|error| store_failed(&error))?
     else {
@@ -62,8 +61,7 @@ async fn init(params: GroupInitParams, context: CallContext) -> Result<GroupForm
         context.identity().clone(),
         store,
         listener,
-        presented,
-        trust,
+        &lead,
         lead_epoch,
     )
     .map_err(|error| internal(&error))?;
@@ -133,6 +131,7 @@ async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoin
         clock,
     )
     .await?;
+    let received_at = clock.wall();
     let member = KeptIdentity {
         name: name.as_str().to_owned(),
         key: key.kept(),
@@ -141,9 +140,11 @@ async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoin
         revocations: admitted.revocations,
         peer_address: peer_address.clone(),
         lead_address: params.lead,
+        lead_name: admitted.lead_name,
+        certificate_expires_at: admitted.certificate_expires_at,
+        renew_at: renew_at(received_at, admitted.certificate_expires_at),
     };
-    let (presented, trust) = (member.presented(), member.trust());
-    if !store::joined(&store, member, admitted.lead_epoch)
+    if !store::joined(&store, member.clone(), admitted.lead_epoch)
         .await
         .map_err(|error| store_failed(&error))?
     {
@@ -154,8 +155,7 @@ async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoin
         context.identity().clone(),
         store,
         listener,
-        presented,
-        trust,
+        &member,
         admitted.lead_epoch,
     )
     .map_err(|error| internal(&error))?;

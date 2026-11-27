@@ -72,7 +72,10 @@ const STATEMENTS: &[&str] = &[
         authority TEXT NOT NULL,
         revocations TEXT NOT NULL,
         peer_address TEXT NOT NULL,
-        lead_address TEXT NOT NULL
+        lead_address TEXT NOT NULL,
+        lead_name TEXT NOT NULL,
+        certificate_expires_at TEXT NOT NULL,
+        renew_at TEXT NOT NULL
     ) STRICT",
     "CREATE TABLE IF NOT EXISTS members (
         name TEXT PRIMARY KEY,
@@ -280,8 +283,8 @@ fn enter(
     connection
         .prepare_cached(
             "INSERT INTO identity (only, name, key, certificate, authority, revocations,
-                 peer_address, lead_address)
-             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 peer_address, lead_address, lead_name, certificate_expires_at, renew_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )?
         .execute(params![
             identity.name,
@@ -291,6 +294,9 @@ fn enter(
             BASE64.encode(&identity.revocations),
             identity.peer_address,
             identity.lead_address,
+            identity.lead_name,
+            StoredTime(identity.certificate_expires_at),
+            StoredTime(identity.renew_at),
         ])?;
     connection
         .prepare_cached("INSERT INTO lead_epoch (only, highest) VALUES (1, ?1)")?
@@ -316,10 +322,13 @@ fn insert_member(
 fn kept_identity(connection: &Connection) -> rusqlite::Result<Option<KeptIdentity>> {
     connection
         .prepare_cached(
-            "SELECT name, key, certificate, authority, revocations, peer_address, lead_address
+            "SELECT name, key, certificate, authority, revocations, peer_address, lead_address,
+                 lead_name, certificate_expires_at, renew_at
              FROM identity",
         )?
         .query_row([], |row| {
+            let StoredTime(certificate_expires_at) = row.get(8)?;
+            let StoredTime(renew_at) = row.get(9)?;
             Ok(KeptIdentity {
                 name: row.get(0)?,
                 key: PrivatePkcs8KeyDer::from(decoded(row, 1)?),
@@ -328,9 +337,59 @@ fn kept_identity(connection: &Connection) -> rusqlite::Result<Option<KeptIdentit
                 revocations: CertificateRevocationListDer::from(decoded(row, 4)?),
                 peer_address: row.get(5)?,
                 lead_address: row.get(6)?,
+                lead_name: row.get(7)?,
+                certificate_expires_at,
+                renew_at,
             })
         })
         .optional()
+}
+
+/// Keeps `renewed`'s key, certificate and revocation list in place of
+/// those of the identity of the Group member it names: whether this Daemon
+/// keeps that identity still.
+///
+/// # Errors
+///
+/// The store's, after which nothing was recorded.
+pub(crate) async fn renew(
+    store: &UserStore,
+    renewed: KeptIdentity,
+) -> Result<bool, UserStoreError> {
+    store
+        .write(move |connection| {
+            let updated = connection
+                .prepare_cached(
+                    "UPDATE identity SET key = ?1, certificate = ?2, revocations = ?3,
+                         certificate_expires_at = ?4, renew_at = ?5
+                     WHERE name = ?6",
+                )?
+                .execute(params![
+                    BASE64.encode(renewed.key.secret_pkcs8_der()),
+                    BASE64.encode(&renewed.certificate),
+                    BASE64.encode(&renewed.revocations),
+                    StoredTime(renewed.certificate_expires_at),
+                    StoredTime(renewed.renew_at),
+                    renewed.name,
+                ])?;
+            Ok(updated == 1)
+        })
+        .await
+}
+
+/// Whether the Lead Daemon admitted a Group member named `name`.
+///
+/// # Errors
+///
+/// The store's.
+pub(crate) async fn is_member(store: &UserStore, name: String) -> Result<bool, UserStoreError> {
+    store
+        .read(false, move |connection| {
+            connection
+                .prepare_cached("SELECT 1 FROM members WHERE name = ?1")?
+                .exists([name])
+        })
+        .await
 }
 
 /// The group's certificate authority, if this Daemon keeps it.

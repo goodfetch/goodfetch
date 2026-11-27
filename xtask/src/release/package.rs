@@ -1,7 +1,7 @@
 //! `xtask release package` and `xtask release oci-push`: packages every
 //! release artifact of both Products from one set of built (and, in release
 //! runs, signed) binaries:
-//! - GitHub Release `.tar.xz` archives, split debug symbols and CycloneDX SBOMs;
+//! - GitHub Release `.tar.xz` archives, split debug symbols and `CycloneDX` SBOMs;
 //! - shared components packaged once (`goodfetch-proving-ground`,
 //!   `goodfetch-sandbox`, `goodfetch-filter-broker`);
 //! - npm packages (`@goodfetch/collie-client`, `@goodfetch/<product>` and its
@@ -16,6 +16,7 @@ mod oci_layout;
 mod zip;
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -591,9 +592,9 @@ fn write_wheel(
     for (rel, (bytes, mode)) in &files {
         writer.add_file(rel, bytes, *mode)?;
         let digest = data_encoding::BASE64URL_NOPAD.encode(&Sha256::digest(bytes));
-        record.push_str(&format!("{rel},sha256={digest},{}\n", bytes.len()));
+        let _ = writeln!(record, "{rel},sha256={digest},{}", bytes.len());
     }
-    record.push_str(&format!("{record_path},,\n"));
+    let _ = writeln!(record, "{record_path},,");
     writer.add_file(&record_path, record.as_bytes(), 0o644)?;
 
     let wheel_file = wheels_dir.join(format!("{dist_name}-{pep440}-py3-none-{platform_tag}.whl"));
@@ -612,7 +613,7 @@ fn build_python_metadata(
         "Metadata-Version: 2.3\nName: {name}\nVersion: {pep440}\nRequires-Python: {requires_python}\n"
     );
     if let Some(description) = project.get("description").and_then(toml::Value::as_str) {
-        out.push_str(&format!("Summary: {description}\n"));
+        let _ = writeln!(out, "Summary: {description}");
     }
     if let Some(deps) = project.get("dependencies").and_then(toml::Value::as_array) {
         for dep in deps.iter().filter_map(toml::Value::as_str) {
@@ -621,7 +622,7 @@ fn build_python_metadata(
             } else {
                 dep.to_owned()
             };
-            out.push_str(&format!("Requires-Dist: {rewritten}\n"));
+            let _ = writeln!(out, "Requires-Dist: {rewritten}");
         }
     }
     out
@@ -632,7 +633,7 @@ fn build_wheel_metadata(platform_tag: &str, pure: bool) -> String {
     let mut out =
         format!("Wheel-Version: 1.0\nGenerator: goodfetch-xtask\nRoot-Is-Purelib: {purelib}\n");
     for tag in platform_tag.split('.') {
-        out.push_str(&format!("Tag: py3-none-{tag}\n"));
+        let _ = writeln!(out, "Tag: py3-none-{tag}");
     }
     out
 }

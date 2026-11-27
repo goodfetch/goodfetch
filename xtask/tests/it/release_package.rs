@@ -1,6 +1,6 @@
 //! `xtask release package` and `xtask release oci-push`: produces every release
 //! artifact of both Products from one set of built binaries — release archives,
-//! split debug symbols, CycloneDX SBOMs, shared helpers built once, npm root
+//! split debug symbols, `CycloneDX` SBOMs, shared helpers built once, npm root
 //! and platform packages (with `optionalDependencies` and no install scripts),
 //! `py3-none` platform wheels and pure client wheel, and multi-platform OCI
 //! image indexes for first-party Plugins (spec #130, issue 141; ADRs 0024,
@@ -177,7 +177,11 @@ fn package_produces_archives_debug_symbols_sboms_npm_wheels_and_plugin_oci_index
         );
     }
 
-    // 2. npm root, client, and per-platform packages (no install scripts).
+    assert_npm_packages(&workspace);
+    assert_wheels_and_plugins(&workspace);
+}
+
+fn assert_npm_packages(workspace: &Workspace) {
     let client_pkg: Value =
         serde_json::from_str(&workspace.read_text("packaged/npm/collie-client/package.json"))
             .unwrap();
@@ -224,8 +228,9 @@ fn package_produces_archives_debug_symbols_sboms_npm_wheels_and_plugin_oci_index
             format!("bin:goodfetch-{product}:x86_64-unknown-linux-musl").as_bytes()
         );
     }
+}
 
-    // 3. Python wheels: pure client + six py3-none platform wheels per Product.
+fn assert_wheels_and_plugins(workspace: &Workspace) {
     assert!(
         workspace
             .read("packaged/wheels/goodfetch_collie_client-1.4.0-py3-none-any.whl")
@@ -238,12 +243,10 @@ fn package_produces_archives_debug_symbols_sboms_npm_wheels_and_plugin_oci_index
             let bytes = workspace
                 .read(&wheel_path)
                 .unwrap_or_else(|| panic!("missing wheel {wheel_path}"));
-            // ZIP local file header magic bytes.
             assert_eq!(&bytes[..4], b"PK\x03\x04", "{wheel_path} is not a ZIP");
         }
     }
 
-    // 4. First-party Plugin multi-platform OCI Image Layout.
     let layout: Value = serde_json::from_str(
         &workspace.read_text("packaged/oci/plugins/goodfetch-plugin-archive/oci-layout"),
     )
@@ -257,8 +260,7 @@ fn package_produces_archives_debug_symbols_sboms_npm_wheels_and_plugin_oci_index
         index["mediaType"].as_str(),
         Some("application/vnd.oci.image.index.v1+json")
     );
-    let manifests = index["manifests"].as_array().unwrap();
-    assert_eq!(manifests.len(), 6);
+    assert_eq!(index["manifests"].as_array().unwrap().len(), 6);
 }
 
 #[cfg(target_os = "linux")]
@@ -326,8 +328,7 @@ fn shared_containerfile_pins_debian_13_slim_runs_non_root_and_copies_executable_
     let last_instruction = text
         .lines()
         .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .last()
+        .rfind(|line| !line.is_empty() && !line.starts_with('#'))
         .unwrap();
     assert!(
         last_instruction.starts_with("COPY ") && last_instruction.contains("PRODUCT_EXECUTABLE"),

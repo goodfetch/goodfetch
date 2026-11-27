@@ -372,7 +372,7 @@ fn copy_and_hash(
     writer: &mut impl io::Write,
     hasher: &mut Sha256,
 ) -> Result<()> {
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = [0_u8; 8 * 1024];
     loop {
         let read = reader
             .read(&mut buffer)

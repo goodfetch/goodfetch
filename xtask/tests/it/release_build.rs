@@ -5,7 +5,6 @@
 //! (spec #130, issue 141; ADRs 0033, 0039 and 0074).
 
 use std::io::{Read as _, Write as _};
-use std::net::TcpListener;
 use std::thread;
 
 use serde_json::Value;
@@ -23,8 +22,12 @@ fn binary_name(target: &str) -> &'static str {
 
 /// Serves fixed `(path, bytes)` responses over HTTP on a free loopback port,
 /// stopping after `expected` requests.
+#[expect(
+    clippy::disallowed_types,
+    reason = "local HTTP stand-in for testing artifact fetch in xtask tests (ADR 0060)"
+)]
 fn serve_http(files: Vec<(String, Vec<u8>)>, expected: usize) -> (String, thread::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let handle = thread::spawn(move || {
         for _ in 0..expected {
@@ -228,16 +231,14 @@ sha256 = "{driver_sha}"
 }
 
 #[test]
-fn fetch_chromium_refuses_input_tree_mismatch_bad_attestation_and_tampered_bytes() {
+fn fetch_chromium_refuses_input_tree_mismatch() {
     let workspace = Workspace::from_fixture("release");
     workspace.write("chromium/version.txt", b"156.0.8078.4\n");
     let hashes = workspace.xtask(&["release", "chromium-tree-hashes"]);
     assert_eq!(hashes.code, 0, "{}", hashes.stderr);
     let tree: Value = serde_json::from_str(&hashes.stdout).unwrap();
-    let build_tree = tree["build_input_tree"].as_str().unwrap().to_owned();
     let test_tree = tree["test_input_tree"].as_str().unwrap().to_owned();
 
-    // Case 1: stale build_input_tree in manifest.
     let stale_manifest = format!(
         r#"workflow = ".github/workflows/chromium-gate.yml"
 build_input_tree = "0000000000000000000000000000000000000000000000000000000000000000"
@@ -265,8 +266,18 @@ sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
         mismatch.findings(),
         [finding("input-tree-mismatch", "chromium/manifest.toml")]
     );
+}
 
-    // Case 2: verdict attestation says fail.
+#[test]
+fn fetch_chromium_refuses_bad_attestation_and_tampered_bytes() {
+    let workspace = Workspace::from_fixture("release");
+    workspace.write("chromium/version.txt", b"156.0.8078.4\n");
+    let hashes = workspace.xtask(&["release", "chromium-tree-hashes"]);
+    assert_eq!(hashes.code, 0, "{}", hashes.stderr);
+    let tree: Value = serde_json::from_str(&hashes.stdout).unwrap();
+    let build_tree = tree["build_input_tree"].as_str().unwrap().to_owned();
+    let test_tree = tree["test_input_tree"].as_str().unwrap().to_owned();
+
     let good_bytes = b"expected-bytes".to_vec();
     let good_sha = sha256(&good_bytes);
     let (base_url, server) =
@@ -324,7 +335,6 @@ sha256 = "{good_sha}"
         )]
     );
 
-    // Case 3: attestations pass, but served bytes do not match manifest digest.
     workspace.write(
         &format!("attestations/{good_sha}.verdict.json"),
         serde_json::json!({

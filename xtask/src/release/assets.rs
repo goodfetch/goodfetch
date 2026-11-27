@@ -283,7 +283,7 @@ pub(super) fn first_party_plugins(root: &Path) -> Result<Vec<String>> {
 pub(super) fn sha256_file(path: &Path) -> Result<String> {
     let mut file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
+    let mut buffer = [0_u8; 8 * 1024];
     loop {
         let read = file
             .read(&mut buffer)

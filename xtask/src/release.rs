@@ -212,7 +212,7 @@ pub(crate) enum Command {
     /// committed manifest after verifying input tree hashes and build and
     /// verdict attestations; never builds Chromium (ADR 0074).
     FetchChromium(chromium::FetchArguments),
-    /// Packages release archives, split debug symbols, CycloneDX SBOMs, npm
+    /// Packages release archives, split debug symbols, `CycloneDX` SBOMs, npm
     /// root and platform packages, `py3-none` Python wheels, and first-party
     /// Plugin multi-platform OCI layouts from built binaries (ADRs 0090, 0094).
     Package(package::PackageArguments),
@@ -221,6 +221,10 @@ pub(crate) enum Command {
     OciPush(package::OciPushArguments),
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "single top-level clap subcommand dispatcher for `xtask release`"
+)]
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = &environment.root;
     match command {

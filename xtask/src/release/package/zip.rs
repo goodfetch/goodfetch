@@ -11,7 +11,7 @@ use flate2::{Compression, Crc};
 const LOCAL_FILE_HEADER_SIG: u32 = 0x0403_4b50;
 const CENTRAL_DIR_HEADER_SIG: u32 = 0x0201_4b50;
 const END_OF_CENTRAL_DIR_SIG: u32 = 0x0605_4b50;
-const VERSION_MADE_BY_UNIX: u16 = (3 << 8) | 20;
+const VERSION_MADE_BY_UNIX: u16 = (3 << 8) | 0x0014;
 const VERSION_NEEDED_DEFLATE: u16 = 20;
 const METHOD_DEFLATE: u16 = 8;
 /// Fixed DOS timestamp: 1980-01-01 00:00:00 for reproducible wheels.

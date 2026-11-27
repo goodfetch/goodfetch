@@ -180,9 +180,14 @@ impl PageDriver {
     /// interception.
     pub(crate) async fn service_workers(&self, choice: ServiceWorkers) -> Result<(), CallError> {
         let browser = &self.browser;
-        if matches!(choice, ServiceWorkers::Block) || shown(browser, Some(&self.context)).is_some()
+        if matches!(choice, ServiceWorkers::Block)
+            || browser
+                .state
+                .service_workers
+                .shown(browser.identity.as_ref(), Some(&self.context))
+                .is_some()
         {
-            enable_scripts(browser, &browser.opening()).await?;
+            browser.enable_worker_scripts(&browser.opening()).await?;
         }
         lock(&browser.state.service_workers.contexts)
             .entry(self.context.clone())
@@ -217,18 +222,17 @@ impl PageDriver {
 /// # Errors
 ///
 /// The code of opening a page when the browser refuses to attach.
-/// Turns on, once per browser, the browser's own interception of workers'
-/// scripts (`Other` requests at request stage), so a worker's script fetch
-/// can fail when blocked or send its context's identity instead of the
-/// headless browser's own.
-async fn enable_scripts(browser: &Browser, call: &crate::errors::Call) -> Result<(), CallError> {
-    browser
-        .state
-        .service_workers
-        .scripts
-        .get_or_try_init(|| async {
-            browser
-                .send(
+impl Browser {
+    /// Turns on, once per browser, the browser's own interception of workers'
+    /// scripts (`Other` requests at request stage), so a worker's script fetch
+    /// can fail when blocked or send its context's identity instead of the
+    /// headless browser's own.
+    async fn enable_worker_scripts(&self, call: &crate::errors::Call) -> Result<(), CallError> {
+        self.state
+            .service_workers
+            .scripts
+            .get_or_try_init(|| async {
+                self.send(
                     None,
                     &fetch::EnableParams {
                         patterns: Some(vec![fetch::RequestPattern {
@@ -245,9 +249,10 @@ async fn enable_scripts(browser: &Browser, call: &crate::errors::Call) -> Result
                 )
                 .await
                 .map(drop)
-        })
-        .await?;
-    Ok(())
+            })
+            .await?;
+        Ok(())
+    }
 }
 
 /// Starts reading the browser's own events and attaches to its workers and
@@ -289,7 +294,7 @@ pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), 
         .await
         .map(drop)?;
     if browser.identity.is_some() {
-        enable_scripts(browser, &browser.launching()).await?;
+        browser.enable_worker_scripts(&browser.launching()).await?;
     }
     Ok(())
 }
@@ -463,7 +468,10 @@ async fn script_fetch(browser: Browser, paused: fetch::RequestPausedEvent) {
         ),
     };
     let headers = match worker {
-        Some(Ok(context)) => shown(&browser, context.as_ref())
+        Some(Ok(context)) => browser
+            .state
+            .service_workers
+            .shown(browser.identity.as_ref(), context.as_ref())
             .map(|identity| with_identity(&paused.request.headers, &identity)),
         None | Some(Err(_)) => None,
     };
@@ -516,30 +524,32 @@ async fn context_of(
         .map(|found| found.target_info.browser_context_id)
 }
 
-/// The user agent and client hints a worker of the context `context` shows:
-/// its Session's Fingerprint method's, or else its headless browser's
-/// identity; none with a window and no such method, where the browser's
-/// own are already right.
-fn shown(browser: &Browser, context: Option<&browser::BrowserContextID>) -> Option<Shown> {
-    let masked = browser
-        .state
-        .service_workers
-        .mask_of(context)
-        .and_then(|mask| mask.user_agent);
-    match masked {
-        Some(agent) => Some(Shown {
-            hints: agent
-                .client_hints
-                .as_ref()
-                .map(crate::cdp::masking::metadata),
-            user_agent: agent.user_agent,
-            accept_language: agent.accept_language,
-        }),
-        None => browser.identity.as_ref().map(|identity| Shown {
-            user_agent: identity.user_agent().to_owned(),
-            accept_language: None,
-            hints: Some(identity.hints().clone()),
-        }),
+impl ServiceWorkerChoices {
+    /// The user agent and client hints a worker of the context `context` shows:
+    /// its Session's Fingerprint method's, or else its headless browser's
+    /// identity; none with a window and no such method, where the browser's
+    /// own are already right.
+    fn shown(
+        &self,
+        identity: Option<&super::identity::Identity>,
+        context: Option<&browser::BrowserContextID>,
+    ) -> Option<Shown> {
+        let masked = self.mask_of(context).and_then(|mask| mask.user_agent);
+        match masked {
+            Some(agent) => Some(Shown {
+                hints: agent
+                    .client_hints
+                    .as_ref()
+                    .map(crate::cdp::masking::metadata),
+                user_agent: agent.user_agent,
+                accept_language: agent.accept_language,
+            }),
+            None => identity.map(|identity| Shown {
+                user_agent: identity.user_agent().to_owned(),
+                accept_language: None,
+                hints: Some(identity.hints().clone()),
+            }),
+        }
     }
 }
 

@@ -64,9 +64,7 @@ mod version_check;
 pub use browser_run::BrowserRun;
 pub use cdp::launch::{Launcher, Scripted, ScriptedBrowsers};
 pub use clean_up_versions::manifest_file;
-pub use fingerprint_method::{
-    WPT_IDENTITY_SEED, WptIdentityProfile, WptLaunchArgs, WptMethodArgs, WptScreen, wpt_launch_args,
-};
+pub use fingerprint_method::{WPT_IDENTITY_SEED, WptLaunchArgs, wpt_launch_args};
 pub use human_input::{CURSORY_NAME, cursory_pin};
 pub use pages::{contribution, contribution_with};
 /// The proxy-or-site rule (spec #577): who answered a request sent through

@@ -384,6 +384,10 @@ fn a_foxhound_program_on_daemon_fails_past_a_busy_collie_daemon_with_its_daemon_
 /// (ADR 0055, ADR 0095).
 ///
 /// Covers: story:3-145, error:not_in_product
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sync test thread writes Operator policy fixture before starting the Daemon"
+)]
 #[test]
 fn a_foxhound_daemon_joining_a_collie_group_is_refused_with_not_in_product() {
     let (lead, member) = (TestEnv::new(), TestEnv::new());

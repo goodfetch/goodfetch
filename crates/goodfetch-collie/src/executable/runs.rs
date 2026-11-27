@@ -40,9 +40,7 @@ pub(super) fn reindex(
         .collect();
     match rebuild(home, &identity.product_version, &locations) {
         Ok(rebuilt) => {
-            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
+            if let Ok(runtime) = goodfetch_runtime::current_thread().enable_all().build()
                 && let Err(error) =
                     runtime.block_on(reindex_to_lead(home, identity, Clock::system()))
             {

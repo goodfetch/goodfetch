@@ -60,7 +60,7 @@ mod tests {
     use super::allows_multi_member;
     use crate::settings::{Layers, Policy, Values, resolve};
 
-    fn values(layer: SettingsLayer, body: Value) -> Values {
+    fn values(layer: SettingsLayer, body: &Value) -> Values {
         Values::read(layer, body.as_object().unwrap(), Product::Collie).unwrap()
     }
 
@@ -76,7 +76,7 @@ mod tests {
         let layers = Layers {
             user_configuration: values(
                 SettingsLayer::UserConfiguration,
-                json!({ "politeness": { "sharing": "per_daemon" } }),
+                &json!({ "politeness": { "sharing": "per_daemon" } }),
             ),
             ..Layers::default()
         };
@@ -90,13 +90,13 @@ mod tests {
             operator_policy: Policy {
                 settings: values(
                     SettingsLayer::OperatorPolicy,
-                    json!({ "politeness": { "sharing": "per_daemon" } }),
+                    &json!({ "politeness": { "sharing": "per_daemon" } }),
                 ),
                 ..Policy::default()
             },
             user_configuration: values(
                 SettingsLayer::UserConfiguration,
-                json!({ "politeness": { "sharing": "per_daemon" } }),
+                &json!({ "politeness": { "sharing": "per_daemon" } }),
             ),
             ..Layers::default()
         };
@@ -110,13 +110,13 @@ mod tests {
             operator_policy: Policy {
                 settings: values(
                     SettingsLayer::OperatorPolicy,
-                    json!({ "politeness": { "sharing": "per_daemon" } }),
+                    &json!({ "politeness": { "sharing": "per_daemon" } }),
                 ),
                 ..Policy::default()
             },
             user_configuration: values(
                 SettingsLayer::UserConfiguration,
-                json!({ "politeness": { "sharing": "shared" } }),
+                &json!({ "politeness": { "sharing": "shared" } }),
             ),
             ..Layers::default()
         };
@@ -129,7 +129,7 @@ mod tests {
         let layers = Layers {
             user_configuration: values(
                 SettingsLayer::UserConfiguration,
-                json!({
+                &json!({
                     "politeness": {
                         "store": {
                             "namespace": "group-test",

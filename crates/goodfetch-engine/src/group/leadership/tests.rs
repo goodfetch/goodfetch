@@ -64,7 +64,7 @@ fn a_three_member_lead_daemon_acts_only_after_reaching_one_other_member() {
     );
     assert!(!lead.is_unconfirmed());
     assert_eq!(lead.can_act(), Ok(LeadEpoch::new(2)));
-    assert!(lead.unconfirmed_peers().is_empty());
+    assert_eq!(lead.unconfirmed_peers(), Vec::<String>::new());
 }
 
 #[test]

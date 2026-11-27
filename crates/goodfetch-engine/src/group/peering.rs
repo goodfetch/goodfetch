@@ -888,7 +888,7 @@ fn handshake_refusal(error: &std::io::Error) -> Option<RefusalReason> {
             KnownCertificateFailure::Expired | KnownCertificateFailure::NotYetValid => {
                 Some(RefusalReason::CertificateExpired)
             }
-            _ => None,
+            KnownCertificateFailure::NameMismatch => None,
         };
     }
     matches!(inner, rustls::Error::InvalidMessage(_)).then_some(RefusalReason::TlsRequired)

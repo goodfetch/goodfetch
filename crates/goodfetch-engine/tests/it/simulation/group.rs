@@ -150,13 +150,13 @@ impl World {
             .borrow_mut()
             .push(Record::new(who, Operation::Other(seen)).at(self.elapsed_ms(clock)));
     }
+}
 
-    fn leader_of(&self, epoch: LeadEpoch) -> Option<&'static str> {
-        match epoch.get() {
-            1 => Some(MEMBERS[0]),
-            2 => Some(MEMBERS[1]),
-            _ => None,
-        }
+fn leader_of(epoch: LeadEpoch) -> Option<&'static str> {
+    match epoch.get() {
+        1 => Some(MEMBERS[0]),
+        2 => Some(MEMBERS[1]),
+        _ => None,
     }
 }
 
@@ -209,7 +209,7 @@ fn group(seed: u64, start: SystemTime, injections: Vec<Injection>) -> Result<Gro
 /// and, when configured as Lead Daemon, exchanges epochs with peers to confirm
 /// by majority before performing peer-checked single-writer actions.
 async fn member(mut host: Host, name: &'static str, world: World) -> turmoil::Result {
-    let (highest, mut configured) = {
+    let (highest, configured) = {
         let mut disks = world.disks.borrow_mut();
         let disk = disks.get_mut(name).unwrap();
         if let Some(lead) = disk.configured_lead
@@ -237,88 +237,113 @@ async fn member(mut host: Host, name: &'static str, world: World) -> turmoil::Re
     let serve_leadership = Rc::clone(&leadership);
     let serve_world = world.clone();
     let clock = *host.clock();
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "turmoil host tasks run inside turmoil's single-threaded LocalSet and are dropped when turmoil crashes the host"
+    )]
     tokio::task::spawn_local(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let epochs = Rc::clone(&serve_epochs);
             let leadership = Rc::clone(&serve_leadership);
             let world = serve_world.clone();
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "turmoil host connection tasks run inside turmoil's single-threaded LocalSet"
+            )]
             tokio::task::spawn_local(async move {
                 serve_peer(stream, name, epochs, leadership, world, clock).await;
             });
         }
     });
 
-    let mut announced_confirmed = false;
-    let mut announced_fenced = false;
+    let mut state = MemberLoop {
+        name,
+        clock,
+        configured,
+        announced_confirmed: false,
+        announced_fenced: false,
+        epochs,
+        leadership,
+        world,
+    };
     loop {
         let pause = 25 + host.entropy().next_u64() % 20;
         tokio::time::sleep(Duration::from_millis(pause)).await;
+        state.tick().await;
+    }
+}
 
-        // Check whether the operator changed our lead configuration.
-        let latest_configured = world.disks.borrow()[name].configured_lead;
-        if latest_configured != configured {
-            configured = latest_configured;
-            announced_confirmed = false;
-            announced_fenced = false;
-            match configured {
+struct MemberLoop {
+    name: &'static str,
+    clock: Clock,
+    configured: Option<LeadEpoch>,
+    announced_confirmed: bool,
+    announced_fenced: bool,
+    epochs: Rc<RefCell<LeadEpochs>>,
+    leadership: Rc<RefCell<Leadership>>,
+    world: World,
+}
+
+impl MemberLoop {
+    async fn tick(&mut self) {
+        let latest_configured = self.world.disks.borrow()[self.name].configured_lead;
+        if latest_configured != self.configured {
+            self.configured = latest_configured;
+            self.announced_confirmed = false;
+            self.announced_fenced = false;
+            match self.configured {
                 Some(epoch) => {
-                    let mut disks = world.disks.borrow_mut();
-                    let disk = disks.get_mut(name).unwrap();
+                    let mut disks = self.world.disks.borrow_mut();
+                    let disk = disks.get_mut(self.name).unwrap();
                     if epoch > disk.highest {
                         disk.highest = epoch;
                     }
-                    *epochs.borrow_mut() = LeadEpochs::for_member(name, disk.highest);
-                    *leadership.borrow_mut() = if disk.highest > epoch {
-                        Leadership::fenced(name, epoch, disk.highest)
+                    *self.epochs.borrow_mut() = LeadEpochs::for_member(self.name, disk.highest);
+                    *self.leadership.borrow_mut() = if disk.highest > epoch {
+                        Leadership::fenced(self.name, epoch, disk.highest)
                     } else {
-                        Leadership::starting(name, epoch, all_member_names())
+                        Leadership::starting(self.name, epoch, all_member_names())
                     };
                 }
                 None => {
-                    *leadership.borrow_mut() = Leadership::not_lead(name);
+                    *self.leadership.borrow_mut() = Leadership::not_lead(self.name);
                 }
             }
         }
 
-        let Some(lead_epoch) = configured else {
-            continue;
+        let Some(lead_epoch) = self.configured else {
+            return;
         };
 
-        // 1. If unconfirmed, exchange `hello` with unconfirmed last-known peers.
-        let unconfirmed = leadership.borrow().unconfirmed_peers();
-        if !unconfirmed.is_empty() {
-            for peer in unconfirmed {
-                if !leadership.borrow().is_unconfirmed() {
-                    break;
-                }
-                if let Some(reply) = send_hello(&peer, lead_epoch).await {
-                    handle_peer_reply(
-                        clock,
-                        name,
-                        &peer,
-                        lead_epoch,
-                        &reply,
-                        &epochs,
-                        &leadership,
-                        &world,
-                        &mut announced_fenced,
-                    );
-                }
+        let unconfirmed = self.leadership.borrow().unconfirmed_peers();
+        for peer in unconfirmed {
+            if !self.leadership.borrow().is_unconfirmed() {
+                break;
+            }
+            if let Some(reply) = send_hello(&peer, lead_epoch).await {
+                handle_peer_reply(
+                    self.clock,
+                    self.name,
+                    &peer,
+                    lead_epoch,
+                    &reply,
+                    &self.epochs,
+                    &self.leadership,
+                    &self.world,
+                    &mut self.announced_fenced,
+                );
             }
         }
 
-        // 2. If confirmed, record confirmation once and perform a single-writer
-        //    action (peer-checked for majority-confirmed leads; direct for
-        //    operator-confirmed leads whose predecessor was stopped).
-        let status = leadership.borrow().status();
+        let status = self.leadership.borrow().status();
         if let Ok(snapshot) = status
             && snapshot.confirmed
         {
-            if !announced_confirmed {
-                announced_confirmed = true;
-                world.record_seen(
-                    clock,
-                    name,
+            if !self.announced_confirmed {
+                self.announced_confirmed = true;
+                self.world.record_seen(
+                    self.clock,
+                    self.name,
                     Seen::Confirmed {
                         epoch: snapshot.lead_epoch.get(),
                         by_operator: snapshot.confirmed_by_operator,
@@ -326,28 +351,29 @@ async fn member(mut host: Host, name: &'static str, world: World) -> turmoil::Re
                 );
             }
             if snapshot.confirmed_by_operator {
-                world.record_lead(clock, name, snapshot.lead_epoch);
+                self.world
+                    .record_lead(self.clock, self.name, snapshot.lead_epoch);
             } else {
                 for peer in MEMBERS {
-                    if peer == name {
+                    if peer == self.name {
                         continue;
                     }
-                    if leadership.borrow().can_act().is_err() {
+                    if self.leadership.borrow().can_act().is_err() {
                         break;
                     }
                     if let Some(reply) = send_lead_epoch(peer, snapshot.lead_epoch).await {
                         handle_peer_reply(
-                            clock,
-                            name,
+                            self.clock,
+                            self.name,
                             peer,
                             snapshot.lead_epoch,
                             &reply,
-                            &epochs,
-                            &leadership,
-                            &world,
-                            &mut announced_fenced,
+                            &self.epochs,
+                            &self.leadership,
+                            &self.world,
+                            &mut self.announced_fenced,
                         );
-                        if leadership.borrow().can_act().is_err() {
+                        if self.leadership.borrow().can_act().is_err() {
                             break;
                         }
                     }
@@ -371,12 +397,12 @@ async fn serve_peer(
     let mut link = PeerLink::accepting(collie_identity());
     let (read_half, mut write_half) = stream.into_split();
     let mut reader = BufReader::new(read_half);
-    let mut line = Vec::new();
-    while let Ok(read) = reader.read_until(b'\n', &mut line).await {
+    let mut frame = Vec::new();
+    while let Ok(read) = reader.read_until(b'\n', &mut frame).await {
         if read == 0 {
             break;
         }
-        let parsed: Option<Value> = serde_json::from_slice(&line).ok();
+        let parsed: Option<Value> = serde_json::from_slice(&frame).ok();
         let is_action = parsed
             .as_ref()
             .and_then(|v| v.get("method").and_then(Value::as_str))
@@ -389,7 +415,7 @@ async fn serve_peer(
         let answer = {
             let mut guard = epochs.borrow_mut();
             let before = guard.highest();
-            let answer = link.receive(&mut guard, std::mem::take(&mut line));
+            let answer = link.receive(&mut guard, std::mem::take(&mut frame));
             let after = guard.highest();
             if after > before {
                 world.disks.borrow_mut().get_mut(name).unwrap().highest = after;
@@ -404,7 +430,7 @@ async fn serve_peer(
             && let (Some(epoch), Some(reply_bytes)) = (action_epoch, &answer.reply)
             && let Ok(reply_json) = serde_json::from_slice::<Value>(reply_bytes)
             && reply_json.get("result").is_some()
-            && let Some(leader) = world.leader_of(epoch)
+            && let Some(leader) = leader_of(epoch)
         {
             world.record_lead(clock, leader, epoch);
         }
@@ -570,7 +596,7 @@ async fn operate(host: Host, world: World) -> turmoil::Result {
         .unwrap()
         .configured_lead = Some(LeadEpoch::new(2));
 
-    tokio::time::sleep(OPERATOR_CONFIRM_AT - PROMOTE_AT).await;
+    tokio::time::sleep(OPERATOR_CONFIRM_AT.saturating_sub(PROMOTE_AT)).await;
     // If member-b is alive and still unconfirmed (e.g. partitioned from both
     // peers), stop member-a per ADR 0055's `--confirm` contract and confirm
     // member-b by operator.
@@ -607,8 +633,13 @@ async fn operate(host: Host, world: World) -> turmoil::Result {
         }
     }
 
-    tokio::time::sleep(SETTLED - OPERATOR_CONFIRM_AT - RPC_TIMEOUT - Duration::from_millis(20))
-        .await;
+    tokio::time::sleep(
+        SETTLED
+            .saturating_sub(OPERATOR_CONFIRM_AT)
+            .saturating_sub(RPC_TIMEOUT)
+            .saturating_sub(Duration::from_millis(20)),
+    )
+    .await;
     Ok(())
 }
 

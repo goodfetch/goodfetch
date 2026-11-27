@@ -12,7 +12,7 @@
 )]
 
 use std::io::{BufRead as _, BufReader, Write as _};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -704,7 +704,11 @@ fn refused_peer_versions_are_refused_in_reply_to_hello_by_collie() {
         if fabricated.engine != Product::Collie {
             continue;
         }
-        let tcp = TcpStream::connect(address).unwrap();
+        #[expect(
+            clippy::disallowed_types,
+            reason = "test opens a raw TCP link directly to the live peer listener to send fabricated refusal cases"
+        )]
+        let tcp = std::net::TcpStream::connect(address).unwrap();
         tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let server_name = ServerName::try_from(lead_name.clone()).unwrap();
         let mut tls = StreamOwned::new(

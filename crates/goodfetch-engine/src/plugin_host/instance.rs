@@ -80,7 +80,7 @@ use super::lifecycle::{
     self, InstanceEffect, InstanceEvent, InstanceState, InvalidInstanceTransition, RecentCrashes,
 };
 use super::process::{Ended, Pipes, PluginProcess};
-use super::spend::{DeclaredSpend, ReportedSpend, SpendAccountant};
+use super::spend::{DeclaredSpend, PluginSpend, ReportedSpend};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::deadline::{Deadline, Enclosing};
@@ -123,7 +123,7 @@ pub struct Plugin {
     /// The clock its calls' deadlines wait on.
     pub clock: Clock,
     /// Optional Run spend accounting for the Plugin's declared `spend` units.
-    pub spend: Option<Arc<dyn SpendAccountant>>,
+    pub spend: Option<PluginSpend>,
 }
 
 /// What starts an in-memory Plugin instance, over duplex streams speaking
@@ -139,7 +139,7 @@ pub struct InMemoryPlugin {
     /// The clock its calls' deadlines wait on.
     pub clock: Clock,
     /// Optional Run spend accounting for the Plugin's declared `spend` units.
-    pub spend: Option<Arc<dyn SpendAccountant>>,
+    pub spend: Option<PluginSpend>,
 }
 
 /// The Plugin's end of an in-memory instance's pipes: what the engine writes
@@ -457,7 +457,7 @@ impl PluginInstance {
         config: Config,
         scope: Scope,
         clock: Clock,
-        spend: Option<Arc<dyn SpendAccountant>>,
+        spend: Option<PluginSpend>,
     ) -> (Self, Running, tracing::Span) {
         let (calls, mailbox) = mpsc::channel(MAILBOX);
         let (cancels, cancelled_calls) = mpsc::unbounded_channel();

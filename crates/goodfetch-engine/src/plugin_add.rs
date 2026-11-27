@@ -232,16 +232,16 @@ pub(crate) async fn approve_permissions(
                 Some(Value::Object(plugins)) => plugins.clone(),
                 _ => Map::new(),
             };
-            let settings = plugins
+            let existing = plugins
                 .get(&name)
                 .and_then(|entry| PluginEntry::read(entry).ok())
-                .map(|entry| entry.settings)
                 .unwrap_or_default();
             let entry = PluginEntry {
-                settings,
+                settings: existing.settings,
                 allow: Some(true),
                 digest: Some(digest),
                 approved,
+                spend: existing.spend,
             };
             let entry = serde_json::to_value(&entry)
                 .expect("invariant: a Plugin's entry serializes to JSON");
@@ -654,6 +654,7 @@ fn added(
         files: held.manifest.files,
         processes: held.manifest.processes,
         browsers: held.manifest.browsers,
+        spend: held.manifest.spend,
         permissions,
         signer,
         approval: None,

@@ -8074,9 +8074,34 @@ export interface PluginAdded {
    */
   signer?: SignerIdentity | null;
   /**
+   * The spend units its manifest declares outside the engine, each with
+   * its maximum per call and optional price (ADR 0033).
+   */
+  spend?: {
+    [k: string]: Spend;
+  };
+  /**
    * Its version, as its manifest names it.
    */
   version: string;
+}
+/**
+ * A unit of a Plugin's spend outside the engine (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Spend".
+ */
+export interface Spend {
+  /**
+   * The most of the unit one call spends, which the engine reserves
+   * before the call.
+   */
+  maxPerCall: number;
+  /**
+   * Its price, such as `0.002 USD`; without one, a currency Limit treats
+   * the unit as unbounded and refuses the call.
+   */
+  price?: string | null;
 }
 /**
  * What `plugin_attestation_invalid` details.

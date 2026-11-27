@@ -12,10 +12,41 @@ use std::sync::Arc;
 use futures_util::future::BoxFuture;
 use goodfetch_protocol::catalog::PriceValue;
 use goodfetch_protocol::plugin::Spend;
+use goodfetch_protocol::plugin::settings::SpendOverride;
 use goodfetch_protocol::plugin::spend::{PLUGIN_PRICE_UNKNOWN, PluginPriceUnknownDetails};
 
 use crate::call_error::CallError;
 use crate::plugin_host::instance::CallFailure;
+
+/// Spend accounting and operator price overrides handed to a
+/// [`PluginInstance`](super::instance::PluginInstance) (ADR 0033, issues 940
+/// and 3677).
+#[derive(Clone, Debug)]
+pub struct PluginSpend {
+    /// The Run's spend accountant.
+    pub accountant: Arc<dyn SpendAccountant>,
+    /// Operator policy price overrides (`plugins.<name>.spend.<unit>.price`),
+    /// replacing the manifest's declared prices in reservations and settlements.
+    pub overrides: BTreeMap<String, SpendOverride>,
+}
+
+impl PluginSpend {
+    /// Spend accounting with no operator price overrides.
+    #[must_use]
+    pub fn new(accountant: Arc<dyn SpendAccountant>) -> Self {
+        Self {
+            accountant,
+            overrides: BTreeMap::new(),
+        }
+    }
+
+    /// Attaches operator price overrides from Operator policy.
+    #[must_use]
+    pub fn with_overrides(mut self, overrides: BTreeMap<String, SpendOverride>) -> Self {
+        self.overrides = overrides;
+        self
+    }
+}
 
 /// One parsed spend unit declared in a Plugin manifest (after applying any
 /// operator price override).
@@ -85,27 +116,35 @@ pub(super) struct DeclaredSpend {
 
 impl DeclaredSpend {
     /// Builds spend tracking for `plugin` from its manifest's `spend` table
-    /// when both `spend` and `accountant` are present.
+    /// and any operator price overrides when both `spend` and `plugin_spend`
+    /// are present.
     pub(super) fn new(
         plugin: String,
         spend: &BTreeMap<String, Spend>,
-        accountant: Option<Arc<dyn SpendAccountant>>,
+        plugin_spend: Option<PluginSpend>,
     ) -> Option<Self> {
         if spend.is_empty() {
             return None;
         }
-        let accountant = accountant?;
+        let PluginSpend {
+            accountant,
+            overrides,
+        } = plugin_spend?;
         let units = spend
             .iter()
             .map(|(unit, declared)| {
-                let price = declared.price.as_deref().and_then(|text| {
+                let effective = overrides
+                    .get(unit)
+                    .and_then(|entry| entry.price.as_deref())
+                    .or(declared.price.as_deref());
+                let price = effective.and_then(|text| {
                     let parsed = PriceValue::parse(text);
                     if parsed.is_none() {
                         tracing::warn!(
                             plugin = %plugin,
                             unit = %unit,
                             price = text,
-                            "a Plugin manifest spend price cannot be parsed; treating the unit as unpriced"
+                            "a Plugin spend price cannot be parsed; treating the unit as unpriced"
                         );
                     }
                     parsed

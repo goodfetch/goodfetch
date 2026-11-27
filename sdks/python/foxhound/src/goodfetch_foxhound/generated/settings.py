@@ -901,6 +901,13 @@ class PluginsEntryApproved(TypedDict):
     """The domains whose logged-in Session's credentials it may use."""
 
 
+class PluginsEntrySpendEntry(TypedDict):
+    """A value of `PluginsEntrySpendEntry`."""
+
+    price: NotRequired[str]
+    """Price per unit, such as `0.005 USD`, replacing the manifest's declared price."""
+
+
 class PluginsEntry(TypedDict):
     """A value of `PluginsEntry`."""
 
@@ -915,6 +922,9 @@ class PluginsEntry(TypedDict):
 
     settings: NotRequired[Mapping[str, object]]
     """The Plugin's settings, which its manifest's `settings_schema` validates."""
+
+    spend: NotRequired[Mapping[str, PluginsEntrySpendEntry]]
+    """Operator price overrides for the Plugin's declared spend units, by unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator policy sets it."""
 
 
 class ConnectionPolitenessBackoffSettings(TypedDict):

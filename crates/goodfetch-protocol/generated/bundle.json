@@ -18265,6 +18265,14 @@
           "arrived_in": "0.1",
           "description": "The verified signer identity recorded from the artifact's provenance\nattestation, when verified."
         },
+        "spend": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Spend"
+          },
+          "arrived_in": "0.1",
+          "description": "The spend units its manifest declares outside the engine, each with\nits maximum per call and optional price (ADR 0033).",
+          "type": "object"
+        },
         "version": {
           "arrived_in": "0.1",
           "description": "Its version, as its manifest names it.",
@@ -33763,6 +33771,20 @@
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
                       "type": "object"
+                    },
+                    "spend": {
+                      "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "price": {
+                            "description": "Price per unit, such as `0.005 USD`, replacing the manifest's declared price.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "description": "Operator price overrides for the Plugin's declared spend units, by unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator policy sets it.",
+                      "type": "object"
                     }
                   },
                   "type": "object"
@@ -38351,6 +38373,20 @@
                     },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
+                      "type": "object"
+                    },
+                    "spend": {
+                      "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "price": {
+                            "description": "Price per unit, such as `0.005 USD`, replacing the manifest's declared price.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "description": "Operator price overrides for the Plugin's declared spend units, by unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator policy sets it.",
                       "type": "object"
                     }
                   },
@@ -42956,6 +42992,20 @@
                     },
                     "settings": {
                       "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
+                      "type": "object"
+                    },
+                    "spend": {
+                      "additionalProperties": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "price": {
+                            "description": "Price per unit, such as `0.005 USD`, replacing the manifest's declared price.",
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "description": "Operator price overrides for the Plugin's declared spend units, by unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator policy sets it.",
                       "type": "object"
                     }
                   },

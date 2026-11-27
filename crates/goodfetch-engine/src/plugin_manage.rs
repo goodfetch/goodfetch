@@ -276,8 +276,10 @@ async fn clear_approvals(
                 return Ok(Change::Kept(PluginApprovalsRemoval::Absent));
             };
             let entry = PluginEntry::read(existing).unwrap_or_default();
-            let had_approvals =
-                entry.allow.is_some() || entry.digest.is_some() || !entry.approved.is_empty();
+            let had_approvals = entry.allow.is_some()
+                || entry.digest.is_some()
+                || !entry.approved.is_empty()
+                || !entry.spend.is_empty();
             if !had_approvals {
                 return Ok(Change::Kept(PluginApprovalsRemoval::Absent));
             }

@@ -718,6 +718,20 @@ fn stated(added: &PluginAdded) -> String {
                 .expect("invariant: writing into a String");
         }
     }
+    if added.spend.is_empty() {
+        writeln!(text, "  Spend: none").expect("invariant: writing into a String");
+    } else {
+        writeln!(text, "  Spend:").expect("invariant: writing into a String");
+        for (unit, spend) in &added.spend {
+            let price = spend.price.as_deref().unwrap_or("unbounded");
+            writeln!(
+                text,
+                "    - {unit}: max {} per call, price: {price}",
+                spend.max_per_call
+            )
+            .expect("invariant: writing into a String");
+        }
+    }
     if added.permissions.is_empty() {
         write!(text, "  Permissions: none (it may run, and nothing more)")
             .expect("invariant: writing into a String");

@@ -9568,6 +9568,14 @@
           "arrived_in": "0.1",
           "description": "The verified signer identity recorded from the artifact's provenance\nattestation, when verified."
         },
+        "spend": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Spend"
+          },
+          "arrived_in": "0.1",
+          "description": "The spend units its manifest declares outside the engine, each with\nits maximum per call and optional price (ADR 0033).",
+          "type": "object"
+        },
         "version": {
           "arrived_in": "0.1",
           "description": "Its version, as its manifest names it.",
@@ -16087,6 +16095,31 @@
           "type": "string"
         }
       ]
+    },
+    "Spend": {
+      "additionalProperties": false,
+      "description": "A unit of a Plugin's spend outside the engine (ADR 0033).",
+      "properties": {
+        "max_per_call": {
+          "arrived_in": "0.1",
+          "description": "The most of the unit one call spends, which the engine reserves\nbefore the call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "price": {
+          "arrived_in": "0.1",
+          "description": "Its price, such as `0.002 USD`; without one, a currency Limit treats\nthe unit as unbounded and refuses the call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "max_per_call"
+      ],
+      "type": "object"
     },
     "StartInput": {
       "description": "An input of a start that differs from the Run's.",
@@ -25852,6 +25885,20 @@
             },
             "settings": {
               "description": "The Plugin's settings, which its manifest's `settings_schema` validates.",
+              "type": "object"
+            },
+            "spend": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "properties": {
+                  "price": {
+                    "description": "Price per unit, such as `0.005 USD`, replacing the manifest's declared price.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "description": "Operator price overrides for the Plugin's declared spend units, by unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator policy sets it.",
               "type": "object"
             }
           },

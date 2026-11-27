@@ -232,6 +232,7 @@ export type CollieWireType =
   | "SigningKeyCreated"
   | "SigningKeyDirectory"
   | "SigningKeyDirectoryParams"
+  | "Spend"
   | "StatedPermission"
   | "StopReason"
   | "SystemInfo"
@@ -398,7 +399,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "Period": { fields: { "time_zone": "timeZone" } },
     "PermissionDiff": { fields: { "added": ["added", { items: { type: "StatedPermission" } }], "removed": ["removed", { items: { type: "StatedPermission" } }], "requires_approval": "requiresApproval", "widened": ["widened", { items: { type: "WidenedPermission" } }] } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
-    "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
+    "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }], "spend": ["spend", { values: { type: "Spend" } }] } },
     "PluginAttestationInvalidDetails": { fields: { "expected_signer": "expectedSigner", "found_signer": "foundSigner" } },
     "PluginIndex": { fields: { "expires_at": "expiresAt", "plugins": ["plugins", { items: { type: "IndexEntry" } }], "revocations": ["revocations", { items: { type: "Revocation" } }], "signed_at": "signedAt" } },
     "PluginIndexImportParams": { fields: { "bundle": ["bundle", { type: "SignedBundle" }] } },
@@ -485,6 +486,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SigningKeyCreated": { fields: { "key_id": "keyId", "public_key": "publicKey", "signing_key": "signingKey" } },
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
     "SigningKeyDirectoryParams": { fields: { "signing_keys": "signingKeys", "valid_for": "validFor" } },
+    "Spend": { fields: { "max_per_call": "maxPerCall" } },
     "StatedPermission": { fields: { "cannot_check": "cannotCheck" } },
     "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },

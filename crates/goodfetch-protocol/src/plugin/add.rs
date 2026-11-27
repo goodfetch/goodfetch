@@ -15,7 +15,7 @@ use crate::catalog::{
 };
 use crate::plugin::approvals::{StatedPermission, is_false};
 use crate::plugin::index::SignerIdentity;
-use crate::plugin::manifest::{ManifestBrowser, NetworkLevel};
+use crate::plugin::manifest::{ManifestBrowser, NetworkLevel, Spend};
 use crate::plugin::names::PluginKindName;
 use crate::settings::ProjectSettings;
 
@@ -112,6 +112,11 @@ pub struct PluginAdded {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub browsers: Vec<ManifestBrowser>,
+    /// The spend units its manifest declares outside the engine, each with
+    /// its maximum per call and optional price (ADR 0033).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub spend: BTreeMap<String, Spend>,
     /// Each permission its manifest declares, with what it lets the Plugin
     /// do and what the engine cannot check.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

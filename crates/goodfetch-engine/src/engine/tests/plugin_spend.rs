@@ -5,16 +5,17 @@
 //! in the report, and stopping the Run when they cross a Limit (ADR 0033,
 //! issue 940).
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
-
-use crate::sync::Mutex;
 
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, Product, ProtocolVersion, Reach, Stability, schema_of,
 };
 use goodfetch_protocol::plugin::PluginManifest;
+use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry, SpendOverride};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::run::warning::{PLUGIN_FIGURES, PLUGIN_QUANTITY_ABOVE_MAXIMUM};
+use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::usage::{INSTALL, PLUGIN_UNITS};
 use goodfetch_test_support::TestEnv;
 use serde_json::{Value, json};
@@ -27,8 +28,10 @@ use crate::plugin_gate::PluginFetch;
 use crate::plugin_host::instance::{
     CallFailure, InMemoryPeer, InMemoryPlugin, PluginInstance, Scope,
 };
+use crate::plugin_host::spend::PluginSpend;
 use crate::runs::RunSpendAccountant;
-use crate::settings::{Layers, resolve};
+use crate::settings::{Layers, Policy, SettingsError, Values, resolve};
+use crate::sync::Mutex;
 
 /// One scripted reply the in-memory Plugin makes to an incoming call:
 /// optional `usage.report` calls back, followed by the JSON result.
@@ -157,6 +160,7 @@ fn plugin_units_usd_limit(amount: u64) -> Value {
 
 fn spend_contribution(
     manifest: PluginManifest,
+    overrides: BTreeMap<String, SpendOverride>,
     script: Vec<ScriptedCall>,
     calls_to_make: usize,
     calls_received: Arc<Mutex<usize>>,
@@ -181,6 +185,7 @@ fn spend_contribution(
         op,
         move |params: Value, context| {
             let manifest = manifest.clone();
+            let overrides = overrides.clone();
             let script = script.clone();
             let calls_received = Arc::clone(&calls_received);
             async move {
@@ -194,6 +199,8 @@ fn spend_contribution(
                     PluginFetch::of(&resolved, &manifest.name, clock, owner.blocking_threads())
                         .unwrap(),
                 );
+                let accountant =
+                    RunSpendAccountant::new(parts.charging.clone(), parts.warnings.clone());
                 let (instance, peer) = PluginInstance::start_in_memory(
                     owner,
                     InMemoryPlugin {
@@ -201,10 +208,7 @@ fn spend_contribution(
                         product: Product::Collie,
                         fetch,
                         clock,
-                        spend: Some(RunSpendAccountant::new(
-                            parts.charging.clone(),
-                            parts.warnings.clone(),
-                        )),
+                        spend: Some(PluginSpend::new(accountant).with_overrides(overrides)),
                     },
                     Scope::Run(id),
                 );
@@ -238,10 +242,25 @@ fn run_plugin_spend_scenario(
     script: Vec<ScriptedCall>,
     calls_to_make: usize,
 ) -> (Vec<Result<(), String>>, Value, usize) {
+    run_plugin_spend_with_overrides(manifest, BTreeMap::new(), limit_usd, script, calls_to_make)
+}
+
+fn run_plugin_spend_with_overrides(
+    manifest: PluginManifest,
+    overrides: BTreeMap<String, SpendOverride>,
+    limit_usd: Option<u64>,
+    script: Vec<ScriptedCall>,
+    calls_to_make: usize,
+) -> (Vec<Result<(), String>>, Value, usize) {
     let env = TestEnv::new();
     let calls_received = Arc::new(Mutex::new(0));
-    let contribution =
-        spend_contribution(manifest, script, calls_to_make, Arc::clone(&calls_received));
+    let contribution = spend_contribution(
+        manifest,
+        overrides,
+        script,
+        calls_to_make,
+        Arc::clone(&calls_received),
+    );
     let engine = engine_with(Product::Collie, Some(contribution));
     let (outcomes_json, report) = attached_on(&engine, &env, |mut client| async move {
         client
@@ -500,4 +519,156 @@ fn an_over_maximum_report_is_recorded_in_full_flagged_and_stops_the_run_when_cro
         .collect();
     assert!(ok_codes.contains(&PLUGIN_QUANTITY_ABOVE_MAXIMUM));
     assert!(ok_codes.contains(&PLUGIN_FIGURES));
+}
+
+/// Non-policy layers setting `plugins.<name>.spend` are refused with
+/// `setting_not_applicable`, while Operator policy accepts it and preserves it
+/// across nearer layers setting `plugins.<name>.settings`.
+///
+/// Covers: story:7-19, error:setting_not_applicable
+#[test]
+fn plugins_spend_override_is_operator_policy_only() {
+    let spend_only_map = serde_json::from_value(json!({
+        "plugins": {
+            "solver": {
+                "spend": {
+                    "solves": { "price": "0.005 USD" },
+                },
+            },
+        },
+    }))
+    .unwrap();
+    for (layer, make_layers) in [
+        (
+            SettingsLayer::UserConfiguration,
+            (|v| Layers {
+                user_configuration: v,
+                ..Layers::default()
+            }) as fn(Values) -> Layers,
+        ),
+        (SettingsLayer::ProjectConfiguration, |v| Layers {
+            project_configuration: v,
+            ..Layers::default()
+        }),
+        (SettingsLayer::Run, |v| Layers {
+            run: v,
+            ..Layers::default()
+        }),
+    ] {
+        let values = Values::read(layer, &spend_only_map, Product::Collie).unwrap();
+        let err = resolve(&make_layers(values), Product::Collie, Product::Collie).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                SettingsError::NotApplicable { ref key, .. } if key == "plugins.solver.spend"
+            ),
+            "expected NotApplicable for {layer:?}, got {err:?}"
+        );
+    }
+
+    let operator = Values::read(
+        SettingsLayer::OperatorPolicy,
+        &spend_only_map,
+        Product::Collie,
+    )
+    .unwrap();
+    let user_map = serde_json::from_value(json!({
+        "plugins": { "solver": { "settings": { "mode": "fast" } } },
+    }))
+    .unwrap();
+    let user = Values::read(SettingsLayer::UserConfiguration, &user_map, Product::Collie).unwrap();
+    let resolved = resolve(
+        &Layers {
+            operator_policy: Policy {
+                settings: operator,
+                ..Policy::default()
+            },
+            user_configuration: user,
+            ..Layers::default()
+        },
+        Product::Collie,
+        Product::Collie,
+    )
+    .unwrap();
+    let entry = PluginEntry::read(&resolved.value(&PLUGINS)["solver"]).unwrap();
+    assert_eq!(
+        entry.spend.get("solves"),
+        Some(&SpendOverride {
+            price: Some("0.005 USD".to_owned()),
+        })
+    );
+}
+
+/// An operator's price override (`plugins.<name>.spend.<unit>.price`) replaces
+/// the manifest's declared price (or supplies one for an unpriced unit) in
+/// #940's reservation.
+///
+/// Covers: story:7-19, story:7-42
+#[test]
+fn an_operator_price_override_replaces_the_declared_price_in_reservation() {
+    let overrides = BTreeMap::from([(
+        "solves".to_owned(),
+        SpendOverride {
+            price: Some("0.005 USD".to_owned()),
+        },
+    )]);
+
+    // Manifest declares 0.002 USD with max_per_call = 2 (worst = 4_000).
+    // Operator overrides to 0.005 USD -> worst = 10_000!
+    // Under a 12_000 USD Limit: Call 1 reports 2 solves (10_000 USD), leaving
+    // 2_000 (< 10_000), so Call 2 is refused with `limit_reached` (whereas
+    // 2 * 4_000 = 8_000 at the declared price would have succeeded).
+    let manifest = manifest_with_spend(
+        "solver",
+        &json!({ "solves": { "max_per_call": 2, "price": "0.002 USD" } }),
+    );
+    let (outcomes, report, received) = run_plugin_spend_with_overrides(
+        manifest,
+        overrides.clone(),
+        Some(12_000),
+        vec![
+            ScriptedCall {
+                reports: vec![("solves".to_owned(), 2)],
+            },
+            ScriptedCall {
+                reports: vec![("solves".to_owned(), 2)],
+            },
+        ],
+        2,
+    );
+    assert_eq!(outcomes, vec![Ok(()), Err("limit_reached".to_owned())]);
+    assert_eq!(received, 1);
+    assert_eq!(
+        report["usage"]["plugin_units"],
+        json!([{
+            "plugin": "solver",
+            "unit": "solves",
+            "quantity": 2,
+            "price": { "currency": "USD", "amount": 10_000 },
+        }])
+    );
+
+    // Operator override also supplies a price for a manifest unit that had none.
+    let unpriced_manifest =
+        manifest_with_spend("solver", &json!({ "solves": { "max_per_call": 2 } }));
+    let (unpriced_outcomes, unpriced_report, unpriced_received) = run_plugin_spend_with_overrides(
+        unpriced_manifest,
+        overrides,
+        Some(20_000),
+        vec![ScriptedCall {
+            reports: vec![("solves".to_owned(), 1)],
+        }],
+        1,
+    );
+    assert_eq!(unpriced_outcomes, vec![Ok(())]);
+    assert_eq!(unpriced_received, 1);
+    assert_eq!(
+        unpriced_report["usage"]["plugin_units"],
+        json!([{
+            "plugin": "solver",
+            "unit": "solves",
+            "quantity": 1,
+            "price": { "currency": "USD", "amount": 5_000 },
+        }])
+    );
 }

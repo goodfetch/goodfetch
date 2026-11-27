@@ -150,13 +150,14 @@ fn plugin_add_under_json_is_refused_for_want_of_a_person() {
     assert!(!HomeLayout::of(env.home()).operator_policy().exists());
 }
 
-/// Story 7-3: before any approval is written, `plugin add` prints every
+/// Story 7-3 & 7-19: before any approval is written, `plugin add` prints every
 /// field the person grants: kinds, network level, permissions, environment
-/// variables, files, processes and browsers, both for a toy Plugin with
-/// none of the optional ones and for a browser Plugin that declares each.
+/// variables, files, processes, browsers, and declared spend units (each with
+/// its maximum per call and its price, or `unbounded` when unpriced), both for
+/// a toy Plugin with none of the optional ones and for Plugins declaring each.
 /// The Operator policy stays absent until the person confirms.
 ///
-/// Covers: story:7-3, command:plugin.add
+/// Covers: story:7-3, story:7-19, command:plugin.add
 #[rstest]
 #[case::toy(
     json!({
@@ -175,7 +176,29 @@ fn plugin_add_under_json_is_refused_for_want_of_a_person() {
         "Files: none",
         "Processes: none",
         "Browsers: none",
+        "Spend: none",
         "Permissions: none",
+    ],
+)]
+#[case::with_spend(
+    json!({
+        "manifest_version": "0.1",
+        "name": "kettle",
+        "version": "1.0.0",
+        "kinds": ["extract"],
+        "protocol": { "min": "0.1", "max": "0.1" },
+        "entrypoint": "kettle",
+        "network_level": "none",
+        "spend": {
+            "solves": { "max_per_call": 3, "price": "0.002 USD" },
+            "extra": { "max_per_call": 5 },
+        },
+    }),
+    &[
+        "Kinds: extract",
+        "Spend:",
+        "solves: max 3 per call, price: 0.002 USD",
+        "extra: max 5 per call, price: unbounded",
     ],
 )]
 #[case::with_browsers(

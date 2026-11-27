@@ -94,6 +94,7 @@ fn a_plugin_added_is_installed_and_pinned_and_a_repeat_pulls_nothing() {
             files: vec![],
             processes: vec![],
             browsers: vec![],
+            spend: BTreeMap::new(),
             permissions: vec![],
             signer: None,
             approval: None,

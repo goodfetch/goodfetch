@@ -2,10 +2,12 @@
 //! which gives a Plugin, by its name, the fields its manifest's
 //! `settings_schema` declares, as `plugins.<name>.settings`.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::catalog::{Authority, ProtocolVersion, Setting, ValueKind, ValueShape};
+use crate::catalog::{Authority, PriceValue, ProtocolVersion, Setting, ValueKind, ValueShape};
 use crate::plugin::approvals::Approvals;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -14,6 +16,18 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// `"secret": true`, as Airbyte's connector specifications mark one
 /// `airbyte_secret`: the field takes only a Secret reference.
 pub const SECRET_KEYWORD: &str = "secret";
+
+/// An operator's price override for one declared spend unit of a Plugin
+/// (`plugins.<name>.spend.<unit>`, Operator policy only; ADR 0033, issue 3677).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpendOverride {
+    /// The price per unit, such as `0.005 USD`, replacing the manifest's
+    /// declared price (or supplying one for an unpriced unit) in currency
+    /// Limit reservations and settlements.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price: Option<String>,
+}
 
 /// A Plugin's entry in `plugins`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,12 +49,17 @@ pub struct PluginEntry {
     /// own. Only an Operator policy sets it.
     #[serde(default, skip_serializing_if = "Approvals::is_empty")]
     pub approved: Approvals,
+    /// Operator price overrides for the Plugin's declared spend units, by
+    /// unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator
+    /// policy sets it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub spend: BTreeMap<String, SpendOverride>,
 }
 
 impl PluginEntry {
     /// The fields only an Operator policy sets, which a nearer layer's
     /// entry for the same Plugin keeps.
-    pub const POLICY_FIELDS: [&'static str; 3] = ["allow", "digest", "approved"];
+    pub const POLICY_FIELDS: [&'static str; 4] = ["allow", "digest", "approved", "spend"];
 
     /// The entry `value` gives.
     ///
@@ -48,7 +67,17 @@ impl PluginEntry {
     ///
     /// What is wrong with it, for a `setting_invalid` message.
     pub fn read(value: &Value) -> Result<Self, String> {
-        Self::deserialize(value).map_err(|error| error.to_string())
+        let entry = Self::deserialize(value).map_err(|error| error.to_string())?;
+        for (unit, override_entry) in &entry.spend {
+            if let Some(price) = override_entry.price.as_deref()
+                && PriceValue::parse(price).is_none()
+            {
+                return Err(format!(
+                    "spend.{unit}.price must be a price such as `0.005 USD`, got `{price}`"
+                ));
+            }
+        }
+        Ok(entry)
     }
 }
 
@@ -90,6 +119,20 @@ pub const PLUGIN_ENTRY_SHAPE: ValueShape = ValueShape {
                         },
                     },
                 },
+                "spend": {
+                    "type": "object",
+                    "description": "Operator price overrides for the Plugin's declared spend units, by unit name (`plugins.<name>.spend.<unit>.price`). Only an Operator policy sets it.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "price": {
+                                "type": "string",
+                                "description": "Price per unit, such as `0.005 USD`, replacing the manifest's declared price.",
+                            },
+                        },
+                    },
+                },
             },
         })
     },
@@ -107,6 +150,9 @@ pub const PLUGIN_ENTRY_SHAPE: ValueShape = ValueShape {
                     "secret_values": ["env:SHOP_TOKEN"],
                     "browsers": ["sha256:0000000000000000000000000000000000000000000000000000000000000000"],
                     "direct": true,
+                },
+                "spend": {
+                    "solves": { "price": "0.005 USD" },
                 },
             }),
             json!({ "allow": false }),

@@ -40,7 +40,7 @@ use crate::home::Home;
 use crate::plugin_gate::{Inserting, PluginFetch, permission_denied};
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
-use crate::plugin_host::spend::SpendAccountant;
+use crate::plugin_host::spend::{PluginSpend, SpendAccountant};
 use crate::plugin_index::{self, LoadRefusal, PluginIndexStore};
 use crate::plugin_runtime::{self, RuntimeCatalog};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
@@ -440,6 +440,10 @@ impl RunPlugins {
             })
             .await
             .map_err(|reason| cannot_start(&reason))?;
+        let spend = self
+            .spend
+            .clone()
+            .map(|accountant| PluginSpend::new(accountant).with_overrides(entry.spend));
         let instance = PluginInstance::start(
             &self.owner,
             instance::Plugin {
@@ -449,7 +453,7 @@ impl RunPlugins {
                 product: self.product,
                 fetch: Arc::new(fetch),
                 clock: self.clock,
-                spend: self.spend.clone(),
+                spend,
             },
             Scope::Run(self.run_id.clone()),
         );

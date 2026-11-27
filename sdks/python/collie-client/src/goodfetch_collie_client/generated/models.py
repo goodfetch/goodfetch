@@ -5454,6 +5454,24 @@ class SortOrder(StrEnum):
     """Largest first: the newest first, when sorting by time."""
 
 
+class Spend(BaseModel):
+    """A unit of a Plugin's spend outside the engine (ADR 0033)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    max_per_call: Annotated[int, Field(ge=0)]
+    """
+    The most of the unit one call spends, which the engine reserves
+    before the call.
+    """
+    price: str | None = None
+    """
+    Its price, such as `0.002 USD`; without one, a currency Limit treats
+    the unit as unbounded and refuses the call.
+    """
+
+
 class StartInput(StrEnum):
     """An input of a start that differs from the Run's."""
 
@@ -8626,6 +8644,11 @@ class PluginAdded(BaseModel):
     """
     The verified signer identity recorded from the artifact's provenance
     attestation, when verified.
+    """
+    spend: dict[str, Spend] | None = None
+    """
+    The spend units its manifest declares outside the engine, each with
+    its maximum per call and optional price (ADR 0033).
     """
     version: str
     """Its version, as its manifest names it."""

@@ -4443,6 +4443,16 @@ class SecretInputRefusedReason(StrEnum):
     """
 
 
+class SecretResolved(BaseModel):
+    """What `resolveSecret` answers: the value. Its `Debug` leaves it out."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    value: str
+    """The value."""
+
+
 class SecretUnavailableDetails(BaseModel):
     """What `secret_unavailable` details."""
 
@@ -4472,6 +4482,20 @@ class SecretUnboundDetails(BaseModel):
     """The placeholders the scopes bind, never a value."""
     placeholder: str
     """The placeholder no scope binds."""
+
+
+class SecretsResolveParams(BaseModel):
+    """What `secrets.resolve` gives the program's `resolveSecret`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    domain: str | None = None
+    """The host the value is sent to, where the use has one."""
+    name: str
+    """The reference's name, what follows `caller:`."""
+    run_id: RunId
+    """The Run that uses it, which this Connection opened."""
 
 
 class SeedsKept(BaseModel):

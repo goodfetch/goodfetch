@@ -1159,12 +1159,17 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         .await
         .map_err(start_error)?;
     let started = match started {
-        Started::New(run) => RunStarted {
-            run_id: run.identity.id().clone(),
-            started_as: StartedAs::New,
-            lifecycle: goodfetch_protocol::run::Lifecycle::Running,
-            needs: Product::Collie,
-        },
+        Started::New(run) => {
+            run.keys
+                .secrets()
+                .answered_by(run.identity.id().clone(), context.client().clone());
+            RunStarted {
+                run_id: run.identity.id().clone(),
+                started_as: StartedAs::New,
+                lifecycle: goodfetch_protocol::run::Lifecycle::Running,
+                needs: Product::Collie,
+            }
+        }
         // The resumed Run counts its timeout on a fresh clock (ADR 0102).
         Started::Interrupted(run_id) => {
             resume_run(&context, run_id, None, settings, timeout, true).await?
@@ -1412,6 +1417,9 @@ pub async fn resume_run(
             run, kind, needs, ..
         } => {
             let identity = &run.identity;
+            run.keys
+                .secrets()
+                .answered_by(identity.id().clone(), context.client().clone());
             let started = RunStarted {
                 run_id: identity.id().clone(),
                 started_as: StartedAs::Resumed,

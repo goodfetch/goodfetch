@@ -10055,6 +10055,18 @@ export interface SecretInputRefusedDetails {
   reference: string;
 }
 /**
+ * What `resolveSecret` answers: the value. Its `Debug` leaves it out.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretResolved".
+ */
+export interface SecretResolved {
+  /**
+   * The value.
+   */
+  value: string;
+}
+/**
  * What `secret_unavailable` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -10094,6 +10106,26 @@ export interface SecretUnboundDetails {
    * The placeholder no scope binds.
    */
   placeholder: string;
+}
+/**
+ * What `secrets.resolve` gives the program's `resolveSecret`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SecretsResolveParams".
+ */
+export interface SecretsResolveParams {
+  /**
+   * The host the value is sent to, where the use has one.
+   */
+  domain?: string | null;
+  /**
+   * The reference's name, what follows `caller:`.
+   */
+  name: string;
+  /**
+   * The Run that uses it, which this Connection opened.
+   */
+  runId: RunId;
 }
 /**
  * A sitemap seed (ADRs 0093 and 0120; CO-10): `sitemap` names a sitemap,

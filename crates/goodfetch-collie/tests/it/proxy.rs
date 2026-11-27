@@ -647,6 +647,84 @@ fn leaks_of(
         .unwrap()
 }
 
+/// A proxy password given as a `caller:` reference is resolved when the
+/// Session opens by `secrets.resolve`, which the Run's own Client answers
+/// (ticket #652): the page loads through the proxy with the value it
+/// answered, a Secret canary that no file of the engine's home, its stderr
+/// nor the browser's command lines hold.
+///
+/// Covers: story:4-59, setting:proxy.password
+#[cfg(unix)]
+#[test]
+fn a_proxy_password_the_runs_client_answers_reaches_the_proxy_and_no_file() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let credentials = proving_ground
+        .description()
+        .fixtures
+        .proxy_credentials
+        .clone();
+    // The proxy's password, which only the test's Client holds and answers.
+    let mut canaries = Canaries::new(env.seed());
+    canaries.add(Canary::known(
+        "caller-answer",
+        SecretKind::CallerAnswer,
+        &credentials.password,
+    ));
+    let mut proxy = proxy_settings(
+        &proving_ground,
+        "socks5",
+        "socks5",
+        Some(&credentials.username),
+    );
+    proxy["password"] = json!("caller:proving_ground_proxy");
+    let mut settings = serde_json::Map::new();
+    settings.insert("proxy".to_owned(), proxy);
+    let mut engine =
+        crate::page::started_with(&env, &cache, &proving_ground, "asked", &settings, |_| {});
+
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "run.new_page",
+        "params": { "run_id": "asked" },
+    }));
+    let mut asked = Vec::new();
+    let new_page = loop {
+        let message = engine.next().expect("the engine answers `run.new_page`");
+        if message["method"] == json!("secrets.resolve") {
+            engine.send(&json!({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": { "value": credentials.password },
+            }));
+            asked.push(message["params"]["name"].clone());
+        } else if message.get("method").is_none() && message["id"] == json!(2) {
+            break message;
+        }
+    };
+    let page = opened(&new_page);
+    let navigated = engine.ask(
+        3,
+        "page.goto",
+        &json!({
+            "page_id": page.page_id,
+            "url": proving_ground.url("scope.test", "/storage?mark=asked"),
+        }),
+    );
+    let arguments = crate::page::browser_command_lines(&env);
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "asked" }));
+    let (_, stderr) = engine.finish_with_stderr();
+    let leaks = leaks_of(&canaries, env.home(), &stderr, &arguments);
+
+    assert_eq!(
+        (asked, &navigated["result"]["response"]["status"], leaks),
+        (vec![json!("proving_ground_proxy")], &json!(200), Vec::new()),
+        "{navigated}"
+    );
+}
+
 /// The proxy's password, a Secret canary, is in nothing `doctor` prints
 /// after the Run, beside the engine's own outputs.
 ///

@@ -307,13 +307,11 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
+            run.keys
+                .secrets()
+                .answered_by(run.identity.id().clone(), context.client().clone());
             let run = CrawlRun::of(&run, &context);
-            let started = RunStarted {
-                run_id: run.identity.id().clone(),
-                started_as: StartedAs::New,
-                lifecycle: Lifecycle::Running,
-                needs: Product::Foxhound,
-            };
+            let started = new_foxhound_run(run.identity.id().clone());
             // Its Limits hold it before its driver sends a request; a
             // crawl they cannot hold ends `failed` rather than run unheld.
             if let Err(error) = limits.give(&started, &context).await {
@@ -349,6 +347,16 @@ async fn start(
             limits.give(&ended, &context).await?;
             Ok(ended)
         }
+    }
+}
+
+/// The `RunStarted` answer for a newly started Foxhound crawl Run.
+fn new_foxhound_run(run_id: RunId) -> RunStarted {
+    RunStarted {
+        run_id,
+        started_as: StartedAs::New,
+        lifecycle: Lifecycle::Running,
+        needs: Product::Foxhound,
     }
 }
 

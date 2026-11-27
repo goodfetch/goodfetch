@@ -43,6 +43,40 @@ fn eval(engine: &mut goodfetch_test_client::Attached, id: i64, page_id: &str, ex
     answer["result"]["value"].clone()
 }
 
+fn assert_setting_error(answer: &Value, code: &str, key: &str) {
+    assert_eq!(
+        (
+            answer["error"]["data"]["code"].clone(),
+            answer["error"]["data"]["key"].clone(),
+        ),
+        (json!(code), json!(key)),
+        "{answer}"
+    );
+}
+
+fn open_session_page_at(
+    engine: &mut goodfetch_test_client::Attached,
+    base_id: i64,
+    session_params: &Value,
+    url: &str,
+) -> String {
+    let session_ans = open_session(engine, base_id, session_params);
+    let session: SessionOpened = serde_json::from_value(session_ans["result"].clone())
+        .unwrap_or_else(|e| panic!("{e}: {session_ans}"));
+    let page = opened(&engine.ask(
+        base_id + 1,
+        "session.new_page",
+        &json!({ "session_id": session.session_id }),
+    ));
+    let went = engine.ask(
+        base_id + 2,
+        "page.goto",
+        &json!({ "page_id": page.page_id, "url": url }),
+    );
+    assert!(went.get("error").is_none(), "{went}");
+    page.page_id.0
+}
+
 /// Settings conformance cases, the `browser.*` lines: setting `browser.*`
 /// or `network.throttle` on a page's own call fails with
 /// `setting_not_applicable`; setting `browser.*` where a Borrowed browser's
@@ -92,14 +126,7 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
             "settings": { "browser": { "viewport": { "width": 375, "height": 812 } } }
         }),
     );
-    assert_eq!(
-        (
-            page_viewport["error"]["data"]["code"].clone(),
-            page_viewport["error"]["data"]["key"].clone(),
-        ),
-        (json!("setting_not_applicable"), json!("browser.viewport")),
-        "{page_viewport}"
-    );
+    assert_setting_error(&page_viewport, "setting_not_applicable", "browser.viewport");
 
     // 2. Open a valid Session, then try `browser.locale` and `network.throttle` on `session.new_page`.
     let session_answer = open_session(&mut engine, 3, &json!({ "run_id": "scopes" }));
@@ -113,14 +140,7 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
             "settings": { "browser": { "locale": "fr-FR" } }
         }),
     );
-    assert_eq!(
-        (
-            page_locale["error"]["data"]["code"].clone(),
-            page_locale["error"]["data"]["key"].clone(),
-        ),
-        (json!("setting_not_applicable"), json!("browser.locale")),
-        "{page_locale}"
-    );
+    assert_setting_error(&page_locale, "setting_not_applicable", "browser.locale");
 
     let page_throttle = engine.ask(
         5,
@@ -130,14 +150,7 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
             "settings": { "network": { "throttle": { "latency": 100 } } }
         }),
     );
-    assert_eq!(
-        (
-            page_throttle["error"]["data"]["code"].clone(),
-            page_throttle["error"]["data"]["key"].clone(),
-        ),
-        (json!("setting_not_applicable"), json!("network.throttle")),
-        "{page_throttle}"
-    );
+    assert_setting_error(&page_throttle, "setting_not_applicable", "network.throttle");
 
     // 3. `browser.viewport` set where a Borrowed browser's Session opens fails with `setting_not_applicable`.
     let borrowed = open_session(
@@ -149,14 +162,7 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
             "settings": { "browser": { "viewport": { "width": 800, "height": 600 } } }
         }),
     );
-    assert_eq!(
-        (
-            borrowed["error"]["data"]["code"].clone(),
-            borrowed["error"]["data"]["key"].clone(),
-        ),
-        (json!("setting_not_applicable"), json!("browser.viewport")),
-        "{borrowed}"
-    );
+    assert_setting_error(&borrowed, "setting_not_applicable", "browser.viewport");
 
     // 4. `browser.locale` set where an imported-login Session opens fails with `setting_locked` naming `session.source`.
     let locked = open_session(
@@ -168,17 +174,10 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
             "settings": { "browser": { "locale": "de-DE" } }
         }),
     );
+    assert_setting_error(&locked, "setting_locked", "browser.locale");
     assert_eq!(
-        (
-            locked["error"]["data"]["code"].clone(),
-            locked["error"]["data"]["key"].clone(),
-            locked["error"]["data"]["limit"]["key"].clone(),
-        ),
-        (
-            json!("setting_locked"),
-            json!("browser.locale"),
-            json!("session.source"),
-        ),
+        locked["error"]["data"]["limit"]["key"],
+        json!("session.source"),
         "{locked}"
     );
 
@@ -187,25 +186,7 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
     assert!(exited);
 }
 
-/// Pitfall B18 and Session device emulation on real Chromium: under default
-/// settings (`1280x720`, `has_touch: false`, `color_scheme: light`), the
-/// Proving ground's responsive layout renders desktop (`wide`) markup; under
-/// `browser.viewport` 375x812 with `browser.has_touch: true`,
-/// `device_scale_factor: 2`, `is_mobile: true`, `color_scheme: dark`,
-/// `locale: fr-FR` and `timezone_id: Asia/Tokyo`, it renders mobile
-/// (`narrow`) markup with all overrides observed. With
-/// `browser.java_script_enabled: false`, page scripts do not execute.
-///
-/// Covers: story:5-59, setting:browser.viewport, setting:browser.has_touch, setting:browser.device_scale_factor, setting:browser.is_mobile, setting:browser.color_scheme, setting:browser.locale, setting:browser.timezone_id, setting:browser.java_script_enabled
-#[test]
-fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_desktop_under_default() {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let cache = browser_cache(&env).unwrap();
-    let mut engine = started(&env, &cache, &proving_ground, "b18");
-    let layout_url = proving_ground.url("1.responsive.test", "/layout");
-
-    // Default Session: desktop 1280x720, no touch, scale 1, light color scheme.
+fn assert_desktop_default_layout(engine: &mut goodfetch_test_client::Attached, layout_url: &str) {
     let desktop_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "b18" })));
     let went = engine.ask(
         3,
@@ -214,10 +195,10 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
     );
     assert!(went.get("error").is_none(), "{went}");
     let desktop = eval(
-        &mut engine,
+        engine,
         4,
         &desktop_page.page_id.0,
-        r#"() => ({
+        r"() => ({
             width: window.innerWidth,
             height: window.innerHeight,
             dpr: window.devicePixelRatio,
@@ -226,7 +207,7 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
             wideDisplay: getComputedStyle(document.querySelector('.plan.wide')).display,
             narrowDisplay: getComputedStyle(document.querySelector('.plan.narrow')).display,
             dark: window.matchMedia('(prefers-color-scheme: dark)').matches,
-        })"#,
+        })",
     );
     // Full headless Chromium applies `--window-size=1280,720` to outer window
     // bounds (leaving ~143px of browser chrome on Linux so `innerHeight` is
@@ -259,10 +240,11 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
         ),
         "desktop observation: {desktop}"
     );
+}
 
-    // Mobile Session: 375x812, touch, dpr 2, mobile, dark, fr-FR, Asia/Tokyo.
-    let mobile_session_ans = open_session(
-        &mut engine,
+fn assert_mobile_emulated_layout(engine: &mut goodfetch_test_client::Attached, layout_url: &str) {
+    let page_id = open_session_page_at(
+        engine,
         5,
         &json!({
             "run_id": "b18",
@@ -278,26 +260,13 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
                 }
             }
         }),
+        layout_url,
     );
-    let mobile_session: SessionOpened =
-        serde_json::from_value(mobile_session_ans["result"].clone())
-            .unwrap_or_else(|e| panic!("{e}: {mobile_session_ans}"));
-    let mobile_page = opened(&engine.ask(
-        6,
-        "session.new_page",
-        &json!({ "session_id": mobile_session.session_id }),
-    ));
-    let went_mobile = engine.ask(
-        7,
-        "page.goto",
-        &json!({ "page_id": mobile_page.page_id, "url": layout_url }),
-    );
-    assert!(went_mobile.get("error").is_none(), "{went_mobile}");
     let mobile = eval(
-        &mut engine,
+        engine,
         8,
-        &mobile_page.page_id.0,
-        r#"() => ({
+        &page_id,
+        r"() => ({
             width: window.innerWidth,
             height: window.innerHeight,
             dpr: window.devicePixelRatio,
@@ -309,7 +278,7 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
             language: navigator.language,
             intlLocale: Intl.DateTimeFormat().resolvedOptions().locale,
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        })"#,
+        })",
     );
     assert_eq!(
         (
@@ -342,34 +311,44 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
         ),
         "mobile observation: {mobile}"
     );
+}
+
+/// Pitfall B18 and Session device emulation on real Chromium: under default
+/// settings (`1280x720`, `has_touch: false`, `color_scheme: light`), the
+/// Proving ground's responsive layout renders desktop (`wide`) markup; under
+/// `browser.viewport` 375x812 with `browser.has_touch: true`,
+/// `device_scale_factor: 2`, `is_mobile: true`, `color_scheme: dark`,
+/// `locale: fr-FR` and `timezone_id: Asia/Tokyo`, it renders mobile
+/// (`narrow`) markup with all overrides observed. With
+/// `browser.java_script_enabled: false`, page scripts do not execute.
+///
+/// Covers: story:5-59, setting:browser.viewport, setting:browser.has_touch, setting:browser.device_scale_factor, setting:browser.is_mobile, setting:browser.color_scheme, setting:browser.locale, setting:browser.timezone_id, setting:browser.java_script_enabled
+#[test]
+fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_desktop_under_default() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "b18");
+    let layout_url = proving_ground.url("1.responsive.test", "/layout");
+
+    assert_desktop_default_layout(&mut engine, &layout_url);
+    assert_mobile_emulated_layout(&mut engine, &layout_url);
 
     // JS disabled Session: page script (`keys.js`, which sets `dataset.posting = "0"`) does not run.
-    let no_js_session_ans = open_session(
+    let keys_url = proving_ground.url("1.keys.test", "/type");
+    let no_js_page_id = open_session_page_at(
         &mut engine,
         9,
         &json!({
             "run_id": "b18",
             "settings": { "browser": { "java_script_enabled": false } }
         }),
+        &keys_url,
     );
-    let no_js_session: SessionOpened = serde_json::from_value(no_js_session_ans["result"].clone())
-        .unwrap_or_else(|e| panic!("{e}: {no_js_session_ans}"));
-    let no_js_page = opened(&engine.ask(
-        10,
-        "session.new_page",
-        &json!({ "session_id": no_js_session.session_id }),
-    ));
-    let keys_url = proving_ground.url("1.keys.test", "/type");
-    let went_no_js = engine.ask(
-        11,
-        "page.goto",
-        &json!({ "page_id": no_js_page.page_id, "url": keys_url }),
-    );
-    assert!(went_no_js.get("error").is_none(), "{went_no_js}");
     let posting = eval(
         &mut engine,
         12,
-        &no_js_page.page_id.0,
+        &no_js_page_id,
         "() => document.documentElement.dataset.posting ?? null",
     );
     assert_eq!(

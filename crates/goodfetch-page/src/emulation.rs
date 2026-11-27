@@ -91,6 +91,18 @@ impl ColorScheme {
     }
 }
 
+/// Whether a Session's browser is borrowed (untouched), headless, or headful.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SessionMode {
+    /// A Borrowed browser keeps its own device metrics and identity.
+    Borrowed,
+    /// A managed headless browser (`browser.headless: true`).
+    #[default]
+    Headless,
+    /// A managed headful browser (`browser.headless: false`).
+    Headful,
+}
+
 /// The resolved device emulation and network throttling a Session applies
 /// to every page it opens and re-applies after a Lent page's attach ends.
 #[derive(Clone, Debug, PartialEq)]
@@ -118,10 +130,8 @@ pub(crate) struct SessionEmulation {
     pub(crate) permissions: Vec<String>,
     /// Emulated network conditions (Chromium only).
     pub(crate) throttle: Option<NetworkThrottle>,
-    /// Whether the Session's browser runs headless.
-    pub(crate) headless: bool,
-    /// Whether the Session borrows an existing browser (no emulation sent).
-    pub(crate) borrowed: bool,
+    /// Whether the Session's browser is borrowed, headless, or headful.
+    pub(crate) mode: SessionMode,
 }
 
 impl Default for SessionEmulation {
@@ -138,8 +148,7 @@ impl Default for SessionEmulation {
             is_mobile: false,
             permissions: Vec::new(),
             throttle: None,
-            headless: true,
-            borrowed: false,
+            mode: SessionMode::Headless,
         }
     }
 }
@@ -149,9 +158,14 @@ impl SessionEmulation {
     pub(crate) fn borrowed() -> Self {
         Self {
             viewport: None,
-            borrowed: true,
+            mode: SessionMode::Borrowed,
             ..Self::default()
         }
+    }
+
+    /// Whether the Session borrows an existing browser (no emulation sent).
+    pub(crate) const fn is_borrowed(&self) -> bool {
+        matches!(self.mode, SessionMode::Borrowed)
     }
 
     /// Whether `Emulation.setDeviceMetricsOverride` is needed when preparing
@@ -159,13 +173,13 @@ impl SessionEmulation {
     /// (`1280x720`, scale `1`, desktop) the launch `--window-size` sets the
     /// default window size with zero extra CDP commands (C7).
     pub(crate) fn needs_device_metrics_on_open(&self) -> bool {
-        if self.borrowed {
+        if self.is_borrowed() {
             return false;
         }
         let non_default_scale = (self.device_scale_factor - 1.0).abs() > f64::EPSILON;
         match self.viewport {
             Some(viewport) => {
-                !self.headless
+                !matches!(self.mode, SessionMode::Headless)
                     || viewport != Viewport::DEFAULT
                     || non_default_scale
                     || self.is_mobile
@@ -330,7 +344,53 @@ pub(crate) fn resolve(
         .0
         .as_bool()
         .unwrap_or(true);
+    let (is_mobile, throttle) = resolve_chromium_only(settings, family)?;
+    let viewport = resolve_viewport(settings, headless)?;
+    let device_scale_factor = settings
+        .scoped(&BROWSER_DEVICE_SCALE_FACTOR)
+        .0
+        .as_f64()
+        .unwrap_or(DeviceScaleFactor::DEFAULT.get());
+    let locale = resolve_identity_text(settings, &BROWSER_LOCALE, source, source_layer)?;
+    let timezone_id = resolve_identity_text(settings, &BROWSER_TIMEZONE_ID, source, source_layer)?;
+    let color_scheme = ColorScheme::from_value(settings.scoped(&BROWSER_COLOR_SCHEME).0);
+    let java_script_enabled = settings
+        .scoped(&BROWSER_JAVA_SCRIPT_ENABLED)
+        .0
+        .as_bool()
+        .unwrap_or(true);
+    let geolocation = resolve_geolocation(settings);
+    let has_touch = settings
+        .scoped(&BROWSER_HAS_TOUCH)
+        .0
+        .as_bool()
+        .unwrap_or(false);
+    let permissions = resolve_permissions(settings, headless)?;
 
+    Ok(SessionEmulation {
+        viewport,
+        device_scale_factor,
+        locale,
+        timezone_id,
+        color_scheme,
+        java_script_enabled,
+        geolocation,
+        has_touch,
+        is_mobile,
+        permissions,
+        throttle,
+        mode: if headless {
+            SessionMode::Headless
+        } else {
+            SessionMode::Headful
+        },
+    })
+}
+
+fn resolve_chromium_only(
+    settings: &SessionSettings<'_>,
+    family: BrowserFamily,
+) -> Result<(bool, Option<NetworkThrottle>), Refusal> {
     let (is_mobile_val, is_mobile_scope) = settings.scoped(&BROWSER_IS_MOBILE);
     let is_mobile = is_mobile_val.as_bool().unwrap_or(false);
     if is_mobile && family != BrowserFamily::Chromium {
@@ -342,7 +402,7 @@ pub(crate) fn resolve(
     }
 
     let (throttle_val, throttle_scope) = settings.scoped(&NETWORK_THROTTLE);
-    let throttle: Option<NetworkThrottle> = if throttle_val.is_null() {
+    let throttle = if throttle_val.is_null() {
         None
     } else {
         if family != BrowserFamily::Chromium {
@@ -357,54 +417,44 @@ pub(crate) fn resolve(
                 .expect("invariant: the catalog checked `network.throttle`"),
         )
     };
+    Ok((is_mobile, throttle))
+}
 
+fn resolve_viewport(
+    settings: &SessionSettings<'_>,
+    headless: bool,
+) -> Result<Option<Viewport>, Refusal> {
     let (viewport_val, viewport_scope) = settings.scoped(&BROWSER_VIEWPORT);
-    let viewport: Option<Viewport> = if viewport_val.is_null() {
+    if viewport_val.is_null() {
         if headless {
             return Err(Refusal::NullViewportHeadless {
                 layer: viewport_scope.layer(),
             });
         }
+        Ok(None)
+    } else {
+        Ok(Some(serde_json::from_value(viewport_val.clone()).expect(
+            "invariant: the catalog checked `browser.viewport`",
+        )))
+    }
+}
+
+fn resolve_geolocation(settings: &SessionSettings<'_>) -> Option<Geolocation> {
+    let val = settings.scoped(&BROWSER_GEOLOCATION).0;
+    if val.is_null() {
         None
     } else {
         Some(
-            serde_json::from_value(viewport_val.clone())
-                .expect("invariant: the catalog checked `browser.viewport`"),
+            serde_json::from_value(val.clone())
+                .expect("invariant: the catalog checked `browser.geolocation`"),
         )
-    };
+    }
+}
 
-    let device_scale_factor = settings
-        .scoped(&BROWSER_DEVICE_SCALE_FACTOR)
-        .0
-        .as_f64()
-        .unwrap_or(DeviceScaleFactor::DEFAULT.get());
-
-    let locale = resolve_identity_text(settings, &BROWSER_LOCALE, source, source_layer)?;
-    let timezone_id = resolve_identity_text(settings, &BROWSER_TIMEZONE_ID, source, source_layer)?;
-
-    let color_scheme = ColorScheme::from_value(settings.scoped(&BROWSER_COLOR_SCHEME).0);
-    let java_script_enabled = settings
-        .scoped(&BROWSER_JAVA_SCRIPT_ENABLED)
-        .0
-        .as_bool()
-        .unwrap_or(true);
-    let geolocation: Option<Geolocation> = {
-        let val = settings.scoped(&BROWSER_GEOLOCATION).0;
-        if val.is_null() {
-            None
-        } else {
-            Some(
-                serde_json::from_value(val.clone())
-                    .expect("invariant: the catalog checked `browser.geolocation`"),
-            )
-        }
-    };
-    let has_touch = settings
-        .scoped(&BROWSER_HAS_TOUCH)
-        .0
-        .as_bool()
-        .unwrap_or(false);
-
+fn resolve_permissions(
+    settings: &SessionSettings<'_>,
+    headless: bool,
+) -> Result<Vec<String>, Refusal> {
     let (permissions_val, permissions_scope) = settings.scoped(&BROWSER_PERMISSIONS);
     let mut permissions = Vec::new();
     if let Some(items) = permissions_val.as_array() {
@@ -423,22 +473,7 @@ pub(crate) fn resolve(
             }
         }
     }
-
-    Ok(SessionEmulation {
-        viewport,
-        device_scale_factor,
-        locale,
-        timezone_id,
-        color_scheme,
-        java_script_enabled,
-        geolocation,
-        has_touch,
-        is_mobile,
-        permissions,
-        throttle,
-        headless,
-        borrowed: false,
-    })
+    Ok(permissions)
 }
 
 /// Resolves `browser.locale` or `browser.timezone_id`: rejects blank strings,

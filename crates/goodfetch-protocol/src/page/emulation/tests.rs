@@ -18,7 +18,7 @@ fn viewport_shape_accepts_positive_dimensions_and_refuses_zero_or_unknown_fields
         (BROWSER_VIEWPORT.default)(),
         json!({ "width": Viewport::DEFAULT.width, "height": Viewport::DEFAULT.height })
     );
-    assert!(BROWSER_VIEWPORT.clearable);
+    const { assert!(BROWSER_VIEWPORT.clearable) };
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn defaults_and_yielding_match_spec_578() {
 #[test]
 fn browser_permissions_lists_playwright_names_and_defaults_empty() {
     assert_eq!((BROWSER_PERMISSIONS.default)(), json!([]));
-    assert!(!BROWSER_PERMISSIONS.clearable);
+    const { assert!(!BROWSER_PERMISSIONS.clearable) };
     assert!(BROWSER_PERMISSION_NAMES.contains(&"geolocation"));
     assert!(BROWSER_PERMISSION_NAMES.contains(&"clipboard-read"));
     assert!(BROWSER_PERMISSION_NAMES.contains(&"clipboard-write"));

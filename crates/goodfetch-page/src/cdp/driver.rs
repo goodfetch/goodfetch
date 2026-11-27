@@ -455,6 +455,89 @@ impl Browser {
             executable: self.executable.clone(),
         }
     }
+
+    /// Sends the planned emulation commands for `emulation` on page target
+    /// `session`. Sends zero commands at default headless settings when
+    /// `force_all` is `false`.
+    async fn apply_emulation(
+        &self,
+        session: &TargetSession,
+        emulation: &SessionEmulation,
+        call: &Call,
+        force_all: bool,
+    ) -> Result<(), CallError> {
+        for command in self::emulation::page_commands(emulation, force_all) {
+            match command {
+                self::emulation::PageCommand::SetDeviceMetricsOverride(params) => {
+                    self.send(Some(session), &*params, call).await?;
+                }
+                self::emulation::PageCommand::ClearDeviceMetricsOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetTouchEmulationEnabled(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetEmulatedMedia(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetScriptExecutionDisabled(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetLocaleOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetTimezoneOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::SetGeolocationOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::ClearGeolocationOverride(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+                self::emulation::PageCommand::EmulateNetworkConditions(params) => {
+                    self.send(Some(session), &params, call).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Grants `emulation.permissions` on `context` (`Browser.grantPermissions`).
+    /// Sends zero commands when the Session is borrowed or declares none.
+    async fn grant_permissions(
+        &self,
+        context: &browser::BrowserContextID,
+        emulation: &SessionEmulation,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        if let Some(params) = self::emulation::grant_permissions_command(context, emulation) {
+            self.send(None, &params, call).await?;
+        }
+        Ok(())
+    }
+
+    /// Resets any permission overrides an attached library may have changed
+    /// on `context`, then re-grants `emulation.permissions`.
+    async fn reset_and_grant_permissions(
+        &self,
+        context: &browser::BrowserContextID,
+        emulation: &SessionEmulation,
+        call: &Call,
+    ) -> Result<(), CallError> {
+        if emulation.is_borrowed() {
+            return Ok(());
+        }
+        self.send(
+            None,
+            &browser::ResetPermissionsParams {
+                browser_context_id: Some(context.clone()),
+            },
+            call,
+        )
+        .await?;
+        self.grant_permissions(context, emulation, call).await
+    }
 }
 
 /// The primitive each browser behind a Session fills (ADR 0129): its CDP
@@ -941,13 +1024,9 @@ impl<B: Connect> SessionDriver<B> {
                     )
                     .await?;
                 browser.work.count(Row::ContextsCreated);
-                if let Err(error) = self::emulation::grant_permissions(
-                    browser,
-                    &created.browser_context_id,
-                    &self.emulation,
-                    &opening,
-                )
-                .await
+                if let Err(error) = browser
+                    .grant_permissions(&created.browser_context_id, &self.emulation, &opening)
+                    .await
                 {
                     let _ = browser
                         .try_send(
@@ -980,17 +1059,13 @@ impl<B: Connect> SessionDriver<B> {
         )
     )]
     pub(crate) async fn reapply_after_attach(&self, page: &PageDriver) -> Result<(), CallError> {
-        if self.emulation.borrowed {
+        if self.emulation.is_borrowed() {
             return Ok(());
         }
         let call = page.browser.opening();
-        self::emulation::reset_and_grant_permissions(
-            &page.browser,
-            &page.context,
-            &self.emulation,
-            &call,
-        )
-        .await?;
+        page.browser
+            .reset_and_grant_permissions(&page.context, &self.emulation, &call)
+            .await?;
         if let Some(identity) = &page.browser.identity {
             page.browser
                 .send(
@@ -1000,7 +1075,9 @@ impl<B: Connect> SessionDriver<B> {
                 )
                 .await?;
         }
-        self::emulation::apply(&page.browser, &page.session, &self.emulation, &call, true).await
+        page.browser
+            .apply_emulation(&page.session, &self.emulation, &call, true)
+            .await
     }
 
     /// Closes the Session's browser context, and with it every page in it,
@@ -1188,7 +1265,9 @@ async fn prepare(
     browser
         .send(Some(session), &network::EnableParams::default(), &opening)
         .await?;
-    self::emulation::apply(browser, session, emulation, &opening, false).await?;
+    browser
+        .apply_emulation(session, emulation, &opening, false)
+        .await?;
     browser
         .send(
             Some(session),

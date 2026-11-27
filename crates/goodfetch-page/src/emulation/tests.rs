@@ -1,3 +1,8 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use goodfetch_engine::settings::{Layers, Resolved, Values, resolve as resolve_settings};
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::page::emulation::{Geolocation, NetworkThrottle, Viewport};
@@ -5,11 +10,14 @@ use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use serde_json::{Map, Value, json};
 
-use super::{ColorScheme, Refusal, SessionEmulation, resolve};
+use super::{ColorScheme, Refusal, SessionEmulation, SessionMode, resolve};
 use crate::access_mode::{BrowserFamily, SessionSettings};
 
 fn map(value: Value) -> Map<String, Value> {
-    value.as_object().cloned().unwrap_or_default()
+    match value {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    }
 }
 
 fn read(layer: SettingsLayer, value: Value) -> Values {
@@ -123,7 +131,7 @@ fn null_viewport_is_refused_headless_and_allowed_headful() {
     let headful_settings = SessionSettings::new(&own, Some(&headful_run));
     let plan = resolve(&headful_settings, None, None, BrowserFamily::Chromium).unwrap();
     assert_eq!(plan.viewport, None);
-    assert!(!plan.headless);
+    assert_eq!(plan.mode, SessionMode::Headful);
 }
 
 /// Covers: story:5-59, setting:browser.locale, setting:browser.timezone_id
@@ -200,7 +208,7 @@ fn borrowed_browser_refuses_explicit_browser_settings_and_yields_inherited() {
         BrowserFamily::Chromium,
     )
     .unwrap();
-    assert!(plan.borrowed);
+    assert!(plan.is_borrowed());
     assert_eq!(plan.viewport, None);
     assert!(!plan.needs_device_metrics_on_open());
 

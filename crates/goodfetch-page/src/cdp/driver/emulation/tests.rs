@@ -7,10 +7,10 @@ use goodfetch_protocol::page::emulation::{Geolocation, NetworkThrottle, Viewport
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 
-use super::{apply, grant_permissions};
+use super::{grant_permissions_command, page_commands};
 use crate::cdp::driver::replay::{self, SESSION};
 use crate::cdp::driver::{Browser, Connect, PageDriver, SessionDriver, SessionEgress};
-use crate::emulation::{ColorScheme, SessionEmulation};
+use crate::emulation::{ColorScheme, SessionEmulation, SessionMode};
 
 struct Played(Browser);
 
@@ -29,14 +29,17 @@ fn default_headless_emulation_sends_zero_commands_on_open() {
         let session = TargetSession(SESSION.to_owned());
         let call = browser.opening();
         let emulation = SessionEmulation::default();
+        assert!(page_commands(&emulation, false).is_empty());
 
-        // `played.hold()` never answers any command, so if `apply` sent even
-        // one command this test would hang until the deadline instead of
-        // succeeding immediately.
+        // `played.hold()` never answers any command, so if `apply_emulation`
+        // sent even one command this test would hang until the deadline
+        // instead of succeeding immediately.
         let (_, result, ()) = tokio::join!(
             driver.run(),
             async {
-                let res = apply(&browser, &session, &emulation, &call, false).await;
+                let res = browser
+                    .apply_emulation(&session, &emulation, &call, false)
+                    .await;
                 drop(browser);
                 res
             },
@@ -83,8 +86,7 @@ fn reapply_after_attach_restores_every_emulation_command() {
                 download_bytes_per_second: Some(50_000),
                 upload_bytes_per_second: None,
             }),
-            headless: true,
-            borrowed: false,
+            mode: SessionMode::Headless,
         };
         let session_driver =
             SessionDriver::new(Played(browser.clone()), SessionEgress::default(), emulation);
@@ -155,11 +157,12 @@ fn empty_permissions_send_zero_commands_on_context_open() {
         let call = browser.opening();
         let emulation = SessionEmulation::default();
         let context = "ctx-1".to_owned();
+        assert!(grant_permissions_command(&context, &emulation).is_none());
 
         let (_, result, ()) = tokio::join!(
             driver.run(),
             async {
-                let res = grant_permissions(&browser, &context, &emulation, &call).await;
+                let res = browser.grant_permissions(&context, &emulation, &call).await;
                 drop(browser);
                 res
             },

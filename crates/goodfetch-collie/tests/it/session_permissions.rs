@@ -14,6 +14,8 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::fmt::Write as _;
+
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::page::session::SessionOpened;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
@@ -32,7 +34,7 @@ fn trust_proving_ground(env: &TestEnv, proving_ground: &ProvingGround, hosts: &[
     let ca = proving_ground.description().ca.display().to_string();
     let mut toml = String::from("[settings.tls.trusted_cas]\n");
     for host in hosts {
-        toml.push_str(&format!("\"{host}\" = [{}]\n", json!(ca)));
+        let _ = writeln!(toml, "\"{host}\" = [{}]", json!(ca));
     }
     env.user_configuration(&toml);
 }
@@ -84,7 +86,7 @@ fn geolocation_permission_and_override_are_observed_by_every_page_of_the_session
     let session: SessionOpened = serde_json::from_value(session_ans["result"].clone()).unwrap();
 
     // Open two pages in the same Session; both must observe the granted permission and coordinates.
-    let read_position = r#"() => new Promise((resolve, reject) => {
+    let read_position = r"() => new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(
             (pos) => resolve({
                 latitude: pos.coords.latitude,
@@ -94,7 +96,7 @@ fn geolocation_permission_and_override_are_observed_by_every_page_of_the_session
             (err) => reject(new Error(`${err.code}:${err.message}`)),
             { timeout: 10000 }
         );
-    })"#;
+    })";
 
     let mut next_id = 3;
     for page_index in 0..2 {
@@ -240,6 +242,15 @@ fn headful_session_refuses_clipboard_permissions_while_headless_allows_them() {
     assert!(exited);
 }
 
+fn press_field(engine: &mut goodfetch_test_client::Attached, id: i64, page_id: &str, key: &str) {
+    let answer = engine.ask(
+        id,
+        "locator.press",
+        &json!({ "locator": { "page_id": page_id, "selector": "#field" }, "key": key }),
+    );
+    assert!(answer.get("error").is_none(), "press {key}: {answer}");
+}
+
 /// A page copies and pastes through keyboard shortcuts and `evaluate` under
 /// the granted clipboard permissions, and no clipboard operation exists in
 /// the catalog.
@@ -271,11 +282,7 @@ fn page_copies_and_pastes_via_keyboard_shortcuts_and_evaluate_and_no_clipboard_o
         "run.new_session",
         &json!({
             "run_id": "clipboard",
-            "settings": {
-                "browser": {
-                    "permissions": ["clipboard-read", "clipboard-write"]
-                }
-            }
+            "settings": { "browser": { "permissions": ["clipboard-read", "clipboard-write"] } }
         }),
     );
     assert!(session_ans.get("error").is_none(), "{session_ans}");
@@ -302,27 +309,8 @@ fn page_copies_and_pastes_via_keyboard_shortcuts_and_evaluate_and_no_clipboard_o
         }),
     );
     assert!(filled.get("error").is_none(), "{filled}");
-
-    let select_all = engine.ask(
-        6,
-        "locator.press",
-        &json!({
-            "locator": { "page_id": page.page_id, "selector": "#field" },
-            "key": "ControlOrMeta+a",
-        }),
-    );
-    assert!(select_all.get("error").is_none(), "{select_all}");
-
-    let copy = engine.ask(
-        7,
-        "locator.press",
-        &json!({
-            "locator": { "page_id": page.page_id, "selector": "#field" },
-            "key": "ControlOrMeta+c",
-        }),
-    );
-    assert!(copy.get("error").is_none(), "{copy}");
-
+    press_field(&mut engine, 6, &page.page_id.0, "ControlOrMeta+a");
+    press_field(&mut engine, 7, &page.page_id.0, "ControlOrMeta+c");
     let read_back = eval(
         &mut engine,
         8,
@@ -331,37 +319,15 @@ fn page_copies_and_pastes_via_keyboard_shortcuts_and_evaluate_and_no_clipboard_o
     );
     assert_eq!(read_back, json!("copied-via-shortcut"), "{read_back}");
 
-    // 2. Write a new value through `evaluate` (`navigator.clipboard.writeText`), then select all and paste via shortcut.
+    // 2. Write via `evaluate` (`navigator.clipboard.writeText`), then select all and paste via shortcut.
     let _ = eval(
         &mut engine,
         9,
         &page.page_id.0,
         "async () => { await navigator.clipboard.writeText('pasted-via-shortcut'); return true; }",
     );
-
-    let select_all_again = engine.ask(
-        10,
-        "locator.press",
-        &json!({
-            "locator": { "page_id": page.page_id, "selector": "#field" },
-            "key": "ControlOrMeta+a",
-        }),
-    );
-    assert!(
-        select_all_again.get("error").is_none(),
-        "{select_all_again}"
-    );
-
-    let paste = engine.ask(
-        11,
-        "locator.press",
-        &json!({
-            "locator": { "page_id": page.page_id, "selector": "#field" },
-            "key": "ControlOrMeta+v",
-        }),
-    );
-    assert!(paste.get("error").is_none(), "{paste}");
-
+    press_field(&mut engine, 10, &page.page_id.0, "ControlOrMeta+a");
+    press_field(&mut engine, 11, &page.page_id.0, "ControlOrMeta+v");
     let field_value = eval(
         &mut engine,
         12,

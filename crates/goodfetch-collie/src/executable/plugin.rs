@@ -24,6 +24,9 @@ use goodfetch_protocol::plugin::add::{PLUGIN_ADD, PluginAddParams, PluginAdded, 
 use goodfetch_protocol::plugin::index::{
     PLUGIN_INDEX_IMPORT, PluginIndex, PluginIndexImportParams, PluginIndexImported, SignedBundle,
 };
+use goodfetch_protocol::plugin::manage::{
+    PLUGIN_REMOVE, PluginApprovalsRemoval, PluginRemoveParams, PluginRemoved,
+};
 use goodfetch_protocol::settings::ProjectSettings;
 
 use super::catalog_commands::{Joined, Joining};
@@ -44,6 +47,12 @@ const ADD: Prompt = Prompt {
 /// The prompt that imports a signed Plugin index offline.
 const INDEX_IMPORT: Prompt = Prompt {
     operation: &PLUGIN_INDEX_IMPORT,
+    elsewhere: None,
+};
+
+/// The prompt that removes an installed Plugin.
+const REMOVE: Prompt = Prompt {
+    operation: &PLUGIN_REMOVE,
     elsewhere: None,
 };
 
@@ -79,6 +88,19 @@ pub(super) enum OwnPluginCommand {
     Index {
         #[command(subcommand)]
         command: PluginIndexCommand,
+    },
+    /// Removes an installed Plugin from the Plugin store, its lockfile entry
+    /// and its approvals in the Operator policy: a person's answer, asked at
+    /// the terminal, and refused with `person_required` under `--json` or when
+    /// stdin is no terminal.
+    Remove {
+        /// The name of the Plugin to remove.
+        name: String,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
     },
 }
 
@@ -137,7 +159,85 @@ pub(super) fn run(
             let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             index_import(engine, dependencies, &reach, &file, json, human)
         }
+        PluginCommand::Own(OwnPluginCommand::Remove {
+            name,
+            json,
+            engine: flags,
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
+            remove(engine, dependencies, &reach, name, json, human)
+        }
     }
+}
+
+/// Asks the person at the terminal to remove the Plugin `name` and calls
+/// `plugin.remove` when they answer yes.
+fn remove(
+    engine: &Engine,
+    dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    name: String,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    if let Err(exit) = REMOVE.person_present(json, human) {
+        return exit;
+    }
+    let Ok(folder) = std::env::current_dir() else {
+        tracing::error!("the working folder cannot be read");
+        return ExitCode::FAILURE;
+    };
+    let project = match project(&folder) {
+        Ok(project) => project,
+        Err(error) => {
+            return output::fail(
+                local_settings_error(&error, engine.identity()).to_error_object(),
+                None,
+                false,
+                human,
+            );
+        }
+    };
+    let question = format!(
+        "Remove the Plugin {name} from the Plugin store, its lockfile entry and its approvals?"
+    );
+    let yes = match REMOVE.ask(&question, None, human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
+    };
+    if !yes {
+        output::line("Nothing was removed.");
+        return ExitCode::from(exit_codes::SUCCESS);
+    }
+    let params = serde_json::to_value(PluginRemoveParams { name, project })
+        .expect("invariant: plugin.remove params serialize");
+    let result = match run_operation(
+        engine,
+        dependencies,
+        reach,
+        &PLUGIN_REMOVE,
+        params,
+        false,
+        human,
+    ) {
+        Ok(result) => result,
+        Err(exit) => return exit,
+    };
+    let Ok(removed) = serde_json::from_value::<PluginRemoved>(result) else {
+        tracing::error!("the engine's `plugin.remove` answer does not read");
+        return ExitCode::FAILURE;
+    };
+    output::line(&format!(
+        "Removed the Plugin {} (store: {}, lockfile: {}).",
+        removed.name, removed.removed_from_store, removed.removed_from_lockfile
+    ));
+    if let PluginApprovalsRemoval::Managed { key } = removed.approvals {
+        human.warning(&format!(
+            "The Operator policy is managed elsewhere, so `{key}` was left alone: remove it there."
+        ));
+    }
+    ExitCode::from(exit_codes::SUCCESS)
 }
 
 /// Asks the person at the terminal to import the signed Plugin index at `file`
@@ -153,6 +253,10 @@ fn index_import(
     if let Err(exit) = INDEX_IMPORT.person_present_for("plugin index import", json, human) {
         return exit;
     }
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "synchronous CLI command reads the operator-supplied index file before starting the engine runtime"
+    )]
     let bytes = match std::fs::read(file) {
         Ok(bytes) => bytes,
         Err(error) => {

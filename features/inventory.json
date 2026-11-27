@@ -698,6 +698,28 @@
       ]
     },
     {
+      "id": "command:plugin.list",
+      "kind": "command",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:plugin.remove",
+      "kind": "command",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:plugin.search",
       "kind": "command",
       "area": 7,
@@ -4703,6 +4725,28 @@
     },
     {
       "id": "operation:plugin.index_import",
+      "kind": "operation",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.list",
+      "kind": "operation",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.remove",
       "kind": "operation",
       "area": 7,
       "milestone": null,

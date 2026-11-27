@@ -357,6 +357,29 @@ impl PluginStore {
         })
     }
 
+    /// Removes the installed Plugin `name` from the store, returning `true`
+    /// if a folder was deleted and `false` if it was not installed
+    /// (ADR 0033, issue 928).
+    ///
+    /// # Errors
+    ///
+    /// [`StoreError::Name`] when `name` holds a path, or
+    /// [`StoreError::Unreadable`] if the folder cannot be removed.
+    pub fn remove(&self, name: &str) -> Result<bool, StoreError> {
+        if !is_one_folder(name) {
+            return Err(StoreError::Name(name.to_owned()));
+        }
+        let folder = self.folder.join(name);
+        match fs::remove_dir_all(&folder) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(source) => Err(StoreError::Unreadable {
+                name: name.to_owned(),
+                source,
+            }),
+        }
+    }
+
     /// The installed Plugin `name`, of any kind.
     pub(crate) fn installed(&self, name: &str) -> Result<Installed, StoreError> {
         let unreadable = |source| StoreError::Unreadable {

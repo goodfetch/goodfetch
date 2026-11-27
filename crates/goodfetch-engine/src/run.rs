@@ -1037,6 +1037,60 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
     )
 }
 
+/// Refuses a Collie Run whose run-layer `plugins` setting names an installed
+/// Plugin whose kinds are all outside Collie (such as a Foxhound Sink or
+/// Fetch backend Plugin) with `not_in_product`, leaving the shared Plugin
+/// store untouched (ADRs 0094 and 0098; issue 928).
+async fn check_run_plugins_in_product(
+    settings: &Map<String, Value>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let product = context.identity().product;
+    if product == Product::Foxhound {
+        return Ok(());
+    }
+    let Some(Value::Object(plugins)) =
+        settings.get(goodfetch_protocol::plugin::settings::PLUGINS.name)
+    else {
+        return Ok(());
+    };
+    let names: Vec<String> = plugins.keys().cloned().collect();
+    if names.is_empty() {
+        return Ok(());
+    }
+    let folder = context.engine().home().plugins();
+    let blocking = context.engine().owner().blocking_threads();
+    let refused = blocking
+        .run(move || {
+            for name in names {
+                if let Some(kinds) = crate::plugin_kinds::run_plugins::unsupported_only_kinds(
+                    folder.clone(),
+                    &name,
+                    product,
+                ) {
+                    return Some((name, kinds));
+                }
+            }
+            None
+        })
+        .await;
+    if let Some((name, kinds)) = refused {
+        let listed = kinds
+            .iter()
+            .map(goodfetch_protocol::plugin::PluginKindName::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let requested = format!("plugin {name} (kind: {listed})");
+        let (message, details) = context.identity().not_in_product(
+            Requested::Name(&requested),
+            Product::Foxhound,
+            context.behind_gateway(),
+        );
+        return Err(CallError::new(&NOT_IN_PRODUCT, message, &details));
+    }
+    Ok(())
+}
+
 async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
@@ -1067,6 +1121,7 @@ async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarte
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
+    check_run_plugins_in_product(&params.settings, &context).await?;
     let timeout = given_timeout.unwrap_or_else(|| settings.resolved().get(&TIMEOUT_RUN));
     let started = context
         .runs()

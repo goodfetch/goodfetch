@@ -22,8 +22,8 @@ use crate::effect::Effects;
 use crate::engine_context::CALLER;
 use crate::{
     audit_operations, cache_operations, certs_operations, config, daemon, effect, key_value_store,
-    needs_you, needs_you_operations, plugin_add, plugin_index_operations, robots_txt, rpc, run,
-    run_files, run_files_operations, signing_key_operations, usage,
+    needs_you, needs_you_operations, plugin_add, plugin_index_operations, plugin_manage,
+    robots_txt, rpc, run, run_files, run_files_operations, signing_key_operations, usage,
 };
 
 /// What the engine adds to every composition.
@@ -50,6 +50,7 @@ pub(crate) fn contribution_sharing(effects: &Effects) -> Contribution {
         .chain(signing_key_operations::handlers())
         .chain(plugin_add::handlers())
         .chain(plugin_index_operations::handlers())
+        .chain(plugin_manage::handlers())
         .fold(
             Contribution::new("goodfetch-engine")
                 .with_handler(Handler::new(&ENGINE_INFO, engine_info))

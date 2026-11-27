@@ -134,6 +134,12 @@ impl PluginLockfile {
         self.plugins.iter().find(|plugin| plugin.name == name)
     }
 
+    /// Removes the entry pinning `name`, returning it if it was present.
+    pub fn remove(&mut self, name: &str) -> Option<LockedPlugin> {
+        let index = self.plugins.iter().position(|plugin| plugin.name == name)?;
+        Some(self.plugins.remove(index))
+    }
+
     /// Pins `plugin`, in name order, unless the lockfile already pins its
     /// name: to the same digest, which it keeps, or to another.
     ///

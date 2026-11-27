@@ -9,6 +9,7 @@ use std::borrow::Cow;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 
+use crate::catalog::Product;
 use crate::inline_value::{open_schema, open_value_type};
 
 open_value_type!(
@@ -73,6 +74,17 @@ impl PluginKindName {
         ),
         (Self::NOTIFICATION, "A Notification channel."),
     ];
+
+    /// Whether `product` carries this Plugin kind (ADRs 0084, 0095 and 0098):
+    /// Collie carries [`Self::COLLIE`]; Foxhound contains Collie and also
+    /// carries crawl kinds such as `sink` and `fetch_backend`.
+    #[must_use]
+    pub fn in_product(&self, product: Product) -> bool {
+        match product {
+            Product::Collie => Self::COLLIE.iter().any(|(known, _)| known == self),
+            Product::Foxhound => true,
+        }
+    }
 }
 
 impl JsonSchema for PluginKindName {

@@ -36,6 +36,7 @@ pub mod extractor;
 mod fuzz;
 pub mod index;
 pub mod lockfile;
+pub mod manage;
 mod manifest;
 mod names;
 pub mod net;

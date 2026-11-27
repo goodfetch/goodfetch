@@ -4813,6 +4813,44 @@
       "cancellable": false,
       "class": "read",
       "deprecated": null,
+      "description": "Lists every Plugin installed in the shared Plugin store with its kinds, digest, signer, network level, approvals, conformance results and `settings_schema`, marking Plugins of a kind the running Product lacks (`available_in_product: false`, `unsupported_kinds`) without deleting them. Available on every surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.list",
+      "params": {
+        "$ref": "#/$defs/PluginListParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PluginListResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Deletes a Plugin from the shared Plugin store, removes its entry from the Plugin lockfile and clears its approvals from the Operator policy (audited as `plugin_removed`). Refused with `run_live` while any live Run is using the Plugin. Person-only (ADR 0099): any non-person surface is refused with `person_required`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.remove",
+      "params": {
+        "$ref": "#/$defs/PluginRemoveParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PluginRemoved"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
       "description": "Searches the local signed Plugin index, returning each matching Plugin's name, OCI reference, pinned digest, kinds, signer identity, origin and conformance results so users choose a Plugin by what it has proved. Available on every surface.",
       "events": [],
       "kind": "round_trip",
@@ -15415,6 +15453,13 @@
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A person removed an installed Plugin from the Plugin store, its lockfile entry and its Operator policy approvals.",
+      "name": "plugin_removed",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

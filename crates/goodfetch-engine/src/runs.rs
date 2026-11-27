@@ -1238,6 +1238,7 @@ enum Command {
     StopConnection(ConnectionId, oneshot::Sender<ConnectionEnded>),
     Outlive(ConnectionId),
     LiveCount(oneshot::Sender<usize>),
+    LivePlugins(oneshot::Sender<Vec<(RunId, Arc<RunPlugins>)>>),
     Health(oneshot::Sender<RegistryHealth>),
     Folder(RunId, oneshot::Sender<PathBuf>),
     Governor(oneshot::Sender<Governor>),
@@ -1327,6 +1328,7 @@ impl Command {
             | Self::Checkpointed(..)
             | Self::Discarded(..)
             | Self::LiveCount(_)
+            | Self::LivePlugins(_)
             | Self::Health(_)
             | Self::Folder(..)
             | Self::Governor(_)
@@ -2823,6 +2825,29 @@ impl Runs {
         }
     }
 
+    /// Live Runs currently using the Plugin `name` (ADR 0033, issue 928).
+    pub(crate) async fn runs_using_plugin(&self, name: &str) -> Vec<RunId> {
+        let (answer, answered) = oneshot::channel();
+        if self
+            .commands
+            .send(Command::LivePlugins(answer))
+            .await
+            .is_err()
+        {
+            return Vec::new();
+        }
+        let Ok(live) = answered.await else {
+            return Vec::new();
+        };
+        let mut using = Vec::new();
+        for (run_id, plugins) in live {
+            if plugins.is_using(name).await {
+                using.push(run_id);
+            }
+        }
+        using
+    }
+
     /// How many Runs are live; none once the registry has stopped.
     ///
     /// # Cancel safety
@@ -3541,6 +3566,7 @@ impl Registry {
             }
             Command::Outlive(connection) => _ = self.outliving.insert(connection),
             Command::LiveCount(answer) => _ = answer.send(self.live.len()),
+            Command::LivePlugins(answer) => _ = answer.send(self.live_plugins()),
             Command::Health(answer) => {
                 let _ = answer.send(self.health());
             }
@@ -4551,6 +4577,19 @@ impl Registry {
             runs,
         };
         (run, let_finish)
+    }
+
+    /// Live `(RunId, RunPlugins)` pairs for `plugin.remove`'s live-use check.
+    fn live_plugins(&self) -> Vec<(RunId, Arc<RunPlugins>)> {
+        self.live
+            .iter()
+            .filter_map(|(id, entry)| {
+                entry
+                    .run
+                    .as_ref()
+                    .map(|live| (id.clone(), Arc::clone(&live.shared.plugins)))
+            })
+            .collect()
     }
 
     /// The process Plugins of the Run `run_id`, started as tasks of its

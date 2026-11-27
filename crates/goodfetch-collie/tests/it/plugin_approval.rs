@@ -246,7 +246,8 @@ fn plugin_add_shows_everything_granted_before_writing_the_approval(
 /// results from the cached Plugin index, and `plugin index import --json` is
 /// refused with `person_required` (exit 4) naming `plugin index import`.
 ///
-/// Covers: story:7-1, story:7-9, command:plugin.search, command:plugin.index_import
+/// Covers: story:7-1, story:7-9, command:plugin.search
+// Covers: operation:plugin.index_import
 #[test]
 fn plugin_search_lists_index_and_index_import_requires_a_person() {
     let env = TestEnv::new();

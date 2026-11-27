@@ -127,6 +127,32 @@ class AllowanceSource(StrEnum):
     """Half of physical memory, when nothing tighter applies."""
 
 
+class Approvals(BaseModel):
+    """
+    The permissions the Operator policy approved for one Plugin,
+    `plugins.<name>.approved`: each domain, Secret reference and digest on
+    its own.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    browsers: list[str] | None = None
+    """The digests of the browser downloads it may add."""
+    direct: bool | None = None
+    """Whether it may reach the network directly."""
+    effects: list[str] | None = None
+    """The domains it may cause Effects on."""
+    page_script: list[str] | None = None
+    """The domains whose pages it may run script in."""
+    secret_values: list[str] | None = None
+    """The Secret references whose value it may receive."""
+    secrets: list[str] | None = None
+    """The Secret references it may use."""
+    session_credentials: list[str] | None = None
+    """The domains whose logged-in Session's credentials it may use."""
+
+
 class ArtifactKind(StrEnum):
     """
     What a Pinned artifact is (ADR 0098: the clean-up's rule covers every
@@ -1675,6 +1701,20 @@ class InitScriptEnded(BaseModel):
     )
 
 
+class InstalledPluginApprovals(BaseModel):
+    """The Operator policy approval state recorded for an installed Plugin."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    allow: bool | None = None
+    """Whether Operator policy allows (`true`) or denies (`false`) loading it."""
+    approved: Approvals | None = None
+    """The permissions approved in Operator policy."""
+    digest: str | None = None
+    """The digest pinned in Operator policy, when set."""
+
+
 class InternalDetails(BaseModel):
     """
     What `internal` details: the object whose table refused the event, its
@@ -3139,6 +3179,46 @@ class PluginApproval(RootModel[PluginApproval1 | PluginApproval2]):
     """Where a person's approval of a Plugin went."""
 
 
+class PluginApprovalsRemoval1(BaseModel):
+    """Removed from the Operator policy and recorded in the Audit log."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    outcome: Literal["removed"]
+    policy: str
+    """The Operator policy file."""
+
+
+class PluginApprovalsRemoval2(BaseModel):
+    """No Operator policy approvals were present for the Plugin."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    outcome: Literal["absent"]
+
+
+class PluginApprovalsRemoval3(BaseModel):
+    """The Operator policy is managed elsewhere, so its entry was left alone."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    """The Operator policy key to remove there (`plugins.<name>`)."""
+    outcome: Literal["managed"]
+
+
+class PluginApprovalsRemoval(
+    RootModel[
+        PluginApprovalsRemoval1 | PluginApprovalsRemoval2 | PluginApprovalsRemoval3
+    ]
+):
+    root: PluginApprovalsRemoval1 | PluginApprovalsRemoval2 | PluginApprovalsRemoval3
+    """What happened to the Plugin's approvals in the Operator policy on removal."""
+
+
 class PluginDigestMismatchDetails(BaseModel):
     """What `plugin_digest_mismatch` details."""
 
@@ -3231,6 +3311,25 @@ class PluginPermissionDeniedDetails(BaseModel):
     """The permission it needs."""
     plugin: str
     """The Plugin's name."""
+
+
+class PluginRemoved(BaseModel):
+    """
+    What `plugin.remove` answers once the Plugin is removed (ADR 0033,
+    issue 928).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    approvals: PluginApprovalsRemoval
+    """What happened to its Operator policy approvals."""
+    name: str
+    """The removed Plugin's name."""
+    removed_from_lockfile: bool
+    """Whether an entry was removed from the Plugin lockfile."""
+    removed_from_store: bool
+    """Whether an unpacked bundle was deleted from the Plugin store."""
 
 
 class PluginRevokedDetails(BaseModel):
@@ -7441,6 +7540,57 @@ class IndexEntry(BaseModel):
     """
 
 
+class InstalledPluginInfo(BaseModel):
+    """
+    One installed Plugin in the shared Plugin store (ADRs 0033 and 0098;
+    issue 928).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    approvals: InstalledPluginApprovals | None = None
+    """
+    The Operator policy approval state for this Plugin, when any policy
+    fields are set.
+    """
+    available_in_product: bool
+    """
+    Whether at least one of the Plugin's kinds is carried by the running
+    Product (`false` marks e.g. a Sink or Fetch backend Plugin on Collie).
+    """
+    conformance: Annotated[
+        list[ConformanceResult] | None, Field(validate_default=True)
+    ] = []
+    """
+    Conformance suite results recorded in the cached Plugin index for this
+    Plugin, when listed.
+    """
+    digest: str | None = None
+    """The image index digest recorded beside its bundle, when known."""
+    kinds: list[PluginKindName]
+    """The Plugin kinds its manifest declares."""
+    name: str
+    """The Plugin's name."""
+    network_level: NetworkLevel
+    """What its manifest lets it reach on the network."""
+    settings_schema: Any | None = None
+    """
+    The JSON Schema of the Plugin's settings from its manifest, so a
+    surface can render its fields (ADR 0033).
+    """
+    signer: str | None = None
+    """
+    The signer identity recorded in the lockfile or Plugin index, when
+    known.
+    """
+    unsupported_kinds: list[PluginKindName] | None = None
+    """Kinds declared by the Plugin that the running Product does not carry."""
+    version: str
+    """Its installed version, from its manifest."""
+
+
 class KeyValueStoreBytes(BaseModel):
     """Bytes the store holds for a key, with their content type."""
 
@@ -8427,6 +8577,49 @@ class PluginAttestationInvalidDetails(BaseModel):
     """The Plugin's name."""
     reason: AttestationFailureReason
     """Why verification failed."""
+
+
+class PluginListParams(BaseModel):
+    """What `plugin.list` takes (ADR 0098, issue 928)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083): used
+    to read the project's lockfile and settings when present.
+    """
+
+
+class PluginListResult(BaseModel):
+    """What `plugin.list` answers (ADR 0098, issue 928)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    plugins: Annotated[
+        list[InstalledPluginInfo] | None, Field(validate_default=True)
+    ] = []
+    """Every installed Plugin in the shared Plugin store, sorted by name."""
+    product: Product
+    """The Product that answered the list (`collie` or `foxhound`)."""
+
+
+class PluginRemoveParams(BaseModel):
+    """What `plugin.remove` takes (ADR 0033, issue 928)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The name of the Plugin to remove."""
+    project: ProjectSettings | None = None
+    """
+    The project configuration the Client found, layer 3 (ADR 0083): the
+    lockfile beside it is updated, else the one in the Goodfetch home's
+    configuration folder.
+    """
 
 
 class PluginSearchResult(BaseModel):

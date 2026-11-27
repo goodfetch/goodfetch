@@ -3254,8 +3254,8 @@ entries = ["run.rejected_records"]
 reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
 [[unreached]]
-entries = ["plugin.search"]
-reason = "Reached through the CLI `plugin search` and raw `connection.call(\"plugin.search\", ...)` (issue 919); typed SDK plugin-index helpers are not added yet."
+entries = ["plugin.search", "plugin.list"]
+reason = "Reached through the CLI (`plugin search`, `plugin list`) and raw `connection.call(...)` (issues 919, 928); typed SDK plugin-management helpers are not added yet."
 
 [[logger]]
 package = "goodfetch-collie-client"

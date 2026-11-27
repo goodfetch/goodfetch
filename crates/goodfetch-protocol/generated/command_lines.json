@@ -60,6 +60,10 @@
           },
           {
             "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
             "name": "add"
           },
           {
@@ -70,6 +74,10 @@
               }
             ],
             "name": "index"
+          },
+          {
+            "commands": [],
+            "name": "remove"
           }
         ],
         "name": "plugin"
@@ -534,6 +542,10 @@
           },
           {
             "commands": [],
+            "name": "list"
+          },
+          {
+            "commands": [],
             "name": "add"
           },
           {
@@ -544,6 +556,10 @@
               }
             ],
             "name": "index"
+          },
+          {
+            "commands": [],
+            "name": "remove"
           }
         ],
         "name": "plugin"

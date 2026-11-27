@@ -8,6 +8,7 @@ import type { CollieOperationTypes } from "./operations.ts";
 export type CollieWireType =
   | "AddInitScriptParams"
   | "AppliedLimit"
+  | "Approvals"
   | "ArtifactDownloadFailedDetails"
   | "ArtifactUnavailableOfflineDetails"
   | "AuditExported"
@@ -74,6 +75,8 @@ export type CollieWireType =
   | "HookFailedDetails"
   | "HumanPause"
   | "IndexEntry"
+  | "InstalledPluginApprovals"
+  | "InstalledPluginInfo"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
   | "KeyValueStoreBytesValue"
@@ -147,6 +150,8 @@ export type CollieWireType =
   | "PluginIndexImportParams"
   | "PluginIndexImported"
   | "PluginIndexStaleDetails"
+  | "PluginListResult"
+  | "PluginRemoved"
   | "PluginRun"
   | "PluginSearchResult"
   | "PressParams"
@@ -251,6 +256,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
   types: {
     "AddInitScriptParams": { fields: { "page_id": "pageId" } },
     "AppliedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "set_by": "setBy", "usage_kind": "usageKind" } },
+    "Approvals": { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } },
     "ArtifactDownloadFailedDetails": { fields: { "pinned_by": "pinnedBy" } },
     "ArtifactUnavailableOfflineDetails": { fields: { "pinned_by": "pinnedBy" } },
     "AuditExported": { fields: { "entries": ["entries", { items: { type: "ExportedAuditEntry" } }] } },
@@ -317,6 +323,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
     "IndexEntry": { fields: { "conformance": ["conformance", { items: { type: "ConformanceResult" } }] } },
+    "InstalledPluginApprovals": { fields: { "approved": ["approved", { type: "Approvals" }] } },
+    "InstalledPluginInfo": { fields: { "approvals": ["approvals", { type: "InstalledPluginApprovals" }], "available_in_product": "availableInProduct", "conformance": ["conformance", { items: { type: "ConformanceResult" } }], "network_level": "networkLevel", "settings_schema": "settingsSchema", "unsupported_kinds": "unsupportedKinds" } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },
     "KeyValueStoreBytesValue": { fields: { "bytes": ["bytes", { type: "KeyValueStoreBytes" }] } },
@@ -390,6 +398,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PluginIndexImportParams": { fields: { "bundle": ["bundle", { type: "SignedBundle" }] } },
     "PluginIndexImported": { fields: { "expires_at": "expiresAt", "signed_at": "signedAt" } },
     "PluginIndexStaleDetails": { fields: { "expires_at": "expiresAt", "last_seen": "lastSeen" } },
+    "PluginListResult": { fields: { "plugins": ["plugins", { items: { type: "InstalledPluginInfo" } }] } },
+    "PluginRemoved": { fields: { "removed_from_lockfile": "removedFromLockfile", "removed_from_store": "removedFromStore" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PluginSearchResult": { fields: { "expires_at": "expiresAt", "index_version": "indexVersion", "plugins": ["plugins", { items: { type: "IndexEntry" } }] } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
@@ -593,6 +603,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.wait_for_request": { type: "PageRequest" },
     "page.wait_for_request_finished": { type: "PageExchange" },
     "page.wait_for_response": { type: "PageExchange" },
+    "plugin.list": { type: "PluginListResult" },
     "plugin.search": { type: "PluginSearchResult" },
     "recipe.start": { type: "RunStarted" },
     "response.body": { type: "BodyHandle" },

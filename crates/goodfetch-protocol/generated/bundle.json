@@ -302,6 +302,72 @@
       ],
       "type": "object"
     },
+    "Approvals": {
+      "additionalProperties": false,
+      "description": "The permissions the Operator policy approved for one Plugin,\n`plugins.<name>.approved`: each domain, Secret reference and digest on\nits own.",
+      "properties": {
+        "browsers": {
+          "arrived_in": "0.1",
+          "description": "The digests of the browser downloads it may add.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "direct": {
+          "arrived_in": "0.1",
+          "description": "Whether it may reach the network directly.",
+          "type": "boolean"
+        },
+        "effects": {
+          "arrived_in": "0.1",
+          "description": "The domains it may cause Effects on.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "page_script": {
+          "arrived_in": "0.1",
+          "description": "The domains whose pages it may run script in.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "secret_values": {
+          "arrived_in": "0.1",
+          "description": "The Secret references whose value it may receive.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "secrets": {
+          "arrived_in": "0.1",
+          "description": "The Secret references it may use.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "session_credentials": {
+          "arrived_in": "0.1",
+          "description": "The domains whose logged-in Session's credentials it may use.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "type": "object"
+    },
     "Artifact": {
       "additionalProperties": false,
       "description": "A published file or package.",
@@ -10205,6 +10271,124 @@
       ],
       "type": "object"
     },
+    "InstalledPluginApprovals": {
+      "description": "The Operator policy approval state recorded for an installed Plugin.",
+      "properties": {
+        "allow": {
+          "arrived_in": "0.1",
+          "description": "Whether Operator policy allows (`true`) or denies (`false`) loading it.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "approved": {
+          "$ref": "#/$defs/Approvals",
+          "arrived_in": "0.1",
+          "description": "The permissions approved in Operator policy."
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest pinned in Operator policy, when set.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "InstalledPluginInfo": {
+      "description": "One installed Plugin in the shared Plugin store (ADRs 0033 and 0098;\nissue 928).",
+      "properties": {
+        "approvals": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstalledPluginApprovals"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Operator policy approval state for this Plugin, when any policy\nfields are set."
+        },
+        "available_in_product": {
+          "arrived_in": "0.1",
+          "description": "Whether at least one of the Plugin's kinds is carried by the running\nProduct (`false` marks e.g. a Sink or Fetch backend Plugin on Collie).",
+          "type": "boolean"
+        },
+        "conformance": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "Conformance suite results recorded in the cached Plugin index for this\nPlugin, when listed.",
+          "items": {
+            "$ref": "#/$defs/ConformanceResult"
+          },
+          "type": "array"
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The image index digest recorded beside its bundle, when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "The Plugin kinds its manifest declares.",
+          "items": {
+            "$ref": "#/$defs/PluginKindName"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "network_level": {
+          "$ref": "#/$defs/NetworkLevel",
+          "arrived_in": "0.1",
+          "description": "What its manifest lets it reach on the network."
+        },
+        "settings_schema": {
+          "arrived_in": "0.1",
+          "description": "The JSON Schema of the Plugin's settings from its manifest, so a\nsurface can render its fields (ADR 0033)."
+        },
+        "signer": {
+          "arrived_in": "0.1",
+          "description": "The signer identity recorded in the lockfile or Plugin index, when\nknown.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unsupported_kinds": {
+          "arrived_in": "0.1",
+          "description": "Kinds declared by the Plugin that the running Product does not carry.",
+          "items": {
+            "$ref": "#/$defs/PluginKindName"
+          },
+          "type": "array"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Its installed version, from its manifest.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "kinds",
+        "network_level",
+        "available_in_product"
+      ],
+      "type": "object"
+    },
     "InstalledService": {
       "additionalProperties": false,
       "description": "The per-user service of one major that `daemon install` registered,\nrecorded in `daemon-service.json` in the major's per-major folder (ADRs\n0024, 0031 and 0098): what starts the major's pick, from which versioned\ncopy, and the socket its service manager listens on for it.",
@@ -18102,6 +18286,65 @@
         }
       ]
     },
+    "PluginApprovalsRemoval": {
+      "description": "What happened to the Plugin's approvals in the Operator policy on removal.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Removed from the Operator policy and recorded in the Audit log.",
+          "properties": {
+            "outcome": {
+              "const": "removed",
+              "type": "string"
+            },
+            "policy": {
+              "arrived_in": "0.1",
+              "description": "The Operator policy file.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "policy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "No Operator policy approvals were present for the Plugin.",
+          "properties": {
+            "outcome": {
+              "const": "absent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The Operator policy is managed elsewhere, so its entry was left alone.",
+          "properties": {
+            "key": {
+              "arrived_in": "0.1",
+              "description": "The Operator policy key to remove there (`plugins.<name>`).",
+              "type": "string"
+            },
+            "outcome": {
+              "const": "managed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "key"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "PluginAttestationInvalidDetails": {
       "description": "What `plugin_attestation_invalid` details.",
       "properties": {
@@ -18528,6 +18771,52 @@
       ],
       "open": true
     },
+    "PluginListParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.list` takes (ADR 0098, issue 928).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083): used\nto read the project's lockfile and settings when present."
+        }
+      },
+      "type": "object"
+    },
+    "PluginListResult": {
+      "description": "What `plugin.list` answers (ADR 0098, issue 928).",
+      "properties": {
+        "plugins": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "Every installed Plugin in the shared Plugin store, sorted by name.",
+          "items": {
+            "$ref": "#/$defs/InstalledPluginInfo"
+          },
+          "type": "array"
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product that answered the list (`collie` or `foxhound`)."
+        }
+      },
+      "required": [
+        "product"
+      ],
+      "type": "object"
+    },
     "PluginLockfile": {
       "additionalProperties": false,
       "description": "A Plugin lockfile: its version, then one `[[plugin]]` table for each\nPlugin it pins, by name.",
@@ -18838,6 +19127,69 @@
       "required": [
         "min",
         "max"
+      ],
+      "type": "object"
+    },
+    "PluginRemoveParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.remove` takes (ADR 0033, issue 928).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The name of the Plugin to remove.",
+          "type": "string"
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083): the\nlockfile beside it is updated, else the one in the Goodfetch home's\nconfiguration folder."
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "PluginRemoved": {
+      "description": "What `plugin.remove` answers once the Plugin is removed (ADR 0033,\nissue 928).",
+      "properties": {
+        "approvals": {
+          "$ref": "#/$defs/PluginApprovalsRemoval",
+          "arrived_in": "0.1",
+          "description": "What happened to its Operator policy approvals."
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The removed Plugin's name.",
+          "type": "string"
+        },
+        "removed_from_lockfile": {
+          "arrived_in": "0.1",
+          "description": "Whether an entry was removed from the Plugin lockfile.",
+          "type": "boolean"
+        },
+        "removed_from_store": {
+          "arrived_in": "0.1",
+          "description": "Whether an unpacked bundle was deleted from the Plugin store.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "removed_from_store",
+        "removed_from_lockfile",
+        "approvals"
       ],
       "type": "object"
     },

@@ -1202,6 +1202,14 @@ export type Origin = "first_party" | "third_party" | "private";
  */
 export type IndexRefusalReason = "bad_signature" | "untrusted_signer" | "stale" | "expired";
 /**
+ * What a process Plugin may reach on the network (ADR 0033), derived from
+ * its kinds rather than chosen: see [`NetworkLevel::allowed_for`].
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NetworkLevel".
+ */
+export type NetworkLevel = "none" | "proxy_tcp" | "direct";
+/**
  * What judged a page: the Session's own Page check, or the built-in
  * detector of a Session that declares none (ADR 0006).
  *
@@ -1337,14 +1345,6 @@ export type NeedsYouChange =
  * via the `definition` "NeedsYouRemoval".
  */
 export type NeedsYouRemoval = "resolved" | "dismissed";
-/**
- * What a process Plugin may reach on the network (ADR 0033), derived from
- * its kinds rather than chosen: see [`NetworkLevel::allowed_for`].
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "NetworkLevel".
- */
-export type NetworkLevel = "none" | "proxy_tcp" | "direct";
 /**
  * A Session of a Run, named by the engine when it opens it.
  *
@@ -1764,6 +1764,30 @@ export type PluginApproval =
        * The policy's `plugins.<name>` entry, as TOML.
        */
       entry: string;
+      outcome: "managed";
+    };
+/**
+ * What happened to the Plugin's approvals in the Operator policy on removal.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginApprovalsRemoval".
+ */
+export type PluginApprovalsRemoval =
+  | {
+      outcome: "removed";
+      /**
+       * The Operator policy file.
+       */
+      policy: string;
+    }
+  | {
+      outcome: "absent";
+    }
+  | {
+      /**
+       * The Operator policy key to remove there (`plugins.<name>`).
+       */
+      key: string;
       outcome: "managed";
     };
 /**
@@ -2263,6 +2287,44 @@ export interface LimitScope {
    * The scope's kind.
    */
   kind: string;
+}
+/**
+ * The permissions the Operator policy approved for one Plugin,
+ * `plugins.<name>.approved`: each domain, Secret reference and digest on
+ * its own.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Approvals".
+ */
+export interface Approvals {
+  /**
+   * The digests of the browser downloads it may add.
+   */
+  browsers?: string[];
+  /**
+   * Whether it may reach the network directly.
+   */
+  direct?: boolean;
+  /**
+   * The domains it may cause Effects on.
+   */
+  effects?: string[];
+  /**
+   * The domains whose pages it may run script in.
+   */
+  pageScript?: string[];
+  /**
+   * The Secret references whose value it may receive.
+   */
+  secretValues?: string[];
+  /**
+   * The Secret references it may use.
+   */
+  secrets?: string[];
+  /**
+   * The domains whose logged-in Session's credentials it may use.
+   */
+  sessionCredentials?: string[];
 }
 /**
  * Which Pinned artifact: its kind, its name and its build.
@@ -5456,6 +5518,86 @@ export interface SignerIdentity {
  */
 export interface InitScriptEnded {}
 /**
+ * The Operator policy approval state recorded for an installed Plugin.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "InstalledPluginApprovals".
+ */
+export interface InstalledPluginApprovals {
+  /**
+   * Whether Operator policy allows (`true`) or denies (`false`) loading it.
+   */
+  allow?: boolean | null;
+  /**
+   * The permissions approved in Operator policy.
+   */
+  approved?: Approvals;
+  /**
+   * The digest pinned in Operator policy, when set.
+   */
+  digest?: string | null;
+}
+/**
+ * One installed Plugin in the shared Plugin store (ADRs 0033 and 0098;
+ * issue 928).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "InstalledPluginInfo".
+ */
+export interface InstalledPluginInfo {
+  /**
+   * The Operator policy approval state for this Plugin, when any policy
+   * fields are set.
+   */
+  approvals?: InstalledPluginApprovals | null;
+  /**
+   * Whether at least one of the Plugin's kinds is carried by the running
+   * Product (`false` marks e.g. a Sink or Fetch backend Plugin on Collie).
+   */
+  availableInProduct: boolean;
+  /**
+   * Conformance suite results recorded in the cached Plugin index for this
+   * Plugin, when listed.
+   */
+  conformance?: ConformanceResult[];
+  /**
+   * The image index digest recorded beside its bundle, when known.
+   */
+  digest?: string | null;
+  /**
+   * The Plugin kinds its manifest declares.
+   */
+  kinds: PluginKindName[];
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * What its manifest lets it reach on the network.
+   */
+  networkLevel: NetworkLevel;
+  /**
+   * The JSON Schema of the Plugin's settings from its manifest, so a
+   * surface can render its fields (ADR 0033).
+   */
+  settingsSchema?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The signer identity recorded in the lockfile or Plugin index, when
+   * known.
+   */
+  signer?: string | null;
+  /**
+   * Kinds declared by the Plugin that the running Product does not carry.
+   */
+  unsupportedKinds?: PluginKindName[];
+  /**
+   * Its installed version, from its manifest.
+   */
+  version: string;
+}
+/**
  * What `internal` details: the object whose table refused the event, its
  * state and the event, as the engine names them.
  *
@@ -8099,6 +8241,35 @@ export interface PluginIndexStaleDetails {
   version?: number | null;
 }
 /**
+ * What `plugin.list` takes (ADR 0098, issue 928).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginListParams".
+ */
+export interface PluginListParams {
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083): used
+   * to read the project's lockfile and settings when present.
+   */
+  project?: ProjectSettings | null;
+}
+/**
+ * What `plugin.list` answers (ADR 0098, issue 928).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginListResult".
+ */
+export interface PluginListResult {
+  /**
+   * Every installed Plugin in the shared Plugin store, sorted by name.
+   */
+  plugins?: InstalledPluginInfo[];
+  /**
+   * The Product that answered the list (`collie` or `foxhound`).
+   */
+  product: Product;
+}
+/**
  * What `plugin_name_ambiguous` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8153,6 +8324,49 @@ export interface PluginPermissionDeniedDetails {
    * The Plugin's name.
    */
   plugin: string;
+}
+/**
+ * What `plugin.remove` takes (ADR 0033, issue 928).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginRemoveParams".
+ */
+export interface PluginRemoveParams {
+  /**
+   * The name of the Plugin to remove.
+   */
+  name: string;
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083): the
+   * lockfile beside it is updated, else the one in the Goodfetch home's
+   * configuration folder.
+   */
+  project?: ProjectSettings | null;
+}
+/**
+ * What `plugin.remove` answers once the Plugin is removed (ADR 0033,
+ * issue 928).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginRemoved".
+ */
+export interface PluginRemoved {
+  /**
+   * What happened to its Operator policy approvals.
+   */
+  approvals: PluginApprovalsRemoval;
+  /**
+   * The removed Plugin's name.
+   */
+  name: string;
+  /**
+   * Whether an entry was removed from the Plugin lockfile.
+   */
+  removedFromLockfile: boolean;
+  /**
+   * Whether an unpacked bundle was deleted from the Plugin store.
+   */
+  removedFromStore: boolean;
 }
 /**
  * What `plugin_revoked` details.

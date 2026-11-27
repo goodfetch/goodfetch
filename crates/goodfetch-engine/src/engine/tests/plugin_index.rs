@@ -97,6 +97,13 @@ fn import_audit_entries(env: &TestEnv) -> Vec<Value> {
         .collect()
 }
 
+fn hello_msg(surface: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0", "id": 0, "method": "hello",
+        "params": { "protocol_version": "0.1", "surface": surface, "needs": "collie", "product_version": "1.4.0" },
+    })
+}
+
 /// `plugin.index_import` accepts a fresh fixture index verified offline under
 /// the test trust root, audits it as `plugin_index_imported`, refuses stale,
 /// badly signed or expired indexes with `plugin_index_stale`, and refuses a
@@ -108,28 +115,25 @@ fn plugin_index_import_accepts_fresh_refuses_stale_or_bad_signature_and_is_audit
     let env = TestEnv::new();
     let (signer, trust) = signer_and_trust();
     let (rogue, _) = SignedSetSigner::for_root(KEY_ID, ISSUER, WORKFLOW, SEED_ROGUE);
-    // Test Clock starts at 2026-01-05T09:00:00Z.
     let now: Timestamp = "2026-01-05T09:00:00Z".parse().unwrap();
     let fresh_exp = Timestamp::from_second(now.as_second() + 14 * 86_400).unwrap();
     let past_exp = Timestamp::from_second(now.as_second() - 3600).unwrap();
 
-    let v2 = signer.sign(fixture_index(2, now, fresh_exp)).unwrap();
-    let v1_stale = signer.sign(fixture_index(1, now, fresh_exp)).unwrap();
-    let v3_bad_sig = rogue.sign(fixture_index(3, now, fresh_exp)).unwrap();
-    let v3_expired = signer.sign(fixture_index(3, now, past_exp)).unwrap();
+    let v2 = serde_json::to_value(signer.sign(fixture_index(2, now, fresh_exp)).unwrap()).unwrap();
+    let v1_stale =
+        serde_json::to_value(signer.sign(fixture_index(1, now, fresh_exp)).unwrap()).unwrap();
+    let v3_bad_sig =
+        serde_json::to_value(rogue.sign(fixture_index(3, now, fresh_exp)).unwrap()).unwrap();
+    let v3_expired =
+        serde_json::to_value(signer.sign(fixture_index(3, now, past_exp)).unwrap()).unwrap();
 
     let engine = engine_with(Product::Collie, None).with_plugin_index_trust_root(trust);
 
     // Non-person surface (SDK) is refused with `person_required`.
     let sdk_refused = attached_on(&engine, &env, |mut client| {
-        let v2_val = serde_json::to_value(&v2).unwrap();
+        let v2_val = v2.clone();
         async move {
-            client
-                .send(&[json!({
-                    "jsonrpc": "2.0", "id": 0, "method": "hello",
-                    "params": { "protocol_version": "0.1", "surface": "sdk_typescript", "needs": "collie", "product_version": "1.4.0" },
-                })])
-                .await;
+            client.send(&[hello_msg("sdk_typescript")]).await;
             client.next().await.unwrap();
             call(
                 &mut client,
@@ -146,55 +150,41 @@ fn plugin_index_import_accepts_fresh_refuses_stale_or_bad_signature_and_is_audit
     );
     assert_eq!(import_audit_entries(&env), Vec::<Value>::new());
 
-    // Person surface (CLI): fresh v2 succeeds, stale v1 / bad-sig v3 / expired v3 refused.
-    let (imported, stale_err, bad_sig_err, expired_err) = attached_on(
-        &engine,
-        &env,
-        |mut client| {
-            let v2_val = serde_json::to_value(&v2).unwrap();
-            let v1_val = serde_json::to_value(&v1_stale).unwrap();
-            let bad_val = serde_json::to_value(&v3_bad_sig).unwrap();
-            let exp_val = serde_json::to_value(&v3_expired).unwrap();
-            async move {
-                client
-                .send(&[json!({
-                    "jsonrpc": "2.0", "id": 0, "method": "hello",
-                    "params": { "protocol_version": "0.1", "surface": "cli", "needs": "collie", "product_version": "1.4.0" },
-                })])
-                .await;
-                client.next().await.unwrap();
-                let ok = call(
-                    &mut client,
-                    1,
-                    "plugin.index_import",
-                    json!({ "bundle": v2_val }),
-                )
-                .await;
-                let stale = call(
-                    &mut client,
-                    2,
-                    "plugin.index_import",
-                    json!({ "bundle": v1_val }),
-                )
-                .await;
-                let bad = call(
-                    &mut client,
-                    3,
-                    "plugin.index_import",
-                    json!({ "bundle": bad_val }),
-                )
-                .await;
-                let expired = call(
-                    &mut client,
-                    4,
-                    "plugin.index_import",
-                    json!({ "bundle": exp_val }),
-                )
-                .await;
-                (ok, stale, bad, expired)
-            }
-        },
-    );
+    // Person surface (CLI): fresh v2 succeeds; stale, bad-sig and expired are refused.
+    let (imported, stale_err, bad_sig_err, expired_err) =
+        attached_on(&engine, &env, |mut client| async move {
+            client.send(&[hello_msg("cli")]).await;
+            client.next().await.unwrap();
+            let ok = call(
+                &mut client,
+                1,
+                "plugin.index_import",
+                json!({ "bundle": v2 }),
+            )
+            .await;
+            let stale = call(
+                &mut client,
+                2,
+                "plugin.index_import",
+                json!({ "bundle": v1_stale }),
+            )
+            .await;
+            let bad = call(
+                &mut client,
+                3,
+                "plugin.index_import",
+                json!({ "bundle": v3_bad_sig }),
+            )
+            .await;
+            let expired = call(
+                &mut client,
+                4,
+                "plugin.index_import",
+                json!({ "bundle": v3_expired }),
+            )
+            .await;
+            (ok, stale, bad, expired)
+        });
 
     assert_eq!(imported["result"]["version"], json!(2));
     assert_eq!(imported["result"]["plugins"], json!(2));
@@ -203,26 +193,20 @@ fn plugin_index_import_accepts_fresh_refuses_stale_or_bad_signature_and_is_audit
         stale_err["error"]["data"]["code"],
         json!("plugin_index_stale")
     );
-    assert_eq!(
-        stale_err["error"]["data"]["details"]["reason"],
-        json!("stale")
-    );
+    assert_eq!(stale_err["error"]["data"]["reason"], json!("stale"));
     assert_eq!(
         bad_sig_err["error"]["data"]["code"],
         json!("plugin_index_stale")
     );
     assert_eq!(
-        bad_sig_err["error"]["data"]["details"]["reason"],
+        bad_sig_err["error"]["data"]["reason"],
         json!("bad_signature")
     );
     assert_eq!(
         expired_err["error"]["data"]["code"],
         json!("plugin_index_stale")
     );
-    assert_eq!(
-        expired_err["error"]["data"]["details"]["reason"],
-        json!("expired")
-    );
+    assert_eq!(expired_err["error"]["data"]["reason"], json!("expired"));
 
     // Exactly one Audit log entry recorded (the accepted v2 import).
     let audits = import_audit_entries(&env);

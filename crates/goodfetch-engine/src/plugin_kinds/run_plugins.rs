@@ -20,6 +20,7 @@ use goodfetch_confinement::deny_list::Places;
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{NOT_IN_PRODUCT, NotInProductDetails, ProductVersion};
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::plugin::approvals::{
     Origin, PLUGIN_NOT_ALLOWED, PluginNotAllowedDetails, PluginRefusal, admit, fix,
@@ -147,6 +148,64 @@ impl RunPlugins {
         );
     }
 
+    /// Whether this live Run is currently using the Plugin `name` (either a
+    /// running instance is tracked for it or an Extractor cell has been
+    /// initialized for it, ADR 0033, issue 928).
+    pub async fn is_using(&self, name: &str) -> bool {
+        if self.running.lock().await.contains_key(name) {
+            return true;
+        }
+        self.extractors
+            .lock()
+            .await
+            .get(name)
+            .is_some_and(|cell| cell.initialized())
+    }
+
+    /// Checks whether asking for Plugin `name` of kind `kind` is supported by
+    /// this Run's Product (ADRs 0094 and 0098; issue 928). Refuses with
+    /// `not_in_product` when `kind` is not carried by `self.product` (such as
+    /// `sink` or `fetch_backend` on Collie) or when `name` is installed in the
+    /// shared store with only kinds outside `self.product`.
+    ///
+    /// # Errors
+    ///
+    /// `not_in_product` when the requested kind or installed Plugin belongs to
+    /// Foxhound and this Run runs on Collie.
+    pub async fn check_product_kind(
+        &self,
+        name: &str,
+        kind: &PluginKindName,
+        product_version: &ProductVersion,
+    ) -> Result<(), CallError> {
+        if !kind.in_product(self.product) {
+            return Err(plugin_not_in_product(
+                self.product,
+                product_version,
+                name,
+                std::slice::from_ref(kind),
+            ));
+        }
+        let store = self.store.clone();
+        let named = name.to_owned();
+        if let Ok(installed) = self.owner.blocking(move || store.installed(&named)).await
+            && !installed
+                .manifest
+                .kinds
+                .iter()
+                .any(|declared| declared.in_product(self.product))
+        {
+            let kinds: Vec<PluginKindName> = installed.manifest.kinds.into_iter().collect();
+            return Err(plugin_not_in_product(
+                self.product,
+                product_version,
+                name,
+                &kinds,
+            ));
+        }
+        Ok(())
+    }
+
     /// Stops every currently running instance whose digest or signer
     /// matches a revocation in `index`, evicts it from the Run's cache,
     /// and records `plugin_revoked` in the Audit log. Returns the names of
@@ -242,6 +301,58 @@ impl RunPlugins {
             .cloned()
     }
 
+    /// Resolves `name` as an Extractor from the store, translating a
+    /// Foxhound-only Plugin (such as a Sink or Fetch backend on Collie) into
+    /// `not_in_product` instead of `extractor_unavailable`.
+    async fn resolve_extractor(&self, name: &str) -> Result<Installed, StartError> {
+        let store = self.store.clone();
+        let named = name.to_owned();
+        let product = self.product;
+        match self
+            .owner
+            .blocking(
+                move || match store.resolve(&named, &PluginKindName::EXTRACT) {
+                    Ok(installed) => Ok(installed),
+                    Err(StoreError::Kind { .. }) => match store.installed(&named) {
+                        Ok(other)
+                            if !other
+                                .manifest
+                                .kinds
+                                .iter()
+                                .any(|kind| kind.in_product(product)) =>
+                        {
+                            let kinds: Vec<PluginKindName> =
+                                other.manifest.kinds.into_iter().collect();
+                            Err(Err(kinds))
+                        }
+                        _ => Err(Ok(StoreError::Kind {
+                            name: named,
+                            kind: PluginKindName::EXTRACT,
+                        })),
+                    },
+                    Err(error) => Err(Ok(error)),
+                },
+            )
+            .await
+        {
+            Ok(installed) => Ok(installed),
+            Err(Ok(error)) => {
+                tracing::warn!(extractor = name, %error, "an Extractor's Plugin cannot start");
+                Err(StartError::Refused(unavailable(name)))
+            }
+            Err(Err(kinds)) => {
+                let version = ProductVersion::parse("0.1.0")
+                    .expect("invariant: valid ProductVersion literal");
+                Err(StartError::Refused(plugin_not_in_product(
+                    self.product,
+                    &version,
+                    name,
+                    &kinds,
+                )))
+            }
+        }
+    }
+
     /// Starts the instance of the installed Plugin `name`, as
     /// [`Self::extractor`] tells: the host's confinement is checked before
     /// any setting is read, so a host that cannot confine the Plugin
@@ -257,13 +368,7 @@ impl RunPlugins {
             tracing::warn!(extractor = name, %reason, "an Extractor's Plugin cannot start");
             StartError::Refused(unavailable(name))
         };
-        let store = self.store.clone();
-        let named = name.to_owned();
-        let installed = self
-            .owner
-            .blocking(move || store.resolve(&named, &PluginKindName::EXTRACT))
-            .await
-            .map_err(|error| cannot_start(&error))?;
+        let installed = self.resolve_extractor(name).await?;
         let defaults;
         let resolved = if let Some(settings) = settings {
             settings
@@ -550,6 +655,61 @@ fn set_up(
         },
         manifest: installed.manifest,
     })
+}
+
+/// Checks whether an installed Plugin `name` in `store_folder` declares only
+/// kinds that `product` lacks (such as `sink` or `fetch_backend` on Collie),
+/// returning its unsupported kinds when so (ADRs 0094 and 0098; issue 928).
+#[must_use]
+pub fn unsupported_only_kinds(
+    store_folder: PathBuf,
+    name: &str,
+    product: Product,
+) -> Option<Vec<PluginKindName>> {
+    let store = PluginStore::new(store_folder);
+    let installed = store.installed(name).ok()?;
+    if installed
+        .manifest
+        .kinds
+        .iter()
+        .any(|kind| kind.in_product(product))
+    {
+        return None;
+    }
+    Some(installed.manifest.kinds.into_iter().collect())
+}
+
+/// Constructs a `not_in_product` [`CallError`] when a Collie Run asks for a
+/// Foxhound-only Plugin or Plugin kind (ADRs 0094 and 0098; issue 928).
+#[must_use]
+pub fn plugin_not_in_product(
+    product: Product,
+    product_version: &ProductVersion,
+    name: &str,
+    kinds: &[PluginKindName],
+) -> CallError {
+    let listed = kinds
+        .iter()
+        .map(PluginKindName::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let requested = format!("plugin `{name}` (kind: {listed})");
+    let details = NotInProductDetails {
+        product,
+        product_version: product_version.clone(),
+        needs: Product::Foxhound,
+        requested: Some(requested.clone()),
+        fix: format!(
+            "Run with Foxhound instead of Collie to use {requested}; Collie keeps the Plugin in the shared store untouched."
+        ),
+        install: None,
+        handover: false,
+    };
+    CallError::new(
+        &NOT_IN_PRODUCT,
+        format!("Collie does not carry {requested}: Foxhound does."),
+        &details,
+    )
 }
 
 #[cfg(test)]

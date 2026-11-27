@@ -30,6 +30,9 @@ use goodfetch_protocol::foxhound::fetch::SAMPLE_REFRESH_SHAPE;
 use goodfetch_protocol::foxhound::frontier::PATH_BUDGET_SHAPE;
 use goodfetch_protocol::foxhound::sink::SINK_SHAPE;
 use goodfetch_protocol::page::EXTRACTOR_NAME_SHAPE;
+use goodfetch_protocol::page::emulation::{
+    DEVICE_SCALE_FACTOR_SHAPE, GEOLOCATION_SHAPE, NETWORK_THROTTLE_SHAPE, VIEWPORT_SHAPE,
+};
 use goodfetch_protocol::run::durability::BATCH_THRESHOLD_SHAPE;
 use goodfetch_protocol::secrets::placeholders::BOUND_PLACEHOLDER_SHAPE;
 use goodfetch_protocol::settings::page_check::PAGE_CHECK_SHAPE;
@@ -48,10 +51,26 @@ use super::{HEADER, Setter, comment};
 /// `ValueKind::Shape`), by the shape: rustc checks the path when the crate
 /// builds, and the shape's own `check` reads that type. A new shape a key
 /// takes fails the generation until it is listed here.
-const SHAPES: [(&ValueShape, &str); 10] = [
+const SHAPES: [(&ValueShape, &str); 14] = [
     (
         &EXTRACTOR_NAME_SHAPE,
         "::goodfetch_protocol::page::ExtractorName",
+    ),
+    (
+        &VIEWPORT_SHAPE,
+        "::goodfetch_protocol::page::emulation::Viewport",
+    ),
+    (
+        &DEVICE_SCALE_FACTOR_SHAPE,
+        "::goodfetch_protocol::page::emulation::DeviceScaleFactor",
+    ),
+    (
+        &GEOLOCATION_SHAPE,
+        "::goodfetch_protocol::page::emulation::Geolocation",
+    ),
+    (
+        &NETWORK_THROTTLE_SHAPE,
+        "::goodfetch_protocol::page::emulation::NetworkThrottle",
     ),
     (
         &LOCAL_ADDRESSES_SHAPE,

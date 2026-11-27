@@ -60,11 +60,12 @@ pub(super) struct Identity {
 }
 
 impl Identity {
-    /// The command that gives a page this identity.
-    pub(super) fn command(&self) -> emulation::SetUserAgentOverrideParams {
+    /// The command that gives a page this identity, optionally setting
+    /// `Accept-Language` / `navigator.language` from `browser.locale`.
+    pub(super) fn command(&self, locale: Option<&str>) -> emulation::SetUserAgentOverrideParams {
         emulation::SetUserAgentOverrideParams {
             user_agent: self.user_agent.clone(),
-            accept_language: None,
+            accept_language: locale.map(str::to_owned),
             platform: None,
             user_agent_metadata: Some(self.hints.clone()),
         }

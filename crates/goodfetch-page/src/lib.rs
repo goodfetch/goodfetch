@@ -24,6 +24,7 @@ mod consent_walls;
 mod dialogs;
 pub mod document_request;
 mod egress_relay;
+mod emulation;
 mod errors;
 pub mod extractor;
 pub mod fields;

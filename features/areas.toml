@@ -1009,6 +1009,11 @@ number = 5
 kind = "setting"
 prefix = "browser."
 
+[[area]]
+number = 5
+kind = "setting"
+prefix = "network.throttle"
+
 # Live hiding (#715): ADR 0083 names ADR 0047's `live_hiding`
 # `live_view.hiding`.
 [[area]]

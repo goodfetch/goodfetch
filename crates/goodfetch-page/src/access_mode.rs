@@ -170,7 +170,7 @@ impl BrowserFamily {
 
 /// Whether a Session opened from `source` borrows a browser the person runs,
 /// which keeps its own identity.
-const fn borrowed(source: Option<&SessionSource>) -> bool {
+pub(crate) const fn borrowed(source: Option<&SessionSource>) -> bool {
     matches!(
         source,
         Some(SessionSource::RunningBrowser { .. } | SessionSource::CdpUrl { .. })
@@ -179,7 +179,7 @@ const fn borrowed(source: Option<&SessionSource>) -> bool {
 
 /// Whether `source` carries another browser's identity: an import, or a
 /// Profile directory used in place.
-const fn carries_an_identity(source: Option<&SessionSource>) -> bool {
+pub(crate) const fn carries_an_identity(source: Option<&SessionSource>) -> bool {
     matches!(
         source,
         Some(
@@ -193,7 +193,7 @@ const fn carries_an_identity(source: Option<&SessionSource>) -> bool {
 
 /// Where a setting's value came from, nearest the Session last.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Scope {
+pub(crate) enum Scope {
     /// Nobody set it.
     Default,
     /// The Run's layer that set it.
@@ -205,7 +205,7 @@ enum Scope {
 impl Scope {
     /// The layer a refusal names: a Session's own settings are set on the
     /// Run's layer.
-    const fn layer(self) -> SettingsLayer {
+    pub(crate) const fn layer(self) -> SettingsLayer {
         match self {
             Self::Default => SettingsLayer::Default,
             Self::Inherited(layer) => layer,
@@ -228,7 +228,7 @@ impl<'a> SessionSettings<'a> {
     }
 
     /// `setting`'s value and where it came from.
-    fn scoped(&self, setting: &Setting) -> (&'a Value, Scope) {
+    pub(crate) fn scoped(&self, setting: &Setting) -> (&'a Value, Scope) {
         if let Some(value) = self.own.get(setting.name) {
             return (value, Scope::Session);
         }

@@ -30,6 +30,7 @@ max_hello_size = 4
 max_body_size = 4
 max_decompression_ratio = 4
 max_json_depth = 4
+throttle = { download_bytes_per_second = 50000, latency = 150, offline = false, upload_bytes_per_second = 20000 }
 resolve = { "example.test" = ["127.0.0.1"] }
 
 [settings.connection]
@@ -116,6 +117,16 @@ cdp_command_log = true
 block_resources = ["image"]
 service_workers = "allow"
 access_mode = "standard"
+viewport = { height = 720, width = 1280 }
+device_scale_factor = 1.5
+locale = "example"
+timezone_id = "example"
+color_scheme = "light"
+java_script_enabled = true
+geolocation = { accuracy = 10.0, latitude = 48.8566, longitude = 2.3522 }
+has_touch = true
+is_mobile = true
+permissions = ["geolocation"]
 
 [settings.resolver]
 resolution_delay = 30000

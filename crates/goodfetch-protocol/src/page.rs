@@ -54,6 +54,7 @@ pub mod access_mode;
 pub mod ai_work;
 pub mod cdp_url;
 pub mod dialog;
+pub mod emulation;
 pub mod events;
 pub mod functions;
 pub mod proxy;

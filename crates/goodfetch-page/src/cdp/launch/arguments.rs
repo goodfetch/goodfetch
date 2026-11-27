@@ -147,6 +147,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     ];
     if launch.headless {
         arguments.push("--headless".to_owned());
+        arguments.push("--window-size=1280,720".to_owned());
     }
     arguments.extend(
         [

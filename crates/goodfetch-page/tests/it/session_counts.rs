@@ -179,11 +179,13 @@ fn each_event_visits_one_reader_of_the_connection_with_a_route_and_a_listener_on
     assert_eq!(work.read(Row::CdpEventVisits), events);
 }
 
-/// On each of the two documents with actions, a click, a fill and a press
-/// each wait for one check, which sends one command and `check.js`'s source
-/// with it (X11). Each kind's commands: the click checks, moves, presses and
-/// releases the pointer and disarms; the fill checks and inserts its text;
-/// the press checks, sends its key down and up, and waits for the renderer.
+/// On each of the two documents with actions, a click, two fills sent at
+/// once and a press each wait for one check, which sends one command and
+/// `check.js`'s source with it (X11). Each kind's commands: the click checks,
+/// moves, presses and releases the pointer and disarms; each fill checks and
+/// inserts its text, the second in its turn after the first, which costs it
+/// no command more; the press checks, sends its key down and up, and waits
+/// for the renderer.
 /// Each navigation's charset read makes the guard's world in its document
 /// before them, the earlier document's being gone, so no action makes it
 /// and no check finds it gone. The program's reads are waits whose checks
@@ -195,9 +197,9 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
 
     assert_eq!(
         counted.attempts,
-        BTreeMap::from([("click", 2), ("fill", 2), ("press", 2)])
+        BTreeMap::from([("click", 2), ("fill", 4), ("press", 2)])
     );
-    assert_eq!(checks, 6);
+    assert_eq!(checks, 8);
     assert_eq!(counted.count(Row::ActionScriptSends), checks);
     assert_eq!(counted.count(Row::ActionCheckCommands), checks);
     assert_eq!(
@@ -207,10 +209,10 @@ fn a_sessions_actions_count_each_check_and_their_commands_by_kind() {
             Row::ActionPressCommands,
         ]
         .map(|row| counted.count(row)),
-        [10, 4, 8]
+        [10, 8, 8]
     );
     // Each attempt asks its Page's owner for its turn, once.
-    assert_eq!(counted.count(Row::ActionOwnerRoundTrips), 6);
+    assert_eq!(counted.count(Row::ActionOwnerRoundTrips), 8);
 }
 
 /// A plant adds one unit of its row per command, which takes the row past

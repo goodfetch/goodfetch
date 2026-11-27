@@ -262,7 +262,7 @@ fn the_page_suite_proves_launch_against_collies_attached_engine() {
     prove(LAUNCH);
 }
 
-/// Covers: story:5-2, story:5-3, story:5-10, story:5-18, operation:locator.click, operation:locator.fill, operation:locator.press
+/// Covers: story:5-2, story:5-3, story:5-7, story:5-10, story:5-18, operation:locator.click, operation:locator.fill, operation:locator.press, operation:page.read
 #[test]
 fn the_page_suite_proves_locators_against_collies_attached_engine() {
     prove(LOCATORS);

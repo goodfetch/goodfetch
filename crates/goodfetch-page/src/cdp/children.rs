@@ -126,6 +126,17 @@ impl CdpPage {
             .map(drop)?)
     }
 
+    /// Has the child this page drives, of kind `kind`, show its headless
+    /// browser's identity, as its page does, within a deadline of opening a
+    /// page; nothing with a window.
+    ///
+    /// # Errors
+    ///
+    /// The code of opening a page when the browser refuses.
+    pub(crate) async fn show_identity_opening(&self, kind: ChildKind) -> Result<(), CallError> {
+        self.page.show_identity_opening(kind).await
+    }
+
     /// Lets the child on `child`, which waits for the engine, run.
     ///
     /// # Errors

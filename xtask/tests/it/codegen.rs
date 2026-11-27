@@ -768,6 +768,7 @@ fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
             feature("format:sample-store", 1, None),
             feature("operation:sample.crawl", 1, None),
             feature("operation:sample.echo", 1, None),
+            feature("plugin-kind:sample_store", 1, None),
             feature("row:RT-01", 3, Some("M1 Core")),
             feature("row:RT-02", 3, None),
             feature("row:durability-resume", 3, None),

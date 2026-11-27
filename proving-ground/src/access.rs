@@ -87,6 +87,8 @@ const POPUP: &str = "/popup";
 const POPUP_OPENED: &str = "/popup/opened";
 /// The page functions page.
 const PAGE_FUNCTIONS: &str = "/page-functions";
+/// The pointer and input recorder probe page (#1018).
+const POINTER: &str = "/pointer";
 /// The service worker page and its worker's script.
 const SERVICE_WORKER: &str = "/service-worker/";
 const SERVICE_WORKER_SCRIPT: &str = "/service-worker/sw.js";
@@ -143,6 +145,7 @@ const PAGE_EVENTS_FRAME_SCRIPT: &str = include_str!("../pages/access/page-events
 const DIALOGS_SCRIPT: &str = include_str!("../pages/access/dialogs.js");
 const POPUP_SCRIPT: &str = include_str!("../pages/access/popup.js");
 const PAGE_FUNCTIONS_SCRIPT: &str = include_str!("../pages/access/page-functions.js");
+const POINTER_SCRIPT: &str = include_str!("../pages/access/pointer.js");
 const SERVICE_WORKER_PAGE_SCRIPT: &str = include_str!("../pages/access/service-worker.js");
 const SERVICE_WORKER_WORKER_SCRIPT: &str = include_str!("../pages/access/service-worker-sw.js");
 const REQUEST_KINDS_SCRIPT: &str = include_str!("../pages/access/request-kinds.js");
@@ -253,6 +256,7 @@ pub(crate) fn respond(
             scripted(seed, "page-functions", PAGE_FUNCTIONS_SCRIPT),
             None,
         ),
+        Method::GET if path == POINTER => (pointer_page(seed), None),
         Method::GET if path == POPUP_OPENED => (Reply::html(page(seed, "popup-opened", "")), None),
         Method::GET if path == SERVICE_WORKER => (
             Reply::html(page(
@@ -282,6 +286,17 @@ pub(crate) fn respond(
         },
         _ => (Reply::not_found(), None),
     })
+}
+
+/// The pointer and input recorder probe page (ADR 0035; spec #599, #1018).
+fn pointer_page(seed: u64) -> Reply {
+    Reply::html(page(
+        seed,
+        "pointer",
+        &format!(
+            "<div style=\"margin-top:220px;margin-left:380px\">\n<button type=\"button\" id=\"target\" style=\"width:120px;height:48px\">Target</button>\n</div>\n<div style=\"margin-top:24px;margin-left:380px\">\n<input id=\"field\" type=\"text\" autocomplete=\"off\">\n<input id=\"num\" type=\"number\" autocomplete=\"off\">\n</div>\n<div style=\"margin-top:1400px;margin-left:380px\">\n<button type=\"button\" id=\"far\" style=\"width:120px;height:48px\">Far target</button>\n</div>\n<pre id=\"summary\"></pre>\n<script>\n{POINTER_SCRIPT}</script>\n"
+        ),
+    ))
 }
 
 /// The answer to the service worker page's call at `path`, which names it;

@@ -55,7 +55,9 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 
-use goodfetch_cdp::generated::{browser, emulation as cdp_emulation, network, page, target};
+use goodfetch_cdp::generated::{
+    browser, emulation as cdp_emulation, network, page, storage, target,
+};
 use goodfetch_cdp::{
     Command, Connection, Failure, SessionId as TargetSession, Subscription, SubscriptionEnd,
 };
@@ -79,16 +81,17 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) use self::carry::{Carried, Origins, Watcher};
 pub(crate) use self::ending::{ENDING_KNOWN_WITHIN, Lost};
+pub(crate) use self::gestures::GestureWatch;
 use self::hidden_pages::HiddenPages;
 pub(crate) use self::navigation::{Arrived, browser_id, hop_id};
 use self::page_reader::PageReader;
 use self::permit_waits::PermitWaits;
 pub(crate) use self::popups::{OnPopup, PopupHandler};
 pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
-pub(crate) use self::targets::pointer_click;
+pub(crate) use self::targets::{mouse_event, pointer_click};
 use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
-use super::launch::{Launcher, launch};
+use super::launch::{Launcher, Window, launch};
 use super::{FrameId, TargetId};
 use crate::browser_run::BrowserRun;
 use crate::egress_relay::EgressRelay;
@@ -189,6 +192,9 @@ pub(crate) struct Browser {
     executable: String,
     /// The identity a headless browser's pages show; `None` with a window.
     identity: Option<Identity>,
+    /// What it reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`, once it answered.
+    product: Option<Arc<str>>,
     /// Its process's ID.
     process: Option<u32>,
     /// Cancelled once the engine closes it, so its exit is not a loss.
@@ -266,6 +272,7 @@ impl Browser {
             exit: watch::channel(None).1,
             executable: "played".to_owned(),
             identity: None,
+            product: None,
             process: None,
             closing: CancellationToken::new(),
             launched: false,
@@ -751,11 +758,12 @@ impl Connect for BorrowedBrowser {
                 let tasks = self.run.identity.starting_on(&self.owner);
                 let connection = borrowed::connect((&self.run, &tasks), &self.cdp_url).await?;
                 let address = self.cdp_url.address();
-                let browser = Browser {
+                let mut browser = Browser {
                     connection,
                     exit: self.exit.clone(),
                     executable: address,
                     identity: None,
+                    product: None,
                     process: None,
                     closing: self.owner.child_token(),
                     launched: false,
@@ -767,9 +775,10 @@ impl Connect for BorrowedBrowser {
                     work: self.run.identity.metrics().counted_work().clone(),
                 };
                 // The first answer says a browser speaks CDP there.
-                browser
+                let version = browser
                     .send(None, &browser::GetVersionParams {}, &browser.launching())
                     .await?;
+                browser.product = Some(Arc::from(version.product));
                 service_workers::start(&browser, &tasks).await?;
                 Ok(browser)
             })
@@ -783,14 +792,15 @@ impl Connect for BorrowedBrowser {
 }
 
 /// A browser the engine launches for a Run, numbered in the Run's browser
-/// pool, on the first Session that needs it; it closes when the Run stops
-/// or the pool closes it.
+/// pool, on the first Session that needs it, showing its pages as its
+/// window says; it closes when the Run stops or the pool closes it.
 pub(crate) struct LocalBrowser {
     run: Arc<BrowserRun>,
     launcher: Launcher,
     home: Home,
     pins: Pins,
     number: u64,
+    window: Window,
     /// The browser's owner, beside its Run's Sessions (ADR 0146): it
     /// supervises the browser's process, reads its own events and holds
     /// every task started for it, so its stop closes the browser and ends
@@ -812,7 +822,7 @@ impl LocalBrowser {
         (run, launcher): (Arc<BrowserRun>, Launcher),
         home: Home,
         pins: Pins,
-        number: u64,
+        (number, window): (u64, Window),
         authority: Option<Arc<Authority>>,
     ) -> Self {
         let owner = run.identity.owner().child();
@@ -822,6 +832,7 @@ impl LocalBrowser {
             home,
             pins,
             number,
+            window,
             owner,
             state: Arc::default(),
             launched: OnceCell::new(),
@@ -916,6 +927,7 @@ impl Connect for LocalBrowser {
                     (&self.launcher, &self.home, &self.pins),
                     (
                         self.number,
+                        self.window,
                         self.authority.as_deref().map(Authority::spki_sha256),
                     ),
                     attempt.clone(),
@@ -928,6 +940,7 @@ impl Connect for LocalBrowser {
                     exit: launched.exit,
                     executable: launched.executable.display().to_string(),
                     identity: None,
+                    product: None,
                     process: launched.process,
                     closing: attempt,
                     launched: true,
@@ -951,6 +964,7 @@ impl Connect for LocalBrowser {
                     &version.product,
                 )
                 .await;
+                browser.product = Some(Arc::from(version.product));
                 service_workers::start(&browser, &tasks).await?;
                 coming_up.up();
                 Ok(browser)
@@ -1407,6 +1421,12 @@ impl PageDriver {
         self.frame == target.0
     }
 
+    /// What its browser reports as its product, such as
+    /// `HeadlessChrome/131.0.6778.85`.
+    pub(crate) fn browser_product(&self) -> Option<&str> {
+        self.browser.product.as_deref()
+    }
+
     /// Its Session's proxy, if it has one.
     pub(crate) fn proxy(&self) -> Option<&SessionProxy> {
         self.egress.proxy.as_deref()
@@ -1728,6 +1748,21 @@ impl PageDriver {
     /// request may be gone.
     pub(crate) async fn command<C: Command>(&self, params: &C) -> Result<C::Returns, Failure> {
         self.browser.try_send(Some(&self.session), params).await
+    }
+
+    /// The cookies of the page's browser context, as the browser holds them
+    /// now, asked of the browser: a shared or service worker's target
+    /// answers no `Network.getCookies`.
+    pub(crate) async fn context_cookies(&self) -> Result<Vec<network::Cookie>, Failure> {
+        self.browser
+            .try_send(
+                None,
+                &storage::GetCookiesParams {
+                    browser_context_id: Some(self.context.clone()),
+                },
+            )
+            .await
+            .map(|found| found.cookies)
     }
 
     /// The Error code `failure` raises from `call`, naming how the browser

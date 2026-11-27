@@ -19,7 +19,8 @@ use goodfetch_cdp::generated::{emulation, network, page, runtime, target};
 use goodfetch_engine::CallError;
 use goodfetch_protocol::page::{BROWSER_LAUNCH_FAILED, BrowserLaunchFailedDetails};
 
-use super::Browser;
+use super::{Browser, PageDriver};
+use crate::cdp::ChildKind;
 
 /// The product token of a headless build's user agent.
 const HEADLESS_PRODUCT: &str = "HeadlessChrome/";
@@ -60,6 +61,16 @@ pub(super) struct Identity {
 }
 
 impl Identity {
+    /// The user agent this identity shows.
+    pub(super) fn user_agent(&self) -> &str {
+        &self.user_agent
+    }
+
+    /// The client hints this identity shows.
+    pub(super) fn hints(&self) -> &emulation::UserAgentMetadata {
+        &self.hints
+    }
+
     /// The command that gives a page this identity, optionally setting
     /// `Accept-Language` / `navigator.language` from `browser.locale`.
     pub(super) fn command(&self, locale: Option<&str>) -> emulation::SetUserAgentOverrideParams {
@@ -71,15 +82,43 @@ impl Identity {
         }
     }
 
-    /// The command that gives a service worker this identity: a worker's
-    /// target has no `Emulation` domain, and its `Network` override sets
-    /// both what its requests send and what its `navigator` reads.
+    /// The command that gives a worker this identity, through its `Network`
+    /// override: it sets what the worker's requests send, its
+    /// `navigator.userAgentData`, and a dedicated worker's
+    /// `navigator.userAgent`; a service or shared worker's
+    /// `navigator.userAgent` stays the browser's own.
     pub(super) fn worker_command(&self) -> network::SetUserAgentOverrideParams {
         network::SetUserAgentOverrideParams {
             user_agent: self.user_agent.clone(),
             accept_language: None,
             platform: None,
             user_agent_metadata: Some(self.hints.clone()),
+        }
+    }
+}
+
+impl PageDriver {
+    /// Has the page's out-of-process frame or dedicated worker this driver
+    /// drives show its headless browser's identity, as the page does,
+    /// within a deadline of opening a page: a frame of another site's
+    /// process takes none of its page's overrides. Nothing with a window.
+    ///
+    /// # Errors
+    ///
+    /// The code of opening a page when the browser refuses.
+    pub(crate) async fn show_identity_opening(&self, kind: ChildKind) -> Result<(), CallError> {
+        let Some(identity) = &self.browser.identity else {
+            return Ok(());
+        };
+        match kind {
+            ChildKind::Frame => self
+                .opening_command(&identity.command(None))
+                .await
+                .map(drop),
+            ChildKind::Worker => self
+                .opening_command(&identity.worker_command())
+                .await
+                .map(drop),
         }
     }
 }

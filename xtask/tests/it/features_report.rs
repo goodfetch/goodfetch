@@ -481,3 +481,36 @@ fn a_commit_some_of_whose_cells_have_not_run_is_not_read() {
         "passed"
     );
 }
+
+/// The Chromium build gate writes JUnit results under the `chromium-build`
+/// tier (ADR 0074, #400): `xtask features` ignores that tier even when a
+/// fixture carries `suite = "release"` on `main`.
+#[test]
+fn chromium_build_tier_results_are_ignored_by_features_report() {
+    let workspace = Workspace::from_fixture("features-report");
+    let release = Attempt {
+        test_runs: in_every_release_cell(&release_run("sample tests::passes", "passed", "1")),
+        ..release_attempt(10, "2026-10-18T03:00:00Z", "c1")
+    };
+    let chromium_run = with(
+        release_run("sample tests::passes", "failed", "2"),
+        "tier",
+        json!("chromium-build"),
+    );
+    let chromium_attempt = Attempt {
+        workflow: ".github/workflows/chromium-build-gate.yml",
+        event: "pull_request",
+        commit: "c2",
+        test_runs: in_every_release_cell(&chromium_run),
+        ..Attempt::new(11, "2026-10-19T03:00:00Z")
+    };
+    write_store(&workspace, &[release, chromium_attempt]);
+
+    let (_, report) = report(&workspace, "M1");
+
+    assert_eq!(report["release_commit"], "c1");
+    assert_eq!(
+        feature(&report, "operation:sample.tested")["tests"][0]["outcome"],
+        "passed"
+    );
+}

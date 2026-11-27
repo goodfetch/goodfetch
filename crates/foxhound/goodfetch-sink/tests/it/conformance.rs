@@ -39,7 +39,7 @@ fn destination() -> (TempDir, std::path::PathBuf) {
 /// order within its Dataset, and each row carries its delivery ID, its
 /// Dataset and number, the Run and its epoch, and its commit time.
 ///
-/// Covers: story:6-285
+/// Covers: story:6-285, sink:sqlite
 #[test]
 fn each_record_lands_once_with_its_delivery_id_dataset_number_and_epoch() {
     let (_folder, file) = destination();

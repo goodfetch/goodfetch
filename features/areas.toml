@@ -1954,3 +1954,32 @@ prefix = "skill."
 number = 11
 kind = "error"
 prefix = "skill_"
+
+# Sample Plugin kinds (area 1) and the real Plugin kinds (area 7, spec #596).
+[[area]]
+number = 1
+kind = "plugin-kind"
+prefix = "sample_"
+
+[[area]]
+number = 7
+kind = "plugin-kind"
+prefix = "extract"
+
+# Area 6, Collection (spec #582): every built-in Sink.
+[[area]]
+number = 6
+kind = "sink"
+prefix = ""
+
+# Area 11, the Client surfaces (specs #608 and #611): every Framework adapter
+# and every Integration action or trigger.
+[[area]]
+number = 11
+kind = "adapter"
+prefix = ""
+
+[[area]]
+number = 11
+kind = "integration"
+prefix = ""

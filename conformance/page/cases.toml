@@ -1,5 +1,5 @@
 # The page suite's case list (spec #577, tickets #695, #696, #697, #698, #699, #700, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710, #716, #711, #718, #859, #709 and #1597;
-# spec #580, tickets #783, #784, #785, #786, #787, #788, #789, #2402 and #796): a Collie program's pages, their locator actions
+# spec #580, tickets #783, #784, #785, #786, #787, #788, #789, #2402 and #796; spec #599, tickets #913 and #871): a Collie program's pages, their locator actions
 # and their formats over the protocol, run by `goodfetch-conformance`'s
 # engine harness against an Attached engine of Collie's executable on the
 # local Proving ground (ADR 0094), each case on a Run of its own whose
@@ -11,7 +11,7 @@ product = "collie"
 
 [suite]
 name = "page"
-version = "43"
+version = "44"
 
 [[capability]]
 name = "sessions.default"
@@ -94,7 +94,7 @@ name = "sessions.proxy"
 
 [[capability.case]]
 id = "a-failing-proxy-raises-its-own-error-never-navigation-failed"
-covers = ["story:5-88", "error:proxy_unavailable", "error:proxy_auth_failed", "setting:proxy.server"]
+covers = ["story:5-88", "story:8-64", "error:proxy_unavailable", "error:proxy_auth_failed", "setting:proxy.server"]
 
 [[capability.case]]
 id = "two-sessions-of-a-run-reach-the-site-each-through-its-own-proxy"
@@ -133,7 +133,7 @@ covers = ["story:5-90", "setting:politeness.sharing", "error:proxy_unavailable"]
 
 [[capability.case]]
 id = "a-sites-429-through-a-proxy-lowers-no-ceiling-and-writes-no-domain-limit"
-covers = ["story:5-90", "error:proxy_unavailable"]
+covers = ["story:5-90", "story:8-64", "error:proxy_unavailable", "error:blocked"]
 
 [[capability]]
 name = "navigation"
@@ -304,6 +304,13 @@ covers = ["story:5-56", "operation:run.new_page", "operation:page.goto"]
 [[capability.case]]
 id = "a-page-behind-another-keeps-its-timer-and-its-focus"
 covers = ["story:5-11", "operation:run.new_page", "operation:page.goto"]
+
+[[capability]]
+name = "launch.stealth"
+
+[[capability.case]]
+id = "every-frame-and-worker-of-a-page-shows-its-sessions-identity"
+covers = ["story:8-1", "story:8-13", "setting:browser.access_mode", "setting:stealth.fingerprint_method", "operation:run.new_page", "operation:page.goto"]
 
 [[capability]]
 name = "locators.guard"

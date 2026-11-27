@@ -75,6 +75,17 @@
       ]
     },
     {
+      "id": "plugin-kind:sample_store",
+      "kind": "plugin-kind",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "row:RT-01",
       "kind": "row",
       "area": 3,

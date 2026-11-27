@@ -361,9 +361,17 @@ pub(crate) fn selected(packages: &[String], name: Option<&str>, path: &str) -> b
 fn defines(packages: &[String], id: &str) -> bool {
     let crate_ = |name: &str, folder: &str| selected(packages, Some(name), &format!("{folder}/"));
     match id.split_once(':').map_or(id, |(kind, _)| kind) {
-        "operation" | "error" | "event" | "setting" | "exit" | "format" | "block-cause" => {
+        "operation" | "error" | "event" | "setting" | "exit" | "format" | "block-cause"
+        | "mcp-profile" | "plugin-kind" => {
             crate_("goodfetch-protocol", "crates/goodfetch-protocol")
         }
+        "sink" => crate_("goodfetch-sink", "crates/foxhound/goodfetch-sink"),
+        "adapter" => packages
+            .iter()
+            .any(|package| package.trim_end_matches('/').starts_with("adapters")),
+        "integration" => packages
+            .iter()
+            .any(|package| package.trim_end_matches('/').starts_with("integrations")),
         "command" => products::EXECUTABLES
             .iter()
             .any(|executable| crate_(executable.package, executable.folder)),

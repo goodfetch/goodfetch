@@ -54,8 +54,8 @@ fn an_interval_of_at_least_one_millisecond_is_accepted(#[case] interval: u64) {
 fn an_interval_of_zero_is_out_of_range() {
     let refused = check(&every(0)).unwrap_err();
 
-    assert_eq!(refused.details.reason, TriggerInvalidReason::OutOfRange);
-    assert_eq!(refused.details.expression, "0");
+    assert_eq!(refused.details().reason, TriggerInvalidReason::OutOfRange);
+    assert_eq!(refused.details().expression, "0");
 }
 
 /// Five fields, optional seconds, `L`, `W`, `#` and the `@daily`-style macros
@@ -204,17 +204,18 @@ fn croner_errors_translate_without_leaking_party_text(
         None => translate_unrecognized(expression, "CRONER_SENTINEL_FUTURE_VARIANT".to_owned()),
     };
 
-    assert_eq!(translated.details.expression, expression);
-    assert_eq!(translated.details.reason, expected_reason);
-    assert_eq!(translated.details.position, expected_position);
+    let details = translated.details();
+    assert_eq!(details.expression, expression);
+    assert_eq!(details.reason, expected_reason);
+    assert_eq!(details.position, expected_position);
 
     if let Some(sentinel) = sentinel {
+        let message = translated.to_string();
         let debug = format!("{translated:?}");
-        let wire = serde_json::to_string(&translated.details).unwrap();
+        let wire = serde_json::to_string(details).unwrap();
         assert!(
-            !translated.message.contains(sentinel),
-            "party text leaked into message: {}",
-            translated.message
+            !message.contains(sentinel),
+            "party text leaked into message: {message}"
         );
         assert!(
             !debug.contains(sentinel),
@@ -248,10 +249,11 @@ fn malformed_cron_expressions_pinpoint_position_and_reason(
     #[case] expected_position: u64,
 ) {
     let refused = parse(&cron(expression)).unwrap_err();
+    let details = refused.details();
 
-    assert_eq!(refused.details.expression, expression);
-    assert_eq!(refused.details.reason, expected_reason);
-    assert_eq!(refused.details.position, expected_position);
+    assert_eq!(details.expression, expression);
+    assert_eq!(details.reason, expected_reason);
+    assert_eq!(details.position, expected_position);
 }
 
 /// Finds the skipped local hour `(gap_hour, after_gap_hour)` on a zone's

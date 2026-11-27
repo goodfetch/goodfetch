@@ -17,10 +17,10 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::schedule::{
     DEFAULT_PREVIEW_COUNT, MAX_PREVIEW_COUNT, SCHEDULE_CAP_EXCEEDED, SCHEDULE_CREATE,
     SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST,
-    SCHEDULE_NOT_FOUND, SCHEDULE_PREVIEW, SCHEDULE_STORE_ANSWER, SCHEDULE_TRIGGER_INVALID,
-    ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleExistsDetails,
-    ScheduleGetParams, ScheduleId, ScheduleInfo, ScheduleList, ScheduleListParams,
-    ScheduleNotFoundDetails, ScheduleParams, SchedulePreview, SchedulePreviewParams, ScheduleState,
+    SCHEDULE_NOT_FOUND, SCHEDULE_PREVIEW, SCHEDULE_STORE_ANSWER, ScheduleCreateParams,
+    ScheduleCreated, ScheduleDeleted, ScheduleExistsDetails, ScheduleGetParams, ScheduleId,
+    ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleNotFoundDetails, ScheduleParams,
+    SchedulePreview, SchedulePreviewParams, ScheduleState,
 };
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
 use jiff::tz::TimeZone;
@@ -151,9 +151,7 @@ async fn preview(
             format!("`count` is {count}; ask for at most {MAX_PREVIEW_COUNT} Occurrences."),
         ));
     }
-    let parsed = trigger::parse(&params.trigger).map_err(|refused| {
-        CallError::new(&SCHEDULE_TRIGGER_INVALID, refused.message, &refused.details)
-    })?;
+    let parsed = trigger::parse(&params.trigger)?;
     let engine = context.engine();
     let time_zone = definition::time_zone(params.time_zone.as_deref(), engine.host_zone())
         .map_err(|unknown| {
@@ -162,10 +160,7 @@ async fn preview(
     let zone = TimeZone::get(&time_zone).expect("invariant: `definition::time_zone` validated it");
     let after = params.after.unwrap_or_else(|| engine.clock().wall());
     let count = usize::try_from(count).expect("invariant: count <= MAX_PREVIEW_COUNT");
-    let occurrences = trigger::occurrences(&parsed, &zone, after, Duration::ZERO, after, count)
-        .map_err(|refused| {
-            CallError::new(&SCHEDULE_TRIGGER_INVALID, refused.message, &refused.details)
-        })?;
+    let occurrences = trigger::occurrences(&parsed, &zone, after, Duration::ZERO, after, count)?;
     Ok(SchedulePreview {
         description: trigger::describe(&parsed),
         time_zone,
@@ -260,9 +255,7 @@ fn store_of(context: &CallContext) -> UserStore {
 /// Converts a [`definition::DefinitionError`] into its protocol [`CallError`].
 fn definition_refusal(error: definition::DefinitionError, context: &CallContext) -> CallError {
     match error {
-        definition::DefinitionError::TriggerInvalid(refused) => {
-            CallError::new(&SCHEDULE_TRIGGER_INVALID, refused.message, &refused.details)
-        }
+        definition::DefinitionError::TriggerInvalid(refused) => refused.into(),
         definition::DefinitionError::ZoneUnknown(unknown) => {
             CallError::protocol(ProtocolFailure::InvalidParams, unknown.to_string())
         }

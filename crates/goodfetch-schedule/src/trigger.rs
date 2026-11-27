@@ -355,13 +355,7 @@ pub fn fuzz_cron_expression(data: &[u8]) {
             let _ = occurrences(&parsed, &zone, after, Duration::ZERO, after, 3);
         }
         Err(refused) => {
-            let char_len = u64::try_from(expression.chars().count()).unwrap_or(u64::MAX);
-            assert!(
-                refused.details.position <= char_len,
-                "position {} past expression char length {char_len} for {expression:?}",
-                refused.details.position
-            );
-            assert_eq!(refused.details.expression, expression);
+            refused.assert_well_formed_for(expression);
         }
     }
 }

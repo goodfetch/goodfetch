@@ -10,7 +10,10 @@ use std::fmt;
 use croner::Cron;
 use croner::errors::CronError;
 use croner::parser::{CronParser, FixedTimeRule, Seconds, Year};
-use goodfetch_protocol::schedule::{ScheduleTriggerInvalidDetails, TriggerInvalidReason};
+use goodfetch_engine::CallError;
+use goodfetch_protocol::schedule::{
+    SCHEDULE_TRIGGER_INVALID, ScheduleTriggerInvalidDetails, TriggerInvalidReason,
+};
 
 /// The `@`-prefixed macros `croner` accepts, paired with their 5-field
 /// expansions for structured descriptions and error positioning.
@@ -27,9 +30,9 @@ pub(super) const KNOWN_MACROS: [(&str, &str); 6] = [
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct TriggerInvalid {
     /// What the call answers.
-    pub(crate) details: ScheduleTriggerInvalidDetails,
+    details: ScheduleTriggerInvalidDetails,
     /// What it says, in the engine's English (never carries `croner`'s text).
-    pub(crate) message: String,
+    message: String,
     /// `croner`'s own message, kept private so it reaches logs only (ADR 0127).
     party_message: Option<String>,
 }
@@ -41,6 +44,12 @@ impl fmt::Debug for TriggerInvalid {
             .field("details", &self.details)
             .field("message", &self.message)
             .finish_non_exhaustive()
+    }
+}
+
+impl fmt::Display for TriggerInvalid {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
     }
 }
 
@@ -79,6 +88,36 @@ impl TriggerInvalid {
             message: message.into(),
             party_message,
         }
+    }
+
+    /// The structured refusal details carried on the wire.
+    #[cfg(test)]
+    pub(super) const fn details(&self) -> &ScheduleTriggerInvalidDetails {
+        &self.details
+    }
+
+    /// Asserts that this refusal's stored expression and character position
+    /// stay within `expression` (used by the fuzz target).
+    pub(super) fn assert_well_formed_for(&self, expression: &str) {
+        let char_len = u64::try_from(expression.chars().count()).unwrap_or(u64::MAX);
+        assert!(
+            self.details.position <= char_len,
+            "position {} past expression char length {char_len} for {expression:?}",
+            self.details.position
+        );
+        assert_eq!(self.details.expression, expression);
+    }
+
+    /// The `schedule_trigger_invalid` Error this refusal answers.
+    pub(crate) fn into_call_error(self) -> CallError {
+        CallError::new(&SCHEDULE_TRIGGER_INVALID, self.message, &self.details)
+    }
+}
+
+impl From<TriggerInvalid> for CallError {
+    /// The `schedule_trigger_invalid` Error the refusal answers.
+    fn from(refused: TriggerInvalid) -> Self {
+        refused.into_call_error()
     }
 }
 

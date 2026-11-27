@@ -9,7 +9,7 @@
 //! | `Start` | — | — | — | — |
 //! | `Resume` | `running` | `running` | — | `running` |
 //! | `Checkpoint` | — | — | — | — |
-//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `LimitNotUnderstood`, `ResourcesExhausted`, `EngineLost`, `EnginePanicked`, `Drain` | `stopped` | — | — | — |
+//! | `Pause`, `Migrate`, `Abort`, `Timeout`, `Limit`, `LimitNotUnderstood`, `LeadUnreachable`, `ResourcesExhausted`, `EngineLost`, `EnginePanicked`, `Drain` | `stopped` | — | — | — |
 //! | `Finish` | `finished` | — | — | — |
 //! | `Fail` | `failed` | — | — | — |
 //! | `RetryFailed` | — | `running` | `running` | `running` |

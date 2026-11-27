@@ -5,6 +5,7 @@
 //! `fixtures/fault_plans/<scenario>/`.
 
 mod control_state;
+mod engine;
 mod group;
 mod group_limits;
 mod usage;

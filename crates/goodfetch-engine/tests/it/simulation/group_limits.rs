@@ -18,8 +18,8 @@
 //! - total completed charges across all 4 engines never exceed `AMOUNT`
 //!   and never exceed `charged + held` on the Lead Daemon's ledger.
 #![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+    clippy::disallowed_methods,
+    reason = "turmoil host servers run !Send futures on LocalSet inside the Simulation (ADR 0060)"
 )]
 
 use std::cell::RefCell;
@@ -140,7 +140,7 @@ impl World {
         Ledger::at(self.ledger_path.clone(), None)
     }
 
-    fn now_ts(&self, host: &Host) -> Timestamp {
+    fn now_ts(host: &Host) -> Timestamp {
         Timestamp::try_from(host.clock().wall()).unwrap()
     }
 }
@@ -221,7 +221,7 @@ async fn lead_host(host: Host, world: World) -> turmoil::Result {
     let listener =
         turmoil::net::TcpListener::bind((IpAddr::V4(Ipv4Addr::UNSPECIFIED), LEAD_PORT)).await?;
     let server_world = world.clone();
-    let server_clock = goodfetch_engine::clock::Clock::paused(world.start);
+    let server_clock = *host.clock();
     let _server = tokio::task::spawn_local(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let world = server_world.clone();
@@ -307,6 +307,23 @@ async fn attached_host(host: Host, world: World) -> turmoil::Result {
     Ok(())
 }
 
+fn spend_from_held(world: &World, who: &'static str) -> (bool, Option<u64>) {
+    let mut runners = world.runners.borrow_mut();
+    let state = runners.entry(who).or_default();
+    if state.stopped_reached || state.completed >= TARGET_CHARGES {
+        return (true, None);
+    }
+    if let Some((id, used, size)) = state.held_slice
+        && used < size
+    {
+        let next_used = used + 1;
+        state.held_slice = (next_used < size).then_some((id, next_used, size));
+        state.completed += 1;
+        return (false, Some(state.completed));
+    }
+    (false, None)
+}
+
 async fn drive_runner(
     mut host: Host,
     who: &'static str,
@@ -326,28 +343,7 @@ async fn drive_runner(
         let pause_ms = 20 + (host.entropy().next_u64() % 40);
         host.clock().sleep(Duration::from_millis(pause_ms)).await;
 
-        let (done, spent_from_held) = {
-            let mut runners = world.runners.borrow_mut();
-            let state = runners.entry(who).or_default();
-            if state.stopped_reached || state.completed >= TARGET_CHARGES {
-                (true, None)
-            } else if let Some((id, used, size)) = state.held_slice {
-                if used < size {
-                    let next_used = used + 1;
-                    state.held_slice = if next_used < size {
-                        Some((id, next_used, size))
-                    } else {
-                        None
-                    };
-                    state.completed += 1;
-                    (false, Some(state.completed))
-                } else {
-                    (false, None)
-                }
-            } else {
-                (false, None)
-            }
-        };
+        let (done, spent_from_held) = spend_from_held(&world, who);
         if done {
             break;
         }
@@ -370,7 +366,7 @@ async fn drive_runner(
             needing: 1,
         };
         let answer = match remote {
-            None => Ok(execute_on_lead(&world, world.now_ts(&host), req)),
+            None => Ok(execute_on_lead(&world, World::now_ts(&host), req)),
             Some((target, port)) => send_request(target, port, &req).await,
         };
         match answer {
@@ -426,7 +422,7 @@ async fn drive_runner(
         };
         match remote {
             None => {
-                let _ = execute_on_lead(&world, world.now_ts(&host), req);
+                let _ = execute_on_lead(&world, World::now_ts(&host), req);
             }
             Some((target, port)) => {
                 let _ = send_request(target, port, &req).await;
@@ -439,7 +435,7 @@ async fn operator_host(host: Host, world: World) -> turmoil::Result {
     host.clock().sleep(SETTLED).await;
     let usage = world
         .ledger()
-        .usage(Product::Collie, world.now_ts(&host))
+        .usage(Product::Collie, World::now_ts(&host))
         .map_err(|error| error.to_string())?;
     let entry = usage
         .iter()

@@ -497,7 +497,16 @@ fn transition(
     state: &watch::Sender<EngineState>,
     event: EngineEvent,
 ) -> Result<EngineState, InvalidEngineTransition> {
-    let next = table::engine(*state.borrow(), event).map_err(InvalidEngineTransition::logged)?;
+    let from = *state.borrow();
+    let next = table::engine(from, event).map_err(InvalidEngineTransition::logged)?;
+    tracing::debug!(
+        target: "goodfetch::transition",
+        machine = "engine",
+        from = ?from,
+        event = ?event,
+        to = ?next,
+        "engine transition"
+    );
     state.send_replace(next);
     Ok(next)
 }

@@ -1053,7 +1053,17 @@ impl Session<'_> {
         &mut self,
         event: ConnectionEvent,
     ) -> Result<ConnectionEffect, InvalidConnectionTransition> {
-        let (next, effect) = transition::engine::connection(self.state, event)?;
+        let from = self.state;
+        let (next, effect) = transition::engine::connection(from, event)?;
+        tracing::debug!(
+            target: "goodfetch::transition",
+            machine = "connection",
+            from = ?from,
+            event = ?event,
+            to = ?next,
+            effect = ?effect,
+            "connection transition"
+        );
         self.state = next;
         Ok(effect)
     }

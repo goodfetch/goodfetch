@@ -18,10 +18,6 @@
 //! 3. Group-member scope isolation: resolving the converged policy and
 //!    configuration on `worker-a` vs `worker-b` applies only that member's
 //!    `[group_member.<name>]` machine-specific settings.
-#![expect(
-    clippy::doc_markdown,
-    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
-)]
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

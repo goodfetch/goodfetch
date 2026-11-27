@@ -6,6 +6,7 @@
     reason = "the tests write and read the lockfile outside any async worker"
 )]
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use goodfetch_engine::CallError;
@@ -17,6 +18,7 @@ use goodfetch_engine::plugin_store::PluginStore;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::plugin::add::PluginAdded;
 use goodfetch_protocol::plugin::lockfile::{LOCKFILE_NAME, LockedPlugin, PluginLockfile};
+use goodfetch_protocol::plugin::{NetworkLevel, PluginKindName};
 use goodfetch_test_support::TestEnv;
 
 use crate::downloads::{Received, StandIn};
@@ -86,6 +88,12 @@ fn a_plugin_added_is_installed_and_pinned_and_a_repeat_pulls_nothing() {
             version: "1.0.0".to_owned(),
             digest: digest.clone(),
             lockfile: lockfile.display().to_string(),
+            kinds: BTreeSet::from([PluginKindName::EXTRACT]),
+            network_level: NetworkLevel::None,
+            env: BTreeMap::new(),
+            files: vec![],
+            processes: vec![],
+            browsers: vec![],
             permissions: vec![],
             approval: None,
         }

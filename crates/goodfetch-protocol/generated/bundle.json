@@ -17797,10 +17797,43 @@
           "arrived_in": "0.1",
           "description": "Where the person's approval went, when they gave one."
         },
+        "browsers": {
+          "arrived_in": "0.1",
+          "description": "The browsers its manifest adds, each with its downloads per\nplatform.",
+          "items": {
+            "$ref": "#/$defs/ManifestBrowser"
+          },
+          "type": "array"
+        },
         "digest": {
           "arrived_in": "0.1",
           "description": "The digest of its multi-platform image index, `sha256:<hex>`, which\nthe lockfile pins.",
           "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "The environment variables its manifest names, each by the setting\nthat values it.",
+          "type": "object"
+        },
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The paths outside its bundle its manifest declares it may read.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "The Plugin kinds its manifest declares.",
+          "items": {
+            "$ref": "#/$defs/PluginKindName"
+          },
+          "type": "array",
+          "uniqueItems": true
         },
         "lockfile": {
           "arrived_in": "0.1",
@@ -17812,11 +17845,25 @@
           "description": "The Plugin's name.",
           "type": "string"
         },
+        "network_level": {
+          "$ref": "#/$defs/NetworkLevel",
+          "arrived_in": "0.1",
+          "default": "none",
+          "description": "What its manifest lets it reach on the network."
+        },
         "permissions": {
           "arrived_in": "0.1",
           "description": "Each permission its manifest declares, with what it lets the Plugin\ndo and what the engine cannot check.",
           "items": {
             "$ref": "#/$defs/StatedPermission"
+          },
+          "type": "array"
+        },
+        "processes": {
+          "arrived_in": "0.1",
+          "description": "The executables its manifest declares it may start.",
+          "items": {
+            "type": "string"
           },
           "type": "array"
         },

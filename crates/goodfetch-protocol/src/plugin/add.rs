@@ -4,6 +4,8 @@
 //! pins it in the Plugin lockfile, executing nothing: a person's answer
 //! (ADR 0099).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +14,8 @@ use crate::catalog::{
     ProtocolVersion, Reach, Stability, schema_of,
 };
 use crate::plugin::approvals::{StatedPermission, is_false};
+use crate::plugin::manifest::{ManifestBrowser, NetworkLevel};
+use crate::plugin::names::PluginKindName;
 use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -78,6 +82,32 @@ pub struct PluginAdded {
     /// The lockfile that pins it.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub lockfile: String,
+    /// The Plugin kinds its manifest declares.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kinds: BTreeSet<PluginKindName>,
+    /// What its manifest lets it reach on the network.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub network_level: NetworkLevel,
+    /// The environment variables its manifest names, each by the setting
+    /// that values it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub env: BTreeMap<String, String>,
+    /// The paths outside its bundle its manifest declares it may read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub files: Vec<String>,
+    /// The executables its manifest declares it may start.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub processes: Vec<String>,
+    /// The browsers its manifest adds, each with its downloads per
+    /// platform.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub browsers: Vec<ManifestBrowser>,
     /// Each permission its manifest declares, with what it lets the Plugin
     /// do and what the engine cannot check.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -92,7 +122,7 @@ pub struct PluginAdded {
 /// `plugin.add`.
 pub const PLUGIN_ADD: Operation = Operation {
     name: "plugin.add",
-    description: "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. The answer states each permission the Plugin's manifest declares, with what it lets the Plugin do and what the engine cannot check. With `approve`, given once the person saw those, the engine allows the Plugin, pins it to the index's digest and approves each of those permissions in the Operator policy's `plugins.<name>` entry, recorded in the Audit log as `plugin_approved`; an Operator policy managed elsewhere is left as it is and the answer carries the entry to add there. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+    description: "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. The answer states the manifest's kinds, network level, environment variables, files, processes, browsers and each permission it declares, with what it lets the Plugin do and what the engine cannot check. With `approve`, given once the person saw those, the engine allows the Plugin, pins it to the index's digest and approves each of those permissions in the Operator policy's `plugins.<name>` entry, recorded in the Audit log as `plugin_approved`; an Operator policy managed elsewhere is left as it is and the answer carries the entry to add there. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
     class: OperationClass::IdempotentWrite,
     kind: OperationKind::RoundTrip,
     reach: Reach::PersonOnly,

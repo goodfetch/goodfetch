@@ -276,6 +276,12 @@ fn added(held: Installed, digest: String, lockfile: &Path) -> PluginAdded {
         version: held.manifest.version,
         digest,
         lockfile: lockfile.display().to_string(),
+        kinds: held.manifest.kinds,
+        network_level: held.manifest.network_level,
+        env: held.manifest.env,
+        files: held.manifest.files,
+        processes: held.manifest.processes,
+        browsers: held.manifest.browsers,
         permissions,
         approval: None,
     }

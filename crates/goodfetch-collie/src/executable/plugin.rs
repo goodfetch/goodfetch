@@ -204,30 +204,78 @@ fn approval_question(added: &PluginAdded) -> String {
     )
 }
 
-/// Each permission the Plugin `added` declares, with what it lets the
-/// Plugin do and what the engine cannot check, as the prompt's warning
-/// prints them once before its question.
+/// Everything the Plugin `added` grants — its kinds, network level,
+/// environment variables, files, processes, browsers and each permission
+/// its manifest declares with what it lets the Plugin do and what the
+/// engine cannot check — as the prompt's warning prints them once before
+/// its approval question (ADR 0033, issues 900 and 907).
 fn stated(added: &PluginAdded) -> String {
-    if added.permissions.is_empty() {
-        return format!(
-            "The Plugin {} declares no permission: it may run, and nothing more.",
-            added.name
-        );
+    let mut text = format!("The Plugin {} {} grants:", added.name, added.version);
+    let kinds: Vec<&str> = added
+        .kinds
+        .iter()
+        .map(goodfetch_protocol::plugin::PluginKindName::as_str)
+        .collect();
+    writeln!(text, "\n  Kinds: {}", joined(&kinds)).expect("invariant: writing into a String");
+    writeln!(text, "  Network level: {}", added.network_level.as_str())
+        .expect("invariant: writing into a String");
+    let env: Vec<String> = added
+        .env
+        .iter()
+        .map(|(variable, setting)| format!("{variable} <- {setting}"))
+        .collect();
+    writeln!(text, "  Environment variables: {}", joined(&env))
+        .expect("invariant: writing into a String");
+    writeln!(text, "  Files: {}", joined(&added.files)).expect("invariant: writing into a String");
+    writeln!(text, "  Processes: {}", joined(&added.processes))
+        .expect("invariant: writing into a String");
+    if added.browsers.is_empty() {
+        writeln!(text, "  Browsers: none").expect("invariant: writing into a String");
+    } else {
+        writeln!(text, "  Browsers:").expect("invariant: writing into a String");
+        for browser in &added.browsers {
+            let platforms: Vec<String> = browser
+                .platforms
+                .iter()
+                .map(|(platform, download)| format!("{platform}: {}", download.digest))
+                .collect();
+            writeln!(text, "    - {} ({})", browser.name, joined(&platforms))
+                .expect("invariant: writing into a String");
+        }
     }
-    let mut text = format!(
-        "The Plugin {} asks for {} permissions, each approved on its own:",
-        added.name,
-        added.permissions.len()
-    );
-    for stated in &added.permissions {
+    if added.permissions.is_empty() {
+        write!(text, "  Permissions: none (it may run, and nothing more)")
+            .expect("invariant: writing into a String");
+    } else {
         write!(
             text,
-            "\n  - it may {}.\n    The engine cannot check {}.",
-            stated.lets, stated.cannot_check
+            "  Permissions ({}, each approved on its own):",
+            added.permissions.len()
         )
-        .expect("invariant: writing into a String cannot fail");
+        .expect("invariant: writing into a String");
+        for stated in &added.permissions {
+            write!(
+                text,
+                "\n    - it may {}.\n      The engine cannot check {}.",
+                stated.lets, stated.cannot_check
+            )
+            .expect("invariant: writing into a String");
+        }
     }
     text
+}
+
+/// The items of `items` separated by `, `, or `none` when empty.
+fn joined<S: AsRef<str>>(items: &[S]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// The project configuration found from `folder` upward, none outside a

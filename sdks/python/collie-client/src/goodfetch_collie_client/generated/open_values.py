@@ -115,6 +115,24 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `quarantined`: Code mode or a Plugin was quarantined.
 """
 
+PluginKindName: TypeAlias = Literal["hook", "browser", "extract", "model", "decision", "secret", "challenge", "proxy", "search", "code", "notification"] | str
+"""A Plugin kind's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `hook`: A Hook, run at a fixed stage of a navigation, a page or a Run.
+- `browser`: A Browser backend, which supplies a Session's browser.
+- `extract`: An Extractor, which turns a page into its main content.
+- `model`: A Model provider, which answers model calls.
+- `decision`: A Decision provider, which picks one of several options.
+- `secret`: A Secret provider, which resolves the references of its scheme.
+- `challenge`: A Challenge solver.
+- `proxy`: A Proxy provider.
+- `search`: A Search provider.
+- `code`: A Code source, which reads a one-time code for a login.
+- `notification`: A Notification channel.
+"""
+
 ReportedHookStage: TypeAlias = Literal["before_request", "after_response", "before_navigation", "after_navigation", "page_ready", "before_record_commit", "request_ended"] | str
 """The stage a Hook that raised ran at, as `hook_failed` reports it, by
 the catalog's name (ADR 0104): a crawl's Hooks in code run at the stages

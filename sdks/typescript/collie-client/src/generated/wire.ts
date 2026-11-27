@@ -371,7 +371,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PaymentMark": { fields: { "payee_domain": "payeeDomain" } },
     "Period": { fields: { "time_zone": "timeZone" } },
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
-    "PluginAdded": { fields: { "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
+    "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },

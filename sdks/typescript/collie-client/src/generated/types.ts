@@ -1274,6 +1274,14 @@ export type NeedsYouChange =
  */
 export type NeedsYouRemoval = "resolved" | "dismissed";
 /**
+ * What a process Plugin may reach on the network (ADR 0033), derived from
+ * its kinds rather than chosen: see [`NetworkLevel::allowed_for`].
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NetworkLevel".
+ */
+export type NetworkLevel = "none" | "proxy_tcp" | "direct";
+/**
  * A Session of a Run, named by the engine when it opens it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1694,6 +1702,39 @@ export type PluginApproval =
       entry: string;
       outcome: "managed";
     };
+/**
+ * A Plugin kind's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `hook`: A Hook, run at a fixed stage of a navigation, a page or a Run.
+ * - `browser`: A Browser backend, which supplies a Session's browser.
+ * - `extract`: An Extractor, which turns a page into its main content.
+ * - `model`: A Model provider, which answers model calls.
+ * - `decision`: A Decision provider, which picks one of several options.
+ * - `secret`: A Secret provider, which resolves the references of its scheme.
+ * - `challenge`: A Challenge solver.
+ * - `proxy`: A Proxy provider.
+ * - `search`: A Search provider.
+ * - `code`: A Code source, which reads a one-time code for a login.
+ * - `notification`: A Notification channel.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginKindName".
+ */
+export type PluginKindName =
+  | "hook"
+  | "browser"
+  | "extract"
+  | "model"
+  | "decision"
+  | "secret"
+  | "challenge"
+  | "proxy"
+  | "search"
+  | "code"
+  | "notification"
+  | (string & {});
 /**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
@@ -4085,6 +4126,22 @@ export interface DialogHandled {}
  */
 export interface DialogsEnded {}
 /**
+ * A download the engine checks against its digest.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Download".
+ */
+export interface Download {
+  /**
+   * Its digest, `sha256:<hex>`.
+   */
+  digest: string;
+  /**
+   * Its HTTPS URL.
+   */
+  url: string;
+}
+/**
  * What `browser_cache.download_progress` reports.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5945,6 +6002,25 @@ export interface LoggedOutDetails {
   status: number;
 }
 /**
+ * A browser a Plugin adds (ADR 0033), which the engine downloads, checks
+ * and launches itself.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ManifestBrowser".
+ */
+export interface ManifestBrowser {
+  /**
+   * Its name.
+   */
+  name: string;
+  /**
+   * Its download for each platform, such as `linux-x64`.
+   */
+  platforms: {
+    [k: string]: Download;
+  };
+}
+/**
  * A media source of the page: a `<video src>`, an `<audio src>` or a
  * `<source src>` of either, in document order.
  *
@@ -7610,10 +7686,30 @@ export interface PluginAdded {
    */
   approval?: PluginApproval | null;
   /**
+   * The browsers its manifest adds, each with its downloads per
+   * platform.
+   */
+  browsers?: ManifestBrowser[];
+  /**
    * The digest of its multi-platform image index, `sha256:<hex>`, which
    * the lockfile pins.
    */
   digest: string;
+  /**
+   * The environment variables its manifest names, each by the setting
+   * that values it.
+   */
+  env?: {
+    [k: string]: string;
+  };
+  /**
+   * The paths outside its bundle its manifest declares it may read.
+   */
+  files?: string[];
+  /**
+   * The Plugin kinds its manifest declares.
+   */
+  kinds?: PluginKindName[];
   /**
    * The lockfile that pins it.
    */
@@ -7623,10 +7719,18 @@ export interface PluginAdded {
    */
   name: string;
   /**
+   * What its manifest lets it reach on the network.
+   */
+  networkLevel?: NetworkLevel & string;
+  /**
    * Each permission its manifest declares, with what it lets the Plugin
    * do and what the engine cannot check.
    */
   permissions?: StatedPermission[];
+  /**
+   * The executables its manifest declares it may start.
+   */
+  processes?: string[];
   /**
    * Its version, as its manifest names it.
    */

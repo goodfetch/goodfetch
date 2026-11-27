@@ -17,6 +17,7 @@ from goodfetch_collie_client.generated.open_values import (
     ModelUnavailableReason,
     NotAddedReason,
     NotificationEvent,
+    PluginKindName,
     ReportedHookStage,
     ScheduleState,
     TriggerInvalidReason,
@@ -806,6 +807,18 @@ class DialogsEnded(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class Download(BaseModel):
+    """A download the engine checks against its digest."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    digest: str
+    """Its digest, `sha256:<hex>`."""
+    url: str
+    """Its HTTPS URL."""
 
 
 class DownloadId(RootModel[str]):
@@ -2020,6 +2033,21 @@ class MainContent(StrEnum):
     """
 
 
+class ManifestBrowser(BaseModel):
+    """
+    A browser a Plugin adds (ADR 0033), which the engine downloads, checks
+    and launches itself.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """Its name."""
+    platforms: dict[str, Download]
+    """Its download for each platform, such as `linux-x64`."""
+
+
 class MarkdownContent(StrEnum):
     """How much of the page a Markdown format holds."""
 
@@ -2258,6 +2286,23 @@ class NeedsYouRemoveRefetchDomainParams(BaseModel):
     When only `*` covers the domain in its layer, the registrable
     domains that replace `*` there, the domain itself not among them.
     """
+
+
+class NetworkLevel(StrEnum):
+    """
+    What a process Plugin may reach on the network (ADR 0033), derived from
+    its kinds rather than chosen: see [`NetworkLevel::allowed_for`].
+    """
+
+    none = "none"
+    """
+    Nothing: it creates no socket, and reaches the outside only through
+    the engine's calls back.
+    """
+    proxy_tcp = "proxy_tcp"
+    """TCP streams through the engine's proxy, to the hosts it may reach."""
+    direct = "direct"
+    """The network directly."""
 
 
 class NotADaemonDetails(BaseModel):
@@ -8085,23 +8130,42 @@ class PluginAdded(BaseModel):
 
     model_config = ConfigDict(
         extra="allow",
+        arbitrary_types_allowed=True,
     )
     approval: PluginApproval | None = None
     """Where the person's approval went, when they gave one."""
+    browsers: list[ManifestBrowser] | None = None
+    """
+    The browsers its manifest adds, each with its downloads per
+    platform.
+    """
     digest: str
     """
     The digest of its multi-platform image index, `sha256:<hex>`, which
     the lockfile pins.
     """
+    env: dict[str, str] | None = None
+    """
+    The environment variables its manifest names, each by the setting
+    that values it.
+    """
+    files: list[str] | None = None
+    """The paths outside its bundle its manifest declares it may read."""
+    kinds: list[PluginKindName] | None = None
+    """The Plugin kinds its manifest declares."""
     lockfile: str
     """The lockfile that pins it."""
     name: str
     """The Plugin's name."""
+    network_level: NetworkLevel | None = NetworkLevel.none
+    """What its manifest lets it reach on the network."""
     permissions: list[StatedPermission] | None = None
     """
     Each permission its manifest declares, with what it lets the Plugin
     do and what the engine cannot check.
     """
+    processes: list[str] | None = None
+    """The executables its manifest declares it may start."""
     version: str
     """Its version, as its manifest names it."""
 

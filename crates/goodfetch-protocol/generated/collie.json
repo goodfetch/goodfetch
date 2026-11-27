@@ -2886,6 +2886,27 @@
       "description": "What `page.on_dialog` answers when its page closes.",
       "type": "object"
     },
+    "Download": {
+      "additionalProperties": false,
+      "description": "A download the engine checks against its digest.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "Its digest, `sha256:<hex>`.",
+          "type": "string"
+        },
+        "url": {
+          "arrived_in": "0.1",
+          "description": "Its HTTPS URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "digest"
+      ],
+      "type": "object"
+    },
     "DownloadId": {
       "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
       "type": "string"
@@ -5892,6 +5913,30 @@
         }
       ]
     },
+    "ManifestBrowser": {
+      "additionalProperties": false,
+      "description": "A browser a Plugin adds (ADR 0033), which the engine downloads, checks\nand launches itself.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "Its name.",
+          "type": "string"
+        },
+        "platforms": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Download"
+          },
+          "arrived_in": "0.1",
+          "description": "Its download for each platform, such as `linux-x64`.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "platforms"
+      ],
+      "type": "object"
+    },
     "MarkdownContent": {
       "description": "How much of the page a Markdown format holds.",
       "oneOf": [
@@ -6953,6 +6998,26 @@
         "domain"
       ],
       "type": "object"
+    },
+    "NetworkLevel": {
+      "description": "What a process Plugin may reach on the network (ADR 0033), derived from\nits kinds rather than chosen: see [`NetworkLevel::allowed_for`].",
+      "oneOf": [
+        {
+          "const": "none",
+          "description": "Nothing: it creates no socket, and reaches the outside only through\nthe engine's calls back.",
+          "type": "string"
+        },
+        {
+          "const": "proxy_tcp",
+          "description": "TCP streams through the engine's proxy, to the hosts it may reach.",
+          "type": "string"
+        },
+        {
+          "const": "direct",
+          "description": "The network directly.",
+          "type": "string"
+        }
+      ]
     },
     "NewPageParams": {
       "additionalProperties": false,
@@ -9035,10 +9100,43 @@
           "arrived_in": "0.1",
           "description": "Where the person's approval went, when they gave one."
         },
+        "browsers": {
+          "arrived_in": "0.1",
+          "description": "The browsers its manifest adds, each with its downloads per\nplatform.",
+          "items": {
+            "$ref": "#/$defs/ManifestBrowser"
+          },
+          "type": "array"
+        },
         "digest": {
           "arrived_in": "0.1",
           "description": "The digest of its multi-platform image index, `sha256:<hex>`, which\nthe lockfile pins.",
           "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "arrived_in": "0.1",
+          "description": "The environment variables its manifest names, each by the setting\nthat values it.",
+          "type": "object"
+        },
+        "files": {
+          "arrived_in": "0.1",
+          "description": "The paths outside its bundle its manifest declares it may read.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "The Plugin kinds its manifest declares.",
+          "items": {
+            "$ref": "#/$defs/PluginKindName"
+          },
+          "type": "array",
+          "uniqueItems": true
         },
         "lockfile": {
           "arrived_in": "0.1",
@@ -9050,11 +9148,25 @@
           "description": "The Plugin's name.",
           "type": "string"
         },
+        "network_level": {
+          "$ref": "#/$defs/NetworkLevel",
+          "arrived_in": "0.1",
+          "default": "none",
+          "description": "What its manifest lets it reach on the network."
+        },
         "permissions": {
           "arrived_in": "0.1",
           "description": "Each permission its manifest declares, with what it lets the Plugin\ndo and what the engine cannot check.",
           "items": {
             "$ref": "#/$defs/StatedPermission"
+          },
+          "type": "array"
+        },
+        "processes": {
+          "arrived_in": "0.1",
+          "description": "The executables its manifest declares it may start.",
+          "items": {
+            "type": "string"
           },
           "type": "array"
         },
@@ -9154,6 +9266,67 @@
         "fix"
       ],
       "type": "object"
+    },
+    "PluginKindName": {
+      "description": "A Plugin kind's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.",
+      "oneOf": [
+        {
+          "const": "hook",
+          "description": "A Hook, run at a fixed stage of a navigation, a page or a Run.",
+          "type": "string"
+        },
+        {
+          "const": "browser",
+          "description": "A Browser backend, which supplies a Session's browser.",
+          "type": "string"
+        },
+        {
+          "const": "extract",
+          "description": "An Extractor, which turns a page into its main content.",
+          "type": "string"
+        },
+        {
+          "const": "model",
+          "description": "A Model provider, which answers model calls.",
+          "type": "string"
+        },
+        {
+          "const": "decision",
+          "description": "A Decision provider, which picks one of several options.",
+          "type": "string"
+        },
+        {
+          "const": "secret",
+          "description": "A Secret provider, which resolves the references of its scheme.",
+          "type": "string"
+        },
+        {
+          "const": "challenge",
+          "description": "A Challenge solver.",
+          "type": "string"
+        },
+        {
+          "const": "proxy",
+          "description": "A Proxy provider.",
+          "type": "string"
+        },
+        {
+          "const": "search",
+          "description": "A Search provider.",
+          "type": "string"
+        },
+        {
+          "const": "code",
+          "description": "A Code source, which reads a one-time code for a login.",
+          "type": "string"
+        },
+        {
+          "const": "notification",
+          "description": "A Notification channel.",
+          "type": "string"
+        }
+      ],
+      "open": true
     },
     "PluginNotAllowedDetails": {
       "description": "What `plugin_not_allowed` details.",
@@ -20408,7 +20581,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. The answer states each permission the Plugin's manifest declares, with what it lets the Plugin do and what the engine cannot check. With `approve`, given once the person saw those, the engine allows the Plugin, pins it to the index's digest and approves each of those permissions in the Operator policy's `plugins.<name>` entry, recorded in the Audit log as `plugin_approved`; an Operator policy managed elsewhere is left as it is and the answer carries the entry to add there. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
+      "description": "Installs a Plugin from its OCI registry, a person's answer: it pulls the multi-platform image index, then the artifact for the host's platform, verifies each digest, unpacks the bundle into the Plugin store and pins the index's digest in the Plugin lockfile, `goodfetch-plugins.lock`, beside the project's configuration or in the Goodfetch home's configuration folder. It executes nothing it pulled. Adding a Plugin the lockfile pins to the same digest and the store holds answers it again without a pull. The answer states the manifest's kinds, network level, environment variables, files, processes, browsers and each permission it declares, with what it lets the Plugin do and what the engine cannot check. With `approve`, given once the person saw those, the engine allows the Plugin, pins it to the index's digest and approves each of those permissions in the Operator policy's `plugins.<name>` entry, recorded in the Audit log as `plugin_approved`; an Operator policy managed elsewhere is left as it is and the answer carries the entry to add there. A bundle with a path that leaves it, a link whose target leaves it or a device file is refused whole with `plugin_artifact_refused`; a name the lockfile pins to another digest with `plugin_digest_mismatch`; a Plugin the store holds that the lockfile does not pin with `plugin_installed`; a registry that does not serve it with `artifact_download_failed`, and a pull `egress.offline` forbids with `artifact_unavailable_offline`. It is offered to a person only, never to an agent or a program (ADR 0099): any other surface is refused with `person_required`.",
       "events": [],
       "kind": "round_trip",
       "name": "plugin.add",

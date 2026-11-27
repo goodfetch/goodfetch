@@ -3,18 +3,24 @@
 //! launches it, so a missing build raises its code there and nowhere
 //! earlier, held under a shared lock until the process exits; the process
 //! started over its debugging pipe, never a debugging port, on a Browser
-//! data folder of its own in the Run's folder; and its end: when the Run stops, or the
+//! data folder of its own in the Run's folder, a headful one on Linux
+//! with no display server on a virtual display of its own (ADR 0035);
+//! and its end: when the Run stops, or the
 //! browser pool closes it, the browser is asked to close, then killed if it
 //! does not, its data folder removed and its build released.
 
 mod arguments;
 mod gui_session;
+#[cfg(target_os = "linux")]
+mod headful;
 #[cfg(windows)]
 mod named_pipes;
 #[cfg(unix)]
 mod pipe;
 mod preferences;
 
+#[cfg(target_os = "linux")]
+use headful::Display;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -29,6 +35,7 @@ use goodfetch_engine::browser_cache::{
     installed_browser,
 };
 use goodfetch_engine::children::Children;
+use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::dns::HostMapping;
 use goodfetch_engine::egress::Policy;
@@ -152,6 +159,30 @@ pub(crate) struct Launched {
     /// Cancelled once its process exited and its data folder is gone, so
     /// another launch may take the folder.
     pub(crate) released: CancellationToken,
+}
+
+/// How a launched browser shows its pages, as `browser.headless` says: the
+/// Run's for a Session that is not `stealth`, and a `stealth` Session's
+/// own, which shows a window by default (ADR 0035). A browser of the pool
+/// takes only Sessions of its window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Window {
+    /// With no window.
+    Headless,
+    /// In a window: on Linux where the engine's environment names no
+    /// display server, on a virtual display of its own.
+    Headful,
+}
+
+impl Window {
+    /// The window `browser.headless` set to `headless` asks for.
+    pub(crate) const fn of(headless: bool) -> Self {
+        if headless {
+            Self::Headless
+        } else {
+            Self::Headful
+        }
+    }
 }
 
 /// The executable of Chrome for Testing's build for `platform`, its
@@ -317,7 +348,10 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 
 /// Launches a browser of the Run from the Browser cache of `home`, under
 /// the Run's settings, on the Browser data folder numbered `number` in the Run's
-/// folder, trusting `relay_authority`, the egress relay's key hash, when the Run has one;
+/// folder, trusting `relay_authority`, the egress relay's key hash, when the Run has one,
+/// showing its pages as `window` says: in a window, on Linux where the
+/// engine's environment names no display server, on a virtual display of
+/// its own, stopped once the browser exited;
 /// its supervision and its blocking work are tasks of `on`'s owner, the
 /// browser's (ADR 0146), and `stopping`, cancelled when that owner is,
 /// closes it. A scripted `launcher` hands its browser on instead.
@@ -326,7 +360,9 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 ///
 /// `browser_needs_gui_session` for the full build headless on macOS with
 /// no GUI session (#3224); `capability_unavailable` for
-/// `browser.headless_shell` where the engine runs an installed Chromium;
+/// `browser.headless_shell` where the engine runs an installed Chromium,
+/// and for `browser.headless` where a window needs a virtual display that
+/// does not start;
 /// `browser_sandbox_unavailable` where Chromium's sandbox, on, cannot start
 /// (ADR 0049); the Browser cache's codes for a missing build
 /// (`browser_not_installed`, `artifact_unavailable_offline`,
@@ -342,14 +378,14 @@ fn exit_of(status: std::process::ExitStatus) -> BrowserExit {
 pub(crate) async fn launch(
     (run, on): (&BrowserRun, &RunIdentity),
     (launcher, home, pins): (&Launcher, &Home, &Pins),
-    (number, relay_authority): (u64, Option<&str>),
+    (number, window, relay_authority): (u64, Window, Option<&str>),
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     if let Launcher::Scripted(scripted) = launcher {
-        return launch_scripted((run, on), scripted, stopping).await;
+        return launch_scripted((run, on), scripted, window, stopping).await;
     }
     let settings = run.identity.settings().map(RunSettings::resolved);
-    let headless = get_or_default(settings, &BROWSER_HEADLESS);
+    let headless = window == Window::Headless;
     let shell = get_or_default::<bool>(settings, &BROWSER_HEADLESS_SHELL).then(|| {
         settings
             .and_then(|settings| settings.effective(&BROWSER_HEADLESS_SHELL))
@@ -390,28 +426,23 @@ pub(crate) async fn launch(
         relay_authority,
     )
     .await;
-    let mut command = Command::new(&executable);
-    command
-        .args(&arguments)
-        .envs(environment.iter().copied())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // A temporary folder too deep for Chromium's socket is replaced by
-    // `/tmp`, where it fits.
-    let temporary = std::env::temp_dir();
-    let browsers = transport::temporary_folder_for_sockets(&temporary, CHROMIUM_SOCKET.len());
-    if browsers != temporary {
-        command.env("TMPDIR", browsers);
-    }
+    let mut command = browser_command(&executable, &arguments, environment);
     let log = command_log(run, &executable).await?;
-    let (connection, driver, mut child) =
-        start(command, run.identity.metrics().counted_work().clone(), log)
-            .await
-            .map_err(|error| {
+    let display = display_for(run, &on.clock(), !headless && shell.is_none()).await?;
+    if let Some(display) = &display {
+        command.env("DISPLAY", display.variable());
+    }
+    let started = start(command, run.identity.metrics().counted_work().clone(), log).await;
+    let (connection, driver, mut child) = match started {
+        Ok(started) => started,
+        Err(error) => {
+            stop_display(display, &on.clock()).await;
+            return Err(
                 executables::blocked_by_smart_app_control(&executable, &error)
-                    .unwrap_or_else(|| launch_failed(&executable, None, &error.to_string()))
-            })?;
+                    .unwrap_or_else(|| launch_failed(&executable, None, &error.to_string())),
+            );
+        }
+    };
     let process = child.child.id();
     // Under AppArmor's restriction, the label the browser started under
     // says whether its sandbox can start: one the restriction holds is
@@ -423,6 +454,7 @@ pub(crate) async fn launch(
         let _ = child.child.start_kill();
         let _ = child.child.wait().await;
         drop((connection, driver, child, held));
+        stop_display(display, &on.clock()).await;
         return Err(sandbox_probe::apparmor_refusal(&executable, &label));
     }
     let (exits, exit) = watch::channel(None);
@@ -435,6 +467,7 @@ pub(crate) async fn launch(
         driver,
         exits,
         held,
+        display,
         data_folder,
         running: run.identity.metrics().browser_running(kind),
         released: released.clone(),
@@ -451,10 +484,10 @@ pub(crate) async fn launch(
 
 /// Launches a scripted browser of the Run: its end of a new pipe goes to
 /// `scripted`'s [`ScriptedBrowsers`] once the one handed on before was
-/// taken, and it shows headless or not as the
-/// Run's settings say; `stopping` asks it to close, as it asks a launched
-/// one, within the Run's `timeout.close`. Its supervision is a task of
-/// `on`'s owner, the browser's.
+/// taken, and it shows headless or not as `window` says, on no display;
+/// `stopping` asks it to close, as it asks a launched one, within the
+/// Run's `timeout.close`. Its supervision is a task of `on`'s owner, the
+/// browser's.
 ///
 /// # Errors
 ///
@@ -462,6 +495,7 @@ pub(crate) async fn launch(
 async fn launch_scripted(
     (run, on): (&BrowserRun, &RunIdentity),
     scripted: &Scripted,
+    window: Window,
     stopping: CancellationToken,
 ) -> Result<Launched, CallError> {
     let executable = Path::new(SCRIPTED);
@@ -491,10 +525,7 @@ async fn launch_scripted(
         connection,
         exit,
         executable: executable.to_path_buf(),
-        headless: get_or_default(
-            run.identity.settings().map(RunSettings::resolved),
-            &BROWSER_HEADLESS,
-        ),
+        headless: window == Window::Headless,
         process: scripted.process,
         released,
     })
@@ -593,6 +624,29 @@ async fn command_line(
     (built.command_line, built.environment)
 }
 
+/// The command that starts `executable` with `arguments` and
+/// `environment`, its standard streams closed. A temporary folder too deep
+/// for Chromium's socket is replaced by `/tmp`, where it fits.
+fn browser_command(
+    executable: &Path,
+    arguments: &[String],
+    environment: &[(&str, &str)],
+) -> Command {
+    let mut command = Command::new(executable);
+    command
+        .args(arguments)
+        .envs(environment.iter().copied())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let temporary = std::env::temp_dir();
+    let browsers = transport::temporary_folder_for_sockets(&temporary, CHROMIUM_SOCKET.len());
+    if browsers != temporary {
+        command.env("TMPDIR", browsers);
+    }
+    command
+}
+
 /// The size of `/dev/shm`, where Linux mounts one of its own.
 #[cfg(target_os = "linux")]
 async fn shared_memory(on: &RunIdentity) -> Option<u64> {
@@ -617,6 +671,87 @@ async fn shared_memory(on: &RunIdentity) -> Option<u64> {
 )]
 async fn shared_memory(_on: &RunIdentity) -> Option<u64> {
     None
+}
+
+/// The virtual display a browser that shows a window, as `window` says,
+/// needs: Xvfb's, started on `clock`, where the engine's environment names
+/// no display server.
+///
+/// # Errors
+///
+/// `capability_unavailable` naming `browser.headless`, set in the Run's
+/// layer that set it, when no virtual display starts.
+#[cfg(target_os = "linux")]
+async fn display_for(
+    run: &BrowserRun,
+    clock: &Clock,
+    window: bool,
+) -> Result<Option<Display>, CallError> {
+    if !window || run.engine.host_has_display() {
+        return Ok(None);
+    }
+    Display::start(clock).await.map(Some).map_err(|failure| {
+        let layer = run
+            .identity
+            .settings()
+            .and_then(|settings| settings.resolved().effective(&BROWSER_HEADLESS))
+            .map_or(SettingsLayer::Default, |effective| {
+                // When a Run layer set `browser.headless: true` explicitly
+                // and a headful Session still opened (via `stealth` or a
+                // Session override), blame the Run/Session layer rather than
+                // the layer that asked for headless.
+                if effective.value == serde_json::Value::Bool(true)
+                    && effective.layer != SettingsLayer::Default
+                {
+                    SettingsLayer::Run
+                } else {
+                    effective.layer
+                }
+            });
+        failure.call_error(layer)
+    })
+}
+
+/// No virtual display outside Linux, where a window needs none.
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unused_async,
+    reason = "it stands in for Linux's, which waits for Xvfb"
+)]
+async fn display_for(
+    _run: &BrowserRun,
+    _clock: &Clock,
+    _window: bool,
+) -> Result<Option<Display>, CallError> {
+    Ok(None)
+}
+
+/// No virtual display outside Linux.
+#[cfg(not(target_os = "linux"))]
+enum Display {}
+
+#[cfg(not(target_os = "linux"))]
+impl Display {
+    fn variable(&self) -> String {
+        match *self {}
+    }
+}
+
+/// Stops `display`, if any, on `clock`.
+#[cfg_attr(
+    not(target_os = "linux"),
+    expect(
+        clippy::unused_async,
+        reason = "there is no display to wait for outside Linux"
+    )
+)]
+async fn stop_display(display: Option<Display>, clock: &Clock) {
+    #[cfg(target_os = "linux")]
+    if let Some(display) = display {
+        display.stop(clock).await;
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (display, clock);
 }
 
 /// The driver of a browser's connection, which its supervisor runs.
@@ -701,6 +836,9 @@ struct Supervised {
     exits: watch::Sender<Option<BrowserExit>>,
     /// The build it runs, held until it exits.
     held: Option<HeldArtifact>,
+    /// The virtual display it shows its window on, if it needs one,
+    /// stopped once it exited.
+    display: Option<Display>,
     /// Its Browser data folder, removed once it exited.
     data_folder: PathBuf,
     /// Its count among the running browsers.
@@ -721,6 +859,7 @@ async fn supervise(supervised: Supervised) {
         driver,
         exits,
         held,
+        display,
         data_folder,
         running,
         released,
@@ -766,8 +905,10 @@ async fn supervise(supervised: Supervised) {
         code: None,
         signal: None,
     })));
-    // The group goes with its last process, and the build is released.
+    // The group goes with its last process, then its display, and the
+    // build is released.
     drop(group);
+    stop_display(display, &clock).await;
     drop(held);
     on.owner()
         .blocking(move || {

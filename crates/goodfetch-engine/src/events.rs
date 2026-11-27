@@ -145,6 +145,7 @@ enum Command {
     Publish(Publish),
     Subscribe {
         after: Option<LastRead>,
+        run: Option<Arc<str>>,
         system_info: bool,
         alive: oneshot::Receiver<()>,
         answer: oneshot::Sender<u64>,
@@ -159,7 +160,7 @@ enum Command {
 
 struct Publish {
     event: &'static Event,
-    scope: Option<String>,
+    scope: Option<Arc<str>>,
     data: EventData,
     fold: Option<Fold>,
     accepted: oneshot::Sender<()>,
@@ -201,13 +202,30 @@ impl Snapshot {
         }
     }
 
-    fn resync(&self) -> Resync {
-        let mut needs_you: Vec<NeedsYouItem> = self.needs_you.values().cloned().collect();
+    fn run_of_needs_you(&self, id: &str) -> Option<&RunId> {
+        self.needs_you.get(id).and_then(|item| item.run.as_ref())
+    }
+
+    fn resync(&self, run: Option<&str>) -> Resync {
+        let mut needs_you: Vec<NeedsYouItem> = self
+            .needs_you
+            .values()
+            .filter(|item| {
+                run.is_none_or(|wanted| item.run.as_ref().is_some_and(|id| id.as_str() == wanted))
+            })
+            .cloned()
+            .collect();
         needs_you.sort_by(|left, right| (left.since, &left.id).cmp(&(right.since, &right.id)));
-        Resync {
-            runs: self.runs.values().cloned().collect(),
-            needs_you,
-        }
+        let runs = match run {
+            Some(wanted) => self
+                .runs
+                .values()
+                .filter(|axes| axes.run_id.as_str() == wanted)
+                .cloned()
+                .collect(),
+            None => self.runs.values().cloned().collect(),
+        };
+        Resync { runs, needs_you }
     }
 }
 
@@ -278,7 +296,7 @@ impl Events {
     pub async fn publish(&self, event: &'static Event, scope: Option<&str>, data: &impl Serialize) {
         self.send(
             event,
-            scope.map(str::to_owned),
+            scope.map(Arc::from),
             EventData::encode(data, &self.work),
             None,
         )
@@ -293,7 +311,7 @@ impl Events {
     /// As [`Events::publish`]'s.
     pub(crate) async fn publish_axes(&self, axes: RunAxes) {
         let data = EventData::encode(&axes, &self.work);
-        let scope = Some(axes.run_id.as_str().to_owned());
+        let scope = Some(Arc::from(axes.run_id.as_str()));
         self.send(&RUN_AXES_CHANGED, scope, data, Some(Fold::Axes(axes)))
             .await;
     }
@@ -318,7 +336,7 @@ impl Events {
     async fn send(
         &self,
         event: &'static Event,
-        scope: Option<String>,
+        scope: Option<Arc<str>>,
         data: EventData,
         fold: Option<Fold>,
     ) {
@@ -366,11 +384,29 @@ impl Events {
         after: Option<LastRead>,
         system_info: bool,
     ) -> Option<Subscription> {
+        self.subscribe_for_run(after, None, system_info).await
+    }
+
+    /// Opens a subscription filtered to `run` (or all events when `None`),
+    /// resuming after `after` (or starting with the next event when `None`);
+    /// `None` once the stream has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after it was sent opens a subscription the
+    /// stream ends at its next event.
+    pub(crate) async fn subscribe_for_run(
+        &self,
+        after: Option<LastRead>,
+        run: Option<RunId>,
+        system_info: bool,
+    ) -> Option<Subscription> {
         let (alive, watched) = oneshot::channel();
         let (answer, answered) = oneshot::channel();
         self.commands
             .send(Command::Subscribe {
                 after,
+                run: run.map(|id| Arc::from(id.as_str())),
                 system_info,
                 alive: watched,
                 answer,
@@ -457,20 +493,31 @@ impl Credits {
     }
 }
 
+/// Key for coalescing telemetry events per `(event name, optional scope)`.
+type TelemetryKey = (&'static str, Option<Arc<str>>);
+
 /// One subscription's queue.
 struct Queue {
     lossless: VecDeque<Envelope>,
     /// Whether it fell behind, or started behind: its next take starts with
     /// `events.resync`, and it queues no lossless event until then.
     behind: bool,
-    telemetry: BTreeMap<(&'static str, Option<String>), Envelope>,
+    telemetry: BTreeMap<TelemetryKey, Envelope>,
     waiting: Option<(usize, oneshot::Sender<Vec<Envelope>>)>,
     alive: oneshot::Receiver<()>,
+    /// Optional Run filter (`GET /v1/events?run=<id>`).
+    run: Option<Arc<str>>,
     /// Whether it takes `engine.system_info`.
     system_info: bool,
 }
 
 impl Queue {
+    fn matches(&self, scope: Option<&str>) -> bool {
+        match &self.run {
+            Some(wanted) => scope == Some(wanted.as_ref()),
+            None => true,
+        }
+    }
     fn is_gone(&mut self) -> bool {
         matches!(
             self.alive.try_recv(),
@@ -484,7 +531,7 @@ impl Queue {
 
     /// Takes at most `most` events, in the order of their positions.
     fn take(&mut self, most: usize) -> Vec<Envelope> {
-        let mut telemetry: Vec<(Position, (&'static str, Option<String>))> = self
+        let mut telemetry: Vec<(Position, TelemetryKey)> = self
             .telemetry
             .iter()
             .map(|(key, envelope)| (envelope.position, key.clone()))
@@ -515,6 +562,13 @@ impl Queue {
     }
 }
 
+/// One retained lossless event and its scope (such as a Run ID) for
+/// Run-filtered resume (`GET /v1/events?run=<id>&after=<position>`).
+struct Retained {
+    envelope: Envelope,
+    scope: Option<Arc<str>>,
+}
+
 /// The actor's state.
 struct Stream {
     options: EventsOptions,
@@ -525,7 +579,7 @@ struct Stream {
     /// The last position no longer kept: a subscription may resume after
     /// any position from it to `last`.
     floor: u64,
-    retained: VecDeque<Envelope>,
+    retained: VecDeque<Retained>,
     snapshot: Snapshot,
     subscriptions: BTreeMap<u64, Queue>,
     next_subscription: u64,
@@ -542,11 +596,12 @@ impl Stream {
                 Command::Publish(publish) => self.accept(publish),
                 Command::Subscribe {
                     after,
+                    run,
                     system_info,
                     alive,
                     answer,
                 } => {
-                    let id = self.subscribe(after, system_info, alive);
+                    let id = self.subscribe(after, run, system_info, alive);
                     // Before the answer: its caller, once answered, finds
                     // the stream subscribed.
                     self.tell_subscribed();
@@ -595,6 +650,18 @@ impl Stream {
             let _ = accepted.send(());
             return;
         }
+        let effective_scope: Option<Arc<str>> = scope.or_else(|| match fold.as_ref() {
+            Some(Fold::NeedsYou(change)) => match change.as_ref() {
+                NeedsYouChange::Listed { item } => {
+                    item.run.as_ref().map(|run| Arc::from(run.as_str()))
+                }
+                NeedsYouChange::Removed { id, .. } => self
+                    .snapshot
+                    .run_of_needs_you(id)
+                    .map(|run| Arc::from(run.as_str())),
+            },
+            _ => None,
+        });
         let envelope = Envelope {
             position: next_position(&mut self.last),
             event: event.name,
@@ -612,15 +679,18 @@ impl Stream {
                 while self.retained.len() >= self.options.retained
                     && let Some(gone) = self.retained.pop_front()
                 {
-                    self.floor = gone.position.0;
+                    self.floor = gone.envelope.position.0;
                 }
                 if self.options.retained == 0 {
                     self.floor = envelope.position.0;
                 } else {
-                    self.retained.push_back(envelope.clone());
+                    self.retained.push_back(Retained {
+                        envelope: envelope.clone(),
+                        scope: effective_scope.clone(),
+                    });
                 }
                 for (id, queue) in &mut self.subscriptions {
-                    if queue.behind {
+                    if queue.behind || !queue.matches(effective_scope.as_deref()) {
                         continue;
                     }
                     if queue.lossless.len() >= self.options.queue {
@@ -637,12 +707,10 @@ impl Stream {
                 }
             }
             EventClass::Telemetry => {
-                for queue in self
-                    .subscriptions
-                    .values_mut()
-                    .filter(|queue| !opted_in || queue.system_info)
-                {
-                    let key = (event.name, scope.clone());
+                for queue in self.subscriptions.values_mut().filter(|queue| {
+                    (!opted_in || queue.system_info) && queue.matches(effective_scope.as_deref())
+                }) {
+                    let key = (event.name, effective_scope.clone());
                     let dropped = queue
                         .telemetry
                         .get(&key)
@@ -664,6 +732,7 @@ impl Stream {
     fn subscribe(
         &mut self,
         after: Option<LastRead>,
+        run: Option<Arc<str>>,
         system_info: bool,
         alive: oneshot::Receiver<()>,
     ) -> u64 {
@@ -675,6 +744,7 @@ impl Stream {
             telemetry: BTreeMap::new(),
             waiting: None,
             alive,
+            run,
             system_info,
         };
         match after {
@@ -683,12 +753,15 @@ impl Stream {
                 engine_instance,
                 position: Position(after),
             }) if engine_instance == self.instance && (self.floor..=self.last).contains(&after) => {
-                queue.lossless.extend(
-                    self.retained
-                        .iter()
-                        .filter(|envelope| envelope.position.0 > after)
-                        .cloned(),
-                );
+                let retained: Vec<Envelope> = self
+                    .retained
+                    .iter()
+                    .filter(|item| {
+                        item.envelope.position.0 > after && queue.matches(item.scope.as_deref())
+                    })
+                    .map(|item| item.envelope.clone())
+                    .collect();
+                queue.lossless.extend(retained);
             }
             Some(_) => queue.behind = true,
         }
@@ -712,7 +785,7 @@ fn serve(queue: &mut Queue, last: &mut u64, snapshot: &Snapshot, work: &CountedW
     }
     if let Some((most, answer)) = queue.waiting.take() {
         if queue.behind {
-            let resync = snapshot.resync();
+            let resync = snapshot.resync(queue.run.as_deref());
             queue.lossless.push_back(Envelope {
                 position: next_position(last),
                 event: RESYNC.name,

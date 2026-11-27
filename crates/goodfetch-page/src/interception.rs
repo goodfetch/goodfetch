@@ -137,6 +137,7 @@ use self::navigations::{NavigatingPage, Pending, PendingNavigation};
 use self::pipeline::{PageContext, Sender};
 pub(crate) use self::routes::Armed;
 use self::routes::{Route, RouteTable};
+use crate::blocks::{BlockClassifier, NoBlocks};
 use crate::cdp::driver::{OnWorker, PageDriver, ServiceWorkers};
 use crate::cdp::{CdpPage, ContinueRequest, Fulfill, Header, PausedId, RequestHeaders};
 use crate::clean_up_versions::{ListsRun, Versions};
@@ -227,7 +228,19 @@ pub(crate) struct Interception {
     shared: Arc<Shared>,
 }
 
-#[derive(Default)]
+impl Interception {
+    /// An interception whose Response cache pipeline classifies documents with
+    /// `blocks` so blocked pages never enter the cache (ADR 0046, #871).
+    pub(crate) fn with_blocks(blocks: Arc<dyn BlockClassifier>) -> Self {
+        Self {
+            shared: Arc::new(Shared {
+                blocks,
+                ..Shared::default()
+            }),
+        }
+    }
+}
+
 struct Shared {
     answers: Answers,
     /// The Clean-up rules step 4 matches, loaded once for every Session.
@@ -242,6 +255,22 @@ struct Shared {
     served: Mutex<BTreeMap<RunId, ServedCosmetic>>,
     /// The host cache each live Run's pages share, held until it ends.
     hosts: HostCaches,
+    /// The Product's Block classifier, which keeps blocked pages out of the
+    /// Response cache (ADR 0046).
+    blocks: Arc<dyn BlockClassifier>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            answers: Answers::default(),
+            clean_up: CleanUp::default(),
+            learned: Mutex::default(),
+            served: Mutex::default(),
+            hosts: HostCaches::default(),
+            blocks: Arc::new(NoBlocks),
+        }
+    }
 }
 
 /// The cosmetic rules of one live Run's served documents, made once.
@@ -252,6 +281,11 @@ struct ServedCosmetic {
 }
 
 impl Shared {
+    /// The Product's Block classifier, shared by every page and worker.
+    fn blocks(&self) -> Arc<dyn BlockClassifier> {
+        Arc::clone(&self.blocks)
+    }
+
     /// The domains `run` learned blocking off for, which its pages share.
     fn learned(&self, run: &RunId) -> Arc<Learned> {
         let mut learned = lock(&self.learned);
@@ -428,6 +462,9 @@ pub(super) struct PageState {
     on_document: Option<Arc<dyn OnDocument>>,
     /// Its Session's [`SessionInterception::caching`].
     caching: Option<Arc<Caching>>,
+    /// Its Product's Block classifier, which keeps blocked responses out of
+    /// the Response cache (ADR 0046).
+    blocks: Arc<dyn BlockClassifier>,
 }
 
 /// What a crawl request's own document fetch sends in place of the
@@ -826,6 +863,7 @@ impl Interception {
             },
             on_document,
             caching: session.caching.clone(),
+            blocks: self.shared.blocks(),
         });
         (state, session.lookups.clone())
     }
@@ -973,6 +1011,7 @@ impl Interception {
                         },
                         on_document: None,
                         caching: session.caching.clone(),
+                        blocks: shared.blocks(),
                     });
                     let context = Arc::new(
                         PageContext::new(

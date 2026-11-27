@@ -310,7 +310,7 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 earned=0\n"),
+            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 earned=0 quarantined=pass\n"),
         "{}",
         run.results
     );
@@ -557,7 +557,7 @@ fn the_owner_can_name_where_a_run_starts_and_its_line_says_so() {
     );
     assert!(
         told.results.ends_with(&format!(
-            " misses=0 suspects=0 unchecked=0 earned=0 since={main}\n"
+            " misses=0 suspects=0 unchecked=0 earned=0 quarantined=pass since={main}\n"
         )),
         "{}",
         told.results
@@ -653,7 +653,7 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
     }
     assert!(
         run.results.ends_with(&format!(
-            "gate=pass {misses} suspects=0 unchecked=0 earned=3\n"
+            "gate=pass {misses} suspects=0 unchecked=0 earned=3 quarantined=pass\n"
         )),
         "{}",
         run.results
@@ -664,6 +664,42 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
         red,
         "{}",
         run.misses
+    );
+}
+
+/// The backstop runs the 10 oldest quarantined tests 50 times each
+/// (`just repeat 50 --quarantined 10`, ADR 0064; issue 1726), reporting
+/// `quarantined=<pass|fail>` on its results line and blocking nothing when it
+/// fails.
+#[rstest::rstest]
+#[case::passing(false, "quarantined=pass")]
+#[case::failing(true, "quarantined=fail")]
+fn the_backstop_runs_quarantined_tests_non_blocking_and_reports_them(
+    #[case] fails: bool,
+    #[case] expected: &str,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("compare"), "[]").unwrap();
+    if fails {
+        std::fs::write(stand_in.join("failing"), "repeat 50 --quarantined 10\n").unwrap();
+    }
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(
+        run.calls
+            .contains(&"repeat 50 --quarantined 10|".to_owned()),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        run.results.contains(&format!(
+            "gate=pass misses=0 suspects=0 unchecked=0 earned=0 {expected}"
+        )),
+        "{}",
+        run.results
     );
 }
 
@@ -686,7 +722,7 @@ fn a_backstop_with_no_miss_passes() {
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
+            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 earned=0 quarantined=pass\n"),
         "{}",
         run.results
     );

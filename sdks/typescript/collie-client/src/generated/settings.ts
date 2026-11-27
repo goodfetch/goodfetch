@@ -44,6 +44,30 @@ export interface Settings {
      */
     readonly cdpCommandLog?: boolean;
     /**
+     * The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.color_scheme`.
+     */
+    readonly colorScheme?: "light" | "dark" | "no-preference";
+    /**
+     * The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.device_scale_factor`.
+     */
+    readonly deviceScaleFactor?: number;
+    /**
+     * The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.geolocation`.
+     */
+    readonly geolocation?: { readonly accuracy?: number | null; readonly latitude: number; readonly longitude: number } | null;
+    /**
+     * Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.has_touch`.
+     */
+    readonly hasTouch?: boolean;
+    /**
      * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
      *
      * `browser.headless`.
@@ -56,11 +80,47 @@ export interface Settings {
      */
     readonly headlessShell?: boolean;
     /**
+     * Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.is_mobile`.
+     */
+    readonly isMobile?: boolean;
+    /**
+     * Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.java_script_enabled`.
+     */
+    readonly javaScriptEnabled?: boolean;
+    /**
+     * The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.locale`.
+     */
+    readonly locale?: string | null;
+    /**
+     * Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.permissions`.
+     */
+    readonly permissions?: readonly ("geolocation" | "midi" | "midi-sysex" | "notifications" | "camera" | "microphone" | "background-sync" | "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" | "clipboard-read" | "clipboard-write" | "payment-handler" | "storage-access" | "local-fonts" | "screen-wake-lock" | "idle-detection" | "periodic-background-sync" | "window-management" | "local-network-access")[];
+    /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+    /**
+     * The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.timezone_id`.
+     */
+    readonly timezoneId?: string | null;
+    /**
+     * The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.viewport`.
+     */
+    readonly viewport?: { readonly height: number; readonly width: number } | null;
   };
   readonly browserCache?: {
     /**
@@ -355,6 +415,12 @@ export interface Settings {
      * `network.resolve`.
      */
     readonly resolve?: { readonly [key: string]: readonly string[] };
+    /**
+     * Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `network.throttle`.
+     */
+    readonly throttle?: { readonly downloadBytesPerSecond?: number | null; readonly latency?: number; readonly offline?: boolean; readonly uploadBytesPerSecond?: number | null } | null;
   };
   readonly politeness?: {
     /**
@@ -518,6 +584,66 @@ export interface Settings {
      */
     readonly echoRepeats?: number;
   };
+  readonly schedule?: {
+    readonly autoPause?: {
+      /**
+       * How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+       *
+       * `schedule.auto_pause.failures`.
+       */
+      readonly failures?: number;
+    };
+    /**
+     * How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+     *
+     * `schedule.catch_up`.
+     */
+    readonly catchUp?: number | "until_next";
+    /**
+     * Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+     *
+     * `schedule.jitter`.
+     */
+    readonly jitter?: number;
+    /**
+     * How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+     *
+     * `schedule.overlap`.
+     */
+    readonly overlap?: "skip" | "queue_one" | "allow" | "replace";
+    /**
+     * A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+     *
+     * `schedule.pause_timeout`.
+     */
+    readonly pauseTimeout?: number | "next_occurrence" | null;
+    readonly retention?: {
+      /**
+       * How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+       *
+       * `schedule.retention.changed_watches`.
+       */
+      readonly changedWatches?: number;
+      /**
+       * How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+       *
+       * `schedule.retention.history`.
+       */
+      readonly history?: number;
+      /**
+       * How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.runs`.
+       */
+      readonly runs?: number;
+      /**
+       * How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.watch_runs`.
+       */
+      readonly watchRuns?: number;
+    };
+  };
   readonly secrets?: {
     /**
      * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
@@ -605,6 +731,12 @@ export interface Settings {
     readonly respectUseSignals?: boolean;
   };
   readonly stealth?: {
+    /**
+     * Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+     *
+     * `stealth.allow_runtime`.
+     */
+    readonly allowRuntime?: boolean;
     /**
      * The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
      *
@@ -808,6 +940,30 @@ export interface RunSettings {
      */
     readonly cdpCommandLog?: boolean;
     /**
+     * The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.color_scheme`.
+     */
+    readonly colorScheme?: "light" | "dark" | "no-preference";
+    /**
+     * The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.device_scale_factor`.
+     */
+    readonly deviceScaleFactor?: number;
+    /**
+     * The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.geolocation`.
+     */
+    readonly geolocation?: { readonly accuracy?: number | null; readonly latitude: number; readonly longitude: number } | null;
+    /**
+     * Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.has_touch`.
+     */
+    readonly hasTouch?: boolean;
+    /**
      * Whether the Session's Chromium runs with no window: `true` by default. Headless or not, the site sees one browser's identity, with no `HeadlessChrome` token in its user agent, except under `browser.headless_shell`.
      *
      * `browser.headless`.
@@ -820,11 +976,47 @@ export interface RunSettings {
      */
     readonly headlessShell?: boolean;
     /**
+     * Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.is_mobile`.
+     */
+    readonly isMobile?: boolean;
+    /**
+     * Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.java_script_enabled`.
+     */
+    readonly javaScriptEnabled?: boolean;
+    /**
+     * The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.locale`.
+     */
+    readonly locale?: string | null;
+    /**
+     * Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.permissions`.
+     */
+    readonly permissions?: readonly ("geolocation" | "midi" | "midi-sysex" | "notifications" | "camera" | "microphone" | "background-sync" | "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" | "clipboard-read" | "clipboard-write" | "payment-handler" | "storage-access" | "local-fonts" | "screen-wake-lock" | "idle-detection" | "periodic-background-sync" | "window-management" | "local-network-access")[];
+    /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+    /**
+     * The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.timezone_id`.
+     */
+    readonly timezoneId?: string | null;
+    /**
+     * The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.viewport`.
+     */
+    readonly viewport?: { readonly height: number; readonly width: number } | null;
   };
   readonly browserCache?: {
     /**
@@ -1099,6 +1291,12 @@ export interface RunSettings {
      * `network.resolve`.
      */
     readonly resolve?: { readonly [key: string]: readonly string[] };
+    /**
+     * Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `network.throttle`.
+     */
+    readonly throttle?: { readonly downloadBytesPerSecond?: number | null; readonly latency?: number; readonly offline?: boolean; readonly uploadBytesPerSecond?: number | null } | null;
   };
   readonly politeness?: {
     /**
@@ -1262,6 +1460,66 @@ export interface RunSettings {
      */
     readonly echoRepeats?: number;
   };
+  readonly schedule?: {
+    readonly autoPause?: {
+      /**
+       * How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+       *
+       * `schedule.auto_pause.failures`.
+       */
+      readonly failures?: number;
+    };
+    /**
+     * How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+     *
+     * `schedule.catch_up`.
+     */
+    readonly catchUp?: number | "until_next";
+    /**
+     * Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+     *
+     * `schedule.jitter`.
+     */
+    readonly jitter?: number;
+    /**
+     * How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+     *
+     * `schedule.overlap`.
+     */
+    readonly overlap?: "skip" | "queue_one" | "allow" | "replace";
+    /**
+     * A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+     *
+     * `schedule.pause_timeout`.
+     */
+    readonly pauseTimeout?: number | "next_occurrence" | null;
+    readonly retention?: {
+      /**
+       * How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+       *
+       * `schedule.retention.changed_watches`.
+       */
+      readonly changedWatches?: number;
+      /**
+       * How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+       *
+       * `schedule.retention.history`.
+       */
+      readonly history?: number;
+      /**
+       * How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.runs`.
+       */
+      readonly runs?: number;
+      /**
+       * How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.watch_runs`.
+       */
+      readonly watchRuns?: number;
+    };
+  };
   readonly secrets?: {
     /**
      * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
@@ -1349,6 +1607,12 @@ export interface RunSettings {
     readonly respectUseSignals?: boolean;
   };
   readonly stealth?: {
+    /**
+     * Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+     *
+     * `stealth.allow_runtime`.
+     */
+    readonly allowRuntime?: boolean;
     /**
      * The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
      *
@@ -1532,11 +1796,71 @@ export interface SessionSettings {
      */
     readonly blockResources?: readonly ("image" | "media" | "font" | "stylesheet")[];
     /**
+     * The `prefers-color-scheme` media feature emulated for every page of the Session: `light` (the default, Playwright's), `dark`, or `no-preference`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.color_scheme`.
+     */
+    readonly colorScheme?: "light" | "dark" | "no-preference";
+    /**
+     * The device pixel ratio (`window.devicePixelRatio`) for every page of the Session: `1` by default. Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.device_scale_factor`.
+     */
+    readonly deviceScaleFactor?: number;
+    /**
+     * The geographic coordinates emulated for every page of the Session; `null` by default. Pages observe the coordinates when `geolocation` is granted in `browser.permissions`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.geolocation`.
+     */
+    readonly geolocation?: { readonly accuracy?: number | null; readonly latitude: number; readonly longitude: number } | null;
+    /**
+     * Whether the Session's pages emulate a touch screen (`navigator.maxTouchPoints` and touch events): `false` by default (Playwright's `hasTouch`). Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.has_touch`.
+     */
+    readonly hasTouch?: boolean;
+    /**
+     * Whether the Session's pages emulate a mobile viewport (`meta viewport` tag and mobile layout): `false` by default (Playwright's `isMobile`). Chromium only: `true` outside Chromium raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.is_mobile`.
+     */
+    readonly isMobile?: boolean;
+    /**
+     * Whether page scripts run in the Session's pages: `true` by default. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.java_script_enabled`.
+     */
+    readonly javaScriptEnabled?: boolean;
+    /**
+     * The BCP 47 locale tag emulated for every page of the Session, such as `fr-FR`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.locale`.
+     */
+    readonly locale?: string | null;
+    /**
+     * Browser permissions (Playwright's names) granted to every page of the Session; `[]` by default. Clipboard permissions (`clipboard-read`, `clipboard-write`) are refused with `setting_not_applicable` on a headful Session (`browser.headless: false`) so the engine does not touch the person's desktop clipboard. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.permissions`.
+     */
+    readonly permissions?: readonly ("geolocation" | "midi" | "midi-sysex" | "notifications" | "camera" | "microphone" | "background-sync" | "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" | "clipboard-read" | "clipboard-write" | "payment-handler" | "storage-access" | "local-fonts" | "screen-wake-lock" | "idle-detection" | "periodic-background-sync" | "window-management" | "local-network-access")[];
+    /**
      * Whether a site's service workers run in the Session's pages: `allow` (the default on Chromium) runs them under the Session's interception, each worker's own requests passing the domain policy, the Filter lists and the Session's routes, never a page's routes; `block` makes `navigator.serviceWorker.register()` reject as on a failed fetch of the worker's script, `register` staying the browser's own function, so that every request of a page reaches its routes.
      *
      * `browser.service_workers`.
      */
     readonly serviceWorkers?: "allow" | "block";
+    /**
+     * The IANA time zone identifier emulated for every page of the Session, such as `Europe/Paris`; `null` by default, matched to the proxy exit or the Session source's for an import. Set where a Session opens or above, never per page. Refused with `setting_locked` where an imported login or a Profile directory used in place fixes it, yielding when inherited; refused with `setting_not_applicable` where a Borrowed browser's Session opens.
+     *
+     * `browser.timezone_id`.
+     */
+    readonly timezoneId?: string | null;
+    /**
+     * The viewport size in CSS pixels for every page of the Session: `{ width: 1280, height: 720 }` by default, Playwright's. `null` uses the window's own size and applies only to a headful browser (`browser.headless: false`). Set where a Session opens or above, never per page (`setting_not_applicable`), and refused where a Borrowed browser's Session opens.
+     *
+     * `browser.viewport`.
+     */
+    readonly viewport?: { readonly height: number; readonly width: number } | null;
   };
   readonly content?: {
     /**
@@ -1593,6 +1917,14 @@ export interface SessionSettings {
      * `live_view.hiding`.
      */
     readonly hiding?: "auto" | "off" | "always";
+  };
+  readonly network?: {
+    /**
+     * Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
+     *
+     * `network.throttle`.
+     */
+    readonly throttle?: { readonly downloadBytesPerSecond?: number | null; readonly latency?: number; readonly offline?: boolean; readonly uploadBytesPerSecond?: number | null } | null;
   };
   readonly proxy?: {
     /**
@@ -1661,6 +1993,12 @@ export interface SessionSettings {
     readonly pageCheck?: { readonly expectedPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null; readonly loginPage?: { readonly kind: "glob"; readonly pattern: string } | { readonly kind: "regex"; readonly pattern: string } | { readonly kind: "css"; readonly selector: string } | { readonly kind: "xpath"; readonly selector: string } | { readonly kind: "text"; readonly text: string } | null } | null;
   };
   readonly stealth?: {
+    /**
+     * Whether a `stealth` Session's pages may turn on the browser's `Runtime` domain, which a detector sees: `false` by default, so `page.on` for `console` or `page_error` answers `capability_unavailable`. On, they listen, the Run report carries the warning `stealth_runtime_allowed` and Provenance marks the Session. A `standard` Session listens either way. A Label refuses it with `setting_not_applicable`.
+     *
+     * `stealth.allow_runtime`.
+     */
+    readonly allowRuntime?: boolean;
     /**
      * The Chromium build a `stealth` Session runs: `goodfetch` (the default), `fingerprint_chromium` or `clearcote`, the last two only where `stealth.allowed_builds` allows their digest. A Label refuses it with `setting_not_applicable`.
      *
@@ -1746,10 +2084,20 @@ const SPELLING: Spelling = {
     accessMode: "access_mode",
     blockResources: "block_resources",
     cdpCommandLog: "cdp_command_log",
+    colorScheme: "color_scheme",
+    deviceScaleFactor: "device_scale_factor",
+    geolocation: "geolocation",
+    hasTouch: "has_touch",
     headless: "headless",
     headlessShell: "headless_shell",
+    isMobile: "is_mobile",
+    javaScriptEnabled: "java_script_enabled",
+    locale: "locale",
     mirror: "mirror",
+    permissions: "permissions",
     serviceWorkers: "service_workers",
+    timezoneId: "timezone_id",
+    viewport: "viewport",
   }],
   browserCache: ["browser_cache", {
     maxUnusedAge: "max_unused_age",
@@ -1856,6 +2204,11 @@ const SPELLING: Spelling = {
     sampleInterval: "sample_interval",
     workerThreads: "worker_threads",
   }],
+  httpListener: ["http_listener", {
+    address: "address",
+    enabled: "enabled",
+    port: "port",
+  }],
   identified: ["identified", {
     signatureAgent: "signature_agent",
     signingKey: "signing_key",
@@ -1881,6 +2234,7 @@ const SPELLING: Spelling = {
     maxHelloSize: "max_hello_size",
     maxJSONDepth: "max_json_depth",
     resolve: "resolve",
+    throttle: { setting: "throttle", value: { fields: { "download_bytes_per_second": "downloadBytesPerSecond", "upload_bytes_per_second": "uploadBytesPerSecond" } } },
   }],
   notifications: ["notifications", {
     channels: { setting: "channels", value: { values: { fields: { "email": ["email", { fields: { "api_key": "apiKey" } }], "sns": ["sns", { fields: { "topic_arn": "topicArn" } }], "telegram": ["telegram", { fields: { "bot_token": "botToken", "chat_id": "chatId" } }] } } } },
@@ -1939,6 +2293,26 @@ const SPELLING: Spelling = {
   sample: ["sample", {
     echoRepeats: "echo_repeats",
   }],
+  schedule: ["schedule", {
+    autoPause: ["auto_pause", {
+      failures: "failures",
+    }],
+    catchUp: "catch_up",
+    jitter: "jitter",
+    limitsMax: { setting: "limits_max", value: { fields: { "day": ["day", { items: { fields: { "usage_kind": "usageKind" } } }], "month": ["month", { items: { fields: { "usage_kind": "usageKind" } } }], "week": ["week", { items: { fields: { "usage_kind": "usageKind" } } }] } } },
+    maxCount: "max_count",
+    minInterval: "min_interval",
+    overlap: "overlap",
+    pauseTimeout: "pause_timeout",
+    retention: ["retention", {
+      changedWatches: "changed_watches",
+      history: "history",
+      runs: "runs",
+      watchRuns: "watch_runs",
+    }],
+    tick: "tick",
+    wakeThreshold: "wake_threshold",
+  }],
   secretProviders: ["secret_providers", {
     awsSm: ["aws_sm", {
       endpoint: "endpoint",
@@ -1985,6 +2359,7 @@ const SPELLING: Spelling = {
     respectUseSignals: "respect_use_signals",
   }],
   stealth: ["stealth", {
+    allowRuntime: "allow_runtime",
     allowedBuilds: "allowed_builds",
     chromiumBuild: "chromium_build",
     fingerprintMethod: "fingerprint_method",

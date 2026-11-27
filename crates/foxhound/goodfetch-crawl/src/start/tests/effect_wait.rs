@@ -200,6 +200,7 @@ fn a_drained_crawl_waits_for_its_running_effect_to_close(
         websocket: None,
         live_view: None,
         accounts: None,
+        http_listener: None,
     };
 
     let engine = engine();

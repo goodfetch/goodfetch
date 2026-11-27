@@ -24,6 +24,18 @@ use crate::connection::WaitedFor;
 use crate::open_value::UnknownValue;
 use crate::point_in_time::PointInTime;
 
+pub mod settings;
+
+pub use settings::{
+    CATCH_UP_UNTIL_NEXT, DEFAULT_RETENTION_HISTORY_MS, DEFAULT_TICK_MS, DEFAULT_WAKE_THRESHOLD_MS,
+    PAUSE_TIMEOUT_NEXT_OCCURRENCE, SCHEDULE_AUTO_PAUSE_FAILURES, SCHEDULE_CATCH_UP,
+    SCHEDULE_CATCH_UP_SHAPE, SCHEDULE_JITTER, SCHEDULE_LIMITS_MAX, SCHEDULE_MAX_COUNT,
+    SCHEDULE_MIN_INTERVAL, SCHEDULE_OVERLAP, SCHEDULE_PAUSE_TIMEOUT, SCHEDULE_PAUSE_TIMEOUT_SHAPE,
+    SCHEDULE_PERIOD_LIMITS_SHAPE, SCHEDULE_RETENTION_CHANGED_WATCHES, SCHEDULE_RETENTION_HISTORY,
+    SCHEDULE_RETENTION_RUNS, SCHEDULE_RETENTION_WATCH_RUNS, SCHEDULE_TICK, SCHEDULE_WAKE_THRESHOLD,
+    ScheduleCatchUp, ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits,
+};
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// What a `schedule.*` call past its `timeout.wait` waited for: the
@@ -164,8 +176,21 @@ pub struct RunTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ScheduleTrigger {
+    /// A cron expression.
+    Cron(CronTrigger),
     /// At a fixed interval.
     Every(EveryTrigger),
+}
+
+/// A cron expression: five fields (minute, hour, day of month, month, day
+/// of week) plus optional seconds first, `L`, `W`, `#` and the
+/// `@daily`-style macros (ADR 0036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CronTrigger {
+    /// The cron expression, such as `0 9 * * MON-FRI` or `@daily`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cron: String,
 }
 
 /// A fixed interval: an occurrence every `every` milliseconds from the
@@ -187,6 +212,146 @@ pub struct EveryTrigger {
     pub anchor: Option<SystemTime>,
 }
 
+/// How many occurrences `schedule.preview` returns when `count` is absent.
+pub const DEFAULT_PREVIEW_COUNT: u32 = 5;
+
+/// The most occurrences one `schedule.preview` call may ask for, bounding
+/// per-call work (STYLE.md).
+pub const MAX_PREVIEW_COUNT: u32 = 100;
+
+/// The plain-words description of a trigger (ADR 0073): a structured form
+/// a Client can render in its own locale, and the engine's English
+/// rendering.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TriggerDescription {
+    /// The structured form of the trigger, for a Client's own translation.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub structured: StructuredTriggerDescription,
+    /// The trigger in plain English, such as `Every 15 minutes` or
+    /// `At 09:00, Monday through Friday`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub english: String,
+}
+
+/// The structured form of a trigger's plain-words description, which a
+/// Client translates into its own locale (ADR 0073).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StructuredTriggerDescription {
+    /// A fixed-interval trigger: every `every` milliseconds from `anchor`.
+    Every {
+        /// The interval, in milliseconds.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        every: u64,
+        /// The anchor instant, when the trigger names one.
+        #[serde(
+            with = "crate::point_in_time::nullable",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+        anchor: Option<SystemTime>,
+    },
+    /// A cron expression, split into its normalized fields and DST class.
+    Cron {
+        /// The expression as given.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        expression: String,
+        /// The seconds field, when the expression named one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        seconds: Option<String>,
+        /// The minutes field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        minutes: String,
+        /// The hours field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        hours: String,
+        /// The day-of-month field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        day_of_month: String,
+        /// The month field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        month: String,
+        /// The day-of-week field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        day_of_week: String,
+        /// Whether DST treats this expression as fixed-time (runs once
+        /// after a spring gap and once in an autumn overlap) rather than
+        /// wildcard or step (skips a gap and runs on both passes of an
+        /// overlap).
+        #[schemars(extend("arrived_in" = "0.1"))]
+        fixed_time: bool,
+    },
+}
+
+/// One previewed Occurrence of a trigger: its UTC instant and its local
+/// civil date-time with offset in the preview's IANA time zone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PreviewOccurrence {
+    /// When the Occurrence falls, as a UTC instant.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub at: SystemTime,
+    /// The same instant written in the preview's IANA time zone with its
+    /// offset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub local: String,
+}
+
+/// What `schedule.preview` takes: a trigger, an optional IANA time zone
+/// (the Daemon host's when absent), an optional instant after which
+/// occurrences are listed (now when absent) and how many to list (5 when
+/// absent, at most 100).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulePreviewParams {
+    /// The trigger to preview.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub trigger: ScheduleTrigger,
+    /// The IANA time zone, such as `Europe/Paris`; the Daemon host's when
+    /// absent, never "local".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time_zone: Option<String>,
+    /// The instant strictly after which occurrences are listed; now when
+    /// absent.
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub after: Option<SystemTime>,
+    /// How many occurrences to list; 5 when absent, at most 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub count: Option<u32>,
+    /// How long the call may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
+    pub timeout: Option<Option<u64>>,
+}
+
+/// What `schedule.preview` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SchedulePreview {
+    /// The plain-words description of the trigger.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub description: TriggerDescription,
+    /// The IANA time zone used.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time_zone: String,
+    /// The next occurrences strictly after `after` (or now), in order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub occurrences: Vec<PreviewOccurrence>,
+}
+
 /// What a Schedule is, as a program writes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -206,6 +371,16 @@ pub struct ScheduleDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub time_zone: Option<String>,
+    /// The Schedule's own `schedule.*` settings, nested by key, layered
+    /// above user configuration and held to Operator policy locks and caps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Option<Map<String, Value>>,
+    /// The Schedule's period Limits (`day`, `week`, `month`), counted in
+    /// its time zone and bounded by Operator policy's `schedule.limits_max`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Option<SchedulePeriodLimits>,
 }
 
 /// Whether a Schedule fires.
@@ -260,6 +435,14 @@ pub struct ScheduleInfo {
     #[serde(with = "crate::point_in_time")]
     #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
     pub created_at: SystemTime,
+    /// The Schedule's own `schedule.*` settings, when the definition set any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Option<Map<String, Value>>,
+    /// The Schedule's period Limits, when the definition set any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Option<SchedulePeriodLimits>,
 }
 
 /// Something about a created Schedule its program should know, which did
@@ -445,11 +628,69 @@ pub const SCHEDULE_EXISTS: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
+pub enum ScheduleCapKind {
+    /// `schedule.max_count`: maximum number of Schedules held by the Daemon.
+    Count,
+    /// `schedule.min_interval`: minimum interval between consecutive occurrences.
+    MinInterval,
+    /// `schedule.limits_max`: maximum period Limit on a Schedule.
+    PeriodLimit,
+    /// A cap kind this reader does not know, kept as received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
+}
+
+impl ScheduleCapKind {
+    /// Its canonical wire name.
+    pub const fn as_str(&self) -> &str {
+        match self {
+            Self::Count => "count",
+            Self::MinInterval => "min_interval",
+            Self::PeriodLimit => "period_limit",
+            Self::Unknown(value) => value.as_str(),
+        }
+    }
+}
+
+/// What `schedule_cap_exceeded` details: which Operator policy cap was
+/// exceeded and which Operator policy setting (and version, when present)
+/// imposed it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ScheduleCapExceededDetails {
+    /// Which cap was exceeded: `count`, `min_interval` or `period_limit`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cap: ScheduleCapKind,
+    /// The Operator policy key that set the cap (`schedule.max_count`,
+    /// `schedule.min_interval` or `schedule.limits_max`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy: String,
+    /// The Operator policy's version, when the policy carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy_version: Option<String>,
+}
+
 /// A trigger that does not parse.
 pub const SCHEDULE_TRIGGER_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "schedule_trigger_invalid",
     description: "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
     group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// An Operator policy cap on Schedules was exceeded.
+pub const SCHEDULE_CAP_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "schedule_cap_exceeded",
+    description: "A Schedule creation or edit exceeds an Operator policy cap (`schedule.max_count`, `schedule.min_interval` or `schedule.limits_max`). The details name the `cap` and its `policy`.",
+    group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
@@ -509,6 +750,24 @@ pub const SCHEDULE_GET: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `schedule.preview`.
+pub const SCHEDULE_PREVIEW: Operation = Operation {
+    name: "schedule.preview",
+    description: "Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SchedulePreviewParams>,
+    result: schema_of::<SchedulePreview>,
+    events: &[],
+    cancellable: true,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `schedule.info`.
 pub const SCHEDULE_INFO: Operation = Operation {
     name: "schedule.info",
@@ -552,6 +811,7 @@ pub const ENTRIES: Entries = Entries {
         SCHEDULE_CREATE,
         SCHEDULE_LIST,
         SCHEDULE_GET,
+        SCHEDULE_PREVIEW,
         SCHEDULE_INFO,
         SCHEDULE_DELETE,
     ],
@@ -561,10 +821,11 @@ pub const ENTRIES: Entries = Entries {
         SCHEDULE_NOT_FOUND,
         SCHEDULE_EXISTS,
         SCHEDULE_TRIGGER_INVALID,
+        SCHEDULE_CAP_EXCEEDED,
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: settings::ALL,
     hook_stages: &[],
     shared_type_values: &[],
 };

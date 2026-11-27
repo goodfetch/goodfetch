@@ -725,6 +725,163 @@ fn the_schedule_store_is_proved_against_collies_attached_engine_and_daemon(
                     "a-delete-answers-whether-it-deleted-the-schedule",
                     CaseOutcome::Passed
                 ),
+                (
+                    "a-preview-reads-both-dst-transitions-and-refuses-a-bad-trigger",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+/// Schedule occurrences depend only on each Schedule's stored time zone,
+/// never on the host's `TZ` or `LANG` (ADR 0073): under
+/// `TZ=Pacific/Chatham` and `LANG=tr_TR.UTF-8`, the Schedule suite still
+/// proves every case, both DST transitions in `Europe/Paris` included.
+///
+/// Covers: story:10-9, story:10-15, story:10-16, story:10-17, operation:schedule.preview
+#[test]
+fn the_schedule_suite_is_independent_of_the_hosts_time_zone_and_locale() {
+    let env = TestEnv::new()
+        .with_time_zone("Pacific/Chatham")
+        .unwrap()
+        .with_locale("tr-TR")
+        .unwrap();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, EngineMode::Attached);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::schedule(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "schedule-collie-chatham-tr");
+
+    assert_eq!(
+        outcomes(&document),
+        vec![("schedule", Outcome::Proved)],
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+/// Operator policy caps (`schedule.max_count`, `schedule.min_interval`,
+/// `schedule.limits_max`) refuse violating creations with
+/// `schedule_cap_exceeded` and allow a Schedule within caps, in both
+/// `Attached` and `Daemon` modes.
+///
+/// Covers: story:10-10, error:schedule_cap_exceeded
+#[expect(
+    clippy::doc_markdown,
+    reason = "Covers: declarations carry raw Feature IDs (ADR 0072)"
+)]
+#[rstest::rstest]
+fn the_schedule_caps_are_proved_against_collies_attached_engine_and_daemon(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let major_dir = env.home().join("0.0");
+    std::fs::create_dir_all(&major_dir).unwrap();
+    std::fs::write(
+        major_dir.join("operator-policy.toml"),
+        r#"version = "0.1"
+
+[settings.schedule]
+max_count = 1
+min_interval = 300000
+
+[settings.schedule.limits_max]
+day = [{ usage_kind = "pages", amount = 100 }]
+"#,
+    )
+    .unwrap();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, mode);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::schedule_caps(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("schedule-caps-collie-{mode:?}").to_lowercase(),
+    );
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("schedule.caps", Outcome::Proved)],
+            vec![
+                (
+                    "a-schedule-past-min-interval-or-period-limit-cap-is-refused",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-schedule-within-caps-is-created-and-a-second-past-max-count-is-refused",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+#[test]
+fn the_http_listener_suite_is_proved_against_collies_daemon_on_port_0() {
+    let env = TestEnv::new();
+    env.user_configuration("http_listener.enabled = true\nhttp_listener.port = 0\n");
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, EngineMode::Daemon);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::http_listener(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "http-listener-collie-daemon");
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![
+                ("http_listener.rpc", Outcome::Proved),
+                ("http_listener.events", Outcome::Proved),
+            ],
+            vec![
+                (
+                    "post-rpc-carries-hello-headers-and-starts-an-outliving-run",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-refuses-bad-hello-headers-with-400-and-json-rpc-error",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-refuses-missing-wrong-or-query-token-with-401",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-refuses-foreign-host-or-origin-with-403",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-drops-malformed-or-over-long-trace-headers-without-refusing",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "get-events-streams-sse-and-resumes-from-last-event-id-and-after",
+                    CaseOutcome::Passed
+                ),
             ]
         ),
         "{}",

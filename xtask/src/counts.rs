@@ -1199,7 +1199,7 @@ const fn working_copy_row(name: &'static str, builder: &'static str) -> NotRunYe
 const WORKING_COPY: &str = "#1689";
 const MERGE_HOST: &str = "#1998";
 
-const NOT_RUN_YET: [NotRunYet; 24] = [
+const NOT_RUN_YET: [NotRunYet; 25] = [
     NotRunYet {
         name: "F5.messages_no_hook",
         family: "B1",
@@ -1307,6 +1307,12 @@ const NOT_RUN_YET: [NotRunYet; 24] = [
         family: "B2",
         builder: "#1783",
         capped: true,
+    },
+    NotRunYet {
+        name: "C3.commands.human_input",
+        family: "B2",
+        builder: "#1018",
+        capped: false,
     },
 ];
 

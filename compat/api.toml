@@ -181,6 +181,10 @@ entry = "typescript @goodfetch/collie-client/generated AuditKind"
 reason = "An Audit kind joins the catalog, `fingerprint_method_chosen` (issue 913): the type stays open, and a switch over every kind needs its case."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunWarningCode"
+reason = "A Run warning code joins the catalog, `stealth_runtime_allowed`, which a `stealth` Session's report carries once `stealth.allow_runtime` lets its pages turn on the browser's `Runtime` domain (spec 599, issue 913): the type stays open, and a switch over every code needs its case."
+
+[[announced]]
 entry = "typescript @goodfetch/collie-client/generated RunSettings"
 reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
 
@@ -407,3 +411,11 @@ reason = "Foxhound's per-domain concurrency defaults to 1 (ADR 0086, issue 1499)
 [[announced]]
 entry = "foxhound settings politeness.domain.delay"
 reason = "Foxhound's per-domain delay defaults to 1000 ms (ADR 0086, issue 1499), replacing the temporary `null` placeholder; values under 1000 ms or `null` press harder and are reported in `weakened`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated Surface"
+reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types Surface"
+reason = "The Daemon's HTTP JSON-RPC listener joins the `Surface` union as `http_listener` (ADR 0027, issue 1400): a switch over every surface gains that member."

@@ -104,19 +104,40 @@ impl PageDriver {
 /// click, press and move send them, the last its first event alone.
 pub(crate) fn pointer_click(x: f64, y: f64) -> [input::DispatchMouseEventParams; 3] {
     [
-        (input::DispatchMouseEventType::MouseMoved, None, None),
-        (
+        mouse_event(
+            input::DispatchMouseEventType::MouseMoved,
+            (x, y),
+            None,
+            None,
+            None,
+        ),
+        mouse_event(
             input::DispatchMouseEventType::MousePressed,
+            (x, y),
             Some(input::MouseButton::Left),
             Some(1),
+            None,
         ),
-        (
+        mouse_event(
             input::DispatchMouseEventType::MouseReleased,
+            (x, y),
             Some(input::MouseButton::Left),
             Some(0),
+            None,
         ),
     ]
-    .map(|(kind, button, buttons)| input::DispatchMouseEventParams {
+}
+
+/// One `Input.dispatchMouseEvent` with `kind` at `(x, y)` and optional
+/// button, button mask and wheel delta.
+pub(crate) fn mouse_event(
+    kind: input::DispatchMouseEventType,
+    (x, y): (f64, f64),
+    button: Option<input::MouseButton>,
+    buttons: Option<i64>,
+    delta: Option<(f64, f64)>,
+) -> input::DispatchMouseEventParams {
+    input::DispatchMouseEventParams {
         r#type: kind,
         x,
         y,
@@ -130,8 +151,8 @@ pub(crate) fn pointer_click(x: f64, y: f64) -> [input::DispatchMouseEventParams;
         tilt_x: None,
         tilt_y: None,
         twist: None,
-        delta_x: None,
-        delta_y: None,
+        delta_x: delta.map(|(dx, _)| dx),
+        delta_y: delta.map(|(_, dy)| dy),
         pointer_type: None,
-    })
+    }
 }

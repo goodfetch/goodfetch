@@ -11,7 +11,7 @@ use goodfetch_protocol::schedule::{
 use goodfetch_test_support::{TestEnv, runtime};
 use rusqlite::{Connection, OptionalExtension};
 
-use super::{STORE, create, delete, get, list, made_store_id};
+use super::{CreateOutcome, STORE, create, delete, get, list, made_store_id};
 
 mod model;
 
@@ -34,6 +34,8 @@ fn schedule(id: &str, every: u64) -> ScheduleInfo {
         state: ScheduleState::On,
         creator: "ada".to_owned(),
         created_at: UNIX_EPOCH + Duration::from_millis(1_764_061_234_567),
+        settings: None,
+        limits: None,
     }
 }
 
@@ -50,6 +52,31 @@ async fn store_id(store: &UserStore) -> Result<Option<String>, UserStoreError> {
                 .prepare_cached("SELECT store_id FROM store")?
                 .query_row([], |row| row.get(0))
                 .optional()
+        })
+        .await
+}
+
+/// The stored fixed jitter offset of `id`, in milliseconds, if the store
+/// holds it.
+async fn jitter_ms(store: &UserStore, id: &ScheduleId) -> Result<Option<u64>, UserStoreError> {
+    let id = id.as_str().to_owned();
+    store
+        .read(None, move |connection| {
+            let stored: Option<i64> = connection
+                .prepare_cached("SELECT jitter_ms FROM schedules WHERE id = ?1")?
+                .query_row([id], |row| row.get(0))
+                .optional()?;
+            stored
+                .map(|value| {
+                    u64::try_from(value).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Integer,
+                            Box::new(error),
+                        )
+                    })
+                })
+                .transpose()
         })
         .await
 }
@@ -72,15 +99,17 @@ fn a_created_schedule_is_read_and_listed_as_recorded() {
     let env = TestEnv::new();
     let store = store(&env);
     runtime().block_on(async {
-        assert!(
-            create(&store, schedule("prices", 60_000), drawn(1))
+        assert_eq!(
+            create(&store, schedule("prices", 60_000), 4_200, None, drawn(1))
                 .await
-                .unwrap()
+                .unwrap(),
+            CreateOutcome::Created
         );
-        assert!(
-            create(&store, schedule("a-first", 1), drawn(2))
+        assert_eq!(
+            create(&store, schedule("a-first", 1), 0, None, drawn(2))
                 .await
-                .unwrap()
+                .unwrap(),
+            CreateOutcome::Created
         );
 
         assert_eq!(
@@ -88,6 +117,12 @@ fn a_created_schedule_is_read_and_listed_as_recorded() {
                 .await
                 .unwrap(),
             Some(schedule("prices", 60_000))
+        );
+        assert_eq!(
+            jitter_ms(&store, &ScheduleId::parse("prices").unwrap())
+                .await
+                .unwrap(),
+            Some(4_200)
         );
         assert_eq!(
             list(&store).await.unwrap(),
@@ -102,19 +137,52 @@ fn a_create_of_a_taken_id_records_nothing_and_keeps_the_first() {
     let env = TestEnv::new();
     let store = store(&env);
     runtime().block_on(async {
-        create(&store, schedule("prices", 60_000), drawn(1))
+        create(&store, schedule("prices", 60_000), 0, None, drawn(1))
             .await
             .unwrap();
 
-        let again = create(&store, schedule("prices", 5), drawn(2))
+        let again = create(&store, schedule("prices", 5), 99, None, drawn(2))
             .await
             .unwrap();
 
-        assert!(!again, "a taken ID was recorded again");
+        assert_eq!(
+            again,
+            CreateOutcome::Exists,
+            "a taken ID was recorded again"
+        );
         assert_eq!(
             list(&store).await.unwrap(),
             vec![schedule("prices", 60_000)]
         );
+    });
+}
+
+/// The store's atomic write transaction refuses a creation that would
+/// exceed `max_count` while still reporting `Exists` for a duplicate ID.
+#[test]
+fn atomic_max_count_cap_is_enforced_inside_the_write_transaction() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        assert_eq!(
+            create(&store, schedule("one", 60_000), 0, Some(1), drawn(1))
+                .await
+                .unwrap(),
+            CreateOutcome::Created
+        );
+        assert_eq!(
+            create(&store, schedule("one", 60_000), 0, Some(1), drawn(2))
+                .await
+                .unwrap(),
+            CreateOutcome::Exists
+        );
+        assert_eq!(
+            create(&store, schedule("two", 60_000), 0, Some(1), drawn(3))
+                .await
+                .unwrap(),
+            CreateOutcome::CapExceeded { existing_count: 1 }
+        );
+        assert_eq!(list(&store).await.unwrap().len(), 1);
     });
 }
 
@@ -124,7 +192,7 @@ fn a_delete_answers_whether_the_store_held_the_schedule() {
     let store = store(&env);
     let id = ScheduleId::parse("prices").unwrap();
     runtime().block_on(async {
-        create(&store, schedule("prices", 60_000), drawn(1))
+        create(&store, schedule("prices", 60_000), 0, None, drawn(1))
             .await
             .unwrap();
 
@@ -152,8 +220,12 @@ fn the_store_keeps_the_id_its_first_create_drew() {
     let env = TestEnv::new();
     let store = store(&env);
     runtime().block_on(async {
-        create(&store, schedule("one", 1), drawn(7)).await.unwrap();
-        create(&store, schedule("two", 1), drawn(8)).await.unwrap();
+        create(&store, schedule("one", 1), 0, None, drawn(7))
+            .await
+            .unwrap();
+        create(&store, schedule("two", 1), 0, None, drawn(8))
+            .await
+            .unwrap();
 
         assert_eq!(store_id(&store).await.unwrap(), Some(made_store_id(7, 7)));
     });
@@ -177,7 +249,7 @@ fn the_store_records_its_formats_major_and_minor() {
     let env = TestEnv::new();
     let store = store(&env);
     runtime().block_on(async {
-        create(&store, schedule("prices", 1), drawn(1))
+        create(&store, schedule("prices", 1), 0, None, drawn(1))
             .await
             .unwrap();
     });
@@ -197,7 +269,7 @@ fn a_row_or_table_of_a_later_minor_is_left_as_it_is() {
     let env = TestEnv::new();
     let store = store(&env);
     runtime().block_on(async {
-        create(&store, schedule("prices", 1), drawn(1))
+        create(&store, schedule("prices", 1), 0, None, drawn(1))
             .await
             .unwrap();
     });
@@ -212,7 +284,7 @@ fn a_row_or_table_of_a_later_minor_is_left_as_it_is() {
         .unwrap();
 
     runtime().block_on(async {
-        create(&store, schedule("other", 1), drawn(2))
+        create(&store, schedule("other", 1), 0, None, drawn(2))
             .await
             .unwrap();
         delete(&store, &ScheduleId::parse("other").unwrap())

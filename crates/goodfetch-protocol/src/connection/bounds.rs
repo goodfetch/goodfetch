@@ -91,6 +91,7 @@ pub fn applies_client_bound(surface: Surface, bound: &Setting) -> bool {
         | Surface::Kennel
         | Surface::Cloud
         | Surface::BrowserHost
-        | Surface::Worker => false,
+        | Surface::Worker
+        | Surface::HttpListener => false,
     }
 }

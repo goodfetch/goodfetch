@@ -82,12 +82,14 @@ use super::output::{self, Human};
 
 mod for_attached;
 mod foreground;
+mod http_listener;
 mod launched;
 #[cfg(target_os = "linux")]
 mod reaper;
 mod remote;
 #[cfg(test)]
 mod tests;
+mod tls;
 
 pub(super) use for_attached::DaemonOfTheMajor;
 use launched::launch;

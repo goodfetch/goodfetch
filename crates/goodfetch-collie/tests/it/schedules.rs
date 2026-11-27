@@ -3,11 +3,16 @@
 //! engine forwards each `schedule.*` call to the major's Daemon, starting
 //! it when none runs. A Schedule created by one Client is read by another
 //! and survives a `daemon restart`.
+#![expect(
+    clippy::doc_markdown,
+    reason = "Covers: declarations carry raw Feature IDs (ADR 0072)"
+)]
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_test_client::{Attached, Hello};
 use goodfetch_test_support::{CliOutput, TestEnv, cli};
+use rstest::rstest;
 use serde_json::{Value, json};
 
 use crate::daemon::{StopsTheDaemon, short_idle};
@@ -121,4 +126,391 @@ fn a_schedule_one_client_created_is_read_by_another_and_survives_a_daemon_restar
         (Some(0), &after, json!(1)),
         "{read}\n{restart}"
     );
+}
+
+/// `schedule create` accepts a cron trigger and an anchored `every` trigger,
+/// and `schedule preview` prints plain-words descriptions and next
+/// Occurrences from `now` or from `after`, matching one snapshot in both
+/// `attached` and `daemon` cases with `--json` validated against its schema.
+///
+/// Covers: story:10-9, story:10-15, story:10-16, story:10-17, command:schedule.create, command:schedule.preview, operation:schedule.preview
+#[rstest::rstest]
+#[case::attached(On::Attached)]
+#[case::daemon(On::Daemon)]
+fn schedule_create_accepts_cron_and_anchored_every_and_preview_matches_one_snapshot(
+    #[case] on: On,
+) {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let flags = [on.flag()];
+
+    let cron_def = r#"{"id":"weekday-prices","target":{"recipe":"shop-prices"},"trigger":{"cron":"0 9 * * MON-FRI"},"time_zone":"Europe/Paris"}"#;
+    let anchored_def = r#"{"id":"anchored-prices","target":{"recipe":"shop-prices"},"trigger":{"every":900000,"anchor":"2026-03-29T00:00:00Z"},"time_zone":"Europe/Paris"}"#;
+    let create_cron: &[&str] = &["schedule", "create", "--definition", cron_def];
+    let create_anchored: &[&str] = &["schedule", "create", "--definition", anchored_def];
+    let preview_after: &[&str] = &[
+        "schedule",
+        "preview",
+        "--trigger",
+        r#"{"cron":"30 2 * * *"}"#,
+        "--time-zone",
+        "Europe/Paris",
+        "--after",
+        "2026-03-29T00:00:00Z",
+        "--count",
+        "2",
+    ];
+    let preview_now: &[&str] = &[
+        "schedule",
+        "preview",
+        "--trigger",
+        r#"{"every":900000}"#,
+        "--time-zone",
+        "Europe/Paris",
+    ];
+
+    let (created_cron, _) = checked(&env, create_cron, &flags, "ScheduleCreated");
+    let (created_anchored, _) = checked(&env, create_anchored, &flags, "ScheduleCreated");
+    let (previewed_json, preview_doc) = checked(&env, preview_after, &flags, "SchedulePreview");
+    let previewed_human = cli(&env, COLLIE)
+        .args(preview_after)
+        .args(flags)
+        .run()
+        .unwrap();
+    assert_eq!(previewed_human.exit, Some(0), "{previewed_human}");
+    let (_, from_now) = checked(&env, preview_now, &flags, "SchedulePreview");
+
+    assert_eq!(
+        preview_doc["occurrences"][0]["at"],
+        json!("2026-03-29T01:00:00Z")
+    );
+    assert_eq!(
+        from_now["occurrences"].as_array().map(Vec::len),
+        Some(5),
+        "default preview count is 5: {from_now}"
+    );
+    assert_eq!(
+        from_now["description"]["english"],
+        json!("Every 15 minutes.")
+    );
+    assert_transcript(
+        "schedule_triggers_and_preview",
+        &[
+            (create_cron, &created_cron),
+            (create_anchored, &created_anchored),
+            (preview_after, &previewed_json),
+            (
+                &[
+                    "schedule",
+                    "preview",
+                    "--human",
+                    "--trigger",
+                    r#"{"cron":"30 2 * * *"}"#,
+                ],
+                &previewed_human.without_dispatch_records(),
+            ),
+        ],
+    );
+}
+
+/// A malformed trigger raises `schedule_trigger_invalid` naming the
+/// expression, character position and stable `reason`, and exits with its
+/// declared ADR 0069 exit code (`3`, `ProgramError`) through the binary.
+///
+/// Covers: story:10-15, error:schedule_trigger_invalid, command:schedule.preview
+#[test]
+fn malformed_schedule_trigger_reaches_its_exit_code_through_the_binary() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    let failed = cli(&env, COLLIE)
+        .args([
+            "schedule",
+            "preview",
+            "--trigger",
+            r#"{"cron":"*/0 * * * *"}"#,
+            "--json",
+        ])
+        .json("CommandFailed")
+        .unwrap();
+
+    assert_eq!(failed.output.exit, Some(3), "{}", failed.output);
+    let error = &failed.documents[0]["error"];
+    assert_eq!(error["code"], json!("schedule_trigger_invalid"));
+    assert_eq!(error["retryable"], json!(false));
+    assert_eq!(error["expression"], json!("*/0 * * * *"));
+    assert_eq!(error["position"], json!(1));
+    assert_eq!(error["reason"], json!("bad_step"));
+}
+
+/// Writes `contents` to `GOODFETCH_HOME/0.0/<file>` for `env`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "CLI integration tests write Operator policy and user configuration files"
+)]
+fn write_home_file(env: &TestEnv, file: &str, contents: &str) {
+    let dir = env.home().join("0.0");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(file), contents).unwrap();
+}
+
+/// Operator policy caps (`schedule.max_count`, `schedule.min_interval`,
+/// `schedule.limits_max`) refuse violating creations with non-retryable
+/// `schedule_cap_exceeded` naming cap and policy, reaching ADR 0069's
+/// `RefusedError` exit code (`4`) through Collie's binary.
+///
+/// Covers: story:10-10, error:schedule_cap_exceeded, command:schedule.create
+#[test]
+fn schedule_cap_exceeded_reaches_its_exit_code_through_the_binary() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "operator-policy.toml",
+        r#"version = "0.1"
+
+[settings.schedule]
+max_count = 1
+min_interval = 300000
+
+[settings.schedule.limits_max]
+day = [{ usage_kind = "pages", amount = 100 }]
+"#,
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    // 1. min_interval cap -> exit 4, cap = min_interval, policy = schedule.min_interval
+    let err = assert_create_refused(
+        &env,
+        r#"{"id":"too-fast","target":{"recipe":"shop-prices"},"trigger":{"every":60000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":50}]}}"#,
+        4,
+        "schedule_cap_exceeded",
+    );
+    assert_eq!(err["retryable"], json!(false));
+    assert_eq!(err["cap"], json!("min_interval"));
+    assert_eq!(err["policy"], json!("schedule.min_interval"));
+    assert!(
+        err["policy_version"]
+            .as_str()
+            .is_some_and(|version| version.starts_with("sha256:")),
+        "expected sha256 policy_version, got: {err}"
+    );
+
+    // 2. limits_max cap -> exit 4, cap = period_limit, policy = schedule.limits_max
+    let err = assert_create_refused(
+        &env,
+        r#"{"id":"over-limit","target":{"recipe":"shop-prices"},"trigger":{"every":600000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":200}]}}"#,
+        4,
+        "schedule_cap_exceeded",
+    );
+    assert_eq!(err["retryable"], json!(false));
+    assert_eq!(err["cap"], json!("period_limit"));
+    assert_eq!(err["policy"], json!("schedule.limits_max"));
+
+    // 3. Valid Schedule within all caps succeeds.
+    let ok = cli(&env, COLLIE)
+        .args([
+            "schedule",
+            "create",
+            "--definition",
+            r#"{"id":"within-caps","target":{"recipe":"shop-prices"},"trigger":{"every":600000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":50}]}}"#,
+            "--json",
+        ])
+        .json("ScheduleCreated")
+        .unwrap();
+    assert_eq!(ok.output.exit, Some(0), "{}", ok.output);
+
+    // 4. max_count cap -> exit 4, cap = count, policy = schedule.max_count
+    let err = assert_create_refused(
+        &env,
+        r#"{"id":"second-one","target":{"recipe":"shop-prices"},"trigger":{"every":600000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":50}]}}"#,
+        4,
+        "schedule_cap_exceeded",
+    );
+    assert_eq!(err["retryable"], json!(false));
+    assert_eq!(err["cap"], json!("count"));
+    assert_eq!(err["policy"], json!("schedule.max_count"));
+}
+
+fn assert_create_refused(env: &TestEnv, definition: &str, exit: i32, code: &str) -> Value {
+    let refused = cli(env, COLLIE)
+        .args(["schedule", "create", "--definition", definition, "--json"])
+        .json("CommandFailed")
+        .unwrap();
+    assert_eq!(refused.output.exit, Some(exit), "{}", refused.output);
+    let err = refused.documents[0]["error"].clone();
+    assert_eq!(err["code"], json!(code), "{err}");
+    err
+}
+
+/// Shared Operator policy and user configuration for the `schedule.*` layer
+/// tests below.
+fn env_with_schedule_policy_and_user_config() -> TestEnv {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 10\n\n[lock.schedule]\noverlap = \"skip\"\n\n[cap.schedule]\njitter = 10000\n",
+    );
+    write_home_file(
+        &env,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\ntick = 30000\nwake_threshold = 90000\n",
+    );
+    env
+}
+
+/// `config explain schedule --json` names the layer deciding each setting
+/// across Operator policy, user configuration and defaults.
+///
+/// Covers: story:10-10, command:config.explain
+#[test]
+fn config_explain_names_the_layer_deciding_each_schedule_setting() {
+    let env = env_with_schedule_policy_and_user_config();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    let explained = cli(&env, COLLIE)
+        .args(["config", "explain", "schedule", "--json"])
+        .json("SettingsExplanation")
+        .unwrap();
+    assert_eq!(explained.output.exit, Some(0), "{}", explained.output);
+    let by_key = |name: &str| {
+        explained.documents[0]["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == json!(name))
+            .unwrap_or_else(|| panic!("missing `{name}` in explain output"))
+            .clone()
+    };
+    assert_eq!(
+        by_key("schedule.max_count")["layer"],
+        json!("operator_policy")
+    );
+    assert_eq!(
+        by_key("schedule.overlap")["layer"],
+        json!("operator_policy")
+    );
+    assert_eq!(
+        by_key("schedule.overlap")["locked_by"],
+        json!("operator_policy")
+    );
+    assert_eq!(by_key("schedule.jitter")["cap"], json!(10000));
+    assert_eq!(
+        by_key("schedule.tick")["layer"],
+        json!("user_configuration")
+    );
+    assert_eq!(
+        by_key("schedule.wake_threshold")["layer"],
+        json!("user_configuration")
+    );
+    assert_eq!(
+        by_key("schedule.auto_pause.failures")["layer"],
+        json!("default")
+    );
+}
+
+/// A Schedule's own `settings` accept per-Schedule keys within Operator
+/// policy's lock and cap.
+///
+/// Covers: story:10-10, story:10-18, command:schedule.create
+#[test]
+fn schedule_create_accepts_per_schedule_settings_within_policy_caps() {
+    let env = env_with_schedule_policy_and_user_config();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    let ok = cli(&env, COLLIE)
+        .args([
+            "schedule",
+            "create",
+            "--definition",
+            r#"{"id":"with-settings","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"jitter":5000,"auto_pause":{"failures":2}}}}"#,
+            "--json",
+        ])
+        .json("ScheduleCreated")
+        .unwrap();
+    assert_eq!(ok.output.exit, Some(0), "{}", ok.output);
+}
+
+/// Operator policy locks and caps beat a Schedule's own `settings` with
+/// `setting_locked` (exit 4).
+///
+/// Covers: story:10-10, command:schedule.create, error:setting_locked
+#[rstest]
+#[case::locked_overlap(
+    r#"{"id":"locked-overlap","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"overlap":"allow"}}}"#
+)]
+#[case::capped_jitter(
+    r#"{"id":"capped-jitter","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"jitter":60000}}}"#
+)]
+fn schedule_create_refuses_settings_past_operator_policy_lock_or_cap(#[case] definition: &str) {
+    let env = env_with_schedule_policy_and_user_config();
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    assert_create_refused(&env, definition, 4, "setting_locked");
+}
+
+/// Machine-only and Operator-policy-only keys in a Schedule's own `settings`
+/// answer `setting_not_applicable` (exit 3).
+///
+/// Covers: story:10-10, command:schedule.create, error:setting_not_applicable
+#[rstest]
+#[case::tick(r#"{"schedule":{"tick":15000}}"#)]
+#[case::wake_threshold(r#"{"schedule":{"wake_threshold":30000}}"#)]
+#[case::max_count(r#"{"schedule":{"max_count":5}}"#)]
+#[case::min_interval(r#"{"schedule":{"min_interval":1000}}"#)]
+#[case::limits_max(r#"{"schedule":{"limits_max":{"day":[{"usage_kind":"pages","amount":10}]}}}"#)]
+fn schedule_create_refuses_restricted_keys_in_schedule_settings(#[case] settings_json: &str) {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let definition = format!(
+        r#"{{"id":"bad-layer","target":{{"recipe":"shop-prices"}},"trigger":{{"every":3600000}},"time_zone":"Europe/Paris","settings":{settings_json}}}"#
+    );
+
+    assert_create_refused(&env, &definition, 3, "setting_not_applicable");
+}
+
+/// An Operator-policy-only key in user configuration answers
+/// `setting_not_applicable` (exit 3).
+///
+/// Covers: story:10-10, command:schedule.create, error:setting_not_applicable
+#[test]
+fn schedule_create_refuses_operator_policy_only_key_in_user_configuration() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 5\n",
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    assert_create_refused(&env, DEFINITION, 3, "setting_not_applicable");
+}
+
+/// Creating a Schedule with an ID already held answers `schedule_exists`
+/// even when the Daemon is already at Operator policy's `schedule.max_count`.
+///
+/// Covers: story:10-10, command:schedule.create, error:schedule_exists
+#[test]
+fn schedule_create_of_duplicate_id_at_max_count_answers_schedule_exists() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 1\n",
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    let first = cli(&env, COLLIE)
+        .args(["schedule", "create", "--definition", DEFINITION, "--json"])
+        .json("ScheduleCreated")
+        .unwrap();
+    assert_eq!(first.output.exit, Some(0), "{}", first.output);
+
+    assert_create_refused(&env, DEFINITION, 3, "schedule_exists");
 }

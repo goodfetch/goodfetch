@@ -142,6 +142,16 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `request_ended`: Once a crawl request ended, with its outcome; observe-only.
 """
 
+ScheduleCapKind: TypeAlias = Literal["count", "min_interval", "period_limit"] | str
+"""Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `count`: `schedule.max_count`: maximum number of Schedules held by the Daemon.
+- `min_interval`: `schedule.min_interval`: minimum interval between consecutive occurrences.
+- `period_limit`: `schedule.limits_max`: maximum period Limit on a Schedule.
+"""
+
 ScheduleState: TypeAlias = Literal["on"] | str
 """Whether a Schedule fires.
 

@@ -15,7 +15,7 @@
 // function, so its helpers live inside it.
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
-async function check({ selector, handle, action, events, slice, min, max }) {
+async function check({ selector, handle, action, events, slice, min, max, human_scroll }) {
   const world = globalThis;
   // The arm's key, in the guard's world's own registry, which no page sees.
   const ARM = Symbol.for("goodfetch.guard.arm");
@@ -175,6 +175,15 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     const centre = () => ({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
     let { x, y } = centre();
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) {
+      if (human_scroll) {
+        return {
+          state: "scroll",
+          dx: x - innerWidth / 2,
+          dy: y - innerHeight / 2,
+          width: innerWidth,
+          height: innerHeight,
+        };
+      }
       element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
       box = element.getBoundingClientRect();
       ({ x, y } = centre());
@@ -219,7 +228,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     // The gesture follows at once; an arm whose call was dropped expires.
     const expiry = setTimeout(() => arm.disarm(), 10000);
     world[ARM] = arm;
-    return { state: "armed", x, y };
+    return { state: "armed", x, y, width: innerWidth, height: innerHeight };
   };
   for (;;) {
     const seen = observe();

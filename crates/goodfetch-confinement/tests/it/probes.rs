@@ -155,60 +155,123 @@ fn assert_every_probe_at_none(kind: Option<MechanismKind>) {
     let refused = Report::Fault(Fault::Unavailable);
 
     let mut failures = Vec::new();
-    let mut check =
-        |rule: &str, phase: &str, found: Result<Report, String>, expected: Report| match found {
-            Ok(found) if found == expected => {}
-            Ok(found) => failures.push(format!("{rule}, {phase}: {found:?}, not {expected:?}")),
-            Err(error) => failures.push(format!("{rule}, {phase}: {error}")),
-        };
     for case in &table.call {
         let probe = || Probe::Call {
             call: case.call,
             args: case.args.clone(),
         };
-        check(
+        let expected_confined = match (enforced, used) {
+            (false, _) => refused,
+            (true, MechanismKind::Landlock) => Report::Outcome(case.confined),
+            (true, MechanismKind::PidNamespace | MechanismKind::MountNamespace) => {
+                Report::Outcome(case.in_pid_namespace())
+            }
+        };
+        if let Err(failure) = run_probe_case(
             &case.rule,
-            "unconfined",
-            run(probe(), None),
             Report::Outcome(case.unconfined),
-        );
-        check(
-            &case.rule,
-            "confined",
-            run(probe(), Some(confined)),
-            match (enforced, used) {
-                (false, _) => refused,
-                (true, MechanismKind::Landlock) => Report::Outcome(case.confined),
-                (true, MechanismKind::PidNamespace | MechanismKind::MountNamespace) => {
-                    Report::Outcome(case.in_pid_namespace())
-                }
-            },
-        );
+            expected_confined,
+            || run(probe(), None),
+            || run(probe(), Some(confined)),
+        ) {
+            failures.push(failure);
+        }
     }
     for case in &table.path {
         let probe = || Probe::Path {
             access: case.access,
             path: plugin.layout.resolve(&case.path),
         };
-        check(
+        let expected_confined = match (enforced, used) {
+            (false, _) => refused,
+            (true, MechanismKind::MountNamespace) => Report::Outcome(case.fallback),
+            (true, _) => Report::Outcome(case.landlock),
+        };
+        if let Err(failure) = run_probe_case(
             &case.rule,
-            "unconfined",
-            run(probe(), None),
             Report::Outcome(case.unconfined),
-        );
-        check(
-            &case.rule,
-            "confined",
-            // Landlock keeps the files under the PID namespace too.
-            run(probe(), Some(confined)),
-            match (enforced, used) {
-                (false, _) => refused,
-                (true, MechanismKind::MountNamespace) => Report::Outcome(case.fallback),
-                (true, _) => Report::Outcome(case.landlock),
-            },
-        );
+            expected_confined,
+            || run(probe(), None),
+            || run(probe(), Some(confined)),
+        ) {
+            failures.push(failure);
+        }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Runs a probe's unconfined positive control first and rejects the probe
+/// immediately on a positive-control mismatch before running the confined
+/// phase, so a confined refusal never masks a broken control (ADR 0067).
+fn run_probe_case(
+    rule: &str,
+    expected_unconfined: Report,
+    expected_confined: Report,
+    mut run_unconfined: impl FnMut() -> Result<Report, String>,
+    mut run_confined: impl FnMut() -> Result<Report, String>,
+) -> Result<(), String> {
+    match run_unconfined() {
+        Ok(found) if found == expected_unconfined => {}
+        Ok(found) => {
+            return Err(format!(
+                "{rule}, positive-control unconfined: {found:?}, not {expected_unconfined:?}"
+            ));
+        }
+        Err(error) => return Err(format!("{rule}, positive-control unconfined: {error}")),
+    }
+    match run_confined() {
+        Ok(found) if found == expected_confined => Ok(()),
+        Ok(found) => Err(format!(
+            "{rule}, confined: {found:?}, not {expected_confined:?}"
+        )),
+        Err(error) => Err(format!("{rule}, confined: {error}")),
+    }
+}
+
+#[test]
+fn a_probe_with_a_failing_positive_control_is_rejected_even_when_confined_refuses() {
+    let table =
+        ProbeTable::read(probes::committed(Host::Linux, NetworkLevel::None).unwrap()).unwrap();
+    let ptrace = table
+        .call
+        .iter()
+        .find(|case| case.rule == "ptrace")
+        .unwrap()
+        .clone();
+    let broken_control = goodfetch_confinement::probes::CallCase {
+        // Real unconfined `ptrace` returns ESRCH; expecting `ok` makes the positive control fail.
+        unconfined: Outcome::Ok,
+        ..ptrace
+    };
+    let plugin = Plugin::new(&table, NetworkLevel::None);
+    let confined = Confined {
+        policy: &plugin.policy,
+        kind: None,
+    };
+    let probe = || Probe::Call {
+        call: broken_control.call,
+        args: broken_control.args.clone(),
+    };
+    let mut confined_ran = false;
+    let result = run_probe_case(
+        &broken_control.rule,
+        Report::Outcome(broken_control.unconfined),
+        Report::Outcome(broken_control.confined),
+        || run(probe(), None),
+        || {
+            confined_ran = true;
+            run(probe(), Some(confined))
+        },
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("positive-control unconfined"),
+        "expected positive-control failure, got: {err}"
+    );
+    assert!(
+        !confined_ran,
+        "confined phase must not run after a failing positive control"
+    );
 }
 
 /// Asserts the mechanism `confined` gets against the kernel's own answers,

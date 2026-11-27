@@ -22,6 +22,7 @@
     "**/journeys/journey.schema.json",
     "**/compat/**",
     "**/ci/release/skew-jobs.json",
+    "packaging/helm/*/templates/**",
     ".agents/**",
     "ci/proofs/**",
     "**/*.md",

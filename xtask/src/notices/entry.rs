@@ -24,6 +24,9 @@ pub(crate) enum Ecosystem {
     BlockDetectionRules,
     /// The population data Identity profiles are drawn from (ADR 0035).
     IdentityPopulation,
+    /// Human-like input's third-party sources: Cursory's downloaded
+    /// recordings and the ghost-cursor port (ADR 0035).
+    HumanInput,
 }
 
 impl fmt::Display for Ecosystem {
@@ -36,6 +39,7 @@ impl fmt::Display for Ecosystem {
             Self::CleanUpRules => "clean-up-rules",
             Self::BlockDetectionRules => "block-detection-rules",
             Self::IdentityPopulation => "identity-population",
+            Self::HumanInput => "human-input",
         })
     }
 }

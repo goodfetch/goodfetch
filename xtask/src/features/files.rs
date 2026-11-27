@@ -38,6 +38,10 @@ pub(crate) const MATRIX: &str = "docs/adr/0037-v1-scope-matrix.md";
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "kebab-case")]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "Plugin kind is the domain term of ADR 0033 and GLOSSARY.md"
+)]
 pub(crate) enum Kind {
     /// An ADR 0037 matrix row that is not `excluded`.
     Row,
@@ -63,6 +67,14 @@ pub(crate) enum Kind {
     McpProfile,
     /// An agent skill.
     Skill,
+    /// A Plugin kind of `goodfetch-protocol`'s catalog.
+    PluginKind,
+    /// A built-in Sink.
+    Sink,
+    /// A Framework adapter package.
+    Adapter,
+    /// An Integration action or trigger.
+    Integration,
 }
 
 impl Kind {
@@ -86,6 +98,10 @@ impl Kind {
             Self::BlockCause => "block-cause",
             Self::McpProfile => "mcp-profile",
             Self::Skill => "skill",
+            Self::PluginKind => "plugin-kind",
+            Self::Sink => "sink",
+            Self::Adapter => "adapter",
+            Self::Integration => "integration",
         }
     }
 }

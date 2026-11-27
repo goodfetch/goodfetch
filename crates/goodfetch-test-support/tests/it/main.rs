@@ -32,6 +32,7 @@ mod identity_consistency;
 mod journey_run;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+mod local_model;
 mod media_samples;
 mod net_log;
 #[cfg(all(

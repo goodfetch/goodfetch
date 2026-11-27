@@ -71,7 +71,7 @@ use goodfetch_protocol::connection::{
 };
 use goodfetch_protocol::events::{CREDIT, CreditParams};
 use goodfetch_protocol::foxhound_names;
-use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
+use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId, TraceContext};
 use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
 use goodfetch_protocol::settings::{RunOrigin, SettingLimit};
 use serde_json::{Map, Value};
@@ -362,10 +362,12 @@ impl Reading {
     }
 }
 
-/// How a Connection's messages leave: as lines or as WebSocket messages.
+/// How a Connection's messages leave: as lines, as WebSocket messages, or
+/// as the single JSON-RPC reply to a `POST /v1/rpc` HTTP request.
 enum Writing {
     Lines(ConnectionWriter),
     Messages(MessageWriter),
+    Single(Option<oneshot::Sender<Vec<u8>>>),
 }
 
 /// What a Connection carries.
@@ -524,16 +526,16 @@ async fn read_ahead(mut reader: ConnectionReader) -> Prefixed {
     Prefixed::new(first, reader)
 }
 
-/// `connection` once the Exposed Daemon terminated TLS on it with
-/// `certificate`, and the names of `authorities` a WebSocket handshake over
-/// it may carry; `None` when it closed, opened with no TLS handshake, which
-/// is refused as `tls_required` (a WebSocket's handshake sent in plain by
-/// the Daemon's WebSocket, any other by the Exposed Daemon), or its TLS
-/// handshake failed.
-async fn terminated(
+/// `connection` once the listener terminated TLS on it with `certificate`,
+/// and the names of `authorities` a request or WebSocket handshake over it
+/// may carry; `None` when it closed, opened with no TLS handshake, which is
+/// refused as `tls_required` under `plain_listener(opens_a_request)`, or
+/// its TLS handshake failed.
+pub(crate) async fn terminate_tls(
     connection: Connection,
     certificate: &ServingCertificate,
     authorities: &Authorities,
+    plain_listener: impl FnOnce(bool) -> Listener,
     engine: &EngineContext,
 ) -> Option<(Connection, Authorities)> {
     let addresses = connection.addresses();
@@ -543,14 +545,12 @@ async fn terminated(
         return None;
     }
     if !reader.opens_a_tls_handshake() {
-        let listener = if reader.opens_a_request() {
-            Listener::DaemonWebsocket
-        } else {
-            Listener::ExposedDaemon
-        };
         engine
             .refusals()
-            .refused(listener, RefusalReason::TlsRequired)
+            .refused(
+                plain_listener(reader.opens_a_request()),
+                RefusalReason::TlsRequired,
+            )
             .await;
         return None;
     }
@@ -567,6 +567,28 @@ async fn terminated(
         addresses.map(|addresses| addresses.local),
     );
     Some((Connection::over(stream, addresses), authorities))
+}
+
+async fn terminated(
+    connection: Connection,
+    certificate: &ServingCertificate,
+    authorities: &Authorities,
+    engine: &EngineContext,
+) -> Option<(Connection, Authorities)> {
+    terminate_tls(
+        connection,
+        certificate,
+        authorities,
+        |opens_a_request| {
+            if opens_a_request {
+                Listener::DaemonWebsocket
+            } else {
+                Listener::ExposedDaemon
+            }
+        },
+        engine,
+    )
+    .await
 }
 
 /// Serves `connection` until it ends, its tasks those of `owner`, its calls
@@ -743,6 +765,8 @@ async fn serve_carried(
         listener,
         opening,
         closing,
+        fallback_trace: None,
+        single_request: false,
     };
     let ended = session.run(&mut reading).await;
     logging.cancel();
@@ -818,6 +842,16 @@ async fn write_lines(
         let sent = match &mut writing {
             Writing::Lines(writer) => writer.write_all(&line).await.is_ok(),
             Writing::Messages(messages) => messages.feed(line).await,
+            Writing::Single(sender) => {
+                let mut body = line;
+                if body.ends_with(b"\n") {
+                    body.pop();
+                }
+                if let Some(sender) = sender.take() {
+                    let _ = sender.send(body);
+                }
+                return;
+            }
         };
         if !sent {
             return;
@@ -826,6 +860,7 @@ async fn write_lines(
             let flushed = match &mut writing {
                 Writing::Lines(writer) => writer.flush().await.is_ok(),
                 Writing::Messages(messages) => messages.flush().await,
+                Writing::Single(_) => true,
             };
             if !flushed {
                 return;
@@ -837,6 +872,7 @@ async fn write_lines(
             let _ = writer.shutdown().await;
         }
         Writing::Messages(messages) => messages.close().await,
+        Writing::Single(_) => {}
     }
 }
 
@@ -924,6 +960,12 @@ struct Session<'owner> {
     /// On a Daemon, how the Daemon closes it while its calls are in
     /// flight: they are cancelled with the close's error.
     closing: Option<Closing>,
+    /// Trace context from an HTTP request's `traceparent`/`tracestate`
+    /// headers, used when a request's `_meta` has none (ADR 0132).
+    fallback_trace: Option<TraceContext>,
+    /// Whether this Connection carries a single HTTP `POST /v1/rpc` request,
+    /// which cannot drive streaming calls with `$/credit`.
+    single_request: bool,
 }
 
 /// A handler request the engine sent, waiting for its reply while its
@@ -1430,7 +1472,14 @@ impl Session<'_> {
                 format!("a call with the id {id:?} is already in flight"),
             ))
         } else if let Some(handler) = self.dispatch.handlers.get(method) {
-            if handler.operation().reach == Reach::PersonOnly
+            if self.single_request && handler.streams() {
+                Some(CallError::protocol(
+                    ProtocolFailure::InvalidRequest,
+                    format!(
+                        "`{method}` is a streaming operation and cannot run on `POST /v1/rpc`; use `GET /v1/events`"
+                    ),
+                ))
+            } else if handler.operation().reach == Reach::PersonOnly
                 && !self.connection.answers_as_a_person()
             {
                 Some(person_required(method, self.dispatch.identity.product))
@@ -1493,6 +1542,11 @@ impl Session<'_> {
     ///
     /// The request's id and `invalid_params`, for a `_meta` the engine
     /// refuses: nothing started.
+    fn trace_for<'a>(&'a self, meta: Option<&'a TraceContext>) -> Option<&'a TraceContext> {
+        meta.filter(|meta| meta.traceparent.is_some() || meta.tracestate.is_some())
+            .or(self.fallback_trace.as_ref())
+    }
+
     fn call(
         &mut self,
         id: RequestId,
@@ -1539,7 +1593,8 @@ impl Session<'_> {
             Ok(started) => started,
             Err(error) => return Err((id, error)),
         };
-        let span = trace::server_span(operation.name, &id, &preamble.ids, preamble.meta.as_ref());
+        let meta = self.trace_for(preamble.meta.as_ref());
+        let span = trace::server_span(operation.name, &id, &preamble.ids, meta);
         // Only a raw call's answer is wrapped (ADR 0099): a generated
         // call's goes on as it was, and adds no work.
         let answer = if preamble.raw {
@@ -1802,4 +1857,314 @@ fn engine_panicked(metrics: &Metrics) -> CallError {
         PanicEnded::Call,
         "The engine hit a bug in Goodfetch while it served this call, which ended the call; its Connection goes on",
     )
+}
+
+/// One `POST /v1/rpc` request handed to `rpc` by the Daemon's HTTP listener
+/// (ADR 0027; ADR 0140's E1): its `hello` fields from the HTTP headers, its
+/// raw JSON-RPC body, and any W3C Trace Context from HTTP headers.
+pub(crate) struct HttpRequest {
+    pub(crate) hello: HelloParams,
+    pub(crate) body: Vec<u8>,
+    pub(crate) fallback_trace: Option<TraceContext>,
+}
+
+/// What HTTP status category `rpc` answered a `POST /v1/rpc` request with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HttpStatus {
+    /// A JSON-RPC response (`result` or application `error`) was produced.
+    Ok,
+    /// A JSON-RPC notification was accepted with no reply body.
+    Accepted,
+    /// The `hello` headers, JSON syntax, or JSON-RPC framing were refused.
+    BadRequest,
+}
+
+/// The single answer to a `POST /v1/rpc` request.
+pub(crate) struct HttpAnswer {
+    pub(crate) status: HttpStatus,
+    pub(crate) body: Option<Vec<u8>>,
+}
+
+/// What a Daemon's HTTP listener hands `rpc` to serve one `POST /v1/rpc`
+/// request.
+pub(crate) struct HttpContext {
+    pub(crate) dispatch: Arc<Dispatch>,
+    pub(crate) runs: Runs,
+    pub(crate) events: Events,
+    pub(crate) daemon: Arc<dyn DaemonSide>,
+    pub(crate) exposed: bool,
+    pub(crate) engine: EngineContext,
+}
+
+/// Encodes `error` as a single JSON-RPC `ErrorResponse` body for an HTTP 4xx
+/// refusal, masked against every live Run's resolved values and counted once
+/// on `work`.
+pub(crate) fn http_error_bytes(
+    error: &CallError,
+    form: Form,
+    masks: &Masks,
+    work: &CountedWork,
+) -> Vec<u8> {
+    work.count(Row::MessageEncodes);
+    let mut bytes = masks.apply_json_line(failure_line(None, error, form), Scope::Returned);
+    if bytes.ends_with(b"\n") {
+        bytes.pop();
+    }
+    bytes
+}
+
+/// Validates `hello` fields carried on HTTP headers through `handshake::answer`
+/// (ADRs 0027, 0030 and 0140), returning the protocol refusal error if rejected.
+pub(crate) async fn check_http_hello(
+    dispatch: &Dispatch,
+    events: &Events,
+    daemon: &dyn DaemonSide,
+    hello: &HelloParams,
+) -> Result<(), CallError> {
+    match handshake::answer(&dispatch.identity, events.instance(), hello) {
+        Ok(_) => Ok(()),
+        Err(refusal) => {
+            let handover = if refusal.by_product_or_version() {
+                daemon.refusing().await
+            } else {
+                false
+            };
+            let error = refusal.into_error(handover);
+            record(HELLO, Some(error.code()));
+            Err(error)
+        }
+    }
+}
+
+/// Serves one `POST /v1/rpc` request as a single-request Connection carriage
+/// (ADR 0027; ADR 0140's E1): checks `hello` through [`handshake::answer`],
+/// decodes the body once through `framing`, dispatches through `composition`,
+/// and encodes the answer once through `write_lines`.
+///
+/// # Cancel safety
+///
+/// Dropping the future leaves the call's task to `owner`, which stops it.
+pub(crate) async fn serve_http_request(
+    context: HttpContext,
+    request: HttpRequest,
+    owner: &TaskOwner,
+) -> HttpAnswer {
+    let form = request.hello.form.unwrap_or(Surface::HttpListener.form());
+    let metrics = context.dispatch.metrics.clone();
+    let masks = context.dispatch.masks.clone();
+    let work = context.dispatch.work().clone();
+    let serving = serve_http_inner(context, request, form, owner);
+    if let Ok(answer) = AssertUnwindSafe(serving).catch_unwind().await {
+        answer
+    } else {
+        metrics.panicked(PanicEnded::Connection);
+        tracing::error!(
+            owner = OwnerKind::Connection.as_str(),
+            crash_report = crash_report::take_written().as_deref(),
+            "the task that serves an HTTP RPC request panicked"
+        );
+        HttpAnswer {
+            status: HttpStatus::Ok,
+            body: Some(http_error_bytes(
+                &engine_panicked(&metrics),
+                form,
+                &masks,
+                &work,
+            )),
+        }
+    }
+}
+
+async fn serve_http_inner(
+    context: HttpContext,
+    request: HttpRequest,
+    form: Form,
+    owner: &TaskOwner,
+) -> HttpAnswer {
+    let accepted = match handshake::answer(
+        &context.dispatch.identity,
+        context.events.instance(),
+        &request.hello,
+    ) {
+        Ok(accepted) => accepted,
+        Err(refusal) => {
+            let handover = if refusal.by_product_or_version() {
+                context.daemon.refusing().await
+            } else {
+                false
+            };
+            let error = refusal.into_error(handover);
+            record(HELLO, Some(error.code()));
+            return HttpAnswer {
+                status: HttpStatus::BadRequest,
+                body: Some(http_error_bytes(
+                    &error,
+                    form,
+                    &context.dispatch.masks,
+                    context.dispatch.work(),
+                )),
+            };
+        }
+    };
+    record(HELLO, None);
+    if request.body.iter().all(u8::is_ascii_whitespace) {
+        let error = CallError::protocol(ProtocolFailure::ParseError, "the request body is empty");
+        return HttpAnswer {
+            status: HttpStatus::BadRequest,
+            body: Some(http_error_bytes(
+                &error,
+                form,
+                &context.dispatch.masks,
+                context.dispatch.work(),
+            )),
+        };
+    }
+    let (reply_tx, reply_rx) = oneshot::channel();
+    let (outgoing, lines) = mpsc::channel(OUTGOING_LINES);
+    owner.spawn(write_lines(
+        Writing::Single(Some(reply_tx)),
+        lines,
+        context.dispatch.masks.clone(),
+        context.dispatch.work().clone(),
+    ));
+    let (completed, completions) = mpsc::channel(MAX_IN_FLIGHT);
+    let (panicked, telling) = (owner.panicked(), completed.clone());
+    owner.spawn(async move {
+        tokio::select! {
+            () = panicked => {
+                let _ = telling.send(Told::OwnTaskPanicked).await;
+            }
+            () = telling.closed() => {}
+        }
+    });
+    let connection = http_connection_context(&context, &accepted, form).await;
+    let opened_client = Some(context.daemon.opened(accepted.surface, accepted.holding));
+    let closing = Some(context.daemon.closing().clone());
+    let mut session = Session {
+        dispatch: context.dispatch,
+        owner,
+        outgoing,
+        completed,
+        completions,
+        own_task_panicked: false,
+        in_flight: BTreeMap::new(),
+        state: ConnectionState::Open,
+        connection,
+        requests: mpsc::channel(1).1,
+        pending: BTreeMap::new(),
+        opened_client,
+        access: Access::Daemon(context.daemon),
+        listener: Listener::HttpListener,
+        opening: None,
+        closing,
+        fallback_trace: request.fallback_trace,
+        single_request: true,
+    };
+    let status = session.run_http_single(request.body).await;
+    session.cancel_in_flight();
+    drop(session);
+    owner.wait().await;
+    HttpAnswer {
+        status,
+        body: reply_rx.await.ok(),
+    }
+}
+
+async fn http_connection_context(
+    context: &HttpContext,
+    accepted: &handshake::Accepted,
+    form: Form,
+) -> Arc<ConnectionContext> {
+    let (client, _requests) = Client::new();
+    let carriage = if context.exposed || accepted.behind_gateway {
+        Carriage::Remote
+    } else {
+        Carriage::Local
+    };
+    let connection = Arc::new(ConnectionContext {
+        identity: Arc::clone(&context.dispatch.identity),
+        client,
+        surface: OnceLock::from(accepted.surface),
+        principal: OnceLock::from(Principal::of(carriage)),
+        form: OnceLock::from(form),
+        behind_gateway: OnceLock::from(accepted.behind_gateway),
+        settings: OnceLock::from(Map::new()),
+        registered: OnceLock::from(Map::new()),
+        drivers: Arc::clone(&context.dispatch.drivers),
+        attempt_stagings: Arc::clone(&context.dispatch.attempt_stagings),
+        runs: context.runs.clone(),
+        events: context.events.clone(),
+        engine: context.engine.clone(),
+        daemon: Some(Arc::clone(&context.daemon)),
+        exposed: context.exposed,
+        log: ConnectionLog::none(),
+    });
+    if accepted.surface.runs_outlive_connection() {
+        connection.runs.outlive_connection().await;
+    }
+    connection
+}
+
+impl Session<'_> {
+    /// Decodes and dispatches one `POST /v1/rpc` body in an already-open
+    /// session, waiting until its single call (if any) finishes or the Daemon
+    /// closes.
+    async fn run_http_single(&mut self, body: Vec<u8>) -> HttpStatus {
+        let incoming = decode(body);
+        let message = Message::of(incoming);
+        let status = match &message {
+            Message::Unreadable(_) | Message::Hello(..) | Message::Reply { .. } => {
+                HttpStatus::BadRequest
+            }
+            Message::Notification(_) => HttpStatus::Accepted,
+            Message::Request(..) => HttpStatus::Ok,
+        };
+        let effect = match self.transition(message.event()) {
+            Ok(effect) => effect,
+            Err(refused) => {
+                let _ = self.refuse_transition(refused, message).await;
+                return status;
+            }
+        };
+        match (effect, message) {
+            (ConnectionEffect::Serve, Message::Request(id, call)) => {
+                let _ = self.request(id, &call).await;
+            }
+            (ConnectionEffect::Serve, Message::Notification(notification)) => {
+                self.notification(notification);
+            }
+            (ConnectionEffect::Serve, Message::Reply { id, .. }) => {
+                let failure = CallError::protocol(
+                    ProtocolFailure::InvalidRequest,
+                    "a JSON-RPC reply is not a request",
+                );
+                let _ = self
+                    .send(failure_line(Some(id), &failure, self.form()))
+                    .await;
+            }
+            (ConnectionEffect::Answer, Message::Unreadable(error)) => {
+                let failure = CallError::protocol(error.failure, error.detail);
+                let _ = self
+                    .send(failure_line(error.id, &failure, self.form()))
+                    .await;
+            }
+            _ => {}
+        }
+        let closing = self.closing.clone();
+        let closed = async {
+            match &closing {
+                Some(closing) => closing.closed().await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::pin!(closed);
+        while !self.in_flight.is_empty() && !self.own_task_panicked {
+            tokio::select! {
+                biased;
+                Some(told) = self.completions.recv() => self.told(told),
+                () = &mut closed => break,
+            }
+        }
+        status
+    }
 }

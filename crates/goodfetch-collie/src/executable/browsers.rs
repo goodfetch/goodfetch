@@ -26,8 +26,8 @@ use goodfetch_engine::pinned_download::Fetching;
 use goodfetch_engine::settings::Resolved;
 use goodfetch_engine::tasks::{BlockingPolicy, TaskOwner};
 use goodfetch_protocol::browser_cache::{
-    ArtifactId, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild, MAX_UNUSED_AGE,
-    NotCleaned, PinnedBy, RemovedBuild,
+    ArtifactId, ArtifactKind, BrowserCleaned, BrowserInstalled, InstallOutcome, InstalledBuild,
+    MAX_UNUSED_AGE, NotCleaned, PinnedBy, RemovedBuild,
 };
 
 use super::daemon::Machine;
@@ -69,8 +69,9 @@ fn pinned_by(identity: &Identity) -> PinnedBy {
 pub(super) const INSTALLABLE: [&str; 2] = [CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL];
 
 /// The builds of `pins` that `browser install` downloads: those `names`
-/// names, else every one a Run launches by default, all but the headless
-/// shell, which only `browser.headless_shell` launches (#3224).
+/// names, else every browser build a Run launches by default, all but the
+/// headless shell (`browser.headless_shell`, #3224) and optional runtime
+/// data artifacts (such as Cursory's mouse-movement recordings, #1018).
 fn to_install(pins: &Pins, names: &[String]) -> Pins {
     Pins {
         pinned_by: pins.pinned_by.clone(),
@@ -79,7 +80,8 @@ fn to_install(pins: &Pins, names: &[String]) -> Pins {
             .iter()
             .filter(|artifact| {
                 if names.is_empty() {
-                    artifact.id.name != CHROME_HEADLESS_SHELL
+                    artifact.id.kind == ArtifactKind::Browser
+                        && artifact.id.name != CHROME_HEADLESS_SHELL
                 } else {
                     names.contains(&artifact.id.name)
                 }

@@ -624,6 +624,14 @@ words = ["get"]
 form = "round_trip"
 
 [[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "AsyncSchedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
+form = "round_trip"
+
+[[member]]
 package = "goodfetch_collie"
 receiver = "(module)"
 member = "Schedules"
@@ -655,6 +663,14 @@ receiver = "Schedules"
 member = "get"
 entry = "schedule.get"
 words = ["get"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_collie_client.schedules"
+receiver = "Schedules"
+member = "preview"
+entry = "schedule.preview"
+words = ["preview"]
 form = "round_trip"
 
 [[member]]

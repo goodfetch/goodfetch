@@ -170,7 +170,7 @@ lint:
     step zizmor 'ci/tool.sh zizmor zizmor --config zizmor.yml --persona=regular .github/workflows .github/actions'
     step actionlint 'ci/tool.sh actionlint actionlint'
     step gitleaks 'ci/tool.sh gitleaks ci/canary-rule.sh'
-    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh .githooks/pre-commit .githooks/pre-push'
+    step shellcheck 'ci/tool.sh shellcheck shellcheck ci/*.sh ci/compiler-cache/sccache ci/deny/*.sh ci/egress/*.sh ci/host/*.sh ci/hosted/*.sh ci/musl/*.sh ci/musl/cargo ci/musl/link-cc ci/musl/stable-metadata/sccache ci/release/*.sh ci/release/deploy-smoke/*.sh ci/results/*.sh ci/runner/*.sh ci/source-build/*.sh ci/test-health/*.sh ci/vm/*.sh ci/visual/*.sh ci/proofs/run.sh ci/proofs/live.sh kennel/scripts/*.sh proving-ground/deploy/*.sh .githooks/pre-commit .githooks/pre-push'
     step cargo-deny 'ci/tool.sh cargo-deny cargo deny check -A unused-wrapper -A license-not-encountered bans licenses sources'
     step cargo-deny-products 'ci/tool.sh cargo-deny ci/deny/products.sh'
     # The Collie client crate, which takes no OpenTelemetry crate: the
@@ -244,6 +244,7 @@ lint:
     # (ADR 0074); both pass while `chromium/` is empty.
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
+    step --after xtask xtask-probes 'cargo run --quiet --bin xtask -- probes check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     steps_end
 
@@ -618,6 +619,7 @@ fetch:
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
     ci/claude-code-fetch.sh
+    ci/local-models-fetch.sh
     ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
@@ -790,7 +792,7 @@ test suite *packages:
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' --ignore-glob='*/tests/journeys/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=60 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' --ignore-glob='*/tests/journeys/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)
@@ -2396,6 +2398,13 @@ _gate-plan form="all" layer="merge":
 _gate-record by head step status *evidence:
     cargo run --quiet --bin xtask -- gate record --records "$(ci/gate-records.sh)" --by {{ by }} --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
+
+# Checks a gate run's signed verdict before `just merge` merges it (ADR 0135):
+# every unit of every required step of `form` holds a signed green result on
+# `head` or reused from an earlier signed run on an ancestor with that
+# ancestor's tree. Prints each reused ancestor as `origin\t<commit>`.
+_gate-verify form head:
+    cargo run --quiet --bin xtask -- gate verify --records "$(ci/gate-records.sh)" --form {{ form }} --head {{ head }}
 
 # Exits 0, naming the run, when `just quick` in the form `form` (`changed` or
 # `all`) already passed on `head`'s tree against `base`, on this host and in

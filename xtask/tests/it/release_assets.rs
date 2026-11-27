@@ -34,6 +34,7 @@ pub(crate) fn product_files() -> Vec<String> {
         }
         files.push(format!("{executable}.cdx.json"));
     }
+    files.push("goodfetch-catalog.json".to_owned());
     files
 }
 

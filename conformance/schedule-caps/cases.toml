@@ -1,0 +1,24 @@
+# Operator policy caps on Schedules (#872, spec 589, ADR 0036): run against a
+# target whose Operator policy sets `schedule.max_count = 1`,
+# `schedule.min_interval = 300000` (5 minutes) and
+# `schedule.limits_max = { day = [{ usage_kind = "pages", amount = 100 }] }`.
+# Through the catalog's `schedule.create` operation alone, each cap refuses a
+# violating Schedule with `schedule_cap_exceeded` naming the cap and policy
+# (not retryable), while a Schedule within all three caps is created.
+
+product = "collie"
+
+[suite]
+name = "schedule-caps"
+version = "1"
+
+[[capability]]
+name = "schedule.caps"
+
+[[capability.case]]
+id = "a-schedule-past-min-interval-or-period-limit-cap-is-refused"
+covers = ["story:10-10", "operation:schedule.create", "error:schedule_cap_exceeded"]
+
+[[capability.case]]
+id = "a-schedule-within-caps-is-created-and-a-second-past-max-count-is-refused"
+covers = ["story:10-10", "operation:schedule.create", "error:schedule_cap_exceeded"]

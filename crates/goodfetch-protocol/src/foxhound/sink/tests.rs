@@ -19,7 +19,7 @@ fn a_sink_entry_reads_its_type_datasets_destination_and_target_and_appends_by_de
         (
             read.sink_type,
             read.datasets.as_slice(),
-            read.write_mode(),
+            read.mode.unwrap_or_default(),
             read.destination.as_deref(),
             read.target.as_deref(),
         ),

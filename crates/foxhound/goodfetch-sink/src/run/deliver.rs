@@ -49,8 +49,9 @@ pub(super) fn deliver_pass(
 ) -> rusqlite::Result<PassOutput> {
     let mut guard = driver.lock().unwrap_or_else(PoisonError::into_inner);
     let status = guard.deliver(run_file)?;
-    let rejected = guard.take_dead_letters();
-    let notifications = guard.take_notifications();
+    let side_effects = guard.drain_side_effects();
+    let rejected = side_effects.dead_letters;
+    let notifications = side_effects.notifications;
     let state_row = SinkStateRow {
         sink: sink_name.to_owned(),
         guarantee_class: guard.class().unwrap_or(GuaranteeClass::AtLeastOnce),
@@ -418,7 +419,7 @@ fn run_action(
     action: SinkDeliverAction,
 ) -> rusqlite::Result<ActionOutput> {
     let mut guard = driver.lock().unwrap_or_else(PoisonError::into_inner);
-    let (delivered, removed_dead_letters, recorded_dead_letters, status) = match action {
+    let (delivered, removed_dead_letters, mut recorded_dead_letters, status) = match action {
         SinkDeliverAction::Redeliver { delivery_id } => {
             let outcome = guard.redeliver(run_file, &delivery_id)?;
             let removed = outcome
@@ -447,16 +448,16 @@ fn run_action(
         }
         SinkDeliverAction::Replay => {
             let status = guard.deliver(run_file)?;
-            let rejected = guard.take_dead_letters();
-            (guard.delivered_count(), Vec::new(), rejected, status)
+            (guard.delivered_count(), Vec::new(), Vec::new(), status)
         }
         SinkDeliverAction::Backfill => {
             let status = guard.backfill(run_file)?;
-            let rejected = guard.take_dead_letters();
-            (guard.delivered_count(), Vec::new(), rejected, status)
+            (guard.delivered_count(), Vec::new(), Vec::new(), status)
         }
     };
-    let notifications = guard.take_notifications();
+    let side_effects = guard.drain_side_effects();
+    recorded_dead_letters.extend(side_effects.dead_letters);
+    let notifications = side_effects.notifications;
     let state_row = SinkStateRow {
         sink: sink_name.to_owned(),
         guarantee_class: guard.class().unwrap_or(GuaranteeClass::AtLeastOnce),

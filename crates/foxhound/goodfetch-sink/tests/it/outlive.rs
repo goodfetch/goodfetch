@@ -73,7 +73,7 @@ fn redeliver_preserves_delivery_id_and_deduplicates() {
         driver.deliver(&run).unwrap(),
         Status::CompleteWithRejections
     );
-    let dl = driver.take_dead_letters();
+    let dl = driver.drain_side_effects().dead_letters;
     assert_eq!(dl.len(), 1);
     for entry in &dl {
         dead_letters::record(&run, entry, &Masks::new()).unwrap();

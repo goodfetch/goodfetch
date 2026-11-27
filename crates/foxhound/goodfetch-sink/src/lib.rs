@@ -36,7 +36,7 @@ pub use contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
     Written,
 };
-pub use driver::{Driver, RedeliverOutcome, RetryOutcome, Status};
+pub use driver::{DeliverySideEffects, Driver, RedeliverOutcome, RetryOutcome, Status};
 pub use duckdb_sink::{DEFAULT_DUCKDB_TARGET, DuckDbError, DuckDbSink, map_duckdb_error};
 pub use files::{
     DEFAULT_MAX_AGE, DEFAULT_MAX_BYTES, DEFAULT_MAX_RECORDS, FileDestination, FileProbe,

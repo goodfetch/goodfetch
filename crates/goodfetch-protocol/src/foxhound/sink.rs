@@ -18,7 +18,6 @@ use crate::catalog::{
     ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::foxhound::export::{ExportCompression, ExportFormat};
-use crate::foxhound::report::SinkStatus;
 use crate::point_in_time::PointInTime;
 use crate::run::RunId;
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
@@ -331,7 +330,7 @@ pub struct SinkSettings {
     /// The names of the Datasets it receives.
     #[schemars(length(min = 1), extend("arrived_in" = "0.1"))]
     pub datasets: Vec<String>,
-    /// How it writes them: `append` when left out ([`Self::write_mode`]).
+    /// How it writes them: `append` when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub mode: Option<WriteMode>,
@@ -385,42 +384,34 @@ pub struct SinkSettings {
     pub image: Option<String>,
 }
 
-impl SinkSettings {
-    /// How it writes its Records: its `mode`, else `append`.
-    #[must_use]
-    pub fn write_mode(&self) -> WriteMode {
-        self.mode.unwrap_or_default()
+/// Reads `value` as a Sink's entry.
+///
+/// # Errors
+///
+/// What is wrong with it, never repeating a Secret reference's place's
+/// text, since a value given there may be the secret itself.
+pub fn read_sink_settings(value: &Value) -> Result<SinkSettings, String> {
+    let settings: SinkSettings = serde_json::from_value(value.clone()).map_err(|error| {
+        format!("expected a Sink's entry of `datasets` and the keys every Sink shares: {error}")
+    })?;
+    if settings.datasets.is_empty() {
+        return Err("a Sink's `datasets` names at least one Dataset".to_owned());
     }
-
-    /// Reads `value` as a Sink's entry.
-    ///
-    /// # Errors
-    ///
-    /// What is wrong with it, never repeating a Secret reference's place's
-    /// text, since a value given there may be the secret itself.
-    pub fn read(value: &Value) -> Result<Self, String> {
-        let settings: Self = serde_json::from_value(value.clone()).map_err(|error| {
-            format!("expected a Sink's entry of `datasets` and the keys every Sink shares: {error}")
-        })?;
-        if settings.datasets.is_empty() {
-            return Err("a Sink's `datasets` names at least one Dataset".to_owned());
-        }
-        if settings.sink_type.is_some() && settings.destination.is_none() {
-            return Err(
-                "a Sink of a `type` names its `destination`, a Secret reference such as `env:SINK_DSN`"
-                    .to_owned(),
-            );
-        }
-        reference("destination", settings.destination.as_deref())?;
-        reference(
-            "webhook.signing_secret",
-            settings
-                .webhook
-                .as_ref()
-                .and_then(|webhook| webhook.signing_secret.as_deref()),
-        )?;
-        Ok(settings)
+    if settings.sink_type.is_some() && settings.destination.is_none() {
+        return Err(
+            "a Sink of a `type` names its `destination`, a Secret reference such as `env:SINK_DSN`"
+                .to_owned(),
+        );
     }
+    reference("destination", settings.destination.as_deref())?;
+    reference(
+        "webhook.signing_secret",
+        settings
+            .webhook
+            .as_ref()
+            .and_then(|webhook| webhook.signing_secret.as_deref()),
+    )?;
+    Ok(settings)
 }
 
 /// Whether `text`, the value of the key `key` names, is a Secret reference
@@ -443,7 +434,7 @@ impl crate::catalog::SettingJson for SinkSettings {
 /// A value of `sinks`: one Sink's entry.
 pub const SINK_SHAPE: ValueShape = ValueShape {
     name: "SinkSettings",
-    check: |value| SinkSettings::read(value).map(drop),
+    check: |value| read_sink_settings(value).map(drop),
     schema: || {
         let schema = SchemaSettings::draft2020_12()
             .with(|settings| settings.inline_subschemas = true)
@@ -557,6 +548,22 @@ pub const SINKS: Setting = Setting {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// A Sink's delivery status (ADRs 0026 and 0103).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SinkStatus {
+    /// Everything was delivered.
+    Complete,
+    /// Everything was delivered, some of it rejected.
+    CompleteWithRejections,
+    /// It is still delivering.
+    Behind,
+    /// It failed.
+    Failed,
+    /// It names none of the crawl's Datasets and delivers nothing.
+    Inactive,
+}
 
 /// What a Sink's probe proves of its destination (ADR 0026), from the
 /// strongest.

@@ -206,7 +206,7 @@ impl Destination<'_> {
             .await?
             .expose_secret()
             .to_owned();
-        let mode = self.settings.write_mode();
+        let mode = self.settings.mode.unwrap_or_default();
         let mut throughput = Throughput::from_settings(
             self.settings.sink_type,
             self.settings.rate.as_ref(),

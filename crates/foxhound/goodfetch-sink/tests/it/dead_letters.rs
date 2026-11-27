@@ -128,7 +128,7 @@ fn a_rejected_batch_splits_until_the_bad_record_is_isolated_and_dead_lettered() 
     let status = driver.deliver(&run_file).unwrap();
 
     assert_eq!(status, Status::CompleteWithRejections);
-    let rejected = driver.take_dead_letters();
+    let rejected = driver.drain_side_effects().dead_letters;
     assert_eq!(rejected.len(), 1);
     assert_eq!(rejected[0].number, 3);
     assert_eq!(rejected[0].dataset, "products");
@@ -208,7 +208,7 @@ fn a_sqlite_constraint_rejecting_one_record_delivers_good_records_and_dead_lette
     let status = driver.deliver(&run_file).unwrap();
     assert_eq!(status, Status::CompleteWithRejections);
 
-    let rejected = driver.take_dead_letters();
+    let rejected = driver.drain_side_effects().dead_letters;
     assert_eq!(rejected.len(), 1);
     assert_eq!(rejected[0].number, 2);
     assert_ne!(
@@ -258,7 +258,7 @@ fn dead_letters_are_retried_on_a_later_run_and_removed_on_success() {
         run1.deliver(&run_file).unwrap(),
         Status::CompleteWithRejections
     );
-    for entry in run1.take_dead_letters() {
+    for entry in run1.drain_side_effects().dead_letters {
         dead_letters::record(&run_file, &entry, &masks).unwrap();
     }
     let mut destination = run1.into_sink();
@@ -371,7 +371,7 @@ fn secret_canaries_are_masked_in_dead_letters() {
         driver.deliver(&run).unwrap(),
         Status::CompleteWithRejections
     );
-    for entry in driver.take_dead_letters() {
+    for entry in driver.drain_side_effects().dead_letters {
         dead_letters::record(&dl_conn, &entry, &masks).unwrap();
     }
 

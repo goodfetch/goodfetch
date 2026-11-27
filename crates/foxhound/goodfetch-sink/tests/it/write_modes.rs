@@ -457,7 +457,7 @@ fn a_record_without_its_key_joins_dead_letters() {
     let delivered = driver.deliver(&run_file).unwrap();
 
     assert_eq!(delivered, Status::CompleteWithRejections);
-    let dead = driver.take_dead_letters();
+    let dead = driver.drain_side_effects().dead_letters;
     assert_eq!(dead.len(), 1);
     assert_eq!(dead[0].number, 2);
     assert!(dead[0].reason.contains("sku"));

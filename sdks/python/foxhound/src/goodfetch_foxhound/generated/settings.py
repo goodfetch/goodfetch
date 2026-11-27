@@ -1774,7 +1774,7 @@ class SinksEntry(TypedDict):
     """The fields a keyed mode uses: each Dataset's own key when left out."""
 
     mode: NotRequired[Literal["append", "upsert", "insert_only", "replace", "history"] | None]
-    """How it writes them: `append` when left out ([`Self::write_mode`])."""
+    """How it writes them: `append` when left out."""
 
     rate: NotRequired[SinksEntryRate | None]
     """Its token bucket: the destination's preset when left out."""

@@ -187,7 +187,7 @@ fn retryable_http_statuses_follow_standard_webhooks_schedule_and_pause_after_thr
         assert_eq!(observed_waits, SCHEDULE.to_vec());
 
         // Three days of failure queued a `sink_paused` Notification.
-        let notes = driver.take_notifications();
+        let notes = driver.drain_side_effects().notifications;
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].event, SinkNotificationEvent::Paused);
         assert_eq!(notes[0].sink, "webhook");
@@ -228,13 +228,13 @@ fn retryable_http_statuses_follow_standard_webhooks_schedule_and_pause_after_thr
             }
         ));
         assert_eq!(
-            driver2.take_notifications()[0].event,
+            driver2.drain_side_effects().notifications[0].event,
             SinkNotificationEvent::Paused
         );
         driver2.resume();
         assert_eq!(driver2.deliver(&run).unwrap(), Status::Complete);
         assert_eq!(driver2.report_status(), SinkStatus::Complete);
-        let recovered_notes = driver2.take_notifications();
+        let recovered_notes = driver2.drain_side_effects().notifications;
         assert_eq!(recovered_notes.len(), 1);
         assert_eq!(recovered_notes[0].event, SinkNotificationEvent::Recovered);
     });
@@ -532,7 +532,7 @@ fn late_delivery_outside_dedup_window_and_dead_letters_appear_in_run_report() {
             Status::CompleteWithRejections
         );
         assert_eq!(driver.outside_dedup_window(), 0);
-        for entry in driver.take_dead_letters() {
+        for entry in driver.drain_side_effects().dead_letters {
             dead_letters::record(&run, &entry, &Masks::new()).unwrap();
         }
 

@@ -291,7 +291,7 @@ fn declared_schema_is_used_first_and_contracts_govern_drift(#[case] contract: Sc
         vec!["products".to_owned()],
     );
     let status = driver.deliver(&run).unwrap();
-    let dead = driver.take_dead_letters();
+    let dead = driver.drain_side_effects().dead_letters;
     let sqlite = driver.into_sink();
     let counters = sqlite.schema_counters();
 

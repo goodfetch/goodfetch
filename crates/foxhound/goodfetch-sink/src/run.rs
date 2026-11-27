@@ -698,7 +698,7 @@ fn entries(settings: &Resolved) -> impl Iterator<Item = (String, SinkSettings)> 
         .into_iter()
         .flatten()
         .map(|(name, entry)| {
-            let entry = SinkSettings::read(entry)
+            let entry = goodfetch_protocol::foxhound::sink::read_sink_settings(entry)
                 .expect("invariant: `sinks` resolved only from entries its shape's check read");
             (name.clone(), entry)
         })
@@ -750,7 +750,7 @@ fn keyed(
     layer: SettingsLayer,
     declarations: &[DatasetDeclaration],
 ) -> Result<(), CallError> {
-    if sink.write_mode() == WriteMode::Append {
+    if sink.mode.unwrap_or_default() == WriteMode::Append {
         return Ok(());
     }
     let mut received = declarations

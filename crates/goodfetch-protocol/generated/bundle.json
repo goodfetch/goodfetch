@@ -35145,7 +35145,7 @@
                         }
                       ],
                       "arrived_in": "0.1",
-                      "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+                      "description": "How it writes them: `append` when left out."
                     },
                     "rate": {
                       "additionalProperties": false,
@@ -40150,7 +40150,7 @@
                         }
                       ],
                       "arrived_in": "0.1",
-                      "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+                      "description": "How it writes them: `append` when left out."
                     },
                     "rate": {
                       "additionalProperties": false,
@@ -45171,7 +45171,7 @@
                         }
                       ],
                       "arrived_in": "0.1",
-                      "description": "How it writes them: `append` when left out ([`Self::write_mode`])."
+                      "description": "How it writes them: `append` when left out."
                     },
                     "rate": {
                       "additionalProperties": false,

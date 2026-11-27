@@ -229,6 +229,16 @@ fn key_of(fields: &[String], value: &Value) -> Result<Value, String> {
         .map(Value::Array)
 }
 
+/// Side effects recorded by [`Driver`] during delivery passes: dead letters
+/// isolated from rejected batches and Sink Notifications to persist.
+#[derive(Clone, Debug, Default)]
+pub struct DeliverySideEffects {
+    /// Dead letters isolated since the last drain.
+    pub dead_letters: Vec<DeadLetter>,
+    /// Sink Notifications queued since the last drain.
+    pub notifications: Vec<SinkNotification>,
+}
+
 impl<S: Primitives> Driver<S> {
     /// A driver of `sink`, named `sink_name`, delivering the Records of
     /// `datasets` for the copy `run` of a Run.
@@ -402,15 +412,14 @@ impl<S: Primitives> Driver<S> {
         }
     }
 
-    /// Drains the dead letters isolated since the last call, for the caller
-    /// to persist in `sink_dead_letters`.
-    pub fn take_dead_letters(&mut self) -> Vec<DeadLetter> {
-        std::mem::take(&mut self.dead_letters)
-    }
-
-    /// Drains the Sink Notifications queued since the last call.
-    pub fn take_notifications(&mut self) -> Vec<SinkNotification> {
-        std::mem::take(&mut self.notifications)
+    /// Drains the dead letters and Sink Notifications recorded since the last
+    /// call, for the caller to persist in `sink_dead_letters` and
+    /// `sink_notifications`.
+    pub fn drain_side_effects(&mut self) -> DeliverySideEffects {
+        DeliverySideEffects {
+            dead_letters: std::mem::take(&mut self.dead_letters),
+            notifications: std::mem::take(&mut self.notifications),
+        }
     }
 
     /// Consumes the driver and returns its underlying Sink.
@@ -500,7 +509,7 @@ impl<S: Primitives> Driver<S> {
     /// Delivers the Records `run_file` has committed past those the
     /// destination holds, in number order per Dataset, and says where the
     /// delivery stands. A rejected batch is split recursively until every
-    /// bad Record is isolated onto [`Self::take_dead_letters`] (ADR 0026);
+    /// bad Record is isolated onto [`Self::drain_side_effects`] (ADR 0026);
     /// a Record lacking a key field under a keyed mode joins them too
     /// (ADR 0103).
     ///

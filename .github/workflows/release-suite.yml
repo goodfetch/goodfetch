@@ -65,9 +65,12 @@ on:
 permissions: {}
 
 # Every cell runs both Products' plugin tests, so `just fetch` downloads the
-# pinned Claude Code they validate with (ci/claude-code-fetch.sh).
+# pinned Claude Code they validate with (ci/claude-code-fetch.sh), and Linux
+# cells download the pinned local model servers and small GGUF model before
+# ADR 0043's deny (ci/local-models-fetch.sh, #427).
 env:
   GOODFETCH_FETCH_CLAUDE_CODE: "yes"
+  GOODFETCH_FETCH_LOCAL_MODELS: "yes"
 
 concurrency:
   group: release-suite-${{ github.ref }}

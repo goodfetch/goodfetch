@@ -711,21 +711,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: ci/release/size-comment.sh x86_64-unknown-linux-gnu "$PR_NUMBER"
-
-  chromium-build-gate:
-    name: Chromium build gate
-    if: >-
-      github.event_name == 'pull_request' && (
-      github.event.pull_request.head.repo.full_name != github.repository
-      || startsWith(github.head_ref, 'batch/')
-      || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Pass until the gate's first build lands
-        run: echo "No Goodfetch Chromium build exists yet (#445); the gate passes and builds nothing."
-
   # The CI image the jobs above restore (#3480), on `main` only: it looks up
   # the cache entry keyed by the hash of the commit's ci/image/Containerfile
   # and, when there is none, builds the image and saves it compressed

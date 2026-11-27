@@ -17,6 +17,7 @@ use std::time::{Duration, SystemTime};
 
 use bytes::Bytes;
 use goodfetch_counted_work::CountedWork;
+use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::response_cache::{
     CacheBodyProblem, CacheCleared, CacheDamage, CachePartitionStats, CacheStats, CacheVerified,
 };
@@ -26,7 +27,7 @@ use rusqlite::Connection;
 
 use super::Clearing;
 use crate::response_cache::{
-    CacheRequest, Lookup, Partition, ResponseCache, ResponseCacheError, ResponseHead,
+    CacheRequest, Keeper, Lookup, Partition, ResponseCache, ResponseCacheError, ResponseHead,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 
@@ -286,6 +287,73 @@ async fn a_partitions_clear_leaves_the_other_partitions_served() {
         left.push(served(&cache, partition, "https://cache.test/page").await);
     }
     assert_eq!(left, [true, false, true]);
+}
+
+/// A response that sets a cookie, fetched by a Session with no Saved
+/// identity, is kept for the life of that Session: served to it until it
+/// ends, gone once it has, while another Session's and the public
+/// partition's entries stay served.
+/// Covers: story:6-39
+#[tokio::test]
+async fn a_sessions_end_forgets_what_it_kept_and_nothing_else() {
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let in_session = |session: &str| Partition {
+        keeper: Some(Keeper::Session {
+            run_id: run("first"),
+            session_id: SessionId(session.to_owned()),
+        }),
+        ..ada()
+    };
+    let logged_in = ResponseHead {
+        status: 200,
+        headers: vec![
+            ("cache-control".to_owned(), "max-age=3600".to_owned()),
+            ("set-cookie".to_owned(), "sid=1".to_owned()),
+        ],
+    };
+    for session in ["s1", "s2"] {
+        assert!(
+            cache
+                .store(
+                    &in_session(session),
+                    &get("https://cache.test/login"),
+                    &logged_in,
+                    Bytes::from(session),
+                    Some(&run("first")),
+                    start(),
+                )
+                .await
+        );
+    }
+    kept(
+        &cache,
+        &in_session("s1"),
+        "https://cache.test/page",
+        "public",
+        "first",
+    )
+    .await;
+    let before = served(&cache, &in_session("s1"), "https://cache.test/login").await;
+
+    cache
+        .forget_session(&run("first"), &SessionId("s1".to_owned()))
+        .await
+        .unwrap();
+
+    let after = [
+        served(&cache, &in_session("s1"), "https://cache.test/login").await,
+        served(&cache, &in_session("s2"), "https://cache.test/login").await,
+        served(&cache, &in_session("s1"), "https://cache.test/page").await,
+    ];
+    assert!(before);
+    assert_eq!(after, [false, true, true]);
+    assert_eq!(body_files(&env), sorted([sha256("public"), sha256("s2")]));
+}
+
+fn sorted<const N: usize>(mut names: [String; N]) -> [String; N] {
+    names.sort();
+    names
 }
 
 /// A clear with no filter but the person deletes everything of that

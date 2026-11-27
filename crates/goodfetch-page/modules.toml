@@ -148,6 +148,7 @@ blocked = []
 blocking_off = ["arrival", "blocked"]
 clean_up = []
 plugin_extractor = []
+scroll_collect = []
 served_formats = ["clean_up"]
 waits = []
 

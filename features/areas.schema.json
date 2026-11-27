@@ -88,6 +88,26 @@
           "const": "skill",
           "description": "An agent skill.",
           "type": "string"
+        },
+        {
+          "const": "plugin-kind",
+          "description": "A Plugin kind of `goodfetch-protocol`'s catalog.",
+          "type": "string"
+        },
+        {
+          "const": "sink",
+          "description": "A built-in Sink.",
+          "type": "string"
+        },
+        {
+          "const": "adapter",
+          "description": "A Framework adapter package.",
+          "type": "string"
+        },
+        {
+          "const": "integration",
+          "description": "An Integration action or trigger.",
+          "type": "string"
         }
       ]
     }

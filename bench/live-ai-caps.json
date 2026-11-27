@@ -1,0 +1,47 @@
+{
+  "gateway": "https://ai-gateway.vercel.sh",
+  "apiKeyEnv": "AI_GATEWAY_API_KEY",
+  "jobs": {
+    "provider-check": {
+      "capUsd": 0.5,
+      "enabledVariable": "GOODFETCH_LIVE_PROVIDER_CHECK"
+    },
+    "recorder": {
+      "capUsd": 2,
+      "enabledVariable": "GOODFETCH_LIVE_RECORDER"
+    },
+    "eval-pr": {
+      "capUsd": 2,
+      "enabledVariable": "GOODFETCH_LIVE_EVAL_PR"
+    },
+    "eval-nightly": {
+      "capUsd": 4,
+      "enabledVariable": "GOODFETCH_LIVE_EVAL_NIGHTLY"
+    },
+    "eval-weekly": {
+      "capUsd": 35,
+      "enabledVariable": "GOODFETCH_LIVE_EVAL_WEEKLY"
+    },
+    "skills": {
+      "capUsd": 35,
+      "enabledVariable": "GOODFETCH_LIVE_SKILLS"
+    }
+  },
+  "models": {
+    "openai/gpt-5.4-nano": {
+      "inputPerMillionUsd": 0.2,
+      "outputPerMillionUsd": 1.25,
+      "freeTier": true
+    },
+    "openai/gpt-5.2": {
+      "inputPerMillionUsd": 2.5,
+      "outputPerMillionUsd": 10,
+      "freeTier": true
+    },
+    "anthropic/claude-sonnet-4.5": {
+      "inputPerMillionUsd": 3,
+      "outputPerMillionUsd": 15,
+      "freeTier": false
+    }
+  }
+}

@@ -98,8 +98,8 @@ reason = "As the macos-arm64 cell, on an Intel runner (ADR 0043's amendment of 2
 job = "release-suite.yml#visual"
 
 [[outside]]
-job = "pull-request.yml#chromium-build-gate"
-reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
+job = "chromium-build-gate.yml#chromium-build-gate"
+reason = "Fast-path hash and attestation check (ADR 0074, #400); builds and runs none of the product until #445/#402."
 
 [[outside]]
 job = "pull-request.yml#plan"
@@ -252,6 +252,28 @@ endpoints = []
 job = "live.yml#provider"
 exception = "model"
 endpoints = ["ai-gateway.vercel.sh:443"]
+
+[[outside]]
+job = "record-models.yml#gate"
+reason = "Runs bench's live-gate check on repository variable and worst-case USD from committed bench/live-ai-caps.json; makes zero network calls and runs none of the product (ADR 0065, #415)."
+
+[[named]]
+job = "record-models.yml#record"
+exception = "model"
+endpoints = ["ai-gateway.vercel.sh:443"]
+
+# ADRs 0070 and 0076's real-account Integration checks behind a Cloudflare
+# Quick Tunnel (`cloudflared tunnel --url`, off until the owner sets the
+# repository variable at M4). Each platform's API host joins this list when
+# area 11 adds its Live check.
+[[named]]
+job = "live.yml#integration-accounts"
+exception = "integration-account"
+endpoints = [
+  "api.trycloudflare.com:443",
+  "region1.v2.argotunnel.com:7844",
+  "region2.v2.argotunnel.com:7844",
+]
 
 # ADR 0073's screen reader: under the deny on Windows, outside it on macOS
 # as the Release suite's macOS cells.

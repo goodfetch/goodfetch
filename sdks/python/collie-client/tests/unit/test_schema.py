@@ -137,6 +137,12 @@ HAND_WRITTEN: JSONObject = {
     "properties": {"title": {"type": "string"}},
     "required": ["title"],
 }
+# Built once and shared across property examples: `SchemaCodec` is stateless,
+# and rebuilding `schema_codec(Notes)` inside `@given` reconstructed Pydantic's
+# `TypeAdapter` and recursive JSON schema on every example (~1.5 s idle, past
+# the 10 s Quick timeout under host load; issue 3670).
+HAND_WRITTEN_CODEC = schema_codec(HAND_WRITTEN)
+NOTES_CODEC = schema_codec(Notes)
 
 PYDANTIC = pytest.mark.covers("story:11-69")
 """A Pydantic case, run at the supported range's floor."""
@@ -161,7 +167,7 @@ ROUND_TRIPS = pytest.mark.parametrize(
 def not_json(value: object) -> ValueNotJSONError:
     """What encoding `value` under a hand-written schema raises."""
     with pytest.raises(ValueNotJSONError) as refused:
-        schema_codec(HAND_WRITTEN).encode(value)  # type: ignore[arg-type]
+        HAND_WRITTEN_CODEC.encode(value)  # type: ignore[arg-type]
     return refused.value
 
 
@@ -433,7 +439,9 @@ def property_test(test: Callable[..., None]) -> Callable[..., None]:
     """A Hypothesis test on a fixed seed: its name's, or `GOODFETCH_TEST_SEED`.
 
     No example database: a failure prints its blob, and the case it found is
-    committed as an `@example`, Hypothesis's regression file.
+    committed as an `@example`, Hypothesis's regression file. `deadline=None`
+    leaves hang detection to the runner's suite timeout so CPU contention under
+    host load never fails a healthy example (issue 3670).
     """
     configured = settings(
         database=None, deadline=None, print_blob=True, derandomize=SEED is None
@@ -449,9 +457,9 @@ def test_any_json_value_crosses_unchanged_under_a_hand_written_schema(
     value: JSONValue,
 ) -> None:
     """`__proto__` and every other key pass as given, through the real encoding."""
-    titles = schema_codec(HAND_WRITTEN)
-
-    received = titles.decode(json.loads(json.dumps(titles.encode(value))))
+    received = HAND_WRITTEN_CODEC.decode(
+        json.loads(json.dumps(HAND_WRITTEN_CODEC.encode(value)))
+    )
 
     assert received == value
 
@@ -464,10 +472,8 @@ def test_a_programs_data_in_a_model_keeps_its_keys_through_a_round_trip(
     entries: JSONObject,
 ) -> None:
     """A model's field of JSON comes back with the keys it was given."""
-    notes = schema_codec(Notes)
-
-    received = notes.decode(
-        json.loads(json.dumps(notes.encode(Notes(entries=entries))))
+    received = NOTES_CODEC.decode(
+        json.loads(json.dumps(NOTES_CODEC.encode(Notes(entries=entries))))
     )
 
     assert received.entries == entries

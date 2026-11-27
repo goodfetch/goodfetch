@@ -91,6 +91,11 @@ pub const LIGHTPANDA_DOWNLOADS_VARIABLE: &str = "GOODFETCH_LIGHTPANDA_DOWNLOADS"
 /// archive into, `~/.cache/goodfetch/chrome-for-testing` by default.
 pub const CHROME_FOR_TESTING_DOWNLOADS_VARIABLE: &str = "GOODFETCH_CHROME_FOR_TESTING_DOWNLOADS";
 
+/// The variable naming the folder `ci/local-models-fetch.sh` downloads the
+/// pinned local model servers (llama.cpp server, Ollama) and small CPU GGUF
+/// model into, `~/.cache/goodfetch/local-models` by default (ADR 0065).
+pub const LOCAL_MODELS_DOWNLOADS_VARIABLE: &str = "GOODFETCH_LOCAL_MODELS_DOWNLOADS";
+
 /// The most Callgrind children a counts benchmark runs at once, below its
 /// own bound of half the cores, at most eight: `xtask counts
 /// --callgrind-at-once` sets it, or the host's environment does (#2520).

@@ -545,3 +545,28 @@ fn the_identity_page_asks_for_every_client_hint_and_the_timer_page_reports_its_t
         timer.body
     );
 }
+
+/// The service worker page's call its worker answers from its Cache
+/// Storage, reached past no worker, may be kept an hour, so a Response
+/// cache would serve it again; the call the worker passes on may not
+/// (#796).
+#[test]
+fn the_call_a_service_worker_answers_may_be_kept_an_hour_when_it_reaches_the_site() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let call = |path: &str| {
+        let answer = proving_ground.get(&proving_ground.url("access.test", path));
+        (
+            answer.status,
+            answer.header("cache-control").map(str::to_owned),
+        )
+    };
+
+    assert_eq!(
+        (
+            call("/service-worker/cached.json?case=cache"),
+            call("/service-worker/network.json?case=cache"),
+        ),
+        ((200, Some("max-age=3600".to_owned())), (200, None))
+    );
+}

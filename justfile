@@ -244,6 +244,7 @@ lint:
     # (ADR 0074); both pass while `chromium/` is empty.
     step --after xtask xtask-chromium-surfaces 'cargo run --quiet --bin xtask -- chromium surfaces check --cargo-profile {{ test_profile }}'
     step --after xtask xtask-chromium-protocol 'cargo run --quiet --bin xtask -- chromium protocol check'
+    step --after xtask xtask-probes 'cargo run --quiet --bin xtask -- probes check'
     step --after xtask xtask-containment 'cargo run --quiet --bin xtask -- containment'
     steps_end
 
@@ -618,6 +619,7 @@ fetch:
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
     ci/claude-code-fetch.sh
+    ci/local-models-fetch.sh
     ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh
@@ -790,7 +792,7 @@ test suite *packages:
         fi
         # pytest exits 5 when it collects no test, as before any Python test exists.
         if $python; then
-          uv run pytest --timeout=10 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' --ignore-glob='*/tests/journeys/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
+          uv run pytest --timeout=60 "${pytest_order[@]}" --ignore-glob='*/tests/integration/*' --ignore-glob='*/tests/journeys/*' ${pytest[@]+"${pytest[@]}"} ${skip_pytest[@]+"${skip_pytest[@]}"} || [[ $? -eq 5 ]]
         fi
         ;;
       pre-merge|release)

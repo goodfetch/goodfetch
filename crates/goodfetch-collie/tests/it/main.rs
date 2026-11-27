@@ -82,6 +82,8 @@ mod invalid_calls;
 mod journeys;
 #[cfg(unix)]
 mod launch;
+#[cfg(unix)]
+mod launch_switches;
 mod layout;
 #[cfg(target_os = "linux")]
 mod lazyfs;

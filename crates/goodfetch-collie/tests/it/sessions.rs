@@ -643,6 +643,18 @@ fn resumed_engine(
     (resumed, resume)
 }
 
+/// Visits `/storage?mark=<mark>` on `page` and asserts a 200 status.
+#[cfg(unix)]
+fn store_ok(
+    engine: &mut Attached,
+    id: i64,
+    proving_ground: &ProvingGround,
+    page: &PageOpened,
+    mark: &str,
+) {
+    assert_eq!(store(engine, id, proving_ground, page, mark), json!(200));
+}
+
 /// Covers: story:5-60, operation:run.resume, operation:session.new_page, operation:session.close
 #[cfg(unix)]
 #[test]
@@ -657,33 +669,24 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
 
     let mut engine = started(&env, &cache, &proving_ground, "resumed");
     let default_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "resumed" })));
-    assert_eq!(
-        store(
-            &mut engine,
-            3,
-            &proving_ground,
-            &default_page,
-            &default_mark
-        ),
-        json!(200)
+    store_ok(
+        &mut engine,
+        3,
+        &proving_ground,
+        &default_page,
+        &default_mark,
     );
     let own = session_of(&engine.ask(4, "run.new_session", &json!({ "run_id": "resumed" })));
     let own_before = page_in(&mut engine, 5, &own);
-    assert_eq!(
-        store(&mut engine, 6, &proving_ground, &own_before, &own_mark),
-        json!(200)
-    );
+    store_ok(&mut engine, 6, &proving_ground, &own_before, &own_mark);
     let closed = session_of(&engine.ask(7, "run.new_session", &json!({ "run_id": "resumed" })));
     let closed_before = page_in(&mut engine, 8, &closed);
-    assert_eq!(
-        store(
-            &mut engine,
-            9,
-            &proving_ground,
-            &closed_before,
-            &closed_mark
-        ),
-        json!(200)
+    store_ok(
+        &mut engine,
+        9,
+        &proving_ground,
+        &closed_before,
+        &closed_mark,
     );
     let _ = engine.ask(10, "session.close", &json!({ "session_id": closed }));
     let checkpointed = engine.ask(11, "run.checkpoint", &json!({ "run_id": "resumed" }));
@@ -694,9 +697,9 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
         sealed_session_state_check(&env, "resumed", &canaries);
     let (mut resumed, resume) = resumed_engine(&env, &cache, &proving_ground, "resumed");
     let own_page = page_in(&mut resumed, 2, &own);
-    let own_after = store(&mut resumed, 3, &proving_ground, &own_page, "after-own");
+    store_ok(&mut resumed, 3, &proving_ground, &own_page, "after-own");
     let default_again = opened(&resumed.ask(4, "run.new_page", &json!({ "run_id": "resumed" })));
-    let default_after = store(
+    store_ok(
         &mut resumed,
         5,
         &proving_ground,
@@ -708,8 +711,7 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
     let finished = resumed.ask(8, "run.finish", &json!({ "run_id": "resumed" }));
     let _ = resumed.finish();
 
-    let sent_after: Vec<(String, Value)> =
-        storage_requests(&proving_ground, "/storage?mark=after-");
+    let sent_after = storage_requests(&proving_ground, "/storage?mark=after-");
     let found_after: Vec<String> = storage_requests(&proving_ground, "/storage/found")
         .into_iter()
         .skip(3)
@@ -723,11 +725,8 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
             checkpointed.get("result").is_some() && checkpoint_exists,
             recorded_states,
             &resume["result"]["started_as"],
-            (own_page.session_id == own, own_after),
-            (
-                default_again.session_id == default_page.session_id,
-                default_after
-            ),
+            own_page.session_id == own,
+            default_again.session_id == default_page.session_id,
             sent_after,
             found_after,
             (code_of(&still_closed), &closed_again["result"]),
@@ -739,16 +738,16 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
             true,
             vec![(1, false, true), (2, false, true), (3, true, false)],
             &json!("resumed"),
-            (true, json!(200)),
-            (true, json!(200)),
+            true,
+            true,
             vec![
                 (
                     "/storage?mark=after-own".to_owned(),
-                    json!([["mark", own_mark]]),
+                    json!([["mark", own_mark]])
                 ),
                 (
                     "/storage?mark=after-default".to_owned(),
-                    json!([["mark", default_mark]]),
+                    json!([["mark", default_mark]])
                 ),
             ],
             vec![

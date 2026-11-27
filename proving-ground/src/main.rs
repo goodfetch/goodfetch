@@ -47,6 +47,7 @@ mod html;
 )]
 mod interface;
 mod languages;
+mod launch_switches;
 mod linger;
 mod locales;
 mod login;

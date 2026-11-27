@@ -36,12 +36,315 @@ use goodfetch_engine::pinned_download::chromium_background_traffic_off;
 /// times the 64 MB Kubernetes and Docker give.
 const SMALL_SHARED_MEMORY: u64 = 512 * 1024 * 1024;
 
-/// The flags that keep a page behind another tab or window of its Session
-/// unthrottled (ADR 0085's question; spec #577's "Background pages").
-const BACKGROUND_PAGES: [&str; 3] = [
-    "--disable-background-timer-throttling",
-    "--disable-renderer-backgrounding",
-    "--disable-backgrounding-occluded-windows",
+/// One Chromium switch reconciled against Playwright 1.64.1's
+/// `chromiumSwitches.ts` (`disabledFeatures` and `chromiumSwitches`) plus
+/// `--enable-automation` (issue 2330).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SwitchKind {
+    /// A command-line flag (`--name` or `--name=value`).
+    Flag(&'static str),
+    /// A feature inside the launch's single `--disable-features=...` list.
+    DisabledFeature(&'static str),
+    /// A feature inside `--enable-features=...`.
+    EnabledFeature(&'static str),
+}
+
+/// Whether Goodfetch passes a switch from Playwright's list on Chromium
+/// launches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Disposition {
+    /// Passed on every Chromium launch.
+    Taken,
+    /// Passed only when a runtime condition holds (for example `/dev/shm`
+    /// below [`SMALL_SHARED_MEMORY`], ADR 0049).
+    Conditional,
+    /// Never passed on stock launches; [`PlaywrightSwitch::reason`] explains
+    /// why.
+    Refused,
+}
+
+/// One row of [`PLAYWRIGHT_SWITCHES`]: the switch, whether Goodfetch takes it,
+/// and why.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PlaywrightSwitch {
+    pub(crate) switch: SwitchKind,
+    pub(crate) disposition: Disposition,
+    pub(crate) reason: &'static str,
+}
+
+/// Switch-by-switch reconciliation of Collie's Chromium launch arguments with
+/// Playwright 1.64.1's `chromiumSwitches.ts` (and `--enable-automation`, which
+/// Playwright adds outside that file). Both [`arguments`] and its unit tests
+/// read [`Disposition::Taken`] entries from this single table (issue 2330).
+pub(crate) const PLAYWRIGHT_SWITCHES: &[PlaywrightSwitch] = &[
+    // --- `disabledFeatures` (Playwright 1.64.1 `chromiumSwitches.ts`) ---
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("AvoidUnnecessaryBeforeUnloadCheckSync"),
+        disposition: Disposition::Taken,
+        reason: "Avoids synchronous beforeunload check hangs during programmatic navigation (Playwright #14047); invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("DestroyProfileOnBrowserClose"),
+        disposition: Disposition::Taken,
+        reason: "Destroys ephemeral run profiles cleanly on browser exit; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("DialMediaRouteProvider"),
+        disposition: Disposition::Taken,
+        reason: "Disables DIAL local-network media discovery traffic (Playwright #13854); invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("GlobalMediaControls"),
+        disposition: Disposition::Taken,
+        reason: "Disables browser toolbar media controls UI; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("HttpsUpgrades"),
+        disposition: Disposition::Taken,
+        reason: "Prevents silent HTTP-to-HTTPS upgrades so explicit http:// navigations hit the requested URL (Playwright #27605).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("LensOverlay"),
+        disposition: Disposition::Taken,
+        reason: "Disables the Lens address-bar UI not used in unofficial builds; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("MediaRouter"),
+        disposition: Disposition::Taken,
+        reason: "Disables Cast/MediaRouter local-network discovery (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("PaintHolding"),
+        disposition: Disposition::Taken,
+        reason: "Stops Chromium holding the previous page painted across navigations (Playwright #28023); invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("ThirdPartyStoragePartitioning"),
+        disposition: Disposition::Refused,
+        reason: "Stock Chrome partitions third-party storage by default; disabling it weakens cross-site isolation and diverges from an ordinary browser (ADR 0021).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("BlockOriginHeaderModificationOnRedirect"),
+        disposition: Disposition::Taken,
+        reason: "Prevents Chromium 149+ from rejecting redirected Fetch-intercepted requests carrying Origin with net::ERR_INVALID_ARGUMENT (Playwright #41690).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("AvoidCorsURLLoaderRestartOnRedirect"),
+        disposition: Disposition::Taken,
+        reason: "Prevents Chromium 155+ from aborting preflighted cross-origin redirects with net::ERR_ABORTED under Fetch interception (Playwright #43242).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("Translate"),
+        disposition: Disposition::Taken,
+        reason: "Disables translation prompts and background fetches (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("AutoDeElevate"),
+        disposition: Disposition::Taken,
+        reason: "Prevents Chromium on Windows from relaunching de-elevated and dropping its debugging pipe (Chromium 435410220).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("OptimizationHints"),
+        disposition: Disposition::Taken,
+        reason: "Disables startup optimization-hints fetches (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("NetworkTimeServiceQuerying"),
+        disposition: Disposition::Taken,
+        reason: "Disables startup network-time queries (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("AimEnabled"),
+        disposition: Disposition::Taken,
+        reason: "Disables AI Mode eligibility fetches (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("msForceBrowserSignIn"),
+        disposition: Disposition::Refused,
+        reason: "Microsoft Edge-only feature; Goodfetch launches Chrome for Testing / Goodfetch Chromium.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::DisabledFeature("msEdgeUpdateLaunchServicesPreferredVersion"),
+        disposition: Disposition::Refused,
+        reason: "Microsoft Edge macOS-only feature; Goodfetch does not launch Edge.",
+    },
+    // --- `chromiumSwitches` (Playwright 1.64.1 `chromiumSwitches.ts`) ---
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-field-trial-config"),
+        disposition: Disposition::Taken,
+        reason: "Disables field-trial variation fetches (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-background-networking"),
+        disposition: Disposition::Taken,
+        reason: "Disables periodic background networking (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-background-timer-throttling"),
+        disposition: Disposition::Taken,
+        reason: "Keeps timers unthrottled in background tabs (ADR 0085).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-backgrounding-occluded-windows"),
+        disposition: Disposition::Taken,
+        reason: "Keeps occluded browser windows unthrottled (ADR 0085).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-back-forward-cache"),
+        disposition: Disposition::Taken,
+        reason: "Ensures go_back and go_forward reload documents cleanly through interception (ADR 0121).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-breakpad"),
+        disposition: Disposition::Taken,
+        reason: "Disables crash report uploads (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-client-side-phishing-detection"),
+        disposition: Disposition::Taken,
+        reason: "Disables Safe Browsing phishing model downloads (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-component-extensions-with-background-pages"),
+        disposition: Disposition::Taken,
+        reason: "Stops built-in component extensions from spawning background pages or fetches; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-component-update"),
+        disposition: Disposition::Taken,
+        reason: "Disables component updater background traffic (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--no-default-browser-check"),
+        disposition: Disposition::Taken,
+        reason: "Suppresses the default-browser prompt on fresh run profiles; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-default-apps"),
+        disposition: Disposition::Taken,
+        reason: "Skips default web-app installation into ephemeral run profiles; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-dev-shm-usage"),
+        disposition: Disposition::Conditional,
+        reason: "Passed only when /dev/shm is below 512 MiB with Warning::SmallSharedMemory (ADR 0049), keeping faster /dev/shm otherwise.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-edgeupdater"),
+        disposition: Disposition::Refused,
+        reason: "Microsoft Edge macOS-only updater switch; Goodfetch does not launch Edge.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-extensions"),
+        disposition: Disposition::Taken,
+        reason: "Keeps extensions off in ephemeral run profiles (ADR 0047 rejects extensions); invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::EnabledFeature("CDPScreenshotNewSurface"),
+        disposition: Disposition::Refused,
+        reason: "Not required by Goodfetch's screenshot path on pinned Chrome 156; keeps --enable-features reserved for Session-scoped features such as GlobalPrivacyControlTest.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--allow-pre-commit-input"),
+        disposition: Disposition::Taken,
+        reason: "Accepts programmatic input arriving before first paint commit instead of dropping it; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-hang-monitor"),
+        disposition: Disposition::Taken,
+        reason: "Prevents the native Page Unresponsive modal from interrupting slow or paused pages; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-ipc-flooding-protection"),
+        disposition: Disposition::Taken,
+        reason: "Prevents Chromium from throttling rapid programmatic history/IPC updates (issue 2330).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-popup-blocking"),
+        disposition: Disposition::Taken,
+        reason: "Allows script-opened popups without a user activation gesture so page.on(\"popup\") receives them (issue 2330).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-prompt-on-repost"),
+        disposition: Disposition::Taken,
+        reason: "Suppresses the native Confirm Form Resubmission prompt when reloading a POST response (issue 2330).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-renderer-backgrounding"),
+        disposition: Disposition::Taken,
+        reason: "Keeps background renderers unthrottled (ADR 0085).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-updater-scheduler"),
+        disposition: Disposition::Refused,
+        reason: "Microsoft Edge macOS-only updater switch; Goodfetch does not launch Edge.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--force-color-profile=srgb"),
+        disposition: Disposition::Refused,
+        reason: "Forces sRGB gamut and alters color-gamut media queries and canvas color output away from the host display, an observable fingerprint divergence (ADR 0021).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--metrics-recording-only"),
+        disposition: Disposition::Taken,
+        reason: "Prevents metrics upload (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--no-first-run"),
+        disposition: Disposition::Taken,
+        reason: "Suppresses first-run UI on fresh run profiles; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--password-store=basic"),
+        disposition: Disposition::Taken,
+        reason: "Keeps ephemeral run profiles off the host OS keychain (ADR 0056).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--use-mock-keychain"),
+        disposition: Disposition::Taken,
+        reason: "Keeps ephemeral run profiles off the macOS keychain prompt (ADR 0056).",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--no-service-autorun"),
+        disposition: Disposition::Taken,
+        reason: "Prevents registering OS background service autorun on launch; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--export-tagged-pdf"),
+        disposition: Disposition::Taken,
+        reason: "Emits accessible tagged structure in PDF exports; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-search-engine-choice-screen"),
+        disposition: Disposition::Taken,
+        reason: "Suppresses the first-run search-engine choice modal in fresh run profiles; invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--unsafely-disable-devtools-self-xss-warnings"),
+        disposition: Disposition::Refused,
+        reason: "Only affects interactive DevTools Console paste warnings; Goodfetch drives CDP directly and keeps security warnings intact.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--edge-skip-compat-layer-relaunch"),
+        disposition: Disposition::Refused,
+        reason: "Microsoft Edge Windows-only compatibility-layer switch; Goodfetch does not launch Edge.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-infobars"),
+        disposition: Disposition::Taken,
+        reason: "Suppresses the Chrome for Testing infobar in headful windows; ignored elsewhere and invisible to sites.",
+    },
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--disable-sync"),
+        disposition: Disposition::Taken,
+        reason: "Disables browser sync background traffic (ADR 0043, CHROMIUM_BACKGROUND_TRAFFIC_OFF).",
+    },
+    // --- Added by Playwright outside `chromiumSwitches.ts` unless ignored ---
+    PlaywrightSwitch {
+        switch: SwitchKind::Flag("--enable-automation"),
+        disposition: Disposition::Refused,
+        reason: "Exposes navigator.webdriver = true, an automation leak forbidden by ADR 0021; replaced where needed by explicit switches such as --disable-auto-reload.",
+    },
 ];
 
 /// The host resolver rule that keeps every `.invalid` name from resolving
@@ -163,6 +466,13 @@ impl fmt::Display for Warning {
     }
 }
 
+/// Appends `flag` to `arguments` only if it is not already present.
+fn push_unique(arguments: &mut Vec<String>, flag: &str) {
+    if !arguments.iter().any(|existing| existing == flag) {
+        arguments.push(flag.to_owned());
+    }
+}
+
 /// The command line of the browser `launch` describes.
 pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     let mut arguments = vec![
@@ -172,32 +482,34 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
     if launch.headless {
         arguments.push("--headless".to_owned());
     }
-    arguments.extend(
-        [
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--password-store=basic",
-            "--use-mock-keychain",
-            "--disable-back-forward-cache",
-            NO_AUTO_RELOAD,
-        ]
-        .into_iter()
-        .chain(BACKGROUND_PAGES)
-        .map(str::to_owned),
-    );
-    arguments.extend(
-        chromium_background_traffic_off()
-            .into_iter()
-            .map(|mut argument| {
-                if argument.starts_with("--disable-features=") {
-                    for feature in PRERENDER_OFF {
-                        argument.push(',');
-                        argument.push_str(feature);
-                    }
-                }
-                argument
-            }),
-    );
+    let mut disabled_features: Vec<String> = Vec::new();
+    for argument in chromium_background_traffic_off() {
+        if let Some(features) = argument.strip_prefix("--disable-features=") {
+            for feature in features.split(',').filter(|feature| !feature.is_empty()) {
+                push_unique(&mut disabled_features, feature);
+            }
+        } else {
+            push_unique(&mut arguments, &argument);
+        }
+    }
+    for entry in PLAYWRIGHT_SWITCHES
+        .iter()
+        .filter(|entry| entry.disposition == Disposition::Taken)
+    {
+        match entry.switch {
+            SwitchKind::Flag(flag) => push_unique(&mut arguments, flag),
+            SwitchKind::DisabledFeature(feature) => push_unique(&mut disabled_features, feature),
+            SwitchKind::EnabledFeature(_) => {}
+        }
+    }
+    push_unique(&mut arguments, NO_AUTO_RELOAD);
+    for feature in PRERENDER_OFF {
+        push_unique(&mut disabled_features, feature);
+    }
+    arguments.push(format!(
+        "--disable-features={}",
+        disabled_features.join(",")
+    ));
     arguments.push(
         if launch.headless_shell {
             SHELL_WEBRTC_POLICY

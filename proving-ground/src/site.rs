@@ -44,6 +44,7 @@ use crate::google_hosts;
 use crate::handmade;
 use crate::hostile;
 use crate::languages;
+use crate::launch_switches;
 use crate::locales;
 use crate::login::canaries::{self, Canaries, Plant};
 use crate::login::{self, Logins};
@@ -187,6 +188,7 @@ impl Site {
                 consistency::FRAME_HOST,
                 fonts::HOST,
                 codecs::HOST,
+                launch_switches::HOST,
                 page_load::HOST,
                 online::HOST,
                 forward_proxy::TLS_HOST,
@@ -394,6 +396,9 @@ impl Site {
             return reply;
         }
         if let Some(reply) = page_load::respond(self.port, &name, request) {
+            return reply;
+        }
+        if let Some(reply) = launch_switches::respond(&name, request) {
             return reply;
         }
         if let Some(reply) = google_hosts::respond(&name, request) {

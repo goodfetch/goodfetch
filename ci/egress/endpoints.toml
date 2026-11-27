@@ -95,6 +95,10 @@ job = "pull-request.yml#chromium-build-gate"
 reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
 
 [[outside]]
+job = "chromium-build-gate.yml#chromium-build-gate"
+reason = "Fast-path hash and attestation check (ADR 0074, #400); builds and runs none of the product until #445/#402."
+
+[[outside]]
 job = "pull-request.yml#plan"
 reason = "It plans the hosted steps from the change's files and the hosted records GitHub holds, and runs none of the product."
 

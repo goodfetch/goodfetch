@@ -453,6 +453,7 @@ fn conformance_outcomes(store: &Path, latest: &str) -> Result<BTreeMap<TestKey, 
     for kept in kept.iter().filter(|kept| {
         kept.run.branch.as_deref() == Some(results::MAIN)
             && kept.configuration.suite == results::RELEASE_SUITE
+            && kept.configuration.tier != "chromium-build"
             && kept.commit == latest
     }) {
         let Ok(LoadedDocument::Conformance(document)) = result_document::read(&kept.contents)

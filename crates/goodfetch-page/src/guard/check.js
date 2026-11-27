@@ -4,7 +4,9 @@
 // milliseconds pass, and answers what it saw last. A ready pointer target gets
 // the interception listener armed on the window, which cancels every event of
 // the gesture that reaches another element; a ready text target gets the
-// focus, and for `fill` its text selected. A locator wait (ADR 0080) passes a
+// focus, and for `fill` its text selected; for `scroll`, the last of the
+// matches, which need not be unique, is scrolled to the top of the view once
+// it is visible (a scroll collection's step). A locator wait (ADR 0080) passes a
 // state for `action` instead, `attached`, `detached`, `visible` or `hidden`,
 // or `count` with its `min` and `max`, and the check only observes the
 // matches until they are in it, answering their count for `count`. The target is a CSS selector's one
@@ -13,7 +15,7 @@
 // function, so its helpers live inside it.
 /* eslint-disable unicorn/consistent-function-scoping -- CDP sends the function alone */
 // eslint-disable-next-line no-unused-vars -- `Runtime.callFunctionOn` calls it
-async function check({ selector, handle, action, events, slice, min, max }) {
+async function check({ selector, handle, action, events, slice, min, max, human_scroll }) {
   const world = globalThis;
   // The arm's key, in the guard's world's own registry, which no page sees.
   const ARM = Symbol.for("goodfetch.guard.arm");
@@ -134,6 +136,12 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     }
     if (WAITS.includes(action)) return reached(found);
     if (found.length === 0) return waiting("attached", "no element matches");
+    if (action === "scroll") {
+      const last = found.at(-1);
+      if (!shown(last)) return waiting("visible", `${describe(last)} is not visible`);
+      last.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+      return { state: "scrolled" };
+    }
     if (found.length > 1)
       return {
         ...waiting("unique", `${found.length} elements match`),
@@ -167,6 +175,15 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     const centre = () => ({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
     let { x, y } = centre();
     if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) {
+      if (human_scroll) {
+        return {
+          state: "scroll",
+          dx: x - innerWidth / 2,
+          dy: y - innerHeight / 2,
+          width: innerWidth,
+          height: innerHeight,
+        };
+      }
       element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
       box = element.getBoundingClientRect();
       ({ x, y } = centre());
@@ -211,7 +228,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
     // The gesture follows at once; an arm whose call was dropped expires.
     const expiry = setTimeout(() => arm.disarm(), 10000);
     world[ARM] = arm;
-    return { state: "armed", x, y };
+    return { state: "armed", x, y, width: innerWidth, height: innerHeight };
   };
   for (;;) {
     const seen = observe();

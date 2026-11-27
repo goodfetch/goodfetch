@@ -9,13 +9,12 @@ use goodfetch_protocol::catalog::{
     StreamInput, schema_of,
 };
 use goodfetch_protocol::entries::operations_of;
-use proptest::prelude::{prop, prop_assert_eq, proptest};
 use rstest::rstest;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{Call, Generated, Offer, OwnCommands, command, duration, member, members_of, offer};
+use super::{Call, Generated, Offer, OwnCommands, command, member, members_of, offer};
 use crate::executable::engine_choice::{Choice, Lifetime};
 
 /// What the made-up operations take.
@@ -401,19 +400,4 @@ fn attached_and_daemon_together_are_a_usage_error() {
         (refused.kind(), refused.exit_code()),
         (ErrorKind::ArgumentConflict, 2)
     );
-}
-
-proptest! {
-    #[test]
-    fn a_duration_in_any_unit_reads_as_its_milliseconds(
-        count in 1_u64..=1_000_000,
-        (unit, milliseconds) in prop::sample::select(
-            vec![("ms", 1), ("s", 1_000), ("m", 60_000), ("h", 3_600_000)]
-        ),
-    ) {
-        prop_assert_eq!(
-            duration(&format!("{count}{unit}")),
-            duration(&(count * milliseconds).to_string())
-        );
-    }
 }

@@ -55,6 +55,10 @@ job = "pull-request.yml#pre-merge-shard"
 job = "pull-request.yml#pre-merge-record"
 reason = "It judges the shards' results, runs the exercise audit over their records and records the step's result, after downloading the hosted records GitHub holds, and runs none of the product's tests."
 
+[[outside]]
+job = "pull-request.yml#size-estimate"
+reason = "It builds both Products' ci executables on Linux x64 to estimate sizes against main's saved report and updates one non-blocking pull-request comment via GitHub API, running none of the product's tests (issue 204)."
+
 [[deny]]
 job = "update-screenshots.yml#update"
 
@@ -69,6 +73,9 @@ job = "release-suite.yml#linux-x64"
 
 [[deny]]
 job = "release-suite.yml#skew"
+
+[[deny]]
+job = "release-suite.yml#deploy-smoke"
 
 [[deny]]
 job = "release-suite.yml#linux-arm64"
@@ -91,8 +98,8 @@ reason = "As the macos-arm64 cell, on an Intel runner (ADR 0043's amendment of 2
 job = "release-suite.yml#visual"
 
 [[outside]]
-job = "pull-request.yml#chromium-build-gate"
-reason = "Until its first build lands (#445) it builds and runs nothing. Then its fetches come before the deny and its tests run under it (ADR 0074)."
+job = "chromium-build-gate.yml#chromium-build-gate"
+reason = "Fast-path hash and attestation check (ADR 0074, #400); builds and runs none of the product until #445/#402."
 
 [[outside]]
 job = "pull-request.yml#plan"
@@ -246,6 +253,28 @@ job = "live.yml#provider"
 exception = "model"
 endpoints = ["ai-gateway.vercel.sh:443"]
 
+[[outside]]
+job = "record-models.yml#gate"
+reason = "Runs bench's live-gate check on repository variable and worst-case USD from committed bench/live-ai-caps.json; makes zero network calls and runs none of the product (ADR 0065, #415)."
+
+[[named]]
+job = "record-models.yml#record"
+exception = "model"
+endpoints = ["ai-gateway.vercel.sh:443"]
+
+# ADRs 0070 and 0076's real-account Integration checks behind a Cloudflare
+# Quick Tunnel (`cloudflared tunnel --url`, off until the owner sets the
+# repository variable at M4). Each platform's API host joins this list when
+# area 11 adds its Live check.
+[[named]]
+job = "live.yml#integration-accounts"
+exception = "integration-account"
+endpoints = [
+  "api.trycloudflare.com:443",
+  "region1.v2.argotunnel.com:7844",
+  "region2.v2.argotunnel.com:7844",
+]
+
 # ADR 0073's screen reader: under the deny on Windows, outside it on macOS
 # as the Release suite's macOS cells.
 [[deny]]
@@ -254,3 +283,148 @@ job = "live.yml#screen-reader-windows"
 [[outside]]
 job = "live.yml#screen-reader-macos"
 reason = "VoiceOver runs on macOS itself, where the runner's standard user has no deny (ADR 0043's amendment of 2026-11-22)."
+
+# The release build and local rehearsal workflow (issue 141; ADRs 0032, 0039,
+# 0074 and 0094). Build, signing, Chromium fetch and packaging jobs run none
+# of the product's tests; Linux and Windows rehearsals run under the deny, and
+# macOS outside it as the Release suite's macOS cells do.
+[[outside]]
+job = "release-build.yml#proving-ground"
+reason = "It compiles the Proving ground release binary and runs none of the product."
+
+[[outside]]
+job = "release-build.yml#sign-proving-ground-macos"
+reason = "It signs and notarizes macOS Proving ground binaries with Apple Developer ID and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-proving-ground-windows"
+reason = "It signs Windows Proving ground binaries through Azure Artifact Signing OIDC and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-proving-ground"
+reason = "It combines signed Proving ground binaries and hashes them without running the product."
+
+[[outside]]
+job = "release-build.yml#fetch-chromium"
+reason = "It verifies Goodfetch Chromium attestations through GitHub and fetches pinned bundles by digest without running the product (ADR 0074)."
+
+[[outside]]
+job = "release-build.yml#build-targets"
+reason = "It compiles both Products' executables and shared helpers for each target and runs none of the product."
+
+[[outside]]
+job = "release-build.yml#signing-reuse-check"
+reason = "It hashes unsigned built binaries to check cached signed artifacts and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-macos"
+reason = "It signs and notarizes macOS executables and Goodfetch Chromium bundles with Apple Developer ID and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-windows"
+reason = "It signs Windows x64 and arm64 executables and Goodfetch Chromium files through Azure Artifact Signing OIDC and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#sign-artifacts"
+reason = "It combines signed target binaries and computes their signing reuse manifest without running the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#verify-macos-signatures"
+reason = "It runs codesign, spctl and stapler verification on macOS signed artifacts and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#verify-windows-signatures"
+reason = "It runs signtool verification on Windows signed artifacts and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#platform-signature-gate"
+reason = "It evaluates the Platform signature gate report without running the product (ADR 0039)."
+
+[[deny]]
+job = "release-build.yml#signed-bundle-smoke-linux"
+
+[[deny]]
+job = "release-build.yml#signed-bundle-smoke-windows"
+
+[[outside]]
+job = "release-build.yml#signed-bundle-smoke-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "release-build.yml#package-and-digests"
+reason = "It packages archives, npm packages, Python wheels, OCI images and Plugin OCI layouts and computes digests without running the product."
+
+[[deny]]
+job = "release-build.yml#rehearse-linux"
+
+[[deny]]
+job = "release-build.yml#rehearse-windows"
+
+[[outside]]
+job = "release-build.yml#rehearse-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+# Nightly channel release pipeline (issue 143; ADRs 0030, 0032, 0043, 0061, 0094).
+[[outside]]
+job = "release-nightly.yml#release-suite"
+reason = "It dispatches release-suite.yml on main's head and waits for its result without running the product itself."
+
+[[outside]]
+job = "release-nightly.yml#nightly-version"
+reason = "It computes the nightly semver string and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#build"
+reason = "It calls the reusable release-build.yml workflow, whose own jobs declare their egress rules."
+
+[[outside]]
+job = "release-nightly.yml#attest-and-sign"
+reason = "It runs GitHub artifact attestations and keyless Sigstore signing over built release files without running the product."
+
+[[deny]]
+job = "release-nightly.yml#verify-bytes-linux"
+
+[[deny]]
+job = "release-nightly.yml#verify-bytes-windows"
+
+[[outside]]
+job = "release-nightly.yml#verify-bytes-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "release-nightly.yml#release-gate"
+reason = "It verifies cross-channel digests and GitHub artifact attestations without running the product."
+
+[[outside]]
+job = "release-nightly.yml#publish-npm"
+reason = "It publishes nightly npm packages with OIDC provenance and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#publish-oci"
+reason = "It pushes nightly OCI images and first-party Plugin OCI artifacts to GHCR and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#publish-github-prerelease"
+reason = "It creates the nightly GitHub pre-release with release assets and .devN wheels and runs none of the product."
+
+[[outside]]
+job = "release-nightly.yml#deploy-python-index"
+reason = "It builds the static PEP 503/PEP 691 nightly Python index from GitHub releases and deploys it to Vercel without running the product (issue 205)."
+
+[[deny]]
+job = "release-nightly.yml#smoke-channels-linux"
+
+[[deny]]
+job = "release-nightly.yml#smoke-channels-windows"
+
+[[outside]]
+job = "release-nightly.yml#smoke-channels-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."
+
+[[outside]]
+job = "plugin-index-publish.yml#publish"
+reason = "It signs plugin-index/index.json with keyless Sigstore OIDC and publishes the signed index and bundle without running the product (ADR 0033; issue 1534)."
+
+[[outside]]
+job = "plugin-index-review.yml#validate"
+reason = "It validates submitted Plugin index entries by pinned digest, provenance attestation and confined plugins test with read-only permissions and zero secrets (ADRs 0033 and 0052; issue 1534)."

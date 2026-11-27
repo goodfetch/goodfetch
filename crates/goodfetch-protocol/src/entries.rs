@@ -9,17 +9,18 @@ use crate::catalog::{
 };
 use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
-    egress, engine, events, executables, foxhound, governor, hook, hostile_input, key_value_store,
-    log, model, needs_you, notifications, ops, page, plugin, politeness, recipe, response_cache,
-    response_limits, run, sample, schedule, schema_validator, secrets, security, settings,
-    site_preferences, skills, storage, tls, usage, versions,
+    egress, engine, events, executables, foxhound, governor, hook, hostile_input, http_listener,
+    key_value_store, live_view, log, model, needs_you, notifications, ops, page, plugin,
+    politeness, recipe, response_cache, response_limits, run, sample, schedule, schema_validator,
+    secrets, security, settings, site_preferences, skills, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 69] = [
+pub const MODULES: [&Entries; 72] = [
     &connection::ENTRIES,
     &log::ENTRIES,
     &daemon::ENTRIES,
+    &http_listener::ENTRIES,
     &accounts::ENTRIES,
     &ops::ENTRIES,
     &governor::ENTRIES,
@@ -38,8 +39,10 @@ pub const MODULES: [&Entries; 69] = [
     &page::ENTRIES,
     &page::proxy::ENTRIES,
     &page::access_mode::ENTRIES,
+    &page::emulation::ENTRIES,
     &page::signing_key::ENTRIES,
     &page::cdp_url::ENTRIES,
+    &live_view::ENTRIES,
     &executables::ENTRIES,
     &run::ENTRIES,
     &run::completeness::ENTRIES,
@@ -94,7 +97,7 @@ pub const KIND_PARTS: [&KindPart; 1] = [&foxhound::progress::CRAWL_RUN_PROGRESS]
 
 /// Every setting value that yields to another setting, which
 /// `config explain` names in its `yields_to` (#2418).
-pub const YIELDING: [&Yielding; 10] = [
+pub const YIELDING: [&Yielding; 13] = [
     &foxhound::fetch::HTTP_FROM_YIELDS_TO_A_LOGIN,
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[0],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[1],
@@ -103,8 +106,11 @@ pub const YIELDING: [&Yielding; 10] = [
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[4],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[5],
     &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[6],
+    &page::access_mode::ITEMS_YIELD_TO_THE_ACCESS_MODE[7],
     &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[0],
     &page::access_mode::SIGNING_YIELDS_TO_THE_ACCESS_MODE[1],
+    &page::emulation::LOCALE_YIELDS_TO_AN_IMPORT,
+    &page::emulation::TIMEZONE_YIELDS_TO_AN_IMPORT,
 ];
 
 /// The operations of `product`'s catalog: Collie's own for Collie, every
@@ -376,7 +382,7 @@ mod tests {
     }
 
     /// Collie's operations, in the catalog's order.
-    const COLLIE: [&str; 102] = [
+    const COLLIE: [&str; 104] = [
         "connection.set_log_level",
         "daemon.status",
         "daemon.stop",
@@ -427,6 +433,7 @@ mod tests {
         "page.close",
         "page.evaluate",
         "locator.evaluate_all",
+        "locator.scroll_collect",
         "page.add_init_script",
         "page.wait_for_url",
         "page.wait_for_request",
@@ -470,6 +477,7 @@ mod tests {
         "schedule.create",
         "schedule.list",
         "schedule.get",
+        "schedule.preview",
         "schedule.info",
         "schedule.delete",
         "config.explain",

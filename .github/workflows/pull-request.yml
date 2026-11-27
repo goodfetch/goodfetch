@@ -7,9 +7,9 @@
 # (ci/hosted/, ci/image/Containerfile).
 #
 # The `plan` job runs the gate's planner on the head (ci/hosted/plan.sh), in
-# the form `just merge` picks: the full form on the pull request that
-# finishes a spec (#3382), the batch form on a batch's branch and the quick
-# form otherwise. From the records the runs on the head's ancestors
+# the batch form on a batch's branch and the quick form otherwise; the full
+# form runs only when the owner asks `just merge` for it (`--full`, ADR
+# 0135's note of 2026-11-26), and no branch plans it here. From the records the runs on the head's ancestors
 # uploaded, it schedules the form's hosted-owned steps the change reaches:
 # lint, the Quick suite, the Journey task lists and xtask's codegen tests; on
 # a batch's branch and in the full form the Pre-merge suite of every member
@@ -81,10 +81,6 @@ jobs:
       contents: read
       # The records of the runs on the head's ancestors.
       actions: read
-      # Whether the pull request finishes its spec: the spec's sub-issues
-      # and the pull request's closing issues (ci/spec-sub-issues.sh).
-      issues: read
-      pull-requests: read
     # The gate's form the jobs plan with, the members whose Pre-merge suite
     # the run holds, and for each job after it a JSON list named after the
     # job, of the steps or shards it runs (ci/hosted/plan.sh).
@@ -110,12 +106,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.base_ref }}
           BRANCH: ${{ github.head_ref }}
-          NUMBER: ${{ github.event.pull_request.number }}
           GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           GOODFETCH_GATE_HOSTED_RECORDS: target/hosted-records
         run: >-
           GOODFETCH_GATE_RUNNER_IMAGE="$ImageVersion"
-          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" "$NUMBER" >>"$GITHUB_OUTPUT"
+          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" >>"$GITHUB_OUTPUT"
 
   # Lint and the proofs, when the plan schedules them, each a job of its
   # own. Lint's zizmor runs the online audits and its quarantine-list check
@@ -679,20 +674,48 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-  chromium-build-gate:
-    name: Chromium build gate
+  # Non-blocking pull-request size estimate for both Products (ADRs 0057, 0087
+  # and 0094; issue 204): builds both `ci` executables on Linux x64 and posts or
+  # updates one sticky comment. Never in `all-green`'s `needs:`.
+  size-estimate:
+    name: size estimate
     if: >-
-      github.event_name == 'pull_request' && (
-      github.event.pull_request.head.repo.full_name != github.repository
-      || startsWith(github.head_ref, 'batch/')
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository && (
+      startsWith(github.head_ref, 'batch/')
       || (startsWith(github.head_ref, 'spec/') && !contains(github.head_ref, '-')))
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions: {}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
     steps:
-      - name: Pass until the gate's first build lands
-        run: echo "No Goodfetch Chromium build exists yet (#445); the gate passes and builds nothing."
-
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build both Products' ci executables on Linux x64
+        run: |
+          cargo build --locked --profile ci --target x86_64-unknown-linux-gnu \
+            -p goodfetch-collie --bin goodfetch-collie --features executable \
+            -p goodfetch-foxhound --bin goodfetch-foxhound --features executable
+          mkdir -p target/release-suite/archives
+          for product in collie foxhound; do
+            tar -cJf "target/release-suite/archives/goodfetch-${product}-x86_64-unknown-linux-gnu.tar.xz" \
+              -C target/x86_64-unknown-linux-gnu/ci "goodfetch-${product}"
+          done
+      - name: Estimate sizes and update sticky pull-request comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ci/release/size-comment.sh x86_64-unknown-linux-gnu "$PR_NUMBER"
   # The CI image the jobs above restore (#3480), on `main` only: it looks up
   # the cache entry keyed by the hash of the commit's ci/image/Containerfile
   # and, when there is none, builds the image and saves it compressed

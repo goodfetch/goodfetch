@@ -344,7 +344,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             install: None,
             ops: Ops::default(),
             websocket: None,
+            live_view: None,
             accounts: None,
+            http_listener: None,
         };
         let serving = engine.run_daemon(listener, dependencies(home.path()), options);
         tokio::select! {

@@ -56,18 +56,20 @@ pub(super) async fn block_of(
     response: &PageResponse,
     operation: Option<&'static str>,
 ) -> Result<Option<Block>, CallError> {
-    // The Session's proxy's own answer, such as its 429, is a proxy error,
-    // never a site's Block cause (ADR 0053; the proxy-or-site rule).
-    if driver.proxy().is_some_and(|proxy| {
+    // Who answered, by the proxy-or-site rule: the Session's proxy's own
+    // answer, such as its 429, is a proxy error the classifier never reads
+    // as a site's Block cause (ADR 0053), so its document is not read.
+    let party = driver.proxy().map_or(proxy::Party::Site, |proxy| {
         let proxy_status = response
             .headers
             .get(proxy::PROXY_STATUS)
             .map(String::as_str);
-        proxy::party(proxy.response(&response.url, proxy_status)) == proxy::Party::Proxy
-    }) {
-        return Ok(None);
-    }
-    let markers = blocks.markers(response.status);
+        proxy::party(proxy.response(&response.url, proxy_status))
+    });
+    let markers = match party {
+        proxy::Party::Proxy => Vec::new(),
+        proxy::Party::Site => blocks.markers(response.status),
+    };
     let holding: Vec<String> = if markers.is_empty() {
         Vec::new()
     } else {
@@ -91,7 +93,7 @@ pub(super) async fn block_of(
     };
     // The markers found, each on a line of its own, read as the document
     // reads for a classifier that looks for markers alone.
-    Ok(blocks.classify(response, &holding.join("\n")))
+    Ok(blocks.classify(response, party, &holding.join("\n")))
 }
 
 /// `blocked` with `consent_required` for the consent wall the Consent

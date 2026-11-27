@@ -65,5 +65,14 @@ agree sanitizer-toolchain "$(image_arg SANITIZER_TOOLCHAIN)" "$(sanitizer toolch
   "the CI image and ci/sanitizer-toolchain.toml"
 agree cargo-fuzz "$(image_arg CARGO_FUZZ_VERSION)" "$(sanitizer cargo-fuzz)" \
   "the CI image and ci/sanitizer-toolchain.toml"
+shell_var() { sed -n "s/^$2=//p" "$1" | head -n1; }
+agree cloudflared \
+  "$(shell_var "$root/proving-ground/deploy/deploy.sh" CLOUDFLARED_VERSION)" \
+  "$(shell_var "$root/ci/integration-accounts.sh" CLOUDFLARED_VERSION)" \
+  "proving-ground/deploy/deploy.sh and ci/integration-accounts.sh"
+agree cloudflared-linux-x64 \
+  "$(shell_var "$root/proving-ground/deploy/deploy.sh" CLOUDFLARED_SHA256)" \
+  "$(shell_var "$root/ci/integration-accounts.sh" CLOUDFLARED_SHA256)" \
+  "proving-ground/deploy/deploy.sh and ci/integration-accounts.sh"
 
 exit "$failed"

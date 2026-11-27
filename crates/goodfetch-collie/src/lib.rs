@@ -65,8 +65,12 @@ pub use goodfetch_collie_client::{
     AiWorkResult, Answer, BoxError, Call, Connection, CreatedSchedule, Ended, Error, ErrorCode,
     ErrorDetails, EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits,
     Locator, Money, MoneyError, Page, PartialOutput, Query, RawCall, Response, Run, RunView,
-    Schedule, Schedules, Schema, SchemaError, Session, Start, StoredBytes, UsageKind, events,
-    schemars, settings,
+    Schedule, Schedules, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
+    VerifyWebhookOptions, events, schemars, settings, verify_webhook, verify_webhook_with,
+};
+pub use goodfetch_protocol::notifications::{
+    FullNotification, NotificationData, NotificationEvent, NotificationPayload, ThinNotification,
+    WebhookInvalidDetails, WebhookInvalidReason,
 };
 pub use goodfetch_protocol::page::ai_work::{Claim, NotVerifiedDetails, Reported};
 pub use goodfetch_protocol::page::events::PageRequest;
@@ -79,8 +83,11 @@ pub use goodfetch_protocol::run::{
     Tags, Verdict,
 };
 pub use goodfetch_protocol::schedule::{
-    EveryTrigger, RecipeTarget, RunTarget, ScheduleDefinition, ScheduleId, ScheduleInfo,
-    ScheduleState, ScheduleTarget, ScheduleTrigger, ScheduleWarning,
+    CronTrigger, EveryTrigger, PreviewOccurrence, RecipeTarget, RunTarget,
+    ScheduleCapExceededDetails, ScheduleCapKind, ScheduleCatchUp, ScheduleDefinition, ScheduleId,
+    ScheduleInfo, ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits, SchedulePreview,
+    ScheduleState, ScheduleTarget, ScheduleTrigger, ScheduleWarning, StructuredTriggerDescription,
+    TriggerDescription,
 };
 pub use goodfetch_protocol::settings::{
     ExplainedSetting, RunOrigin, SettingsExplanation, SettingsLayer,

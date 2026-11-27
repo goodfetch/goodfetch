@@ -10,12 +10,40 @@ use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{Form, HelloParams, ProductVersion, Surface};
 use goodfetch_protocol::foxhound::block::{BlockCause, BlockedDetails};
 use goodfetch_test_support::{
-    SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, real_time_runtime, reported_address, tools,
+    Process, SCRIPTED_DAEMON_TOKEN, TestEnv, Tool, engine_script, real_time_runtime,
+    reported_address, tools,
 };
 use serde_json::Value;
 
 /// The script the Scripted engine plays as the Daemon of the home.
 const SCRIPT: &str = "sdk-rust/run/blocked-decoy.json";
+
+/// The Scripted engine playing `script` as the Daemon of the home of
+/// `env`, its first step expecting this SDK's `hello`, and the options
+/// that connect to it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test writes the Scripted engine's script before any async worker runs"
+)]
+pub(super) fn scripted_daemon(env: &TestEnv, script: &str) -> (Process, ConnectOptions) {
+    let mut played: Value =
+        serde_json::from_slice(&std::fs::read(engine_script(script)).unwrap()).unwrap();
+    played["steps"][0]["expect"]["params"] = serde_json::to_value(hello()).unwrap();
+    let path = env.folder().join("script.json");
+    std::fs::write(&path, serde_json::to_vec(&played).unwrap()).unwrap();
+    let mut command = env.process_command(tools().unwrap().path(Tool::ScriptedEngine).unwrap());
+    command
+        .arg("--script")
+        .arg(&path)
+        .args(["--mode", "socket"])
+        .stderr(std::process::Stdio::null());
+    let daemon = env.spawn(&mut command).unwrap();
+    reported_address(&mut daemon.child()).unwrap();
+    let options = ConnectOptions::default()
+        .environment(env.env_os())
+        .engine(EngineChoice::Daemon);
+    (daemon, options)
+}
 
 /// This SDK's `hello` to the Daemon of the home.
 fn hello() -> HelloParams {
@@ -33,28 +61,9 @@ fn hello() -> HelloParams {
 
 /// Covers: story:11-36, block-cause:decoy
 #[test]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the test writes the Scripted engine's script before any async worker runs"
-)]
 fn a_blocked_answer_with_the_decoy_cause_reads_it_as_foxhounds_known_cause() {
     let env = TestEnv::new();
-    let mut script: Value =
-        serde_json::from_slice(&std::fs::read(engine_script(SCRIPT)).unwrap()).unwrap();
-    script["steps"][0]["expect"]["params"] = serde_json::to_value(hello()).unwrap();
-    let path = env.folder().join("script.json");
-    std::fs::write(&path, serde_json::to_vec(&script).unwrap()).unwrap();
-    let mut command = env.process_command(tools().unwrap().path(Tool::ScriptedEngine).unwrap());
-    command
-        .arg("--script")
-        .arg(&path)
-        .args(["--mode", "socket"])
-        .stderr(std::process::Stdio::null());
-    let daemon = env.spawn(&mut command).unwrap();
-    reported_address(&mut daemon.child()).unwrap();
-    let options = ConnectOptions::default()
-        .environment(env.env_os())
-        .engine(EngineChoice::Daemon);
+    let (daemon, options) = scripted_daemon(&env, SCRIPT);
 
     let error = real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(options).await.unwrap();

@@ -11,7 +11,7 @@ from typing import Final, Literal, Unpack
 
 from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_duration_of, retry_after_of
-from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails
+from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleCapExceededDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails, WebhookInvalidDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -635,6 +635,18 @@ class ListenerFailedError(ProgramError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="listener_failed", group="program", retryable=False, **fields)
+
+
+class LiveViewViewerLimitError(RefusedError):
+    """As many viewers as `live_view.max_viewers` allows already watch the Session, so the channel opened none. `limit` names the setting, its value and the layer that set it. Open the channel again once a viewer leaves, or raise the setting."""
+
+    typed_details: LiveViewViewerLimitDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="live_view_viewer_limit", group="refused", retryable=True, **fields)
+        self.typed_details = details_of(LiveViewViewerLimitDetails, self.details)
 
 
 class LocalAddressUnavailableError(UnavailableError):
@@ -1269,6 +1281,18 @@ class SampleRefusedError(RefusedError):
         super().__init__(message, code="sample_refused", group="refused", retryable=False, **fields)
 
 
+class ScheduleCapExceededError(RefusedError):
+    """A Schedule creation or edit exceeds an Operator policy cap (`schedule.max_count`, `schedule.min_interval` or `schedule.limits_max`). The details name the `cap` and its `policy`."""
+
+    typed_details: ScheduleCapExceededDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="schedule_cap_exceeded", group="refused", retryable=False, **fields)
+        self.typed_details = details_of(ScheduleCapExceededDetails, self.details)
+
+
 class ScheduleExistsError(ProgramError):
     """A Schedule has this Schedule ID already: create it under another ID, or omit the ID for a new one. The details name the ID."""
 
@@ -1513,6 +1537,18 @@ class ValueInvalidError(ProgramError):
         self.typed_details = details_of(ValueInvalidDetails, self.details)
 
 
+class WebhookInvalidError(ProgramError):
+    """The call is no verified delivery of a `webhook` channel: a Standard Webhooks header is missing, its timestamp is more than 5 minutes from now, no signature matches a secret given, or its body is no Notification payload of a major this SDK reads. Answer the call with an error and keep nothing of it; when every delivery fails, check that the secret given is the channel's `webhook.secret`."""
+
+    typed_details: WebhookInvalidDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="webhook_invalid", group="program", retryable=False, **fields)
+        self.typed_details = details_of(WebhookInvalidDetails, self.details)
+
+
 ERROR_GROUP_OF_WIRE_CLASS: Final[Mapping[int, ErrorGroup]] = {
     -32001: "program",
     -32002: "refused",
@@ -1600,6 +1636,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "limit_reached": LimitReachedError,
     "listener_events_lost": ListenerEventsLostError,
     "listener_failed": ListenerFailedError,
+    "live_view_viewer_limit": LiveViewViewerLimitError,
     "local_address_unavailable": LocalAddressUnavailableError,
     "logged_out": LoggedOutError,
     "model_unavailable": ModelUnavailableError,
@@ -1655,6 +1692,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "run_state_unavailable": RunStateUnavailableError,
     "run_target_unbuilt": RunTargetUnbuiltError,
     "sample_refused": SampleRefusedError,
+    "schedule_cap_exceeded": ScheduleCapExceededError,
     "schedule_exists": ScheduleExistsError,
     "schedule_not_found": ScheduleNotFoundError,
     "schedule_trigger_invalid": ScheduleTriggerInvalidError,
@@ -1676,5 +1714,6 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "too_many_redirects": TooManyRedirectsError,
     "upgrade_source_unsupported": UpgradeSourceUnsupportedError,
     "value_invalid": ValueInvalidError,
+    "webhook_invalid": WebhookInvalidError,
 }
 """The exception class of each Error code."""

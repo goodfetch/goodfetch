@@ -16,12 +16,15 @@ clap.workspace = true
 # document.
 data-encoding.workspace = true
 flate2.workspace = true
+# The gate's key for its records (ADR 0135).
+getrandom.workspace = true
 glob.workspace = true
 # The only Goodfetch crate it builds: the contract types `xtask codegen`
 # emits in process. No engine crate (ADR 0072, `xtask
 # dependency-direction`): the Products' command lines come from their
 # executables' `command-line`.
 goodfetch-protocol.workspace = true
+hmac.workspace = true
 jiff.workspace = true
 jsonschema.workspace = true
 proc-macro2.workspace = true

@@ -36,6 +36,8 @@ pub enum ListenerKind {
     PrivateEndpoint,
     /// The Daemon's ops listener: its probes and `/metrics` (ADR 0050).
     OpsListener,
+    /// The Daemon's HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027).
+    HttpListener,
     /// The Daemon's WebSocket: the protocol over WebSocket, its handshake
     /// held to the Daemon's `Host` and `Origin` (ADRs 0049 and 0067).
     DaemonWebsocket,
@@ -46,17 +48,24 @@ pub enum ListenerKind {
     /// loopback HTTP proxy of the Session's own, which tunnels only for the
     /// Session's per-Session credentials (ADR 0037 / SA-22; spec #577).
     ProxyRelay,
+    /// A Daemon's Live view channels (ADR 0031): a WebSocket at the
+    /// channel's path of `daemon.address`, its handshake held to the
+    /// Daemon's `Host` and `Origin`, opened by an `open` carrying the
+    /// Daemon's token.
+    LiveView,
 }
 
 impl ListenerKind {
     /// Every listener, each of which must have a row.
-    pub(super) const ALL: [Self; 6] = [
+    pub(super) const ALL: [Self; 8] = [
         Self::DaemonSocket,
         Self::PrivateEndpoint,
         Self::OpsListener,
+        Self::HttpListener,
         Self::DaemonWebsocket,
         Self::ExposedDaemon,
         Self::ProxyRelay,
+        Self::LiveView,
     ];
 
     /// How the runner reaches this listener.
@@ -68,8 +77,10 @@ impl ListenerKind {
             Self::OpsListener => Transport::Http {
                 protected_path: "/metrics",
             },
+            Self::HttpListener => Transport::HttpRpc { path: "/v1/rpc" },
             Self::DaemonWebsocket => Transport::WebSocket,
             Self::ProxyRelay => Transport::HttpProxy,
+            Self::LiveView => Transport::LiveViewChannel,
         }
     }
 }
@@ -82,6 +93,9 @@ pub(super) enum Transport {
     JsonRpcStream,
     /// HTTP/1.1, with the token as a bearer token on `protected_path`.
     Http { protected_path: &'static str },
+    /// HTTP/1.1 JSON-RPC (`POST /v1/rpc`), with `hello` fields in headers
+    /// and the token as a bearer token (ADR 0027).
+    HttpRpc { path: &'static str },
     /// JSON-RPC over WebSocket, one message per WebSocket message, that
     /// opens with a `hello` carrying the token once its handshake is
     /// accepted (ADR 0049).
@@ -89,6 +103,16 @@ pub(super) enum Transport {
     /// An HTTP proxy's `CONNECT`, with the token as the password of its
     /// `Proxy-Authorization: Basic` credentials (RFC 9110, section 11.7.1).
     HttpProxy,
+    /// A Live view channel: a WebSocket that opens with an `open`
+    /// carrying the token once its handshake is accepted (ADR 0031).
+    LiveViewChannel,
+}
+
+impl Transport {
+    /// Whether it is a WebSocket, whose handshake can be refused.
+    fn is_websocket(self) -> bool {
+        matches!(self, Self::WebSocket | Self::LiveViewChannel)
+    }
 }
 
 /// A refusal rule: a row of the endpoint table, which the runner knows how
@@ -148,8 +172,12 @@ pub enum Rule {
 impl Rule {
     /// Whether the runner can try this rule over `transport`.
     fn tried_over(self, transport: Transport) -> bool {
-        let http = matches!(transport, Transport::Http { .. });
-        let websocket = transport == Transport::WebSocket;
+        let http = matches!(
+            transport,
+            Transport::Http { .. } | Transport::HttpRpc { .. }
+        );
+        let http_rpc = matches!(transport, Transport::HttpRpc { .. });
+        let websocket = transport.is_websocket();
         let proxy = transport == Transport::HttpProxy;
         match self {
             Self::TokenMissing
@@ -162,8 +190,10 @@ impl Rule {
             | Self::OriginMissing
             | Self::HostForeign
             | Self::OriginForeign => http || websocket,
-            Self::ProbesAnswerStatusOnly | Self::OriginMissingWithoutHeaderToken => http,
-            Self::HelloNotFirst | Self::PlainWhereTlsConfigured => !http && !proxy,
+            Self::OriginMissingWithoutHeaderToken => http,
+            Self::ProbesAnswerStatusOnly => matches!(transport, Transport::Http { .. }),
+            Self::HelloNotFirst => !http && !proxy,
+            Self::PlainWhereTlsConfigured => (!http || http_rpc) && !proxy,
         }
     }
 
@@ -219,22 +249,34 @@ impl Expected {
     /// Whether a listener reached over `transport` can give this answer to
     /// `rule`'s attempt.
     fn fits(self, rule: Rule, transport: Transport) -> bool {
-        let http = matches!(transport, Transport::Http { .. } | Transport::HttpProxy);
-        let websocket = transport == Transport::WebSocket;
+        let http = matches!(
+            transport,
+            Transport::Http { .. } | Transport::HttpRpc { .. } | Transport::HttpProxy
+        );
+        let http_rpc = matches!(transport, Transport::HttpRpc { .. });
+        let websocket = transport.is_websocket();
         let at_the_handshake = rule.at_the_handshake();
         rule.tried_over(transport)
             && match self {
                 Self::Closed => {
-                    transport == Transport::JsonRpcStream || (websocket && !at_the_handshake)
+                    transport == Transport::JsonRpcStream
+                        || (websocket && !at_the_handshake)
+                        || (http_rpc && rule == Rule::PlainWhereTlsConfigured)
                 }
                 Self::Status { status } => {
                     (http || (websocket && at_the_handshake))
                         && (400..=499).contains(&status)
                         && rule != Rule::ProbesAnswerStatusOnly
                 }
-                Self::StatusOnly => http && rule == Rule::ProbesAnswerStatusOnly,
+                Self::StatusOnly => {
+                    matches!(transport, Transport::Http { .. })
+                        && rule == Rule::ProbesAnswerStatusOnly
+                }
                 Self::Accepted => {
-                    matches!(transport, Transport::Http { .. }) && rule == Rule::OriginMissing
+                    matches!(
+                        transport,
+                        Transport::Http { .. } | Transport::HttpRpc { .. }
+                    ) && rule == Rule::OriginMissing
                 }
                 Self::Challenge => transport == Transport::HttpProxy && rule == Rule::TokenMissing,
             }

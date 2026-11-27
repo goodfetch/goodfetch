@@ -1,0 +1,88 @@
+{
+  "description": "A Foxhound Client's hello accepted, then a code-free crawl started from a reviewed CrawlDeclaration, its seed naming its Label by name, detached (ADRs 0093 and 0102): the start carries the declaration and no Labels or Datasets of its own; the program then reads the declared Dataset `products` by its name through dataset.page, the raw call (ADR 0099); closing the detached Run sends nothing, and the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "declaration": {
+            "labels": [
+              {
+                "name": "listing",
+                "follow": [{ "links": "a.next", "label": "listing", "limit": 10 }],
+                "extract": [
+                  {
+                    "dataset": "products",
+                    "fields": {
+                      "id": { "locator": { "kind": "css", "selector": "article.product .id" } }
+                    }
+                  }
+                ]
+              }
+            ],
+            "datasets": [{ "name": "products", "key": ["id"] }]
+          },
+          "seeds": [{ "url": "https://shop.test/catalog/1", "label": "listing" }],
+          "run_id": "catalog",
+          "detached": true
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "catalog",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "dataset.page",
+        "params": { "_meta": { "raw": true }, "run_id": "catalog", "dataset": "products" }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "records": [
+            {
+              "number": 1,
+              "value": { "id": "p-1" },
+              "request_id": "1",
+              "url": "https://shop.test/catalog/1",
+              "committed_at": "2026-01-01T00:00:01Z",
+              "provenance": { "request_id": "1" }
+            }
+          ],
+          "through": 1
+        }
+      }
+    }
+  ]
+}

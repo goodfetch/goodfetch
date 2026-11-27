@@ -14,9 +14,12 @@ from goodfetch_collie_client.generated.open_values import (
     CancelledBy,
     Claim,
     ClosedValue,
+    ListEnded,
     ModelUnavailableReason,
     NotAddedReason,
+    NotificationEvent,
     ReportedHookStage,
+    ScheduleCapKind,
     ScheduleState,
     TriggerInvalidReason,
     Verdict,
@@ -679,6 +682,20 @@ class CpuReading(BaseModel):
     """The Tokio workers' busy time since the last sample, in percent."""
 
 
+class CronTrigger(BaseModel):
+    """
+    A cron expression: five fields (minute, hour, day of month, month, day
+    of week) plus optional seconds first, `L`, `W`, `#` and the
+    `@daily`-style macros (ADR 0036).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cron: str
+    """The cron expression, such as `0 9 * * MON-FRI` or `@daily`."""
+
+
 class DaemonDrainingDetails(BaseModel):
     """What `daemon_draining` details."""
 
@@ -738,6 +755,16 @@ class DaemonUnreachableDetails(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class Declared1(RootModel[int]):
+    root: Annotated[int, Field(ge=0)]
+    """This many."""
+
+
+class Declared(RootModel[Declared1 | Literal["unknown"]]):
+    root: Declared1 | Literal["unknown"]
+    """The rows a list declares: a count, or `unknown` for `-1`."""
 
 
 class DetachUnsupportedDetails(BaseModel):
@@ -1893,6 +1920,14 @@ class ListenerEventsLostDetails(BaseModel):
     """How many of its events the listener lost."""
 
 
+class LiveViewViewerLimitDetails(BaseModel):
+    """What `live_view_viewer_limit` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class LoadState(StrEnum):
     """A state the page's document reaches (Playwright's `LoadState`)."""
 
@@ -2960,6 +2995,25 @@ class PressureSource(StrEnum):
     """The engine's CPU time, against its CPU allowance."""
     tokio = "tokio"
     """The Tokio workers' busy time."""
+
+
+class PreviewOccurrence(BaseModel):
+    """
+    One previewed Occurrence of a trigger: its UTC instant and its local
+    civil date-time with offset in the preview's IANA time zone.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    at: PointInTime
+    """When the Occurrence falls, as a UTC instant."""
+    local: str
+    """
+    The same instant written in the preview's IANA time zone with its
+    offset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.
+    """
 
 
 class PrivateEndpoint(BaseModel):
@@ -4112,6 +4166,28 @@ class SandboxEnvironment(StrEnum):
     """
 
 
+class ScheduleCapExceededDetails(BaseModel):
+    """
+    What `schedule_cap_exceeded` details: which Operator policy cap was
+    exceeded and which Operator policy setting (and version, when present)
+    imposed it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    cap: ScheduleCapKind
+    """Which cap was exceeded: `count`, `min_interval` or `period_limit`."""
+    policy: str
+    """
+    The Operator policy key that set the cap (`schedule.max_count`,
+    `schedule.min_interval` or `schedule.limits_max`).
+    """
+    policy_version: str | None = None
+    """The Operator policy's version, when the policy carries one."""
+
+
 class ScheduleDeleted(BaseModel):
     """What `schedule.delete` answers."""
 
@@ -4168,6 +4244,25 @@ class ScheduleParams(BaseModel):
     """
 
 
+class SchedulePeriodLimits(BaseModel):
+    """
+    Period Limits on a Schedule, or Operator policy caps on them
+    (`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage
+    across the Schedule's runs per `day`, `week` or `month` in the
+    Schedule's time zone.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: list[RunLimit] | None = None
+    """Limits per day, counted in the Schedule's time zone."""
+    month: list[RunLimit] | None = None
+    """Limits per month, counted in the Schedule's time zone."""
+    week: list[RunLimit] | None = None
+    """Limits per week, counted in the Schedule's time zone."""
+
+
 class ScheduleTarget(RootModel[RecipeTarget | RunTarget]):
     root: RecipeTarget | RunTarget
     """
@@ -4178,8 +4273,8 @@ class ScheduleTarget(RootModel[RecipeTarget | RunTarget]):
     """
 
 
-class ScheduleTrigger(RootModel[EveryTrigger]):
-    root: EveryTrigger
+class ScheduleTrigger(RootModel[CronTrigger | EveryTrigger]):
+    root: CronTrigger | EveryTrigger
     """When a Schedule's occurrences fall (ADR 0036)."""
 
 
@@ -4233,6 +4328,28 @@ class SchemaValidatorFailedDetails(BaseModel):
     """
     schema_: Annotated[str | None, Field(alias="schema")] = None
     """The schema's JSON Schema `title`, or none when it has none."""
+
+
+class ScrollCollected(BaseModel):
+    """
+    What `locator.scroll_collect` answers (#807): the rows, how the
+    collection ended and what the list declares, so a short read is never
+    silent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    declared: Declared | None = None
+    """
+    The rows the list declares through `aria-rowcount` or its items'
+    `aria-setsize`; `null` when it declares none.
+    """
+    ended: ListEnded
+    """How it ended."""
+    rows: list[Any]
+    """Each new key's value, in the order its key was first seen."""
 
 
 class SecretDomainNotAllowedDetails(BaseModel):
@@ -5057,6 +5174,60 @@ class StorageLevel(StrEnum):
     """
 
 
+class StructuredTriggerDescription1(BaseModel):
+    """A fixed-interval trigger: every `every` milliseconds from `anchor`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    anchor: PointInTime | None = None
+    """The anchor instant, when the trigger names one."""
+    every: Annotated[int, Field(ge=0)]
+    """The interval, in milliseconds."""
+    kind: Literal["every"]
+
+
+class StructuredTriggerDescription2(BaseModel):
+    """A cron expression, split into its normalized fields and DST class."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    day_of_month: str
+    """The day-of-month field."""
+    day_of_week: str
+    """The day-of-week field."""
+    expression: str
+    """The expression as given."""
+    fixed_time: bool
+    """
+    Whether DST treats this expression as fixed-time (runs once
+    after a spring gap and once in an autumn overlap) rather than
+    wildcard or step (skips a gap and runs on both passes of an
+    overlap).
+    """
+    hours: str
+    """The hours field."""
+    kind: Literal["cron"]
+    minutes: str
+    """The minutes field."""
+    month: str
+    """The month field."""
+    seconds: str | None = None
+    """The seconds field, when the expression named one."""
+
+
+class StructuredTriggerDescription(
+    RootModel[StructuredTriggerDescription1 | StructuredTriggerDescription2]
+):
+    root: StructuredTriggerDescription1 | StructuredTriggerDescription2
+    """
+    The structured form of a trigger's plain-words description, which a
+    Client translates into its own locale (ADR 0073).
+    """
+
+
 class SubscriptionEnded(BaseModel):
     """
     What `events.subscribe` answers when its subscription ends without the
@@ -5102,6 +5273,12 @@ class Surface(StrEnum):
     """
     worker = "worker"
     """A Script sandbox worker."""
+    http_listener = "http_listener"
+    """
+    A plain HTTP client calling the Daemon's HTTP JSON-RPC listener
+    (`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it
+    is never a person surface.
+    """
 
 
 class Table(BaseModel):
@@ -5165,6 +5342,28 @@ class TargetNotUniqueDetails(BaseModel):
     """How long the action waited, in milliseconds."""
     matches: list[TargetMatch]
     """Every element it matched at the last observation."""
+
+
+class ThinNotification(BaseModel):
+    """
+    A thin Notification: its IDs and link only, which an Integration reads
+    the rest from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    event_id: str
+    """
+    The event's ID, the same on every delivery of it and the
+    `webhook-id` header's value.
+    """
+    link: str | None = None
+    """Where a person acts on it, such as the Run's page, if anywhere."""
+    run_id: RunId | None = None
+    """The Run it concerns, if any."""
+    schedule_id: ScheduleId | None = None
+    """The Schedule it concerns, if any."""
 
 
 class TierChosen(StrEnum):
@@ -5251,6 +5450,25 @@ class TooManyRedirectsDetails(BaseModel):
     """The URL each redirect followed led to, in order."""
     limit: RedirectLimit
     """The count it went past, and what set it."""
+
+
+class TriggerDescription(BaseModel):
+    """
+    The plain-words description of a trigger (ADR 0073): a structured form
+    a Client can render in its own locale, and the engine's English
+    rendering.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    english: str
+    """
+    The trigger in plain English, such as `Every 15 minutes` or
+    `At 09:00, Monday through Friday`.
+    """
+    structured: StructuredTriggerDescription
+    """The structured form of the trigger, for a Client's own translation."""
 
 
 class UncertainEffect(BaseModel):
@@ -5717,6 +5935,25 @@ class WebSocketFrame(BaseModel):
     """Its payload: its text, or for a binary frame its bytes in Base64."""
     web_socket_id: str
     """The socket."""
+
+
+class WebhookInvalidReason(StrEnum):
+    """Why a call is no verified delivery."""
+
+    signature = "signature"
+    """No signature of `webhook-signature` matches a secret given."""
+    timestamp = "timestamp"
+    """
+    `webhook-timestamp` is no whole number of seconds, or more than 5
+    minutes from now: a delayed or replayed call.
+    """
+    malformed = "malformed"
+    """The body is no Notification payload of a major the SDK reads."""
+    missing_header = "missing_header"
+    """
+    `webhook-id`, `webhook-timestamp` or `webhook-signature` is
+    missing.
+    """
 
 
 class World(StrEnum):
@@ -6305,6 +6542,11 @@ class DaemonState(BaseModel):
     allocator keeps once they are freed; none where nothing counts
     them.
     """
+    http_listener: str | None = None
+    """
+    Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none
+    while `http_listener.enabled` is off (ADR 0027).
+    """
     idle_timeout: Annotated[int, Field(ge=0)]
     """Its `daemon.idle_timeout`, in milliseconds."""
     kept_alive: bool
@@ -6314,6 +6556,11 @@ class DaemonState(BaseModel):
     """
     live_runs: Annotated[int, Field(ge=0)]
     """How many of its Runs are live."""
+    live_view: str | None = None
+    """
+    Where a Live view channel opens, the WebSocket's `host:port`; none
+    where it accepts none, as with `live_view.enabled` off.
+    """
     pid: Annotated[int, Field(ge=0)]
     """Its process ID."""
     product: Product
@@ -6707,6 +6954,34 @@ class FileWriteFailedDetails(BaseModel):
     """Whose storage failed."""
 
 
+class FullNotification(BaseModel):
+    """The whole Notification."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    event: NotificationEvent
+    """What happened."""
+    event_id: str
+    """
+    The event's ID, the same on every delivery of it and the
+    `webhook-id` header's value.
+    """
+    link: str | None = None
+    """Where a person acts on it, such as the Run's page, if anywhere."""
+    product: Product
+    """The Product whose engine sent it."""
+    run_id: RunId | None = None
+    """The Run it concerns, if any."""
+    schedule_id: ScheduleId | None = None
+    """The Schedule it concerns, if any."""
+    text: str
+    """Its text."""
+    title: str
+    """Its one-line title."""
+
+
 class GotoParams(BaseModel):
     """
     What `page.goto` takes: the page, the URL it goes to, and when it
@@ -7017,6 +7292,54 @@ class LocatorEvaluateAllParams(BaseModel):
     """The locator, whose every match the function takes first."""
     world: World | None = None
     """Where it runs; the main world when absent."""
+
+
+class LocatorScrollCollectParams(BaseModel):
+    """
+    What `locator.scroll_collect` takes (#807): the locator, the page
+    function reading each match, its argument and world, and when the
+    collection ends.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source, called with each matched
+    element and `arg`: it answers the row's `{ key, value }`, `key` a
+    string, or `null` to skip the element.
+    """
+    idle_steps: Annotated[int | None, Field(ge=0)] = None
+    """
+    The steps in a row without a new key at which it ends
+    `end_of_list`, at least 1; 3 when absent.
+    """
+    locator: Locator
+    """
+    The locator, whose every match the function reads, resolved again
+    at each step.
+    """
+    max_rows: Annotated[int | None, Field(ge=0)] = None
+    """
+    The rows at which the collection ends `max_rows`, at least 1;
+    10,000 when absent.
+    """
+    step_wait: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long a step waits for an element with a new key after its
+    scroll, in milliseconds, at least 1; 2,000 when absent.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the whole collection may take, in milliseconds, at least
+    1: absent for `timeout.wait`, `null` for none, though an enclosing
+    timeout still applies (ADR 0080).
+    """
+    world: World | None = None
+    """Where it runs; the isolated world when absent."""
 
 
 class LocatorWaitForFunctionParams(BaseModel):
@@ -7449,6 +7772,40 @@ class NothingDone2(BaseModel):
 class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
     root: NothingDone1 | NothingDone2 | NothingDone3
     """Why a call that ends a Run did nothing (ADR 0102's G1)."""
+
+
+class NotificationData(RootModel[FullNotification | ThinNotification]):
+    root: FullNotification | ThinNotification
+    """What a delivery's `data` holds."""
+
+
+class NotificationPayload(BaseModel):
+    """
+    A `webhook` channel's delivery: the Standard Webhooks envelope around
+    one Notification.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    data: NotificationData
+    """
+    The Notification, whole or thin as the channel's `webhook.payload`
+    says.
+    """
+    format: ProtocolVersion
+    """
+    The body's `major.minor` version: a receiver reads every minor of
+    its major.
+    """
+    timestamp: PointInTime
+    """When the Notification's event happened, in RFC 3339, UTC."""
+    type: str
+    """
+    `notification.` and the Notification's event, such as
+    `notification.run_failed`.
+    """
 
 
 class PageBodyParams(BaseModel):
@@ -8205,6 +8562,16 @@ class ScheduleDefinition(BaseModel):
     )
     id: ScheduleId | None = None
     """Its ID; one is made when absent: `s` and a lowercase ULID."""
+    limits: SchedulePeriodLimits | None = None
+    """
+    The Schedule's period Limits (`day`, `week`, `month`), counted in
+    its time zone and bounded by Operator policy's `schedule.limits_max`.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    The Schedule's own `schedule.*` settings, nested by key, layered
+    above user configuration and held to Operator policy locks and caps.
+    """
     target: ScheduleTarget
     """What it starts."""
     time_zone: str | None = None
@@ -8252,8 +8619,12 @@ class ScheduleInfo(BaseModel):
     """When it was created."""
     creator: str
     """The person who created it, for whom its occurrences fire."""
+    limits: SchedulePeriodLimits | None = None
+    """The Schedule's period Limits, when the definition set any."""
     schedule_id: ScheduleId
     """Its ID."""
+    settings: dict[str, Any] | None = None
+    """The Schedule's own `schedule.*` settings, when the definition set any."""
     state: ScheduleState
     """Whether it fires."""
     target: ScheduleTarget
@@ -8274,6 +8645,53 @@ class ScheduleList(BaseModel):
     )
     schedules: list[ScheduleInfo]
     """Every Schedule of the store, by ID."""
+
+
+class SchedulePreview(BaseModel):
+    """What `schedule.preview` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    description: TriggerDescription
+    """The plain-words description of the trigger."""
+    occurrences: list[PreviewOccurrence]
+    """The next occurrences strictly after `after` (or now), in order."""
+    time_zone: str
+    """The IANA time zone used."""
+
+
+class SchedulePreviewParams(BaseModel):
+    """
+    What `schedule.preview` takes: a trigger, an optional IANA time zone
+    (the Daemon host's when absent), an optional instant after which
+    occurrences are listed (now when absent) and how many to list (5 when
+    absent, at most 100).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    after: PointInTime | None = None
+    """
+    The instant strictly after which occurrences are listed; now when
+    absent.
+    """
+    count: Annotated[int | None, Field(ge=0)] = None
+    """How many occurrences to list; 5 when absent, at most 100."""
+    time_zone: str | None = None
+    """
+    The IANA time zone, such as `Europe/Paris`; the Daemon host's when
+    absent, never "local".
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the call may take, in milliseconds, at least 1: absent for
+    `timeout.wait`, `null` for none (ADR 0080).
+    """
+    trigger: ScheduleTrigger
+    """The trigger to preview."""
 
 
 class SecretInputRefusedDetails(BaseModel):
@@ -8775,6 +9193,16 @@ class WaitForFunctionParams(BaseModel):
     """
     world: World | None = None
     """Where it runs; the main world when absent."""
+
+
+class WebhookInvalidDetails(BaseModel):
+    """What `webhook_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: WebhookInvalidReason
+    """Why the call was refused."""
 
 
 class AppliedLimit(BaseModel):

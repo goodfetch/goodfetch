@@ -80,6 +80,7 @@ pub(crate) fn events(combination: &str) -> Result<KeyPress, UnknownKey> {
             modifier,
             bits,
             None,
+            None,
         ));
     }
     // A shortcut types nothing, as a keyboard's does.
@@ -96,13 +97,48 @@ pub(crate) fn events(combination: &str) -> Result<KeyPress, UnknownKey> {
     } else {
         DispatchKeyEventType::RawKeyDown
     };
-    sent.push(event(down, &pressed, bits, text));
-    sent.push(event(DispatchKeyEventType::KeyUp, &pressed, bits, None));
+    let commands = editing_command(bits, &pressed).map(|command| vec![command.to_owned()]);
+    sent.push(event(down, &pressed, bits, text, commands));
+    sent.push(event(
+        DispatchKeyEventType::KeyUp,
+        &pressed,
+        bits,
+        None,
+        None,
+    ));
     for modifier in held.iter().rev() {
         bits &= !bit(&modifier.key);
-        sent.push(event(DispatchKeyEventType::KeyUp, modifier, bits, None));
+        sent.push(event(
+            DispatchKeyEventType::KeyUp,
+            modifier,
+            bits,
+            None,
+            None,
+        ));
     }
     Ok(KeyPress(sent))
+}
+
+/// Blink editing command for a primary-modifier shortcut (`Control` on
+/// Linux/Windows, `Meta` on macOS) so `ControlOrMeta+a/c/v/x` invoke the
+/// browser's native selection and clipboard actions reliably in headless
+/// Chromium (ticket #3290).
+fn editing_command(modifiers: i64, pressed: &Definition) -> Option<&'static str> {
+    let primary = if cfg!(target_os = "macos") {
+        bit("Meta")
+    } else {
+        bit("Control")
+    };
+    if modifiers != primary {
+        return None;
+    }
+    match pressed.code.as_str() {
+        "KeyA" => Some("selectAll"),
+        "KeyC" => Some("copy"),
+        "KeyV" => Some("paste"),
+        "KeyX" => Some("cut"),
+        _ => None,
+    }
 }
 
 /// A modifier by name; `ControlOrMeta` is Meta on macOS, Control elsewhere.
@@ -164,6 +200,7 @@ fn event(
     key: &Definition,
     modifiers: i64,
     text: Option<String>,
+    commands: Option<Vec<String>>,
 ) -> DispatchKeyEventParams {
     DispatchKeyEventParams {
         r#type: kind,
@@ -180,7 +217,7 @@ fn event(
         is_keypad: None,
         is_system_key: None,
         location: None,
-        commands: None,
+        commands,
     }
 }
 

@@ -176,6 +176,7 @@ mod in_memory_crawl;
 mod journeys;
 mod kept_responses;
 mod kept_tree;
+mod key_value_batches;
 mod label_pools;
 mod learned_rules;
 // Lightpanda pins no Windows build, so Windows cannot take the tier.

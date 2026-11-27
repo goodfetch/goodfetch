@@ -7,24 +7,16 @@
 # `just codegen` writes on that merge and a conflict only in codegen's
 # folders settled (its note of 2026-11-26), it runs one gate and merges only
 # when it passes.
-# Which gate (ADR 0135's amendment of 2026-11-10, the owner's decision for
-# the refactor: quick per merge, the full gate once per finished spec; its
-# note of 2026-11-13: a spec is finished by the pull request that leaves none
-# of its sub-issues open; and its note of 2026-11-14, the owner's rule « FULL
-# GATE seulement en fermant une spec entière »: nothing else takes the full
-# gate):
-#   - `just pre-merge docs` when `xtask affected` finds the change is
-#     documents alone (`gate=docs`);
-#   - `just pre-merge quick` when it finds that no test, benchmark, model,
-#     container or Evaluation reads the change (`gate=quick`);
-#   - for a change a test reads (`gate=full`), `just pre-merge all`, which
-#     starts with `just quick all`'s lint and runs the Quick suite's tests in
-#     its Pre-merge suite, on the pull request
-#     that finishes a spec: its head branch is `spec/<n>`
-#     (docs/agents/issue-tracker.md), and spec issue #<n> has no open
-#     sub-issue once the issues the pull request closes are closed, as one
-#     GitHub query reads them; `just pre-merge quick` on every other pull
-#     request, an unfinished spec's included.
+# Which gate (ADR 0135's note of 2026-11-26: the full gate only when the
+# owner asks for it):
+#   - `just pre-merge all`, the full gate, which starts with `just quick
+#     all`'s lint and runs the Quick suite's tests in its Pre-merge suite,
+#     only when the owner passes `--full`, whatever the change;
+#   - otherwise `just pre-merge docs` when `xtask affected` finds the change
+#     is documents alone (`gate=docs`), and `just pre-merge quick` for every
+#     other change (`gate=quick` or `gate=full`), a spec's last pull request
+#     included. No branch name and no count of merges or of a spec's open
+#     sub-issues picks the full gate.
 # Every gate runs all its units on the gate host: it reads no hosted run of
 # the pull-request workflow (ADR 0135's note of 2026-11-25).
 # The gate's log and the merge's message name the gate that ran and why, and
@@ -48,7 +40,7 @@
 # the lock.
 set -euo pipefail
 
-usage="usage: ci/merge-pr.sh <pull request number> [--past-cap]"
+usage="usage: ci/merge-pr.sh <pull request number> [--past-cap] [--full]"
 # Only the command itself passes this, to start the gate: what names the
 # gate's files, `<run>.log` and `<run>.status`.
 run=""
@@ -58,13 +50,16 @@ if [[ ${1:-} == --detached ]]; then
 fi
 number=${1:?$usage}
 shift
-# The options as given, which the gate started below takes too: `--past-cap`,
-# the owner's way past the merge cap, the only one.
+# The options as given, which the gate started below takes too, both the
+# owner's alone: `--past-cap`, the way past the merge cap, and `--full`, the
+# request for the full gate.
 options=("$@")
 cap=()
+full=""
 for option in ${options[@]+"${options[@]}"}; do
   case $option in
     --past-cap) cap=(--past-cap) ;;
+    --full) full=1 ;;
     *)
       echo "error: $usage" >&2
       exit 2
@@ -516,42 +511,19 @@ case $affected in
     ;;
 esac
 # Which gate runs, and why, as the log and the merge's message say it. The
-# full gate runs only once per finished spec, on the pull request of its
-# integration branch `spec/<n>` that leaves none of the spec's sub-issues
-# open; every other change a test reads merges on the quick gate, a spec's
-# pull request that leaves sub-issues open included (the owner's decision of
-# 2026-11-10 for the refactor, rule of 2026-11-13 on the finished spec and
-# rule of 2026-11-14, « FULL GATE seulement en fermant une spec entière »,
-# which ended the full gate of the tenth change a test reads, of `--full` and
-# of the pull request that pins the reference build, ADR 0135).
+# full gate runs only when the owner passes `--full`; every other change a
+# test reads merges on the quick gate, a spec's last pull request included
+# (the owner's rule of 2026-11-26, « full gates seulement sur ma demande »,
+# which ended the full gate of the pull request that finishes a spec, ADR
+# 0135). A full gate's reason names `--full`, so a full gate nobody asked
+# for shows in its log.
 #
 # How a merge's message opens: `xtask gate compare` and the test-health run
 # find a full gate's merge by these words followed by `just pre-merge all`.
 merged_on="Merged on the local gate: "
-why_full=""
-not_finished=""
-if [[ $affected == full && $branch =~ ^spec/[0-9]+$ ]]; then
-  # How many of the spec's sub-issues stay open once this pull request's
-  # closing issues are closed, as the hosted tier's plan asks it too. An
-  # answer that cannot be read is refused: taken for none left, it would
-  # run a full gate on an unfinished spec; taken for some, it would skip a
-  # finished spec's.
-  spec=${branch#spec/}
-  if ! left_open=$("$here/spec-sub-issues.sh" "$spec" "$number") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
-    echo "error: the sub-issues of spec #$spec that stay open after pull request #$number could not be read from GitHub (the query read \"${left_open:-}\", which is no whole number), so nothing says whether it finishes the spec; run the command again" >&2
-    exit 1
-  fi
-  if ((left_open == 0)); then
-    why_full="the pull request that finishes spec #$spec, from \`$branch\`"
-  elif ((left_open == 1)); then
-    not_finished="spec #$spec is not finished: 1 sub-issue stays open after this pull request"
-  else
-    not_finished="spec #$spec is not finished: $left_open sub-issues stay open after this pull request"
-  fi
-fi
-if [[ -n $why_full ]]; then
+if [[ -n $full ]]; then
   gate=all
-  ran="\`just pre-merge all\` ($why_full), which starts with \`just quick all\`'s lint and runs the Quick suite's tests in its Pre-merge suite,"
+  ran="\`just pre-merge all\` (the owner asked for it with \`--full\`), which starts with \`just quick all\`'s lint and runs the Quick suite's tests in its Pre-merge suite,"
   # `just stress`, after the whole Pre-merge suite, refuses a selected
   # `lazyfs::` test without a LazyFS build (xtask's `repeat`). Which tests it
   # selects takes a build to find, so every full gate on Linux, the one system
@@ -568,7 +540,7 @@ elif [[ $affected == quick ]]; then
   ran="\`just pre-merge quick\` (no test, benchmark, model, container or Evaluation reads the change)"
 else
   gate=quick
-  ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs only once per finished spec, on the pull request of its \`spec/<n>\` branch that leaves none of its sub-issues open;${not_finished:+ $not_finished;} the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
+  ran="\`just pre-merge quick\` (a test reads the change, and the full gate runs only when the owner asks for it with \`--full\`; the Pre-merge suite, perf, the stress run, the visual tests, the Linux-only tests and the full gate's other steps did not run)"
 fi
 echo "The gate is ${ran%,}"
 # The gate runs every unit itself: it neither waits for, nor reads, nor
@@ -618,16 +590,19 @@ if ((status != 0)); then
   keep_failed_gate
   exit "$status"
 fi
-# The incremental gate's verdict combines this run with the green results it
-# reused from earlier runs on ancestor heads (ADR 0135); the full gate's plan
-# names the nearest such run. A gate that ran on a dirty tree leaves no plan,
-# and so reused nothing.
-plan_file="$(cd "$worktree" && "$here/gate-records.sh")/$head.plan"
-if [[ $gate == all && -f $plan_file ]]; then
-  plan=$(cat "$plan_file")
-  reused=$(output_value previous "$plan")
-  if [[ $reused != none ]]; then
-    ran+=" reusing the green results of the gate run on $reused for the steps the change since did not reach (ADR 0135),"
+# Before merging, verify the signed verdict of `head` (ADR 0135): every unit
+# of every required step holds a signed green result on `head` or reused from
+# an earlier signed run on an ancestor with that ancestor's tree. The merge
+# commit names every earlier run it reused, not only the nearest.
+if [[ $gate == all || $gate == quick ]]; then
+  if ! verdict=$(cd "$worktree" && just _gate-verify "$gate" "$head"); then
+    echo "error: the gate's verdict of $head did not hold; refusing to merge" >&2
+    keep_failed_gate
+    exit 1
+  fi
+  origins=$(awk -F'\t' '$1 == "origin" { print $2 }' <<<"$verdict" | paste -sd, - | sed 's/,/, /g')
+  if [[ -n $origins ]]; then
+    ran+=" reusing the green results of the gate runs on $origins for the steps the change since did not reach (ADR 0135),"
   fi
 fi
 

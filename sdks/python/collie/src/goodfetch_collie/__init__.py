@@ -22,7 +22,10 @@ JSON values and the schema written by hand of ADR 0082 (`JSONValue`,
 `AIWorkResult`, matched on `Finished` and `Stopped`, whose
 `require_verified()` raises `NotVerifiedError`, and `ExperimentalWarning`,
 the category of an Experimental member's warning (ADR 0030), which a
-program's filter names, all of which this package re-exports;
+program's filter names, and `verify_webhook`, which checks a `webhook`
+channel's delivery and reads its `NotificationPayload`, raising
+`WebhookInvalidError` for a call that is none, all of which this package
+re-exports;
 `goodfetch_foxhound` holds Foxhound's.
 `goodfetch_collie.testing` opens a Connection over a transport a test holds.
 
@@ -100,6 +103,7 @@ from goodfetch_collie_client.generated.errors import (
     LimitReachedError,
     ListenerEventsLostError,
     ListenerFailedError,
+    LiveViewViewerLimitError,
     LocalAddressUnavailableError,
     LoggedOutError,
     ModelError,
@@ -159,6 +163,7 @@ from goodfetch_collie_client.generated.errors import (
     RunStateUnavailableError,
     RunTargetUnbuiltError,
     SampleRefusedError,
+    ScheduleCapExceededError,
     ScheduleExistsError,
     ScheduleNotFoundError,
     ScheduleTriggerInvalidError,
@@ -181,9 +186,11 @@ from goodfetch_collie_client.generated.errors import (
     UnavailableError,
     UpgradeSourceUnsupportedError,
     ValueInvalidError,
+    WebhookInvalidError,
 )
 from goodfetch_collie_client.generated.models import (
     ExplainedSetting,
+    NotificationPayload,
     Product,
     Recording,
     RecordingMode,
@@ -193,6 +200,7 @@ from goodfetch_collie_client.generated.models import (
     RunStarted,
     ScheduleDefinition,
     ScheduleInfo,
+    SchedulePreview,
     ScheduleWarning,
     SettingsExplanation,
     SettingsFile,
@@ -233,6 +241,7 @@ from goodfetch_collie_client.schedules import (
 )
 from goodfetch_collie_client.schema import JSONSchema
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
+from goodfetch_collie_client.webhook import verify_webhook
 
 from goodfetch_collie.collie import AsyncCollie, Collie, Connecting
 
@@ -324,6 +333,7 @@ __all__ = [
     "Limits",
     "ListenerEventsLostError",
     "ListenerFailedError",
+    "LiveViewViewerLimitError",
     "LocalAddressUnavailableError",
     "LoggedOutError",
     "ModelError",
@@ -336,6 +346,7 @@ __all__ = [
     "NotADaemonError",
     "NotInProductError",
     "NotVerifiedError",
+    "NotificationPayload",
     "PageCheckFailedError",
     "PageCrashedError",
     "PageError",
@@ -401,10 +412,12 @@ __all__ = [
     "RunView",
     "SampleRefusedError",
     "Schedule",
+    "ScheduleCapExceededError",
     "ScheduleDefinition",
     "ScheduleExistsError",
     "ScheduleInfo",
     "ScheduleNotFoundError",
+    "SchedulePreview",
     "ScheduleTriggerInvalidError",
     "ScheduleWarning",
     "Schedules",
@@ -437,4 +450,6 @@ __all__ = [
     "UnavailableError",
     "UpgradeSourceUnsupportedError",
     "ValueInvalidError",
+    "WebhookInvalidError",
+    "verify_webhook",
 ]

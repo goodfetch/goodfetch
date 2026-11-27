@@ -11,8 +11,9 @@ use anyhow::{Context as _, Result, bail};
 
 use super::attribution::{Evidence, Judged, StressEvidence};
 use super::plan::{Layer, Outcome, unit};
+use super::runs::{self, Key};
 use super::steps::Step;
-use super::{Status, plan_list, plan_value, runs};
+use super::{Status, plan_list, plan_value};
 use crate::affected::{self, WorkspaceMembers};
 use crate::environment::Environment;
 use crate::{git, output};
@@ -21,6 +22,10 @@ use crate::{git, output};
 pub(crate) struct Arguments {
     #[arg(long)]
     records: PathBuf,
+    /// The host's gate key, which signs every record line; defaults to the
+    /// host's key outside every worktree.
+    #[arg(long)]
+    key: Option<PathBuf>,
     /// The head the plan was made for: HEAD must still be it.
     #[arg(long)]
     head: String,
@@ -62,6 +67,7 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<()>
     let root = environment.root.as_path();
     let Arguments {
         records,
+        key,
         head,
         by,
         now,
@@ -72,6 +78,7 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<()>
         red_commands,
         started,
     } = arguments;
+    let key = super::resolve_key(environment, key.as_deref(), true)?;
     let Some(step) = Step::from_name(&step) else {
         bail!("no gate step is named {step}");
     };
@@ -111,6 +118,7 @@ pub(crate) fn run(arguments: Arguments, environment: &Environment) -> Result<()>
     record_run(
         root,
         &environment.path(&records),
+        &key,
         &Recorded {
             head,
             by,
@@ -151,7 +159,7 @@ fn snapshot_holders(root: &Path, members: &WorkspaceMembers) -> Result<BTreeSet<
 /// for the units its plan ran. HEAD must still be that head and the tree
 /// clean, else the result holds for another tree: the plan is dropped, so
 /// nothing more is recorded, and the step fails.
-fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
+fn record_run(root: &Path, records: &Path, key: &Key, recorded: &Recorded) -> Result<()> {
     let Recorded {
         head,
         by,
@@ -228,13 +236,20 @@ fn record_run(root: &Path, records: &Path, recorded: &Recorded) -> Result<()> {
             .map(|member| {
                 let green = *status == Status::Pass || judged.passed.contains(member);
                 runs::line(
+                    head,
                     &unit(*step, Some(member)),
                     &outcome(Some(member.as_str()), green),
+                    key,
                 )
             })
             .collect()
     } else {
-        runs::line(&unit(*step, None), &outcome(None, *status == Status::Pass))
+        runs::line(
+            head,
+            &unit(*step, None),
+            &outcome(None, *status == Status::Pass),
+            key,
+        )
     };
     output::append(&runs::file(records, head), &text)?;
     if step.counts_passes() {

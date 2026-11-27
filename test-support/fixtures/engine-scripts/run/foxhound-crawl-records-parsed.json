@@ -1,0 +1,138 @@
+{
+  "description": "A Foxhound Client starts the two-page-type crawl as `nightly`, which the engine answers as a Run that already finished, `ended`, and reads its Dataset `products` after the Record numbered 1 under a typed schema: the engine streams the Record numbered 2, which holds a field the schema does not know, then the one numbered 3, whose price is no string; the program's parse refuses the latter, which ends the read, so the Client cancels the stream.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "log_level": "off"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": {
+            "listing": {},
+            "product": {}
+          },
+          "datasets": [
+            {
+              "name": "products",
+              "key": ["id"]
+            }
+          ],
+          "seeds": [
+            {
+              "url": "https://shop.test/a",
+              "label": "listing"
+            }
+          ],
+          "run_id": "nightly"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "nightly",
+          "lifecycle": "finished",
+          "needs": "foxhound",
+          "started_as": "ended"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.records",
+        "params": {
+          "run_id": "nightly",
+          "dataset": "products",
+          "after": 1
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/credit",
+        "params": {
+          "id": 2,
+          "credits": 64
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 2,
+            "record": {
+              "number": 2,
+              "value": {
+                "id": "P-0002",
+                "name": "Red kettle",
+                "price": "23.45",
+                "colour": "red"
+              },
+              "request_id": "2",
+              "url": "https://shop.test/products/P-0002",
+              "committed_at": "2026-01-01T00:00:00Z",
+              "provenance": {
+                "request_id": "2"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "send": {
+        "notification": {
+          "method": "$/record",
+          "params": {
+            "id": 2,
+            "record": {
+              "number": 3,
+              "value": {
+                "id": "P-0003",
+                "name": "Green kettle",
+                "price": 34.56
+              },
+              "request_id": "3",
+              "url": "https://shop.test/products/P-0003",
+              "committed_at": "2026-01-01T00:00:00Z",
+              "provenance": {
+                "request_id": "3"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "$/cancel",
+        "params": {
+          "id": 2
+        }
+      }
+    }
+  ]
+}

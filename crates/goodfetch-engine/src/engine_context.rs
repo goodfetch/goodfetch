@@ -62,6 +62,17 @@ pub(crate) fn os_user(environment: &BTreeMap<OsString, OsString>) -> String {
         .to_owned()
 }
 
+/// Whether the engine's environment map names a display server, X11's
+/// `DISPLAY` or Wayland's `WAYLAND_DISPLAY`, on which a headful browser
+/// shows its window.
+pub(crate) fn has_display(environment: &BTreeMap<OsString, OsString>) -> bool {
+    ["DISPLAY", "WAYLAND_DISPLAY"].into_iter().any(|name| {
+        environment
+            .get(OsStr::new(name))
+            .is_some_and(|value| !value.is_empty())
+    })
+}
+
 /// The host's time zone as an IANA name, read once from the engine's
 /// environment map as the C library reads `TZ` (with or without a leading
 /// `:`, UTC when empty), the system's when `TZ` is unset; UTC, with a
@@ -132,6 +143,8 @@ pub(crate) struct Host {
     pub(crate) person: String,
     /// The host's time zone ([`host_zone`]).
     pub(crate) zone: String,
+    /// Whether the host names a display server ([`has_display`]).
+    pub(crate) display: bool,
     /// The handlers' own stream of the engine's entropy.
     pub(crate) entropy: Entropy,
     /// The person's folders ([`places`]).
@@ -236,6 +249,7 @@ pub struct EngineContext {
 struct Held {
     person: String,
     zone: String,
+    display: bool,
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
@@ -273,6 +287,7 @@ impl EngineContext {
         let Host {
             person,
             zone,
+            display,
             entropy,
             places,
             daemon,
@@ -289,6 +304,7 @@ impl EngineContext {
             held: Arc::new(Held {
                 person,
                 zone,
+                display,
                 entropy: Mutex::new(entropy),
                 places: places.map(Arc::new),
                 daemon,
@@ -384,6 +400,12 @@ impl EngineContext {
     /// environment map ([`host_zone`]).
     pub fn host_zone(&self) -> &str {
         &self.held.zone
+    }
+
+    /// Whether the engine's environment map names a display server
+    /// ([`has_display`]), on which a headful browser shows its window.
+    pub fn host_has_display(&self) -> bool {
+        self.held.display
     }
 
     /// What forwards the calls the major's Daemon keeps to it; `None` on

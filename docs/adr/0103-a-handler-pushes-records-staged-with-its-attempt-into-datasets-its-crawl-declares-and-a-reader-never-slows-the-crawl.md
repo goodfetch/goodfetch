@@ -125,6 +125,7 @@ Decided in [Crawl output in code](https://github.com/goodfetch/goodfetch/issues/
 ### Reading Records
 
 - **The call.** `run.records(dataset, { after })` on a crawl's Run: `records(books, after=…)` in Python, and `records(&books)` or `records_after(&books, n)` in Rust. `rejected_records` and `rejected_records_after` follow the same form.
+  > Note (agent decision, as built), 2026-11-26, [#1487](https://github.com/goodfetch/goodfetch/issues/1487): Rust has no `records_after` or `rejected_records_after`. As [ADR 0099](0099-every-surface-spells-each-catalog-name-by-its-own-rule-shapes-come-from-declared-kinds-and-call-is-the-way-down.md) gives Rust's options, `records(&books)` and `rejected_records(&books)` return a lazy stream whose builder method `.after(n)` resumes the read; the blocking API's twins are iterators.
   - It is an iterator, subscribed when called (ADR 0081).
   - It yields `DatasetRecord<O>`: `number`, `value` (the schema's output type, built by its native parse, ADR 0082), `requestId`, `url` and `committedAt`. `Record` alone would shadow TypeScript's built-in `Record` type.
 - **Where it starts.** At the Dataset's first Record, or after `after`, which resumes a reader from the last number it handled (ADR 0008). Starting at the moment of the call would silently miss the Records committed before it (G1); Spider's `subscribe()` does.

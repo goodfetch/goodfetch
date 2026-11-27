@@ -1,0 +1,131 @@
+{
+  "description": "A Foxhound Client's hello, which the test puts in place of this one, accepted by the Daemon of its home, a Foxhound; a crawl started as the Run `broken`, which ended `failed`, so its finish and its stop fail with the error that failed it (ADR 0102), and the Connection's close aborts it, answered its report; the Client then closes.",
+  "steps": [
+    {
+      "expect": {
+        "method": "hello",
+        "params": {
+          "protocol_version": "0.1",
+          "surface": "sdk_typescript",
+          "form": "typescript",
+          "needs": "foxhound",
+          "product_version": "0.0.0",
+          "log_level": "off",
+          "token": "scripted-daemon-token"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "protocol_version": "0.1",
+          "product": "foxhound",
+          "product_version": "0.0.0",
+          "engine_instance": "0123456789abcdef"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "crawl.start",
+        "params": {
+          "labels": { "page": {} },
+          "datasets": [{ "name": "pages" }],
+          "seeds": [
+            { "url": "https://shop.test/book", "label": "page", "payload": { "depth": 0 } }
+          ],
+          "run_id": "broken"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "broken",
+          "lifecycle": "running",
+          "needs": "foxhound",
+          "started_as": "new"
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.finish",
+        "params": {
+          "run_id": "broken"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The browser did not start: it exited.",
+          "data": {
+            "code": "browser_launch_failed",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.stop",
+        "params": {
+          "run_id": "broken"
+        }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "The browser did not start: it exited.",
+          "data": {
+            "code": "browser_launch_failed",
+            "retryable": false
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.abort",
+        "params": {
+          "run_id": "broken"
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "broken",
+          "lifecycle": "failed",
+          "verdict": "needs_review",
+          "completeness": "incomplete",
+          "started_at": "2026-01-01T00:00:00Z",
+          "ended_at": "2026-01-01T00:00:01Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          },
+          "error": {
+            "code": "browser_launch_failed",
+            "message": "The browser did not start: it exited."
+          }
+        }
+      }
+    }
+  ]
+}

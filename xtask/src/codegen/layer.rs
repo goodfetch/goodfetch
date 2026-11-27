@@ -439,7 +439,8 @@ impl Layer {
 
     /// The layer of `product`'s package: Collie's entries for Collie's client
     /// package, with the types of the bundle's `connection` section, which
-    /// every engine speaks and the client package's runtime sends; Foxhound's
+    /// every engine speaks and the client package's runtime sends, and those
+    /// of the formats it reads itself, which Collie's projection holds; Foxhound's
     /// own for Foxhound's, which builds on it.
     pub(super) fn new(
         bundle: &Value,

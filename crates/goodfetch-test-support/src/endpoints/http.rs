@@ -10,8 +10,10 @@ use std::net::SocketAddr;
 use super::connection::{Connection, ListenerAddress, ListenerTls, is_closed, is_silent};
 use super::runner::Observed;
 
-/// A `GET` request.
+/// An HTTP/1.1 request.
 pub(super) struct Request<'a> {
+    /// The HTTP method (`GET` or `POST`).
+    pub(super) method: &'a str,
     /// The path, with its query string if any.
     pub(super) target: String,
     /// The `Host` header.
@@ -22,6 +24,10 @@ pub(super) struct Request<'a> {
     pub(super) origin: Option<&'a str>,
     /// The `Cookie` header, if any.
     pub(super) cookie: Option<&'a str>,
+    /// Additional headers, such as `Goodfetch-Protocol` on `POST /v1/rpc`.
+    pub(super) extra_headers: &'a [(&'a str, &'a str)],
+    /// The JSON request body, if any.
+    pub(super) body: Option<&'a str>,
 }
 
 /// Sends `request` to `address`, over `tls` if any, and reads its answer.
@@ -50,11 +56,26 @@ pub(super) fn attempt(
         .cookie
         .map(|cookie| format!("Cookie: {cookie}\r\n"))
         .unwrap_or_default();
-    let head = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\n{authorization}{origin}{cookie}Connection: close\r\n\r\n",
-        request.target, request.host
+    let mut extra = String::new();
+    for (name, value) in request.extra_headers {
+        use std::fmt::Write as _;
+        let _ = write!(extra, "{name}: {value}\r\n");
+    }
+    let (body_headers, body) = match request.body {
+        Some(body) => (
+            format!(
+                "Content-Type: application/json\r\nContent-Length: {}\r\n",
+                body.len()
+            ),
+            body,
+        ),
+        None => (String::new(), ""),
+    };
+    let wire = format!(
+        "{} {} HTTP/1.1\r\nHost: {}\r\n{authorization}{origin}{cookie}{extra}{body_headers}Connection: close\r\n\r\n{body}",
+        request.method, request.target, request.host
     );
-    if let Err(error) = connection.write_all(head.as_bytes()) {
+    if let Err(error) = connection.write_all(wire.as_bytes()) {
         return if is_closed(&error) {
             Observed::Closed
         } else {

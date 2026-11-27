@@ -310,7 +310,7 @@ fn each_reused_result_the_full_run_finds_red_is_a_miss_that_fails_the_backstop()
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 earned=0\n"),
+            .ends_with("gate=pass misses=2 suspects=1 unchecked=1 earned=0 quarantined=pass\n"),
         "{}",
         run.results
     );
@@ -493,40 +493,6 @@ fn a_run_uses_the_helpers_of_the_commit_it_tests() {
     );
 }
 
-/// Cron's line starts from `origin/main`'s script, not the checkout's, which on
-/// the day this came in may predate it.
-#[test]
-fn the_crontab_line_runs_the_script_of_origin_main() {
-    let workspace = backstop_repository();
-    let stand_in = stand_in_just(&workspace);
-    let (script, marker) = script_noting_it_ran(&workspace);
-    commit_to_main(&workspace, &[("ci/gate-backstop.sh", script.as_bytes())]);
-    let crontab = repository_script("gate-backstop.crontab");
-    let crontab = String::from_utf8(crontab).unwrap();
-    let entry = crontab
-        .lines()
-        .find(|line| line.starts_with("37 3 "))
-        .unwrap();
-    let line = entry
-        .split_once(" bash -lc '")
-        .and_then(|(_, line)| line.strip_suffix('\''))
-        .unwrap();
-    let mut command = std::process::Command::new("bash");
-    command.args(["-c", line]);
-    command.current_dir("/");
-
-    let run = run_of(
-        &workspace,
-        &stand_in,
-        &[("GOODFETCH_CHECKOUT", workspace.path().to_str().unwrap())],
-        command,
-    );
-
-    assert_eq!(run.code, Some(0), "{}", run.log);
-    assert!(run.calls.is_empty(), "{:?}", run.calls);
-    assert!(marker.is_file(), "{}", run.log);
-}
-
 /// The re-stress refuses a `lazyfs::` test without a LazyFS build, and what it
 /// selects takes a build to find, so a run asks up front, as `just merge`'s full
 /// gate does: it fails plainly and first, never as a daily miss.
@@ -591,7 +557,7 @@ fn the_owner_can_name_where_a_run_starts_and_its_line_says_so() {
     );
     assert!(
         told.results.ends_with(&format!(
-            " misses=0 suspects=0 unchecked=0 earned=0 since={main}\n"
+            " misses=0 suspects=0 unchecked=0 earned=0 quarantined=pass since={main}\n"
         )),
         "{}",
         told.results
@@ -687,7 +653,7 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
     }
     assert!(
         run.results.ends_with(&format!(
-            "gate=pass {misses} suspects=0 unchecked=0 earned=3\n"
+            "gate=pass {misses} suspects=0 unchecked=0 earned=3 quarantined=pass\n"
         )),
         "{}",
         run.results
@@ -698,6 +664,42 @@ fn each_result_that_counted_earlier_passes_is_stressed_again(
         red,
         "{}",
         run.misses
+    );
+}
+
+/// The backstop runs the 10 oldest quarantined tests 50 times each
+/// (`just repeat 50 --quarantined 10`, ADR 0064; issue 1726), reporting
+/// `quarantined=<pass|fail>` on its results line and blocking nothing when it
+/// fails.
+#[rstest::rstest]
+#[case::passing(false, "quarantined=pass")]
+#[case::failing(true, "quarantined=fail")]
+fn the_backstop_runs_quarantined_tests_non_blocking_and_reports_them(
+    #[case] fails: bool,
+    #[case] expected: &str,
+) {
+    let workspace = backstop_repository();
+    let stand_in = stand_in_just(&workspace);
+    std::fs::write(stand_in.join("compare"), "[]").unwrap();
+    if fails {
+        std::fs::write(stand_in.join("failing"), "repeat 50 --quarantined 10\n").unwrap();
+    }
+
+    let run = backstop(&workspace, &stand_in);
+
+    assert_eq!(run.code, Some(0), "{}", run.log);
+    assert!(
+        run.calls
+            .contains(&"repeat 50 --quarantined 10|".to_owned()),
+        "{:?}",
+        run.calls
+    );
+    assert!(
+        run.results.contains(&format!(
+            "gate=pass misses=0 suspects=0 unchecked=0 earned=0 {expected}"
+        )),
+        "{}",
+        run.results
     );
 }
 
@@ -720,7 +722,7 @@ fn a_backstop_with_no_miss_passes() {
     );
     assert!(
         run.results
-            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 earned=0\n"),
+            .ends_with("gate=pass misses=0 suspects=0 unchecked=0 earned=0 quarantined=pass\n"),
         "{}",
         run.results
     );

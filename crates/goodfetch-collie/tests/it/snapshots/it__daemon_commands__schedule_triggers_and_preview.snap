@@ -1,0 +1,60 @@
+---
+source: crates/goodfetch-collie/tests/it/daemon_commands.rs
+expression: text
+---
+$ schedule create --definition {"id":"weekday-prices","target":{"recipe":"shop-prices"},"trigger":{"cron":"0 9 * * MON-FRI"},"time_zone":"Europe/Paris"}
+exit: 0
+----- stdout -----
+{
+  "schedule_id": "weekday-prices",
+  "warnings": []
+}
+----- stderr -----
+
+$ schedule create --definition {"id":"anchored-prices","target":{"recipe":"shop-prices"},"trigger":{"every":900000,"anchor":"[INSTANT]"},"time_zone":"Europe/Paris"}
+exit: 0
+----- stdout -----
+{
+  "schedule_id": "anchored-prices",
+  "warnings": []
+}
+----- stderr -----
+
+$ schedule preview --trigger {"cron":"30 2 * * *"} --time-zone Europe/Paris --after [INSTANT] --count 2
+exit: 0
+----- stdout -----
+{
+  "description": {
+    "english": "At 02:30.",
+    "structured": {
+      "day_of_month": "*",
+      "day_of_week": "*",
+      "expression": "30 2 * * *",
+      "fixed_time": true,
+      "hours": "2",
+      "kind": "cron",
+      "minutes": "30",
+      "month": "*"
+    }
+  },
+  "occurrences": [
+    {
+      "at": "[INSTANT]",
+      "local": "[INSTANT][Europe/Paris]"
+    },
+    {
+      "at": "[INSTANT]",
+      "local": "[INSTANT][Europe/Paris]"
+    }
+  ],
+  "time_zone": "Europe/Paris"
+}
+----- stderr -----
+
+$ schedule preview --human --trigger {"cron":"30 2 * * *"}
+exit: 0
+----- stdout -----
+description: {"english":"At 02:30.","structured":{"day_of_month":"*","day_of_week":"*","expression":"30 2 * * *","fixed_time":true,"hours":"2","kind":"cron","minutes":"30","month":"*"}}
+occurrences: [{"at":"[INSTANT]","local":"[INSTANT][Europe/Paris]"},{"at":"[INSTANT]","local":"[INSTANT][Europe/Paris]"}]
+time_zone: Europe/Paris
+----- stderr -----

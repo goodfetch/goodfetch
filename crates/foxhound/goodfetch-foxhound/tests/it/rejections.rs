@@ -198,6 +198,112 @@ fn a_record_the_engine_rejects_enters_its_datasets_rejection_table_numbered_with
     );
 }
 
+/// With `through`, such as the `rejected` count `dataset.list` answers, a
+/// read of the rejection table reads no entry past it, and its page says
+/// `ended` once it reaches it, a live Run's included: a handler reads the
+/// entries committed before its attempt at once, where a read that followed
+/// would wait for a Run its own attempt keeps live (ADR 0103). A number past
+/// the last entry, as the count is after an erase, never makes it wait: its
+/// page ends at the last committed entry.
+///
+/// Covers: story:6-270, operation:run.rejected_records, operation:dataset.list
+#[test]
+fn a_read_through_a_number_ends_there_even_while_its_run_is_live() {
+    let env = TestEnv::new();
+    let site = Site::start(&env);
+    let mut engine = site.engine(&env);
+    let numbers = |page: &Value| -> Vec<Value> {
+        page["records"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["number"].clone())
+            .collect()
+    };
+    let mut live = Vec::new();
+
+    let report = crawl_from(
+        &mut engine,
+        &json!({
+            "labels": { "page": {} },
+            "run_id": "bounded",
+            "seeds": [
+                { "url": site.page("/a"), "label": "page" },
+                { "url": site.page("/b"), "label": "page" },
+            ],
+            "datasets": declared(),
+            // At `full` each answered request's rejection is committed as
+            // it ends: at `batch` a reader sees it only once its batch is
+            // written (ADR 0142).
+            "settings": { "run_state": { "durability": "full" } },
+        }),
+        &mut |inside, handle| {
+            let listed = inside.call("dataset.list", &json!({ "run_id": "bounded" }));
+            let committed = listed["result"]["datasets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|summary| summary["name"] == "notes")
+                .unwrap()["rejected"]
+                .clone();
+            let read = inside.call(
+                "run.rejected_records",
+                &json!({ "run_id": "bounded", "dataset": "notes", "through": committed }),
+            );
+            let beyond = committed.as_u64().unwrap() + 5;
+            let past_last = inside.call(
+                "run.rejected_records",
+                &json!({ "run_id": "bounded", "dataset": "notes", "through": beyond }),
+            );
+            live.push((
+                committed,
+                numbers(&read["result"]),
+                read["result"]["next"].clone(),
+                read["result"]["ended"].clone(),
+                numbers(&past_last["result"]),
+                past_last["result"]["ended"].clone(),
+            ));
+            push(inside, handle, "notes", &json!({ "n": 1 }));
+            json!({ "result": { "records": [] } })
+        },
+    );
+    let mut bounded = json!({ "run_id": "bounded", "dataset": "notes", "through": 1 });
+    let ended = engine.call("bounded", "run.rejected_records", &bounded, &mut |_| None);
+    bounded["after"] = json!(1);
+    let past = engine.call("past", "run.rejected_records", &bounded, &mut |_| None);
+    let all = rejected(&mut engine, "bounded", "notes", None);
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            live,
+            numbers(&ended["result"]),
+            (&ended["result"]["next"], &ended["result"]["ended"]),
+            &past["result"],
+            numbers(&all["result"]),
+        ),
+        (
+            &json!("finished"),
+            vec![
+                (json!(0), vec![], json!(0), json!(true), vec![], json!(true)),
+                (
+                    json!(1),
+                    vec![json!(1)],
+                    json!(1),
+                    json!(true),
+                    vec![json!(1)],
+                    json!(true),
+                ),
+            ],
+            vec![json!(1)],
+            (&json!(1), &json!(true)),
+            &json!({ "records": [], "next": 1, "ended": true }),
+            vec![json!(1), json!(2)],
+        )
+    );
+}
+
 /// The rejection table is read as a cursor: `after` resumes a reader after
 /// the last number it handled, and a page past the last entry of an ended
 /// Run is empty and says so. A rejection staged by an attempt that failed

@@ -307,6 +307,56 @@ form = "read"
 
 [[member]]
 crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "tags"
+entry = "none"
+reason = "Tags the Run, in place of any tags given before, as `Start::tags` does (ADR 0036)."
+only = "TypeScript's `startCrawl` takes them as its options' `tags`."
+words = ["tags"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "limits"
+entry = "none"
+reason = "Sets the Run's own `limits`, in place of any given before, as `Start::limits` does (ADRs 0080 and 0102)."
+only = "TypeScript's `startCrawl` takes them as its options' `limits`."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's own settings, in place of any given before, as `Start::settings` does; its Labels' own settings override them for their requests (ADRs 0083 and 0093)."
+only = "TypeScript's `startCrawl` takes them as its options' `settings`."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "StartCrawl"
+member = "detached"
+entry = "none"
+reason = "Starts a code-free crawl's Run detached, sent with `crawl.start`, so that on a Daemon it outlives the program (ADR 0102)."
+only = "TypeScript's `startCrawl` takes it as its options' `detached`."
+words = ["detached"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "CrawlTarget"
+entry = "none"
+reason = "The sealed trait of what `Foxhound::start_crawl` starts: a `&Crawl` the program handles, or a code-free `CrawlDeclaration` or `CrawlExtraction` the engine handles alone (ADR 0093)."
+only = "TypeScript's and Python's `startCrawl` take a `Crawl` or a `CodeFreeCrawl` union in its place."
+words = ["crawl", "target"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
 receiver = "(crate)"
 member = "Crawl"
 entry = "none"
@@ -420,11 +470,31 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "Seed"
+member = "named"
+entry = "none"
+reason = "A seed of `url` naming its Label by name, with no Payload, as a code-free crawl's seeds do (ADR 0093)."
+only = "TypeScript's and Python's `seed` take the Label's name in place of a Label."
+words = ["named"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
 member = "sitemap"
 entry = "none"
 reason = "A sitemap seed of `url`, whose rules give each entry the Label of the first that matches it, built with no round trip (ADRs 0093 and 0120)."
 only = "TypeScript builds a sitemap seed with its module's `sitemap` function."
 words = ["sitemap"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "Seed"
+member = "named_sitemap"
+entry = "none"
+reason = "A sitemap seed of `url` whose rules name their Labels by name, as a code-free crawl's sitemap seeds do (ADR 0093)."
+only = "TypeScript and Python write a sitemap seed as data, whose rules carry their Labels' names."
+words = ["named", "sitemap"]
 form = "read"
 
 [[member]]
@@ -593,6 +663,46 @@ member = "records"
 entry = "run.records"
 words = ["records"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "finish"
+entry = "run.finish"
+words = ["finish"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "stop"
+entry = "run.stop"
+words = ["stop"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "CrawlRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
 
 [[member]]
 crate = "goodfetch-foxhound"
@@ -790,6 +900,91 @@ member = "key_value_store"
 entry = "none"
 reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
 words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "records"
+entry = "none"
+reason = "Reads `run.records` through the last Record `dataset.page` answers as committed, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "AttemptRun"
+member = "rejected_records"
+entry = "none"
+reason = "Reads `run.rejected_records` through the last entry `dataset.list` counts, then ends: the Run cannot end while the handler holds its request (ADR 0103)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "DatasetRecord"
+entry = "none"
+reason = "A committed Record as a Run's `records` reads it: the wire's Record with its value of the Dataset's own type, parsed by its `Deserialize` (ADR 0103, G3)."
+words = ["dataset", "record"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ReadRecords"
+entry = "none"
+reason = "The builder `CrawlRun::records` and `AttemptRun::records` return, a stream that sends `run.records` once first polled (ADR 0099)."
+only = "TypeScript's `records` takes its options as an object, `RecordsOptions`, and Python's as keyword arguments."
+words = ["read", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last Record a reader handled, carried by `run.records`, with no round trip of its own."
+only = "TypeScript's `records` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRecords"
+member = "next"
+entry = "none"
+reason = "The next Record, or `None` once the read has ended; the first call sends the read."
+words = ["next"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "(crate)"
+member = "ReadRejectedRecords"
+entry = "none"
+reason = "The builder `CrawlRun::rejected_records` and `AttemptRun::rejected_records` return, a stream that reads `run.rejected_records` page after page once first polled (ADR 0099)."
+only = "TypeScript's `rejectedRecords` takes its options as an object, `RejectedRecordsOptions`, and Python's as keyword arguments."
+words = ["read", "rejected", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRejectedRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last entry a reader handled, carried by `run.rejected_records`, with no round trip of its own."
+only = "TypeScript's `rejectedRecords` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "ReadRejectedRecords"
+member = "next"
+entry = "none"
+reason = "The next entry, or `None` once the read has ended; the first call asks the first page."
+words = ["next"]
 form = "read"
 
 [[member]]
@@ -1048,6 +1243,46 @@ form = "read"
 [[member]]
 crate = "goodfetch-foxhound"
 receiver = "blocking::StartCrawl"
+member = "tags"
+entry = "none"
+reason = "Tags the Run, as `crate::StartCrawl::tags` does."
+only = "TypeScript's `startCrawl` takes them as its options' `tags`."
+words = ["tags"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
+member = "limits"
+entry = "none"
+reason = "Sets the Run's own Limits, as `crate::StartCrawl::limits` does."
+only = "TypeScript's `startCrawl` takes them as its options' `limits`."
+words = ["limits"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
+member = "settings"
+entry = "none"
+reason = "Sets the Run's own settings, as `crate::StartCrawl::settings` does."
+only = "TypeScript's `startCrawl` takes them as its options' `settings`."
+words = ["settings"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
+member = "detached"
+entry = "none"
+reason = "Starts a code-free crawl's Run detached, as `crate::StartCrawl::detached` does."
+only = "TypeScript's `startCrawl` takes it as its options' `detached`."
+words = ["detached"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::StartCrawl"
 member = "send"
 entry = "none"
 reason = "Sends `crawl.start` and blocks the calling thread until the crawl's Run is started."
@@ -1147,6 +1382,46 @@ member = "records"
 entry = "run.records"
 words = ["records"]
 form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "finish"
+entry = "run.finish"
+words = ["finish"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "stop"
+entry = "run.stop"
+words = ["stop"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::CrawlRun"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "round_trip"
 
 [[member]]
 crate = "goodfetch-foxhound"
@@ -1304,6 +1579,64 @@ member = "key_value_store"
 entry = "none"
 reason = "The Run's Key-value store bound to the attempt, whose methods serve the `key_value_store` operations, with no round trip."
 words = ["key", "value", "store"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "records"
+entry = "none"
+reason = "`AttemptRun::records` without async: reads `run.records` through the last Record `dataset.page` answers as committed, then ends (ADRs 0081, 0103)."
+words = ["records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::AttemptRun"
+member = "rejected_records"
+entry = "none"
+reason = "`AttemptRun::rejected_records` without async: reads `run.rejected_records` through the last entry `dataset.list` counts, then ends (ADRs 0081, 0103)."
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ReadRecords"
+entry = "none"
+reason = "`ReadRecords` without async: the builder `blocking::CrawlRun::records` and `blocking::AttemptRun::records` return, an iterator that sends `run.records` once first advanced (ADRs 0081, 0099)."
+only = "TypeScript's `records` takes its options as an object, `RecordsOptions`, and Python's as keyword arguments."
+words = ["read", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last Record a reader handled, carried by `run.records`, with no round trip of its own."
+only = "TypeScript's `records` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking"
+member = "ReadRejectedRecords"
+entry = "none"
+reason = "`ReadRejectedRecords` without async: the builder `blocking::CrawlRun::rejected_records` and `blocking::AttemptRun::rejected_records` return, an iterator that reads `run.rejected_records` page after page once first advanced (ADRs 0081, 0099)."
+only = "TypeScript's `rejectedRecords` takes its options as an object, `RejectedRecordsOptions`, and Python's as keyword arguments."
+words = ["read", "rejected", "records"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-foxhound"
+receiver = "blocking::ReadRejectedRecords"
+member = "after"
+entry = "none"
+reason = "The number of the last entry a reader handled, carried by `run.rejected_records`, with no round trip of its own."
+only = "TypeScript's `rejectedRecords` takes it as its options' `after`, and Python's as a keyword argument."
+words = ["after"]
 form = "read"
 
 [[member]]
@@ -1482,13 +1815,8 @@ entries = ["run.outcomes", "run.failed_requests", "run.retry_failed"]
 reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
 
 [[unreached]]
-entries = ["run.rejected_records"]
-reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
-
-[[unreached]]
 entries = ["crawl_request.enqueue_links_by_clicking_elements"]
 reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueue_links_by_clicking_elements` in area 11."
-
 [[target]]
 crate = "goodfetch-collie-client"
 name = "goodfetch::client"

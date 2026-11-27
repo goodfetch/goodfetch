@@ -8,9 +8,14 @@
 //! and the failure enum ([`failure`]) each channel's translation point
 //! maps its party's answers to. The channels fill it: [`webhook`] posts a
 //! signed Standard Webhooks delivery, [`email`] sends a two-part message
-//! through an SMTP server or Amazon SES, and [`plugin_channel`] hands the
-//! Notification to a channel Plugin or an SDK handler.
+//! through an SMTP server, Amazon SES or an email provider's HTTP API,
+//! [`chat`] posts to Slack, Microsoft Teams, Discord or Telegram, [`sns`]
+//! publishes to an Amazon SNS topic, and
+//! [`plugin_channel`] hands the Notification to a channel Plugin or an SDK
+//! handler. The channels reached over an HTTP API share [`api`].
 
+pub mod api;
+pub mod chat;
 pub mod driver;
 pub mod email;
 pub mod failure;
@@ -18,4 +23,5 @@ pub mod ledger;
 pub mod message;
 pub mod plugin_channel;
 pub mod rate_limit;
+pub mod sns;
 pub mod webhook;

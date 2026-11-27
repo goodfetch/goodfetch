@@ -70,6 +70,14 @@ impl ClientConnection {
         EventIter::new(self.0.stream(method, params, item), &self.0)
     }
 
+    /// The blocking face of `stream`, a stream on this Connection that a
+    /// Product builds of its own, such as Foxhound's Records read as their
+    /// Dataset's type: an iterator that blocks the calling thread until
+    /// its next item.
+    pub fn iter<T: Send + 'static>(&self, stream: crate::EventStream<T>) -> EventIter<T> {
+        EventIter::new(stream, &self.0)
+    }
+
     /// The raw call of `operation`, as
     /// [`crate::ClientConnection::raw_call`]'s, which `send()` sends.
     pub fn raw_call(&self, operation: &str) -> RawCall {
@@ -392,6 +400,21 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Call<T, P> {
     }
 }
 
+impl<P> Call<Answer<RunReport>, P> {
+    /// The call whose Run report is read into `R`, as
+    /// [`crate::Call::typed`].
+    ///
+    /// # Errors
+    ///
+    /// Once sent, as [`crate::Call::typed`].
+    pub fn typed<R: DeserializeOwned + Send + 'static>(self) -> Call<Answer<R>, P> {
+        Call {
+            call: self.call.typed(),
+            connection: self.connection,
+        }
+    }
+}
+
 /// A raw call of an operation, as [`crate::RawCall`], its params and its
 /// result the wire's JSON. Nothing is sent until [`RawCall::send`].
 #[must_use = "a call is sent only by send()"]
@@ -513,6 +536,21 @@ impl<T> EventIter<T> {
         Self {
             stream: Some(stream),
             connection: connection.clone(),
+        }
+    }
+}
+
+impl EventIter<Answer<RunProgress>> {
+    /// The iterator whose progress values are read into `R`, as
+    /// [`crate::EventStream::typed`].
+    ///
+    /// # Errors
+    ///
+    /// An item fails as [`crate::EventStream::typed`]'s does.
+    pub fn typed<R: DeserializeOwned + Send + Sync + 'static>(self) -> EventIter<Answer<R>> {
+        EventIter {
+            stream: self.stream.map(crate::EventStream::typed),
+            connection: self.connection,
         }
     }
 }

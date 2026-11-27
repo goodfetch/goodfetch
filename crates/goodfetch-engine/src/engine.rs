@@ -36,7 +36,9 @@ use crate::composition::{Composition, CompositionError};
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
-use crate::engine_context::{EngineContext, Host, Stores, ToTheDaemon, host_zone, os_user, places};
+use crate::engine_context::{
+    EngineContext, Host, Stores, ToTheDaemon, has_display, host_zone, os_user, places,
+};
 use crate::entropy::Entropy;
 use crate::events::{Events, EventsOptions};
 use crate::forward::{DaemonReach, ThroughTheReach, ToOwner};
@@ -134,6 +136,7 @@ impl Engine {
                 masks: Masks::new(),
                 metrics: metrics.clone(),
                 runs_of_calls: composition.runs_of_calls(),
+                watched_sessions: composition.watched_sessions(),
                 attempt_stagings: composition.attempt_stagings(),
             }),
             tables: composition.run_state_tables(),
@@ -555,6 +558,7 @@ impl Engine {
             Host {
                 person: os_user(&dependencies.environment),
                 zone: host_zone(&dependencies.environment),
+                display: has_display(&dependencies.environment),
                 entropy: dependencies.entropy.stream(HANDLERS_STREAM),
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,

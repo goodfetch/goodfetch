@@ -56,6 +56,7 @@ use goodfetch_engine::tls::{
 };
 use goodfetch_page::BrowserRun;
 
+use goodfetch_engine::response_cache::Caching;
 use goodfetch_engine::{
     Answered, CALLER, CallContext, CallError, EngineContext, GuardAnswer, ReadParams, RunOfCall,
     named,
@@ -105,7 +106,7 @@ use goodfetch_protocol::settings::{
 use goodfetch_protocol::tls::{TLS_ACCEPT_INVALID_CERTS, TLS_CLIENT_CERTIFICATES};
 use url::Url;
 
-use crate::cached::Caching;
+use crate::cached;
 use crate::canonical::canonical;
 use crate::chain::{
     Followed, Following, HopRead, Reading, Redirected, Skip, Stop, Unfollowed, follow_reading,
@@ -1159,14 +1160,16 @@ impl FetchTiers {
             }
             None => (Arc::new(reqwest), None),
         };
-        let caching = Caching::of(engine.response_source(settings), &run.identity);
-        let transport = match &caching {
-            Some(caching) => caching.over(transport),
-            None => transport,
-        };
+        let caching = Caching::of(
+            engine.response_source(settings),
+            CALLER,
+            run.identity.id().clone(),
+            run.identity.clock(),
+        );
         Ok(HttpTier {
             addresses,
-            transport,
+            transport: answering(caching.as_ref(), &transport),
+            uncached: transport,
             caching,
             proxies,
             egress,
@@ -1201,15 +1204,20 @@ impl FetchTiers {
         let Some(pages) = self.served.browser.get() else {
             return http.clone();
         };
+        let transport: Arc<dyn Transport> = Arc::new(BrowserFetch {
+            pages: Arc::clone(pages),
+            run_id: run.id().clone(),
+            pooled: pooled.clone(),
+            value: PageValue::new(Admitted, Lease::new(Arc::clone(hand_over))),
+            context: context.clone(),
+            egress: http.egress.clone(),
+        });
+        // The browser decodes what it fetches, which the Response cache
+        // never stores, so it answers none of its hops.
         HttpTier {
-            transport: Arc::new(BrowserFetch {
-                pages: Arc::clone(pages),
-                run_id: run.id().clone(),
-                pooled: pooled.clone(),
-                value: PageValue::new(Admitted, Lease::new(Arc::clone(hand_over))),
-                context: context.clone(),
-                egress: http.egress.clone(),
-            }),
+            uncached: Arc::clone(&transport),
+            transport,
+            caching: None,
             ..http.clone()
         }
     }
@@ -2542,8 +2550,12 @@ async fn warn_version_unread((run, warnings): (&RunIdentity, &ReportWarnings), u
 /// share, and the engine's timeouts its fetches wait under.
 #[derive(Clone)]
 pub struct HttpTier {
-    /// reqwest, or browser-fetch in a Session that may move to the browser.
+    /// reqwest, or browser-fetch in a Session that may move to the browser,
+    /// answering from `caching` first.
     transport: Arc<dyn Transport>,
+    /// `transport` without `caching`, which a pool Session's own caching
+    /// is put over.
+    uncached: Arc<dyn Transport>,
     /// The Run's egress policy, which every transport judges each URL by.
     egress: Policy,
     /// The address check of the tier's reqwest connections, run ahead of a
@@ -2647,6 +2659,15 @@ impl SessionTransports {
     }
 }
 
+/// `transport` answering from `caching` first, when the Run does not only
+/// send.
+fn answering(caching: Option<&Arc<Caching>>, transport: &Arc<dyn Transport>) -> Arc<dyn Transport> {
+    match caching {
+        Some(caching) => cached::over(caching, Arc::clone(transport)),
+        None => Arc::clone(transport),
+    }
+}
+
 /// How many redirects a robots.txt fetch follows: RFC 9309 §2.3.1.2's
 /// least.
 const ROBOTS_TXT_REDIRECTS: usize = 5;
@@ -2674,7 +2695,7 @@ impl HttpTier {
             }
             None => (None, self.addresses.clone()),
         };
-        let transport = match (&self.proxies, direct) {
+        let uncached = match (&self.proxies, direct) {
             (Some(proxies), direct) => {
                 proxies.of(session, own.cloned(), direct) as Arc<dyn Transport>
             }
@@ -2682,18 +2703,14 @@ impl HttpTier {
             // The Run's own transport, already answering from its source.
             (None, None) => {
                 return Ok(HttpTier {
-                    transport: Arc::clone(&self.transport),
                     addresses,
                     ..self.clone()
                 });
             }
         };
-        let transport = match &self.caching {
-            Some(caching) => caching.over(transport),
-            None => transport,
-        };
         Ok(HttpTier {
-            transport,
+            transport: answering(self.caching.as_ref(), &uncached),
+            uncached,
             addresses,
             ..self.clone()
         })
@@ -2702,12 +2719,19 @@ impl HttpTier {
     /// The tier as the pool Session `session` sends on it itself: its
     /// hops carry the cookies the answers to its earlier hops set, a
     /// redirect's among them, and keep those their own answers set (RFC
-    /// 6265), in a jar no other Session reads (ADR 0021).
+    /// 6265), in a jar no other Session reads (ADR 0021); those it sends
+    /// with a cookie or a credential, or whose answer sets one, are
+    /// answered from and kept in its own partition of the Response cache,
+    /// which no other Session reads (ADR 0046).
     #[must_use]
     pub fn keeping_cookies_of(&self, session: &SessionId) -> HttpTier {
+        let own = self
+            .caching
+            .as_ref()
+            .map(|caching| caching.of_session(session));
         HttpTier {
             transport: Arc::new(WithJar {
-                transport: Arc::clone(&self.transport),
+                transport: answering(own.as_ref(), &self.uncached),
                 jar: self.jars.of(session),
             }),
             ..self.clone()
@@ -2728,20 +2752,25 @@ impl HttpTier {
         }
     }
 
-    /// Forgets the pool Session `session`, retired: its cookie jar and
-    /// its proxy end with it, the Run warned when it outlived its
-    /// provider's sticky lifetime (#1640).
+    /// Forgets the pool Session `session`, retired: its cookie jar, its
+    /// proxy and its own partition of the Response cache end with it (ADR
+    /// 0046), the Run warned when it outlived its provider's sticky
+    /// lifetime (#1640).
     ///
     /// # Cancel safety
     ///
-    /// Dropping the future may leave the warning unwritten; the jar and
-    /// the proxy are forgotten before its first `.await`.
+    /// Dropping the future may leave the partition undeleted, which the
+    /// Run's discard deletes, or the warning unwritten; the jar and the
+    /// proxy are forgotten before its first `.await`.
     pub async fn forget_session(&self, session: &SessionId) {
         self.jars.forget(session);
         let proxy = self
             .proxies
             .as_ref()
             .and_then(|proxies| proxies.forget(session));
+        if let Some(caching) = &self.caching {
+            caching.forget(session).await;
+        }
         if let Some(proxy) = proxy {
             proxy.warn_if_outlived().await;
         }

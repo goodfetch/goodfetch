@@ -311,8 +311,12 @@ pub enum Listener {
     PrivateEndpoint,
     /// A Daemon's WebSocket listener.
     DaemonWebsocket,
+    /// A Daemon's Live view channels (ADR 0149).
+    LiveView,
     /// The foreground Daemon's ops listener (ADR 0050).
     OpsListener,
+    /// The Daemon's HTTP JSON-RPC listener (ADR 0027).
+    HttpListener,
     /// A Session's egress relay.
     EgressRelay,
     /// A Session's upstream proxy relay.
@@ -321,13 +325,15 @@ pub enum Listener {
 
 impl Listener {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Stdio,
         Self::DaemonSocket,
         Self::ExposedDaemon,
         Self::PrivateEndpoint,
         Self::DaemonWebsocket,
+        Self::LiveView,
         Self::OpsListener,
+        Self::HttpListener,
         Self::EgressRelay,
         Self::ProxyRelay,
     ];
@@ -434,7 +440,7 @@ pub const LENT_PAGE_ATTACHED: SharedTypeValue = kind(
 /// A `stealth` Session's Fingerprint method chosen.
 pub const FINGERPRINT_METHOD_CHOSEN: SharedTypeValue = kind(
     "fingerprint_method_chosen",
-    "A `stealth` Session opened with a Fingerprint method: the Session, the method, and whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035).",
+    "A `stealth` Session opened with a Fingerprint method: the Session, the method, whether it fell back to `basic` because no Goodfetch Chromium exists for the machine (ADR 0035), and whether `stealth.allow_runtime` let its pages turn on the browser's `Runtime` domain.",
 );
 
 /// A certificate pinned on first use.

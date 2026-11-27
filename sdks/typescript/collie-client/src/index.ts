@@ -36,6 +36,7 @@ export {
   Schedules,
   type CreatedSchedule,
   type ScheduleCallOptions,
+  type SchedulePreviewOptions,
   type ScheduleWriteOptions,
 } from "./schedules.ts";
 export { Response } from "./response.ts";
@@ -51,6 +52,12 @@ export type {
 } from "./schema.ts";
 export * from "./generated/errors.ts";
 export { AIWorkResult, type AIWorkFields, type Ended, type PartialOf } from "./ai-work.ts";
+export {
+  verifyWebhook,
+  type VerifyWebhookOptions,
+  type WebhookBody,
+  type WebhookHeaders,
+} from "./webhook.ts";
 export type { FieldValue, FieldValues } from "./field-values.ts";
 export type {
   Acted,
@@ -62,8 +69,12 @@ export type {
   ConsoleMessage,
   ExplainedSetting,
   FormatsRequest,
+  FullNotification,
   Lifecycle,
   Navigated,
+  NotificationData,
+  NotificationEvent,
+  NotificationPayload,
   PageClosed,
   PageExchange,
   PageField,
@@ -88,10 +99,13 @@ export type {
   StartedAs,
   StopReason,
   StoppedBy,
+  ThinNotification,
   UnreadField,
   UnreadReason,
   Verdict,
   WebError,
+  WebhookInvalidDetails,
+  WebhookInvalidReason,
   WebSocketClosed,
   WebSocketFrame,
 } from "./generated/index.ts";

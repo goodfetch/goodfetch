@@ -208,6 +208,7 @@ async fn click_one(
             window: &page.run.send_window,
             lease: page.lease(),
         },
+        human_input: None,
     };
     let acted = page
         .life

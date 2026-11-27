@@ -15,18 +15,10 @@
 
 use goodfetch_engine::net_error::NetError;
 
+pub use crate::blocks::Party;
 use crate::egress_relay::answers::{RELAY, failed};
 pub(crate) use crate::proxy_status::PROXY_STATUS;
 use crate::proxy_status::{name, nearest, parameter};
-
-/// Who answered.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Party {
-    /// The proxy itself.
-    Proxy,
-    /// The site, through the proxy.
-    Site,
-}
 
 /// What a request through the proxy met.
 #[derive(Clone, Copy, Debug)]

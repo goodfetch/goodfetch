@@ -215,6 +215,7 @@ fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
         finding("drift", "crates/goodfetch-protocol/generated/bundle.json"),
         finding("drift", "crates/goodfetch-protocol/generated/collie.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
         finding("stale", "sdks/typescript/collie-client/src/generated/types.ts"),
         finding("stale", "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py"),
     ],
@@ -227,6 +228,7 @@ fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
         finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
         finding("drift", "crates/goodfetch-protocol/generated/collie.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
+        finding("drift", "crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
     ],
 )]
 #[case::foxhound_operation_renamed(
@@ -237,6 +239,7 @@ fn the_fixtures_catalog_module_is_the_protocol_crates_own(#[case] file: &str) {
         finding("drift", "crates/goodfetch-protocol/generated/catalog.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound.json"),
         finding("drift", "crates/goodfetch-protocol/generated/foxhound_names.rs"),
+        finding("drift", "crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
         finding("drift", "features/inventory.json"),
         finding("drift", "sdks/python/foxhound/src/goodfetch_foxhound/generated/operations.py"),
         finding("drift", "sdks/typescript/foxhound/src/generated/operations.ts"),
@@ -768,6 +771,7 @@ fn inventory_lists_every_feature_of_the_fixture_with_its_area_and_milestone() {
             feature("format:sample-store", 1, None),
             feature("operation:sample.crawl", 1, None),
             feature("operation:sample.echo", 1, None),
+            feature("plugin-kind:sample_store", 1, None),
             feature("row:RT-01", 3, Some("M1 Core")),
             feature("row:RT-02", 3, None),
             feature("row:durability-resume", 3, None),

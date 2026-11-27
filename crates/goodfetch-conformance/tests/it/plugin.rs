@@ -173,7 +173,7 @@ fn case_outcomes(document: &ConformanceDocument) -> Vec<(&str, CaseOutcome)> {
         .collect()
 }
 
-/// Covers: story:2-51
+/// Covers: story:2-51, plugin-kind:sample_store
 #[test]
 fn the_conforming_toy_plugin_is_proved_in_every_capability_in_a_valid_conformance_document() {
     let document = run(&[]);

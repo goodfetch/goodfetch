@@ -575,6 +575,29 @@ class AsyncLocator(AsyncHandle):
         warn_experimental("locator.press")
         return result_of(models.Acted, await self._host.call("locator.press", models.PressParams(locator=self._host.id, key=key)))
 
+    async def scroll_collect(self, function: str, *, arg: Any | NotGiven = not_given, idle_steps: int | None | NotGiven = not_given, max_rows: int | None | NotGiven = not_given, step_wait: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.ScrollCollected:
+        """Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.
+
+        Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("locator.scroll_collect")
+        params = models.LocatorScrollCollectParams(locator=self._host.id, function=function)
+        if not isinstance(arg, NotGiven):
+            params.arg = arg
+        if not isinstance(idle_steps, NotGiven):
+            params.idle_steps = idle_steps
+        if not isinstance(max_rows, NotGiven):
+            params.max_rows = max_rows
+        if not isinstance(step_wait, NotGiven):
+            params.step_wait = step_wait
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.wait")
+        if not isinstance(world, NotGiven):
+            params.world = None if world is None else models.World(world)
+        return result_of(models.ScrollCollected, await self._host.call("locator.scroll_collect", params, timeout_setting="timeout.wait"))
+
     async def wait_for(self, *, state: Literal["attached", "detached", "visible", "hidden"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
         """Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
 
@@ -1193,6 +1216,29 @@ class Locator(Handle):
         """
         warn_experimental("locator.press")
         return result_of(models.Acted, self._host.call("locator.press", models.PressParams(locator=self._host.id, key=key)))
+
+    def scroll_collect(self, function: str, *, arg: Any | NotGiven = not_given, idle_steps: int | None | NotGiven = not_given, max_rows: int | None | NotGiven = not_given, step_wait: int | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given, world: Literal["main", "isolated"] | None | NotGiven = not_given) -> models.ScrollCollected:
+        """Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.
+
+        Left out, `timeout` takes the Run's `timeout.wait`, by default `timedelta(seconds=30)`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("locator.scroll_collect")
+        params = models.LocatorScrollCollectParams(locator=self._host.id, function=function)
+        if not isinstance(arg, NotGiven):
+            params.arg = arg
+        if not isinstance(idle_steps, NotGiven):
+            params.idle_steps = idle_steps
+        if not isinstance(max_rows, NotGiven):
+            params.max_rows = max_rows
+        if not isinstance(step_wait, NotGiven):
+            params.step_wait = step_wait
+        if not isinstance(timeout, NotGiven):
+            params.timeout = timeout_of(timeout, "timeout.wait")
+        if not isinstance(world, NotGiven):
+            params.world = None if world is None else models.World(world)
+        return result_of(models.ScrollCollected, self._host.call("locator.scroll_collect", params, timeout_setting="timeout.wait"))
 
     def wait_for(self, *, state: Literal["attached", "detached", "visible", "hidden"] | None | NotGiven = not_given, timeout: timedelta | None | NotGiven = not_given) -> models.Reached:
         """Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.

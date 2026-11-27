@@ -20,10 +20,12 @@
 # has no cell in that row. A Session's proxy relay (`proxy_relay`) takes its
 # token as the password of a `CONNECT`'s `Proxy-Authorization: Basic`
 # credentials; another listener's token is another Session's relay's. A
-# row's `advisories` name the bypasses its
+# Live view channel (`live_view`) is a WebSocket at its own path, whose
+# first message is an `open` carrying the Daemon's token rather than a
+# `hello`. A row's `advisories` name the bypasses its
 # attempt repeats, whose regression tests run the rows citing them
 # (`EndpointRunner::run_advisory`). Every listener of another area (the HTTP
-# listener, MCP over HTTP, the Live view, raw CDP, the peer link) joins as a
+# listener, MCP over HTTP, raw CDP, the peer link) joins as a
 # column with its own ticket, wrapped by the engine's `endpoint` module; a
 # rule joins with the first listener it applies to. The Quick suite fails
 # on a row with no cell, a listener with no row, and a cell its listener
@@ -39,7 +41,9 @@ advisories = ["CVE-2025-49596"]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
+live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 proxy_relay = { expect = "challenge" }
 
@@ -51,7 +55,9 @@ adrs = [17, 24, 50]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
+live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 proxy_relay = { expect = "status", status = 407 }
 
@@ -63,7 +69,9 @@ adrs = [17, 31, 50, 67]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
+live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 proxy_relay = { expect = "status", status = 407 }
 
@@ -82,6 +90,7 @@ adrs = [17, 50, 67]
 [rule.token_revoked.listeners]
 daemon_socket = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 
 [rule.token_scoped_elsewhere]
 summary = "A token of the same Daemon whose scope is another: the ops token, read-only on `/metrics`, on the Daemon's socket, or the Daemon's protocol token on `/metrics`."
@@ -90,6 +99,7 @@ adrs = [50, 67]
 [rule.token_scoped_elsewhere.listeners]
 daemon_socket = { expect = "closed" }
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 
 [rule.token_in_query_string]
 summary = "The valid token is sent in the query string (`access_token`) instead of a header or the `hello`."
@@ -98,7 +108,9 @@ advisories = ["CVE-2025-49596"]
 
 [rule.token_in_query_string.listeners]
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 daemon_websocket = { expect = "closed" }
+live_view = { expect = "closed" }
 
 [rule.host_foreign]
 summary = "The request or the WebSocket handshake names a foreign `Host`, as a DNS-rebinding page's does."
@@ -107,7 +119,9 @@ advisories = ["CVE-2025-66414"]
 
 [rule.host_foreign.listeners]
 ops_listener = { expect = "status", status = 403 }
+http_listener = { expect = "status", status = 403 }
 daemon_websocket = { expect = "status", status = 403 }
+live_view = { expect = "status", status = 403 }
 
 [rule.origin_foreign]
 summary = "The request or the WebSocket handshake carries a foreign `Origin`."
@@ -116,7 +130,9 @@ advisories = ["CVE-2025-49596"]
 
 [rule.origin_foreign.listeners]
 ops_listener = { expect = "status", status = 403 }
+http_listener = { expect = "status", status = 403 }
 daemon_websocket = { expect = "status", status = 403 }
+live_view = { expect = "status", status = 403 }
 
 [rule.origin_missing]
 summary = "The request or the WebSocket handshake carries no `Origin`: accepted only with a header token, which a browser page cannot send cross-site."
@@ -124,7 +140,9 @@ adrs = [17, 49, 67]
 
 [rule.origin_missing.listeners]
 ops_listener = { expect = "accepted" }
+http_listener = { expect = "accepted" }
 daemon_websocket = { expect = "status", status = 403 }
+live_view = { expect = "status", status = 403 }
 
 [rule.origin_missing_without_header_token]
 summary = "The request carries no `Origin` and no header token, the valid token only in a cookie, as a browser page's cross-site request could send it."
@@ -133,6 +151,7 @@ advisories = ["CVE-2025-49596"]
 
 [rule.origin_missing_without_header_token.listeners]
 ops_listener = { expect = "status", status = 401 }
+http_listener = { expect = "status", status = 401 }
 
 [rule.hello_not_first]
 summary = "The connection's first message is not a `hello`."
@@ -142,6 +161,7 @@ adrs = [17, 24]
 daemon_socket = { expect = "closed" }
 private_endpoint = { expect = "closed" }
 daemon_websocket = { expect = "closed" }
+live_view = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 
 [rule.plain_where_tls_configured]
@@ -149,6 +169,7 @@ summary = "A connection opens in plain, with the valid `hello` or handshake, whe
 adrs = [49]
 
 [rule.plain_where_tls_configured.listeners]
+http_listener = { expect = "closed" }
 daemon_websocket = { expect = "closed" }
 exposed_daemon = { expect = "closed" }
 

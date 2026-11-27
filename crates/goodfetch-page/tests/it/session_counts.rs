@@ -23,7 +23,7 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use session::{
-    Armed, Browsers, Counted, READ_ROWS, RUN, counted, counting, identified, page_check,
+    Armed, Browsers, Counted, READ_ROWS, RUN, Viewer, counted, counting, identified, page_check,
 };
 
 fn run(planted: Option<Row>) -> Counted {
@@ -36,18 +36,64 @@ fn run_with(settings: Map<String, Value>, planted: Option<Row>) -> Counted {
 
 fn run_in(browsers: Browsers, settings: Map<String, Value>, planted: Option<Row>) -> Counted {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
-    run_at(home.path(), browsers, settings, planted)
+    run_at(home.path(), (browsers, Viewer::Off), settings, planted)
 }
 
 fn run_at(
     home: &Path,
-    browsers: Browsers,
+    watched: (Browsers, Viewer),
     settings: Map<String, Value>,
     planted: Option<Row>,
 ) -> Counted {
     let metrics = Metrics::none();
     let plant = planted.map(|row| counting(metrics.counted_work(), row));
-    counted((browsers, Armed::Nothing), home, metrics, settings, plant)
+    let (browsers, viewer) = watched;
+    counted(
+        (browsers, Armed::Nothing, viewer),
+        home,
+        metrics,
+        settings,
+        plant,
+    )
+}
+
+/// C6's rows a Live view frame's work counts on, each one's count.
+fn live_view_frames(work: &goodfetch_counted_work::CountedWork) -> [u64; 5] {
+    [
+        Row::LiveViewFileOpens,
+        Row::LiveViewCompilations,
+        Row::LiveViewSpawns,
+        Row::LiveViewAcknowledgements,
+        Row::LiveViewSeals,
+    ]
+    .map(|row| work.read(row))
+}
+
+/// A person watching the Session through a Live view channel (C6) gets a
+/// frame as the screencast starts and one per navigation, each of which the
+/// engine acknowledges to the browser with one command, sent as any other
+/// (C1): nothing is opened, compiled, spawned or sealed per frame. With no
+/// viewer, none of it happens.
+/// Covers: story:12-38
+#[test]
+fn a_viewer_gets_a_frame_per_navigation_each_acknowledged_with_one_command() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let watched = run_at(
+        home.path(),
+        (Browsers::Borrowed, Viewer::On),
+        Map::new(),
+        None,
+    );
+    let unwatched = run(None);
+
+    assert_eq!(watched.frames, 1 + watched.navigations);
+    assert_eq!(
+        live_view_frames(&watched.work),
+        [0, 0, 0, watched.frames, 0]
+    );
+    assert_eq!(watched.work.read(Row::CdpSends), watched.commands);
+    assert_eq!(unwatched.frames, 0);
+    assert_eq!(live_view_frames(&unwatched.work), [0; 5]);
 }
 
 /// The methods the Run trace's CDP command log of the Run in `home` holds,
@@ -122,7 +168,7 @@ fn each_event_visits_one_reader_of_the_connection_with_a_route_and_a_listener_on
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let metrics = Metrics::none();
     let Counted { events, work, .. } = counted(
-        (Browsers::Borrowed, Armed::RouteAndListener),
+        (Browsers::Borrowed, Armed::RouteAndListener, Viewer::Off),
         home.path(),
         metrics,
         Map::new(),
@@ -189,7 +235,8 @@ fn a_planted_unit_adds_one_a_command(#[case] row: Row, #[case] per_command: u64)
 fn the_command_log_off_writes_no_file() {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
 
-    let Counted { commands, work, .. } = run_at(home.path(), Browsers::Pool, Map::new(), None);
+    let Counted { commands, work, .. } =
+        run_at(home.path(), (Browsers::Pool, Viewer::Off), Map::new(), None);
 
     assert!(commands > 0, "the Session sent no command");
     assert_eq!(
@@ -207,7 +254,8 @@ fn the_command_log_on_holds_every_commands_method() {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
     let settings = Map::from_iter([(BROWSER_CDP_COMMAND_LOG.name.to_owned(), json!(true))]);
 
-    let Counted { commands, work, .. } = run_at(home.path(), Browsers::Pool, settings, None);
+    let Counted { commands, work, .. } =
+        run_at(home.path(), (Browsers::Pool, Viewer::Off), settings, None);
 
     let methods = logged_methods(home.path()).expect("the command log is written");
     assert_eq!(
@@ -573,4 +621,94 @@ fn a_planted_unit_adds_one_an_opening_command_a_command() {
         planted.work.read(Row::PageOpeningCommands),
         unplanted.work.read(Row::PageOpeningCommands) + planted.commands
     );
+}
+
+/// In a `stealth` Session with `stealth.human_input` off, `C3.commands`'
+/// standard click, fill and press figures are unchanged and human-like
+/// input counts zero commands (ADR 0140, #1018).
+///
+/// Covers: story:8-42, setting:stealth.human_input
+#[test]
+fn stealth_with_human_input_off_keeps_standard_c3_action_figures() {
+    let settings = Map::from_iter([
+        (
+            "browser".to_owned(),
+            json!({ "access_mode": "stealth", "headless": true }),
+        ),
+        (
+            "stealth".to_owned(),
+            json!({ "human_input": false, "generated_identity": false }),
+        ),
+        ("egress".to_owned(), json!({ "offline": true })),
+    ]);
+
+    let counted = run_in(Browsers::Pool, settings, None);
+
+    assert_eq!(
+        [
+            Row::ActionClickCommands,
+            Row::ActionFillCommands,
+            Row::ActionPressCommands,
+            Row::ActionHumanInputCommands,
+        ]
+        .map(|row| counted.count(row)),
+        [10, 4, 8, 0]
+    );
+}
+
+/// In a `stealth` Session with `stealth.human_input` on, the engine's
+/// human-like clicks and fills count on human-like input's own
+/// `C3.commands` action kind, bounded by `EVENTS_PER_GESTURE` per gesture,
+/// while direct `Action::Press` keeps its standard `C3.commands.press` row
+/// (ADR 0140, #1018).
+///
+/// Covers: story:8-42, setting:stealth.human_input
+#[test]
+fn stealth_with_human_input_on_counts_on_its_own_c3_action_kind() {
+    let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
+    let settings = Map::from_iter([
+        (
+            "browser".to_owned(),
+            json!({ "access_mode": "stealth", "headless": true }),
+        ),
+        (
+            "stealth".to_owned(),
+            json!({ "human_input": true, "generated_identity": false }),
+        ),
+        ("egress".to_owned(), json!({ "offline": true })),
+    ]);
+
+    let counted = run_at(home.path(), (Browsers::Pool, Viewer::Off), settings, None);
+
+    assert_eq!(
+        [
+            Row::ActionClickCommands,
+            Row::ActionFillCommands,
+            Row::ActionPressCommands,
+        ]
+        .map(|row| counted.count(row)),
+        [0, 0, 8]
+    );
+    let human = counted.count(Row::ActionHumanInputCommands);
+    // Two clicks (<= 100 moves + press/release + check + disarm each) and
+    // two 5-char fills (<= 3 keystrokes * 2 events + check + verify each).
+    assert!(
+        human > 14 && human <= 2 * 105 + 2 * 36,
+        "unexpected human-like input C3.commands count: {human}"
+    );
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a Run trace file read once its engine ended"
+    )]
+    let provenance = std::fs::read_to_string(
+        HomeLayout::of(home.path()).run_trace(RUN, goodfetch_protocol::home::RUN_TRACE_PROVENANCE),
+    )
+    .unwrap_or_default();
+    let human_marks: Vec<Value> = provenance
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|entry| entry["action"] == json!("human_input"))
+        .collect();
+    assert_eq!(human_marks.len(), 1, "{human_marks:?}");
+    assert_eq!(human_marks[0]["scope"], json!("engine_actions_only"));
 }

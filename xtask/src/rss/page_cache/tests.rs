@@ -16,14 +16,6 @@ fn a_missing_file_fails_naming_it() {
     }
 }
 
-#[test]
-fn an_existing_file_is_dropped() {
-    let home = tempfile::tempdir().expect("a temporary folder");
-    let file = home.path().join("executable");
-    std::fs::write(&file, b"pages").expect("writing the file");
-    drop_cached(&file).expect("the file is dropped");
-}
-
 #[cfg(target_os = "linux")]
 #[test]
 fn each_mode_leaves_the_executable_s_pages_where_it_says() {

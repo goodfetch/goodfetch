@@ -49,7 +49,7 @@ use crate::output;
 use crate::products::Product;
 
 mod installers;
-mod oci;
+pub(super) mod oci;
 
 /// crates.io's sparse index.
 const CRATES_IO_INDEX: &str = "https://index.crates.io";

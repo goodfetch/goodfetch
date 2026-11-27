@@ -60,7 +60,16 @@ export type Actor =
  * via the `definition` "Surface".
  */
 export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
+  | "sdk_typescript"
+  | "sdk_python"
+  | "rust"
+  | "cli"
+  | "mcp"
+  | "kennel"
+  | "cloud"
+  | "browser_host"
+  | "worker"
+  | "http_listener";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -623,6 +632,13 @@ export type WallKind = "paywall" | "consent_wall" | "ad_blocker_wall";
  */
 export type WaitedFor = string;
 /**
+ * The rows a list declares: a count, or `unknown` for `-1`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Declared".
+ */
+export type Declared = number | "unknown";
+/**
  * A dialog's kind, as Playwright's `dialog.type()` names it.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -993,6 +1009,60 @@ export type MarkdownFormat = Asked | MarkdownOptions;
  */
 export type MarkdownContent = "main" | "full" | "fit";
 /**
+ * A Notification event's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `run_started`: A Run started.
+ * - `run_finished`: A Run finished.
+ * - `run_failed`: A Run ended on an error.
+ * - `run_stopped`: A Run was stopped, by a Limit, a person or a program.
+ * - `verdict_rejected`: A Run's success check rejected its result.
+ * - `verdict_needs_review`: A Run's result waits for a person's review.
+ * - `run_incomplete`: A Run ended with its Completeness `incomplete`.
+ * - `effect_uncertain`: A Run reported an Effect whose outcome is uncertain.
+ * - `reconciliation_requested`: A person is asked to reconcile an uncertain Effect.
+ * - `effect_reconciled`: An uncertain Effect was reconciled.
+ * - `approval_requested`: A Run waits for a person's approval.
+ * - `human_pause_waiting`: A Human pause waits for a person, with a link to the Live view.
+ * - `limit_threshold`: A Limit reached its warning threshold.
+ * - `schedule_auto_paused`: A Schedule paused itself.
+ * - `schedule_occurrences_skipped`: A Limit skipped a Schedule's occurrences, notified once per period.
+ * - `schedule_occurrences_missed`: A Schedule's occurrences were missed, notified once per wake.
+ * - `identity_cookie_expiry`: A Saved identity's earliest cookie expiry entered its warning window.
+ * - `quarantined`: Code mode or a Plugin was quarantined.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationEvent".
+ */
+export type NotificationEvent =
+  | "run_started"
+  | "run_finished"
+  | "run_failed"
+  | "run_stopped"
+  | "verdict_rejected"
+  | "verdict_needs_review"
+  | "run_incomplete"
+  | "effect_uncertain"
+  | "reconciliation_requested"
+  | "effect_reconciled"
+  | "approval_requested"
+  | "human_pause_waiting"
+  | "limit_threshold"
+  | "schedule_auto_paused"
+  | "schedule_occurrences_skipped"
+  | "schedule_occurrences_missed"
+  | "identity_cookie_expiry"
+  | "quarantined"
+  | (string & {});
+/**
+ * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleId".
+ */
+export type ScheduleId = string;
+/**
  * When a navigation answers, by the state its document reached
  * (Playwright's `waitUntil`).
  *
@@ -1118,6 +1188,18 @@ export type LimitSetting = "network.max_body_size" | "network.max_decompression_
  * via the `definition` "LimitStanding".
  */
 export type LimitStanding = "held" | "foxhound" | "not_understood";
+/**
+ * How a scroll collection ended, open (ADR 0079).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `end_of_list`: `idle_steps` steps in a row brought no new key.
+ * - `max_rows`: It kept `max_rows` rows.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ListEnded".
+ */
+export type ListEnded = "end_of_list" | "max_rows" | (string & {});
 /**
  * A state the page's document reaches (Playwright's `LoadState`).
  *
@@ -1382,6 +1464,13 @@ export type NothingDone =
   | {
       reason: "nothing_pending";
     };
+/**
+ * What a delivery's `data` holds.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationData".
+ */
+export type NotificationData = FullNotification | ThinNotification;
 /**
  * A table of the Operator policy: what it sets, what it sets and locks, and
  * its caps.
@@ -1794,12 +1883,18 @@ export type StartedAs = "new" | "resumed" | "ended";
  */
 export type RunStateFilesystem = "nfs" | "smb" | "fuse_object_storage";
 /**
- * A Schedule ID (ADR 0036): lowercase letters, digits and `-`, at most 63, starting and ending with a letter or a digit.
+ * Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `count`: `schedule.max_count`: maximum number of Schedules held by the Daemon.
+ * - `min_interval`: `schedule.min_interval`: minimum interval between consecutive occurrences.
+ * - `period_limit`: `schedule.limits_max`: maximum period Limit on a Schedule.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "ScheduleId".
+ * via the `definition` "ScheduleCapKind".
  */
-export type ScheduleId = string;
+export type ScheduleCapKind = "count" | "min_interval" | "period_limit" | (string & {});
 /**
  * What a Schedule starts: a Recipe with its inputs, or a code-free
  * catalog run by its own start parameters, each with the run's settings
@@ -1816,7 +1911,7 @@ export type ScheduleTarget = RecipeTarget | RunTarget;
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ScheduleTrigger".
  */
-export type ScheduleTrigger = EveryTrigger;
+export type ScheduleTrigger = CronTrigger | EveryTrigger;
 /**
  * Whether a Schedule fires.
  *
@@ -1828,6 +1923,63 @@ export type ScheduleTrigger = EveryTrigger;
  * via the `definition` "ScheduleState".
  */
 export type ScheduleState = "on" | (string & {});
+/**
+ * The structured form of a trigger's plain-words description, which a
+ * Client translates into its own locale (ADR 0073).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StructuredTriggerDescription".
+ */
+export type StructuredTriggerDescription =
+  | {
+      /**
+       * The anchor instant, when the trigger names one.
+       */
+      anchor?: PointInTime | null;
+      /**
+       * The interval, in milliseconds.
+       */
+      every: number;
+      kind: "every";
+    }
+  | {
+      /**
+       * The day-of-month field.
+       */
+      dayOfMonth: string;
+      /**
+       * The day-of-week field.
+       */
+      dayOfWeek: string;
+      /**
+       * The expression as given.
+       */
+      expression: string;
+      /**
+       * Whether DST treats this expression as fixed-time (runs once
+       * after a spring gap and once in an autumn overlap) rather than
+       * wildcard or step (skips a gap and runs on both passes of an
+       * overlap).
+       */
+      fixedTime: boolean;
+      /**
+       * The hours field.
+       */
+      hours: string;
+      kind: "cron";
+      /**
+       * The minutes field.
+       */
+      minutes: string;
+      /**
+       * The month field.
+       */
+      month: string;
+      /**
+       * The seconds field, when the expression named one.
+       */
+      seconds?: string | null;
+    };
 /**
  * Why a trigger does not parse.
  *
@@ -1906,6 +2058,13 @@ export type ValueInvalidReason =
   | "value_json"
   | "value_not_json"
   | "value_schema";
+/**
+ * Why a call is no verified delivery.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebhookInvalidReason".
+ */
+export type WebhookInvalidReason = "signature" | "timestamp" | "malformed" | "missing_header";
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -3392,6 +3551,20 @@ export interface CreditParams {
   id: RequestId;
 }
 /**
+ * A cron expression: five fields (minute, hour, day of month, month, day
+ * of week) plus optional seconds first, `L`, `W`, `#` and the
+ * `@daily`-style macros (ADR 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CronTrigger".
+ */
+export interface CronTrigger {
+  /**
+   * The cron expression, such as `0 9 * * MON-FRI` or `@daily`.
+   */
+  cron: string;
+}
+/**
  * What `daemon_draining` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -3457,6 +3630,11 @@ export interface DaemonState {
    */
   heap?: number | null;
   /**
+   * Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none
+   * while `http_listener.enabled` is off (ADR 0027).
+   */
+  httpListener?: string | null;
+  /**
    * Its `daemon.idle_timeout`, in milliseconds.
    */
   idleTimeout: number;
@@ -3469,6 +3647,11 @@ export interface DaemonState {
    * How many of its Runs are live.
    */
   liveRuns: number;
+  /**
+   * Where a Live view channel opens, the WebSocket's `host:port`; none
+   * where it accepts none, as with `live_view.enabled` off.
+   */
+  liveView?: string | null;
   /**
    * Its process ID.
    */
@@ -4776,6 +4959,47 @@ export interface MarkdownOptions {
   content: MarkdownContent;
 }
 /**
+ * The whole Notification.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "FullNotification".
+ */
+export interface FullNotification {
+  /**
+   * What happened.
+   */
+  event: NotificationEvent;
+  /**
+   * The event's ID, the same on every delivery of it and the
+   * `webhook-id` header's value.
+   */
+  eventId: string;
+  /**
+   * Where a person acts on it, such as the Run's page, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Product whose engine sent it.
+   */
+  product: Product;
+  /**
+   * The Run it concerns, if any.
+   */
+  runId?: RunId | null;
+  /**
+   * The Schedule it concerns, if any.
+   */
+  scheduleId?: ScheduleId | null;
+  /**
+   * Its text.
+   */
+  text: string;
+  /**
+   * Its one-line title.
+   */
+  title: string;
+}
+/**
  * What `page.goto` takes: the page, the URL it goes to, and when it
  * answers.
  *
@@ -5561,6 +5785,13 @@ export interface ListenerEventsLostDetails {
   lost: number;
 }
 /**
+ * What `live_view_viewer_limit` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LiveViewViewerLimitDetails".
+ */
+export interface LiveViewViewerLimitDetails {}
+/**
  * What `local_address_unavailable` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -5606,6 +5837,58 @@ export interface LocatorEvaluateAllParams {
   locator: Locator;
   /**
    * Where it runs; the main world when absent.
+   */
+  world?: World | null;
+}
+/**
+ * What `locator.scroll_collect` takes (#807): the locator, the page
+ * function reading each match, its argument and world, and when the
+ * collection ends.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "LocatorScrollCollectParams".
+ */
+export interface LocatorScrollCollectParams {
+  /**
+   * Its one argument, JSON; absent for none.
+   */
+  arg?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The page function's JavaScript source, called with each matched
+   * element and `arg`: it answers the row's `{ key, value }`, `key` a
+   * string, or `null` to skip the element.
+   */
+  function: string;
+  /**
+   * The steps in a row without a new key at which it ends
+   * `end_of_list`, at least 1; 3 when absent.
+   */
+  idleSteps?: number | null;
+  /**
+   * The locator, whose every match the function reads, resolved again
+   * at each step.
+   */
+  locator: Locator;
+  /**
+   * The rows at which the collection ends `max_rows`, at least 1;
+   * 10,000 when absent.
+   */
+  maxRows?: number | null;
+  /**
+   * How long a step waits for an element with a new key after its
+   * scroll, in milliseconds, at least 1; 2,000 when absent.
+   */
+  stepWait?: number | null;
+  /**
+   * How long the whole collection may take, in milliseconds, at least
+   * 1: absent for `timeout.wait`, `null` for none, though an enclosing
+   * timeout still applies (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * Where it runs; the isolated world when absent.
    */
   world?: World | null;
 }
@@ -6531,6 +6814,60 @@ export interface SeedsKept {
    * code or a Block cause.
    */
   reason: string;
+}
+/**
+ * A thin Notification: its IDs and link only, which an Integration reads
+ * the rest from.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ThinNotification".
+ */
+export interface ThinNotification {
+  /**
+   * The event's ID, the same on every delivery of it and the
+   * `webhook-id` header's value.
+   */
+  eventId: string;
+  /**
+   * Where a person acts on it, such as the Run's page, if anywhere.
+   */
+  link?: string | null;
+  /**
+   * The Run it concerns, if any.
+   */
+  runId?: RunId | null;
+  /**
+   * The Schedule it concerns, if any.
+   */
+  scheduleId?: ScheduleId | null;
+}
+/**
+ * A `webhook` channel's delivery: the Standard Webhooks envelope around
+ * one Notification.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "NotificationPayload".
+ */
+export interface NotificationPayload {
+  /**
+   * The Notification, whole or thin as the channel's `webhook.payload`
+   * says.
+   */
+  data: NotificationData;
+  /**
+   * The body's `major.minor` version: a receiver reads every minor of
+   * its major.
+   */
+  format: ProtocolVersion;
+  /**
+   * When the Notification's event happened, in RFC 3339, UTC.
+   */
+  timestamp: PointInTime;
+  /**
+   * `notification.` and the Notification's event, such as
+   * `notification.run_failed`.
+   */
+  type: string;
 }
 /**
  * The Operator policy as `config.policy_read` reads it.
@@ -7464,6 +7801,24 @@ export interface PressParams {
    * The locator.
    */
   locator: Locator;
+}
+/**
+ * One previewed Occurrence of a trigger: its UTC instant and its local
+ * civil date-time with offset in the preview's IANA time zone.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PreviewOccurrence".
+ */
+export interface PreviewOccurrence {
+  /**
+   * When the Occurrence falls, as a UTC instant.
+   */
+  at: PointInTime;
+  /**
+   * The same instant written in the preview's IANA time zone with its
+   * offset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.
+   */
+  local: string;
 }
 /**
  * What `protocol_version_unsupported` details.
@@ -9245,6 +9600,29 @@ export interface SampleStorePutResult {
   replaced: boolean;
 }
 /**
+ * What `schedule_cap_exceeded` details: which Operator policy cap was
+ * exceeded and which Operator policy setting (and version, when present)
+ * imposed it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleCapExceededDetails".
+ */
+export interface ScheduleCapExceededDetails {
+  /**
+   * Which cap was exceeded: `count`, `min_interval` or `period_limit`.
+   */
+  cap: ScheduleCapKind;
+  /**
+   * The Operator policy key that set the cap (`schedule.max_count`,
+   * `schedule.min_interval` or `schedule.limits_max`).
+   */
+  policy: string;
+  /**
+   * The Operator policy's version, when the policy carries one.
+   */
+  policyVersion?: string | null;
+}
+/**
  * What `schedule.create` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9273,6 +9651,18 @@ export interface ScheduleDefinition {
    */
   id?: ScheduleId | null;
   /**
+   * The Schedule's period Limits (`day`, `week`, `month`), counted in
+   * its time zone and bounded by Operator policy's `schedule.limits_max`.
+   */
+  limits?: SchedulePeriodLimits | null;
+  /**
+   * The Schedule's own `schedule.*` settings, nested by key, layered
+   * above user configuration and held to Operator policy locks and caps.
+   */
+  settings?: {
+    [k: string]: unknown;
+  } | null;
+  /**
    * What it starts.
    */
   target: ScheduleTarget;
@@ -9285,6 +9675,29 @@ export interface ScheduleDefinition {
    * When.
    */
   trigger: ScheduleTrigger;
+}
+/**
+ * Period Limits on a Schedule, or Operator policy caps on them
+ * (`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage
+ * across the Schedule's runs per `day`, `week` or `month` in the
+ * Schedule's time zone.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchedulePeriodLimits".
+ */
+export interface SchedulePeriodLimits {
+  /**
+   * Limits per day, counted in the Schedule's time zone.
+   */
+  day?: RunLimit[] | null;
+  /**
+   * Limits per month, counted in the Schedule's time zone.
+   */
+  month?: RunLimit[] | null;
+  /**
+   * Limits per week, counted in the Schedule's time zone.
+   */
+  week?: RunLimit[] | null;
 }
 /**
  * What `schedule.create` answers.
@@ -9377,9 +9790,19 @@ export interface ScheduleInfo {
    */
   creator: string;
   /**
+   * The Schedule's period Limits, when the definition set any.
+   */
+  limits?: SchedulePeriodLimits | null;
+  /**
    * Its ID.
    */
   scheduleId: ScheduleId;
+  /**
+   * The Schedule's own `schedule.*` settings, when the definition set any.
+   */
+  settings?: {
+    [k: string]: unknown;
+  } | null;
   /**
    * Whether it fires.
    */
@@ -9456,6 +9879,79 @@ export interface ScheduleParams {
   timeout?: number | null;
 }
 /**
+ * What `schedule.preview` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchedulePreview".
+ */
+export interface SchedulePreview {
+  /**
+   * The plain-words description of the trigger.
+   */
+  description: TriggerDescription;
+  /**
+   * The next occurrences strictly after `after` (or now), in order.
+   */
+  occurrences: PreviewOccurrence[];
+  /**
+   * The IANA time zone used.
+   */
+  timeZone: string;
+}
+/**
+ * The plain-words description of a trigger (ADR 0073): a structured form
+ * a Client can render in its own locale, and the engine's English
+ * rendering.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TriggerDescription".
+ */
+export interface TriggerDescription {
+  /**
+   * The trigger in plain English, such as `Every 15 minutes` or
+   * `At 09:00, Monday through Friday`.
+   */
+  english: string;
+  /**
+   * The structured form of the trigger, for a Client's own translation.
+   */
+  structured: StructuredTriggerDescription;
+}
+/**
+ * What `schedule.preview` takes: a trigger, an optional IANA time zone
+ * (the Daemon host's when absent), an optional instant after which
+ * occurrences are listed (now when absent) and how many to list (5 when
+ * absent, at most 100).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchedulePreviewParams".
+ */
+export interface SchedulePreviewParams {
+  /**
+   * The instant strictly after which occurrences are listed; now when
+   * absent.
+   */
+  after?: PointInTime | null;
+  /**
+   * How many occurrences to list; 5 when absent, at most 100.
+   */
+  count?: number | null;
+  /**
+   * The IANA time zone, such as `Europe/Paris`; the Daemon host's when
+   * absent, never "local".
+   */
+  timeZone?: string | null;
+  /**
+   * How long the call may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * The trigger to preview.
+   */
+  trigger: ScheduleTrigger;
+}
+/**
  * What `schedule_trigger_invalid` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9500,6 +9996,29 @@ export interface SchemaValidatorFailedDetails {
    * The schema's JSON Schema `title`, or none when it has none.
    */
   schema?: string | null;
+}
+/**
+ * What `locator.scroll_collect` answers (#807): the rows, how the
+ * collection ended and what the list declares, so a short read is never
+ * silent.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScrollCollected".
+ */
+export interface ScrollCollected {
+  /**
+   * The rows the list declares through `aria-rowcount` or its items'
+   * `aria-setsize`; `null` when it declares none.
+   */
+  declared?: Declared | null;
+  /**
+   * How it ended.
+   */
+  ended: ListEnded;
+  /**
+   * Each new key's value, in the order its key was first seen.
+   */
+  rows: unknown[];
 }
 /**
  * What `secret_domain_not_allowed` details.
@@ -10520,4 +11039,16 @@ export interface WebSocketFrame {
    * The socket.
    */
   webSocketId: string;
+}
+/**
+ * What `webhook_invalid` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "WebhookInvalidDetails".
+ */
+export interface WebhookInvalidDetails {
+  /**
+   * Why the call was refused.
+   */
+  reason: WebhookInvalidReason;
 }

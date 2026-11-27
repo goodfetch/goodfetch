@@ -7,7 +7,11 @@
 //! Feature.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+
+use hmac::{Hmac, Mac as _};
+use sha2::Sha256;
 
 use crate::affected::{commit_all, repository, value};
 use crate::github::GitHub;
@@ -212,6 +216,43 @@ fn target(records: &Path) -> PathBuf {
     records.with_file_name("target")
 }
 
+/// Writes a signed gate record `<head>.tsv` under `records` using the
+/// workspace's isolated host gate key, creating a deterministic key if none
+/// exists yet.
+pub(crate) fn write_signed_record(
+    _workspace: &Workspace,
+    records: &Path,
+    head: &str,
+    lines: &[&str],
+) {
+    let key_path = Workspace::gate_key_path();
+    if !key_path.exists() {
+        if let Some(parent) = key_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(
+            &key_path,
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        )
+        .unwrap();
+    }
+    let key_text = std::fs::read_to_string(&key_path).unwrap();
+    let key_bytes = key_text.trim().as_bytes();
+    let mut rendered = String::new();
+    for line in lines {
+        let mut mac = Hmac::<Sha256>::new_from_slice(key_bytes).unwrap();
+        mac.update(format!("{head}\n{line}").as_bytes());
+        let tag = mac.finalize().into_bytes();
+        let mut hex = String::with_capacity(64);
+        for byte in tag {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        let _ = writeln!(rendered, "{line}\t{hex}");
+    }
+    std::fs::create_dir_all(records).unwrap();
+    std::fs::write(records.join(format!("{head}.tsv")), rendered).unwrap();
+}
+
 /// The records' folder, outside the repository so the tree stays clean.
 fn records() -> (tempfile::TempDir, PathBuf) {
     let folder = tempfile::tempdir().unwrap();
@@ -265,7 +306,7 @@ fn dep_info(workspace: &Workspace, records: &Path, extra: &[(&str, &str)]) {
 }
 
 /// The fixture as a repository, with its records' folder and dep-info.
-fn gated_repository(extra: &[(&str, &str)]) -> (Workspace, tempfile::TempDir, PathBuf) {
+pub(crate) fn gated_repository(extra: &[(&str, &str)]) -> (Workspace, tempfile::TempDir, PathBuf) {
     let workspace = repository();
     let (folder, records) = records();
     dep_info(&workspace, &records, extra);
@@ -460,7 +501,7 @@ fn add_xtask(workspace: &Workspace, records: &Path) {
 }
 
 /// The steps of `plan` that run whatever a change reaches.
-const EVERY_RUN: [&str; 13] = [
+const EVERY_RUN: [&str; 14] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -470,6 +511,7 @@ const EVERY_RUN: [&str; 13] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
     "journeys-tasks",
@@ -672,10 +714,11 @@ fn a_result_for_another_head_or_a_changed_tree_is_refused() {
 }
 
 /// The checks a run on the tree of their green result reuses.
-const TREE_ONLY: [&str; 5] = [
+const TREE_ONLY: [&str; 6] = [
     "lint",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
     "proofs",
 ];
@@ -1384,7 +1427,7 @@ fn a_hosted_run_cancelled_at_its_cap_leaves_the_gate_the_only_run_of_its_unfinis
 }
 
 /// The full form's steps the hosted tier owns (spec 3373's Step ownership):
-/// a finishing spec pull request's hosted run holds those its change
+/// a hosted run in the full form holds those its change
 /// reaches.
 const HOSTED_OWNED_FULL: [&str; 8] = [
     "visual",
@@ -1402,7 +1445,7 @@ const HOSTED_OWNED_FULL: [&str; 8] = [
 /// Linux runner and `ci/linux.sh` skips on the Linux gate host, and the
 /// steps no 4-vCPU hosted job finishes within ADR 0061's 30-minute cap
 /// (#3382), and the Simulation, built under a cfg of its own (issue 359).
-const RUN_BY_THE_FULL_GATE: [&str; 16] = [
+const RUN_BY_THE_FULL_GATE: [&str; 17] = [
     "dco",
     "commit-messages",
     "floor-guard",
@@ -1418,6 +1461,7 @@ const RUN_BY_THE_FULL_GATE: [&str; 16] = [
     "windows",
     "feature-combinations",
     "semver-checks",
+    "deslop-please",
     "fuzz-check",
 ];
 
@@ -1459,7 +1503,7 @@ fn preflight_run(workspace: &Workspace, records: &Path, ran: &mut Ran) -> Plan {
     preflight
 }
 
-/// The no-double-run walk of a finishing spec pull request (#3382):
+/// The no-double-run walk of a full gate's pull request (#3382):
 /// `just preflight` records the stress run and the counts on the head, the
 /// hosted run in the full form runs each hosted-owned step its change
 /// reaches, and `just merge`'s full gate reads both. It reuses every unit
@@ -2232,6 +2276,7 @@ fn a_result_recorded_in_one_worktree_is_reused_in_another_on_the_same_tree() {
     let output = workspace
         .command(env!("CARGO_BIN_EXE_xtask"))
         .current_dir(&second_worktree)
+        .env("GOODFETCH_GATE_KEY", Workspace::gate_key_path())
         .env("CARGO_NET_OFFLINE", "true")
         .args([
             "gate",
@@ -3186,13 +3231,16 @@ fn a_full_run_lists_the_earned_passes_of_every_merge_since_the_last_green_run() 
     workspace.write("docs/never.md", b"# Never\n");
     commit_all(&workspace, "Change never merged");
     let never = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
-    std::fs::write(
-        records.join(format!("{never}.tsv")),
-        format!(
-            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{never}\tt\t{NOW}\tmerge\t{first}\n"
-        ),
-    )
-    .unwrap();
+    write_signed_record(
+        &workspace,
+        &records,
+        &never,
+        &[
+            "base\tb",
+            "host\th",
+            &format!("stress:goodfetch-conformance\tpass\t{never}\tt\t{NOW}\tmerge\t{first}"),
+        ],
+    );
     workspace.git(&["switch", "--quiet", "trunk"]);
     let backstop = records.with_file_name("backstop-runs");
     let full = plan_with(&workspace, &backstop, "CI=", &["--full"]);
@@ -3242,14 +3290,16 @@ fn a_result_carried_from_a_head_main_never_held_is_listed() {
     workspace.write("docs/pushed.md", b"# Second push\n");
     commit_all(&workspace, "Second push");
     let head = workspace.git(&["rev-parse", "HEAD"]).trim().to_owned();
-    std::fs::create_dir_all(&records).unwrap();
-    std::fs::write(
-        records.join(format!("{head}.tsv")),
-        format!(
-            "base\tb\nhost\th\nstress:goodfetch-conformance\tpass\t{first_push}\tt\t{NOW}\tmerge\t{before}\n"
-        ),
-    )
-    .unwrap();
+    write_signed_record(
+        &workspace,
+        &records,
+        &head,
+        &[
+            "base\tb",
+            "host\th",
+            &format!("stress:goodfetch-conformance\tpass\t{first_push}\tt\t{NOW}\tmerge\t{before}"),
+        ],
+    );
     workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
     merged(&workspace, &head);
     let backstop = records.with_file_name("backstop-runs");
@@ -3537,8 +3587,7 @@ fn a_full_gates_merge_since_the_last_green_run_needs_its_record() {
     let kept = change_from(&workspace, &before, "kept");
     let lost = change_from(&workspace, &before, "lost");
     let quick = change_from(&workspace, &before, "quick");
-    std::fs::create_dir_all(&records).unwrap();
-    std::fs::write(records.join(format!("{kept}.tsv")), "base\tb\nhost\th\n").unwrap();
+    write_signed_record(&workspace, &records, &kept, &["base\tb", "host\th"]);
     workspace.git(&["switch", "--quiet", "--create", "trunk", &before]);
     let last_green = merged_saying(&workspace, &earlier, FULL_GATE_MERGE);
     merged_saying(&workspace, &kept, FULL_GATE_MERGE);

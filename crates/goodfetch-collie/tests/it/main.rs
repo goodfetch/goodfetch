@@ -68,11 +68,14 @@ mod extractor_suite;
 #[cfg(target_os = "linux")]
 mod governor;
 mod help;
+mod http_listener;
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 mod huge_pages;
+#[cfg(unix)]
+mod human_input;
 mod human_output;
 #[cfg(unix)]
 mod identified;
@@ -80,11 +83,14 @@ mod init;
 mod install_docs;
 mod invalid_calls;
 mod journeys;
+mod key_value_store;
 #[cfg(unix)]
 mod launch;
 mod layout;
 #[cfg(target_os = "linux")]
 mod lazyfs;
+#[cfg(unix)]
+mod live_view;
 mod locator;
 mod log;
 mod navigation_egress;
@@ -127,6 +133,8 @@ mod sdk;
 mod secrets;
 mod security_controls;
 mod service_manager;
+mod session_emulation;
+mod session_permissions;
 mod sessions;
 mod settings_flags;
 #[cfg(unix)]
@@ -136,6 +144,7 @@ mod skill_examples;
 mod skill_install;
 #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 mod source_build;
+mod stealth_methods;
 #[cfg(target_os = "linux")]
 mod storage;
 #[cfg(target_os = "linux")]

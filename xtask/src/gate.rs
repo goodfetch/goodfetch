@@ -72,6 +72,7 @@ mod release;
 mod runs;
 mod shards;
 mod steps;
+mod verdict;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -119,6 +120,24 @@ pub(crate) enum Command {
     /// Appends a step's result to the record of the run on HEAD, for the
     /// units the plan ran; nothing without a plan for HEAD (`record`).
     Record(record::Arguments),
+    /// Checks a gate run's verdict before `just merge` merges it: every unit
+    /// of every required step of `form` holds a signed green result, either
+    /// run on `head`'s own tree or reused from an earlier signed run on an
+    /// ancestor with that ancestor's tree (`verdict`).
+    Verify {
+        /// The folder of the gate's records.
+        #[arg(long)]
+        records: std::path::PathBuf,
+        /// The host's gate key; defaults to the host's key outside every worktree.
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
+        /// The head whose verdict is checked: HEAD must be it.
+        #[arg(long)]
+        head: String,
+        /// The gate form whose required steps must all hold (`all`, `quick`, `batch`).
+        #[arg(long, value_enum, default_value = "all")]
+        form: steps::Form,
+    },
     /// Prints, as a JSON array, each result an incremental run on the full
     /// run's tree reused and the full run on `full` did not find green, with
     /// its kind (`miss`, `suspect`, `unchecked`), unit, step and member; each
@@ -133,6 +152,9 @@ pub(crate) enum Command {
         /// backstop reads `just merge`'s; `records` by default.
         #[arg(long)]
         runs: Option<std::path::PathBuf>,
+        /// The host's gate key; defaults to the host's key outside every worktree.
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
         /// The head of the full run (`GOODFETCH_GATE_FULL=1`).
         #[arg(long)]
         full: String,
@@ -147,6 +169,9 @@ pub(crate) enum Command {
         /// The folder of the gate's records.
         #[arg(long)]
         records: std::path::PathBuf,
+        /// The host's gate key; defaults to the host's key outside every worktree.
+        #[arg(long)]
+        key: Option<std::path::PathBuf>,
         /// The folder of the hosted runs' records that `ci/hosted-records.sh`
         /// downloaded for `just merge`, whose units count as run there.
         #[arg(long)]
@@ -169,6 +194,10 @@ pub(crate) struct PlanArguments {
     /// The folder of the gate's records.
     #[arg(long)]
     records: std::path::PathBuf,
+    /// The host's gate key, which signs every record line; defaults to the
+    /// host's key outside every worktree.
+    #[arg(long)]
+    key: Option<std::path::PathBuf>,
     /// Reuses nothing: every step runs in full, and is recorded.
     #[arg(long)]
     full: bool,
@@ -228,28 +257,57 @@ pub(crate) struct PlanArguments {
     github: github::Arguments,
 }
 
+pub(super) fn resolve_key(
+    environment: &Environment,
+    explicit: Option<&Path>,
+    create: bool,
+) -> Result<runs::Key> {
+    let path = match explicit {
+        Some(path) => environment.path(path),
+        None => runs::Key::default_path()?,
+    };
+    if create {
+        runs::Key::load_or_create(&path)
+    } else {
+        runs::Key::load(&path)
+    }
+}
+
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
     let root = environment.root.as_path();
     match command {
         Command::Steps { form } => output::line(steps::render(form).trim_end()),
         Command::Plan(arguments) => plan_run(environment, &arguments)?,
         Command::Record(arguments) => record::run(arguments, environment)?,
+        Command::Verify {
+            records,
+            key,
+            head,
+            form,
+        } => {
+            let key = resolve_key(environment, key.as_deref(), false)?;
+            return verdict::verify(environment, &environment.path(&records), &key, &head, form);
+        }
         Command::Compare {
             records,
             runs,
+            key,
             full,
             since,
         } => {
             let records = environment.path(&records);
             let runs = runs.map_or_else(|| records.clone(), |runs| environment.path(&runs));
-            return compare::compare(root, &records, &runs, &full, since.as_deref());
+            let key = resolve_key(environment, key.as_deref(), false)?;
+            return compare::compare(root, &records, &runs, &key, &full, since.as_deref());
         }
         Command::Duplicates {
             records,
+            key,
             hosted_records,
         } => {
             let hosted = hosted_records.map(|folder| environment.path(&folder));
-            return duplicates::check(&environment.path(&records), hosted.as_deref());
+            let key = resolve_key(environment, key.as_deref(), true)?;
+            return duplicates::check(&environment.path(&records), hosted.as_deref(), &key);
         }
         Command::Shards(arguments) => return shards::run(&arguments, environment),
         Command::Quick { command } => return quick_runs::run(command, environment),
@@ -276,13 +334,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     let unowned = evidence::unowned_tests(root, &members_read)?;
     let (members, shuffled) = head_members(&members_read, &unowned);
     let release_differs = release::differing(options.layer, root, &members_read, &shuffled)?;
-    let lint = lint::Reads {
-        root,
-        now: options.now,
-        zizmor_online: options.zizmor_online,
-        github: &options.github,
-        token: environment.token(),
-    };
+    let lint = lint_reads(environment, options);
     let lint_holds = || lint.hold();
     let gated = Head {
         base: &base,
@@ -300,23 +352,19 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         },
         release_differs: &release_differs,
     };
-    let hosted = match &options.hosted_records {
-        Some(folder) if !options.full => earlier::hosted(root, &environment.path(folder), &head)?,
-        _ => Vec::new(),
-    };
+    let key = resolve_key(environment, options.key.as_deref(), true)?;
+    let hosted = hosted_records_for_plan(environment, options, &head)?;
     let earlier = earlier::previous(
         root,
         records,
         &head,
         &gated,
+        &key,
         options.full,
         options.assume_green.as_deref(),
     )?;
     let previous = earlier.record.as_ref();
-    let target = match &options.target_dir {
-        Some(folder) => environment.path(folder),
-        None => metadata::target_directory(&environment.cargo, root)?,
-    };
+    let target = plan_target_dir(environment, options)?;
     let reader = Reader {
         root,
         cargo: &environment.cargo,
@@ -339,7 +387,7 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
         &touched,
     );
     let previous_head = previous.map(|record| record.head.as_str());
-    let stress_base = earlier::stress_base(root, &members_read, records, &head, &base)?;
+    let stress_base = earlier::stress_base(root, &members_read, records, &head, &base, &key)?;
     let machine = render(
         previous_head,
         stress_base.last_full_gate(),
@@ -360,7 +408,45 @@ fn plan_run(environment: &Environment, options: &PlanArguments) -> Result<()> {
     if options.dry_run {
         return Ok(());
     }
-    write(records, &carried(head, base, host, &planned), &machine)
+    write(
+        records,
+        &carried(head, base, host, &planned),
+        &machine,
+        &key,
+    )
+}
+
+fn lint_reads<'a>(environment: &'a Environment, options: &'a PlanArguments) -> lint::Reads<'a> {
+    lint::Reads {
+        root: environment.root.as_path(),
+        now: options.now,
+        zizmor_online: options.zizmor_online,
+        github: &options.github,
+        token: environment.token(),
+    }
+}
+
+fn hosted_records_for_plan(
+    environment: &Environment,
+    options: &PlanArguments,
+    head: &str,
+) -> Result<Vec<GateRun>> {
+    match &options.hosted_records {
+        Some(folder) if !options.full => {
+            earlier::hosted(&environment.root, &environment.path(folder), head)
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
+fn plan_target_dir(
+    environment: &Environment,
+    options: &PlanArguments,
+) -> Result<std::path::PathBuf> {
+    options.target_dir.as_ref().map_or_else(
+        || metadata::target_directory(&environment.cargo, &environment.root),
+        |folder| Ok(environment.path(folder)),
+    )
 }
 
 /// The commit the head's change starts from: its merge base with `main`, or
@@ -496,11 +582,11 @@ fn plan_dirty(plan_file: &Path, form: steps::Form) -> Result<()> {
     Ok(())
 }
 
-/// Writes the run's record, its carried results and earned passes, and its plan.
-fn write(records: &Path, carried: &GateRun, plan: &str) -> Result<()> {
+/// Writes the run's signed record, its carried results and earned passes, and its plan.
+fn write(records: &Path, carried: &GateRun, plan: &str, key: &runs::Key) -> Result<()> {
     std::fs::create_dir_all(records).with_context(|| format!("creating {}", records.display()))?;
     let record_file = runs::file(records, &carried.head);
-    std::fs::write(&record_file, runs::render(carried))
+    std::fs::write(&record_file, runs::render(carried, key))
         .with_context(|| format!("writing {}", record_file.display()))?;
     runs::write_earned(records, &carried.head, &carried.earned)?;
     let plan_file = runs::plan_file(records, &carried.head);

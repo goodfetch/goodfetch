@@ -73,6 +73,7 @@ mod package_dependencies;
 mod perf;
 mod pgo;
 mod pinned;
+mod probes;
 mod product_version;
 mod products;
 mod quarantine;
@@ -370,6 +371,11 @@ enum Command {
     Pgo {
         #[command(subcommand)]
         command: pgo::Command,
+    },
+    /// Confinement and browser-sandbox probe generation and checking (ADR 0067).
+    Probes {
+        #[command(subcommand)]
+        command: probes::Command,
     },
     /// The test quarantine list, `quarantine.toml` (ADR 0064).
     Quarantine {
@@ -750,6 +756,7 @@ fn run(command: Command, environment: &Environment) -> anyhow::Result<ExitCode> 
         Command::PackageDependencies => Ok(check::report(&package_dependencies::check(root)?)),
         Command::Perf { command } => perf::run(command, environment),
         Command::Pgo { command } => pgo::run(command, environment),
+        Command::Probes { command } => probes::run(&command, environment),
         Command::Quarantine { command } => quarantine::run(command, environment),
         Command::ReceivedRequests => Ok(check::report(&received_requests::check(root)?)),
         Command::Recordings { command } => recordings::run(&command, root),

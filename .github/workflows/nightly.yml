@@ -370,7 +370,12 @@ jobs:
   models:
     name: models
     needs: release-suite
-    if: ${{ !cancelled() }}
+    if: >-
+      ${{ !cancelled() && (
+        vars.GOODFETCH_LIVE_EVAL_NIGHTLY == '1' || vars.GOODFETCH_LIVE_EVAL_NIGHTLY == 'true' ||
+        vars.GOODFETCH_LIVE_EVAL_WEEKLY == '1' || vars.GOODFETCH_LIVE_EVAL_WEEKLY == 'true' ||
+        vars.GOODFETCH_LIVE_SKILLS == '1' || vars.GOODFETCH_LIVE_SKILLS == 'true'
+      ) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -396,6 +401,9 @@ jobs:
       - name: "Test: the job's Live checks"
         env:
           AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          GOODFETCH_LIVE_EVAL_NIGHTLY: ${{ vars.GOODFETCH_LIVE_EVAL_NIGHTLY }}
+          GOODFETCH_LIVE_EVAL_WEEKLY: ${{ vars.GOODFETCH_LIVE_EVAL_WEEKLY }}
+          GOODFETCH_LIVE_SKILLS: ${{ vars.GOODFETCH_LIVE_SKILLS }}
         run: >-
           ci/egress/under-deny.sh cargo run --quiet --locked --bin xtask --
           results live-run --job nightly.yml#models --junit target/junit/live.xml

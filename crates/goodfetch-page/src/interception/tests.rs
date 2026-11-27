@@ -62,6 +62,8 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
         learned: Arc::new(Learned::default()),
         on_document: None,
         discovery: Mutex::new(None),
+        caching: None,
+        blocks: Arc::new(crate::blocks::NoBlocks),
     }
 }
 

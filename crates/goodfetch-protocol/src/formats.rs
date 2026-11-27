@@ -19,8 +19,10 @@ use crate::clean_up_rules::CleanUpRulesManifest;
 use crate::entries::MODULES;
 use crate::executables::InstalledExecutables;
 use crate::jsonrpc::Message;
+use crate::notifications::{NOTIFICATION_PAYLOAD_VERSION, NotificationPayload};
 use crate::plugin::{MANIFEST_VERSION, PLUGIN_PROTOCOL_VERSION, PluginManifest};
 use crate::politeness::PermitRow;
+use crate::published_catalog::{PUBLISHED_CATALOG_VERSION, PublishedCatalog};
 use crate::recipe::{RECIPE_MANIFEST_VERSION, RecipeManifest};
 use crate::response_cache::ResponseCacheEntry;
 use crate::run::{RunIndexRow, RunStateRow};
@@ -60,9 +62,10 @@ impl Storage {
 pub enum Rule {
     /// A reader reads its own major up to its own minor.
     Default,
-    /// The Usage ledger's family (ADRs 0030 and 0098): the major never
-    /// changes and newer minors only add, so a reader reads every minor of
-    /// its major, keeping what it does not know.
+    /// The Usage ledger's family (ADRs 0030 and 0098), with the installed
+    /// executables and the Notification payload: the major never changes
+    /// and newer minors only add, so a reader reads every minor of its
+    /// major, keeping what it does not know.
     FrozenMajor,
     /// The shared stores' (ADR 0098): the Run index, the Schedule store,
     /// the Saved identity store, user configuration and the Operator policy,
@@ -483,6 +486,32 @@ pub const PLUGIN_MANIFEST: Format = Format {
     schema: schema_of::<PluginManifest>,
 };
 
+/// The body of a `webhook` channel's delivery (ADRs 0027 and 0030), which
+/// a receiver's verification helper reads: programs of every SDK version
+/// receive it, so it is of the Usage ledger's family, its major never
+/// changing and its newer minors only adding.
+pub const NOTIFICATION_PAYLOAD: Format = Format {
+    name: "notification-payload",
+    version: NOTIFICATION_PAYLOAD_VERSION,
+    storage: Storage::Json,
+    rule: Rule::FrozenMajor,
+    hello_from: &[],
+    schema: schema_of::<NotificationPayload>,
+};
+
+/// The signed Operation catalog file attached to every GitHub Release
+/// (`goodfetch-catalog.json`, ADRs 0030, 0032 and 0095; issue 1662): both
+/// Products' catalog entries with their marks, the protocol version, the
+/// Connection framing types and every JSON Schema definition they refer to.
+pub const PUBLISHED_CATALOG: Format = Format {
+    name: "published-catalog",
+    version: PUBLISHED_CATALOG_VERSION,
+    storage: Storage::Json,
+    rule: Rule::Default,
+    hello_from: &[],
+    schema: schema_of::<PublishedCatalog>,
+};
+
 /// Every registered format.
 pub const FORMATS: &[&Format] = &[
     &PROTOCOL,
@@ -504,6 +533,8 @@ pub const FORMATS: &[&Format] = &[
     &RECIPE_MANIFEST,
     &PLUGIN_PROTOCOL,
     &PLUGIN_MANIFEST,
+    &NOTIFICATION_PAYLOAD,
+    &PUBLISHED_CATALOG,
 ];
 
 /// A settings file's schema: its `version` and each of `tables`, a table

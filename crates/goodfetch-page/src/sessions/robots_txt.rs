@@ -1,8 +1,11 @@
 //! The Provenance a program's own navigation records of robots.txt (ADRs
-//! 0086 and 0098; spec #580): for each document the main frame of a page a
-//! program opened receives from the site, whatever started its navigation
-//! (a `goto`, a click, a form, a script, a popup), and for each response a
-//! `page.request` of such a page gets, whether its origin's robots.txt
+//! 0086 and 0098; spec #580), while the Run's
+//! `site_preferences.read_robots_txt_for_navigation` is on (off by default,
+//! when nothing is fetched and nothing recorded): for each document the
+//! main frame of a page a program opened receives from the site, whatever
+//! started its navigation (a `goto`, a click, a form, a script, a popup),
+//! and for each response a `page.request` of such a page gets, whether its
+//! origin's robots.txt
 //! allowed it, naming the group and the rule that decided. The groups are
 //! those area 5's selection picks for Foxhound's product token, with no
 //! operator token, since a Collie Run takes none; a robots.txt answered
@@ -28,6 +31,7 @@ use goodfetch_engine::response_limits::Limits;
 use goodfetch_engine::robots_txt::{self, Answer, Fetched, Judgment, NotRead, RobotsTxt};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_protocol::page::{PageId, SessionId};
+use goodfetch_protocol::site_preferences::SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION;
 use serde_json::{Value, json};
 use url::Url;
 
@@ -66,8 +70,10 @@ impl Reader {
     /// The reader of the page `page_id` of the Session `session`, which
     /// `value` carries in `run`, its readings started on `tasks`, the Run's
     /// identity that starts them on the page's owner, when a program opened
-    /// it: a handler's page, whose value has a navigation gate, is
-    /// Foxhound's to judge (ADR 0087).
+    /// it and the Run's `site_preferences.read_robots_txt_for_navigation` is
+    /// on: off, its default, nothing is read (ticket #2448), and a
+    /// handler's page, whose value has a navigation gate, is Foxhound's to
+    /// judge (ADR 0087).
     pub(crate) fn of(
         sessions: &Sessions,
         page_id: &PageId,
@@ -75,7 +81,12 @@ impl Reader {
         value: &PageValue,
         (run, tasks): (&Arc<BrowserRun>, &RunIdentity),
     ) -> Option<Self> {
-        value.gate().is_none().then(|| Self {
+        let reads = run.identity.settings().is_some_and(|settings| {
+            settings
+                .resolved()
+                .get::<bool>(&SITE_PREFERENCES_READ_ROBOTS_TXT_FOR_NAVIGATION)
+        });
+        (reads && value.gate().is_none()).then(|| Self {
             sessions: sessions.clone(),
             page_id: page_id.clone(),
             session: session.clone(),

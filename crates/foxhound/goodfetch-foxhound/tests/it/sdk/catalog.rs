@@ -24,7 +24,7 @@ use super::crawl::options;
 
 /// The Proving ground's seed the catalog crawls read, the TypeScript
 /// case's.
-const SEED: u64 = 1467;
+pub(super) const SEED: u64 = 1467;
 
 /// The task the oracle judges the Records of.
 pub(super) const TASK: &str = "catalog/1";
@@ -137,18 +137,18 @@ fn listing_fields() -> BTreeMap<String, PageField> {
 
 /// The catalog program: one Label for the listing pages, whose handler
 /// pushes each product into `products` and enqueues the page the Next
-/// link leads to.
-fn catalog() -> (Crawl<'static>, Label<()>, Dataset<Product>) {
+/// link leads to; [`products_json`] reads them back.
+pub(super) fn catalog() -> (Crawl<'static>, Label<()>) {
     let mut crawl = Crawl::new();
     let listing = crawl.label::<()>("listing").unwrap();
     let products = crawl.dataset::<Product>("products").unwrap();
-    let (next, pushed) = (listing.clone(), products.clone());
+    let next = listing.clone();
     crawl
         .handle(&listing, move |ctx: CrawlContext<()>| async move {
-            crawl_listing(&ctx, &next, &pushed).await.map(drop)
+            crawl_listing(&ctx, &next, &products).await.map(drop)
         })
         .unwrap();
-    (crawl, listing, products)
+    (crawl, listing)
 }
 
 /// Pushes what the listing page of `ctx` lists into `products` and
@@ -176,11 +176,16 @@ pub(super) async fn crawl_listing(
     Ok(first.id)
 }
 
-/// The oracle's answer on `records` as the Records of the catalog task.
-pub(super) fn judged(site: &ProvingGround, records: &[Value]) -> OracleAnswer {
-    let answer = site
-        .judge_records(TASK, ToolStatus::Success, records)
-        .unwrap();
+/// The catalog's `products` as a reader of their JSON declares them, whose
+/// Records the oracle judges as the crawl committed them.
+pub(super) fn products_json() -> Dataset<Value> {
+    Crawl::new().dataset::<Value>("products").unwrap()
+}
+
+/// The oracle's answer on `records` as the Records of the catalog task,
+/// the tool that read them having ended with `status`.
+pub(super) fn judged(site: &ProvingGround, status: ToolStatus, records: &[Value]) -> OracleAnswer {
+    let answer = site.judge_records(TASK, status, records).unwrap();
     serde_json::from_value(answer).unwrap()
 }
 
@@ -202,21 +207,21 @@ fn the_catalog_program_crawls_the_catalog_and_the_oracle_accepts_its_records() {
     let start = site.start_url(TASK).unwrap();
     let (report, records) = real_time_runtime().block_on(async {
         let foxhound = Foxhound::connect(options(&env, &site)).await.unwrap();
-        let (crawl, listing, products) = catalog();
+        let (crawl, listing) = catalog();
         let run = foxhound
             .start_crawl(&crawl, [Seed::new(&start, &listing, ())])
             .await
             .unwrap();
         let report = crawl.serve(&run).await.unwrap();
         let mut records = Vec::new();
-        let mut read = run.records(&products);
+        let mut read = run.records(&products_json());
         while let Some(record) = read.next().await {
             records.push(record.unwrap().value);
         }
         foxhound.close().await.unwrap();
         (report, records)
     });
-    let answer = judged(&site, &records);
+    let answer = judged(&site, ToolStatus::Success, &records);
     case.oracle_answer(answer.clone());
 
     case.check("finish() returns the finished Run's report", || {
@@ -271,7 +276,7 @@ fn the_blocking_catalog_program_follows_its_links_and_reads_its_records_back() {
         .unwrap();
     let report = crawl.serve(&run).unwrap();
     let records: Vec<Value> = run
-        .records(&products)
+        .records(&products_json())
         .map(|record| record.unwrap().value)
         .collect();
     foxhound.close().unwrap();
@@ -279,6 +284,6 @@ fn the_blocking_catalog_program_follows_its_links_and_reads_its_records_back() {
     assert_eq!(report.report.lifecycle, Lifecycle::Finished);
     let requests = report.requests.unwrap();
     assert_eq!(requests.failed, 0, "{requests:?}");
-    let answer = judged(&site, &records);
+    let answer = judged(&site, ToolStatus::Success, &records);
     assert_eq!(answer.outcome, OracleOutcome::Verified, "{answer:?}");
 }

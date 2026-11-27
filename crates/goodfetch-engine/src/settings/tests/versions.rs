@@ -285,3 +285,87 @@ fn the_daemon_address_default_follows_the_product_version(
         (expected, expected)
     );
 }
+
+/// `http_listener.port`'s default follows the Product version of the
+/// executable that reads the settings: 7800 plus a release's major, 7700
+/// plus a preview's minor (ADRs 0027 and 0030).
+///
+/// Covers: story:11-258
+#[rstest]
+#[case::a_release("1.4.0", 7801)]
+#[case::a_release_candidate("2.0.0-rc.1", 7802)]
+#[case::a_preview("0.3.0", 7703)]
+fn the_http_listener_port_default_follows_the_product_version(
+    #[case] product: &str,
+    #[case] expected: u64,
+) {
+    let home = tempfile::tempdir().unwrap();
+    let files = SettingsFiles::of(&Home::new(home.path().to_owned()), &version(product));
+
+    let machine = files.machine_settings(Product::Collie).unwrap();
+    let scope = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let settings = Settings::new(files, Product::Collie, owner.child());
+        settings.open_asked(Opening::default()).await.unwrap().0
+    });
+
+    assert_eq!(
+        (
+            machine.get::<u64>(&goodfetch_protocol::http_listener::PORT),
+            scope
+                .resolved()
+                .get::<u64>(&goodfetch_protocol::http_listener::PORT),
+        ),
+        (expected, expected)
+    );
+}
+
+/// Every `http_listener.*` key is configuration-only and refused from code
+/// with `setting_not_applicable`, naming both the user configuration and
+/// Operator policy files (ADRs 0027 and 0098).
+///
+/// Covers: story:11-258, error:setting_not_applicable
+#[rstest]
+#[case::enabled("http_listener.enabled", serde_json::json!(true))]
+#[case::address("http_listener.address", serde_json::json!("127.0.0.1"))]
+#[case::port("http_listener.port", serde_json::json!(7801))]
+fn http_listener_settings_from_code_are_refused_naming_the_files(
+    #[case] key: &str,
+    #[case] value: serde_json::Value,
+) {
+    let home = tempfile::tempdir().unwrap();
+    let files = SettingsFiles::of(&Home::new(home.path().to_owned()), &version("1.0.0"));
+    let expected_user = files.user_configuration().display().to_string();
+    let expected_policy = files.operator_policy().display().to_string();
+
+    let mut run_settings = serde_json::Map::new();
+    run_settings.insert(key.to_owned(), value);
+    let refused = goodfetch_test_support::runtime().block_on(async {
+        let owner = TaskOwner::root(BlockingPolicy::Inline);
+        let settings = Settings::new(files, Product::Collie, owner.child());
+        settings
+            .open_asked(Opening {
+                settings: run_settings,
+                ..Opening::default()
+            })
+            .await
+    });
+
+    match refused {
+        Err(SettingsError::NotApplicable {
+            key: refused_key,
+            fix,
+            ..
+        }) => {
+            assert_eq!(refused_key, key);
+            assert!(
+                fix.contains(&expected_user) && fix.contains(&expected_policy),
+                "expected fix to name `{expected_user}` and `{expected_policy}`, got: {fix}"
+            );
+        }
+        other => panic!(
+            "expected setting_not_applicable for `{key}`, got {:?}",
+            other.err()
+        ),
+    }
+}

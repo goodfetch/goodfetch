@@ -146,7 +146,7 @@ def _post_http_rpc(
 
 
 @pytest.mark.parametrize("with_http_listener", [True])
-def test_daemon_with_http_listener_reaches_http_and_refuses_without_token(
+def test_daemon_with_http_listener_answers_with_http_token(
     daemon: Daemon,
     with_http_listener: bool,
 ) -> None:
@@ -157,11 +157,60 @@ def test_daemon_with_http_listener_reaches_http_and_refuses_without_token(
     assert daemon.http_token is not None
 
     status, body = _post_http_rpc(daemon.http, daemon.http_token, Product.COLLIE)
-    missing_status, _ = _post_http_rpc(daemon.http, None, Product.COLLIE)
-    wrong_status, _ = _post_http_rpc(daemon.http, daemon.token, Product.COLLIE)
 
     assert status == 200
     assert isinstance(body, dict)
     assert body["result"]["product"] == "collie", body
-    assert missing_status == 401
-    assert wrong_status == 401
+
+
+@pytest.mark.parametrize("with_http_listener", [True])
+def test_daemon_with_http_listener_refuses_missing_token(
+    daemon: Daemon,
+    with_http_listener: bool,
+) -> None:
+    """A request without an Authorization header is refused with 401."""
+    assert with_http_listener is True
+    assert daemon.http is not None
+
+    status, _ = _post_http_rpc(daemon.http, None, Product.COLLIE)
+
+    assert status == 401
+
+
+@pytest.mark.parametrize("with_http_listener", [True])
+def test_daemon_with_http_listener_refuses_socket_token(
+    daemon: Daemon,
+    with_http_listener: bool,
+) -> None:
+    """A request carrying the socket token instead of `http_token` is refused."""
+    assert with_http_listener is True
+    assert daemon.http is not None
+
+    status, _ = _post_http_rpc(daemon.http, daemon.token, Product.COLLIE)
+
+    assert status == 401
+
+
+HTTP_LISTENER_WITHOUT_DAEMON_TEST = """
+import pytest
+from goodfetch_test_support import TestEnv
+
+
+@pytest.fixture
+def with_http_listener() -> bool:
+    return True
+
+
+def test_reaches(test_env: TestEnv) -> None:
+    assert test_env.daemon is not None
+"""
+
+
+def test_http_listener_without_with_daemon_fails_the_fixture(
+    sample_run: "SampleRun",
+) -> None:
+    """Overriding `with_http_listener` without `with_daemon` fails setup."""
+    outcome = sample_run.run(HTTP_LISTENER_WITHOUT_DAEMON_TEST)
+
+    assert outcome.results == {"test_reaches": "error"}, outcome.output
+    assert "TestEnvError" in outcome.output

@@ -7,8 +7,8 @@
 //!   `uses: docker://…`, and each literal image a `run:` script names;
 //! - each composite or Docker action under `.github/actions/`;
 //! - each `FROM` of a Containerfile or Dockerfile, which the jobs build;
-//! - each `image.toml` under `ci/`, the pin files scripts read their images
-//!   from (`repository`, `tag`, `digest`);
+//! - each `image.toml` or `images.toml` under `ci/`, the pin files scripts
+//!   read their images from (`repository`, `tag`, `digest`);
 //! - each literal image a script under `ci/` names.
 //!
 //! In scripts, an image is recognised by its registry host, or as the image

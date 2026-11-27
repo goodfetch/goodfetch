@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect } from "vitest";
-import { test } from "@goodfetch/test-support";
+import { test, startTestEnv } from "@goodfetch/test-support";
 import { hello } from "./daemon-hello.ts";
 
 describe("daemon", () => {
@@ -43,48 +43,69 @@ describe("daemon of a test that needs Foxhound", () => {
   });
 });
 
+const DAEMON_STATUS_BODY = JSON.stringify({
+  jsonrpc: "2.0",
+  id: 1,
+  method: "daemon.status",
+  params: {},
+});
+
+const HTTP_RPC_BASE_HEADERS = {
+  "Content-Type": "application/json",
+  "Goodfetch-Protocol": "0.1",
+  "Goodfetch-Product": "collie",
+  "Goodfetch-Form": "catalog",
+};
+
 describe("daemon with HTTP listener", () => {
   test.override({ withDaemon: true, withHttpListener: true });
 
-  test("reaches the HTTP listener with its Bearer token and refuses requests without it", async ({
-    daemon,
-  }) => {
+  test("answers daemon.status over HTTP with its Bearer token", async ({ daemon }) => {
     expect(daemon.http).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(daemon.http_token).toBeTruthy();
 
-    const body = JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "daemon.status",
-      params: {},
-    });
-    const baseHeaders = {
-      "Content-Type": "application/json",
-      "Goodfetch-Protocol": "0.1",
-      "Goodfetch-Product": "collie",
-      "Goodfetch-Form": "catalog",
-    };
-
-    const ok = await fetch(`${daemon.http}/v1/rpc`, {
+    const response = await fetch(`${daemon.http}/v1/rpc`, {
       method: "POST",
-      headers: { ...baseHeaders, Authorization: `Bearer ${daemon.http_token}` },
-      body,
+      headers: { ...HTTP_RPC_BASE_HEADERS, Authorization: `Bearer ${daemon.http_token}` },
+      body: DAEMON_STATUS_BODY,
     });
-    expect(ok.status).toBe(200);
-    expect(await ok.json()).toMatchObject({ result: { product: "collie" } });
 
-    const missing = await fetch(`${daemon.http}/v1/rpc`, {
-      method: "POST",
-      headers: baseHeaders,
-      body,
-    });
-    expect(missing.status).toBe(401);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { product: "collie" } });
+  });
 
-    const wrongToken = await fetch(`${daemon.http}/v1/rpc`, {
+  test("refuses HTTP requests without an Authorization header", async ({ daemon }) => {
+    const response = await fetch(`${daemon.http}/v1/rpc`, {
       method: "POST",
-      headers: { ...baseHeaders, Authorization: `Bearer ${daemon.token}` },
-      body,
+      headers: HTTP_RPC_BASE_HEADERS,
+      body: DAEMON_STATUS_BODY,
     });
-    expect(wrongToken.status).toBe(401);
+
+    expect(response.status).toBe(401);
+  });
+
+  test("refuses HTTP requests carrying the socket token instead of http_token", async ({
+    daemon,
+  }) => {
+    const response = await fetch(`${daemon.http}/v1/rpc`, {
+      method: "POST",
+      headers: { ...HTTP_RPC_BASE_HEADERS, Authorization: `Bearer ${daemon.token}` },
+      body: DAEMON_STATUS_BODY,
+    });
+
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("httpListener without daemon", () => {
+  test("fails goodfetch-test-env start with start_failed", async ({ processes, toolManifest }) => {
+    await expect(
+      startTestEnv({
+        processes,
+        testName: "httpListener without daemon",
+        toolManifest,
+        httpListener: true,
+      }),
+    ).rejects.toMatchObject({ code: "start_failed" });
   });
 });

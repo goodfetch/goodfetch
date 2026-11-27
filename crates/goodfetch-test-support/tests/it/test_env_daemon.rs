@@ -354,7 +354,6 @@ fn daemon_with_http_listener_describes_an_http_address_a_client_reaches_with_its
     let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
     let process = start(&env, &["--daemon", "--http-listener"], &manifest);
     let description = description(&process);
-    let (_socket, socket_token) = socket_and_token(&description);
     let http = description["daemon"]["http"]
         .as_str()
         .unwrap_or_else(|| panic!("no daemon.http: {description}"))
@@ -366,15 +365,48 @@ fn daemon_with_http_listener_describes_an_http_address_a_client_reaches_with_its
     let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "daemon.status", "params": {} });
 
     let (ok_status, ok_body) = post_http_rpc(&http, Some(&http_token), "collie", &request);
-    let (missing_status, _) = post_http_rpc(&http, None, "collie", &request);
-    let (wrong_status, _) = post_http_rpc(&http, Some(&socket_token), "collie", &request);
 
     process.close_stdin_and_wait().unwrap();
     assert_eq!(schema_errors(&description), Vec::<String>::new());
     assert_eq!(ok_status, 200, "{ok_body}");
     assert_eq!(ok_body["result"]["product"], json!("collie"), "{ok_body}");
-    assert_eq!(missing_status, 401);
-    assert_eq!(wrong_status, 401);
+}
+
+#[test]
+fn daemon_with_http_listener_refuses_requests_without_a_token() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
+    let process = start(&env, &["--daemon", "--http-listener"], &manifest);
+    let description = description(&process);
+    let http = description["daemon"]["http"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no daemon.http: {description}"))
+        .to_owned();
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "daemon.status", "params": {} });
+
+    let (status, _) = post_http_rpc(&http, None, "collie", &request);
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(status, 401);
+}
+
+#[test]
+fn daemon_with_http_listener_refuses_the_socket_token() {
+    let env = TestEnv::new();
+    let manifest = manifest_with(&env, &[("collie", &commit_tool(Tool::Collie))]);
+    let process = start(&env, &["--daemon", "--http-listener"], &manifest);
+    let description = description(&process);
+    let (_socket, socket_token) = socket_and_token(&description);
+    let http = description["daemon"]["http"]
+        .as_str()
+        .unwrap_or_else(|| panic!("no daemon.http: {description}"))
+        .to_owned();
+    let request = json!({ "jsonrpc": "2.0", "id": 1, "method": "daemon.status", "params": {} });
+
+    let (status, _) = post_http_rpc(&http, Some(&socket_token), "collie", &request);
+
+    process.close_stdin_and_wait().unwrap();
+    assert_eq!(status, 401);
 }
 
 #[test]

@@ -1,11 +1,20 @@
 // Pinned n8n and Activepieces Integration harnesses (ADR 0070; issue 426).
 // Both images are pinned by multi-platform digest in
 // `ci/integrations/images.toml` and pulled before ADR 0043's outbound-traffic
-// deny by `ci/integrations/fetch.sh` (`just fetch`). Each runs offline
-// against `goodfetch-test-env --daemon --http-listener` on loopback.
+// deny by `ci/integrations/fetch.sh` (`just fetch`). Each runs inside
+// `--network=none` for physical offline isolation, bridging loopback HTTP
+// across bind-mounted Unix sockets using the Node.js runtime already shipped
+// in both images, so it works identically on Docker, Podman, and the Linux
+// Release suite's `goodfetch-egress` network namespace.
 import { execFile, execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:net";
+import { randomUUID } from "node:crypto";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  connect as netConnect,
+  createServer,
+  type Server as NetServer,
+  type Socket,
+} from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -44,6 +53,11 @@ export interface N8nWorkflowOptions {
   readonly workflow: Readonly<Record<string, unknown>>;
   /** Workflow ID passed to `n8n execute --id`. */
   readonly workflowId: string;
+  /**
+   * Optional Daemon HTTP listener base URL (`http://127.0.0.1:<port>`) to
+   * bridge into the `--network=none` container on the same loopback port.
+   */
+  readonly daemonHttp?: string | undefined;
   /** Extra environment variables passed to the n8n container. */
   readonly env?: Readonly<Record<string, string>> | undefined;
   /** Container image reference; defaults to `ci/integrations/images.toml`'s `[n8n]`. */
@@ -75,12 +89,17 @@ export interface StartedActivepieces {
   readonly containerId: string;
   /** Creates a flow with one `CODE` action, executes it offline, and returns the step result. */
   runCodeStep(step: ActivepiecesCodeStep): Promise<ActivepiecesStepResult>;
-  /** Stops and removes the container. */
+  /** Stops and removes the container and closes the loopback bridge. */
   stop(): Promise<void>;
 }
 
 /** Options for `startActivepieces`. */
 export interface ActivepiecesStartOptions {
+  /**
+   * Optional Daemon HTTP listener base URL (`http://127.0.0.1:<port>`) to
+   * bridge into the `--network=none` container on the same loopback port.
+   */
+  readonly daemonHttp?: string | undefined;
   /** Container image reference; defaults to `ci/integrations/images.toml`'s `[activepieces]`. */
   readonly image?: string | undefined;
   /** Container engine; auto-detected when absent. */
@@ -92,6 +111,49 @@ export interface ActivepiecesStartOptions {
 const SHA256_RE = /^sha256:[0-9a-f]{64}$/;
 const REPO_ROOT = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const DEFAULT_IMAGES_FILE = join(REPO_ROOT, "ci", "integrations", "images.toml");
+const ACTIVEPIECES_CONTAINER_PORT = 3000;
+const PER_REQUEST_TIMEOUT_CAP_MS = 10_000;
+
+/**
+ * Tiny CommonJS TCP <-> Unix-socket bridge executed by the Node.js runtime
+ * already shipped inside both pinned images under `--network=none`.
+ * - `DAEMON_PORT` + `DAEMON_SOCK`: listens on container `127.0.0.1:<DAEMON_PORT>`
+ *   and pipes connections to the host-bound Unix socket `DAEMON_SOCK`.
+ * - `AP_SOCK` + `AP_PORT`: listens on Unix socket `AP_SOCK` (mode 0666) and
+ *   pipes connections to container `127.0.0.1:<AP_PORT>`.
+ */
+const CONTAINER_BRIDGE_SCRIPT = [
+  'const fs = require("node:fs");',
+  'const net = require("node:net");',
+  "const pipe = (a, b) => {",
+  "  a.pipe(b); b.pipe(a);",
+  "  a.on('error', () => b.destroy());",
+  "  b.on('error', () => a.destroy());",
+  "};",
+  "const pending = [];",
+  "if (process.env.DAEMON_PORT && process.env.DAEMON_SOCK) {",
+  "  const port = Number(process.env.DAEMON_PORT);",
+  "  const sock = process.env.DAEMON_SOCK;",
+  "  pending.push(new Promise((res, rej) => {",
+  "    const srv = net.createServer((c) => pipe(c, net.createConnection(sock)));",
+  "    srv.once('error', rej);",
+  "    srv.listen(port, '127.0.0.1', res);",
+  "  }));",
+  "}",
+  "if (process.env.AP_SOCK && process.env.AP_PORT) {",
+  "  const sock = process.env.AP_SOCK;",
+  "  const port = Number(process.env.AP_PORT);",
+  "  if (fs.existsSync(sock)) fs.unlinkSync(sock);",
+  "  pending.push(new Promise((res, rej) => {",
+  "    const srv = net.createServer((c) => pipe(c, net.createConnection({ host: '127.0.0.1', port })));",
+  "    srv.once('error', rej);",
+  "    srv.listen(sock, () => { fs.chmodSync(sock, 0o666); res(); });",
+  "  }));",
+  "}",
+  "Promise.all(pending).then(() => {",
+  "  if (process.env.BRIDGE_READY) fs.writeFileSync(process.env.BRIDGE_READY, 'ok');",
+  "}).catch((err) => { console.error(err); process.exit(1); });",
+].join("\n");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -179,8 +241,7 @@ export function readIntegrationImages(filePath: string = DEFAULT_IMAGES_FILE): I
   };
 }
 
-/** Returns `"docker"` or `"podman"` if one answers `info`, else `undefined`. */
-export function detectContainerEngine(): ContainerEngine | undefined {
+function detectContainerEngine(): ContainerEngine | undefined {
   for (const candidate of ["docker", "podman"] as const) {
     try {
       execFileSync(candidate, ["info"], { stdio: "ignore", timeout: 5_000 });
@@ -215,26 +276,83 @@ function requireLocalImage(engine: ContainerEngine, image: string): void {
   }
 }
 
-async function freeLoopbackPort(): Promise<number> {
-  return await new Promise<number>((resolvePort, rejectPort) => {
-    const server = createServer();
-    server.once("error", rejectPort);
+function parseLoopbackPort(baseUrl: string): number {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch (error) {
+    throw new TestSupportError("integration_harness_failed", `invalid daemonHttp URL ${baseUrl}`, {
+      cause: error,
+    });
+  }
+  const port = Number(parsed.port);
+  if (
+    parsed.protocol !== "http:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    !Number.isInteger(port) ||
+    port <= 0 ||
+    port > 65535
+  ) {
+    throw new TestSupportError(
+      "integration_harness_failed",
+      `daemonHttp must be http://127.0.0.1:<port>, got ${baseUrl}`,
+    );
+  }
+  return port;
+}
+
+function pipeSockets(a: Socket, b: Socket): void {
+  a.pipe(b);
+  b.pipe(a);
+  a.on("error", () => {
+    b.destroy();
+  });
+  b.on("error", () => {
+    a.destroy();
+  });
+}
+
+async function startUnixToTcpBridge(socketPath: string, targetPort: number): Promise<NetServer> {
+  return await new Promise<NetServer>((resolveServer, rejectServer) => {
+    const server = createServer((client) => {
+      pipeSockets(client, netConnect({ host: "127.0.0.1", port: targetPort }));
+    });
+    server.once("error", rejectServer);
+    server.listen(socketPath, () => {
+      chmodSync(socketPath, 0o666);
+      resolveServer(server);
+    });
+  });
+}
+
+async function startTcpToUnixBridge(
+  socketPath: string,
+): Promise<{ readonly server: NetServer; readonly port: number }> {
+  return await new Promise((resolveServer, rejectServer) => {
+    const server = createServer((client) => {
+      pipeSockets(client, netConnect(socketPath));
+    });
+    server.once("error", rejectServer);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       if (address === null || typeof address === "string") {
         server.close(() => {
-          rejectPort(new Error("could not bind a loopback port"));
+          rejectServer(new Error("could not bind a loopback port for Activepieces bridge"));
         });
         return;
       }
-      const { port } = address;
-      server.close((closeError) => {
-        if (closeError) {
-          rejectPort(closeError);
-        } else {
-          resolvePort(port);
-        }
-      });
+      resolveServer({ server, port: address.port });
+    });
+  });
+}
+
+async function closeServer(server: NetServer | undefined): Promise<void> {
+  if (server === undefined) {
+    return;
+  }
+  await new Promise<void>((resolveClose) => {
+    server.close(() => {
+      resolveClose();
     });
   });
 }
@@ -254,7 +372,6 @@ function runCommand(
           resolveRun({ exitCode: 0, stdout, stderr });
           return;
         }
-        const exitCode = typeof error.code === "number" ? error.code : 1;
         if (error.killed) {
           rejectRun(
             new TestSupportError(
@@ -265,27 +382,58 @@ function runCommand(
           );
           return;
         }
-        resolveRun({ exitCode, stdout, stderr });
+        if (typeof error.code !== "number") {
+          rejectRun(
+            new TestSupportError(
+              "integration_harness_failed",
+              `${command} failed to spawn: ${error.message}`,
+              { cause: error },
+            ),
+          );
+          return;
+        }
+        resolveRun({ exitCode: error.code, stdout, stderr });
       },
     );
   });
 }
 
-/** Imports and executes one n8n workflow offline inside the pinned n8n image. */
+async function forceRemoveContainer(engine: ContainerEngine, nameOrId: string): Promise<void> {
+  try {
+    const removed = await runCommand(engine, ["rm", "-f", nameOrId], 15_000);
+    if (removed.exitCode !== 0) {
+      process.stderr.write(
+        `goodfetch-test-support: ${engine} rm -f ${nameOrId} exited ${removed.exitCode}: ${removed.stderr.trim()}\n`,
+      );
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    process.stderr.write(
+      `goodfetch-test-support: failed to remove container ${nameOrId}: ${detail}\n`,
+    );
+  }
+}
+
+/** Imports and executes one n8n workflow offline inside the pinned n8n image (`--network=none`). */
 export async function runN8nWorkflow(options: N8nWorkflowOptions): Promise<N8nWorkflowResult> {
   const engine = requireEngine(options.engine);
   const image = options.image ?? readIntegrationImages().n8n.reference;
   requireLocalImage(engine, image);
-  const brokerPort = await freeLoopbackPort();
+  const containerName = `goodfetch-n8n-${randomUUID()}`;
   const folder = mkdtempSync(join(tmpdir(), "goodfetch-n8n-"));
+  chmodSync(folder, 0o777);
   const workflowPath = join(folder, "workflow.json");
+  const bridgeScriptPath = join(folder, "bridge.cjs");
+  let daemonBridge: NetServer | undefined;
   try {
     writeFileSync(workflowPath, JSON.stringify(options.workflow), "utf8");
     chmodSync(workflowPath, 0o644);
     const args: string[] = [
       "run",
       "--rm",
-      "--network=host",
+      "--name",
+      containerName,
+      "--network=none",
       "-e",
       "N8N_DIAGNOSTICS_ENABLED=false",
       "-e",
@@ -298,25 +446,46 @@ export async function runN8nWorkflow(options: N8nWorkflowOptions): Promise<N8nWo
       "N8N_PERSONALIZATION_ENABLED=false",
       "-e",
       "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=false",
-      "-e",
-      `N8N_RUNNERS_BROKER_PORT=${brokerPort}`,
     ];
+    let startupPrefix = "";
+    if (options.daemonHttp !== undefined) {
+      const daemonPort = parseLoopbackPort(options.daemonHttp);
+      daemonBridge = await startUnixToTcpBridge(join(folder, "daemon.sock"), daemonPort);
+      writeFileSync(bridgeScriptPath, CONTAINER_BRIDGE_SCRIPT, "utf8");
+      chmodSync(bridgeScriptPath, 0o644);
+      args.push(
+        "-e",
+        `DAEMON_PORT=${daemonPort}`,
+        "-e",
+        "DAEMON_SOCK=/tmp/bridge/daemon.sock",
+        "-e",
+        "BRIDGE_READY=/tmp/bridge/ready",
+      );
+      startupPrefix =
+        "node /tmp/bridge/bridge.cjs & until [ -f /tmp/bridge/ready ]; do sleep 0.05; done; ";
+    }
     for (const [key, value] of Object.entries(options.env ?? {})) {
       args.push("-e", `${key}=${value}`);
     }
     args.push(
       "-v",
-      `${workflowPath}:/tmp/workflow.json:ro`,
+      `${folder}:/tmp/bridge:rw`,
       "--entrypoint",
       "sh",
       image,
       "-c",
-      'n8n import:workflow --input=/tmp/workflow.json && n8n execute --id="$1"',
+      `${startupPrefix}n8n import:workflow --input=/tmp/bridge/workflow.json && n8n execute --id="$1"`,
       "--",
       options.workflowId,
     );
-    return await runCommand(engine, args, options.timeoutMs ?? 120_000);
+    try {
+      return await runCommand(engine, args, options.timeoutMs ?? 120_000);
+    } catch (error) {
+      await forceRemoveContainer(engine, containerName);
+      throw error;
+    }
   } finally {
+    await closeServer(daemonBridge);
     rmSync(folder, { recursive: true, force: true });
   }
 }
@@ -326,100 +495,96 @@ interface ActivepiecesSession {
   readonly projectId: string;
 }
 
-/**
- * Starts the pinned Activepieces image as one container with an embedded
- * SQLite database (`AP_DB_TYPE=SQLITE3`), in-memory queue (`AP_QUEUE_MODE=MEMORY`),
- * and offline piece mode (`AP_PIECES_SYNC_MODE=NONE`).
- */
-export async function startActivepieces(
-  options: ActivepiecesStartOptions = {},
-): Promise<StartedActivepieces> {
-  const engine = requireEngine(options.engine);
-  const image = options.image ?? readIntegrationImages().activepieces.reference;
-  requireLocalImage(engine, image);
-  const port = await freeLoopbackPort();
-  const url = `http://127.0.0.1:${port}`;
-  // Visibly fake local-only test values for the throwaway SQLite container.
-  const encryptionKey = "0".repeat(32);
-  const jwtSecret = "goodfetch-test-activepieces-jwt";
-  const start = await runCommand(
-    engine,
-    [
-      "run",
-      "-d",
-      "--rm",
-      "--network=host",
-      "-e",
-      "AP_DB_TYPE=SQLITE3",
-      "-e",
-      "AP_QUEUE_MODE=MEMORY",
-      "-e",
-      "AP_EXECUTION_MODE=UNSANDBOXED",
-      "-e",
-      "AP_PIECES_SYNC_MODE=NONE",
-      "-e",
-      `AP_PORT=${port}`,
-      "-e",
-      `AP_FRONTEND_URL=${url}`,
-      "-e",
-      `AP_ENCRYPTION_KEY=${encryptionKey}`,
-      "-e",
-      `AP_JWT_SECRET=${jwtSecret}`,
-      "-e",
-      "AP_TELEMETRY_ENABLED=false",
-      image,
-    ],
-    30_000,
-  );
-  if (start.exitCode !== 0) {
+function requestTimeoutMs(deadlineMs: number): number {
+  const remaining = deadlineMs - Date.now();
+  return Math.max(1, Math.min(remaining, PER_REQUEST_TIMEOUT_CAP_MS));
+}
+
+async function activepiecesFetch(
+  url: string,
+  init: RequestInit,
+  context: string,
+  deadlineMs: number,
+): Promise<Response> {
+  const response = await fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(requestTimeoutMs(deadlineMs)),
+  });
+  if (!response.ok) {
     throw new TestSupportError(
       "integration_harness_failed",
-      `Activepieces container failed to start: ${start.stderr.trim()}`,
+      `${context} failed (${response.status}): ${await response.text()}`,
     );
   }
-  const containerId = start.stdout.trim();
-  const stop = async (): Promise<void> => {
-    try {
-      await runCommand(engine, ["rm", "-f", containerId], 15_000);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      process.stderr.write(
-        `goodfetch-test-support: failed to stop Activepieces container ${containerId}: ${detail}\n`,
-      );
-    }
-  };
+  return response;
+}
 
-  const deadline = Date.now() + (options.readyTimeoutMs ?? 60_000);
-  let ready = false;
+async function activepiecesJson(
+  url: string,
+  init: RequestInit,
+  context: string,
+  deadlineMs: number,
+): Promise<Record<string, unknown>> {
+  const response = await activepiecesFetch(url, init, context, deadlineMs);
+  return await readJsonObject(response, context);
+}
+
+async function isContainerRunning(engine: ContainerEngine, containerId: string): Promise<boolean> {
+  try {
+    const inspected = await runCommand(
+      engine,
+      ["inspect", "-f", "{{.State.Running}}", containerId],
+      5_000,
+    );
+    return inspected.exitCode === 0 && inspected.stdout.trim() === "true";
+  } catch {
+    return false;
+  }
+}
+
+async function waitForActivepieces(
+  engine: ContainerEngine,
+  containerId: string,
+  url: string,
+  readyTimeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + readyTimeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${url}/api/v1/flags`);
+      const response = await fetch(`${url}/api/v1/flags`, {
+        signal: AbortSignal.timeout(Math.min(requestTimeoutMs(deadline), 3_000)),
+      });
       if (response.ok) {
-        ready = true;
-        break;
+        return;
       }
     } catch {
       // Container still booting.
     }
+    if (!(await isContainerRunning(engine, containerId))) {
+      const logs = await runCommand(engine, ["logs", "--tail", "40", containerId], 5_000).catch(
+        () => ({ stdout: "", stderr: "" }),
+      );
+      throw new TestSupportError(
+        "integration_harness_failed",
+        `Activepieces container ${containerId} exited before becoming ready: ${logs.stdout} ${logs.stderr}`.trim(),
+      );
+    }
     await delay(500);
   }
-  if (!ready) {
-    const logs = await runCommand(engine, ["logs", "--tail", "40", containerId], 5_000).catch(
-      () => ({ stdout: "", stderr: "" }),
-    );
-    await stop();
-    throw new TestSupportError(
-      "integration_harness_failed",
-      `Activepieces did not become ready at ${url}: ${logs.stdout} ${logs.stderr}`.trim(),
-    );
-  }
+  const logs = await runCommand(engine, ["logs", "--tail", "40", containerId], 5_000).catch(() => ({
+    stdout: "",
+    stderr: "",
+  }));
+  throw new TestSupportError(
+    "integration_harness_failed",
+    `Activepieces did not become ready at ${url}: ${logs.stdout} ${logs.stderr}`.trim(),
+  );
+}
 
-  let cachedSession: ActivepiecesSession | undefined;
-  const ensureSession = async (): Promise<ActivepiecesSession> => {
-    if (cachedSession !== undefined) {
-      return cachedSession;
-    }
-    const response = await fetch(`${url}/api/v1/authentication/sign-up`, {
+async function signUpActivepieces(url: string, deadlineMs: number): Promise<ActivepiecesSession> {
+  const data = await activepiecesJson(
+    `${url}/api/v1/authentication/sign-up`,
+    {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -430,49 +595,48 @@ export async function startActivepieces(
         trackEvents: false,
         newsLetter: false,
       }),
-    });
-    if (!response.ok) {
-      throw new TestSupportError(
-        "integration_harness_failed",
-        `Activepieces sign-up failed (${response.status}): ${await response.text()}`,
-      );
-    }
-    const data = await readJsonObject(response, "Activepieces sign-up");
-    cachedSession = {
-      token: readStringField(data, "token", "Activepieces sign-up"),
-      projectId: readStringField(data, "projectId", "Activepieces sign-up"),
-    };
-    return cachedSession;
+    },
+    "Activepieces sign-up",
+    deadlineMs,
+  );
+  return {
+    token: readStringField(data, "token", "Activepieces sign-up"),
+    projectId: readStringField(data, "projectId", "Activepieces sign-up"),
   };
+}
 
-  const runCodeStep = async (step: ActivepiecesCodeStep): Promise<ActivepiecesStepResult> => {
-    const session = await ensureSession();
-    const authHeaders = {
-      Authorization: `Bearer ${session.token}`,
-      "Content-Type": "application/json",
-    };
-    const flowResponse = await fetch(`${url}/api/v1/flows`, {
+async function runActivepiecesCodeStep(
+  url: string,
+  session: ActivepiecesSession,
+  step: ActivepiecesCodeStep,
+): Promise<ActivepiecesStepResult> {
+  const deadlineMs = Date.now() + (step.timeoutMs ?? 60_000);
+  const authHeaders = {
+    Authorization: `Bearer ${session.token}`,
+    "Content-Type": "application/json",
+  };
+  const flow = await activepiecesJson(
+    `${url}/api/v1/flows`,
+    {
       method: "POST",
       headers: authHeaders,
       body: JSON.stringify({ displayName: "Goodfetch Fixture Flow", projectId: session.projectId }),
-    });
-    if (!flowResponse.ok) {
-      throw new TestSupportError(
-        "integration_harness_failed",
-        `Activepieces create flow failed (${flowResponse.status}): ${await flowResponse.text()}`,
-      );
-    }
-    const flow = await readJsonObject(flowResponse, "Activepieces create flow");
-    const flowId = readStringField(flow, "id", "Activepieces create flow");
-    const flowVersion = flow["version"];
-    if (!isRecord(flowVersion)) {
-      throw new TestSupportError(
-        "integration_harness_failed",
-        "Activepieces create flow: missing `version` object",
-      );
-    }
-    const flowVersionId = readStringField(flowVersion, "id", "Activepieces flow version");
-    const addActionResponse = await fetch(`${url}/api/v1/flows/${flowId}`, {
+    },
+    "Activepieces create flow",
+    deadlineMs,
+  );
+  const flowId = readStringField(flow, "id", "Activepieces create flow");
+  const flowVersion = flow["version"];
+  if (!isRecord(flowVersion)) {
+    throw new TestSupportError(
+      "integration_harness_failed",
+      "Activepieces create flow: missing `version` object",
+    );
+  }
+  const flowVersionId = readStringField(flowVersion, "id", "Activepieces flow version");
+  await activepiecesFetch(
+    `${url}/api/v1/flows/${flowId}`,
+    {
       method: "POST",
       headers: authHeaders,
       body: JSON.stringify({
@@ -495,14 +659,13 @@ export async function startActivepieces(
           },
         },
       }),
-    });
-    if (!addActionResponse.ok) {
-      throw new TestSupportError(
-        "integration_harness_failed",
-        `Activepieces ADD_ACTION failed (${addActionResponse.status}): ${await addActionResponse.text()}`,
-      );
-    }
-    const runResponse = await fetch(`${url}/api/v1/sample-data/test-step`, {
+    },
+    "Activepieces ADD_ACTION",
+    deadlineMs,
+  );
+  const queued = await activepiecesJson(
+    `${url}/api/v1/sample-data/test-step`,
+    {
       method: "POST",
       headers: authHeaders,
       body: JSON.stringify({
@@ -511,50 +674,156 @@ export async function startActivepieces(
         flowVersionId,
         stepName: "step_1",
       }),
-    });
-    if (!runResponse.ok) {
+    },
+    "Activepieces test-step",
+    deadlineMs,
+  );
+  const runId = readStringField(queued, "id", "Activepieces test-step");
+  while (Date.now() < deadlineMs) {
+    const run = await activepiecesJson(
+      `${url}/api/v1/flow-runs/${runId}`,
+      { headers: { Authorization: `Bearer ${session.token}` } },
+      "Activepieces flow-run poll",
+      deadlineMs,
+    );
+    const status = readStringField(run, "status", "Activepieces flow-run poll");
+    if (status !== "QUEUED" && status !== "RUNNING") {
+      const steps = run["steps"];
+      const stepOne = isRecord(steps) ? steps["step_1"] : undefined;
+      let output: unknown = isRecord(stepOne) ? stepOne["output"] : undefined;
+      if (output === undefined && status === "SUCCEEDED") {
+        const sample = await fetch(
+          `${url}/api/v1/sample-data?flowId=${encodeURIComponent(flowId)}&stepName=step_1&projectId=${encodeURIComponent(session.projectId)}&type=OUTPUT`,
+          {
+            headers: { Authorization: `Bearer ${session.token}` },
+            signal: AbortSignal.timeout(requestTimeoutMs(deadlineMs)),
+          },
+        );
+        if (sample.ok) {
+          output = await sample.json();
+        }
+      }
+      return { status, output, failedStep: run["failedStep"] };
+    }
+    await delay(300);
+  }
+  throw new TestSupportError(
+    "integration_harness_failed",
+    `Activepieces flow run ${runId} did not finish within ${step.timeoutMs ?? 60_000}ms`,
+  );
+}
+
+/**
+ * Starts the pinned Activepieces image as one container (`--network=none`)
+ * with an embedded SQLite database (`AP_DB_TYPE=SQLITE3`), in-memory queue
+ * (`AP_QUEUE_MODE=MEMORY`), and offline piece mode (`AP_PIECES_SYNC_MODE=NONE`).
+ */
+export async function startActivepieces(
+  options: ActivepiecesStartOptions = {},
+): Promise<StartedActivepieces> {
+  const engine = requireEngine(options.engine);
+  const image = options.image ?? readIntegrationImages().activepieces.reference;
+  requireLocalImage(engine, image);
+  const folder = mkdtempSync(join(tmpdir(), "goodfetch-ap-"));
+  chmodSync(folder, 0o777);
+  const bridgeScriptPath = join(folder, "bridge.cjs");
+  writeFileSync(bridgeScriptPath, CONTAINER_BRIDGE_SCRIPT, "utf8");
+  chmodSync(bridgeScriptPath, 0o644);
+  // Activepieces 0.94.0's `code-builder.js` injects `@types/node@18.17.1` and
+  // invokes `bun install` even for zero-dependency CODE steps, which fails
+  // under `--network=none`; skipping `bun install` while delegating `bun build`
+  // to `/usr/local/bin/bun` keeps execution 100% offline.
+  const binDir = join(folder, "bin");
+  mkdirSync(binDir, { mode: 0o755 });
+  const bunWrapper = join(binDir, "bun");
+  writeFileSync(
+    bunWrapper,
+    '#!/bin/sh\nif [ "$1" = "install" ]; then exit 0; fi\nexec /usr/local/bin/bun "$@"\n',
+    "utf8",
+  );
+  chmodSync(bunWrapper, 0o755);
+  const apBridge = await startTcpToUnixBridge(join(folder, "ap.sock"));
+  let daemonBridge: NetServer | undefined;
+  const url = `http://127.0.0.1:${apBridge.port}`;
+  // Visibly fake local-only test values for the throwaway SQLite container.
+  const encryptionKey = "0".repeat(32);
+  const jwtSecret = "goodfetch-test-activepieces-jwt";
+  let containerId = "";
+  const cleanup = async (): Promise<void> => {
+    if (containerId.length > 0) {
+      await forceRemoveContainer(engine, containerId);
+    }
+    await closeServer(apBridge.server);
+    await closeServer(daemonBridge);
+    rmSync(folder, { recursive: true, force: true });
+  };
+  try {
+    const args: string[] = [
+      "run",
+      "-d",
+      "--rm",
+      "--network=none",
+      "-v",
+      `${folder}:/tmp/bridge:rw`,
+      "-e",
+      "AP_DB_TYPE=SQLITE3",
+      "-e",
+      "AP_QUEUE_MODE=MEMORY",
+      "-e",
+      "AP_EXECUTION_MODE=UNSANDBOXED",
+      "-e",
+      "AP_PIECES_SYNC_MODE=NONE",
+      "-e",
+      `AP_PORT=${ACTIVEPIECES_CONTAINER_PORT}`,
+      "-e",
+      `AP_FRONTEND_URL=http://127.0.0.1:${ACTIVEPIECES_CONTAINER_PORT}`,
+      "-e",
+      `AP_ENCRYPTION_KEY=${encryptionKey}`,
+      "-e",
+      `AP_JWT_SECRET=${jwtSecret}`,
+      "-e",
+      "AP_TELEMETRY_ENABLED=false",
+      "-e",
+      "AP_SOCK=/tmp/bridge/ap.sock",
+    ];
+    if (options.daemonHttp !== undefined) {
+      const daemonPort = parseLoopbackPort(options.daemonHttp);
+      daemonBridge = await startUnixToTcpBridge(join(folder, "daemon.sock"), daemonPort);
+      args.push("-e", `DAEMON_PORT=${daemonPort}`, "-e", "DAEMON_SOCK=/tmp/bridge/daemon.sock");
+    }
+    args.push(
+      "--entrypoint",
+      "sh",
+      image,
+      "-c",
+      'export PATH="/tmp/bridge/bin:$PATH"; node /tmp/bridge/bridge.cjs & exec ./docker-entrypoint.sh',
+    );
+    const start = await runCommand(engine, args, 30_000);
+    if (start.exitCode !== 0) {
       throw new TestSupportError(
         "integration_harness_failed",
-        `Activepieces test-step failed (${runResponse.status}): ${await runResponse.text()}`,
+        `Activepieces container failed to start: ${start.stderr.trim()}`,
       );
     }
-    const queued = await readJsonObject(runResponse, "Activepieces test-step");
-    const runId = readStringField(queued, "id", "Activepieces test-step");
-    const pollDeadline = Date.now() + (step.timeoutMs ?? 60_000);
-    while (Date.now() < pollDeadline) {
-      const poll = await fetch(`${url}/api/v1/flow-runs/${runId}`, {
-        headers: { Authorization: `Bearer ${session.token}` },
-      });
-      if (!poll.ok) {
-        throw new TestSupportError(
-          "integration_harness_failed",
-          `Activepieces flow-run poll failed (${poll.status}): ${await poll.text()}`,
-        );
-      }
-      const run = await readJsonObject(poll, "Activepieces flow-run poll");
-      const status = readStringField(run, "status", "Activepieces flow-run poll");
-      if (status !== "QUEUED" && status !== "RUNNING") {
-        const steps = run["steps"];
-        const stepOne = isRecord(steps) ? steps["step_1"] : undefined;
-        let output: unknown = isRecord(stepOne) ? stepOne["output"] : undefined;
-        if (output === undefined && status === "SUCCEEDED") {
-          const sample = await fetch(
-            `${url}/api/v1/sample-data?flowId=${encodeURIComponent(flowId)}&stepName=step_1&projectId=${encodeURIComponent(session.projectId)}&type=OUTPUT`,
-            { headers: { Authorization: `Bearer ${session.token}` } },
-          );
-          if (sample.ok) {
-            output = await sample.json();
-          }
-        }
-        return { status, output, failedStep: run["failedStep"] };
-      }
-      await delay(300);
+    containerId = start.stdout.trim();
+    if (containerId.length === 0) {
+      throw new TestSupportError(
+        "integration_harness_failed",
+        `${engine} run -d printed no container ID`,
+      );
     }
-    throw new TestSupportError(
-      "integration_harness_failed",
-      `Activepieces flow run ${runId} did not finish within ${step.timeoutMs ?? 60_000}ms`,
-    );
+    await waitForActivepieces(engine, containerId, url, options.readyTimeoutMs ?? 60_000);
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+
+  let cachedSession: ActivepiecesSession | undefined;
+  const runCodeStep = async (step: ActivepiecesCodeStep): Promise<ActivepiecesStepResult> => {
+    const deadlineMs = Date.now() + (step.timeoutMs ?? 60_000);
+    cachedSession ??= await signUpActivepieces(url, deadlineMs);
+    return await runActivepiecesCodeStep(url, cachedSession, step);
   };
 
-  return { url, port, containerId, runCodeStep, stop };
+  return { url, port: apBridge.port, containerId, runCodeStep, stop: cleanup };
 }

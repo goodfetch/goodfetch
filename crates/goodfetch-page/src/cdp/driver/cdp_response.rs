@@ -210,6 +210,36 @@ pub(crate) struct PastAMessage;
 ///
 /// Dropping the future loses the read; the response stays paused.
 pub(crate) async fn whole_body(driver: &PageDriver, id: &str) -> Result<Vec<u8>, PastAMessage> {
+    match read_whole(driver, id).await {
+        Ok(body) => Ok(body),
+        Err(Unread::PastAMessage) => Err(PastAMessage),
+        Err(Unread::Missing) => Ok(Vec::new()),
+    }
+}
+
+/// The body of the response `driver`'s page paused at `id`, after any
+/// content coding, as [`whole_body`] reads it; none, so no empty body
+/// stands for the response's, when the browser gives none, one past what
+/// a message carries, or one whose Base64 does not decode.
+///
+/// # Cancel safety
+///
+/// As [`whole_body`]'s.
+pub(crate) async fn body_if_whole(driver: &PageDriver, id: &str) -> Option<Vec<u8>> {
+    read_whole(driver, id).await.ok()
+}
+
+/// Why a paused response's body was not read whole.
+enum Unread {
+    /// The browser's answer was past what one message carries.
+    PastAMessage,
+    /// The browser gave none, or gave one whose Base64 does not decode.
+    Missing,
+}
+
+/// The body of the response `driver`'s page paused at `id`, read whole in
+/// one message, and logged why it was not.
+async fn read_whole(driver: &PageDriver, id: &str) -> Result<Vec<u8>, Unread> {
     let read = match driver
         .command(&fetch::GetResponseBodyParams {
             request_id: id.to_owned(),
@@ -219,16 +249,16 @@ pub(crate) async fn whole_body(driver: &PageDriver, id: &str) -> Result<Vec<u8>,
         Ok(read) => read,
         Err(failure) => {
             tracing::debug!(%failure, "the browser gave no body of a paused response");
-            return match failure {
-                Failure::TooLarge { .. } => Err(PastAMessage),
-                _ => Ok(Vec::new()),
-            };
+            return Err(match failure {
+                Failure::TooLarge { .. } => Unread::PastAMessage,
+                _ => Unread::Missing,
+            });
         }
     };
-    Ok(bytes_of(read.body, read.base64_encoded).unwrap_or_else(|error| {
+    bytes_of(read.body, read.base64_encoded).map_err(|error| {
         tracing::warn!(%error, "the browser gave a paused response's body in Base64 that does not decode");
-        Vec::new()
-    }))
+        Unread::Missing
+    })
 }
 
 #[cfg(test)]

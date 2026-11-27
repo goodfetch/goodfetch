@@ -10,102 +10,58 @@
 //!
 //! Each hop is judged as it leaves: the driver has added the headers its
 //! Session presents, a `Cookie` among them, which keeps a credentialed
-//! request out of the public partition. The partition is the Run's person;
-//! the proxy's exit country, the language and the device class stay empty
-//! until the Run's Proxy and Identity profile give them.
+//! request out of the public partition. A pool Session that sends its HTTP
+//! itself keeps such a response in its own partition, which no other
+//! Session reads and which leaves when it retires; the Run's own transport
+//! has no keeper, so such a request is neither answered from the cache nor
+//! stored there. The partition is the Run's person; the proxy's exit
+//! country, the language and the device class stay empty until the Run's
+//! Proxy and Identity profile give them. The Run's `Caching` is the
+//! engine's, which the browser's interception asks alike, so an entry one
+//! tier stored is served to the other.
 
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
-use goodfetch_engine::CALLER;
-use goodfetch_engine::clock::Clock;
-use goodfetch_engine::response_cache::{
-    CacheRequest, Partition, ResponseHead, ResponseSource, Source,
-};
-use goodfetch_engine::run_identity::RunIdentity;
+use goodfetch_engine::response_cache::{CacheRequest, Caching, KeptOut, ResponseHead, Source};
 use goodfetch_protocol::foxhound::fetch::FetchTier;
-use goodfetch_protocol::run::RunId;
 use url::Url;
 
 use crate::driver::{Body, Hop, Reuse, Sending, Sent, Transport};
 
-/// What a Run's transports answer from before they send: its source, the
-/// partition its responses are kept in, its ID and its clock.
-#[derive(Clone, Debug)]
-pub(crate) struct Caching {
-    source: ResponseSource,
-    partition: Partition,
-    run_id: RunId,
-    clock: Clock,
+/// `transport` answering from `caching`'s sources first.
+pub(crate) fn over(caching: &Arc<Caching>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
+    Arc::new(Cached {
+        transport,
+        caching: Arc::clone(caching),
+    })
 }
 
-impl Caching {
-    /// What `run`'s transports answer from, `source` its own; none when it
-    /// only sends.
-    pub(crate) fn of(source: ResponseSource, run: &RunIdentity) -> Option<Arc<Self>> {
-        Self::new(
-            source,
-            Partition {
-                person: CALLER.to_owned(),
-                ..Partition::default()
-            },
-            run.id().clone(),
-            run.clock(),
-        )
+/// `sent`, the answer to `request`, its body kept as it is read and stored
+/// in `caching` once it ended whole when the cache stores it.
+fn kept(caching: &Arc<Caching>, request: CacheRequest, sent: Sent) -> Sent {
+    let head = ResponseHead {
+        status: sent.status,
+        headers: sent.headers.clone(),
+    };
+    let kept_out = sent
+        .certificate_exception
+        .is_some()
+        .then_some(KeptOut::CertificateException);
+    if sent.decoded || !caching.stores(&request, &head, kept_out) {
+        return sent;
     }
-
-    /// What the transports of the Run `run_id` answer from: `source`, its
-    /// responses kept in `partition` as `clock` reads the time; none when
-    /// `source` only sends.
-    pub(crate) fn new(
-        source: ResponseSource,
-        partition: Partition,
-        run_id: RunId,
-        clock: Clock,
-    ) -> Option<Arc<Self>> {
-        (!source.sends_only()).then(|| {
-            Arc::new(Self {
-                source,
-                partition,
-                run_id,
-                clock,
-            })
-        })
-    }
-
-    /// `transport` answering from these sources first.
-    pub(crate) fn over(self: &Arc<Self>, transport: Arc<dyn Transport>) -> Arc<dyn Transport> {
-        Arc::new(Cached {
-            transport,
-            caching: Arc::clone(self),
-        })
-    }
-
-    /// `sent`, the answer to `request`, its body kept as it is read and
-    /// stored once it ended whole when the cache stores it.
-    fn kept(self: &Arc<Self>, request: CacheRequest, sent: Sent) -> Sent {
-        let head = ResponseHead {
-            status: sent.status,
-            headers: sent.headers.clone(),
-        };
-        if sent.decoded
-            || sent.certificate_exception.is_some()
-            || !self.source.stores(&request, &head)
-        {
-            return sent;
-        }
-        Sent {
-            body: Box::new(Teed {
-                body: sent.body,
-                read: BytesMut::new(),
-                storing: Some(Storing {
-                    caching: Arc::clone(self),
-                    request,
-                    head,
-                }),
+    Sent {
+        body: Box::new(Teed {
+            body: sent.body,
+            read: BytesMut::new(),
+            storing: Some(Storing {
+                caching: Arc::clone(caching),
+                request,
+                head,
             }),
-            ..sent
-        }
+        }),
+        ..sent
     }
 }
 
@@ -137,18 +93,14 @@ impl Transport for Cached {
                 &hop.headers,
                 hop.body.clone().unwrap_or_default(),
             );
-            let answered = caching
-                .source
-                .source(None, &caching.partition, &request, caching.clock.wall())
-                .await;
-            let stale = match answered {
+            let stale = match caching.source(&request, None).await {
                 Source::Routed(served) | Source::Recorded(served) => {
                     return Ok(whole(served.head, served.body));
                 }
                 Source::Fresh(hit) => return Ok(whole(hit.head, hit.body)),
                 Source::Network => {
                     let sent = self.transport.send(hop, reuse).await?;
-                    return Ok(caching.kept(request, sent));
+                    return Ok(kept(caching, request, sent));
                 }
                 Source::Stale(stale) => stale,
             };
@@ -162,17 +114,13 @@ impl Transport for Cached {
             conditional.headers.extend(stale.conditions.iter().cloned());
             let sent = self.transport.send(&conditional, reuse).await?;
             if sent.status != 304 {
-                return Ok(caching.kept(request, sent));
+                return Ok(kept(caching, request, sent));
             }
             let head = ResponseHead {
                 status: sent.status,
                 headers: sent.headers.clone(),
             };
-            let revalidated = caching
-                .source
-                .revalidated(stale, &request, &head, caching.clock.wall())
-                .await;
-            if let Some(hit) = revalidated {
+            if let Some(hit) = caching.revalidated(stale, &request, &head).await {
                 return Ok(Sent {
                     reused: sent.reused,
                     ..whole(hit.head, hit.body)
@@ -182,7 +130,7 @@ impl Transport for Cached {
             // without the conditions, as the site was asked.
             drop(sent);
             let sent = self.transport.send(hop, reuse).await?;
-            Ok(caching.kept(request, sent))
+            Ok(kept(caching, request, sent))
         })
     }
 }
@@ -233,16 +181,12 @@ impl Body for Teed {
                 Some(chunk) => self.read.extend_from_slice(chunk),
                 None => {
                     if let Some(storing) = self.storing.take() {
-                        let caching = &storing.caching;
-                        caching
-                            .source
+                        storing
+                            .caching
                             .store(
-                                &caching.partition,
                                 &storing.request,
                                 &storing.head,
                                 std::mem::take(&mut self.read).freeze(),
-                                Some(&caching.run_id),
-                                caching.clock.wall(),
                             )
                             .await;
                     }

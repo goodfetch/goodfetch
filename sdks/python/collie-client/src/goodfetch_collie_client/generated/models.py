@@ -14,6 +14,7 @@ from goodfetch_collie_client.generated.open_values import (
     CancelledBy,
     Claim,
     ClosedValue,
+    ListEnded,
     ModelUnavailableReason,
     NotAddedReason,
     NotificationEvent,
@@ -739,6 +740,16 @@ class DaemonUnreachableDetails(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class Declared1(RootModel[int]):
+    root: Annotated[int, Field(ge=0)]
+    """This many."""
+
+
+class Declared(RootModel[Declared1 | Literal["unknown"]]):
+    root: Declared1 | Literal["unknown"]
+    """The rows a list declares: a count, or `unknown` for `-1`."""
 
 
 class DetachUnsupportedDetails(BaseModel):
@@ -4244,6 +4255,28 @@ class SchemaValidatorFailedDetails(BaseModel):
     """The schema's JSON Schema `title`, or none when it has none."""
 
 
+class ScrollCollected(BaseModel):
+    """
+    What `locator.scroll_collect` answers (#807): the rows, how the
+    collection ended and what the list declares, so a short read is never
+    silent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    declared: Declared | None = None
+    """
+    The rows the list declares through `aria-rowcount` or its items'
+    `aria-setsize`; `null` when it declares none.
+    """
+    ended: ListEnded
+    """How it ended."""
+    rows: list[Any]
+    """Each new key's value, in the order its key was first seen."""
+
+
 class SecretDomainNotAllowedDetails(BaseModel):
     """What `secret_domain_not_allowed` details."""
 
@@ -7100,6 +7133,54 @@ class LocatorEvaluateAllParams(BaseModel):
     """The locator, whose every match the function takes first."""
     world: World | None = None
     """Where it runs; the main world when absent."""
+
+
+class LocatorScrollCollectParams(BaseModel):
+    """
+    What `locator.scroll_collect` takes (#807): the locator, the page
+    function reading each match, its argument and world, and when the
+    collection ends.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    arg: Any | None = None
+    """Its one argument, JSON; absent for none."""
+    function: str
+    """
+    The page function's JavaScript source, called with each matched
+    element and `arg`: it answers the row's `{ key, value }`, `key` a
+    string, or `null` to skip the element.
+    """
+    idle_steps: Annotated[int | None, Field(ge=0)] = None
+    """
+    The steps in a row without a new key at which it ends
+    `end_of_list`, at least 1; 3 when absent.
+    """
+    locator: Locator
+    """
+    The locator, whose every match the function reads, resolved again
+    at each step.
+    """
+    max_rows: Annotated[int | None, Field(ge=0)] = None
+    """
+    The rows at which the collection ends `max_rows`, at least 1;
+    10,000 when absent.
+    """
+    step_wait: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long a step waits for an element with a new key after its
+    scroll, in milliseconds, at least 1; 2,000 when absent.
+    """
+    timeout: Annotated[int | None, Field(ge=0)] = None
+    """
+    How long the whole collection may take, in milliseconds, at least
+    1: absent for `timeout.wait`, `null` for none, though an enclosing
+    timeout still applies (ADR 0080).
+    """
+    world: World | None = None
+    """Where it runs; the isolated world when absent."""
 
 
 class LocatorWaitForFunctionParams(BaseModel):

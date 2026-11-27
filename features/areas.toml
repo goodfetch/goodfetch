@@ -981,6 +981,13 @@ number = 6
 kind = "setting"
 prefix = "site_preferences.purpose"
 
+# Whether a program's own navigation reads robots.txt for Provenance
+# (spec #580, #2448; ADR 0086).
+[[area]]
+number = 6
+kind = "setting"
+prefix = "site_preferences.read_robots_txt_for_navigation"
+
 # The HTTP tier's hedged requests and coalescing (RT-20, #238).
 [[area]]
 number = 3

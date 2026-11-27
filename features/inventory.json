@@ -11323,7 +11323,7 @@
     {
       "id": "setting:site_preferences.read_robots_txt_for_navigation",
       "kind": "setting",
-      "area": null,
+      "area": 6,
       "milestone": null,
       "status": "active",
       "products": [

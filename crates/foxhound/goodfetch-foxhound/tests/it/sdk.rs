@@ -32,6 +32,7 @@ mod politeness;
 mod public_items;
 mod resume;
 mod seeds;
+mod settings;
 mod test_values;
 
 /// What a connection opens with: the test's environment, which names its

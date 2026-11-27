@@ -1446,3 +1446,85 @@ fn a_page_failing_its_expected_page_fails_with_page_check_failed_under_a_forced_
         )
     );
 }
+
+/// The Response cache's host: `/fresh/<name>` may be kept an hour and
+/// names which answer of its path it is, and `/page/<name>`, never kept,
+/// frames `/fresh/<name>`.
+const CACHE_HOST: &str = "cache.test";
+
+/// A handler that reads which answer its page was handed, and answers no
+/// Record: on `http` the page's Markdown, in the browser the text of the
+/// frame the page holds.
+fn reading_answers(seen: &mut Vec<String>) -> impl FnMut(&mut Inside<'_>, &Value) -> Value + '_ {
+    move |inside, handle| {
+        let read = if handle["tier"] == json!("browser") {
+            inside.call(
+                "page.evaluate",
+                &json!({
+                    "page_id": handle["page_id"],
+                    "function": "() => document.querySelector('iframe')?.contentDocument?.body?.innerText ?? null",
+                }),
+            )["result"]["value"]
+                .clone()
+        } else {
+            inside.call(
+                "page.formats",
+                &json!({ "page_id": handle["page_id"], "formats": { "markdown": true } }),
+            )["result"]["markdown"]
+                .clone()
+        };
+        seen.push(read.as_str().unwrap_or_default().to_owned());
+        json!({ "result": { "records": [] } })
+    }
+}
+
+/// Under `cache.mode: revalidate` the two tiers share one Response cache:
+/// a page the `http` tier kept is served to the browser that frames it,
+/// with no second request, and a frame the browser kept is served to the
+/// `http` tier's request for it, the key of each matching (ticket 796).
+///
+/// Covers: story:6-41, setting:cache.mode
+#[test]
+fn a_response_one_tier_kept_is_served_to_the_other_where_its_key_matches() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = engine(&env);
+
+    let mut seen = Vec::new();
+    for (run_id, tier, path) in [
+        ("tiers-cache-http-keeps", "http", "/fresh/from-http"),
+        ("tiers-cache-browser-takes", "browser", "/page/from-http"),
+        ("tiers-cache-browser-keeps", "browser", "/page/from-browser"),
+        ("tiers-cache-http-takes", "http", "/fresh/from-browser"),
+    ] {
+        crawl_declaring(
+            &mut engine,
+            run_id,
+            &[json!({ "url": proving_ground.url(CACHE_HOST, path), "label": "page" })],
+            &json!({ "page": {} }),
+            &settings(
+                &proving_ground,
+                &json!({
+                    "fetch": { "tier": tier },
+                    "cache": { "mode": "revalidate" },
+                    "site_preferences": { "respect_robots_txt": false },
+                }),
+            ),
+            &mut reading_answers(&mut seen),
+        );
+    }
+    assert!(engine.finished());
+
+    let answered: Vec<bool> = seen
+        .iter()
+        .zip(["from-http", "from-http", "from-browser", "from-browser"])
+        .map(|(read, name)| read.contains(&format!("Answer 1 of /fresh/{name}.")))
+        .collect();
+    let sent = ["/fresh/from-http", "/fresh/from-browser"]
+        .map(|path| requests_for(&proving_ground, CACHE_HOST, path).len());
+    assert_eq!(
+        (answered, sent),
+        (vec![true; 4], [1, 1]),
+        "the handlers read {seen:?}"
+    );
+}

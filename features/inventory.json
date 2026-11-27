@@ -4207,6 +4207,17 @@
       ]
     },
     {
+      "id": "operation:locator.scroll_collect",
+      "kind": "operation",
+      "area": 5,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:locator.wait_for",
       "kind": "operation",
       "area": 5,
@@ -11300,6 +11311,17 @@
     },
     {
       "id": "setting:site_preferences.purpose",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:site_preferences.read_robots_txt_for_navigation",
       "kind": "setting",
       "area": 6,
       "milestone": null,

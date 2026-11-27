@@ -167,6 +167,47 @@ fn an_api_path_answers_any_method_never_to_be_stored() {
     );
 }
 
+/// A page never to be stored loads a script and a frame the site lets be
+/// kept an hour, so a browser's second load tells what a cache served; the
+/// script names its answer on the document it runs in.
+#[test]
+fn a_page_never_stored_loads_a_script_and_a_frame_kept_an_hour() {
+    let proving_ground = ProvingGround::start(SEED);
+
+    let page = raw_clients::get(&proving_ground, HOST, "/page/one", &[]);
+    let script = raw_clients::get(&proving_ground, HOST, "/asset/one.js", &[]);
+    let again = raw_clients::get(&proving_ground, HOST, "/asset/one.js", &[]);
+
+    let body =
+        |arrived: &raw_clients::Arrived| String::from_utf8_lossy(arrived.body()).into_owned();
+    assert_eq!(
+        (
+            (page.status(), page.header("cache-control")),
+            body(&page).contains(r#"<script src="/asset/one.js"></script>"#),
+            body(&page).contains(r#"<iframe src="/fresh/one"></iframe>"#),
+            (
+                script.status(),
+                script.header("cache-control"),
+                script.header("content-type"),
+            ),
+            body(&script),
+            body(&again),
+        ),
+        (
+            (Some(200), Some("no-store".to_owned())),
+            true,
+            true,
+            (
+                Some(200),
+                Some("max-age=3600".to_owned()),
+                Some("text/javascript; charset=utf-8".to_owned()),
+            ),
+            "document.documentElement.dataset.answer = \"1\";\n".to_owned(),
+            "document.documentElement.dataset.answer = \"2\";\n".to_owned(),
+        )
+    );
+}
+
 #[test]
 fn the_cache_host_has_no_robots_txt() {
     let proving_ground = ProvingGround::start(SEED);

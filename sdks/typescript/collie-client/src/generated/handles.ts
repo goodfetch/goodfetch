@@ -675,6 +675,16 @@ export class Locator extends Handle {
   }
 
   /**
+   * Reads a virtualized or infinite list whole: at each step a page function, called with each element the locator matches and its one JSON argument, in the isolated world unless `world` says otherwise, answers the element's `{ key, value }` or `null` to skip it, and each new key's value is kept in first-seen order, a duplicate key keeping its first. Then the last match is scrolled into view, a gesture through the guard, and the step waits up to `step_wait` for an element with a new key. It ends `end_of_list` after `idle_steps` steps in a row without one, or `max_rows` once it kept that many rows, and answers the rows, how it ended and the rows the list declares through `aria-rowcount` or its items' `aria-setsize` (`unknown` for `-1`, `null` for none). Past its `timeout`, `timeout.wait` when the call gives none, it fails with `deadline_exceeded` whose `observed` gives the rows kept and the last key; a guard refusal stops it with the guard's code, and an exception thrown in the page raises `page_function_failed`. No other read scrolls.
+   *
+   * @experimental
+   */
+  async scrollCollect(function_: types.LocatorScrollCollectParams["function"], options: { readonly arg?: types.LocatorScrollCollectParams["arg"] | undefined; readonly idleSteps?: types.LocatorScrollCollectParams["idleSteps"] | undefined; readonly maxRows?: types.LocatorScrollCollectParams["maxRows"] | undefined; readonly stepWait?: types.LocatorScrollCollectParams["stepWait"] | undefined; readonly timeout?: types.LocatorScrollCollectParams["timeout"] | undefined; readonly world?: types.LocatorScrollCollectParams["world"] | undefined; readonly signal?: AbortSignal | undefined } = {}): Promise<types.ScrollCollected> {
+    warnExperimental("locator.scroll_collect");
+    return this.#host.call("locator.scroll_collect", defined({ locator: this.#host.id, function: function_, arg: options.arg, idleSteps: options.idleSteps, maxRows: options.maxRows, stepWait: options.stepWait, timeout: timeoutOf(options.timeout, "timeout.wait"), world: options.world }), { signal: options.signal, deadline: { key: "timeout.wait", value: options.timeout } });
+  }
+
+  /**
    * Waits until the element the locator matches is in the state: attached or visible, one element; detached, none; hidden, none or one not visible. The locator is resolved again at each check, so a re-render that replaces its element changes nothing. Past its `timeout`, `timeout.wait` when the call gives none, several matches raise `target_not_unique` listing them, and anything else `deadline_exceeded` naming the state.
    *
    * @experimental

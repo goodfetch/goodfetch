@@ -1,5 +1,7 @@
 use goodfetch_protocol::connection::Form;
-use goodfetch_protocol::page::functions::{LOCATOR_EVALUATE_ALL, PAGE_EVALUATE};
+use goodfetch_protocol::page::functions::{
+    LOCATOR_EVALUATE_ALL, LOCATOR_SCROLL_COLLECT, PAGE_EVALUATE,
+};
 use goodfetch_protocol::page::waits::{LOCATOR_WAIT_FOR_FUNCTION, PAGE_WAIT_FOR_FUNCTION};
 use rstest::rstest;
 use serde_json::json;
@@ -104,6 +106,11 @@ fn an_errors_message_is_its_first_line_past_its_name(
     LOCATOR_WAIT_FOR_FUNCTION.name,
     Form::Python,
     "locator.wait_for_function(\"(element, x) => …\", x)"
+)]
+#[case::locator_scroll_collect(
+    LOCATOR_SCROLL_COLLECT.name,
+    Form::Typescript,
+    "locator.scrollCollect((row, x) => …, x)"
 )]
 fn a_reference_errors_fix_spells_the_call_of_its_operation(
     #[case] operation: &'static str,

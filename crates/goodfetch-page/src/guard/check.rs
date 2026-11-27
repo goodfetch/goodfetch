@@ -27,7 +27,7 @@ pub(crate) enum Target<'a> {
 }
 
 /// The check's argument: its target, the kind of action, which decides the
-/// conditions (`pointer`, `text` or `fill`), and how long it may wait in
+/// conditions (`pointer`, `text`, `fill` or `scroll`), and how long it may wait in
 /// the page before it answers.
 pub(crate) fn argument(target: Target<'_>, kind: &str, slice: Duration) -> Value {
     let mut argument = json!({
@@ -86,6 +86,9 @@ pub(crate) enum Seen {
         #[serde(default)]
         set_value: bool,
     },
+    /// A scroll's target, the last match, is visible and was scrolled to
+    /// the top of the view.
+    Scrolled,
     /// A locator wait's matches are in the state it waits for.
     Ready {
         /// For `count`, how many elements matched.

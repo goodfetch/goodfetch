@@ -3,7 +3,10 @@
 //! gesture that landed elsewhere, until its window, `timeout.action`,
 //! passes. The conditions are uniqueness, visibility, enabled, stable and
 //! receiving the event for a pointer action; visible and enabled for a text
-//! action; and editable too for `fill`. A click or a key press that starts
+//! action; and editable too for `fill`. A scroll collection's scroll
+//! (`locator.scroll_collect`, #807) is a gesture of its own: its check
+//! scrolls the last of the locator's matches to the top of the view once it
+//! is visible, with no uniqueness to wait for. A click or a key press that starts
 //! a navigation of the page answers once that navigation's document
 //! committed, or once it ended without one (ADR 0085), within
 //! `timeout.navigation`, the page's turn, and the pointer with it, let go
@@ -72,6 +75,10 @@ pub(crate) enum Action {
     Fill(String),
     /// Sends this key press to it.
     Press(KeyPress),
+    /// Scrolls the last of its matches into view, as a scroll collection
+    /// steps through a list: its matches need not be unique, only the last
+    /// one visible.
+    Scroll,
 }
 
 impl Action {
@@ -92,6 +99,7 @@ impl Action {
             Self::Click => "pointer",
             Self::Fill(_) => "fill",
             Self::Press(_) => "text",
+            Self::Scroll => "scroll",
         }
     }
 
@@ -102,6 +110,7 @@ impl Action {
             Self::Click => Row::ActionClickCommands,
             Self::Fill(_) => Row::ActionFillCommands,
             Self::Press(_) => Row::ActionPressCommands,
+            Self::Scroll => Row::ActionScrollCollectCommands,
         }
     }
 }
@@ -241,6 +250,11 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
         request.owner.turn().await?,
     );
     let mut last = Seen::waiting(Step::Attached, "the action waited its turn on the page");
+    // A scroll is made by the check that finds its target ready, so the
+    // window is marked before the first check may make it.
+    if matches!(request.action, Action::Scroll) {
+        request.sent.mark(request.operation).await?;
+    }
     loop {
         // The pointer is the turn's from the check that arms the listener
         // to the disarm, and lent between two checks to the Consent prompt
@@ -287,7 +301,9 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                         }
                     }
                 }
-                Action::Fill(_) | Action::Press(_) => return Err(mismatched(&seen)),
+                Action::Fill(_) | Action::Press(_) | Action::Scroll => {
+                    return Err(mismatched(&seen));
+                }
             },
             Seen::Focused { set_value } => match &request.action {
                 Action::Fill(value) if set_value => {
@@ -302,21 +318,14 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                 }
                 Action::Press(events) => {
                     request.sent.mark(request.operation).await?;
-                    let mut watch = page.watch_gesture();
-                    Box::pin(watch.during(async {
-                        CdpPage::of(page)
-                            .press_keys(events, turn.gesture_call())
-                            .await?;
-                        settled(&mut turn).await
-                    }))
-                    .await?;
-                    drop(turn);
-                    Box::pin(page.settle_gesture(watch)).await;
-                    return Ok(());
+                    return press(page, turn, events).await;
                 }
-                Action::Click => return Err(mismatched(&seen)),
+                Action::Click | Action::Scroll => return Err(mismatched(&seen)),
             },
-            Seen::Ready { .. } => return Err(mismatched(&seen)),
+            // The check scrolled the last match into view itself: the
+            // scroll is the gesture, and no input follows it.
+            Seen::Scrolled if matches!(request.action, Action::Scroll) => return Ok(()),
+            Seen::Ready { .. } | Seen::Scrolled => return Err(mismatched(&seen)),
             Seen::Invalid { message } => return Err(unparsed(request.selector, &message)),
             Seen::Waiting {
                 step: Step::Visible,
@@ -417,6 +426,22 @@ async fn settled(turn: &mut Turn) -> Result<(), CallError> {
         Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
         Err(Unanswered::Failed(error)) => Err(error),
     }
+}
+
+/// Presses `key_press` in `turn`, its last input, and waits for what the
+/// gesture started on `page` to settle.
+async fn press(page: &PageDriver, mut turn: Turn, key_press: &KeyPress) -> Result<(), CallError> {
+    let mut watch = page.watch_gesture();
+    Box::pin(watch.during(async {
+        CdpPage::of(page)
+            .press_keys(key_press, turn.gesture_call())
+            .await?;
+        settled(&mut turn).await
+    }))
+    .await?;
+    drop(turn);
+    Box::pin(page.settle_gesture(watch)).await;
+    Ok(())
 }
 
 /// Clicks at the point `(x, y)`, then reads where the click landed.
@@ -622,7 +647,9 @@ pub(crate) async fn wait(
                     )),
                 };
             }
-            Seen::Armed { .. } | Seen::Focused { .. } => return Err(mismatched(&value)),
+            Seen::Armed { .. } | Seen::Focused { .. } | Seen::Scrolled => {
+                return Err(mismatched(&value));
+            }
             Seen::Invalid { message } => return Err(unparsed(wait.selector, &message)),
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
@@ -654,7 +681,11 @@ fn at_deadline(asked: Asked<'_>, last: Seen, elapsed: Duration) -> CallError {
             observed,
             matches,
         } => (step, observed, matches),
-        Seen::Armed { .. } | Seen::Focused { .. } | Seen::Ready { .. } | Seen::Invalid { .. } => (
+        Seen::Armed { .. }
+        | Seen::Focused { .. }
+        | Seen::Scrolled
+        | Seen::Ready { .. }
+        | Seen::Invalid { .. } => (
             Step::ReceivesEvents,
             "the target was ready".to_owned(),
             Vec::new(),

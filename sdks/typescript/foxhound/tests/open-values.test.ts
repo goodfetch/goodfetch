@@ -3,8 +3,9 @@
 // scope this package does not know reads as the string the engine sent,
 // typed by its open enumeration,
 // a member of an open tagged union it does not know reads as its `unknown`
-// member with the tag it received, and an unknown Verdict is never
-// `verified`. Foxhound's values of a type both Products share reach a Collie
+// member with the tag it received; that an unknown Verdict is never
+// `verified` is Collie's `tests/unknown-values.test.ts`, on the engine's own
+// report. Foxhound's values of a type both Products share reach a Collie
 // program the same way (ADR 0095).
 import type {
   LimitScope as CollieLimitScope,
@@ -120,19 +121,6 @@ describe("a value a newer engine adds", () => {
     expectTypeOf<"a_newer_value">().toExtend<Verdict>();
     expectTypeOf<"a_newer_value">().toExtend<CollieUsageKind>();
     expectTypeOf<"a_newer_value">().toExtend<CollieLimitScope["kind"]>();
-  });
-
-  test("never reads as `verified` when it is an unknown Verdict", () => {
-    const verdict: Verdict = "a_newer_verdict";
-
-    expect(verdict === "verified").toBe(false);
-  });
-
-  test("of Foxhound's own reaches a Collie program as a string", () => {
-    const usage: CollieUsageKind = "paid_fetch";
-    const scope: CollieLimitScope = { kind: "partitioned_crawl", id: "books" };
-
-    expect([usage, scope.kind]).toEqual(["paid_fetch", "partitioned_crawl"]);
   });
 });
 

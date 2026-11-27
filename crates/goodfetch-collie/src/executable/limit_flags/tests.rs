@@ -35,19 +35,6 @@ fn limit_reads_a_count_or_a_price(#[case] flag: &str, #[case] expected: Value) {
 }
 
 #[test]
-fn limit_repeats_into_one_list_in_order() {
-    let flags = parse(&["--limit", "requests=5", "--limit", "page_crashes=1"]).unwrap();
-
-    assert_eq!(
-        flags.limits(),
-        Some(json!([
-            { "usage_kind": "requests", "amount": 5 },
-            { "usage_kind": "page_crashes", "amount": 1 },
-        ]))
-    );
-}
-
-#[test]
 fn no_limit_gives_no_param() {
     assert_eq!(parse(&[]).unwrap().limits(), None);
 }

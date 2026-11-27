@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
 # The hosted tier's planning job (ADR 0135's amendment of 2026-11-22), on
-# its bare standard runner: `ci/hosted/plan.sh <base> <branch> <run> <pull
-# request>`, on the checked-out head of a batch's, a spec's or a fork's pull
-# request into `<base>`, `<run>` the job's own run. It prints the job's
-# outputs, one line each, for the jobs that run the gate's hosted-owned
-# steps:
-#   form=      the gate's form the jobs plan with, as `just merge` picks it
-#              (ci/merge-pr.sh): `all` on the pull request that finishes a
-#              spec, from its `spec/<n>` branch with none of the spec's
-#              sub-issues left open (ci/spec-sub-issues.sh, #3382), when a
-#              test reads the change; `batch` on a batch's branch
-#              (`batch/…`, issues 3378 and 3380), whose run also holds the
-#              Pre-merge suite of every member it reaches; else `quick`;
+# its bare standard runner: `ci/hosted/plan.sh <base> <branch> <run>`, on
+# the checked-out head of a batch's, a spec's or a fork's pull request into
+# `<base>`, `<run>` the job's own run. It prints the job's outputs, one line
+# each, for the jobs that run the gate's hosted-owned steps:
+#   form=      the gate's form the jobs plan with: `batch` on a batch's
+#              branch (`batch/…`, issues 3378 and 3380), whose run also holds
+#              the Pre-merge suite of every member it reaches; else `quick`,
+#              as `just merge` (ci/merge-pr.sh) picks for every pull request
+#              the owner asks no full gate for (ADR 0135's note of
+#              2026-11-26). No branch name picks the full form;
 #   lint=      a JSON list of the steps that run before the deny, each a
 #              job of its own, when the planner runs them in full or in
 #              part: lint, whose zizmor reads GitHub, and the proofs, whose
@@ -52,11 +50,10 @@
 # Chromium build gate, a run holds at most 10 jobs at once (ADR 0061).
 set -euo pipefail
 
-usage="usage: ci/hosted/plan.sh <base> <branch> <run> <pull request>"
+usage="usage: ci/hosted/plan.sh <base> <branch> <run>"
 base=${1:?$usage}
 branch=${2:?$usage}
 run=${3:?$usage}
-number=${4:?$usage}
 shard_count=4
 cd "$(dirname "$0")/../.."
 # shellcheck source=ci/output-value.sh
@@ -68,19 +65,6 @@ echo "xtask affected: gate=$gate" >&2
 
 form=quick
 [[ $branch != batch/* ]] || form="batch"
-if [[ $gate == full && $branch =~ ^spec/[0-9]+$ ]]; then
-  # An answer that cannot be read keeps the quick form: `just merge`, which
-  # asks it again, then runs the full gate's other steps itself.
-  spec=${branch#spec/}
-  if ! left_open=$(ci/spec-sub-issues.sh "$spec" "$number") || [[ ! $left_open =~ ^(0|[1-9][0-9]*)$ ]]; then
-    echo "warning: the sub-issues of spec #$spec that stay open after pull request #$number could not be read (\"${left_open:-}\"), so the run plans the quick form" >&2
-  elif ((left_open == 0)); then
-    form=all
-    echo "The pull request finishes spec #$spec: the run plans the full form." >&2
-  else
-    echo "Spec #$spec is not finished: $left_open of its sub-issues stay open after this pull request." >&2
-  fi
-fi
 printf 'form=%s\n' "$form"
 
 if [[ $gate == docs ]]; then

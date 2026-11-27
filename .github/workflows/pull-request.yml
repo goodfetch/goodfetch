@@ -7,9 +7,9 @@
 # (ci/hosted/, ci/image/Containerfile).
 #
 # The `plan` job runs the gate's planner on the head (ci/hosted/plan.sh), in
-# the form `just merge` picks: the full form on the pull request that
-# finishes a spec (#3382), the batch form on a batch's branch and the quick
-# form otherwise. From the records the runs on the head's ancestors
+# the batch form on a batch's branch and the quick form otherwise; the full
+# form runs only when the owner asks `just merge` for it (`--full`, ADR
+# 0135's note of 2026-11-26), and no branch plans it here. From the records the runs on the head's ancestors
 # uploaded, it schedules the form's hosted-owned steps the change reaches:
 # lint, the Quick suite, the Journey task lists and xtask's codegen tests; on
 # a batch's branch and in the full form the Pre-merge suite of every member
@@ -81,10 +81,6 @@ jobs:
       contents: read
       # The records of the runs on the head's ancestors.
       actions: read
-      # Whether the pull request finishes its spec: the spec's sub-issues
-      # and the pull request's closing issues (ci/spec-sub-issues.sh).
-      issues: read
-      pull-requests: read
     # The gate's form the jobs plan with, the members whose Pre-merge suite
     # the run holds, and for each job after it a JSON list named after the
     # job, of the steps or shards it runs (ci/hosted/plan.sh).
@@ -110,12 +106,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE: ${{ github.base_ref }}
           BRANCH: ${{ github.head_ref }}
-          NUMBER: ${{ github.event.pull_request.number }}
           GOODFETCH_GATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           GOODFETCH_GATE_HOSTED_RECORDS: target/hosted-records
         run: >-
           GOODFETCH_GATE_RUNNER_IMAGE="$ImageVersion"
-          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" "$NUMBER" >>"$GITHUB_OUTPUT"
+          ci/hosted/plan.sh "$BASE" "$BRANCH" "$GITHUB_RUN_ID" >>"$GITHUB_OUTPUT"
 
   # Lint and the proofs, when the plan schedules them, each a job of its
   # own. Lint's zizmor runs the online audits and its quarantine-list check

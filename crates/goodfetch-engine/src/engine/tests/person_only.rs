@@ -218,8 +218,8 @@ fn only_a_person_surface_on_a_local_carriage_gives_a_persons_answer() {
         (
             believed,
             // Every other claim on the socket, every claim on the other
-            // carriages: nine on each, seven relayed.
-            operations.len() * (7 + 7 + 9 + 9),
+            // carriages: ten on each, eight relayed.
+            operations.len() * (8 + 8 + 10 + 10),
             BTreeSet::from([Some(
                 "Give it as a person, at the engine's machine: in a terminal, `goodfetch-collie needs-you answer` takes you through what waits for you, and the Operation's own command prompts where it has one; or in the Kennel there."
                     .to_owned()

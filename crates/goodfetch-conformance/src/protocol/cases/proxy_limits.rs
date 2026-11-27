@@ -517,6 +517,15 @@ fn sites_refusal(
                 .iter()
                 .all(|answer| raised(answer, &BlockCause::RateLimit, &refusing, 429)),
         );
+        let site_502 = quiet(site, "site-502", Some(502));
+        let answered_502 = together(connection, &[(one, site_502)])?;
+        checks.check(
+            "a site's 502 through the proxy is never the proxy's own error",
+            tally(&answered_502, PROXY_UNAVAILABLE.name).1 == 0
+                && answered_502
+                    .iter()
+                    .all(|answer| answer["result"]["response"]["status"] == json!(502)),
+        );
         let after = meeting(
             connection,
             site,

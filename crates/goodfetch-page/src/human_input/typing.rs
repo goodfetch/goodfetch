@@ -124,16 +124,19 @@ const fn qwerty_neighbours(ch: char) -> Option<&'static str> {
         'x' => Some("zsdc"),
         'y' => Some("tghu"),
         'z' => Some("asx"),
+        // Digits slip only to adjacent digits so `<input type="number">`
+        // accepts the slip before `Backspace` removes it (never deleting the
+        // preceding valid digit).
         '0' => Some("9"),
-        '1' => Some("2q"),
-        '2' => Some("13qw"),
-        '3' => Some("24we"),
-        '4' => Some("35er"),
-        '5' => Some("46rt"),
-        '6' => Some("57ty"),
-        '7' => Some("68yu"),
-        '8' => Some("79ui"),
-        '9' => Some("80io"),
+        '1' => Some("2"),
+        '2' => Some("13"),
+        '3' => Some("24"),
+        '4' => Some("35"),
+        '5' => Some("46"),
+        '6' => Some("57"),
+        '7' => Some("68"),
+        '8' => Some("79"),
+        '9' => Some("80"),
         _ => None,
     }
 }

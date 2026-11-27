@@ -104,7 +104,7 @@ fn headless_and_headful_chromium_show_the_site_one_identity() {
 
 /// The settings of a `stealth` Run whose Sessions each get a browser
 /// process of their own (`governor.browser.contexts_per_process: 1`),
-/// without human-like input, which this engine does not build yet, its
+/// with human-like input off to isolate display ownership, its
 /// other `browser` settings `browser`.
 fn stealth(browser: &Value) -> Map<String, Value> {
     let mut chosen = browser.clone();

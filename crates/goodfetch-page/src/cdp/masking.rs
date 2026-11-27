@@ -33,6 +33,8 @@ pub(crate) struct Emulated {
     pub(crate) time_zone: Option<String>,
     /// A BCP 47 locale, such as `fr-FR`.
     pub(crate) locale: Option<String>,
+    /// The full `navigator.languages` list, such as `["fr-FR", "fr"]`.
+    pub(crate) languages: Vec<String>,
     /// Where the page's geolocation says it is.
     pub(crate) geolocation: Option<Geolocation>,
     /// The core count `navigator.hardwareConcurrency` reads.

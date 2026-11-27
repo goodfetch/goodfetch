@@ -82,7 +82,7 @@ pub(crate) enum Action {
         not(test),
         expect(
             dead_code,
-            reason = "wired for Challenge solvers in #1090; exercised through the guard's interface in tests"
+            reason = "wired for Challenge solvers in #1090; human::press_and_hold is exercised in guard::tests"
         )
     )]
     PressAndHold(Duration),
@@ -115,9 +115,11 @@ impl Action {
     }
 
     /// The row its attempt's commands count on: `C3.commands` of its kind
-    /// (ADR 0140), with human-like input counted on its own action kind.
+    /// (ADR 0140), with human-like gestures (`Click`, `Fill`, `PressAndHold`)
+    /// counted on their own action kind while direct `Press` and `Scroll`
+    /// keep their standard rows.
     const fn commands(&self, human_input: bool) -> Row {
-        if human_input && !matches!(self, Self::Scroll) {
+        if human_input && !matches!(self, Self::Scroll | Self::Press(_)) {
             return Row::ActionHumanInputCommands;
         }
         match self {
@@ -197,7 +199,7 @@ impl SentMark<'_> {
 }
 
 /// Where a gesture landed.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 enum Landed {
     Landed,
@@ -217,11 +219,14 @@ enum Landed {
 ///
 /// # Cancel safety
 ///
-/// Dropping the future sends no further input, and leaves no key and no
-/// button down: a gesture's input is one burst, sent whole or not at all. An
-/// interception listener
-/// armed for a gesture never sent removes itself at the next check, or
-/// after 10 s.
+/// Dropping the future stops sending further input. Direct clicks, direct
+/// presses and the press-and-release burst of a human-like click are sent
+/// as one atomic CDP burst, leaving no key and no button down; multi-step
+/// human-like moves, wheel scrolling or typing stop after the last
+/// acknowledged step (leaving any typed prefix in the field), and dropping
+/// `PressAndHold` between `pointer_down` and `pointer_up` leaves the button
+/// down until the caller or page resets it. An interception listener armed
+/// for a gesture never sent removes itself at the next check, or after 10 s.
 pub(crate) async fn act(
     page: &PageDriver,
     request: Request<'_>,
@@ -305,6 +310,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             } => {
                 human_scrolled = true;
                 if let Some(input) = &request.human_input {
+                    request.sent.mark(request.operation).await?;
                     let viewport = Viewport { width, height };
                     human::scroll(page, &turn, input, (dx, dy), viewport, (clock, end)).await?;
                 }

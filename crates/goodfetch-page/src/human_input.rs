@@ -37,6 +37,7 @@ use crate::trace;
 pub(crate) use self::recordings::Recordings;
 #[cfg(test)]
 pub(crate) use self::recordings::RecordingsError;
+pub use self::recordings::{CURSORY_NAME, cursory_pin};
 pub(crate) use self::typing::{KeyKind, Keystroke};
 
 /// The Provenance action of a `stealth` Session's human-like input choice.

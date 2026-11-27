@@ -695,7 +695,19 @@ async fn display_for(
             .identity
             .settings()
             .and_then(|settings| settings.resolved().effective(&BROWSER_HEADLESS))
-            .map_or(SettingsLayer::Default, |effective| effective.layer);
+            .map_or(SettingsLayer::Default, |effective| {
+                // When a Run layer set `browser.headless: true` explicitly
+                // and a headful Session still opened (via `stealth` or a
+                // Session override), blame the Run/Session layer rather than
+                // the layer that asked for headless.
+                if effective.value == serde_json::Value::Bool(true)
+                    && effective.layer != SettingsLayer::Default
+                {
+                    SettingsLayer::Run
+                } else {
+                    effective.layer
+                }
+            });
         failure.call_error(layer)
     })
 }

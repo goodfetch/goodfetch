@@ -294,7 +294,7 @@ fn pointer_page(seed: u64) -> Reply {
         seed,
         "pointer",
         &format!(
-            "<div style=\"margin-top:220px;margin-left:380px\">\n<button type=\"button\" id=\"target\" style=\"width:120px;height:48px\">Target</button>\n</div>\n<div style=\"margin-top:24px;margin-left:380px\">\n<input id=\"field\" type=\"text\" autocomplete=\"off\">\n</div>\n<div style=\"margin-top:1400px;margin-left:380px\">\n<button type=\"button\" id=\"far\" style=\"width:120px;height:48px\">Far target</button>\n</div>\n<pre id=\"summary\"></pre>\n<script>\n{POINTER_SCRIPT}</script>\n"
+            "<div style=\"margin-top:220px;margin-left:380px\">\n<button type=\"button\" id=\"target\" style=\"width:120px;height:48px\">Target</button>\n</div>\n<div style=\"margin-top:24px;margin-left:380px\">\n<input id=\"field\" type=\"text\" autocomplete=\"off\">\n<input id=\"num\" type=\"number\" autocomplete=\"off\">\n</div>\n<div style=\"margin-top:1400px;margin-left:380px\">\n<button type=\"button\" id=\"far\" style=\"width:120px;height:48px\">Far target</button>\n</div>\n<pre id=\"summary\"></pre>\n<script>\n{POINTER_SCRIPT}</script>\n"
         ),
     ))
 }

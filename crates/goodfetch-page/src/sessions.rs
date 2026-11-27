@@ -214,6 +214,8 @@ struct RunSessions {
     /// The position of each Session a crawl's Session pool opened, by the
     /// pool's own ID for it, set once it opened.
     pooled: BTreeMap<SessionId, Arc<OnceCell<u32>>>,
+    /// Cursory's human-like input shapes loaded once per Run (ADR 0035, 0140).
+    human_input: Arc<OnceCell<human_input::Plan>>,
 }
 
 /// One Session this engine holds: opening, open, or crashed.
@@ -607,12 +609,12 @@ impl Sessions {
         let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
         let fingerprint = fingerprint_of(&run, &settings, &identity, seed, context).await?;
-        let human_input = human_input_of(&run, &identity, context).await;
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
-        let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
+        let (position, pool, human_cell) = taken(&mut *self.state.lock().await, &run)?;
+        let human_input = human_input_of(&human_cell, &run, &identity, context).await;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((&run, &owner), &settings, context, position).await?;
         no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
@@ -754,8 +756,8 @@ impl Sessions {
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
         let seed = IdentitySeed(run.entropy.fork().await.next_u64());
         let fingerprint = fingerprint_of(run, &Values::default(), identity, seed, context).await?;
-        let human_input = human_input_of(run, identity, context).await;
-        let (position, pool) = taken(&mut *self.state.lock().await, run)?;
+        let (position, pool, human_cell) = taken(&mut *self.state.lock().await, run)?;
+        let human_input = human_input_of(&human_cell, run, identity, context).await;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((run, &owner), &Values::default(), context, position).await?;
         no_proxy_under(borrowed, proxy.as_deref())?;
@@ -1294,6 +1296,7 @@ impl Sessions {
             default: Arc::new(OnceCell::new()),
             closed: BTreeSet::new(),
             pooled: BTreeMap::new(),
+            human_input: Arc::new(OnceCell::new()),
         };
         let mut reopened = Vec::new();
         for (position, is_default, closed, settings, seed, source) in recorded {
@@ -1307,7 +1310,15 @@ impl Sessions {
             }
             let settings = recorded_settings(&settings, run, context)?;
             reopened.push(
-                reopened_session((run, &pool), position, seed, settings, source, context).await?,
+                reopened_session(
+                    (run, &pool, &runs.human_input),
+                    position,
+                    seed,
+                    settings,
+                    source,
+                    context,
+                )
+                .await?,
             );
         }
         let mut state = self.state.lock().await;
@@ -1836,7 +1847,7 @@ fn recorded_settings(
 /// signing key it cannot reopen is kept as its `reopen_failed`, which each
 /// page it is asked for raises.
 async fn reopened_session(
-    (run, pool): (&Arc<BrowserRun>, &Pool),
+    (run, pool, human_cell): (&Arc<BrowserRun>, &Pool, &OnceCell<human_input::Plan>),
     position: u32,
     seed: IdentitySeed,
     settings: Values,
@@ -1857,11 +1868,18 @@ async fn reopened_session(
         context,
     )
     .await;
-    let ((signing, fingerprint, human_input), reopen_failed) =
-        match reopened_identity(run, &settings, borrowed.is_some(), seed, context).await {
-            Ok(identity) => (identity, reopen_failed),
-            Err(error) => ((None, None, None), reopen_failed.or(Some(error))),
-        };
+    let ((signing, fingerprint, human_input), reopen_failed) = match reopened_identity(
+        (run, human_cell),
+        &settings,
+        borrowed.is_some(),
+        seed,
+        context,
+    )
+    .await
+    {
+        Ok(identity) => (identity, reopen_failed),
+        Err(error) => ((None, None, None), reopen_failed.or(Some(error))),
+    };
     let session = session_id(run.identity.id(), position);
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
@@ -2229,9 +2247,10 @@ async fn mark_opened_session(run: &BrowserRun, open: &Session, session: &Session
 }
 
 /// The human-like input plan of a `stealth` Session whose
-/// `stealth.human_input` is on, loaded from the Browser cache or falling
-/// back to the ghost-cursor port (ADR 0035).
+/// `stealth.human_input` is on, loaded once per Run from the Browser cache
+/// or falling back to the ghost-cursor port (ADRs 0035, 0140).
 async fn human_input_of(
+    cell: &OnceCell<human_input::Plan>,
     run: &Arc<BrowserRun>,
     plan: &SessionIdentityPlan,
     context: &CallContext,
@@ -2243,11 +2262,16 @@ async fn human_input_of(
     {
         return None;
     }
-    let pinned_by = PinnedBy {
-        product: context.identity().product,
-        product_version: context.identity().product_version.clone(),
-    };
-    Some(human_input::Plan::open(context.engine().home(), &run.identity, &pinned_by).await)
+    let loaded = cell
+        .get_or_init(|| async {
+            let pinned_by = PinnedBy {
+                product: context.identity().product,
+                product_version: context.identity().product_version.clone(),
+            };
+            human_input::Plan::open(context.engine().home(), &run.identity, &pinned_by).await
+        })
+        .await;
+    Some(loaded.clone())
 }
 
 /// The signer, Fingerprint method and human-like input plan of a Session of
@@ -2262,7 +2286,7 @@ async fn human_input_of(
 /// As [`access_mode_opens`], [`open_signing`] and [`fingerprint_of`] say:
 /// the Session then raises it from each page it is asked for.
 async fn reopened_identity(
-    run: &Arc<BrowserRun>,
+    (run, human_cell): (&Arc<BrowserRun>, &OnceCell<human_input::Plan>),
     settings: &Values,
     borrowed: bool,
     seed: IdentitySeed,
@@ -2281,7 +2305,7 @@ async fn reopened_identity(
     let identity = access_mode_opens(settings, &run.identity, None, context)?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
     let fingerprint = fingerprint_of(run, settings, &identity, seed, context).await?;
-    let human_input = human_input_of(run, &identity, context).await;
+    let human_input = human_input_of(human_cell, run, &identity, context).await;
     Ok((signing, fingerprint, human_input))
 }
 
@@ -2510,10 +2534,13 @@ async fn live(run_id: &RunId, context: &CallContext) -> Result<Arc<BrowserRun>, 
 /// for its own (#882, #891), as its Run's resume draws them again. A
 /// failed open leaves its position unused. Answers it with the Run's
 /// browser pool; `run_not_found` once the Run stopped.
-fn taken(state: &mut State, run: &Arc<BrowserRun>) -> Result<(u32, Pool), CallError> {
+fn taken(
+    state: &mut State,
+    run: &Arc<BrowserRun>,
+) -> Result<(u32, Pool, Arc<OnceCell<human_input::Plan>>), CallError> {
     let runs = reached(state, &run.identity)?;
     runs.last += 1;
-    Ok((runs.last, runs.pool.clone()))
+    Ok((runs.last, runs.pool.clone(), Arc::clone(&runs.human_input)))
 }
 
 /// The position of the Run's local-address rotation that the program's

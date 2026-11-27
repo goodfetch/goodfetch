@@ -214,14 +214,6 @@ impl PageDriver {
     }
 }
 
-/// Starts following `browser`'s service workers and new pages on `tasks`,
-/// its owner's (ADR 0146): its browser events are read from now, then the
-/// browser attaches the engine to each worker and each page before it runs
-/// (`popups`), each such task one of its owner's.
-///
-/// # Errors
-///
-/// The code of opening a page when the browser refuses to attach.
 impl Browser {
     /// Turns on, once per browser, the browser's own interception of workers'
     /// scripts (`Other` requests at request stage), so a worker's script fetch
@@ -255,10 +247,18 @@ impl Browser {
     }
 }
 
-/// Starts reading the browser's own events and attaches to its workers and
-/// popups. A headless browser (whose pages show a non-headless window
-/// identity) also turns on worker-script interception here at launch, once
-/// per browser rather than on its first page's opening (C7, ADR 0140).
+/// Starts following `browser`'s service workers and new pages on `tasks`,
+/// its owner's (ADR 0146): its browser events are read from now, then the
+/// browser attaches the engine to each worker and each page before it runs
+/// (`popups`), each such task one of its owner's. A headless browser (whose
+/// pages show a non-headless window identity) also turns on worker-script
+/// interception here at launch, once per browser rather than on its first
+/// page's opening (C7, ADR 0140).
+///
+/// # Errors
+///
+/// The code of opening a page when the browser refuses to attach or
+/// intercept worker scripts.
 pub(super) async fn start(browser: &Browser, tasks: &RunIdentity) -> Result<(), CallError> {
     let events = browser.connection.subscribe(None);
     tasks.spawn(follow(events, browser.clone(), tasks.clone()));

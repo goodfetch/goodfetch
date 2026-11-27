@@ -429,6 +429,7 @@ fn shown(identity: &IdentityProfile) -> Emulated {
         }),
         time_zone: identity.exit.time_zone.clone(),
         locale: identity.navigator.languages.first().cloned(),
+        languages: identity.navigator.languages.clone(),
         geolocation: identity.exit.geolocation.map(|at| Geolocation {
             latitude: at.latitude,
             longitude: at.longitude,
@@ -467,9 +468,14 @@ fn init_script(values: &Emulated) -> Option<String> {
         ));
     }
     if let Some(locale) = &values.locale {
-        let locale = json!(locale);
+        let locale_json = json!(locale);
+        let languages = if values.languages.is_empty() {
+            json!([locale])
+        } else {
+            json!(values.languages)
+        };
         lines.push(format!(
-            "define(Navigator.prototype, \"language\", {locale});\n  define(Navigator.prototype, \"languages\", Object.freeze([{locale}]));"
+            "define(Navigator.prototype, \"language\", {locale_json});\n  define(Navigator.prototype, \"languages\", Object.freeze({languages}));"
         ));
     }
     if let Some(zone) = &values.time_zone {

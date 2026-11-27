@@ -202,6 +202,7 @@ fn basic_shows_the_profile_at_the_browsers_version() {
     assert_eq!(
         (
             emulated.locale.as_deref(),
+            emulated.languages.as_slice(),
             emulated.time_zone.as_deref(),
             emulated.geolocation,
             emulated.core_count,
@@ -209,6 +210,7 @@ fn basic_shows_the_profile_at_the_browsers_version() {
         ),
         (
             Some("fr-FR"),
+            &["fr-FR".to_owned(), "fr".to_owned()][..],
             Some("Europe/Paris"),
             Some(Geolocation {
                 latitude: 48.85,
@@ -223,6 +225,19 @@ fn basic_shows_the_profile_at_the_browsers_version() {
                 avail_height: identity.screen.avail_height,
             }),
         )
+    );
+    let injected = plan(
+        Method::JsInjection,
+        MethodSource::Set(SettingsLayer::UserConfiguration),
+        Some(identity),
+    );
+    let script = injected
+        .primitives(Some("HeadlessChrome/131.0.6778.85"))
+        .1
+        .expect("js_injection script");
+    assert!(
+        script.contains(r#"Object.freeze(["fr-FR","fr"])"#),
+        "expected secondary languages in js_injection script: {script}"
     );
 }
 

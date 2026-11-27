@@ -30,7 +30,7 @@ use serde::Deserialize;
 use super::{Move, Point, below, between, millis};
 
 /// The artifact name of Cursory's recordings in the Browser cache.
-pub(crate) const CURSORY_NAME: &str = "cursory";
+pub const CURSORY_NAME: &str = "cursory";
 
 /// The pinned commit of Cursory's recordings.
 pub(crate) const CURSORY_COMMIT: &str = "51a40db323fec9c294af099112e2df08d8cf5086";
@@ -60,12 +60,16 @@ const SHORTEST: f64 = 1.0;
 /// How far an inner point of a reshaped recording may shift, in pixels.
 const JITTER: f64 = 1.0;
 
-/// The most bytes read from a recordings file in the Browser cache.
+/// The most compressed bytes read from a recordings file in the Browser cache.
 const MAX_RECORDINGS_BYTES: u64 = 32 * 1024 * 1024;
+
+/// The most decompressed bytes accepted from a recordings file, bounding
+/// gzip decompression bombs even for a user-supplied replacement file.
+const MAX_DECOMPRESSED_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The pinned Browser cache artifact for Cursory's recorded movements
 /// (ADRs 0035, 0043 and 0098).
-pub(crate) fn cursory_pin() -> PinnedArtifact {
+pub fn cursory_pin() -> PinnedArtifact {
     let parse = |text: &str| -> Digest {
         text.parse()
             .expect("invariant: Cursory's pinned digest is a valid sha256 digest")
@@ -198,6 +202,8 @@ struct Recording {
 pub(crate) enum RecordingsError {
     #[error("the recordings are not gzip-compressed JSON: {0}")]
     Unreadable(#[from] std::io::Error),
+    #[error("the recordings exceed the {MAX_DECOMPRESSED_BYTES}-byte decompressed limit")]
+    TooLarge,
     #[error("the recordings are not in Cursory's format: {0}")]
     Format(#[from] serde_json::Error),
     #[error("the recordings hold no movement")]
@@ -217,7 +223,12 @@ impl Recordings {
     /// samples as points, two at least, and ends apart.
     pub(crate) fn parse(compressed: &[u8]) -> Result<Self, RecordingsError> {
         let mut text = Vec::new();
-        GzDecoder::new(compressed).read_to_end(&mut text)?;
+        GzDecoder::new(compressed)
+            .take(MAX_DECOMPRESSED_BYTES + 1)
+            .read_to_end(&mut text)?;
+        if text.len() as u64 > MAX_DECOMPRESSED_BYTES {
+            return Err(RecordingsError::TooLarge);
+        }
         let recorded: Vec<Recorded> = serde_json::from_slice(&text)?;
         let recordings: Vec<Recording> = recorded.into_iter().filter_map(Recording::of).collect();
         if recordings.is_empty() {

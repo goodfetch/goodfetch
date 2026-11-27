@@ -355,7 +355,7 @@ fn a_stealth_session_draws_its_identity_from_its_narrowing(
     #[case] mut stealth: Value,
     #[case] expected: Result<Option<&str>, &str>,
 ) {
-    // What this engine does not build yet is left off.
+    // Human-like input is orthogonal to identity narrowing; disable it here.
     stealth["human_input"] = json!(false);
     let own = values(
         SettingsLayer::Run,

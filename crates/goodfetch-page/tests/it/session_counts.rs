@@ -657,11 +657,12 @@ fn stealth_with_human_input_off_keeps_standard_c3_action_figures() {
 }
 
 /// In a `stealth` Session with `stealth.human_input` on, the engine's
-/// gestures count on human-like input's own `C3.commands` action kind,
-/// bounded by `EVENTS_PER_GESTURE` per gesture, while standard action
-/// rows stay at zero (ADR 0140, #1018).
+/// human-like clicks and fills count on human-like input's own
+/// `C3.commands` action kind, bounded by `EVENTS_PER_GESTURE` per gesture,
+/// while direct `Action::Press` keeps its standard `C3.commands.press` row
+/// (ADR 0140, #1018).
 ///
-/// Covers: story:8-42, story:8-45, setting:stealth.human_input
+/// Covers: story:8-42, setting:stealth.human_input
 #[test]
 fn stealth_with_human_input_on_counts_on_its_own_c3_action_kind() {
     let home = tempfile::tempdir().expect("invariant: the OS gives a temporary folder");
@@ -686,14 +687,13 @@ fn stealth_with_human_input_on_counts_on_its_own_c3_action_kind() {
             Row::ActionPressCommands,
         ]
         .map(|row| counted.count(row)),
-        [0, 0, 0]
+        [0, 0, 8]
     );
     let human = counted.count(Row::ActionHumanInputCommands);
-    // Two clicks (<= 100 moves + press/release + check + disarm each), two
-    // 5-char fills (<= 3 keystrokes * 2 events + check each) and two presses
-    // (4 commands each).
+    // Two clicks (<= 100 moves + press/release + check + disarm each) and
+    // two 5-char fills (<= 3 keystrokes * 2 events + check + verify each).
     assert!(
-        human > 22 && human <= 2 * 105 + 2 * 35 + 2 * 4,
+        human > 14 && human <= 2 * 105 + 2 * 36,
         "unexpected human-like input C3.commands count: {human}"
     );
     #[expect(

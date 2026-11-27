@@ -124,7 +124,7 @@ fn recorded(engine: &mut goodfetch_test_client::Attached, id: i64, page: &PageId
         "page.evaluate",
         &json!({
             "page_id": page,
-            "function": "() => ({ summary: JSON.parse(document.querySelector('#summary').textContent), field: document.querySelector('#field').value })",
+            "function": "() => ({ summary: JSON.parse(document.querySelector('#summary').textContent), field: document.querySelector('#field').value, num: document.querySelector('#num').value })",
         }),
     );
     assert!(evaluated.get("result").is_some(), "{evaluated}");
@@ -166,7 +166,7 @@ fn warning_codes(finished: &Value) -> Vec<String> {
 /// via trusted wheel notches, Provenance marks `engine_actions_only`, and
 /// the Run report carries `human_input_fallback`.
 ///
-/// Covers: story:8-42, story:8-43, story:8-45, setting:stealth.human_input
+/// Covers: story:8-42, story:8-43, setting:stealth.human_input
 #[test]
 fn stealth_human_input_curves_types_scrolls_and_warns_when_recordings_absent() {
     let env = TestEnv::new();
@@ -215,14 +215,25 @@ fn stealth_human_input_curves_types_scrolls_and_warns_when_recordings_absent() {
         "locator.fill",
         &json!({
             "locator": { "page_id": page, "selector": "#field" },
-            "value": "hello world 42",
+            "value": "hello\tworld 42",
         }),
     );
     assert!(filled.get("result").is_some(), "{filled}");
 
-    let after_fill = recorded(&mut engine, 8, &page);
+    let filled_num = engine.ask(
+        8,
+        "locator.fill",
+        &json!({
+            "locator": { "page_id": page, "selector": "#num" },
+            "value": "12345678901234567890",
+        }),
+    );
+    assert!(filled_num.get("result").is_some(), "{filled_num}");
+
+    let after_fill = recorded(&mut engine, 9, &page);
     let keys = after_fill["summary"]["keys"].as_array().unwrap();
-    assert_eq!(after_fill["field"], json!("hello world 42"));
+    assert_eq!(after_fill["field"], json!("hello\tworld 42"));
+    assert_eq!(after_fill["num"], json!("12345678901234567890"));
     assert!(
         keys.len() >= "hello world 42".len(),
         "expected key-by-key typing, got {} keys",
@@ -234,13 +245,13 @@ fn stealth_human_input_curves_types_scrolls_and_warns_when_recordings_absent() {
     );
 
     let scrolled_click = engine.ask(
-        9,
+        10,
         "locator.click",
         &json!({ "locator": { "page_id": page, "selector": "#far" } }),
     );
     assert!(scrolled_click.get("result").is_some(), "{scrolled_click}");
 
-    let after_scroll = recorded(&mut engine, 10, &page);
+    let after_scroll = recorded(&mut engine, 11, &page);
     let wheels = after_scroll["summary"]["wheels"].as_array().unwrap();
     let clicks_all = after_scroll["summary"]["clicks"].as_array().unwrap();
     assert!(
@@ -251,7 +262,7 @@ fn stealth_human_input_curves_types_scrolls_and_warns_when_recordings_absent() {
     assert_eq!(clicks_all.len(), 2);
     assert_eq!(clicks_all[1]["id"], json!("far"));
 
-    let finished = engine.ask(11, "run.finish", &json!({ "run_id": "human" }));
+    let finished = engine.ask(12, "run.finish", &json!({ "run_id": "human" }));
     let _ = engine.finish();
 
     let warnings = warning_codes(&finished);
@@ -368,18 +379,32 @@ fn replaceable_cursory_recordings_in_cache_avoid_fallback_warning() {
 }
 
 /// Cursory's LGPL recordings are never compiled into the Collie executable:
-/// the binary carries no Cursory recording archive bytes.
+/// the binary carries neither the uncompressed trajectory JSON nor the
+/// gzip-compressed `trajectories.json` archive header, and no recording
+/// archive exists in the repository source tree.
 ///
 /// Covers: story:8-43
 #[test]
 fn collie_executable_carries_no_cursory_recording_bytes() {
-    // First 32 bytes of Cursory's gzip archive (unique gzip header + deflate
-    // prefix) and its unique first-trajectory coordinate signature.
     let marker_json = br#""start":[1004,150],"end":[1160,354]"#;
+    let gzip_fname = b"trajectories.json\0";
     let binary = fs::read(COLLIE).expect("collie test executable exists");
     assert!(
         !binary.windows(marker_json.len()).any(|w| w == marker_json),
-        "collie executable must never embed Cursory recording bytes"
+        "collie executable must never embed uncompressed Cursory trajectory JSON"
+    );
+    // An embedded `trajectories.json.gz` gzip member carries the RFC 1952
+    // magic header (1f 8b 08) followed within 16 bytes by the FNAME field
+    // `trajectories.json\0` when FNAME is set, or the deflate stream bytes.
+    let embeds_gzip_trajectories = binary.windows(3).enumerate().any(|(idx, head)| {
+        head == [0x1f, 0x8b, 0x08]
+            && binary
+                .get(idx + 10..idx + 10 + gzip_fname.len())
+                .is_some_and(|tail| tail == gzip_fname)
+    });
+    assert!(
+        !embeds_gzip_trajectories,
+        "collie executable must never embed Cursory's gzip archive"
     );
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();

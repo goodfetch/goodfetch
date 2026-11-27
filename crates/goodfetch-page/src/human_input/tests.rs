@@ -233,6 +233,51 @@ fn typing_makes_and_corrects_neighbouring_key_slips() {
     );
 }
 
+/// Digit typing slips only to adjacent digits, so `<input type="number">`
+/// accepts the slipped key before `Backspace` removes it (never deleting
+/// the preceding valid digit).
+#[test]
+fn digit_typing_slips_only_to_digits() {
+    let text = "012345678901234567890123456789";
+    let mut saw_slip = false;
+    for seed in 0..20 {
+        let strokes = HumanInput::new(Entropy::seeded(seed), shapes(false))
+            .typing(text, Duration::from_secs(5));
+        assert_eq!(replay(&strokes), text, "seed {seed}");
+        for stroke in &strokes {
+            match stroke.kind {
+                KeyKind::Character(ch) => {
+                    assert!(ch.is_ascii_digit(), "non-digit slip {ch:?} on seed {seed}");
+                }
+                KeyKind::Backspace => saw_slip = true,
+            }
+        }
+    }
+    assert!(saw_slip, "expected at least one digit slip across 20 seeds");
+}
+
+/// A gzip decompression bomb (small compressed archive expanding past the
+/// decompressed cap) is refused with `RecordingsError::TooLarge` rather
+/// than exhausting memory.
+#[test]
+fn decompression_bomb_is_refused_without_exhausting_memory() {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    let chunk = vec![b' '; 1024 * 1024];
+    for _ in 0..65 {
+        encoder.write_all(&chunk).unwrap();
+    }
+    let bomb = encoder.finish().unwrap();
+    assert!(
+        bomb.len() < 1024 * 1024,
+        "expected tiny compressed bomb, got {} bytes",
+        bomb.len()
+    );
+    assert!(matches!(
+        Recordings::parse(&bomb),
+        Err(RecordingsError::TooLarge)
+    ));
+}
+
 /// Cursory's pinned artifact is a runtime Browser cache download of kind
 /// `mouse_movements` whose replacement path sits inside the cache.
 ///
@@ -300,6 +345,7 @@ fn unusable_recordings_are_refused(#[case] file: Vec<u8>, #[case] expected: &str
 
     let kind = match error {
         RecordingsError::Unreadable(_) => "Unreadable",
+        RecordingsError::TooLarge => "TooLarge",
         RecordingsError::Format(_) => "Format",
         RecordingsError::Empty => "Empty",
     };

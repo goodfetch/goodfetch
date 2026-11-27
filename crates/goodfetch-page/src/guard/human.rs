@@ -7,10 +7,12 @@ use std::time::Duration;
 use goodfetch_engine::CallError;
 use goodfetch_engine::clock::Clock;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
+use serde_json::json;
 
 use super::{Landed, landed};
 use crate::cdp::driver::PageDriver;
 use crate::cdp::{CdpPage, keys};
+use crate::errors::Unanswered;
 use crate::human_input::{KeyKind, PageHumanInput, Point, Viewport};
 use crate::page_reads::Turn;
 
@@ -18,6 +20,13 @@ use crate::page_reads::Turn;
 /// action's remaining deadline, keeping it well under the guard's 10 s arm
 /// expiry while remaining natural.
 const HUMAN_MOTION_CAP: Duration = Duration::from_secs(2);
+
+/// The most total time a press-and-hold gesture takes so it finishes before
+/// `check.js`'s 10 s interception-arm expiry.
+const HUMAN_HOLD_CAP: Duration = Duration::from_secs(9);
+
+/// Verifies the focused field holds the exact requested value after typing.
+const VERIFY_FILL: &str = include_str!("verify_fill.js");
 
 /// Sleeps `delay` bounded by `end` on `clock`.
 async fn pace(clock: &Clock, end: tokio::time::Instant, delay: Duration) {
@@ -84,7 +93,9 @@ pub(super) async fn press_and_hold(
     (clock, end): (&Clock, tokio::time::Instant),
 ) -> Result<Landed, CallError> {
     let cdp = CdpPage::of(page);
-    let remaining = end.saturating_duration_since(clock.now());
+    let remaining = end
+        .saturating_duration_since(clock.now())
+        .min(HUMAN_HOLD_CAP);
     if let Some(input) = input {
         let plan = input
             .press_and_hold(target, hold, viewport, remaining)
@@ -98,8 +109,15 @@ pub(super) async fn press_and_hold(
             .await?;
         for tremor in plan.hold_moves {
             pace(clock, end, tremor.after).await;
-            cdp.pointer_drag_to(tremor.to.x, tremor.to.y, turn.gesture_call())
-                .await?;
+            if let Err(error) = cdp
+                .pointer_drag_to(tremor.to.x, tremor.to.y, turn.gesture_call())
+                .await
+            {
+                let _ = cdp
+                    .pointer_up(target.x, target.y, turn.gesture_call())
+                    .await;
+                return Err(error);
+            }
         }
         pace(clock, end, plan.release_after).await;
         cdp.pointer_up(target.x, target.y, turn.gesture_call())
@@ -109,7 +127,7 @@ pub(super) async fn press_and_hold(
             .await?;
         cdp.pointer_down(target.x, target.y, turn.gesture_call())
             .await?;
-        pace(clock, end, hold).await;
+        pace(clock, end, hold.min(remaining)).await;
         cdp.pointer_up(target.x, target.y, turn.gesture_call())
             .await?;
     }
@@ -117,7 +135,8 @@ pub(super) async fn press_and_hold(
 }
 
 /// Types `value` into the focused field key by key with human-like pacing
-/// and corrected neighbouring-key slips.
+/// and corrected neighbouring-key slips, then re-checks that the field holds
+/// `value` verbatim.
 pub(super) async fn fill(
     page: &PageDriver,
     turn: &mut Turn,
@@ -137,18 +156,6 @@ pub(super) async fn fill(
                 })?;
                 cdp.press_keys(&key, turn.gesture_call()).await?;
             }
-            KeyKind::Character('\n') => {
-                let key = keys::events("Enter").map_err(|unknown| {
-                    CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
-                })?;
-                cdp.press_keys(&key, turn.gesture_call()).await?;
-            }
-            KeyKind::Character('\t') => {
-                let key = keys::events("Tab").map_err(|unknown| {
-                    CallError::protocol(ProtocolFailure::InternalError, unknown.to_string())
-                })?;
-                cdp.press_keys(&key, turn.gesture_call()).await?;
-            }
             KeyKind::Character(ch) if ch.is_ascii() && !ch.is_ascii_control() => {
                 let text = ch.to_string();
                 let key = keys::events(&text).map_err(|unknown| {
@@ -156,10 +163,17 @@ pub(super) async fn fill(
                 })?;
                 cdp.press_keys(&key, turn.gesture_call()).await?;
             }
+            // Control characters (`\t`, `\n`, etc.) and non-ASCII text go
+            // through `insert_text`, matching direct `fill` so `\t` never
+            // shifts focus and `\n` never submits a single-line form.
             KeyKind::Character(ch) => {
                 turn.insert_text(&ch.to_string()).await?;
             }
         }
     }
-    Ok(())
+    match turn.call(VERIFY_FILL, json!(value)).await {
+        Ok(matched) if matched.as_bool() == Some(false) => turn.insert_text(value).await,
+        Ok(_) | Err(Unanswered::WorldGone) => Ok(()),
+        Err(Unanswered::Failed(error)) => Err(error),
+    }
 }

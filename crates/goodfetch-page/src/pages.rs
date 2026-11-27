@@ -168,7 +168,7 @@ pub fn contribution_with(
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
-    let interception = Interception::default();
+    let interception = Interception::with_blocks(Arc::clone(&blocks));
     let dialogs = Dialogs::default();
     let pages = Pages {
         sessions: Sessions::new(

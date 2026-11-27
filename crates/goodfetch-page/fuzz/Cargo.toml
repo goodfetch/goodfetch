@@ -36,6 +36,20 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "storage_state"
+path = "fuzz_targets/storage_state.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cookies_txt"
+path = "fuzz_targets/cookies_txt.rs"
+test = false
+doc = false
+bench = false
+
 # Goodfetch's forks of `dom_smoothie`, `rs-trafilatura` and the two crates
 # rs-trafilatura reads trees with, as the workspace's `[patch.crates-io]`
 # carries them.

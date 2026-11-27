@@ -133,19 +133,77 @@ impl Origins {
     }
 }
 
-/// A Session's cookies and storage, taken from one browser for the next or
-/// kept sealed in run state for a resumed Run (ADRs 0040, 0092, 0102).
+/// A Session's cookies and storage, taken from one browser for the next,
+/// imported from a `state_file` / `cookie_header` (ADR 0056), or kept sealed
+/// in run state for a resumed Run (ADRs 0040, 0092, 0102).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Carried {
     cookies: Vec<network::CookieParam>,
     /// Each origin's `localStorage` items, in their order.
     storage: Vec<(String, Vec<(String, String)>)>,
+    /// Each origin's `IndexedDB` databases (Playwright 1.64 `storageState`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    indexed_db: Vec<(String, Value)>,
+    /// Each origin's OPFS files (Playwright 1.64 `storageState`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    opfs: Vec<(String, Value)>,
 }
 
 impl Carried {
-    /// Whether no cookies or `localStorage` entries are carried.
+    /// Builds [`Carried`] from an [`ImportedState`](crate::state_import::ImportedState).
+    pub(crate) fn from_imported(imported: crate::state_import::ImportedState) -> Self {
+        use goodfetch_protocol::session_export::SameSite;
+        let cookies = imported
+            .cookies
+            .into_iter()
+            .map(|cookie| network::CookieParam {
+                name: cookie.name,
+                value: cookie.value,
+                url: None,
+                domain: Some(cookie.domain),
+                path: Some(cookie.path),
+                secure: Some(cookie.secure),
+                http_only: Some(cookie.http_only),
+                same_site: cookie.same_site.map(|same_site| match same_site {
+                    SameSite::Strict => network::CookieSameSite::Strict,
+                    SameSite::Lax => network::CookieSameSite::Lax,
+                    SameSite::None => network::CookieSameSite::None,
+                }),
+                expires: cookie.expires,
+                priority: None,
+                source_scheme: None,
+                source_port: None,
+                partition_key: None,
+            })
+            .collect();
+        let mut storage = Vec::new();
+        let mut indexed_db = Vec::new();
+        let mut opfs = Vec::new();
+        for origin in imported.origins {
+            if !origin.local_storage.is_empty() {
+                storage.push((origin.origin.clone(), origin.local_storage));
+            }
+            if let Some(idb) = origin.indexed_db {
+                indexed_db.push((origin.origin.clone(), idb));
+            }
+            if let Some(files) = origin.opfs {
+                opfs.push((origin.origin, files));
+            }
+        }
+        Self {
+            cookies,
+            storage,
+            indexed_db,
+            opfs,
+        }
+    }
+
+    /// Whether no cookies, `localStorage`, `IndexedDB` or OPFS entries are carried.
     pub(crate) fn is_empty(&self) -> bool {
-        self.cookies.is_empty() && self.storage.is_empty()
+        self.cookies.is_empty()
+            && self.storage.is_empty()
+            && self.indexed_db.is_empty()
+            && self.opfs.is_empty()
     }
 
     /// Encodes the carried state as JSON bytes for sealing in run state.
@@ -158,9 +216,13 @@ impl Carried {
         serde_json::from_slice(bytes)
     }
 
-    /// The origins whose `localStorage` entries this state carries.
+    /// The origins whose storage entries this state carries.
     pub(crate) fn origins(&self) -> impl Iterator<Item = String> + '_ {
-        self.storage.iter().map(|(origin, _)| origin.clone())
+        self.storage
+            .iter()
+            .map(|(origin, _)| origin.clone())
+            .chain(self.indexed_db.iter().map(|(origin, _)| origin.clone()))
+            .chain(self.opfs.iter().map(|(origin, _)| origin.clone()))
     }
 
     /// The carried `localStorage` entries keyed by origin, for merging
@@ -181,6 +243,14 @@ const READ_PAGE_STORAGE: &str = "() => { try { const o = location.origin; if (!o
 /// The function that sets each of its entries in an origin's
 /// `localStorage`.
 const WRITE_STORAGE: &str = "(items) => { for (const [key, value] of items) localStorage.setItem(key, value); return true; }";
+
+/// The function that restores Playwright 1.64 `indexedDB` databases in an
+/// origin's isolated world.
+const WRITE_INDEXED_DB: &str = "async (dbs) => { if (!Array.isArray(dbs)) return true; for (const db of dbs) { await new Promise((resolve) => { const req = indexedDB.open(db.name, db.version || 1); req.onupgradeneeded = () => { const conn = req.result; for (const store of db.stores || []) { if (!conn.objectStoreNames.contains(store.name)) { const opts = {}; if (store.keyPath !== undefined && store.keyPath !== null) opts.keyPath = store.keyPath; if (store.autoIncrement) opts.autoIncrement = true; const os = conn.createObjectStore(store.name, opts); for (const idx of store.indexes || []) { os.createIndex(idx.name, idx.keyPath, { unique: !!idx.unique, multiEntry: !!idx.multiEntry }); } } } }; req.onsuccess = () => { const conn = req.result; const names = (db.stores || []).map((s) => s.name).filter((n) => conn.objectStoreNames.contains(n)); if (!names.length) { conn.close(); resolve(true); return; } const tx = conn.transaction(names, 'readwrite'); for (const store of db.stores || []) { if (!conn.objectStoreNames.contains(store.name)) continue; const os = tx.objectStore(store.name); for (const rec of store.records || []) { if (rec.key !== undefined && os.keyPath === null) os.put(rec.value, rec.key); else os.put(rec.value); } } tx.oncomplete = () => { conn.close(); resolve(true); }; tx.onerror = () => { conn.close(); resolve(false); }; }; req.onerror = () => resolve(false); }); } return true; }";
+
+/// The function that restores Playwright 1.64 `opfs` files in an origin's
+/// isolated world.
+const WRITE_OPFS: &str = "async (files) => { if (!Array.isArray(files) || !navigator.storage?.getDirectory) return true; const root = await navigator.storage.getDirectory(); for (const file of files) { const parts = String(file.path || '').split('/').filter(Boolean); if (!parts.length) continue; let dir = root; for (let i = 0; i < parts.length - 1; i++) dir = await dir.getDirectoryHandle(parts[i], { create: true }); const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true }); const writable = await fh.createWritable(); const bin = atob(file.contentBase64 || ''); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); await writable.write(bytes); await writable.close(); } return true; }";
 
 /// The empty document an origin's page commits.
 const EMPTY_DOCUMENT: &str = "<!doctype html><title></title>";
@@ -240,6 +310,8 @@ impl<B: Connect> SessionDriver<B> {
         Ok(Carried {
             cookies,
             storage: stored,
+            indexed_db: Vec::new(),
+            opfs: Vec::new(),
         })
     }
 
@@ -263,6 +335,12 @@ impl<B: Connect> SessionDriver<B> {
         }
         for (origin, items) in &carried.storage {
             on_origin(&browser, &context, origin, WRITE_STORAGE, json!(items)).await?;
+        }
+        for (origin, dbs) in &carried.indexed_db {
+            on_origin(&browser, &context, origin, WRITE_INDEXED_DB, dbs.clone()).await?;
+        }
+        for (origin, files) in &carried.opfs {
+            on_origin(&browser, &context, origin, WRITE_OPFS, files.clone()).await?;
         }
         Ok(())
     }
@@ -311,6 +389,8 @@ impl PageDriver {
                 .iter()
                 .map(|(origin, items)| (origin.clone(), items.clone()))
                 .collect(),
+            indexed_db: Vec::new(),
+            opfs: Vec::new(),
         })
     }
 

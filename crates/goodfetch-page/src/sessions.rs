@@ -82,6 +82,7 @@ use goodfetch_protocol::catalog::{Authority, SettingScope};
 use goodfetch_protocol::connection::{CLOSED, CancelledBy, ClosedValue};
 use goodfetch_protocol::egress::{EGRESS_LOCAL_ADDRESSES, LocalAddressFailure};
 use goodfetch_protocol::governor::WorkKind;
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::access_mode::{IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY};
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
@@ -630,14 +631,16 @@ impl Sessions {
         let settings = extractor_installed(settings, &run, context).await?;
         let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context).await?;
         let fingerprint = FingerprintPlan::of(&identity);
-        let (borrowed, gpc) = opening_source_and_gpc(&settings, &run, named)?;
-        no_local_address_on(&run, source_of(borrowed.as_ref()))?;
+        let (opened, gpc) = opening_source_and_gpc(&settings, &run, named, context).await?;
+        let borrowed = opened.borrowed();
+        let carried = opened.carried();
+        no_local_address_on(&run, source_of(borrowed))?;
         let signing = open_signing(&run, identity.signing.as_ref(), context).await?;
         self.reach(&run, context).await?;
         let (position, pool) = taken(&mut *self.state.lock().await, &run)?;
         let owner = run.identity.owner().child();
         let proxy = open_proxy((&run, &owner), &settings, context, position).await?;
-        no_proxy_under(borrowed.as_ref(), proxy.as_deref())?;
+        no_proxy_under(borrowed, proxy.as_deref())?;
         let relay = open_relay(
             (&run, &owner),
             proxy.as_ref(),
@@ -657,7 +660,8 @@ impl Sessions {
             let runs = reached(&mut state, &run.identity)?;
             let seat = open_seat(
                 &runs.pool,
-                borrowed.as_ref(),
+                borrowed,
+                carried,
                 placement(fingerprint.as_ref(), gpc),
                 egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
                 TaskStarter::clone(&owner),
@@ -666,13 +670,19 @@ impl Sessions {
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
             let interception = session_interception(
                 (&session, &run),
-                borrowed.as_ref(),
+                borrowed,
                 (relay.is_some(), proxy.is_some()),
                 signing,
                 gpc.header_only(),
                 identity.mode == crate::access_mode::AccessMode::Identified,
                 settings.clone(),
             );
+            let saved_state = carried.map_or_else(Arc::default, |carried| {
+                Arc::new(Mutex::new(SavedState {
+                    storage: carried.storage_map(),
+                    last: carried.clone(),
+                }))
+            });
             let open = Arc::new(Session {
                 owner,
                 pages: HeldPages::default(),
@@ -686,16 +696,14 @@ impl Sessions {
                 relay,
                 http_credentials,
                 reopen_failed: None,
-                held_frames: borrowed
-                    .as_ref()
-                    .map(|_| session_pages::HeldFrames::default()),
+                held_frames: borrowed.map(|_| session_pages::HeldFrames::default()),
                 injections: Injections::default(),
                 fingerprint,
                 hiding: Arc::default(),
                 interception,
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
-                saved_state: Arc::default(),
+                saved_state,
             });
             self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session.clone(), &open);
@@ -704,7 +712,7 @@ impl Sessions {
         self.seat_and_record(
             (&run, &open),
             (&session, &life),
-            (position, &settings, borrowed.as_ref(), gpc),
+            (position, &settings, &opened, gpc),
             context,
         )
         .await
@@ -717,7 +725,7 @@ impl Sessions {
         &self,
         (run, open): (&Arc<BrowserRun>, &Arc<Session>),
         (session, life): (&SessionId, &SessionLife),
-        (position, settings, borrowed, gpc): (u32, &Values, Option<&CdpUrl>, GpcPlan),
+        (position, settings, opened, gpc): (u32, &Values, &OpenedSource, GpcPlan),
         context: &CallContext,
     ) -> Result<SessionOpened, CallError> {
         if let Err(error) = open.seat.open().await {
@@ -732,7 +740,7 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
-        self.record(run, position, false, settings, borrowed, context)
+        self.record(run, position, false, settings, opened, context)
             .await?;
         mark_egress(open, session).await;
         if let Some(fingerprint) = &open.fingerprint {
@@ -756,13 +764,11 @@ impl Sessions {
         let named = named_source(&run, None, context);
         let identity =
             access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
-        let borrowed = opening_source(named)?;
+        let opened = opening_source(&run, named, context).await?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
         let position = *default
-            .get_or_try_init(|| {
-                self.open_held(&run, borrowed.as_ref(), &identity, Opener::Default, context)
-            })
+            .get_or_try_init(|| self.open_held(&run, &opened, &identity, Opener::Default, context))
             .await?;
         if reached(&mut *self.state.lock().await, &run.identity)?
             .closed
@@ -791,11 +797,13 @@ impl Sessions {
     async fn open_held(
         &self,
         run: &Arc<BrowserRun>,
-        borrowed: Option<&CdpUrl>,
+        source: &OpenedSource,
         identity: &SessionIdentityPlan,
         opener: Opener,
         context: &CallContext,
     ) -> Result<u32, CallError> {
+        let borrowed = source.borrowed();
+        let carried = source.carried();
         no_local_address_on(run, source_of(borrowed))?;
         let signing = open_signing(run, identity.signing.as_ref(), context).await?;
         let fingerprint = FingerprintPlan::of(identity);
@@ -827,20 +835,16 @@ impl Sessions {
         )
         .await?;
         let http_credentials = http_credentials_of(run, &Values::default());
-        let seat = match borrowed {
-            Some(cdp_url) => pool.borrowed_seat(
-                cdp_url.clone(),
-                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
-                TaskStarter::clone(&owner),
-            ),
-            None => pool.seat(
-                placement(fingerprint.as_ref(), gpc),
-                egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
-                TaskStarter::clone(&owner),
-            ),
-        };
+        let seat = open_seat(
+            &pool,
+            borrowed,
+            carried,
+            placement(fingerprint.as_ref(), gpc),
+            egress(proxy.as_ref(), relay.as_ref(), http_credentials.as_ref()),
+            TaskStarter::clone(&owner),
+        );
         if let Opener::Default = opener {
-            self.record(run, position, true, &Values::default(), borrowed, context)
+            self.record(run, position, true, &Values::default(), source, context)
                 .await?;
         }
         let attributes = match (opener, borrowed.is_some()) {
@@ -1011,7 +1015,7 @@ impl Sessions {
         let named = named_source(&run, pooled.source.clone(), context);
         let identity =
             access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
-        let borrowed = opening_source(named)?;
+        let source = opening_source(&run, named, context).await?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
             reached(&mut *self.state.lock().await, &run.identity)?
@@ -1023,7 +1027,7 @@ impl Sessions {
             address_ordinal: pooled.address_ordinal,
         };
         let position = *cell
-            .get_or_try_init(|| self.open_held(&run, borrowed.as_ref(), &identity, opener, context))
+            .get_or_try_init(|| self.open_held(&run, &source, &identity, opener, context))
             .await?;
         Ok(session_id(run.identity.id(), position))
     }
@@ -1531,10 +1535,10 @@ impl Sessions {
         position: u32,
         is_default: bool,
         settings: &Values,
-        borrowed: Option<&CdpUrl>,
+        opened: &OpenedSource,
         context: &CallContext,
     ) -> Result<(), CallError> {
-        let source = match borrowed {
+        let source = match opened.borrowed() {
             Some(cdp_url) => {
                 let source = json!({
                     "url": cdp_url.url,
@@ -1545,6 +1549,23 @@ impl Sessions {
                 let sealed = run
                     .keys
                     .seal(&SOURCE, &position.to_string(), source.as_bytes())
+                    .await
+                    .map_err(|error| no_source(run, error, context))?;
+                Some(sealed)
+            }
+            None => None,
+        };
+        let sealed_state = match opened.carried().filter(|carried| !carried.is_empty()) {
+            Some(carried) => {
+                let bytes = carried.to_bytes().map_err(|error| {
+                    CallError::protocol(
+                        ProtocolFailure::InternalError,
+                        format!("could not encode imported Session state: {error}"),
+                    )
+                })?;
+                let sealed = run
+                    .keys
+                    .seal(&SESSION_STATE, &position.to_string(), &bytes)
                     .await
                     .map_err(|error| no_source(run, error, context))?;
                 Some(sealed)
@@ -1565,10 +1586,15 @@ impl Sessions {
                     .prepare_cached(
                         "INSERT INTO page_sessions \
                          (position, is_default, closed, settings, identity_seed, source, state) \
-                         VALUES (?1, ?2, 0, ?3, ?4, ?5, NULL)",
+                         VALUES (?1, ?2, 0, ?3, ?4, ?5, ?6)",
                     )?
                     .execute(rusqlite::params![
-                        position, is_default, settings, seed, source
+                        position,
+                        is_default,
+                        settings,
+                        seed,
+                        source,
+                        sealed_state
                     ])
                     .map(drop)
             })
@@ -2188,25 +2214,69 @@ async fn open_signing(
 /// raises `capability_unavailable` naming it, until the ticket of that kind
 /// builds its reader, and so does a `cdp_url` with `headers`, whose Secret
 /// references the `cdp_url` Session resolves (#743).
-fn opening_source(named: Option<NamedSource>) -> Result<Option<CdpUrl>, CallError> {
+/// What a Session's source resolved to when the Session opened (ADR 0056).
+enum OpenedSource {
+    Fresh,
+    Borrowed(CdpUrl),
+    Carried(Carried),
+}
+
+impl OpenedSource {
+    fn borrowed(&self) -> Option<&CdpUrl> {
+        match self {
+            Self::Borrowed(cdp_url) => Some(cdp_url),
+            Self::Fresh | Self::Carried(_) => None,
+        }
+    }
+
+    fn carried(&self) -> Option<&Carried> {
+        match self {
+            Self::Carried(carried) => Some(carried),
+            Self::Fresh | Self::Borrowed(_) => None,
+        }
+    }
+}
+
+async fn opening_source(
+    run: &Arc<BrowserRun>,
+    named: Option<NamedSource>,
+    context: &CallContext,
+) -> Result<OpenedSource, CallError> {
     let Some(NamedSource {
         source,
         layer,
         acting_for_model,
     }) = named
     else {
-        return Ok(None);
+        return Ok(OpenedSource::Fresh);
     };
     match source {
         SessionSource::CdpUrl {
             url, headers: None, ..
-        } => Ok(Some(CdpUrl {
+        } => Ok(OpenedSource::Borrowed(CdpUrl {
             url,
             origin: CdpUrlOrigin {
                 layer,
                 acting_for_model,
             },
         })),
+        SessionSource::StateFile {
+            path,
+            format,
+            key,
+            domains,
+        } => {
+            let carried =
+                import_state_file(run, (path, format, key, domains), layer, context).await?;
+            Ok(OpenedSource::Carried(carried))
+        }
+        SessionSource::CookieHeader { header, domain } => {
+            let imported =
+                crate::state_import::parse_cookie_header(&header, &domain).map_err(|error| {
+                    CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+                })?;
+            Ok(OpenedSource::Carried(Carried::from_imported(imported)))
+        }
         source => {
             let kind = source.kind();
             let what = if matches!(source, SessionSource::CdpUrl { .. }) {
@@ -2229,6 +2299,108 @@ fn opening_source(named: Option<NamedSource>) -> Result<Option<CdpUrl>, CallErro
             ))
         }
     }
+}
+
+/// Reads a `state_file` on the Run's blocking pool, enforcing the 32 MiB cap.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "called exclusively inside `run.identity.owner().blocking(...)`"
+)]
+fn read_state_file_blocking(path: &str) -> Result<Vec<u8>, String> {
+    let meta = std::fs::metadata(path)
+        .map_err(|error| format!("could not read state_file `{path}`: {error}"))?;
+    if meta.len() > crate::state_import::MAX_STATE_FILE_BYTES as u64 {
+        return Err(format!("state_file `{path}` exceeds the 32 MiB limit"));
+    }
+    std::fs::read(path).map_err(|error| format!("could not read state_file `{path}`: {error}"))
+}
+
+/// Reads and imports a `state_file` Session source into [`Carried`] without
+/// keeping any copy of the source file on disk (ADR 0056; ticket #735).
+async fn import_state_file(
+    run: &Arc<BrowserRun>,
+    (path, format, key, domains): (
+        String,
+        Option<goodfetch_protocol::settings::session_source::StateFileFormat>,
+        Option<String>,
+        Option<Vec<String>>,
+    ),
+    layer: SettingsLayer,
+    context: &CallContext,
+) -> Result<Carried, CallError> {
+    use goodfetch_engine::audit::Origin;
+    use goodfetch_engine::session_bundle::IMPORT_LIMITS;
+    use goodfetch_engine::session_transfer::{TransferError, import as import_bundle};
+    use goodfetch_protocol::audit::Actor;
+    use goodfetch_protocol::secret_reference::SecretReference;
+    use goodfetch_protocol::settings::session_source::StateFileFormat;
+
+    let bytes = run
+        .identity
+        .owner()
+        .blocking(move || read_state_file_blocking(&path))
+        .await
+        .map_err(|message| CallError::protocol(ProtocolFailure::InvalidParams, message))?;
+
+    let detected = format.unwrap_or_else(|| crate::state_import::detect_format(&bytes));
+    let imported = match detected {
+        StateFileFormat::StorageState => {
+            crate::state_import::parse_storage_state(&bytes).map_err(|error| {
+                CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+            })?
+        }
+        StateFileFormat::CookiesTxt => {
+            crate::state_import::parse_cookies_txt(&bytes).map_err(|error| {
+                CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+            })?
+        }
+        StateFileFormat::CdpCookies => {
+            crate::state_import::parse_cdp_cookies(&bytes).map_err(|error| {
+                CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+            })?
+        }
+        StateFileFormat::SessionExport => {
+            let Some(key_str) = key else {
+                return Err(CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    "a `session_export` state_file requires `key` naming the age identity or passphrase Secret reference",
+                ));
+            };
+            let reference = SecretReference::parse(&key_str).map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("state_file `key` is not a valid Secret reference: {error}"),
+                )
+            })?;
+            let origin = Origin {
+                actor: Actor::ClientSurface {
+                    surface: context.surface(),
+                },
+                surface: Some(context.surface()),
+                layer: Some(layer),
+                run_id: Some(run.identity.id().clone()),
+            };
+            let export = import_bundle(
+                bytes,
+                &reference,
+                IMPORT_LIMITS,
+                &origin,
+                run.keys.secrets(),
+            )
+            .await
+            .map_err(|error| match error {
+                TransferError::Secret(secret) => secret_error(&secret),
+                TransferError::Open(open) => open.to_call_error(),
+                TransferError::Unrecorded { source, .. } => CallError::protocol(
+                    ProtocolFailure::InternalError,
+                    format!("could not record session_imported in the Audit log: {source}"),
+                ),
+            })?;
+            crate::state_import::from_session_export(export)
+        }
+    };
+    let filtered = crate::state_import::filter_domains(imported, domains.as_deref().unwrap_or(&[]));
+    Ok(Carried::from_imported(filtered))
 }
 
 /// Refuses a proxy under a Borrowed browser: no proxy can be put under a
@@ -2368,13 +2540,17 @@ async fn reopened_identity(
 fn open_seat(
     pool: &Pool,
     borrowed: Option<&CdpUrl>,
+    carried: Option<&Carried>,
     placement: BrowserPlacement,
     egress: SessionEgress,
     tasks: TaskStarter,
 ) -> Seat {
     match borrowed {
         Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), egress, tasks),
-        None => pool.seat(placement, egress, tasks),
+        None => match carried.filter(|carried| !carried.is_empty()) {
+            Some(carried) => pool.seat_with_carried(placement, egress, carried.clone(), tasks),
+            None => pool.seat(placement, egress, tasks),
+        },
     }
 }
 
@@ -2394,20 +2570,21 @@ fn placement(fingerprint: Option<&FingerprintPlan>, gpc: GpcPlan) -> BrowserPlac
 
 /// Resolves `named` into a Borrowed browser URL (if any) and the Session's
 /// Global Privacy Control plan (ADR 0048).
-fn opening_source_and_gpc(
+async fn opening_source_and_gpc(
     settings: &Values,
-    run: &BrowserRun,
+    run: &Arc<BrowserRun>,
     named: Option<NamedSource>,
-) -> Result<(Option<CdpUrl>, GpcPlan), CallError> {
+    context: &CallContext,
+) -> Result<(OpenedSource, GpcPlan), CallError> {
     let source = named.as_ref().map(|named| named.source.clone());
-    let borrowed = opening_source(named)?;
+    let opened = opening_source(run, named, context).await?;
     let gpc = GpcPlan::of(
         settings,
         run.identity.settings().map(RunSettings::resolved),
         source.as_ref(),
-        borrowed.is_some(),
+        opened.borrowed().is_some(),
     );
-    Ok((borrowed, gpc))
+    Ok((opened, gpc))
 }
 
 /// Records the `gpc_forced` warning in `run`'s report when `gpc` degrades

@@ -249,7 +249,7 @@ async fn stopped_open(params: Value, context: CallContext) -> Result<Value, Call
     let opened = {
         let mut open = std::pin::pin!(sessions.open_held(
             &browser,
-            None,
+            &super::OpenedSource::Fresh,
             &STANDARD,
             Opener::Default,
             &context
@@ -296,7 +296,13 @@ async fn session_ended(params: Value, context: CallContext) -> Result<Value, Cal
         },
     };
     let position = sessions
-        .open_held(&browser, None, &STANDARD, opener, &context)
+        .open_held(
+            &browser,
+            &super::OpenedSource::Fresh,
+            &STANDARD,
+            opener,
+            &context,
+        )
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -322,7 +328,13 @@ async fn session_panicked(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
+        .open_held(
+            &browser,
+            &super::OpenedSource::Fresh,
+            &STANDARD,
+            Opener::Default,
+            &context,
+        )
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let open = sessions.index.session(&session).unwrap();
@@ -449,7 +461,13 @@ async fn browser_panicked(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
+        .open_held(
+            &browser,
+            &super::OpenedSource::Fresh,
+            &STANDARD,
+            Opener::Default,
+            &context,
+        )
         .await?;
     let open = sessions
         .index
@@ -526,7 +544,13 @@ async fn request_replaced(params: Value, context: CallContext) -> Result<Value, 
     let browser = browser_run(&run, &context);
     sessions.reach(&browser, &context).await?;
     let position = sessions
-        .open_held(&browser, None, &STANDARD, Opener::Default, &context)
+        .open_held(
+            &browser,
+            &super::OpenedSource::Fresh,
+            &STANDARD,
+            Opener::Default,
+            &context,
+        )
         .await?;
     let session = super::session_id(run.identity.id(), position);
     let commands = watch::channel(0).0;

@@ -56,6 +56,7 @@ mod proxy_status;
 mod recovery;
 pub mod robots_txt;
 mod sessions;
+mod state_import;
 mod trace;
 pub mod url_pattern;
 mod version_check;
@@ -83,8 +84,9 @@ pub use proxy::accepting as relay_accepting;
 /// (ADR 0042), for `pin-chrome-for-testing alps`.
 pub use egress_relay::capture::capture_application_settings;
 
-/// The egress relay's fuzz targets (ADR 0067), whose seeds and past
-/// crashers `fuzz_replay!` replays on every OS.
+/// The egress relay's and state-file parsers' fuzz targets (ADR 0067), whose
+/// seeds and past crashers `fuzz_replay!` replays on every OS.
 pub use egress_relay::{
     fuzz_client_hello as fuzz_relay_client_hello, fuzz_request_head as fuzz_relay_request_head,
 };
+pub use state_import::{fuzz_cookies_txt, fuzz_storage_state};

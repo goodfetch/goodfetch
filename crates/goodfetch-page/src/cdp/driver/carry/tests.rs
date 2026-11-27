@@ -197,6 +197,8 @@ fn carried_state_round_trips_and_seeds_web_origins() {
             ORIGIN.to_owned(),
             vec![("mark".to_owned(), "token-1".to_owned())],
         )],
+        indexed_db: Vec::new(),
+        opfs: Vec::new(),
     };
     assert!(!carried.is_empty());
 

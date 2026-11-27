@@ -829,6 +829,8 @@ impl WaitedFor {
     pub const URL: Self = Self::named("url");
     /// A page function to return a truthy value.
     pub const FUNCTION: Self = Self::named("function");
+    /// A list's end, which a scroll collection reads to.
+    pub const LIST_END: Self = Self::named("list_end");
     /// A navigation's commit.
     pub const COMMIT: Self = Self::named("commit");
     /// The document's `DOMContentLoaded`.

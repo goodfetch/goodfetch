@@ -330,6 +330,7 @@ max = 30000
 [settings.site_preferences]
 purpose = "search"
 respect_use_signals = true
+read_robots_txt_for_navigation = true
 robots_txt_user_agent = "example"
 respect_robots_txt = true
 mark_robots_txt_ignored = true

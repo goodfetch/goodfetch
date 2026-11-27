@@ -20,6 +20,11 @@
 //! - `/api/<name>` answers any method, never to be stored (`no-store`),
 //!   which only `replay` keeps: it names the method and how many bytes of
 //!   body it was sent.
+//! - `/page/<name>`, never to be stored (`no-store`), loads the script
+//!   `/asset/<name>.js` and frames `/fresh/<name>`, so a browser's second
+//!   load of it tells which of its subresources a cache served.
+//! - `/asset/<name>.js` may be kept for an hour: it sets the `answer` data
+//!   attribute of the document it runs in to the number of its answer.
 //!
 //! The host has no robots.txt.
 
@@ -75,6 +80,23 @@ pub(super) fn answer(request: &Request, earlier: u64) -> Answer {
             request.body.len()
         );
         return Answer::Page(page(path, answer, &said).with("cache-control", "no-store"));
+    }
+    if let Some(name) = path.strip_prefix("/page/") {
+        let loads = format!(
+            "<script src=\"/asset/{name}.js\"></script><iframe src=\"/fresh/{name}\"></iframe>"
+        );
+        return Answer::Page(page(path, answer, &loads).with("cache-control", "no-store"));
+    }
+    if path
+        .strip_prefix("/asset/")
+        .and_then(|asset| asset.strip_suffix(".js"))
+        .is_some()
+    {
+        let script = format!("document.documentElement.dataset.answer = \"{answer}\";\n");
+        return Answer::Page(
+            Page::new(200, "text/javascript; charset=utf-8", script)
+                .with("cache-control", "max-age=3600"),
+        );
     }
     if let Some(name) = path.strip_prefix("/cookie/") {
         return Answer::Page(

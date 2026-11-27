@@ -1,5 +1,5 @@
 //! RFC 9111's rules as the Response cache applies them, on requests and
-//! responses built here: what is stored in the public partition, freshness
+//! responses built here: what is stored under `revalidate`, freshness
 //! as a pure function of the moment the Clock gives, the conditions a
 //! stale response is revalidated with, and the headers a 304 updates.
 #![expect(
@@ -14,8 +14,8 @@ use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{
-    CacheRequest, Freshness, ResponseHead, Stored, freshness, not_modified, replayable,
-    served_headers, storable,
+    CacheRequest, Freshness, ResponseHead, Stored, freshness, not_modified, served_headers,
+    storable, variant,
 };
 use crate::clock::Clock;
 
@@ -67,23 +67,15 @@ fn stored(request: &CacheRequest, response: &ResponseHead, fetched_at: SystemTim
     }
 }
 
-/// A response sent with a cookie or a credential, or that sets a cookie or
-/// is `private`, is the Session partition's (#795); `no-store`, `Vary: *`,
-/// a POST, a partial response and an unparsable header are never stored.
+/// `no-store`, `Vary: *`, a POST, a partial response and an unparsable
+/// header are never stored under `revalidate`, in any partition.
 #[rstest]
-#[case::cookie(get(&[("cookie", "session=1")]), head(200, &[("cache-control", "max-age=60")]))]
-#[case::authorization(get(&[("authorization", "Basic YTpi")]), head(200, &[("cache-control", "max-age=60")]))]
-#[case::set_cookie(get(&[]), head(200, &[("cache-control", "max-age=60"), ("set-cookie", "a=1")]))]
-#[case::private(get(&[]), head(200, &[("cache-control", "private, max-age=60")]))]
 #[case::no_store(get(&[]), head(200, &[("cache-control", "no-store")]))]
 #[case::vary_star(get(&[]), head(200, &[("cache-control", "max-age=60"), ("vary", "Accept, *")]))]
 #[case::post(post(&[]), head(200, &[("cache-control", "max-age=60")]))]
 #[case::partial(get(&[]), head(206, &[("cache-control", "max-age=60")]))]
 #[case::unparsable(get(&[]), head(200, &[("cache-control", "max-age=60"), ("x-bad", "a\nb")]))]
-fn what_the_public_partition_never_stores(
-    #[case] request: CacheRequest,
-    #[case] response: ResponseHead,
-) {
+fn what_revalidate_never_stores(#[case] request: CacheRequest, #[case] response: ResponseHead) {
     assert_eq!(storable(&request, &response), None);
 }
 
@@ -99,25 +91,17 @@ fn replay_stores_any_method_status_and_freshness(
     #[case] response: ResponseHead,
 ) {
     assert_eq!(storable(&request, &response), None);
-    let variant = replayable(&request, &response).expect("replayable");
-    assert_eq!(variant, super::variant(&request, &response).unwrap());
+    let variant = variant(&request, &response).expect("a variant");
     assert_eq!(
         variant.request_headers,
         pairs(&[("accept", "application/json")])
     );
 }
 
-/// Under `replay` too, a request with a cookie or a credential, a response
-/// that sets a cookie or is `private`, are the Session partition's (#795),
-/// and `Vary: *` keys nothing.
-#[rstest]
-#[case::cookie(post(&[("cookie", "session=1")]), head(200, &[]))]
-#[case::proxy_authorization(post(&[("proxy-authorization", "Basic YTpi")]), head(200, &[]))]
-#[case::set_cookie(post(&[]), head(200, &[("set-cookie", "a=1")]))]
-#[case::private(post(&[]), head(200, &[("cache-control", "private")]))]
-#[case::vary_star(post(&[]), head(200, &[("vary", "*")]))]
-fn what_replay_never_stores(#[case] request: CacheRequest, #[case] response: ResponseHead) {
-    assert_eq!(replayable(&request, &response), None);
+/// Under `replay` too, `Vary: *` keys nothing, so it is never stored.
+#[test]
+fn replay_never_stores_vary_star() {
+    assert_eq!(variant(&post(&[]), &head(200, &[("vary", "*")])), None);
 }
 
 /// The replay key is the canonical body's: another key order is the same

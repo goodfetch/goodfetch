@@ -255,6 +255,19 @@ job = "record-models.yml#record"
 exception = "model"
 endpoints = ["ai-gateway.vercel.sh:443"]
 
+# ADRs 0070 and 0076's real-account Integration checks behind a Cloudflare
+# Quick Tunnel (`cloudflared tunnel --url`, off until the owner sets the
+# repository variable at M4). Each platform's API host joins this list when
+# area 11 adds its Live check.
+[[named]]
+job = "live.yml#integration-accounts"
+exception = "integration-account"
+endpoints = [
+  "api.trycloudflare.com:443",
+  "region1.v2.argotunnel.com:7844",
+  "region2.v2.argotunnel.com:7844",
+]
+
 # ADR 0073's screen reader: under the deny on Windows, outside it on macOS
 # as the Release suite's macOS cells.
 [[deny]]

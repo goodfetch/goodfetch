@@ -4,12 +4,14 @@
 )]
 
 use goodfetch_engine::browser_cache::{BuildPlatform, CHROME_FOR_TESTING, CHROME_HEADLESS_SHELL};
+use goodfetch_protocol::browser_cache::ArtifactKind;
 
 use super::pinned_artifacts;
 
 /// Each platform Chrome for Testing builds for pins both its builds of the
 /// one release, the full browser and `chrome-headless-shell`, each with
-/// its own archive and digests (#3224).
+/// its own archive and digests (#3224), and the product also pins Cursory's
+/// mouse-movement recordings (#1018).
 ///
 /// Covers: setting:browser.headless_shell
 #[test]
@@ -25,8 +27,15 @@ fn each_platform_pins_the_full_build_and_the_headless_shell_of_one_release() {
         .iter()
         .filter(|pin| pin.id.name == CHROME_HEADLESS_SHELL)
         .count();
-    let builds: Vec<&str> = pins.iter().map(|pin| pin.id.build.as_str()).collect();
+    let builds: Vec<&str> = pins
+        .iter()
+        .filter(|pin| pin.id.kind == ArtifactKind::Browser)
+        .map(|pin| pin.id.build.as_str())
+        .collect();
     let build = builds[0];
+    let cursory = pins
+        .iter()
+        .find(|pin| pin.id.kind == ArtifactKind::MouseMovements);
     assert_eq!(
         (
             linux(CHROME_FOR_TESTING),
@@ -36,6 +45,11 @@ fn each_platform_pins_the_full_build_and_the_headless_shell_of_one_release() {
             pins.iter()
                 .filter(|pin| pin.id.name == CHROME_HEADLESS_SHELL)
                 .all(|pin| pin.archive_digest.is_some()),
+            cursory.map(|pin| (
+                pin.id.name.as_str(),
+                pin.platform,
+                pin.archive_digest.is_some()
+            )),
         ),
         (
             Some(format!(
@@ -47,6 +61,7 @@ fn each_platform_pins_the_full_build_and_the_headless_shell_of_one_release() {
             BuildPlatform::CHROME_FOR_TESTING.len(),
             true,
             true,
+            Some((goodfetch_page::CURSORY_NAME, None, true)),
         )
     );
 }

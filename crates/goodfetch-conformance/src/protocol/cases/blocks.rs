@@ -115,7 +115,7 @@ fn blocked(answer: &Value) -> Option<BlockedDetails> {
 
 /// Whether `answer` raised `blocked` for `cause` on the document at a URL
 /// ending with `path`, answered with `status`.
-fn raised(answer: &Value, cause: &BlockCause, path: &str, status: u16) -> bool {
+pub(super) fn raised(answer: &Value, cause: &BlockCause, path: &str, status: u16) -> bool {
     blocked(answer).is_some_and(|details| {
         details.cause == *cause && details.url.ends_with(path) && details.status == Some(status)
     })

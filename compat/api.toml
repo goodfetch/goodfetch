@@ -181,6 +181,10 @@ entry = "typescript @goodfetch/collie-client/generated AuditKind"
 reason = "An Audit kind joins the catalog, `fingerprint_method_chosen` (issue 913): the type stays open, and a switch over every kind needs its case."
 
 [[announced]]
+entry = "typescript @goodfetch/collie-client/generated RunWarningCode"
+reason = "A Run warning code joins the catalog, `stealth_runtime_allowed`, which a `stealth` Session's report carries once `stealth.allow_runtime` lets its pages turn on the browser's `Runtime` domain (spec 599, issue 913): the type stays open, and a switch over every code needs its case."
+
+[[announced]]
 entry = "typescript @goodfetch/collie-client/generated RunSettings"
 reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to a reference and its registrable domains (issue 654)."
 

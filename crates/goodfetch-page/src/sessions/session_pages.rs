@@ -46,6 +46,7 @@ use crate::consent;
 use crate::consent_walls::Walls;
 use crate::dialogs::PageDialogs;
 use crate::errors::page_closed;
+use crate::fingerprint_method::{self, FingerprintPlan};
 use crate::gesture_order::{GestureOrder, PointerAsks};
 use crate::hiding::{Hiding, PageHiding, Sheets};
 use crate::init_scripts::InitScripts;
@@ -346,8 +347,13 @@ impl Sessions {
             in_browser,
             (&stream, observer),
         );
-        if let (Some(fingerprint), Some(events)) = (&open.fingerprint, &taken_in.events) {
-            events.refuse_runtime(fingerprint.runtime_refusal());
+        if let (Some(refused), Some(events)) = (
+            open.fingerprint
+                .as_ref()
+                .and_then(FingerprintPlan::runtime_refusal),
+            &taken_in.events,
+        ) {
+            events.refuse_runtime(refused);
         }
         // The runner clicks on the page while it is taken in, before its
         // owner starts and lends it the pointer.
@@ -364,6 +370,10 @@ impl Sessions {
         }
         let life = PageLife::new(page.clone(), driver.value().lease().cloned(), routed);
         let page_check = open.checking(driver.value().page_check());
+        let human_input = match &open.human_input {
+            Some(plan) => Some(plan.for_page(run.entropy.fork().await)),
+            None => None,
+        };
         // Nothing awaits from here until the page is in the table.
         let (in_browser, parts) = taken_in.kept();
         // Its owner, under its Session's (ADR 0146).
@@ -387,6 +397,7 @@ impl Sessions {
             action_timeout,
             page_check,
             injections: open.injections.clone(),
+            human_input,
             _admission: Arc::new(admission),
             in_browser: Arc::new(in_browser),
         };
@@ -493,9 +504,12 @@ impl Sessions {
             )
             .await?;
         // Each out-of-process frame and dedicated worker waits until the
-        // interception holds it, the runner prepared it and the page's
-        // other parts took it in.
-        let mut handlers = vec![held.children, consent];
+        // interception holds it, it shows the page's identity, the runner
+        // prepared it and the page's other parts took it in. Its identity
+        // comes after the interception, which must hold its first request.
+        let identity =
+            fingerprint_method::children(open.fingerprint.as_ref(), &CdpPage::of(driver));
+        let mut handlers = vec![held.children, identity, consent];
         handlers.extend(in_frames);
         page_children::follow(&CdpPage::of(driver), (tasks, run.identity.span()), handlers).await?;
         Ok(held.routed)

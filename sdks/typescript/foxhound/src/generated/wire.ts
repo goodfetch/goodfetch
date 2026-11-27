@@ -66,6 +66,9 @@ export type FoxhoundWireType =
   | "RunSeedsParams"
   | "SeedAttempt"
   | "ServingSession"
+  | "SinkDeliver"
+  | "SinkDeliverAction"
+  | "SinkDeliverParams"
   | "SinkList"
   | "SinkListEntry"
   | "SinkListParams"
@@ -138,6 +141,9 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "RunSeedsParams": { fields: { "run_id": "runId" } },
     "SeedAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "ServingSession": { fields: { "proxy_tier": "proxyTier" } },
+    "SinkDeliver": { fields: { "dead_letters": "deadLetters", "run_id": "runId" } },
+    "SinkDeliverAction": { fields: { "delivery_id": "deliveryId", "since": ["since", "time"] } },
+    "SinkDeliverParams": { fields: { "action": ["action", { type: "SinkDeliverAction" }], "run_id": "runId" } },
     "SinkList": { fields: { "sinks": ["sinks", { items: { type: "SinkListEntry" } }] } },
     "SinkListEntry": { fields: { "dead_letters": "deadLetters", "guarantee_class": "guaranteeClass", "outside_dedup_window": "outsideDedupWindow", "probe_cause": "probeCause" } },
     "SinkListParams": { fields: { "run_id": "runId" } },
@@ -168,6 +174,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "run.rejected_records": { type: "RunRejectedRecordsParams" },
     "run.retry_failed": { type: "RunRetryFailedParams" },
     "run.seeds": { type: "RunSeedsParams" },
+    "sink.deliver": { type: "SinkDeliverParams" },
     "sink.list": { type: "SinkListParams" },
   },
   results: {
@@ -183,6 +190,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "run.failed_requests": { type: "FailedRequests" },
     "run.outcomes": { type: "CrawlRequestOutcomes" },
     "run.rejected_records": { type: "RejectedRecords" },
+    "sink.deliver": { type: "SinkDeliver" },
     "sink.list": { type: "SinkList" },
   },
   events: {

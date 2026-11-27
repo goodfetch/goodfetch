@@ -12,7 +12,7 @@ from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkList, SinkListParams, SinkProbe, SinkProbeParams
+from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -205,6 +205,15 @@ class AsyncFoxhoundOperations:
     async def sample_crawl(self, params: SampleCrawlParams) -> SampleCrawlResult:
         """Visits sample pages, each repeating a text."""
         return result_of(SampleCrawlResult, await self._caller.call("sample.crawl", params))
+
+    async def sink_deliver(self, params: SinkDeliverParams) -> SinkDeliver:
+        """Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("sink.deliver")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(SinkDeliver, await self._caller.call("sink.deliver", params))
 
     async def sink_list(self, params: SinkListParams) -> SinkList:
         """Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.
@@ -415,6 +424,15 @@ class FoxhoundOperations:
         """Visits sample pages, each repeating a text."""
         return result_of(SampleCrawlResult, self._caller.call("sample.crawl", params))
 
+    def sink_deliver(self, params: SinkDeliverParams) -> SinkDeliver:
+        """Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("sink.deliver")
+        warn_deprecated_settings(params.settings, DEPRECATED_SETTINGS)
+        return result_of(SinkDeliver, self._caller.call("sink.deliver", params))
+
     def sink_list(self, params: SinkListParams) -> SinkList:
         """Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.
 
@@ -456,6 +474,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "run.rejected_records",
     "run.retry_failed",
     "run.seeds",
+    "sink.deliver",
     "sink.list",
     "sink.probe",
 })
@@ -489,6 +508,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "run.retry_failed": "effect",
     "run.seeds": "read",
     "sample.crawl": "effect",
+    "sink.deliver": "idempotent_write",
     "sink.list": "read",
     "sink.probe": "idempotent_write",
 }

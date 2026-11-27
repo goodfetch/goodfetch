@@ -103,8 +103,11 @@ impl CrawlRun {
         context: &CallContext,
         (sinks, settings): (Sinks, &Resolved),
     ) -> Arc<Self> {
+        let daemon = context
+            .is_daemon()
+            .then(|| Arc::clone(context.engine().owner()));
         Arc::new(Self {
-            sinks: sinks.deliver(parts, settings, context.runs()),
+            sinks: sinks.deliver(parts, settings, context.runs(), daemon),
             identity: parts.identity.clone(),
             state: parts.state.clone(),
             charging: parts.charging.clone(),
@@ -120,6 +123,18 @@ impl CrawlRun {
             gates: context.runs().admission_gates().cloned(),
             browser: BrowserRun::of(parts, context.engine()),
         })
+    }
+
+    /// Returns a Sink failure reason if `crawl.on_sink_failure` is `stop` and
+    /// a Sink has already failed.
+    pub(crate) fn sink_failure_reason(&self) -> Option<String> {
+        self.sinks.failure_reason()
+    }
+
+    /// Resolves once any Sink fails under `crawl.on_sink_failure: stop`
+    /// (pends forever under the default `continue`).
+    pub(crate) async fn sink_failed(&self) -> String {
+        self.sinks.failed().await
     }
 
     /// Ends the Run as `ending` says, once its Sinks hold what its run

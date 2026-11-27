@@ -248,6 +248,12 @@ export interface FoxhoundSettings {
      */
     readonly minSinkGuarantee?: "fenced" | "record_fenced" | "keyed" | "at_least_once" | null;
     /**
+     * Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+     *
+     * `crawl.on_sink_failure`.
+     */
+    readonly onSinkFailure?: "continue" | "stop";
+    /**
      * Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
      *
      * `crawl.path_budgets`.
@@ -1528,6 +1534,12 @@ export interface CrawlSettings {
      */
     readonly minSinkGuarantee?: "fenced" | "record_fenced" | "keyed" | "at_least_once" | null;
     /**
+     * Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+     *
+     * `crawl.on_sink_failure`.
+     */
+    readonly onSinkFailure?: "continue" | "stop";
+    /**
      * Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
      *
      * `crawl.path_budgets`.
@@ -2747,6 +2759,7 @@ const SPELLING: Spelling = {
     maxStagedEnqueues: "max_staged_enqueues",
     maxURLLength: "max_url_length",
     minSinkGuarantee: "min_sink_guarantee",
+    onSinkFailure: "on_sink_failure",
     pathBudgets: { setting: "path_budgets", value: { items: { fields: { "max_requests": "maxRequests" } } } },
     payload: ["payload", {
       maxSize: "max_size",

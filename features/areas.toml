@@ -1308,6 +1308,11 @@ prefix = "crawl.min_sink_guarantee"
 
 [[area]]
 number = 6
+kind = "setting"
+prefix = "crawl.on_sink_failure"
+
+[[area]]
+number = 6
 kind = "operation"
 prefix = "sink."
 

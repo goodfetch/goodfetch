@@ -983,6 +983,10 @@
           {
             "commands": [],
             "name": "list"
+          },
+          {
+            "commands": [],
+            "name": "deliver"
           }
         ],
         "name": "sink"

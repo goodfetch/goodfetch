@@ -1454,8 +1454,8 @@ entries = ["sample.crawl"]
 reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."
 
 [[unreached]]
-entries = ["sink.probe", "sink.list"]
-reason = "Operator Sink inspection operations (issues 1128 and 1146); CLI and SDK views belong to area 11."
+entries = ["sink.probe", "sink.list", "sink.deliver"]
+reason = "Operator Sink operations (issues 1128, 1146 and 1149); CLI and SDK views belong to area 11."
 
 [[unreached]]
 entries = ["crawl.serve"]

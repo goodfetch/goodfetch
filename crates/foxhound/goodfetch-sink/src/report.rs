@@ -8,7 +8,7 @@ use goodfetch_engine::run_state::{RunStateTables, run_row};
 use goodfetch_engine::runs::ReportPart;
 use goodfetch_protocol::foxhound::report::{SinkReport, SinkStatus};
 use goodfetch_protocol::run::{RunKind, RunReport};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension as _};
 
 use crate::contract::GuaranteeClass;
 use crate::dead_letters;
@@ -208,6 +208,37 @@ impl ReportPart for SinkReportPart {
         }
         Ok(())
     }
+}
+
+/// Refreshes the `sinks` section of an ended Run's stored `run.report` JSON
+/// from the current `sink_state` and `sink_dead_letters` tables (ADR 0026):
+/// called after post-Run delivery (Daemon backlog or `sink.deliver`) updates
+/// those tables so `run.report` stays consistent with `sink.list`.
+///
+/// # Errors
+///
+/// SQLite's, when the report cannot be read or written.
+pub(crate) fn refresh_stored_report(connection: &Connection) -> rusqlite::Result<()> {
+    if !has_table(connection, "run")? {
+        return Ok(());
+    }
+    let stored: Option<String> = connection
+        .prepare_cached("SELECT report FROM run WHERE ended_at IS NOT NULL")?
+        .query_row([], |row| row.get(0))
+        .optional()?
+        .flatten();
+    let Some(stored) = stored else {
+        return Ok(());
+    };
+    let mut report: RunReport = serde_json::from_str(&stored)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    SinkReportPart.fill(connection, &mut report)?;
+    let updated = serde_json::to_string(&report)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    connection
+        .prepare_cached("UPDATE run SET report = ?1 WHERE ended_at IS NOT NULL")?
+        .execute([updated])?;
+    Ok(())
 }
 
 fn has_table(connection: &Connection, table: &str) -> rusqlite::Result<bool> {

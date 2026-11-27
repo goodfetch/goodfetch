@@ -177,6 +177,18 @@ pub mod crawl {
             ],
         );
 
+    /// Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).
+    ///
+    /// `crawl.on_sink_failure`.
+    pub const ON_SINK_FAILURE: crate::settings::Setting<OnSinkFailure> =
+        crate::settings::Setting::new(
+            "crawl.on_sink_failure",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
     /// Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
     ///
     /// `crawl.path_budgets`.
@@ -239,6 +251,24 @@ pub mod crawl {
                 Self::RecordFenced => "record_fenced",
                 Self::Keyed => "keyed",
                 Self::AtLeastOnce => "at_least_once",
+            }
+        }
+    }
+
+    /// A word a setting of this module takes, as the catalog spells it.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub enum OnSinkFailure {
+        /// `continue`.
+        Continue,
+        /// `stop`.
+        Stop,
+    }
+
+    impl ::goodfetch_protocol::catalog::SettingWord for OnSinkFailure {
+        fn word(&self) -> &'static str {
+            match self {
+                Self::Continue => "continue",
+                Self::Stop => "stop",
             }
         }
     }

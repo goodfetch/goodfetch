@@ -608,6 +608,34 @@ export type QueryRefusal = "syntax" | "unknown_name" | "not_a_read" | "run_not_s
  */
 export type SheetCapacity = "rows" | "columns" | "cell_length";
 /**
+ * What `sink.deliver` does against a Run's committed Records or dead letters
+ * (ADR 0026).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkDeliverAction".
+ */
+export type SinkDeliverAction =
+  | {
+      /**
+       * The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`).
+       */
+      deliveryId: string;
+      kind: "redeliver";
+    }
+  | {
+      kind: "recover";
+      /**
+       * RFC 3339 UTC timestamp lower bound (inclusive).
+       */
+      since: PointInTime;
+    }
+  | {
+      kind: "replay";
+    }
+  | {
+      kind: "backfill";
+    };
+/**
  * What a Sink's probe found.
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
@@ -3699,6 +3727,66 @@ export interface SheetCapacityExceededDetails {
    * The most a sheet holds of it.
    */
   maximum: number;
+}
+/**
+ * What `sink.deliver` answers (ADR 0026).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkDeliver".
+ */
+export interface SinkDeliver {
+  /**
+   * How many dead letters remain for this Run and Sink after this call.
+   */
+  deadLetters: number;
+  /**
+   * How many Records or dead letters were delivered by this call.
+   */
+  delivered: number;
+  /**
+   * The Run whose Records were delivered.
+   */
+  runId: RunId;
+  /**
+   * The Sink's name.
+   */
+  sink: string;
+  /**
+   * The Sink's status after this delivery.
+   */
+  status: SinkStatus;
+}
+/**
+ * What `sink.deliver` takes (ADRs 0026 and 0099).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkDeliverParams".
+ */
+export interface SinkDeliverParams {
+  /**
+   * Which delivery operation to run (`redeliver`, `recover`, `replay` or
+   * `backfill`).
+   */
+  action: SinkDeliverAction;
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
+   * The Run whose Records or dead letters to deliver.
+   */
+  runId: RunId;
+  /**
+   * Settings over the connection's, nested by key, as a crawl's Run takes
+   * them (ADR 0083), such as a Sink added after the Run ended.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Sink's name, its key under `sinks`.
+   */
+  sink: string;
 }
 /**
  * What `sink_guarantee_unmet` details.

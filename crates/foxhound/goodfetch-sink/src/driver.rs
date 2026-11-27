@@ -23,7 +23,7 @@ use crate::contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, RunCopy,
     Written,
 };
-use crate::dead_letters::DeadLetter;
+use crate::dead_letters::{self, DeadLetter};
 use crate::schedule::{
     self, PauseReason, RetryDecision, RetryState, SinkNotification, SinkNotificationEvent,
 };
@@ -88,6 +88,19 @@ impl RetryOutcome {
     }
 }
 
+/// What redelivering a single delivery ID did (ADR 0026).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RedeliverOutcome {
+    /// Whether a committed Record or dead letter matched the delivery ID.
+    pub found: bool,
+    /// Whether the delivery succeeded.
+    pub delivered: bool,
+    /// Updated dead letter if the destination rejected it again.
+    pub still_rejected: Option<DeadLetter>,
+    /// Where the Sink stands after the redelivery.
+    pub status: Status,
+}
+
 /// Delivers one copy of a Run's Datasets to one Sink.
 pub struct Driver<S> {
     sink_name: String,
@@ -103,6 +116,8 @@ pub struct Driver<S> {
     delivered: Option<BTreeMap<String, u64>>,
     /// The current failure streak for the Standard Webhooks schedule.
     retry_state: RetryState,
+    /// When the next scheduled retry is due, if currently `Behind`.
+    next_retry_at: Option<SystemTime>,
     /// Set when the Sink is paused (HTTP 410 or 3 days of total failure).
     paused: Option<(PauseReason, Failure)>,
     /// Whether the Sink was resumed after a pause so its next successful
@@ -110,6 +125,8 @@ pub struct Driver<S> {
     was_paused: bool,
     /// Whether any Record was dead-lettered during this Run.
     had_rejections: bool,
+    /// How many Records were written successfully by this driver.
+    delivered_count: u64,
     /// How many deliveries landed after the destination's deduplication
     /// window elapsed (ADR 0026).
     outside_dedup_window: u64,
@@ -163,6 +180,23 @@ impl Keying {
     }
 }
 
+/// Parses `<run_id>/<sink>/<dataset>/<number>` for `run_id` into
+/// `(dataset, number)`.
+fn parse_delivery_target(delivery_id: &str, run_id: &str) -> Option<(String, u64)> {
+    let mut parts = delivery_id.rsplitn(3, '/');
+    let number: u64 = parts.next()?.parse().ok()?;
+    if number == 0 {
+        return None;
+    }
+    let dataset = parts.next()?;
+    let prefix = parts.next()?;
+    let rest = prefix.strip_prefix(run_id)?.strip_prefix('/')?;
+    if dataset.is_empty() || rest.is_empty() {
+        return None;
+    }
+    Some((dataset.to_owned(), number))
+}
+
 /// The values of `fields` in `value`, in order, as a JSON array; the first
 /// field `value` lacks otherwise, or an empty one when `fields` is empty.
 fn key_of(fields: &[String], value: &Value) -> Result<Value, String> {
@@ -191,9 +225,11 @@ impl<S: Primitives> Driver<S> {
             class: None,
             delivered: None,
             retry_state: RetryState::default(),
+            next_retry_at: None,
             paused: None,
             was_paused: false,
             had_rejections: false,
+            delivered_count: 0,
             outside_dedup_window: 0,
             report_status: SinkStatus::Complete,
             keying: None,
@@ -258,11 +294,26 @@ impl<S: Primitives> Driver<S> {
         self.report_status
     }
 
+    /// How many Records were written successfully by this driver.
+    #[must_use]
+    pub fn delivered_count(&self) -> u64 {
+        self.delivered_count
+    }
+
     /// How many deliveries landed after the destination's deduplication
     /// window elapsed, and so were at least once (ADR 0026).
     #[must_use]
     pub fn outside_dedup_window(&self) -> u64 {
         self.outside_dedup_window
+    }
+
+    /// Remaining wait before the next scheduled retry, when this driver is
+    /// already `Behind` and its retry backoff has not yet elapsed.
+    #[must_use]
+    pub fn pending_retry(&self) -> Option<Duration> {
+        let at = self.next_retry_at?;
+        let remaining = at.duration_since(self.clock.wall()).ok()?;
+        (!remaining.is_zero()).then_some(remaining)
     }
 
     /// Resumes a paused Sink so subsequent [`Self::deliver`] calls attempt
@@ -361,6 +412,7 @@ impl<S: Primitives> Driver<S> {
         }
         self.delivered = Some(delivered);
         self.retry_state.clear();
+        self.next_retry_at = None;
         if self.was_paused {
             self.was_paused = false;
             self.notifications.push(SinkNotification {
@@ -506,6 +558,9 @@ impl<S: Primitives> Driver<S> {
         };
         match self.sink.write(&batch) {
             Ok(Written::Delivered) => {
+                self.delivered_count = self
+                    .delivered_count
+                    .saturating_add(u64::try_from(batch.records.len()).unwrap_or(u64::MAX));
                 self.count_late_deliveries(&batch.records);
                 None
             }
@@ -669,6 +724,7 @@ impl<S: Primitives> Driver<S> {
             };
             match self.sink.write(&batch) {
                 Ok(Written::Delivered) => {
+                    self.delivered_count = self.delivered_count.saturating_add(1);
                     self.count_late_deliveries(&batch.records);
                     delivered.push(entry.delivery_id.clone());
                 }
@@ -711,6 +767,104 @@ impl<S: Primitives> Driver<S> {
         })
     }
 
+    /// Backfills every committed Record of `run_file` from Record 1 into this
+    /// Sink (including a Sink configured after the Run ended) (ADR 0026).
+    ///
+    /// # Errors
+    ///
+    /// The run file's, when its Records cannot be read.
+    pub fn backfill(&mut self, run_file: &Connection) -> rusqlite::Result<Status> {
+        if self.class.is_none() {
+            match self.sink.probe(&self.run) {
+                Ok(probe) => self.class = Some(probe.class),
+                Err(error) => return Ok(self.failed(error)),
+            }
+        }
+        self.delivered = Some(BTreeMap::new());
+        self.deliver(run_file)
+    }
+
+    /// Redelivers a single delivery by its `delivery_id`
+    /// (`<run_id>/<sink>/<dataset>/<number>`), preserving the exact same
+    /// delivery ID so the destination can deduplicate (ADR 0026). Looks up
+    /// `sink_dead_letters` first, then falls back to the Run's committed
+    /// Dataset row.
+    ///
+    /// # Errors
+    ///
+    /// The run file's, when dead letters or Records cannot be read.
+    pub fn redeliver(
+        &mut self,
+        run_file: &Connection,
+        delivery_id: &str,
+    ) -> rusqlite::Result<RedeliverOutcome> {
+        if let Some(entry) = dead_letters::list(run_file, &self.sink_name)?
+            .into_iter()
+            .find(|entry| entry.delivery_id.as_str() == delivery_id)
+        {
+            let outcome = self.retry_dead_letters(run_file, &[entry])?;
+            return Ok(RedeliverOutcome {
+                found: true,
+                delivered: !outcome.delivered.is_empty(),
+                still_rejected: outcome.still_rejected.into_iter().next(),
+                status: outcome.status,
+            });
+        }
+        let Some((dataset, number)) = parse_delivery_target(delivery_id, &self.run.run_id) else {
+            return Ok(RedeliverOutcome {
+                found: false,
+                delivered: false,
+                still_rejected: None,
+                status: Status::Complete,
+            });
+        };
+        let page = goodfetch_dataset::read(
+            run_file,
+            Query {
+                dataset: &dataset,
+                after: number.saturating_sub(1),
+                through: Some(number),
+                wall: None,
+            },
+            1,
+        )?;
+        let Some(record) = page.into_iter().find(|r| r.number == number) else {
+            return Ok(RedeliverOutcome {
+                found: false,
+                delivered: false,
+                still_rejected: None,
+                status: Status::Complete,
+            });
+        };
+        let mut item = Delivered::new(
+            &self.run.run_id,
+            &self.sink_name,
+            &dataset,
+            record.number,
+            record.committed_at,
+            record.value,
+        );
+        item.delivery_id = DeliveryId::from_stored(delivery_id.to_owned());
+        let entry = DeadLetter {
+            sink: self.sink_name.clone(),
+            delivery_id: item.delivery_id,
+            run: self.run.clone(),
+            dataset,
+            number: item.number,
+            committed_at: item.committed_at,
+            value: item.value,
+            reason: String::new(),
+            attempts: 0,
+        };
+        let outcome = self.retry_dead_letters(run_file, &[entry])?;
+        Ok(RedeliverOutcome {
+            found: true,
+            delivered: !outcome.delivered.is_empty(),
+            still_rejected: outcome.still_rejected.into_iter().next(),
+            status: outcome.status,
+        })
+    }
+
     /// Ends the delivery of a Run that finished, once [`Self::deliver`]
     /// answered [`Status::Complete`] or [`Status::CompleteWithRejections`]:
     /// a Sink that wrote its Records apart, as `replace` does, swaps them
@@ -742,6 +896,7 @@ impl<S: Primitives> Driver<S> {
                 self.retry_state = next_state;
                 match decision {
                     RetryDecision::Retry { wait, next_at } => {
+                        self.next_retry_at = Some(next_at);
                         self.report_status = SinkStatus::Behind;
                         Status::Behind {
                             failure,
@@ -750,6 +905,7 @@ impl<S: Primitives> Driver<S> {
                         }
                     }
                     RetryDecision::Pause { reason } => {
+                        self.next_retry_at = None;
                         self.paused = Some((reason, failure.clone()));
                         self.report_status = SinkStatus::Failed;
                         self.notifications.push(SinkNotification {

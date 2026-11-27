@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkList, SinkListParams, SinkProbe, SinkProbeParams } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -31,6 +31,7 @@ export interface FoxhoundOperationTypes {
   "run.retry_failed": { params: RunRetryFailedParams; result: RetriedFailed };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
+  "sink.deliver": { params: SinkDeliverParams; result: SinkDeliver };
   "sink.list": { params: SinkListParams; result: SinkList };
   "sink.probe": { params: SinkProbeParams; result: SinkProbe };
 }
@@ -60,6 +61,7 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "run.retry_failed": { experimental: true, deprecated: undefined },
   "run.seeds": { experimental: true, deprecated: undefined },
   "sample.crawl": { experimental: false, deprecated: undefined },
+  "sink.deliver": { experimental: true, deprecated: undefined },
   "sink.list": { experimental: true, deprecated: undefined },
   "sink.probe": { experimental: true, deprecated: undefined },
 };
@@ -89,6 +91,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "run.retry_failed": "run.retryFailed",
   "run.seeds": "run.seeds",
   "sample.crawl": "sample.crawl",
+  "sink.deliver": "sink.deliver",
   "sink.list": "sink.list",
   "sink.probe": "sink.probe",
 };
@@ -118,6 +121,7 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "run.retry_failed": "effect",
   "run.seeds": "read",
   "sample.crawl": "effect",
+  "sink.deliver": "idempotent_write",
   "sink.list": "read",
   "sink.probe": "idempotent_write",
 };
@@ -358,6 +362,17 @@ export class FoxhoundOperations {
    */
   sampleCrawl(params: SampleCrawlParams): Promise<SampleCrawlResult> {
     return this.#caller.call("sample.crawl", params, {});
+  }
+
+  /**
+   * Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).
+   *
+   * @experimental
+   */
+  sinkDeliver(params: SinkDeliverParams): Promise<SinkDeliver> {
+    warnExperimental("sink.deliver");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("sink.deliver", params, {});
   }
 
   /**

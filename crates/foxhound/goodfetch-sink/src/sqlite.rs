@@ -177,6 +177,36 @@ impl SqliteSink {
         }
     }
 
+    /// The highest `run_epoch` already recorded in `_goodfetch_deliveries` for
+    /// `run_id` against this Sink's target, if any. Used by post-Run delivery
+    /// operations (`sink.deliver`) so redelivering or replaying does not raise
+    /// the epoch above already-delivered rows and wipe them.
+    #[must_use]
+    pub fn current_epoch(&self, run_id: &str) -> Option<u64> {
+        let has_deliveries: bool = self
+            .connection
+            .prepare_cached(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_goodfetch_deliveries')",
+            )
+            .ok()?
+            .query_row([], |row| row.get(0))
+            .ok()?;
+        if !has_deliveries {
+            return None;
+        }
+        let epoch: Option<i64> = self
+            .connection
+            .prepare_cached(
+                "SELECT max(run_epoch) FROM _goodfetch_deliveries WHERE target = ?1 AND run_id = ?2",
+            )
+            .ok()?
+            .query_row((&self.target_name, run_id), |row| row.get(0))
+            .optional()
+            .ok()?
+            .flatten();
+        epoch.and_then(|value| u64::try_from(value).ok())
+    }
+
     /// Makes `table`, named `name`, with the system columns and the index
     /// the write mode needs; `keyed` gives it the unique index on the key.
     fn ready(&self, name: &str, table: &str, keyed: bool) -> rusqlite::Result<()> {

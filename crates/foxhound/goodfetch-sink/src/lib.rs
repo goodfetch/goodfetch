@@ -26,7 +26,7 @@ pub use contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
     Written,
 };
-pub use driver::{Driver, RetryOutcome, Status};
+pub use driver::{Driver, RedeliverOutcome, RetryOutcome, Status};
 pub use guarantee::{meets, require};
 pub use report::{SinkReportPart, SinkStateRow};
 pub use run::{Delivery, Sinks, contribution};

@@ -1105,6 +1105,16 @@
       ]
     },
     {
+      "id": "command:sink.deliver",
+      "kind": "command",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:sink.list",
       "kind": "command",
       "area": 6,
@@ -5025,6 +5035,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:sink.deliver",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -9370,6 +9390,16 @@
     },
     {
       "id": "setting:crawl.min_sink_guarantee",
+      "kind": "setting",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.on_sink_failure",
       "kind": "setting",
       "area": 6,
       "milestone": null,
@@ -25640,6 +25670,26 @@
     },
     {
       "id": "story:6-290",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-291",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-292",
       "kind": "story",
       "area": 6,
       "milestone": "M4 Everything else",

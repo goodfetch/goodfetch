@@ -514,6 +514,7 @@ mod tests {
                     "run.rejected_records",
                     "sink.probe",
                     "sink.list",
+                    "sink.deliver",
                     "dataset.query",
                     "dataset.search",
                     "record.search",

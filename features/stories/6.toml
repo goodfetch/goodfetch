@@ -1258,6 +1258,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 291
+title = "As a crawl developer, I want collection to go on when a Sink fails unless the Run opts in with `crawl.on_sink_failure: stop`, so that a destination's outage never stops a crawl unasked (ADR 0026's `on_sink_failure`, its key's family)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 292
+title = "As an operator, I want a Daemon to keep delivering a finished Run's backlog, and `sink deliver` to redeliver a delivery, recover failures since a date, replay what was never attempted, or backfill a past Run to any Sink, so that delivery outlives the Run (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 298
 title = "As an operator, I want each Sink's class, dead letters and deliveries outside the dedup window in `sink list`, the Run report and any Client, so that what a destination guaranteed is reported per Run (ADRs 0026, 0102)."
 milestone = "M4 Everything else"

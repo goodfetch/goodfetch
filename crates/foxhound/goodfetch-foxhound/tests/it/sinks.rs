@@ -7,10 +7,18 @@
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
+#![expect(
+    clippy::disallowed_methods,
+    reason = "synchronous integration tests manipulate test SQLite files and poll Daemon background retries"
+)]
 
+use std::io::{BufRead as _, BufReader};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{ProvingGround, TestEnv};
+use goodfetch_protocol::catalog::Product;
+use goodfetch_test_client::{DaemonClient, Hello};
+use goodfetch_test_support::{ProvingGround, RuntimeFile, TestEnv, cli};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -746,4 +754,638 @@ fn sink_list_reports_each_sinks_class_dead_letters_and_late_deliveries() {
         }),
         "{configured}"
     );
+}
+
+/// Drives a programmatic crawl on `engine`, calling `on_handle` for each
+/// `crawl_request.handle` request, until `run.finish` ends the Run; returns
+/// `run.report`'s `result`.
+fn drive_handler_crawl(
+    engine: &mut goodfetch_test_client::Attached,
+    run_id: &str,
+    seeds: &[Value],
+    settings: &Value,
+    mut on_handle: impl FnMut(usize, &Value) -> Value,
+) -> Value {
+    let start_id = format!("start-{run_id}");
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": start_id,
+        "method": "crawl.start",
+        "params": {
+            "run_id": run_id,
+            "seeds": seeds,
+            "labels": { "page": {} },
+            "datasets": [{ "name": "pages" }],
+            "settings": settings,
+        },
+    }));
+    let finish_id = format!("finish-{run_id}");
+    let mut handled = 0usize;
+    let mut handle_msg = |engine: &mut goodfetch_test_client::Attached, message: &Value| {
+        if message.get("method").and_then(Value::as_str) == Some("crawl_request.handle") {
+            handled += 1;
+            let req_id = message["id"].clone();
+            let params = &message["params"];
+            let record = on_handle(handled, params);
+            engine.send(&json!({
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "result": {
+                    "records": [{ "dataset": "pages", "data": record }],
+                },
+            }));
+            return true;
+        }
+        false
+    };
+    loop {
+        let message = engine
+            .next()
+            .expect("engine closed before crawl.start replied");
+        if handle_msg(engine, &message) {
+            continue;
+        }
+        if message["id"] == start_id {
+            assert!(message.get("result").is_some(), "{message}");
+            break;
+        }
+    }
+    engine.send(&json!({
+        "jsonrpc": "2.0",
+        "id": finish_id,
+        "method": "run.finish",
+        "params": { "run_id": run_id },
+    }));
+    loop {
+        let message = engine.next().expect("engine closed before Run ended");
+        if handle_msg(engine, &message) {
+            continue;
+        }
+        if message["id"] == finish_id {
+            break;
+        }
+    }
+    let report = engine.ask(
+        format!("report-{run_id}"),
+        "run.report",
+        &json!({ "run_id": run_id }),
+    );
+    assert!(report.get("result").is_some(), "{report}");
+    report["result"].clone()
+}
+
+/// A Sink that fails mid-crawl does not stop collection by default
+/// (`crawl.on_sink_failure: continue`), and stops collection when the Run opts
+/// in with `crawl.on_sink_failure: stop` (ADR 0026).
+///
+/// Covers: story:6-291, setting:crawl.on_sink_failure
+#[test]
+fn crawl_continues_on_sink_failure_by_default_and_stops_when_configured() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let urls = [
+        index.clone(),
+        format!("{index}/headings/levels"),
+        format!("{index}/lists/ordered"),
+        format!("{index}/tables/simple"),
+        format!("{index}/code/fenced"),
+    ];
+    let seeds: Vec<Value> = urls
+        .iter()
+        .map(|url| json!({ "url": url, "label": "page" }))
+        .collect();
+
+    // 1. Default (`continue`): mid-crawl Sink corruption fails the Sink, yet
+    // collection finishes all 5 pages.
+    let db_continue = env.folder().join("continue.sqlite");
+    let settings_continue = crate::fetch_tiers::settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "delay": 0 } },
+            "run_state": { "batch": { "pages": 1 } },
+            "crawl": { "handler": { "concurrency": 1 } },
+            "sinks": {
+                "mine": {
+                    "type": "sqlite",
+                    "datasets": ["pages"],
+                    "destination": format!("env:{DESTINATION}"),
+                },
+            },
+        }),
+    );
+    let mut engine = crate::attached_with(&env, None, |command| {
+        command.env(DESTINATION, &db_continue);
+    });
+    let ended_continue = drive_handler_crawl(
+        &mut engine,
+        "on-fail-continue",
+        &seeds,
+        &settings_continue,
+        |n, params| {
+            if n == 1 {
+                // Corrupt the SQLite file after probe succeeded so the first
+                // write fails mid-crawl with SQLITE_NOTADB -> Paused/Failed.
+                std::fs::write(&db_continue, b"corrupted mid-crawl").unwrap();
+            }
+            json!({ "url": params["crawl_request"]["url"] })
+        },
+    );
+    assert!(engine.finished());
+    assert_eq!(ended_continue["lifecycle"], "finished", "{ended_continue}");
+    assert_eq!(
+        ended_continue["records"][0]["committed"], 5,
+        "{ended_continue}"
+    );
+    assert_eq!(
+        ended_continue["sinks"][0]["status"], "failed",
+        "{ended_continue}"
+    );
+
+    // 2. Opt-in (`crawl.on_sink_failure: stop`): mid-crawl Sink corruption
+    // stops collection before the remaining seeds are crawled, ending `failed`.
+    let db_stop = env.folder().join("stop.sqlite");
+    let settings_stop = crate::fetch_tiers::settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "delay": 0 } },
+            "run_state": { "batch": { "pages": 1 } },
+            "crawl": {
+                "handler": { "concurrency": 1 },
+                "on_sink_failure": "stop",
+            },
+            "sinks": {
+                "mine": {
+                    "type": "sqlite",
+                    "datasets": ["pages"],
+                    "destination": format!("env:{DESTINATION}"),
+                },
+            },
+        }),
+    );
+    let mut engine2 = crate::attached_with(&env, None, |command| {
+        command.env(DESTINATION, &db_stop);
+    });
+    let ended_stop = drive_handler_crawl(
+        &mut engine2,
+        "on-fail-stop",
+        &seeds,
+        &settings_stop,
+        |n, params| {
+            if n == 1 {
+                std::fs::write(&db_stop, b"corrupted mid-crawl").unwrap();
+            } else {
+                // Give the background Sink task a moment to observe page 1's
+                // commit and fail before page 2 finishes.
+                std::thread::sleep(Duration::from_millis(150));
+            }
+            json!({ "url": params["crawl_request"]["url"] })
+        },
+    );
+    assert!(engine2.finished());
+    assert_eq!(ended_stop["lifecycle"], "failed", "{ended_stop}");
+    let collected = ended_stop["records"][0]["committed"].as_u64().unwrap_or(0);
+    assert!(
+        collected < 5,
+        "expected crawl.on_sink_failure: stop to halt collection before all 5 seeds, got {collected}: {ended_stop}"
+    );
+}
+
+/// Starts Foxhound's Daemon in `env` with extra environment variables, stopping
+/// it cleanly on Drop.
+struct EnvDaemon<'env> {
+    env: &'env TestEnv,
+    process: goodfetch_test_support::Process,
+    runtime: RuntimeFile,
+}
+
+impl<'env> EnvDaemon<'env> {
+    fn start(env: &'env TestEnv, vars: &[(&str, &Path)]) -> Self {
+        env.user_configuration("daemon.idle_timeout = 60000\n");
+        let mut command = env.process_command(Path::new(crate::FOXHOUND));
+        command.args(["daemon", "launched", "--keep-alive"]);
+        for (key, value) in vars {
+            command.env(key, value);
+        }
+        let process = env.spawn(&mut command).unwrap();
+        let mut line = String::new();
+        {
+            let mut child = process.child();
+            let stdout = child.stdout.as_mut().unwrap();
+            BufReader::new(stdout).read_line(&mut line).unwrap();
+        }
+        let printed: RuntimeFile = serde_json::from_str(line.trim()).unwrap();
+        let path = RuntimeFile::path(env.home(), &printed.version);
+        let runtime = RuntimeFile::read(&path).unwrap();
+        Self {
+            env,
+            process,
+            runtime,
+        }
+    }
+
+    fn connect(&self) -> DaemonClient {
+        let mut client = DaemonClient::connect(&self.runtime.endpoint);
+        let hello = client.open(
+            &Hello::needing(Product::Foxhound)
+                .id("hello")
+                .token(&self.runtime.token),
+        );
+        assert_eq!(hello["result"]["product"], "foxhound", "{hello}");
+        client
+    }
+}
+
+impl Drop for EnvDaemon<'_> {
+    fn drop(&mut self) {
+        let _ = cli(self.env, crate::FOXHOUND)
+            .args(["daemon", "stop"])
+            .run();
+        let _ = self.process.child().kill();
+        let _ = self.process.child().wait();
+    }
+}
+
+/// Pre-creates the SQLite Sink's tables on `database` so `probe()` succeeds
+/// with a shared lock.
+fn precreate_sqlite_sink(database: &Path) {
+    let conn = Connection::open(database).unwrap();
+    let mut sink = goodfetch_sink::SqliteSink::new(conn, "records");
+    let _ = goodfetch_sink::Primitives::probe(
+        &mut sink,
+        &goodfetch_sink::RunCopy {
+            run_id: "init".to_owned(),
+            run_epoch: 1,
+        },
+    )
+    .unwrap();
+}
+
+/// A Daemon keeps delivering a finished Run's Sink backlog after the Run ends
+/// once the destination becomes writable again (ADR 0026).
+///
+/// Covers: story:6-292
+#[test]
+fn daemon_delivers_finished_runs_sink_backlog() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let database = env.folder().join("backlog.sqlite");
+    precreate_sqlite_sink(&database);
+    let blocker = Connection::open(&database).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+    let daemon = EnvDaemon::start(&env, &[(DESTINATION, &database)]);
+    let mut client = daemon.connect();
+
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let second = format!("{index}/headings/levels");
+    let settings = crate::fetch_tiers::settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "delay": 0 } },
+            "sinks": {
+                "mine": {
+                    "type": "sqlite",
+                    "datasets": ["pages"],
+                    "destination": format!("env:{DESTINATION}"),
+                },
+            },
+        }),
+    );
+    let started = client.call(
+        "start",
+        "crawl.start",
+        &json!({
+            "run_id": "daemon-backlog",
+            "seeds": [
+                { "url": index, "label": "page" },
+                { "url": second, "label": "page" },
+            ],
+            "extraction": { "formats": { "markdown": true }, "follow": "none" },
+            "settings": settings,
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "id": "outcomes",
+        "method": "run.outcomes",
+        "params": { "run_id": "daemon-backlog" },
+    }));
+    client.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "$/credit",
+        "params": { "id": "outcomes", "credits": 1000 },
+    }));
+    loop {
+        let message = client.next().expect("Daemon closed before Run ended");
+        if message["id"] == "outcomes" {
+            assert!(message.get("result").is_some(), "{message}");
+            break;
+        }
+    }
+    let report_behind = client.call(
+        "report-behind",
+        "run.report",
+        &json!({ "run_id": "daemon-backlog" }),
+    );
+    assert_eq!(
+        report_behind["result"]["lifecycle"], "finished",
+        "{report_behind}"
+    );
+    assert_eq!(
+        report_behind["result"]["sinks"][0]["status"], "behind",
+        "{report_behind}"
+    );
+    assert_eq!(rows(&database), Vec::new());
+
+    blocker.execute_batch("COMMIT;").unwrap();
+    drop(blocker);
+
+    let deadline = Instant::now() + Duration::from_secs(25);
+    let mut final_report = report_behind;
+    while Instant::now() < deadline {
+        final_report = client.call(
+            "report-poll",
+            "run.report",
+            &json!({ "run_id": "daemon-backlog" }),
+        );
+        if final_report["result"]["sinks"][0]["status"] == "complete" {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    assert_eq!(
+        final_report["result"]["sinks"][0]["status"], "complete",
+        "Daemon did not finish delivering the backlog: {final_report}"
+    );
+    assert_eq!(rows(&database).len(), 2);
+}
+
+/// Recreates `recover_db`'s `records` table with or without a rejecting CHECK
+/// constraint.
+fn setup_recover_table(recover_db: &Path, reject_all: bool) {
+    let conn = Connection::open(recover_db).unwrap();
+    let constraint = if reject_all { " CHECK (0)" } else { "" };
+    conn.execute_batch(&format!(
+        "DROP TABLE IF EXISTS records;
+         CREATE TABLE records (
+             _goodfetch_delivery_id TEXT NOT NULL PRIMARY KEY,
+             _goodfetch_run_id TEXT NOT NULL,
+             _goodfetch_run_epoch INTEGER NOT NULL,
+             _goodfetch_dataset TEXT NOT NULL,
+             _goodfetch_record_number INTEGER NOT NULL,
+             _goodfetch_committed_at TEXT NOT NULL,
+             _goodfetch_meta TEXT,
+             _goodfetch_key TEXT,
+             url TEXT{constraint}
+         ) STRICT;"
+    ))
+    .unwrap();
+}
+
+/// Verifies `sink.deliver` `recover` with a `since` lower bound against
+/// `past-run`'s two dead letters.
+fn verify_recover_since(
+    env: &TestEnv,
+    engine: &mut goodfetch_test_client::Attached,
+    recover_db: &Path,
+    run_settings: &Value,
+) {
+    let run_file = crate::run_file(env, "past-run");
+    let mut dls = goodfetch_sink::dead_letters::list(&run_file, "recover_sink").unwrap();
+    drop(run_file);
+    dls.sort_by_key(|dl| dl.number);
+    assert_eq!(dls.len(), 2, "{dls:?}");
+    let t1 = dls[0].committed_at.clone();
+    let t2 = dls[1].committed_at.clone();
+    assert!(t1 < t2, "expected distinct timestamps: t1={t1} t2={t2}");
+
+    setup_recover_table(recover_db, false);
+    let partial = engine.ask(
+        "recover-2",
+        "sink.deliver",
+        &json!({
+            "run_id": "past-run",
+            "sink": "recover_sink",
+            "action": { "kind": "recover", "since": t2 },
+            "settings": run_settings,
+        }),
+    );
+    assert_eq!(
+        partial["result"],
+        json!({
+            "run_id": "past-run",
+            "sink": "recover_sink",
+            "delivered": 1,
+            "dead_letters": 1,
+            "status": "complete_with_rejections",
+        }),
+        "{partial}"
+    );
+    assert_eq!(rows(recover_db).len(), 1);
+    assert_eq!(rows(recover_db)[0].number, 2);
+
+    let all = engine.ask(
+        "recover-all",
+        "sink.deliver",
+        &json!({
+            "run_id": "past-run",
+            "sink": "recover_sink",
+            "action": { "kind": "recover", "since": t1 },
+            "settings": run_settings,
+        }),
+    );
+    assert_eq!(
+        all["result"],
+        json!({
+            "run_id": "past-run",
+            "sink": "recover_sink",
+            "delivered": 1,
+            "dead_letters": 0,
+            "status": "complete",
+        }),
+        "{all}"
+    );
+    assert_eq!(rows(recover_db).len(), 2);
+}
+
+/// Verifies `sink.deliver` `redeliver` (with dedup) and `replay` against
+/// `past-run`.
+fn verify_redeliver_and_replay(
+    engine: &mut goodfetch_test_client::Attached,
+    later_db: &Path,
+    later_settings: &Value,
+    missing_dir: &Path,
+    broken_db: &Path,
+    run_settings: &Value,
+) {
+    {
+        let conn = Connection::open(later_db).unwrap();
+        conn.execute("DELETE FROM records WHERE _goodfetch_record_number = 1", [])
+            .unwrap();
+    }
+    assert_eq!(rows(later_db).len(), 1);
+    let delivery_id = "past-run/added_later/pages/1";
+    for req in ["redeliver-1", "redeliver-2"] {
+        let answer = engine.ask(
+            req,
+            "sink.deliver",
+            &json!({
+                "run_id": "past-run",
+                "sink": "added_later",
+                "action": { "kind": "redeliver", "delivery_id": delivery_id },
+                "settings": later_settings,
+            }),
+        );
+        assert_eq!(answer["result"]["delivered"], 1, "{answer}");
+    }
+    let later_rows = rows(later_db);
+    assert_eq!(later_rows.len(), 2);
+    assert_eq!(later_rows[0].delivery_id, delivery_id);
+
+    std::fs::create_dir_all(missing_dir).unwrap();
+    let replayed = engine.ask(
+        "replay-1",
+        "sink.deliver",
+        &json!({
+            "run_id": "past-run",
+            "sink": "broken",
+            "action": { "kind": "replay" },
+            "settings": run_settings,
+        }),
+    );
+    assert_eq!(
+        replayed["result"],
+        json!({
+            "run_id": "past-run",
+            "sink": "broken",
+            "delivered": 2,
+            "dead_letters": 0,
+            "status": "complete",
+        }),
+        "{replayed}"
+    );
+    assert_eq!(rows(broken_db).len(), 2);
+    let replayed_again = engine.ask(
+        "replay-2",
+        "sink.deliver",
+        &json!({
+            "run_id": "past-run",
+            "sink": "broken",
+            "action": { "kind": "replay" },
+            "settings": run_settings,
+        }),
+    );
+    assert_eq!(replayed_again["result"]["delivered"], 0, "{replayed_again}");
+}
+
+/// `sink.deliver` supports `backfill` (including to a Sink added after the Run
+/// ended), `replay` (what was never attempted), `redeliver` (one delivery ID
+/// with deduplication) and `recover` (failed deliveries committed since a
+/// timestamp) against past Runs (ADR 0026).
+///
+/// Covers: story:6-292, operation:sink.deliver
+#[test]
+fn sink_deliver_redeliver_recover_replay_and_backfill() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let second = format!("{index}/headings/levels");
+
+    let missing_dir = env.folder().join("created-later");
+    let broken_db = missing_dir.join("broken.sqlite");
+    let later_db = env.folder().join("added-later.sqlite");
+    let recover_db = env.folder().join("recover.sqlite");
+    setup_recover_table(&recover_db, true);
+
+    let run_settings = crate::fetch_tiers::settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "delay": 0 } },
+            "crawl": { "handler": { "concurrency": 1 } },
+            "sinks": {
+                "broken": {
+                    "type": "sqlite",
+                    "datasets": ["pages"],
+                    "destination": "env:SINK_DELIVER_BROKEN",
+                },
+                "recover_sink": {
+                    "type": "sqlite",
+                    "datasets": ["pages"],
+                    "destination": "env:SINK_DELIVER_RECOVER",
+                },
+            },
+        }),
+    );
+    let mut engine = crate::attached_with(&env, None, |command| {
+        command
+            .env("SINK_DELIVER_BROKEN", &broken_db)
+            .env("SINK_DELIVER_LATER", &later_db)
+            .env("SINK_DELIVER_RECOVER", &recover_db);
+    });
+    let ended = drive_handler_crawl(
+        &mut engine,
+        "past-run",
+        &[
+            json!({ "url": index, "label": "page" }),
+            json!({ "url": second, "label": "page" }),
+        ],
+        &run_settings,
+        |n, params| {
+            if n == 2 {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            json!({ "url": params["crawl_request"]["url"] })
+        },
+    );
+    assert_eq!(ended["lifecycle"], "finished", "{ended}");
+
+    let later_settings = json!({
+        "sinks": {
+            "added_later": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": "env:SINK_DELIVER_LATER",
+            },
+        },
+    });
+    let backfilled = engine.ask(
+        "backfill",
+        "sink.deliver",
+        &json!({
+            "run_id": "past-run",
+            "sink": "added_later",
+            "action": { "kind": "backfill" },
+            "settings": later_settings,
+        }),
+    );
+    assert_eq!(
+        backfilled["result"],
+        json!({
+            "run_id": "past-run",
+            "sink": "added_later",
+            "delivered": 2,
+            "dead_letters": 0,
+            "status": "complete",
+        }),
+        "{backfilled}"
+    );
+    assert_eq!(rows(&later_db).len(), 2);
+
+    verify_redeliver_and_replay(
+        &mut engine,
+        &later_db,
+        &later_settings,
+        &missing_dir,
+        &broken_db,
+        &run_settings,
+    );
+    verify_recover_since(&env, &mut engine, &recover_db, &run_settings);
+    assert!(engine.finished());
 }

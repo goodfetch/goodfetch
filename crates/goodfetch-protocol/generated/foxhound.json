@@ -19383,6 +19383,166 @@
       ],
       "type": "object"
     },
+    "SinkDeliver": {
+      "description": "What `sink.deliver` answers (ADR 0026).",
+      "properties": {
+        "dead_letters": {
+          "arrived_in": "0.1",
+          "description": "How many dead letters remain for this Run and Sink after this call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivered": {
+          "arrived_in": "0.1",
+          "description": "How many Records or dead letters were delivered by this call.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Records were delivered."
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SinkStatus",
+          "arrived_in": "0.1",
+          "description": "The Sink's status after this delivery."
+        }
+      },
+      "required": [
+        "run_id",
+        "sink",
+        "delivered",
+        "dead_letters",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SinkDeliverAction": {
+      "description": "What `sink.deliver` does against a Run's committed Records or dead letters\n(ADR 0026).",
+      "oneOf": [
+        {
+          "description": "Redelivers one delivery by its `delivery_id`, carrying the same\ndelivery ID so the destination can deduplicate it.",
+          "properties": {
+            "delivery_id": {
+              "arrived_in": "0.1",
+              "description": "The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`).",
+              "type": "string"
+            },
+            "kind": {
+              "const": "redeliver",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "delivery_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Recovers failed deliveries (dead letters) committed at or after `since`\n(RFC 3339 in UTC).",
+          "properties": {
+            "kind": {
+              "const": "recover",
+              "type": "string"
+            },
+            "since": {
+              "$ref": "#/$defs/PointInTime",
+              "arrived_in": "0.1",
+              "description": "RFC 3339 UTC timestamp lower bound (inclusive)."
+            }
+          },
+          "required": [
+            "kind",
+            "since"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Replays committed Records of the Run that were never delivered to the\nSink.",
+          "properties": {
+            "kind": {
+              "const": "replay",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Backfills every committed Record of a past Run to any configured Sink,\nincluding a Sink added after the Run ended.",
+          "properties": {
+            "kind": {
+              "const": "backfill",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SinkDeliverParams": {
+      "additionalProperties": false,
+      "description": "What `sink.deliver` takes (ADRs 0026 and 0099).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "action": {
+          "$ref": "#/$defs/SinkDeliverAction",
+          "arrived_in": "0.1",
+          "description": "Which delivery operation to run (`redeliver`, `recover`, `replay` or\n`backfill`)."
+        },
+        "project": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The project configuration the Client found, layer 3 (ADR 0083)."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run whose Records or dead letters to deliver."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "Settings over the connection's, nested by key, as a crawl's Run takes\nthem (ADR 0083), such as a Sink added after the Run ended.",
+          "type": "object"
+        },
+        "sink": {
+          "arrived_in": "0.1",
+          "description": "The Sink's name, its key under `sinks`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "sink",
+        "action"
+      ],
+      "type": "object"
+    },
     "SinkGuaranteeUnmetDetails": {
       "description": "What `sink_guarantee_unmet` details.",
       "properties": {
@@ -27623,6 +27783,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sink.deliver",
+      "params": {
+        "$ref": "#/$defs/SinkDeliverParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SinkDeliver"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.",
@@ -28951,6 +29130,32 @@
           "record_fenced",
           "keyed",
           "at_least_once"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "continue",
+      "deprecated": null,
+      "description": "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+      "fixed_for_run": false,
+      "name": "crawl.on_sink_failure",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "continue",
+          "stop"
         ]
       },
       "weakening": null,

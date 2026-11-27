@@ -8,33 +8,29 @@
 //! writes the last batch and waits for a last delivery. [`contribution`]
 //! answers `sink.probe`, a probe of one Sink outside any Run.
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::mask::Masks;
-use goodfetch_engine::run::{run_error, run_layer, settings_error};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
-use goodfetch_engine::runs::{RunError, RunKeys, RunParts, Runs};
+use goodfetch_engine::runs::{RunKeys, RunParts, Runs};
 use goodfetch_engine::secrets::{Purpose, RunSecrets};
-use goodfetch_engine::settings::{Opening, Resolved};
-use goodfetch_engine::tasks::TaskStarter;
-use goodfetch_engine::{CallContext, CallError, Contribution, Handler, named};
-use goodfetch_protocol::catalog::Product;
+use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
+use goodfetch_engine::{CallError, Contribution, Handler, named};
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::report::SinkStatus;
 use goodfetch_protocol::foxhound::sink::{
-    CRAWL_MIN_SINK_GUARANTEE, DeliveredAs, SINK_LIST, SINK_PROBE, SINKS, SinkList, SinkListEntry,
-    SinkListParams, SinkProbe, SinkProbeOutcome, SinkProbeParams, SinkSettings, SinkType,
-    WriteMode,
+    CRAWL_MIN_SINK_GUARANTEE, CRAWL_ON_SINK_FAILURE, DeliveredAs, OnSinkFailure, SINK_DELIVER,
+    SINK_LIST, SINK_PROBE, SINKS, SinkSettings, SinkType, WriteMode,
 };
 use goodfetch_protocol::run::{Lifecycle, Presence, RunId, RunKind, RunListParams};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
-    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, ProjectSettings, RunOrigin,
-    SETTING_INVALID, SettingInvalidDetails, SettingsLayer,
+    CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SETTING_INVALID, SettingInvalidDetails,
+    SettingsLayer,
 };
 use rusqlite::Connection;
 use secrecy::ExposeSecret as _;
@@ -47,6 +43,9 @@ use crate::guarantee;
 use crate::report::{self, SinkReportPart, SinkStateRow};
 use crate::sqlite::SqliteSink;
 use crate::sync::Mutex;
+
+mod deliver;
+mod ops;
 
 /// The table a SQLite Sink writes when its `target` names none.
 const SQLITE_TARGET: &str = "records";
@@ -93,10 +92,20 @@ impl Sinks {
     /// `settings` name, which [`Delivery::start`] probes and starts and
     /// [`Delivery::finish`] finishes before the Run ends. `settings` passed
     /// [`Sinks::check`]; `runs` lets each Sink retry dead letters left by
-    /// earlier ended Runs (ADR 0026).
+    /// earlier ended Runs, and `daemon` (present on a Daemon engine) lets
+    /// behind Sinks keep delivering a finished Run's backlog after the Run
+    /// ends (ADR 0026).
     #[must_use]
-    pub fn deliver(self, run: &RunParts, settings: &Resolved, runs: &Runs) -> Delivery {
+    pub fn deliver(
+        self,
+        run: &RunParts,
+        settings: &Resolved,
+        runs: &Runs,
+        daemon: Option<Arc<TaskOwner>>,
+    ) -> Delivery {
         let layer = layer(settings);
+        let on_failure = on_sink_failure(settings);
+        let stop_requested = Arc::new(watch::Sender::new(None));
         let sinks = entries(settings)
             .map(|(name, settings)| {
                 Arc::new(Sink {
@@ -111,12 +120,16 @@ impl Sinks {
                     delivering: AsyncMutex::new(()),
                     retried_dead_letters: OnceCell::new(),
                     stopped: watch::Sender::new(false),
+                    on_failure,
+                    stop_requested: Arc::clone(&stop_requested),
                 })
             })
             .collect();
         Delivery {
             sinks,
             minimum: minimum(settings),
+            stop_requested,
+            daemon,
         }
     }
 }
@@ -127,9 +140,36 @@ pub struct Delivery {
     /// The weakest Guarantee class the Run accepts of each Sink, its
     /// `crawl.min_sink_guarantee`; none when it accepts any.
     minimum: Option<GuaranteeClass>,
+    /// Set to a failure reason when `crawl.on_sink_failure` is `stop` and any
+    /// Sink fails (ADR 0026).
+    stop_requested: Arc<watch::Sender<Option<String>>>,
+    /// The Daemon engine's task owner, when running on a Daemon, so behind
+    /// Sinks keep delivering a finished Run's backlog after the Run ends.
+    daemon: Option<Arc<TaskOwner>>,
 }
 
 impl Delivery {
+    /// Returns the Sink failure reason if `crawl.on_sink_failure` is `stop`
+    /// and a Sink has already failed.
+    #[must_use]
+    pub fn failure_reason(&self) -> Option<String> {
+        self.stop_requested.borrow().clone()
+    }
+
+    /// Resolves once a Sink fails under `crawl.on_sink_failure: stop` (pends
+    /// forever when `crawl.on_sink_failure` is `continue`).
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels only the watch subscription.
+    pub async fn failed(&self) -> String {
+        let mut rx = self.stop_requested.subscribe();
+        let _ = rx.wait_for(Option::is_some).await;
+        rx.borrow()
+            .clone()
+            .unwrap_or_else(|| "a Sink failed".to_owned())
+    }
+
     /// Probes each Sink (ADR 0026), then starts delivering to each, as
     /// tasks of the Run, each waking at the run file's commits; what the
     /// Run does before any other work.
@@ -156,23 +196,26 @@ impl Delivery {
                 }
                 return Err(error);
             }
-            let initial = match probed {
+            let initial = match &probed {
                 Ok(class) => SinkStateRow {
                     sink: sink.name.clone(),
-                    guarantee_class: class,
+                    guarantee_class: *class,
                     status: SinkStatus::Complete,
                     paused_reason: None,
                     outside_dedup_window: 0,
                     undeclared_datasets: Vec::new(),
                 },
-                Err(_) => SinkStateRow {
-                    sink: sink.name.clone(),
-                    guarantee_class: GuaranteeClass::AtLeastOnce,
-                    status: SinkStatus::Failed,
-                    paused_reason: None,
-                    outside_dedup_window: 0,
-                    undeclared_datasets: Vec::new(),
-                },
+                Err(cause) => {
+                    sink.note_failure(cause);
+                    SinkStateRow {
+                        sink: sink.name.clone(),
+                        guarantee_class: GuaranteeClass::AtLeastOnce,
+                        status: SinkStatus::Failed,
+                        paused_reason: None,
+                        outside_dedup_window: 0,
+                        undeclared_datasets: Vec::new(),
+                    }
+                }
             };
             sink.persist_state(initial, Vec::new(), Vec::new()).await;
         }
@@ -189,9 +232,9 @@ impl Delivery {
     /// its deliveries: what the Run's end waits for, so a Sink holds the
     /// Records the Run committed before its end, the last batch's included.
     /// When the Run `finished`, a Sink that delivered all of them then
-    /// swaps in what it wrote apart, as `replace` does (ADR 0026). A Sink
-    /// behind on its retries stays behind; a resumed copy of the Run
-    /// delivers again.
+    /// swaps in what it wrote apart, as `replace` does (ADR 0026). On a
+    /// Daemon, a Sink still behind on retries continues delivering the
+    /// finished Run's backlog on the Daemon's task owner (ADR 0026).
     ///
     /// # Cancel safety
     ///
@@ -205,27 +248,39 @@ impl Delivery {
             tracing::warn!(%error, "the run file's last batch did not commit before the Sinks' last delivery");
         }
         for sink in &self.sinks {
-            if !sink.stopped.send_replace(true)
-                && matches!(sink.deliver().await, Next::Wait)
-                && finished
-            {
-                sink.finish().await;
+            if sink.stopped.send_replace(true) {
+                continue;
+            }
+            let next = match sink.pending_retry().await {
+                Some(wait) => Next::Retry(wait),
+                None => sink.deliver().await,
+            };
+            match next {
+                Next::Wait if finished => sink.finish().await,
+                Next::Retry(wait) if finished => {
+                    if let Some(engine_owner) = &self.daemon {
+                        deliver::spawn_backlog(Arc::clone(sink), engine_owner, wait, finished);
+                    }
+                }
+                Next::Wait | Next::Retry(_) | Next::Stop => {}
             }
         }
     }
 }
 
-/// Goodfetch-sink's contribution (ADR 0087): `sink.probe`, `sink.list`, the
-/// `sink_dead_letters`, `sink_state` and `sink_notifications` run-state
-/// tables, and the Run report's `sinks` part (ADRs 0026 and 0102).
+/// Goodfetch-sink's contribution (ADR 0087): `sink.probe`, `sink.list`,
+/// `sink.deliver`, the `sink_dead_letters`, `sink_state` and
+/// `sink_notifications` run-state tables, and the Run report's `sinks` part
+/// (ADRs 0026 and 0102).
 #[must_use]
 pub fn contribution() -> Contribution {
     Contribution::new("goodfetch-sink")
         .with_run_state_tables(dead_letters::TABLES)
         .with_run_state_tables(report::TABLES)
         .with_report_part(Arc::new(SinkReportPart))
-        .with_handler(Handler::new(&SINK_PROBE, probe))
-        .with_handler(Handler::new(&SINK_LIST, list))
+        .with_handler(Handler::new(&SINK_PROBE, ops::probe))
+        .with_handler(Handler::new(&SINK_LIST, ops::list))
+        .with_handler(Handler::new(&SINK_DELIVER, deliver::deliver_op))
 }
 
 /// One Sink of a Run: its entry and what its delivery reads and writes.
@@ -253,6 +308,10 @@ struct Sink {
     /// Run's start or finished; its delivery task watches it while it
     /// waits, since the run file's commits go on until the Run's tasks end.
     stopped: watch::Sender<bool>,
+    /// Whether a failure of this Sink should stop the Run.
+    on_failure: OnSinkFailure,
+    /// Shared signal telling the crawl loop to stop when `on_failure == Stop`.
+    stop_requested: Arc<watch::Sender<Option<String>>>,
 }
 
 /// What a Sink's delivery does after an attempt.
@@ -266,6 +325,25 @@ enum Next {
 }
 
 impl Sink {
+    /// Signals the crawl loop to stop if `crawl.on_sink_failure` is `stop`.
+    fn note_failure(&self, cause: &str) {
+        if self.on_failure == OnSinkFailure::Stop && self.stop_requested.borrow().is_none() {
+            self.stop_requested
+                .send_replace(Some(format!("Sink `{}` failed: {cause}", self.name)));
+        }
+    }
+
+    /// Waits for any in-flight delivery pass, then returns the remaining retry
+    /// wait if the driver is already scheduled for a future retry.
+    async fn pending_retry(&self) -> Option<Duration> {
+        let _turn = self.delivering.lock().await;
+        let driver = self.driver.get()?.as_ref().ok()?;
+        driver
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pending_retry()
+    }
+
     /// Probes its destination, opening it first: the class it proves, or
     /// why it proved none.
     async fn probe(&self) -> Result<GuaranteeClass, String> {
@@ -291,6 +369,7 @@ impl Sink {
             Ok(driver) => driver,
             Err(cause) => {
                 tracing::warn!(sink = %self.name, %cause, "a Sink's destination did not open: it delivers nothing");
+                self.note_failure(&cause);
                 self.persist_state(
                     SinkStateRow {
                         sink: self.name.clone(),
@@ -313,29 +392,18 @@ impl Sink {
             .get_or_init(|| self.retry_dead_letters(&driver))
             .await;
         let driver_for_read = Arc::clone(&driver);
+        let sink_name = self.name.clone();
         let delivered = self
             .state
-            .read(move |run_file| {
-                let mut guard = driver_for_read
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                let status = guard.deliver(run_file)?;
-                let rejected = guard.take_dead_letters();
-                let notifications = guard.take_notifications();
-                let state_row = SinkStateRow {
-                    sink: String::new(),
-                    guarantee_class: guard.class().unwrap_or(GuaranteeClass::AtLeastOnce),
-                    status: guard.report_status(),
-                    paused_reason: guard.paused_reason(),
-                    outside_dedup_window: guard.outside_dedup_window(),
-                    undeclared_datasets: Vec::new(),
-                };
-                Ok((status, rejected, notifications, state_row))
-            })
+            .read(move |run_file| deliver::deliver_pass(&driver_for_read, &sink_name, run_file))
             .await;
         let next = match delivered {
-            Ok((status, rejected, notifications, mut state_row)) => {
-                state_row.sink.clone_from(&self.name);
+            Ok(deliver::PassOutput {
+                status,
+                rejected,
+                notifications,
+                state_row,
+            }) => {
                 self.persist_state(state_row, rejected, notifications).await;
                 match status {
                     Status::Complete | Status::CompleteWithRejections => Next::Wait,
@@ -347,10 +415,12 @@ impl Sink {
                     }
                     Status::Paused { reason, failure } => {
                         tracing::warn!(sink = %self.name, ?reason, %failure, "a Sink was paused");
+                        self.note_failure(&failure.to_string());
                         Next::Stop
                     }
                     Status::Failed(failure) => {
                         tracing::warn!(sink = %self.name, %failure, "a Sink failed: it delivers nothing more");
+                        self.note_failure(&failure.to_string());
                         Next::Stop
                     }
                     Status::Superseded { run_epoch } => {
@@ -464,7 +534,8 @@ impl Sink {
             if let Err(error) = self
                 .runs
                 .update_ended(row.run_id.clone(), move |connection| {
-                    apply_retry_outcome(connection, &sink_name, &outcome, &masks)
+                    apply_retry_outcome(connection, &sink_name, &outcome, &masks)?;
+                    report::refresh_stored_report(connection)
                 })
                 .await
             {
@@ -581,13 +652,16 @@ impl Destination<'_> {
     /// Its delivery driver for the copy `run` of a Run, its Secret
     /// reference resolved through `secrets` and its database opened on
     /// `owner`'s blocking threads; why not, without the resolved value,
-    /// when either fails.
-    async fn open(
+    /// when either fails. When `keep_destination_epoch` is set (for post-Run
+    /// `sink.deliver` operations), the driver adopts any epoch already fenced
+    /// at the destination for `run.run_id` so earlier rows are preserved.
+    async fn open_with_epoch(
         &self,
         secrets: &RunSecrets,
         owner: &TaskStarter,
         clock: Clock,
-        run: RunCopy,
+        mut run: RunCopy,
+        keep_destination_epoch: bool,
     ) -> Result<Driver<SqliteSink>, String> {
         let destination =
             self.settings.destination.as_deref().expect(
@@ -610,8 +684,22 @@ impl Destination<'_> {
             .map_err(|error| format!("its destination `{destination}` did not resolve: {error}"))?
             .expose_secret()
             .to_owned();
-        let connection = owner
-            .blocking(move || Connection::open(path))
+        let target = self.settings.target.as_deref().unwrap_or(SQLITE_TARGET);
+        let mode = self.settings.write_mode();
+        let schema = self.settings.schema.clone().unwrap_or_default();
+        let target_owned = target.to_owned();
+        let run_id_for_epoch = run.run_id.clone();
+        let (sqlite, existing_epoch) = owner
+            .blocking(move || {
+                let connection = Connection::open(path)?;
+                let sqlite = SqliteSink::new(connection, &target_owned)
+                    .with_mode(mode)
+                    .with_schema(schema);
+                let existing = keep_destination_epoch
+                    .then(|| sqlite.current_epoch(&run_id_for_epoch))
+                    .flatten();
+                Ok::<_, rusqlite::Error>((sqlite, existing))
+            })
             .await
             .map_err(|error| {
                 format!(
@@ -619,184 +707,29 @@ impl Destination<'_> {
                     error.sqlite_error_code()
                 )
             })?;
-        let target = self.settings.target.as_deref().unwrap_or(SQLITE_TARGET);
-        let mode = self.settings.write_mode();
-        let schema = self.settings.schema.clone().unwrap_or_default();
-        let driver = Driver::new(
-            self.name,
-            SqliteSink::new(connection, target)
-                .with_mode(mode)
-                .with_schema(schema),
-            run,
-            self.settings.datasets.clone(),
-        )
-        .with_clock(clock)
-        .with_masks(secrets.mask().masks().clone());
+        if let Some(existing) = existing_epoch {
+            run.run_epoch = existing;
+        }
+        let driver = Driver::new(self.name, sqlite, run, self.settings.datasets.clone())
+            .with_clock(clock)
+            .with_masks(secrets.mask().masks().clone());
         Ok(if mode == WriteMode::Append {
             driver
         } else {
             driver.keyed(self.settings.key.clone())
         })
     }
-}
 
-/// Resolves `settings` and `project` over the connection's settings as a
-/// Foxhound crawl Run would.
-async fn open_settings(
-    settings: &serde_json::Map<String, serde_json::Value>,
-    project: Option<ProjectSettings>,
-    context: &CallContext,
-) -> Result<Resolved, CallError> {
-    let (opened, _) = context
-        .engine()
-        .settings()
-        .open(Opening {
-            run: Some(Product::Foxhound),
-            project,
-            recipe: None,
-            settings: run_layer(settings, context)?,
-            origin: Some(RunOrigin::Settings),
-            registered: context.registered_settings().clone(),
-            acting_for_model: context.surface().acts_for_model(),
-            exposed: context.exposed(),
-        })
-        .await
-        .map_err(|error| settings_error(&error, context))?;
-    Ok(opened.resolved().clone())
-}
-
-/// Probes one configured Sink outside any Run.
-async fn probe_configured(
-    sink: &str,
-    entry: &SinkSettings,
-    layer: SettingsLayer,
-    context: &CallContext,
-) -> SinkProbeOutcome {
-    let (_, secrets) = context.runs().outside_a_run();
-    let owner = context.engine().owner();
-    let destination = Destination {
-        name: sink,
-        settings: entry,
-        layer,
-        run_id: None,
-    };
-    let run = RunCopy {
-        run_id: String::new(),
-        run_epoch: 0,
-    };
-    match destination
-        .open(&secrets, owner, Clock::system(), run)
-        .await
-    {
-        Ok(mut driver) => match owner.blocking(move || driver.probe()).await {
-            Ok(class) => SinkProbeOutcome::Proved { class },
-            Err(failure) => SinkProbeOutcome::Failed {
-                cause: probe_failed(&failure),
-            },
-        },
-        Err(cause) => SinkProbeOutcome::Failed { cause },
+    async fn open(
+        &self,
+        secrets: &RunSecrets,
+        owner: &TaskStarter,
+        clock: Clock,
+        run: RunCopy,
+    ) -> Result<Driver<SqliteSink>, String> {
+        self.open_with_epoch(secrets, owner, clock, run, false)
+            .await
     }
-}
-
-/// `sink.probe`: probes the Sink the params name, among the `sinks` their
-/// settings resolve to as a crawl's Run would.
-async fn probe(mut params: SinkProbeParams, context: CallContext) -> Result<SinkProbe, CallError> {
-    let settings = open_settings(&params.settings, params.project.take(), &context).await?;
-    let layer = layer(&settings);
-    let sink = params.sink;
-    let Some((_, entry)) = entries(&settings).find(|(name, _)| *name == sink) else {
-        let named: Vec<String> = entries(&settings)
-            .map(|(name, _)| format!("`{name}`"))
-            .collect();
-        let cause = if named.is_empty() {
-            format!("the settings name no Sink: `{}` is empty", SINKS.name)
-        } else {
-            format!(
-                "the settings name no Sink `{sink}`, only {}",
-                named.join(", ")
-            )
-        };
-        return Ok(SinkProbe {
-            sink,
-            outcome: SinkProbeOutcome::Failed { cause },
-        });
-    };
-    deliverable(&sink, &entry, layer)?;
-    let outcome = probe_configured(&sink, &entry, layer, &context).await;
-    Ok(SinkProbe { sink, outcome })
-}
-
-/// `sink.list`: lists each Sink with its Guarantee class, dead-letter count
-/// and deliveries outside the destination's deduplication window (ADRs 0026
-/// and 0099).
-async fn list(mut params: SinkListParams, context: CallContext) -> Result<SinkList, CallError> {
-    if let Some(run_id) = params.run_id {
-        let failed = |error: RunError| run_error(error, &context);
-        let mut reader = context.runs().reader(run_id).await.map_err(failed)?;
-        let reports = reader.read(report::reports).await.map_err(failed)?;
-        let sinks = reports
-            .into_iter()
-            .map(|entry| SinkListEntry {
-                name: entry.name,
-                guarantee_class: Some(entry.guarantee_class),
-                dead_letters: entry.dead_letters,
-                outside_dedup_window: entry.outside_dedup_window,
-                status: Some(entry.status),
-                probe_cause: None,
-            })
-            .collect();
-        return Ok(SinkList { sinks });
-    }
-    let settings = open_settings(&params.settings, params.project.take(), &context).await?;
-    let layer = layer(&settings);
-    let totals = aggregate_sink_counts(context.runs()).await;
-    let mut sinks = Vec::new();
-    for (name, entry) in entries(&settings) {
-        let (dead_letters, outside_dedup_window) = totals.get(&name).copied().unwrap_or((0, 0));
-        let (guarantee_class, probe_cause) = match deliverable(&name, &entry, layer) {
-            Ok(()) => match probe_configured(&name, &entry, layer, &context).await {
-                SinkProbeOutcome::Proved { class } => (Some(class), None),
-                SinkProbeOutcome::Failed { cause } => (None, Some(cause)),
-            },
-            Err(error) => (None, Some(error.to_string())),
-        };
-        sinks.push(SinkListEntry {
-            name,
-            guarantee_class,
-            dead_letters,
-            outside_dedup_window,
-            status: None,
-            probe_cause,
-        });
-    }
-    sinks.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(SinkList { sinks })
-}
-
-/// Aggregates `(dead_letters, outside_dedup_window)` per Sink across every
-/// known Crawl Run.
-async fn aggregate_sink_counts(runs: &Runs) -> BTreeMap<String, (u64, u64)> {
-    let mut totals: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    let Ok(rows) = runs.list(RunListParams::default()).await else {
-        return totals;
-    };
-    for row in rows {
-        if row.presence != Presence::Present || row.kind != RunKind::Crawl {
-            continue;
-        }
-        let Ok(mut reader) = runs.reader(row.run_id).await else {
-            continue;
-        };
-        let Ok(reports) = reader.read(report::reports).await else {
-            continue;
-        };
-        for entry in reports {
-            let counts = totals.entry(entry.name).or_insert((0, 0));
-            counts.0 = counts.0.saturating_add(entry.dead_letters);
-            counts.1 = counts.1.saturating_add(entry.outside_dedup_window);
-        }
-    }
-    totals
 }
 
 /// Why a probe that answered `failure` proved nothing, without the
@@ -974,6 +907,11 @@ fn layer(settings: &Resolved) -> SettingsLayer {
     settings
         .effective(&SINKS)
         .map_or(SettingsLayer::Run, |effective| effective.layer)
+}
+
+/// The crawl's `crawl.on_sink_failure` choice, defaulting to `continue`.
+fn on_sink_failure(settings: &Resolved) -> OnSinkFailure {
+    serde_json::from_value(settings.value(&CRAWL_ON_SINK_FAILURE).clone()).unwrap_or_default()
 }
 
 /// The wire name of a value of one of the Sink entry's enums.

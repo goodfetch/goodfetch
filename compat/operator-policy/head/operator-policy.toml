@@ -349,6 +349,7 @@ max_sitemap_nesting = 4
 path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 keep_url_fragment = true
 min_sink_guarantee = "fenced"
+on_sink_failure = "continue"
 
 [settings.crawl.retry]
 max = 4
@@ -790,6 +791,7 @@ max_sitemap_nesting = 4
 path_budgets = [{ max_requests = 100, pattern = "/shop?*" }]
 keep_url_fragment = true
 min_sink_guarantee = "fenced"
+on_sink_failure = "continue"
 
 [lock.crawl.retry]
 max = 4

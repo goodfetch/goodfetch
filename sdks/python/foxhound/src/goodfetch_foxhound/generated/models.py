@@ -1957,6 +1957,104 @@ class SheetCapacityExceededDetails(BaseModel):
     """The most a sheet holds of it."""
 
 
+class SinkDeliverAction1(BaseModel):
+    """
+    Redelivers one delivery by its `delivery_id`, carrying the same
+    delivery ID so the destination can deduplicate it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    delivery_id: str
+    """The delivery ID to redeliver (`<run_id>/<sink>/<dataset>/<number>`)."""
+    kind: Literal["redeliver"]
+
+
+class SinkDeliverAction2(BaseModel):
+    """
+    Recovers failed deliveries (dead letters) committed at or after `since`
+    (RFC 3339 in UTC).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    kind: Literal["recover"]
+    since: PointInTime
+    """RFC 3339 UTC timestamp lower bound (inclusive)."""
+
+
+class SinkDeliverAction3(BaseModel):
+    """
+    Replays committed Records of the Run that were never delivered to the
+    Sink.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["replay"]
+
+
+class SinkDeliverAction4(BaseModel):
+    """
+    Backfills every committed Record of a past Run to any configured Sink,
+    including a Sink added after the Run ended.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["backfill"]
+
+
+class SinkDeliverAction(
+    RootModel[
+        SinkDeliverAction1
+        | SinkDeliverAction2
+        | SinkDeliverAction3
+        | SinkDeliverAction4
+    ]
+):
+    root: (
+        SinkDeliverAction1
+        | SinkDeliverAction2
+        | SinkDeliverAction3
+        | SinkDeliverAction4
+    )
+    """
+    What `sink.deliver` does against a Run's committed Records or dead letters
+    (ADR 0026).
+    """
+
+
+class SinkDeliverParams(BaseModel):
+    """What `sink.deliver` takes (ADRs 0026 and 0099)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    action: SinkDeliverAction
+    """
+    Which delivery operation to run (`redeliver`, `recover`, `replay` or
+    `backfill`).
+    """
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    run_id: RunId
+    """The Run whose Records or dead letters to deliver."""
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run takes
+    them (ADR 0083), such as a Sink added after the Run ended.
+    """
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
 class SinkGuaranteeUnmetDetails(BaseModel):
     """What `sink_guarantee_unmet` details."""
 
@@ -3016,6 +3114,25 @@ class Seeds(RootModel[list[Seed]]):
 
     root: Annotated[list[Seed], Field(min_length=1)]
     """A crawl's seeds, at least one."""
+
+
+class SinkDeliver(BaseModel):
+    """What `sink.deliver` answers (ADR 0026)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    dead_letters: Annotated[int, Field(ge=0)]
+    """How many dead letters remain for this Run and Sink after this call."""
+    delivered: Annotated[int, Field(ge=0)]
+    """How many Records or dead letters were delivered by this call."""
+    run_id: RunId
+    """The Run whose Records were delivered."""
+    sink: str
+    """The Sink's name."""
+    status: SinkStatus
+    """The Sink's status after this delivery."""
 
 
 class SinkListEntry(BaseModel):

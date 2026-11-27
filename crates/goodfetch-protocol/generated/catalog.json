@@ -5550,6 +5550,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Delivers committed Records or dead letters of a Run to a configured Sink after the Run (ADR 0026): `redeliver` resends one delivery by its `delivery_id`, `recover` retries dead letters committed since an RFC 3339 timestamp, `replay` delivers Records not yet at the destination, and `backfill` delivers every committed Record of a past Run to any Sink (including one configured after the Run ended).",
+      "events": [],
+      "kind": "round_trip",
+      "name": "sink.deliver",
+      "params": {
+        "$ref": "#/$defs/SinkDeliverParams"
+      },
+      "product": "foxhound",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SinkDeliver"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Lists each Sink with its Guarantee class, its dead-letter count and its deliveries outside the destination's deduplication window (ADR 0026). With `run_id`, reads the Sinks that applied to that Run; without `run_id`, resolves `sinks` from the connection's and call's settings, probes each deliverable Sink and aggregates its dead letters and late deliveries across Runs.",
@@ -6878,6 +6897,32 @@
           "record_fenced",
           "keyed",
           "at_least_once"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": "continue",
+      "deprecated": null,
+      "description": "Whether collection goes on when a Sink fails (`continue`, the default) or stops at the next safe point (`stop`), so a destination's outage never stops a crawl unasked (ADR 0026).",
+      "fixed_for_run": false,
+      "name": "crawl.on_sink_failure",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run"
+      ],
+      "value": {
+        "enum": [
+          "continue",
+          "stop"
         ]
       },
       "weakening": null,

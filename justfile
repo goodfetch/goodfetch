@@ -619,6 +619,7 @@ fetch:
     ci/lightpanda-fetch.sh
     ci/chrome-for-testing-fetch.sh
     ci/claude-code-fetch.sh
+    ci/local-models-fetch.sh
     ci/toxiproxy-fetch.sh
     ci/alpine/fetch.sh
     ci/source-build/fetch.sh

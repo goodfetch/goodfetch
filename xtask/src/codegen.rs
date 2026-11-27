@@ -50,6 +50,7 @@ mod executables;
 mod facts;
 mod handles;
 mod helpers;
+mod launch_args;
 mod layer;
 mod members;
 mod names;
@@ -460,6 +461,9 @@ fn plan(cargo: &OsStr, root: &Path, executables: executables::Files) -> Result<P
     );
     files.extend(facts::files(cargo, root)?);
     files.extend(cdp::generate(root)?);
+    if let Some(launch_args) = launch_args::generate(cargo, root)? {
+        files.insert(launch_args::LAUNCH_ARGS.to_owned(), launch_args);
+    }
 
     files.extend(rust_files(root, &bundle, &collie, &foxhound, &version)?);
     let mut externals = Vec::new();

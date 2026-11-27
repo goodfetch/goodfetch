@@ -56,6 +56,7 @@ rstest.workspace = true
 # The Frontier at scale keeps its run file on disk, in a folder of its own.
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+goodfetch-dev-workspace-hack.workspace = true
 
 # ADR 0071: instruction counts under Callgrind, heap metrics under DHAT.
 [[bench]]

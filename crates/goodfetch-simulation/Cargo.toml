@@ -26,5 +26,8 @@ proptest-state-machine.workspace = true
 serde.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+goodfetch-dev-workspace-hack.workspace = true
+
 [lints]
 workspace = true

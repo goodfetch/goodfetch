@@ -16,47 +16,85 @@ use std::time::{Duration, SystemTime};
 
 use crate::workspace::write_executable;
 
-/// The workspace-hack's manifest, from the workspace's folder.
+/// The build-side workspace-hack's manifest, from the workspace's folder.
 const MANIFEST: &str = "crates/goodfetch-workspace-hack/Cargo.toml";
 
-/// The workspace-hack's manifest with `section` as its hakari section.
-fn manifest_with(section: &str) -> String {
+/// The dev code-side workspace-hack's manifest, from the workspace's folder.
+const DEV_MANIFEST: &str = "crates/goodfetch-dev-workspace-hack/Cargo.toml";
+
+/// A member crate's manifest, from the workspace's folder.
+const MEMBER_MANIFEST: &str = "crates/goodfetch-sample/Cargo.toml";
+
+/// The excluded protocol crate's manifest, from the workspace's folder.
+const PROTOCOL_MANIFEST: &str = "crates/goodfetch-protocol/Cargo.toml";
+
+/// A workspace-hack manifest named `name` with `section` as its hakari section.
+fn manifest_with(name: &str, section: &str) -> String {
     format!(
-        "[package]\nname = \"goodfetch-workspace-hack\"\nversion = \"0.0.0\"\n\n\
+        "[package]\nname = \"{name}\"\nversion = \"0.0.0\"\n\n\
          ### BEGIN HAKARI SECTION\n{section}### END HAKARI SECTION\n"
     )
 }
 
 /// What the stand-in's `generate` writes: both sides, of which the check
-/// keeps the build side's tables.
+/// splits the build side into `goodfetch-workspace-hack` and the code side
+/// into `goodfetch-dev-workspace-hack`.
 const GENERATED: &str = "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n\n\
     [build-dependencies]\ncc = { version = \"1\", features = [\"parallel\"] }\n\n\
     [target.'cfg(unix)'.dependencies]\nlibc = { version = \"0.2\" }\n\n";
 
-/// The build side of [`GENERATED`], as the committed manifest holds it.
+/// The build side of [`GENERATED`], as the committed build-side manifest holds it.
 const BUILD_SIDE: &str =
     "[build-dependencies]\ncc = { version = \"1\", features = [\"parallel\"] }\n\n";
 
+/// The code side of [`GENERATED`], as the committed dev-side manifest holds it.
+const CODE_SIDE: &str = "[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n\n\
+    [target.'cfg(unix)'.dependencies]\nlibc = { version = \"0.2\" }\n\n";
+
+/// A member manifest taking `goodfetch-dev-workspace-hack` in `[dev-dependencies]`.
+const MEMBER_WITH_DEV_HACK: &str = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+    [dependencies]\ngoodfetch-workspace-hack.workspace = true\n\n\
+    [dev-dependencies]\ngoodfetch-dev-workspace-hack.workspace = true\n";
+
 /// A workspace holding the repository's `ci/workspace-hack.sh`, its
-/// `Cargo.lock` and its workspace-hack's manifest, whose section is
-/// `section`, both an hour old, and a stand-in `cargo`.
+/// `Cargo.lock`, both workspace-hack manifests and a member crate, all an
+/// hour old, and a stand-in `cargo`.
 struct HackedWorkspace {
     folder: tempfile::TempDir,
     stand_in: PathBuf,
+    dev_manifest_during_generate: PathBuf,
 }
 
 impl HackedWorkspace {
-    fn new(section: &str) -> Self {
+    fn new(build_section: &str, dev_section: &str, member_manifest: &str) -> Self {
         let folder = tempfile::tempdir().unwrap();
         let root = folder.path();
         let files = [
             (
                 "Cargo.toml",
-                "[workspace]\nmembers = [\"crates/*\"]\n".to_owned(),
+                "[workspace]\nmembers = [\"crates/goodfetch-*\"]\n".to_owned(),
             ),
             ("Cargo.lock", "version = 4\n".to_owned()),
-            (MANIFEST, manifest_with(section)),
+            (
+                MANIFEST,
+                manifest_with("goodfetch-workspace-hack", build_section),
+            ),
             ("crates/goodfetch-workspace-hack/src/lib.rs", String::new()),
+            (
+                DEV_MANIFEST,
+                manifest_with("goodfetch-dev-workspace-hack", dev_section),
+            ),
+            (
+                "crates/goodfetch-dev-workspace-hack/src/lib.rs",
+                String::new(),
+            ),
+            (MEMBER_MANIFEST, member_manifest.to_owned()),
+            ("crates/goodfetch-sample/src/lib.rs", String::new()),
+            (
+                PROTOCOL_MANIFEST,
+                "[package]\nname = \"goodfetch-protocol\"\nversion = \"0.0.0\"\n".to_owned(),
+            ),
+            ("crates/goodfetch-protocol/src/lib.rs", String::new()),
         ];
         for (relative, contents) in files {
             let path = root.join(relative);
@@ -64,7 +102,13 @@ impl HackedWorkspace {
             std::fs::write(&path, contents).unwrap();
         }
         let hour_ago = SystemTime::now() - Duration::from_secs(3600);
-        for relative in ["Cargo.lock", MANIFEST] {
+        for relative in [
+            "Cargo.lock",
+            MANIFEST,
+            DEV_MANIFEST,
+            MEMBER_MANIFEST,
+            PROTOCOL_MANIFEST,
+        ] {
             std::fs::File::options()
                 .write(true)
                 .open(root.join(relative))
@@ -81,6 +125,7 @@ impl HackedWorkspace {
         let stand_in = root.join("stand-in");
         std::fs::create_dir_all(&stand_in).unwrap();
         std::fs::write(stand_in.join("generated"), GENERATED).unwrap();
+        let dev_manifest_during_generate = stand_in.join("dev-manifest-seen");
         // Each write is in place, through a link as `cargo` writes
         // `Cargo.lock`.
         write_executable(
@@ -92,6 +137,7 @@ impl HackedWorkspace {
                  rewrite Cargo.lock\n\
                  case \"$2\" in\n\
                  generate)\n\
+                   cp {DEV_MANIFEST} \"{seen}\"\n\
                    {{ printf '[package]\\nname = \"goodfetch-workspace-hack\"\\nversion = \"0.0.0\"\\n\\n### BEGIN HAKARI SECTION\\n'\n\
                      cat \"{generated}\"\n\
                      printf '### END HAKARI SECTION\\n'; }} >{MANIFEST}\n\
@@ -100,22 +146,33 @@ impl HackedWorkspace {
                  *) exit 2 ;;\n\
                  esac\n",
                 generated = stand_in.join("generated").display(),
+                seen = dev_manifest_during_generate.display(),
             ),
         );
-        Self { folder, stand_in }
+        Self {
+            folder,
+            stand_in,
+            dev_manifest_during_generate,
+        }
     }
 
     /// The content and modification time of each file a check may not
     /// write.
     fn written(&self) -> Vec<(String, SystemTime)> {
-        ["Cargo.lock", MANIFEST]
-            .iter()
-            .map(|relative| {
-                let path = self.folder.path().join(relative);
-                let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
-                (std::fs::read_to_string(&path).unwrap(), modified)
-            })
-            .collect()
+        [
+            "Cargo.lock",
+            MANIFEST,
+            DEV_MANIFEST,
+            MEMBER_MANIFEST,
+            PROTOCOL_MANIFEST,
+        ]
+        .iter()
+        .map(|relative| {
+            let path = self.folder.path().join(relative);
+            let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+            (std::fs::read_to_string(&path).unwrap(), modified)
+        })
+        .collect()
     }
 
     /// Runs `ci/workspace-hack.sh check`, with the stand-in first on `PATH`.
@@ -136,7 +193,7 @@ impl HackedWorkspace {
 
 #[test]
 fn a_check_of_a_current_workspace_hack_passes_and_writes_nothing_in_the_tree() {
-    let workspace = HackedWorkspace::new(BUILD_SIDE);
+    let workspace = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, MEMBER_WITH_DEV_HACK);
     let before = workspace.written();
 
     let check = workspace.check();
@@ -147,11 +204,17 @@ fn a_check_of_a_current_workspace_hack_passes_and_writes_nothing_in_the_tree() {
         String::from_utf8_lossy(&check.stderr)
     );
     assert_eq!(workspace.written(), before, "the check wrote the tree");
+    let seen = std::fs::read_to_string(&workspace.dev_manifest_during_generate).unwrap();
+    assert_eq!(
+        seen,
+        manifest_with("goodfetch-dev-workspace-hack", ""),
+        "the check must clear the dev workspace-hack section in the mirror before cargo hakari generate"
+    );
 }
 
 #[test]
 fn a_check_of_an_outdated_workspace_hack_fails_naming_generate_and_writes_nothing_in_the_tree() {
-    let workspace = HackedWorkspace::new("");
+    let workspace = HackedWorkspace::new("", CODE_SIDE, MEMBER_WITH_DEV_HACK);
     let before = workspace.written();
 
     let check = workspace.check();
@@ -162,5 +225,59 @@ fn a_check_of_an_outdated_workspace_hack_fails_naming_generate_and_writes_nothin
         stderr.contains("run ci/workspace-hack.sh generate"),
         "{stderr}"
     );
+    assert_eq!(workspace.written(), before, "the check wrote the tree");
+}
+
+#[test]
+fn a_check_of_an_outdated_dev_workspace_hack_fails_naming_generate_and_writes_nothing_in_the_tree()
+{
+    let workspace = HackedWorkspace::new(BUILD_SIDE, "", MEMBER_WITH_DEV_HACK);
+    let before = workspace.written();
+
+    let check = workspace.check();
+
+    assert_eq!(check.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("goodfetch-dev-workspace-hack")
+            && stderr.contains("run ci/workspace-hack.sh generate"),
+        "{stderr}"
+    );
+    assert_eq!(workspace.written(), before, "the check wrote the tree");
+}
+
+#[test]
+fn a_check_of_a_member_missing_the_dev_workspace_hack_fails_naming_generate() {
+    let missing = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies]\ngoodfetch-workspace-hack.workspace = true\n";
+    let workspace = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, missing);
+    let before = workspace.written();
+
+    let check = workspace.check();
+
+    assert_eq!(check.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(
+        stderr.contains("goodfetch-dev-workspace-hack")
+            && stderr.contains("run ci/workspace-hack.sh generate"),
+        "{stderr}"
+    );
+    assert_eq!(workspace.written(), before, "the check wrote the tree");
+}
+
+#[test]
+fn a_check_of_a_member_taking_the_dev_workspace_hack_in_dependencies_fails() {
+    let wrong_section = "[package]\nname = \"goodfetch-sample\"\nversion = \"0.0.0\"\n\n\
+        [dependencies]\ngoodfetch-workspace-hack.workspace = true\n\
+        goodfetch-dev-workspace-hack.workspace = true\n\n\
+        [dev-dependencies]\ngoodfetch-dev-workspace-hack.workspace = true\n";
+    let workspace = HackedWorkspace::new(BUILD_SIDE, CODE_SIDE, wrong_section);
+    let before = workspace.written();
+
+    let check = workspace.check();
+
+    assert_eq!(check.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&check.stderr);
+    assert!(stderr.contains("goodfetch-dev-workspace-hack"), "{stderr}");
     assert_eq!(workspace.written(), before, "the check wrote the tree");
 }

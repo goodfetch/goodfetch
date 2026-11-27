@@ -2113,9 +2113,11 @@ impl Session<'_> {
         let incoming = decode(body);
         let message = Message::of(incoming);
         let status = match &message {
-            Message::Unreadable(_) | Message::Hello(..) => HttpStatus::BadRequest,
+            Message::Unreadable(_) | Message::Hello(..) | Message::Reply { .. } => {
+                HttpStatus::BadRequest
+            }
             Message::Notification(_) => HttpStatus::Accepted,
-            Message::Request(..) | Message::Reply { .. } => HttpStatus::Ok,
+            Message::Request(..) => HttpStatus::Ok,
         };
         let effect = match self.transition(message.event()) {
             Ok(effect) => effect,
@@ -2130,6 +2132,15 @@ impl Session<'_> {
             }
             (ConnectionEffect::Serve, Message::Notification(notification)) => {
                 self.notification(notification);
+            }
+            (ConnectionEffect::Serve, Message::Reply { id, .. }) => {
+                let failure = CallError::protocol(
+                    ProtocolFailure::InvalidRequest,
+                    "a JSON-RPC reply is not a request",
+                );
+                let _ = self
+                    .send(failure_line(Some(id), &failure, self.form()))
+                    .await;
             }
             (ConnectionEffect::Answer, Message::Unreadable(error)) => {
                 let failure = CallError::protocol(error.failure, error.detail);

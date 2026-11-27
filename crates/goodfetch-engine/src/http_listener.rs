@@ -31,10 +31,10 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::Map;
-use tokio::sync::Semaphore;
+use tokio::sync::{Semaphore, mpsc};
 
 use crate::call_error::CallError;
-use crate::composition::DaemonSide;
+use crate::composition::{Closing, DaemonSide};
 use crate::endpoint::{self, Authorities, Exposure, Hosts, Origins, Termination, same_token};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
@@ -43,7 +43,7 @@ use crate::rpc::{
     Dispatch, HttpAnswer, HttpContext, HttpRequest, HttpStatus, SseStream, check_http_hello,
     http_error_bytes, open_sse_stream, serve_http_request, terminate_tls,
 };
-use crate::runs::Runs;
+use crate::runs::{ConnectionId, Runs};
 use crate::sync::{AtomicU64, Ordering};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::transport::{Connection, DaemonListener, TransportError};
@@ -57,6 +57,10 @@ const OPEN_AT_MOST: usize = 64;
 /// How long the listener pauses after a process-wide accept error (`EMFILE`,
 /// `ENFILE`) before accepting again.
 const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
+
+/// How long an HTTP connection waits for an in-flight response to flush after
+/// `graceful_shutdown` is initiated on Daemon stop.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
 /// The `Content-Type` of every JSON-RPC response body.
 const APPLICATION_JSON: &str = "application/json";
@@ -122,6 +126,10 @@ pub(crate) struct DaemonContext {
     pub(crate) events: Events,
     pub(crate) engine: EngineContext,
     pub(crate) daemon: Arc<dyn DaemonSide>,
+    pub(crate) open_connection:
+        Arc<dyn Fn(ConnectionId, Closing) -> Arc<dyn DaemonSide> + Send + Sync>,
+    pub(crate) opened: mpsc::Sender<(ConnectionId, Closing)>,
+    pub(crate) ended: mpsc::Sender<ConnectionId>,
     pub(crate) next_connection_id: Arc<AtomicU64>,
     pub(crate) hold_outliving: Arc<dyn Fn() -> Box<dyn Send + Sync> + Send + Sync>,
 }
@@ -160,7 +168,7 @@ pub(crate) async fn serve(options: HttpListenerOptions, daemon: DaemonContext, o
     let open = Arc::new(Semaphore::new(OPEN_AT_MOST));
     loop {
         let accepted = tokio::select! {
-            () = owner.token().cancelled() => return,
+            () = owner.token().cancelled() => break,
             accepted = listener.accept() => accepted,
         };
         match accepted {
@@ -179,10 +187,10 @@ pub(crate) async fn serve(options: HttpListenerOptions, daemon: DaemonContext, o
                     serve_connection(connection, serving, stopping).await;
                 });
             }
-            Err(TransportError::DialerClosed | TransportError::EngineGone) => return,
+            Err(TransportError::DialerClosed | TransportError::EngineGone) => break,
             Err(TransportError::ListenerClosed(error)) => {
                 tracing::warn!(%error, "the HTTP listener is closed and stops accepting");
-                return;
+                break;
             }
             Err(TransportError::Stream(error)) => {
                 tracing::debug!(%error, "an accepted HTTP listener stream was dropped");
@@ -190,12 +198,18 @@ pub(crate) async fn serve(options: HttpListenerOptions, daemon: DaemonContext, o
             Err(TransportError::Accept(error)) => {
                 tracing::warn!(%error, "the HTTP listener cannot accept a connection");
                 tokio::select! {
-                    () = owner.token().cancelled() => return,
+                    () = owner.token().cancelled() => break,
                     () = clock.sleep(ACCEPT_PAUSE) => {}
                 }
             }
         }
     }
+    // Cancel SSE pumps and outliving watchers first so active HTTP connections
+    // drain promptly, then await all connection tasks before stopping the child
+    // owner that holds those pumps and watchers.
+    serving.owner.cancel();
+    owner.stop().await;
+    serving.owner.stop().await;
 }
 
 /// Terminates TLS when configured, then serves HTTP/1.1 requests on `connection`.
@@ -204,6 +218,7 @@ async fn serve_connection(
     serving: Arc<Serving>,
     stopping: tokio_util::sync::CancellationToken,
 ) {
+    let clock = serving.daemon.engine.clock();
     let peer = connection.addresses().map(|addresses| addresses.peer);
     let (connection, authorities) = match &serving.exposure.termination {
         Termination::Plain | Termination::Upstream(_) => {
@@ -245,7 +260,17 @@ async fn serve_connection(
                 tracing::debug!(%error, "an HTTP listener connection ended with an error");
             }
         }
-        () = stopping.cancelled() => connection.as_mut().graceful_shutdown(),
+        () = stopping.cancelled() => {
+            connection.as_mut().graceful_shutdown();
+            tokio::select! {
+                ended = connection.as_mut() => {
+                    if let Err(error) = ended {
+                        tracing::debug!(%error, "an HTTP listener connection ended during shutdown");
+                    }
+                }
+                () = clock.sleep(SHUTDOWN_GRACE) => {}
+            }
+        }
     }
 }
 
@@ -454,20 +479,28 @@ impl Serving {
             .daemon
             .next_connection_id
             .fetch_add(1, Ordering::Relaxed);
+        let closing = Closing::default();
+        let _ = self.daemon.opened.send((id, closing.clone())).await;
+        let daemon = (self.daemon.open_connection)(id, closing);
         let runs = self.daemon.runs.on_connection(id);
         let request_owner = self.owner.child_for(OwnerKind::Connection);
         let context = HttpContext {
             dispatch: Arc::clone(&self.daemon.dispatch),
             runs: runs.clone(),
             events: self.daemon.events.clone(),
-            daemon: Arc::clone(&self.daemon.daemon),
+            daemon,
             exposed: self.exposed,
             engine: self.daemon.engine.clone(),
         };
         let answer = serve_http_request(context, request, &request_owner).await;
         request_owner.stop().await;
         let outliving = runs.stop_connection(id).await;
-        if !outliving.is_empty() {
+        tokio::select! {
+            biased;
+            _ = self.daemon.ended.send(id) => {}
+            () = self.owner.token().cancelled() => {}
+        }
+        if !outliving.is_empty() && !self.owner.token().is_cancelled() {
             let held = (self.daemon.hold_outliving)();
             let stopping = self.owner.token().clone();
             self.owner.spawn(async move {
@@ -586,13 +619,12 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 /// Whether a request's query string carries a token parameter (`access_token`
-/// or `token`), which ADR 0017 forbids.
+/// or `token`), including percent-encoded parameter names, which ADR 0017 forbids.
 fn query_carries_token(query: Option<&str>) -> bool {
     let Some(query) = query else {
         return false;
     };
-    query.split('&').any(|pair| {
-        let key = pair.split_once('=').map_or(pair, |(key, _)| key);
+    url::form_urlencoded::parse(query.as_bytes()).any(|(key, _)| {
         key.eq_ignore_ascii_case("access_token") || key.eq_ignore_ascii_case("token")
     })
 }
@@ -633,14 +665,29 @@ fn parse_hello_headers(
             format!("invalid `Goodfetch-Product` header `{product_text}`"),
         )
     })?;
-    let form = match header_str(headers, HEADER_FORM).map(str::trim) {
-        None | Some("") => Form::Catalog,
-        Some(text) => parse_form(text).ok_or_else(|| {
-            CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                format!("invalid `Goodfetch-Form` header `{text}`"),
-            )
-        })?,
+    let form = match headers.get(HEADER_FORM) {
+        None => Form::Catalog,
+        Some(value) => {
+            let text = value
+                .to_str()
+                .map_err(|_| {
+                    CallError::protocol(
+                        ProtocolFailure::InvalidParams,
+                        "`Goodfetch-Form` header is not valid UTF-8",
+                    )
+                })?
+                .trim();
+            if text.is_empty() {
+                Form::Catalog
+            } else {
+                parse_form(text).ok_or_else(|| {
+                    CallError::protocol(
+                        ProtocolFailure::InvalidParams,
+                        format!("invalid `Goodfetch-Form` header `{text}`"),
+                    )
+                })?
+            }
+        }
     };
     Ok(HelloParams {
         protocol_version,
@@ -736,6 +783,3 @@ fn sse_response(stream: SseStream) -> Response<HttpBody> {
     headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
     response
 }
-
-#[cfg(test)]
-mod tests;

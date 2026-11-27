@@ -42,14 +42,13 @@ use goodfetch_engine::endpoint::{Authorities, Exposure, Termination};
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError};
-use goodfetch_engine::tls::{ServingCertificate, ServingCertificateError};
 use goodfetch_engine::transport::{Network, listen_ops};
 use goodfetch_engine::{Dependencies, Engine, Identity};
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::daemon::{
     ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT, TLS_CERT_FILE,
-    TLS_KEY_FILE, TLS_UPSTREAM, TRUSTED_PROXIES, TrustedProxy,
+    TLS_KEY_FILE, TLS_UPSTREAM,
 };
 use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
@@ -61,6 +60,7 @@ use goodfetch_protocol::settings::{
 use tokio_util::sync::CancellationToken;
 
 use super::launched::Stores;
+use super::tls::{Terminating, read_termination};
 use super::{Failure, Machine, Reach};
 use crate::executable::metrics::Export;
 use crate::executable::otlp::ToCollector;
@@ -81,17 +81,6 @@ struct Configured {
     settings: Resolved,
     /// Where its TLS is terminated.
     termination: Terminating,
-}
-
-/// Where the foreground Daemon's TLS is terminated, as its settings say.
-enum Terminating {
-    /// Nowhere: it listens on loopback.
-    Plain,
-    /// By the Daemon, with these files.
-    Files(TlsFiles),
-    /// In front of it (`daemon.tls.upstream`), these proxies' `X-Forwarded-*`
-    /// read (`daemon.trusted_proxies`).
-    Upstream(Vec<TrustedProxy>),
 }
 
 /// Why the foreground Daemon did not start: a setting, or a deployment
@@ -282,40 +271,11 @@ fn announce_serving(
     );
 }
 
-/// Reads and opens `daemon.tls.*` from `settings` so a machine's Daemon's HTTP
-/// listener shares the Exposed Daemon's TLS configuration (ADRs 0027 and 0049).
-pub(super) fn open_termination(settings: &Resolved) -> Result<Termination, SettingsError> {
-    let terminating = terminating(
-        tls_files(
-            file_setting(settings, &TLS_CERT_FILE),
-            file_setting(settings, &TLS_KEY_FILE),
-        )
-        .map_err(|Refused(error)| error)?,
-        settings
-            .get::<bool>(&TLS_UPSTREAM)
-            .then(|| Source::setting(settings, &TLS_UPSTREAM)),
-        trusted_proxies(settings).map_err(|Refused(error)| error)?,
-    )
-    .map_err(|Refused(error)| error)?;
-    match terminating {
-        Terminating::Plain => Ok(Termination::Plain),
-        Terminating::Files(files) => files
-            .open()
-            .map(Termination::Tls)
-            .map_err(|Refused(error)| error),
-        Terminating::Upstream(proxies) => Ok(Termination::Upstream(proxies)),
-    }
-}
-
 /// The Daemon's settings, and where its TLS is terminated, the certificate
 /// it serves read when they name one, before it listens.
 fn opened(machine: &Machine<'_>) -> Result<(Configured, Termination), Refused> {
     let configured = configured(machine)?;
-    let termination = match &configured.termination {
-        Terminating::Plain => Termination::Plain,
-        Terminating::Files(files) => Termination::Tls(files.open()?),
-        Terminating::Upstream(proxies) => Termination::Upstream(proxies.clone()),
-    };
+    let termination = configured.termination.open()?;
     Ok((configured, termination))
 }
 
@@ -441,16 +401,7 @@ fn configured(machine: &Machine<'_>) -> Result<Configured, Refused> {
                 Source::setting(&settings, &ADDRESS),
             ),
         };
-    let termination = terminating(
-        tls_files(
-            file_setting(&settings, &TLS_CERT_FILE),
-            file_setting(&settings, &TLS_KEY_FILE),
-        )?,
-        settings
-            .get::<bool>(&TLS_UPSTREAM)
-            .then(|| Source::setting(&settings, &TLS_UPSTREAM)),
-        trusted_proxies(&settings)?,
-    )?;
+    let termination = read_termination(&settings)?;
     let address = parse_address(
         &address,
         &source,
@@ -633,96 +584,6 @@ fn parse_address(address: &str, source: &Source, terminated: bool) -> Result<Soc
     Ok(parsed)
 }
 
-/// Where TLS is terminated, from the Daemon's TLS files, `upstream`'s
-/// source when `daemon.tls.upstream` is true, and the proxies
-/// `daemon.trusted_proxies` lists, if any, with where: by the Daemon or
-/// upstream, never both, and proxies trusted only upstream.
-fn terminating(
-    files: Option<TlsFiles>,
-    upstream: Option<Source>,
-    proxies: Option<(Vec<TrustedProxy>, Source)>,
-) -> Result<Terminating, Refused> {
-    match (files, upstream, proxies) {
-        (None, None, None) => Ok(Terminating::Plain),
-        (Some(files), None, None) => Ok(Terminating::Files(files)),
-        (None, Some(_), proxies) => Ok(Terminating::Upstream(
-            proxies.map(|(proxies, _)| proxies).unwrap_or_default(),
-        )),
-        (Some(_), Some(upstream), _) => Err(upstream.invalid(format!(
-            "TLS is terminated either by the Daemon or upstream: unset `{}`, or unset `{}` and `{}`",
-            TLS_UPSTREAM.name, TLS_CERT_FILE.name, TLS_KEY_FILE.name
-        ))),
-        (_, None, Some((_, source))) => Err(source.invalid(format!(
-            "`{}` is read only behind TLS terminated upstream: set `{}` too, or unset this one",
-            TRUSTED_PROXIES.name, TLS_UPSTREAM.name
-        ))),
-    }
-}
-
-/// The proxies `daemon.trusted_proxies` lists, with where, if it lists
-/// any.
-fn trusted_proxies(settings: &Resolved) -> Result<Option<(Vec<TrustedProxy>, Source)>, Refused> {
-    let source = Source::setting(settings, &TRUSTED_PROXIES);
-    let proxies = TrustedProxy::list(settings.value(&TRUSTED_PROXIES))
-        .map_err(|reason| source.invalid(reason))?;
-    Ok((!proxies.is_empty()).then_some((proxies, source)))
-}
-
-/// The certificate and key files an Exposed Daemon serves TLS with, and
-/// where each was set.
-struct TlsFiles {
-    certificate: PathBuf,
-    certificate_source: Source,
-    key: PathBuf,
-    key_source: Source,
-}
-
-impl TlsFiles {
-    /// The certificate they hold, read now, before the Daemon serves:
-    /// `setting_invalid` naming the file at fault otherwise.
-    fn open(&self) -> Result<ServingCertificate, Refused> {
-        ServingCertificate::open(self.certificate.clone(), self.key.clone()).map_err(|error| {
-            let source = match error {
-                ServingCertificateError::Certificate { .. } => &self.certificate_source,
-                ServingCertificateError::Key { .. } => &self.key_source,
-            };
-            source.invalid(error.to_string())
-        })
-    }
-}
-
-/// `daemon.tls.cert_file` and `daemon.tls.key_file`, each with where it was
-/// set: both or neither, since one serves nothing without the other.
-fn tls_files(
-    certificate: Option<(String, Source)>,
-    key: Option<(String, Source)>,
-) -> Result<Option<TlsFiles>, Refused> {
-    match (certificate, key) {
-        (None, None) => Ok(None),
-        (Some((certificate, certificate_source)), Some((key, key_source))) => Ok(Some(TlsFiles {
-            certificate: PathBuf::from(certificate),
-            certificate_source,
-            key: PathBuf::from(key),
-            key_source,
-        })),
-        (Some((_, source)), None) => Err(source.invalid(format!(
-            "a certificate file serves TLS only with its key: set `{}` too, or unset this one",
-            TLS_KEY_FILE.name
-        ))),
-        (None, Some((_, source))) => Err(source.invalid(format!(
-            "a key file serves TLS only with its certificate: set `{}` too, or unset this one",
-            TLS_CERT_FILE.name
-        ))),
-    }
-}
-
-/// The file the setting `setting` names, if it is set, with where.
-fn file_setting(settings: &Resolved, setting: &Setting) -> Option<(String, Source)> {
-    settings
-        .get::<Option<&str>>(setting)
-        .map(|file| (file.to_owned(), Source::setting(settings, setting)))
-}
-
 /// The foreground Daemon runs the Product its operator chose: it is its own
 /// pick, and never hands over (ADR 0098).
 struct TheOperatorsChoice;
@@ -783,9 +644,31 @@ impl Signals {
 
 #[cfg(test)]
 mod tests {
-    use goodfetch_protocol::daemon::TrustedProxy;
+    use goodfetch_engine::settings::{Layers, SettingsError, Values, resolve};
+    use goodfetch_protocol::catalog::Product;
+    use goodfetch_protocol::settings::SettingsLayer;
+    use serde_json::{Map, Value, json};
 
-    use super::{Source, Terminating, parse_address, terminating, tls_files};
+    use super::super::tls::read_termination;
+    use super::{Source, Terminating, parse_address};
+
+    fn resolve_user(entries: &[(&str, Value)]) -> goodfetch_engine::settings::Resolved {
+        let mut nested = Map::new();
+        for (key, value) in entries {
+            nested.insert((*key).to_owned(), value.clone());
+        }
+        let user_configuration =
+            Values::read(SettingsLayer::UserConfiguration, &nested, Product::Collie).unwrap();
+        resolve(
+            &Layers {
+                user_configuration,
+                ..Layers::default()
+            },
+            Product::Collie,
+            Product::Collie,
+        )
+        .unwrap()
+    }
 
     #[test]
     fn a_loopback_address_is_taken_and_any_other_refused_until_the_daemon_terminates_tls() {
@@ -846,37 +729,31 @@ mod tests {
     /// only behind TLS terminated upstream.
     #[test]
     fn tls_is_terminated_by_the_daemon_or_upstream_and_proxies_are_trusted_only_upstream() {
-        let files = || {
-            tls_files(
-                Some(("/etc/daemon/cert.pem".to_owned(), Source::variable("cert"))),
-                Some(("/etc/daemon/key.pem".to_owned(), Source::variable("key"))),
-            )
-            .ok()
-            .flatten()
-        };
-        let upstream = || Some(Source::variable("upstream"));
-        let proxies = || {
-            Some((
-                vec![TrustedProxy::parse("10.0.0.0/8").unwrap()],
-                Source::variable("proxies"),
-            ))
-        };
-        let read = |terminated: Result<Terminating, super::Refused>| match terminated {
-            Ok(Terminating::Plain) => "plain".to_owned(),
-            Ok(Terminating::Files(_)) => "files".to_owned(),
-            Ok(Terminating::Upstream(proxies)) => format!("upstream {}", proxies.len()),
-            Err(super::Refused(error)) => format!("{}: {error}", error.code()),
+        let read = |entries: &[(&str, Value)]| -> String {
+            match read_termination(&resolve_user(entries)) {
+                Ok(Terminating::Plain) => "plain".to_owned(),
+                Ok(Terminating::Files(_)) => "files".to_owned(),
+                Ok(Terminating::Upstream(proxies)) => format!("upstream {}", proxies.len()),
+                Err(error) => format!("{}: {error}", error.code()),
+            }
         };
 
-        let [plain, by_files, by_upstream, with_proxies] = [
-            terminating(None, None, None),
-            terminating(files(), None, None),
-            terminating(None, upstream(), None),
-            terminating(None, upstream(), proxies()),
-        ]
-        .map(read);
-        let both = read(terminating(files(), upstream(), None));
-        let proxies_alone = read(terminating(None, None, proxies()));
+        let plain = read(&[]);
+        let by_files = read(&[
+            ("daemon.tls.cert_file", json!("/etc/daemon/cert.pem")),
+            ("daemon.tls.key_file", json!("/etc/daemon/key.pem")),
+        ]);
+        let by_upstream = read(&[("daemon.tls.upstream", json!(true))]);
+        let with_proxies = read(&[
+            ("daemon.tls.upstream", json!(true)),
+            ("daemon.trusted_proxies", json!(["10.0.0.0/8"])),
+        ]);
+        let both = read(&[
+            ("daemon.tls.cert_file", json!("/etc/daemon/cert.pem")),
+            ("daemon.tls.key_file", json!("/etc/daemon/key.pem")),
+            ("daemon.tls.upstream", json!(true)),
+        ]);
+        let proxies_alone = read(&[("daemon.trusted_proxies", json!(["10.0.0.0/8"]))]);
 
         assert_eq!(
             [plain, by_files, by_upstream, with_proxies],
@@ -899,29 +776,24 @@ mod tests {
 
     #[test]
     fn a_certificate_file_is_taken_only_with_its_key_file() {
-        let given = |name: &str, set: bool| {
-            set.then(|| (format!("/etc/daemon/{name}.pem"), Source::variable(name)))
-        };
-        let read = [(false, false), (true, true), (true, false), (false, true)].map(
-            |(certificate, key)| {
-                tls_files(given("cert", certificate), given("key", key)).map_or_else(
-                    |refused| Err((refused.0.code(), refused.0.to_string())),
-                    |files| Ok(files.map(|files| (files.certificate, files.key))),
-                )
-            },
-        );
-
-        let [none, both, without_key, without_certificate] = read;
-        assert_eq!(
-            (none, both),
-            (
-                Ok(None),
-                Ok(Some((
-                    "/etc/daemon/cert.pem".into(),
-                    "/etc/daemon/key.pem".into()
-                )))
+        let read = |certificate: bool, key: bool| {
+            let mut entries = Vec::new();
+            if certificate {
+                entries.push(("daemon.tls.cert_file", json!("/etc/daemon/cert.pem")));
+            }
+            if key {
+                entries.push(("daemon.tls.key_file", json!("/etc/daemon/key.pem")));
+            }
+            read_termination(&resolve_user(&entries)).map_or_else(
+                |error: SettingsError| Err((error.code(), error.to_string())),
+                |terminating| Ok(matches!(terminating, Terminating::Files(_))),
             )
-        );
+        };
+
+        let [none, both, without_key, without_certificate] =
+            [(false, false), (true, true), (true, false), (false, true)]
+                .map(|(certificate, key)| read(certificate, key));
+        assert_eq!((none, both), (Ok(false), Ok(true)));
         for (refused, missing) in [
             (without_key, "`daemon.tls.key_file`"),
             (without_certificate, "`daemon.tls.cert_file`"),

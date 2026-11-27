@@ -160,7 +160,7 @@ enum Command {
 
 struct Publish {
     event: &'static Event,
-    scope: Option<String>,
+    scope: Option<Arc<str>>,
     data: EventData,
     fold: Option<Fold>,
     accepted: oneshot::Sender<()>,
@@ -200,6 +200,10 @@ impl Snapshot {
                 }
             },
         }
+    }
+
+    fn run_of_needs_you(&self, id: &str) -> Option<&RunId> {
+        self.needs_you.get(id).and_then(|item| item.run.as_ref())
     }
 
     fn resync(&self, run: Option<&str>) -> Resync {
@@ -292,7 +296,7 @@ impl Events {
     pub async fn publish(&self, event: &'static Event, scope: Option<&str>, data: &impl Serialize) {
         self.send(
             event,
-            scope.map(str::to_owned),
+            scope.map(Arc::from),
             EventData::encode(data, &self.work),
             None,
         )
@@ -307,7 +311,7 @@ impl Events {
     /// As [`Events::publish`]'s.
     pub(crate) async fn publish_axes(&self, axes: RunAxes) {
         let data = EventData::encode(&axes, &self.work);
-        let scope = Some(axes.run_id.as_str().to_owned());
+        let scope = Some(Arc::from(axes.run_id.as_str()));
         self.send(&RUN_AXES_CHANGED, scope, data, Some(Fold::Axes(axes)))
             .await;
     }
@@ -332,7 +336,7 @@ impl Events {
     async fn send(
         &self,
         event: &'static Event,
-        scope: Option<String>,
+        scope: Option<Arc<str>>,
         data: EventData,
         fold: Option<Fold>,
     ) {
@@ -489,13 +493,16 @@ impl Credits {
     }
 }
 
+/// Key for coalescing telemetry events per `(event name, optional scope)`.
+type TelemetryKey = (&'static str, Option<Arc<str>>);
+
 /// One subscription's queue.
 struct Queue {
     lossless: VecDeque<Envelope>,
     /// Whether it fell behind, or started behind: its next take starts with
     /// `events.resync`, and it queues no lossless event until then.
     behind: bool,
-    telemetry: BTreeMap<(&'static str, Option<String>), Envelope>,
+    telemetry: BTreeMap<TelemetryKey, Envelope>,
     waiting: Option<(usize, oneshot::Sender<Vec<Envelope>>)>,
     alive: oneshot::Receiver<()>,
     /// Optional Run filter (`GET /v1/events?run=<id>`).
@@ -524,7 +531,7 @@ impl Queue {
 
     /// Takes at most `most` events, in the order of their positions.
     fn take(&mut self, most: usize) -> Vec<Envelope> {
-        let mut telemetry: Vec<(Position, (&'static str, Option<String>))> = self
+        let mut telemetry: Vec<(Position, TelemetryKey)> = self
             .telemetry
             .iter()
             .map(|(key, envelope)| (envelope.position, key.clone()))
@@ -643,24 +650,18 @@ impl Stream {
             let _ = accepted.send(());
             return;
         }
-        let effective_scope: Option<Arc<str>> =
-            scope
-                .as_deref()
-                .map(Arc::from)
-                .or_else(|| match fold.as_ref() {
-                    Some(Fold::NeedsYou(change)) => match change.as_ref() {
-                        NeedsYouChange::Listed { item } => {
-                            item.run.as_ref().map(|run| Arc::from(run.as_str()))
-                        }
-                        NeedsYouChange::Removed { id, .. } => self
-                            .snapshot
-                            .needs_you
-                            .get(id)
-                            .and_then(|item| item.run.as_ref())
-                            .map(|run| Arc::from(run.as_str())),
-                    },
-                    _ => None,
-                });
+        let effective_scope: Option<Arc<str>> = scope.or_else(|| match fold.as_ref() {
+            Some(Fold::NeedsYou(change)) => match change.as_ref() {
+                NeedsYouChange::Listed { item } => {
+                    item.run.as_ref().map(|run| Arc::from(run.as_str()))
+                }
+                NeedsYouChange::Removed { id, .. } => self
+                    .snapshot
+                    .run_of_needs_you(id)
+                    .map(|run| Arc::from(run.as_str())),
+            },
+            _ => None,
+        });
         let envelope = Envelope {
             position: next_position(&mut self.last),
             event: event.name,
@@ -709,7 +710,7 @@ impl Stream {
                 for queue in self.subscriptions.values_mut().filter(|queue| {
                     (!opted_in || queue.system_info) && queue.matches(effective_scope.as_deref())
                 }) {
-                    let key = (event.name, scope.clone());
+                    let key = (event.name, effective_scope.clone());
                     let dropped = queue
                         .telemetry
                         .get(&key)

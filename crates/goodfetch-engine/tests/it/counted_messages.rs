@@ -119,7 +119,7 @@ fn each_decode_of_a_requests_params_is_counted(
 /// per streamed SSE event, and a plant adds one unit per call.
 #[test]
 fn http_rpc_requests_are_read_without_a_copy_decoded_once_and_encoded_once() {
-    let http_calls = u64::try_from(TRAFFIC.small + TRAFFIC.large + 2).unwrap();
+    let http_calls = u64::try_from(TRAFFIC.small + TRAFFIC.large + 2 * TRAFFIC.plugin + 2).unwrap();
     let (copies, encodes, decodes, sent) = run(Carriage::HttpRpc, Logs::Off, None);
     let (copies_planted, _, _, _) = run(Carriage::HttpRpc, Logs::Off, Some(Row::MessageDeepCopies));
     let (_, encodes_planted, _, _) = run(Carriage::HttpRpc, Logs::Off, Some(Row::MessageEncodes));

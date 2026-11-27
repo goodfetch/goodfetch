@@ -901,3 +901,315 @@ fn get_events_coalesces_telemetry_with_dropped_under_credits_and_unsubscribes_on
         "expected a coalesced telemetry event with `dropped > 0`, got {seen_events:#?}"
     );
 }
+
+fn authed_get(uri: &str) -> Request<Full<Bytes>> {
+    Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .header("Host", HTTP_ADDRESS)
+        .header(
+            "Authorization",
+            format!("Bearer {HTTP_LISTENER_TEST_TOKEN}"),
+        )
+        .body(Full::new(Bytes::new()))
+        .unwrap()
+}
+
+fn authed_post(
+    uri: &str,
+    extra: &[(&str, hyper::header::HeaderValue)],
+    body: &Value,
+) -> Request<Full<Bytes>> {
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header("Host", HTTP_ADDRESS)
+        .header(
+            "Authorization",
+            format!("Bearer {HTTP_LISTENER_TEST_TOKEN}"),
+        )
+        .header(
+            HEADER_PROTOCOL,
+            goodfetch_protocol::catalog::PROTOCOL_VERSION.to_string(),
+        )
+        .header(HEADER_PRODUCT, "collie");
+    for (name, value) in extra {
+        builder = builder.header(*name, value.clone());
+    }
+    builder
+        .body(Full::new(Bytes::from(body.to_string())))
+        .unwrap()
+}
+
+/// Percent-encoded query-string tokens are refused (`401`), non-UTF-8
+/// `Goodfetch-Form` and JSON-RPC reply payloads are refused (`400`),
+/// `Goodfetch-Form: tool` and non-UTF-8 `traceparent` are accepted, invalid
+/// `GET /v1/events` queries are refused (`400`), and `daemon.stop` over
+/// `POST /v1/rpc` flushes its `200 OK` answer cleanly during graceful shutdown.
+///
+/// Covers: story:11-259, story:11-260, story:11-261
+#[test]
+fn post_rpc_and_events_edge_cases_and_graceful_daemon_stop() {
+    let test_engine = engine(Product::Collie);
+    let (options, http_dialer) = with_http_listener();
+    let (daemon_end, outcomes) = served(
+        &test_engine,
+        &TestEnv::new(),
+        options,
+        |_socket_dialer| async move {
+            let ping = json!({"jsonrpc": "2.0", "id": 1, "method": "engine.info", "params": {}});
+            let bad_bytes = hyper::header::HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap();
+
+            let (pct_rpc, _, _) = send_http(
+                &http_dialer,
+                authed_post(&format!("{RPC_PATH}?%74oken=secret"), &[], &ping),
+            )
+            .await;
+            let (pct_events, _, _) = send_http(
+                &http_dialer,
+                authed_get(&format!("{EVENTS_PATH}?run=r1&access%5ftoken=secret")),
+            )
+            .await;
+            let (bad_form, _, bad_form_body) = send_http(
+                &http_dialer,
+                authed_post(RPC_PATH, &[(HEADER_FORM, bad_bytes.clone())], &ping),
+            )
+            .await;
+            let (tool_form, _, _) = send_http(
+                &http_dialer,
+                authed_post(
+                    RPC_PATH,
+                    &[
+                        (HEADER_FORM, hyper::header::HeaderValue::from_static("tool")),
+                        ("traceparent", bad_bytes),
+                    ],
+                    &ping,
+                ),
+            )
+            .await;
+            let (reply_status, _, reply_body) = send_http(
+                &http_dialer,
+                valid_rpc_request(&json!({"jsonrpc": "2.0", "id": 7, "result": {}})),
+            )
+            .await;
+            let (empty_run, _, _) =
+                send_http(&http_dialer, authed_get(&format!("{EVENTS_PATH}?run="))).await;
+            let (bad_after, _, _) = send_http(
+                &http_dialer,
+                authed_get(&format!("{EVENTS_PATH}?run=r1&after=not-a-number")),
+            )
+            .await;
+            let (stop_status, _, stop_body) = send_http(
+                &http_dialer,
+                valid_rpc_request(
+                    &json!({"jsonrpc": "2.0", "id": 9, "method": "daemon.stop", "params": {}}),
+                ),
+            )
+            .await;
+            drop(http_dialer);
+            (
+                [
+                    pct_rpc,
+                    pct_events,
+                    bad_form,
+                    tool_form,
+                    reply_status,
+                    empty_run,
+                    bad_after,
+                    stop_status,
+                ],
+                bad_form_body,
+                reply_body,
+                stop_body,
+            )
+        },
+    );
+
+    let (statuses, bad_form_body, reply_body, stop_body) = outcomes;
+    assert!(
+        matches!(daemon_end, crate::daemon::DaemonEnd::Stopped),
+        "{daemon_end:?}"
+    );
+    assert_eq!(statuses, [401, 401, 400, 200, 400, 400, 400, 200]);
+    assert_eq!(bad_form_body["error"]["data"]["code"], "invalid_params");
+    assert_eq!(reply_body["id"], 7);
+    assert_eq!(reply_body["error"]["data"]["code"], "invalid_request");
+    assert!(stop_body["result"].is_object(), "{stop_body}");
+}
+
+const SSE_TEST_LOSSLESS: Event = Event {
+    name: "test.sse_lossless",
+    description: "A test lossless event for SSE overflow resync.",
+    class: EventClass::Lossless,
+    payload: schema_of::<Value>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+const PUBLISH_LOSSLESS_BURST: Operation = Operation {
+    name: "test.publish_lossless_burst",
+    description: "Publishes a burst of lossless events to test SSE overflow resync.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[&SSE_TEST_LOSSLESS],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn open_raw_sse(
+    dialer: &InMemoryDialer,
+    target: &str,
+) -> (
+    tokio::io::BufReader<crate::transport::ConnectionReader>,
+    crate::transport::ConnectionWriter,
+) {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+
+    let (reader, mut writer) = dialer.connect().await.unwrap().split();
+    let request = format!(
+        "GET {target} HTTP/1.1\r\nHost: {HTTP_ADDRESS}\r\nAuthorization: Bearer {HTTP_LISTENER_TEST_TOKEN}\r\n\r\n"
+    );
+    writer.write_all(request.as_bytes()).await.unwrap();
+    let mut reader = BufReader::new(reader);
+    let mut status_line = String::new();
+    reader.read_line(&mut status_line).await.unwrap();
+    assert!(status_line.contains("200"), "{status_line}");
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        if line == "\r\n" || line.is_empty() {
+            break;
+        }
+    }
+    (reader, writer)
+}
+
+async fn read_chunked_sse_until_resync(
+    reader: &mut tokio::io::BufReader<crate::transport::ConnectionReader>,
+) -> Option<SseEvent> {
+    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
+
+    let mut buffer = String::new();
+    loop {
+        let mut size_line = String::new();
+        reader.read_line(&mut size_line).await.unwrap();
+        let size = usize::from_str_radix(size_line.trim(), 16).unwrap();
+        if size == 0 {
+            return None;
+        }
+        let mut chunk = vec![0_u8; size];
+        reader.read_exact(&mut chunk).await.unwrap();
+        let mut crlf = [0_u8; 2];
+        reader.read_exact(&mut crlf).await.unwrap();
+        buffer.push_str(std::str::from_utf8(&chunk).unwrap());
+        while let Some((frame, rest)) = buffer.split_once("\n\n") {
+            let event = parse_sse_frame(frame);
+            buffer = rest.to_owned();
+            if event.data["event"] == "events.resync" {
+                return Some(event);
+            }
+        }
+    }
+}
+
+/// `GET /v1/events?run=<id>` sends a Run-scoped `events.resync` when resuming
+/// from a foreign/stale `engine_instance` and when a stalled reader overflows
+/// the 64-event lossless queue (ADR 0024).
+///
+/// Covers: story:11-260
+#[test]
+fn get_events_sends_filtered_resync_on_stale_position_and_lossless_overflow() {
+    let contribution = Contribution::new("test-sse-lossless").with_handler(Handler::new(
+        &PUBLISH_LOSSLESS_BURST,
+        |params: Value, context: CallContext| async move {
+            let run = params["run"].as_str().unwrap();
+            let count = params["count"].as_u64().unwrap();
+            let pad = "q".repeat(8192);
+            for step in 0..count {
+                context
+                    .events()
+                    .publish(
+                        &SSE_TEST_LOSSLESS,
+                        Some(run),
+                        &json!({ "run_id": run, "step": step, "pad": pad }),
+                    )
+                    .await;
+            }
+            Ok::<Value, CallError>(json!({ "published": count }))
+        },
+    ));
+    let test_engine = engine_with(Product::Collie, Some(contribution));
+    let (options, http_dialer) = with_http_listener();
+    let (_, (stale_resync, overflow_resync)) = served(
+        &test_engine,
+        &TestEnv::new(),
+        options,
+        |_socket_dialer| async move {
+            assert_eq!(
+                rpc_run_call(&http_dialer, 1, "run.start", "run-resync").await,
+                200
+            );
+            assert_eq!(
+                rpc_run_call(&http_dialer, 2, "run.start", "run-other").await,
+                200
+            );
+
+            let (stale_status, _, mut stale_body, stale_driver) = open_sse(
+                &http_dialer,
+                &format!("{EVENTS_PATH}?run=run-resync&after=0"),
+                &[("Last-Event-ID", "stale-instance:0")],
+            )
+            .await;
+            assert_eq!(stale_status, 200);
+            let stale_event = read_sse_events(&mut stale_body, 1).await.pop().unwrap();
+            drop(stale_body);
+            stale_driver.abort();
+
+            let (mut reader, writer) =
+                open_raw_sse(&http_dialer, &format!("{EVENTS_PATH}?run=run-resync")).await;
+            let (burst_status, _, _) = send_http(
+                &http_dialer,
+                valid_rpc_request(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "test.publish_lossless_burst",
+                    "params": { "run": "run-resync", "count": 220 }
+                })),
+            )
+            .await;
+            assert_eq!(burst_status, 200);
+
+            let found_resync = read_chunked_sse_until_resync(&mut reader).await;
+            drop((reader, writer));
+            assert_eq!(
+                rpc_run_call(&http_dialer, 4, "run.finish", "run-resync").await,
+                200
+            );
+            assert_eq!(
+                rpc_run_call(&http_dialer, 5, "run.finish", "run-other").await,
+                200
+            );
+            drop(http_dialer);
+            (stale_event, found_resync)
+        },
+    );
+
+    assert_eq!(stale_resync.data["event"], "events.resync");
+    let stale_runs = stale_resync.data["data"]["runs"].as_array().unwrap();
+    assert_eq!(stale_runs.len(), 1, "{stale_resync:#?}");
+    assert_eq!(stale_runs[0]["run_id"], "run-resync");
+
+    let overflow = overflow_resync.expect("stalled lossless SSE reader must receive events.resync");
+    assert_eq!(overflow.data["event"], "events.resync");
+    let overflow_runs = overflow.data["data"]["runs"].as_array().unwrap();
+    assert_eq!(overflow_runs.len(), 1, "{overflow:#?}");
+    assert_eq!(overflow_runs[0]["run_id"], "run-resync");
+}

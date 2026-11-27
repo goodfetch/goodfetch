@@ -772,15 +772,16 @@ async fn send_http_rpc_traffic(
     let protocol = PROTOCOL_VERSION.to_string();
     let mut outgoing = 0;
     let large_body = "QUJD".repeat(LARGE_BYTES / 4);
+    let large_count = traffic.large + 2 * traffic.plugin;
     let start_id = 1_usize;
-    let finish_id = 2 + traffic.small + traffic.large;
+    let finish_id = 2 + traffic.small + large_count;
     let bodies = std::iter::once(format!(
         "{{\"jsonrpc\":\"2.0\",\"id\":{start_id},\"method\":\"run.start\",\"params\":{{\"run_id\":\"b3-http\"}}}}"
     ))
     .chain((2..=1 + traffic.small).map(|current| {
         format!("{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"engine.info\",\"params\":{{}}}}")
     }))
-    .chain((2 + traffic.small..=1 + traffic.small + traffic.large).map(|current| {
+    .chain((2 + traffic.small..=1 + traffic.small + large_count).map(|current| {
         format!(
             "{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"route.fulfill\",\"params\":{{\"route_id\":\"route-1\",\"status\":200,\"body\":\"{large_body}\"}}}}"
         )

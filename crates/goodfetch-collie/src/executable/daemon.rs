@@ -89,6 +89,7 @@ mod reaper;
 mod remote;
 #[cfg(test)]
 mod tests;
+mod tls;
 
 pub(super) use for_attached::DaemonOfTheMajor;
 use launched::launch;

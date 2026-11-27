@@ -16,7 +16,7 @@ use goodfetch_protocol::http_listener::{ADDRESS, ENABLED, PORT};
 use goodfetch_protocol::settings::SettingsLayer;
 use secrecy::SecretString;
 
-use super::foreground::open_termination;
+use super::tls::open_termination;
 use super::{Failure, Machine, unavailable};
 
 /// Opens the HTTP listener when `http_listener.enabled` is true; returns

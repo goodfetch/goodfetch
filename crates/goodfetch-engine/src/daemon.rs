@@ -652,6 +652,8 @@ fn serve_http_listener(
     serving: &Serving,
     shared: &Arc<Shared>,
     next_connection_id: &Arc<AtomicU64>,
+    opened: mpsc::Sender<(ConnectionId, Closing)>,
+    ended: mpsc::Sender<ConnectionId>,
     owner: &TaskOwner,
 ) {
     let Some(options) = options else {
@@ -662,6 +664,15 @@ fn serve_http_listener(
         connection: u64::MAX,
         closing: Closing::default(),
     });
+    let shared_for_connection = Arc::clone(shared);
+    let open_connection: Arc<dyn Fn(ConnectionId, Closing) -> Arc<dyn DaemonSide> + Send + Sync> =
+        Arc::new(move |connection, closing| {
+            Arc::new(ConnectionSide {
+                shared: Arc::clone(&shared_for_connection),
+                connection,
+                closing,
+            })
+        });
     let runs_held = shared.runs_held.clone();
     let context = http_listener::DaemonContext {
         dispatch: Arc::clone(&serving.dispatch),
@@ -669,6 +680,9 @@ fn serve_http_listener(
         events: serving.events.clone(),
         engine: serving.engine.clone(),
         daemon,
+        open_connection,
+        opened,
+        ended,
         next_connection_id: Arc::clone(next_connection_id),
         hold_outliving: Arc::new(move || Box::new(runs_held.hold())),
     };
@@ -680,13 +694,14 @@ fn serve_http_listener(
 }
 
 async fn start_auxiliaries(
-    ops: Option<ops::OpsOptions>,
-    http_listener: Option<HttpListenerOptions>,
+    auxiliaries: (Option<ops::OpsOptions>, Option<HttpListenerOptions>),
     serving: &Serving,
     shared: &Arc<Shared>,
     next_connection_id: &Arc<AtomicU64>,
+    ended: mpsc::Sender<ConnectionId>,
     owner: &TaskOwner,
-) {
+) -> mpsc::Receiver<(ConnectionId, Closing)> {
+    let (ops, http_listener) = auxiliaries;
     serving.metrics.draining(false);
     record_termination(serving, shared).await;
     if let Some(http) = &http_listener {
@@ -699,7 +714,36 @@ async fn start_auxiliaries(
             .await;
     }
     serve_ops(ops, serving, shared, owner);
-    serve_http_listener(http_listener, serving, shared, next_connection_id, owner);
+    let (http_opened, http_opened_rx) = mpsc::channel::<(ConnectionId, Closing)>(64);
+    serve_http_listener(
+        http_listener,
+        serving,
+        shared,
+        next_connection_id,
+        http_opened,
+        ended,
+        owner,
+    );
+    http_opened_rx
+}
+
+async fn drain_if_entered(
+    serving: &Serving,
+    state: &watch::Sender<EngineState>,
+    event: EngineEvent,
+    grace: Duration,
+    asked_of_the_loop: &mut mpsc::Receiver<Ask>,
+) -> Option<Instant> {
+    if !matches!(transition(state, event), Ok(EngineState::Draining)) {
+        return None;
+    }
+    decide_no_more(asked_of_the_loop);
+    Some(
+        drain_runs(serving, state, grace, |effects_by| {
+            serving.runs.drain(effects_by)
+        })
+        .await,
+    )
 }
 
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
@@ -711,8 +755,8 @@ pub(crate) async fn serve(
     owner: &TaskOwner,
 ) -> DaemonEnd {
     let Drain { asked, grace } = options.drain.clone();
-    let (ops, http_listener) = (options.ops.listener.take(), options.http_listener.take());
-    let http_listener_at = http_listener.as_ref().map(|options| options.bound);
+    let auxiliaries = (options.ops.listener.take(), options.http_listener.take());
+    let http_listener_at = auxiliaries.1.as_ref().map(|options| options.bound);
     let asked = drain_asked(asked);
     tokio::pin!(asked);
     let (asks, mut asked_of_the_loop) = mpsc::channel(ASKS);
@@ -732,9 +776,10 @@ pub(crate) async fn serve(
         http_listener_at,
     ));
     let next = Arc::new(AtomicU64::new(0));
-    start_auxiliaries(ops, http_listener, &serving, &shared, &next, owner).await;
-    let connections_owner = owner.part("Daemon's listener");
     let (ended, mut endings_of_connections) = mpsc::channel::<ConnectionId>(ENDED_CONNECTIONS);
+    let mut http_opened_rx =
+        start_auxiliaries(auxiliaries, &serving, &shared, &next, ended.clone(), owner).await;
+    let connections_owner = owner.part("Daemon's listener");
     let mut open: BTreeMap<ConnectionId, Closing> = BTreeMap::new();
     let idle = idle(&shared, clock);
     tokio::pin!(idle);
@@ -745,10 +790,9 @@ pub(crate) async fn serve(
     let end = loop {
         tokio::select! {
             biased;
+            Some((id, closing)) = http_opened_rx.recv() => { open.insert(id, closing); }
             Some(ask) = asked_of_the_loop.recv() => {
-                if let Some(ending) = decide(ask, &shared, &state).await {
-                    break ending;
-                }
+                if let Some(ending) = decide(ask, &shared, &state).await { break ending; }
             }
             Some(connection) = endings_of_connections.recv() => {
                 let _ = transition(&state, EngineEvent::ClientLost);
@@ -773,10 +817,7 @@ pub(crate) async fn serve(
             }
             () = &mut asked, if !drain_asked => {
                 drain_asked = true;
-                // A drain once a handover is decided changes nothing.
-                if let Ok(EngineState::Draining) = transition(&state, EngineEvent::Drain) {
-                    decide_no_more(&mut asked_of_the_loop);
-                    let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
+                if let Some(until) = drain_if_entered(&serving, &state, EngineEvent::Drain, grace, &mut asked_of_the_loop).await {
                     drop((accepts, live_view_accepts));
                     return finish_by(DaemonEnd::Drained, &connections_owner, &shared, clock, until).await;
                 }
@@ -790,15 +831,10 @@ pub(crate) async fn serve(
             }
             accepted = accepts.next() => match accepted {
                 Ok(connection) => admit(&mut open, &next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), Door::Listener)),
-                // It goes on with its Clients.
                 Err(NoMoreConnections::DialersGone) => {}
                 Err(NoMoreConnections::ListenerClosed(error)) => {
                     tracing::error!(%error, "the Daemon's listener is closed: it drains its runs and stops");
-                    // A listener closed once a handover is decided changes nothing.
-                    let failed = transition(&state, EngineEvent::ListenerFailed);
-                    if let Ok(EngineState::Draining) = failed {
-                        decide_no_more(&mut asked_of_the_loop);
-                        let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
+                    if let Some(until) = drain_if_entered(&serving, &state, EngineEvent::ListenerFailed, grace, &mut asked_of_the_loop).await {
                         drop((accepts, live_view_accepts));
                         return finish_by(DaemonEnd::ListenerFailed, &connections_owner, &shared, clock, until).await;
                     }

@@ -557,6 +557,11 @@ impl Workspace {
         }
     }
 
+    /// Path to the shared test host gate key, outside every git tree.
+    pub(crate) fn gate_key_path() -> PathBuf {
+        Path::new(env!("CARGO_TARGET_TMPDIR")).join("test-gate-records.key")
+    }
+
     /// Runs `xtask <args>` as `xtask` does, with these variables added.
     pub(crate) fn xtask_with_env(
         &self,
@@ -566,6 +571,7 @@ impl Workspace {
         let output = self
             .command(env!("CARGO_BIN_EXE_xtask"))
             .args(args)
+            .env("GOODFETCH_GATE_KEY", Self::gate_key_path())
             .envs(variables.iter().copied())
             .env("CARGO_TARGET_DIR", &self.target.folder)
             .env("CARGO_NET_OFFLINE", "true")

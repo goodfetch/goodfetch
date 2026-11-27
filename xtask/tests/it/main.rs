@@ -66,6 +66,7 @@ mod floor_guard;
 mod fuzz_nightly;
 mod gate;
 mod gate_backstop;
+mod gate_hardening;
 mod gate_worktree;
 mod head_order;
 mod ignored_sources;

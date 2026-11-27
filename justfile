@@ -2397,6 +2397,13 @@ _gate-record by head step status *evidence:
     cargo run --quiet --bin xtask -- gate record --records "$(ci/gate-records.sh)" --by {{ by }} --head {{ head }} \
       --now "$(date +%s)" --step {{ step }} --status {{ status }} {{ evidence }}
 
+# Checks a gate run's signed verdict before `just merge` merges it (ADR 0135):
+# every unit of every required step of `form` holds a signed green result on
+# `head` or reused from an earlier signed run on an ancestor with that
+# ancestor's tree. Prints each reused ancestor as `origin\t<commit>`.
+_gate-verify form head:
+    cargo run --quiet --bin xtask -- gate verify --records "$(ci/gate-records.sh)" --form {{ form }} --head {{ head }}
+
 # Exits 0, naming the run, when `just quick` in the form `form` (`changed` or
 # `all`) already passed on `head`'s tree against `base`, on this host and in
 # this environment, within a day, as a layer recorded it in the gate's

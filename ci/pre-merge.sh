@@ -257,17 +257,30 @@ on_exit() {
 }
 trap on_exit EXIT
 
-# A whole-workspace gate run that narrows what runs or swaps the
-# executables under test would record results a normal run then reuses, so
-# it fails before any step (ADR 0135). The rest of the environment that
-# changes how tests run is part of the record's host fingerprint.
+# A whole-workspace gate run that narrows what runs, swaps the executables
+# under test or lets a failing assertion pass would record results a normal
+# run then reuses, so it fails before any step (ADR 0135): the test
+# selection, engine and order seed; pytest's added options and plugins
+# (`PYTEST_ADDOPTS` can add `-k` or `--deselect`); every variable of insta
+# (`INSTA_FORCE_PASS`, `INSTA_GLOB_FILTER`, `INSTA_UPDATE`…), Vitest,
+# Playwright's test runner (`PWTEST_*`, `PW_TEST_*`), and nextest
+# (`NEXTEST_*`, e.g. retries, profiles, filters, no-tests) except nextest's
+# output, display and parallelism settings (`NEXTEST_TEST_THREADS`, already
+# unset above; `NEXTEST_DOUBLE_SPAWN`, exported by the justfile; and
+# `NEXTEST_STATUS_LEVEL`, `NEXTEST_FINAL_STATUS_LEVEL`,
+# `NEXTEST_FAILURE_OUTPUT`, `NEXTEST_SUCCESS_OUTPUT`,
+# `NEXTEST_HIDE_PROGRESS_BAR`, `NEXTEST_SHOW_PROGRESS`,
+# `NEXTEST_MAX_PROGRESS_BAR_WIDTH`, `NEXTEST_NO_INPUT_HANDLER`,
+# `NEXTEST_COLOR`). The rest of the environment that changes how tests run
+# is part of the record's host fingerprint.
 if [[ -n $planning ]]; then
-  for variable in GOODFETCH_TEST_SELECTION GOODFETCH_TEST_ENGINE GOODFETCH_ORDER_SEED; do
-    if [[ -n "${!variable:-}" ]]; then
-      echo "error: $variable is set, which narrows or changes what \`just pre-merge $form\` runs; unset it for a gate run" >&2
-      exit 2
-    fi
+  narrowing=$(compgen -e |
+    grep -E '^(GOODFETCH_TEST_SELECTION|GOODFETCH_TEST_ENGINE|GOODFETCH_ORDER_SEED|PYTEST_ADDOPTS|PYTEST_PLUGINS|PYTEST_DISABLE_PLUGIN_AUTOLOAD|INSTA_.*|VITEST_.*|NEXTEST_.*|PWTEST_.*|PW_TEST_.*)$' |
+    grep -Ev '^NEXTEST_(DOUBLE_SPAWN|TEST_THREADS|STATUS_LEVEL|FINAL_STATUS_LEVEL|FAILURE_OUTPUT|SUCCESS_OUTPUT|HIDE_PROGRESS_BAR|SHOW_PROGRESS|MAX_PROGRESS_BAR_WIDTH|NO_INPUT_HANDLER|COLOR)$' || true)
+  for variable in $narrowing; do
+    echo "error: $variable is set, which narrows or changes what \`just pre-merge $form\` runs; unset it for a gate run" >&2
   done
+  [[ -z $narrowing ]] || exit 2
 fi
 
 # Takes the lock `$1` for this run, a folder holding its process ID, or

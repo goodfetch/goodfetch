@@ -205,7 +205,7 @@ fn every_listener_binds_to_loopback_unless_configured_otherwise() {
 /// refused and audited: no token, the token in the query string, a foreign
 /// `Origin`, and no `Origin` with the token only in a cookie.
 ///
-/// Covers: story:4-21, story:4-24
+/// Covers: story:4-21, story:4-24, story:4-92
 #[test]
 fn cve_2025_49596_a_browser_pages_request_without_a_header_token_is_refused_by_the_ops_listener() {
     let env = TestEnv::new();
@@ -227,7 +227,7 @@ fn cve_2025_49596_a_browser_pages_request_without_a_header_token_is_refused_by_t
 /// CVE-2025-49596 on the Daemon's socket: a first message without the
 /// token is closed unanswered and audited.
 ///
-/// Covers: story:4-21, story:4-24
+/// Covers: story:4-21, story:4-24, story:4-92
 #[test]
 fn cve_2025_49596_a_first_message_without_the_token_is_refused_by_the_daemon_socket() {
     let env = TestEnv::new();
@@ -246,7 +246,7 @@ fn cve_2025_49596_a_first_message_without_the_token_is_refused_by_the_daemon_soc
 /// default): a rebinding page's request names its own `Host`. The ops
 /// listener refuses it and audits the refusal.
 ///
-/// Covers: story:4-21, story:4-24
+/// Covers: story:4-21, story:4-24, story:4-92
 #[test]
 fn cve_2025_66414_a_dns_rebinding_pages_host_is_refused_by_the_ops_listener() {
     let env = TestEnv::new();

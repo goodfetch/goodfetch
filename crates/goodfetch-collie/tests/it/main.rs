@@ -26,6 +26,7 @@ fn daemon_client(
 }
 
 mod accounts;
+mod advisories;
 mod ai_work;
 mod attached;
 mod audit;

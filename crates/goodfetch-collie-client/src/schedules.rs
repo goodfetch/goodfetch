@@ -5,10 +5,12 @@
 //! a Schedule its store keeps, so dropping it frees nothing in the engine.
 //! TypeScript's `schedules.ts` and Python's `schedules.py` are its twins.
 
+use std::time::SystemTime;
+
 use goodfetch_protocol::schedule::{
-    SCHEDULE_CREATE, SCHEDULE_GET, SCHEDULE_LIST, ScheduleCreateParams, ScheduleCreated,
-    ScheduleDefinition, ScheduleGetParams, ScheduleId, ScheduleInfo, ScheduleList,
-    ScheduleListParams, ScheduleWarning,
+    SCHEDULE_CREATE, SCHEDULE_GET, SCHEDULE_LIST, SCHEDULE_PREVIEW, ScheduleCreateParams,
+    ScheduleCreated, ScheduleDefinition, ScheduleGetParams, ScheduleId, ScheduleInfo, ScheduleList,
+    ScheduleListParams, SchedulePreview, SchedulePreviewParams, ScheduleTrigger, ScheduleWarning,
 };
 
 use crate::call::Call;
@@ -147,12 +149,72 @@ impl Schedules {
             .map(move |info| schedule(connection, info.schedule_id))
     }
 
+    /// Describes a Schedule's trigger in plain words and lists its next
+    /// Occurrences in a time zone strictly after `after` (now when absent;
+    /// 5 by default, at most 100), including DST transitions. A trigger
+    /// that does not parse fails with `schedule_trigger_invalid`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    ///
+    /// # Errors
+    ///
+    /// Once sent, `closed` when the Connection is closed, the engine's
+    /// error (`schedule_trigger_invalid` for a trigger that does not parse),
+    /// `deadline_exceeded` once its timeout runs out, and `internal` when
+    /// its reply does not fit its type.
+    pub fn preview(
+        &self,
+        trigger: ScheduleTrigger,
+    ) -> Call<SchedulePreview, SchedulePreviewParams> {
+        crate::markers::warn_operation(SCHEDULE_PREVIEW.name);
+        let call: Call<SchedulePreview, SchedulePreviewParams> = self.host().call(
+            SCHEDULE_PREVIEW.name,
+            SchedulePreviewParams {
+                trigger,
+                time_zone: None,
+                after: None,
+                count: None,
+                timeout: None,
+            },
+        );
+        call.wire_timeout("timeout.wait")
+    }
+
     /// The host the Schedules' own calls go through, which names no
     /// Schedule.
     fn host(&self) -> ConnectionHost<()> {
         ConnectionHost::new(self.connection.clone(), ())
     }
 }
+
+/// Option builders shared between async [`Call`] and blocking `Call` for
+/// `schedule.preview`.
+macro_rules! preview_call_options {
+    ($call:ident) => {
+        impl<T> $call<T, SchedulePreviewParams> {
+            /// The IANA time zone to preview in, such as `Europe/Paris`; the
+            /// Daemon host's when absent.
+            pub fn time_zone(self, time_zone: impl Into<String>) -> Self {
+                self.edit(move |params| params.time_zone = Some(time_zone.into()))
+            }
+
+            /// The instant strictly after which Occurrences are listed; now
+            /// when absent.
+            pub fn after(self, after: SystemTime) -> Self {
+                self.edit(move |params| params.after = Some(after))
+            }
+
+            /// How many Occurrences to list; 5 when absent, at most 100.
+            pub fn count(self, count: u32) -> Self {
+                self.edit(move |params| params.count = Some(count))
+            }
+        }
+    };
+}
+
+pub(crate) use preview_call_options;
+
+preview_call_options!(Call);
 
 /// The handle of the Schedule `id` names, whose calls go through
 /// `connection`.

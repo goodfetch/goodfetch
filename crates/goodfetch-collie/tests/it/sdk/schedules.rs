@@ -35,6 +35,8 @@ fn definition(id: Option<&str>, every: Duration, time_zone: Option<&str>) -> Sch
             anchor: None,
         }),
         time_zone: time_zone.map(str::to_owned),
+        settings: None,
+        limits: None,
     }
 }
 

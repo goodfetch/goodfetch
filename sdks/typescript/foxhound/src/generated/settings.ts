@@ -968,6 +968,66 @@ export interface FoxhoundSettings {
      */
     readonly echoRepeats?: number;
   };
+  readonly schedule?: {
+    readonly autoPause?: {
+      /**
+       * How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+       *
+       * `schedule.auto_pause.failures`.
+       */
+      readonly failures?: number;
+    };
+    /**
+     * How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+     *
+     * `schedule.catch_up`.
+     */
+    readonly catchUp?: number | "until_next";
+    /**
+     * Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+     *
+     * `schedule.jitter`.
+     */
+    readonly jitter?: number;
+    /**
+     * How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+     *
+     * `schedule.overlap`.
+     */
+    readonly overlap?: "skip" | "queue_one" | "allow" | "replace";
+    /**
+     * A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+     *
+     * `schedule.pause_timeout`.
+     */
+    readonly pauseTimeout?: number | "next_occurrence" | null;
+    readonly retention?: {
+      /**
+       * How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+       *
+       * `schedule.retention.changed_watches`.
+       */
+      readonly changedWatches?: number;
+      /**
+       * How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+       *
+       * `schedule.retention.history`.
+       */
+      readonly history?: number;
+      /**
+       * How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.runs`.
+       */
+      readonly runs?: number;
+      /**
+       * How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.watch_runs`.
+       */
+      readonly watchRuns?: number;
+    };
+  };
   readonly secrets?: {
     /**
      * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
@@ -2254,6 +2314,66 @@ export interface CrawlSettings {
      */
     readonly echoRepeats?: number;
   };
+  readonly schedule?: {
+    readonly autoPause?: {
+      /**
+       * How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.
+       *
+       * `schedule.auto_pause.failures`.
+       */
+      readonly failures?: number;
+    };
+    /**
+     * How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.
+     *
+     * `schedule.catch_up`.
+     */
+    readonly catchUp?: number | "until_next";
+    /**
+     * Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.
+     *
+     * `schedule.jitter`.
+     */
+    readonly jitter?: number;
+    /**
+     * How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.
+     *
+     * `schedule.overlap`.
+     */
+    readonly overlap?: "skip" | "queue_one" | "allow" | "replace";
+    /**
+     * A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused.
+     *
+     * `schedule.pause_timeout`.
+     */
+    readonly pauseTimeout?: number | "next_occurrence" | null;
+    readonly retention?: {
+      /**
+       * How many recent Watch runs that detected a change a Schedule keeps: `10` by default.
+       *
+       * `schedule.retention.changed_watches`.
+       */
+      readonly changedWatches?: number;
+      /**
+       * How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.
+       *
+       * `schedule.retention.history`.
+       */
+      readonly history?: number;
+      /**
+       * How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.runs`.
+       */
+      readonly runs?: number;
+      /**
+       * How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.
+       *
+       * `schedule.retention.watch_runs`.
+       */
+      readonly watchRuns?: number;
+    };
+  };
   readonly secrets?: {
     /**
      * Each Secret placeholder's binding, as `secrets.placeholders.<name>`: `reference`, the Secret reference its value comes from, with `totp: true` when that value is a TOTP seed whose current code is typed, or `code_source`, the email or SMS code source its one-time code comes from; and `domains`, required, the registrable domains its value may go to, each with its subdomains, `*` only when written. A host below a registrable domain, such as `www.example.com`, is refused with `setting_invalid` naming the domain. `secret("name")` in code and `%name%` in an AI instruction name the placeholder, and the nearest of a Session, its Run and the connection that binds it wins. None by default. A Recipe declares names and never binds one, and a Client acting for a model never sets one: either's value is `setting_locked`.
@@ -3021,6 +3141,26 @@ const SPELLING: Spelling = {
   }],
   sample: ["sample", {
     echoRepeats: "echo_repeats",
+  }],
+  schedule: ["schedule", {
+    autoPause: ["auto_pause", {
+      failures: "failures",
+    }],
+    catchUp: "catch_up",
+    jitter: "jitter",
+    limitsMax: { setting: "limits_max", value: { fields: { "day": ["day", { items: { fields: { "usage_kind": "usageKind" } } }], "month": ["month", { items: { fields: { "usage_kind": "usageKind" } } }], "week": ["week", { items: { fields: { "usage_kind": "usageKind" } } }] } } },
+    maxCount: "max_count",
+    minInterval: "min_interval",
+    overlap: "overlap",
+    pauseTimeout: "pause_timeout",
+    retention: ["retention", {
+      changedWatches: "changed_watches",
+      history: "history",
+      runs: "runs",
+      watchRuns: "watch_runs",
+    }],
+    tick: "tick",
+    wakeThreshold: "wake_threshold",
   }],
   secretProviders: ["secret_providers", {
     awsSm: ["aws_sm", {

@@ -1050,6 +1050,17 @@
       ]
     },
     {
+      "id": "command:schedule.preview",
+      "kind": "command",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:session.close",
       "kind": "command",
       "area": 11,
@@ -2664,6 +2675,17 @@
       "id": "error:sample_refused",
       "kind": "error",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:schedule_cap_exceeded",
+      "kind": "error",
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [
@@ -4967,6 +4989,17 @@
     },
     {
       "id": "operation:schedule.list",
+      "kind": "operation",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.preview",
       "kind": "operation",
       "area": 10,
       "milestone": null,
@@ -11025,6 +11058,160 @@
       "id": "setting:sample.echo_repeats",
       "kind": "setting",
       "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.auto_pause.failures",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.catch_up",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.jitter",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.limits_max",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.max_count",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.min_interval",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.overlap",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.pause_timeout",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.retention.changed_watches",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.retention.history",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.retention.runs",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.retention.watch_runs",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.tick",
+      "kind": "setting",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:schedule.wake_threshold",
+      "kind": "setting",
+      "area": 10,
       "milestone": null,
       "status": "active",
       "products": [

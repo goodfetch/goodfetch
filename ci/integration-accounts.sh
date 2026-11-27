@@ -5,15 +5,37 @@
 #   ci/integration-accounts.sh install   # before ADR 0043's deny
 #   ci/integration-accounts.sh run       # under ADR 0043's deny
 #
-# Uses the same pinned cloudflared binary as proving-ground/deploy/deploy.sh.
-# No Cloudflare account, domain or credential is used; each run gets a fresh
-# trycloudflare.com URL exported in GOODFETCH_INTEGRATION_TUNNEL_URL.
+# Uses the same pinned cloudflared binary as proving-ground/deploy/deploy.sh
+# (checked by ci/tool-versions.sh). No Cloudflare account, domain or credential
+# is used; each run starts an Exposed Daemon with TLS and a token, opens a
+# fresh trycloudflare.com URL exported in GOODFETCH_INTEGRATION_TUNNEL_URL,
+# and exports the Daemon's token in GOODFETCH_INTEGRATION_DAEMON_TOKEN.
 set -euo pipefail
 
 CLOUDFLARED_VERSION=2026.10.7
 CLOUDFLARED_SHA256=1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872
-CLOUDFLARED_BIN="target/cloudflared/cloudflared"
+CLOUDFLARED_BIN="${CLOUDFLARED_BIN:-target/cloudflared/cloudflared}"
+DAEMON_BIN="${DAEMON_BIN:-target/debug/goodfetch-collie}"
+XTASK_BIN="${XTASK_BIN:-target/debug/xtask}"
 JOB_KEY="live.yml#integration-accounts"
+
+# Top-level state for EXIT trap (kept global so set -u stays safe after return).
+WORK_DIR=""
+DAEMON_PID=""
+TUNNEL_PID=""
+
+cleanup() {
+  local pid
+  for pid in "$TUNNEL_PID" "$DAEMON_PID"; do
+    if [[ -n "$pid" ]]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+  if [[ -n "$WORK_DIR" ]]; then
+    rm -rf "$WORK_DIR"
+  fi
+}
 
 install_cloudflared() {
   mkdir -p "$(dirname "$CLOUDFLARED_BIN")"
@@ -33,55 +55,108 @@ has_live_checks() {
   [[ -f ci/live-checks.toml ]] && grep -qF "job = \"$JOB_KEY\"" ci/live-checks.toml
 }
 
+run_live_checks() {
+  "$XTASK_BIN" results live-run --job "$JOB_KEY" --junit target/junit/live.xml
+}
+
 run_checks() {
   if ! has_live_checks; then
-    exec cargo run --quiet --locked --bin xtask -- \
-      results live-run --job "$JOB_KEY" --junit target/junit/live.xml
+    run_live_checks
+    return 0
   fi
 
-  local daemon_url="${GOODFETCH_INTEGRATION_DAEMON_URL:-}"
-  if [[ -z "$daemon_url" ]]; then
-    echo "integration-accounts.sh: GOODFETCH_INTEGRATION_DAEMON_URL is not set (requires an Exposed Daemon with TLS and a token)" >&2
+  trap cleanup EXIT
+  WORK_DIR=$(mktemp -d)
+  local home="$WORK_DIR/home"
+  local cert="$WORK_DIR/cert.pem"
+  local key="$WORK_DIR/key.pem"
+  local daemon_stdout="$WORK_DIR/daemon.stdout"
+  local daemon_stderr="$WORK_DIR/daemon.stderr"
+  local tunnel_log="$WORK_DIR/cloudflared.log"
+
+  mkdir -p "$home"
+  openssl req -x509 -newkey rsa:2048 -nodes \
+    -keyout "$key" -out "$cert" -days 1 \
+    -subj "/CN=localhost" \
+    -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
+
+  local major
+  major=$(GOODFETCH_HOME="$home" "$DAEMON_BIN" daemon status --json \
+    | sed -n 's/.*"major"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)
+  if [[ -z "$major" ]]; then
+    echo "integration-accounts.sh: could not read protocol major from $DAEMON_BIN daemon status --json" >&2
     exit 1
   fi
 
-  local log tunnel_pid=""
-  log=$(mktemp)
-  cleanup() {
-    if [[ -n "$tunnel_pid" ]]; then
-      kill "$tunnel_pid" 2>/dev/null || true
-      wait "$tunnel_pid" 2>/dev/null || true
-    fi
-    rm -f "$log"
-  }
-  trap cleanup EXIT
+  mkdir -p "$home/$major"
+  cat >"$home/$major/configuration.toml" <<EOF
+version = "0.1"
+lowest_minor = 0
 
-  "$CLOUDFLARED_BIN" tunnel --no-autoupdate --protocol http2 --url "$daemon_url" >"$log" 2>&1 &
-  tunnel_pid=$!
+[settings.daemon.tls]
+cert_file = "$cert"
+key_file = "$key"
+EOF
 
-  local tunnel_url="" deadline=$((SECONDS + 60))
+  GOODFETCH_HOME="$home" GOODFETCH_DAEMON_ADDRESS="127.0.0.1:0" \
+    "$DAEMON_BIN" daemon run --json >"$daemon_stdout" 2>"$daemon_stderr" &
+  DAEMON_PID=$!
+
+  local daemon_address="" deadline=$((SECONDS + 30))
   while (( SECONDS < deadline )); do
-    tunnel_url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$log" | head -n 1 || true)
+    daemon_address=$(sed -n 's/.*"address"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$daemon_stdout" | head -n 1 || true)
+    if [[ -n "$daemon_address" ]]; then
+      break
+    fi
+    if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+      cat "$daemon_stderr" >&2
+      echo "integration-accounts.sh: Daemon exited before listening" >&2
+      exit 1
+    fi
+    sleep 0.2
+  done
+  if [[ -z "$daemon_address" ]]; then
+    cat "$daemon_stderr" >&2
+    echo "integration-accounts.sh: timed out waiting for Daemon address" >&2
+    exit 1
+  fi
+
+  local token_file="$home/$major/daemon.token"
+  if [[ ! -f "$token_file" ]]; then
+    echo "integration-accounts.sh: Daemon token file missing at $token_file" >&2
+    exit 1
+  fi
+  local daemon_token
+  daemon_token=$(tr -d '\r\n' <"$token_file")
+
+  "$CLOUDFLARED_BIN" tunnel --no-autoupdate --protocol http2 \
+    --origin-ca-pool "$cert" \
+    --url "https://$daemon_address" >"$tunnel_log" 2>&1 &
+  TUNNEL_PID=$!
+
+  local tunnel_url=""
+  deadline=$((SECONDS + 60))
+  while (( SECONDS < deadline )); do
+    tunnel_url=$(grep -Eo 'https://[a-z0-9-]+\.trycloudflare\.com' "$tunnel_log" | head -n 1 || true)
     if [[ -n "$tunnel_url" ]]; then
       break
     fi
-    if ! kill -0 "$tunnel_pid" 2>/dev/null; then
-      cat "$log" >&2
+    if ! kill -0 "$TUNNEL_PID" 2>/dev/null; then
+      cat "$tunnel_log" >&2
       echo "integration-accounts.sh: cloudflared exited before publishing a Quick Tunnel URL" >&2
       exit 1
     fi
-    sleep 1
+    sleep 0.2
   done
-
   if [[ -z "$tunnel_url" ]]; then
-    cat "$log" >&2
+    cat "$tunnel_log" >&2
     echo "integration-accounts.sh: timed out waiting for Quick Tunnel URL" >&2
     exit 1
   fi
 
   export GOODFETCH_INTEGRATION_TUNNEL_URL="$tunnel_url"
-  cargo run --quiet --locked --bin xtask -- \
-    results live-run --job "$JOB_KEY" --junit target/junit/live.xml
+  export GOODFETCH_INTEGRATION_DAEMON_TOKEN="$daemon_token"
+  run_live_checks
 }
 
 case "${1:-}" in

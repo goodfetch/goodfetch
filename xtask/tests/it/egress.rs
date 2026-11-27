@@ -176,8 +176,10 @@ fn integration_account_job_not_gated_by_a_repository_variable_fails(#[case] cond
     assert_eq!(outcome.code, 1);
 }
 
-#[test]
-fn integration_account_job_naming_a_goodfetch_dev_tunnel_host_fails() {
+#[rstest]
+#[case::subdomain("tunnel.goodfetch.dev:443")]
+#[case::trailing_dot("tunnel.goodfetch.dev.:443")]
+fn integration_account_job_naming_a_goodfetch_dev_tunnel_host_fails(#[case] endpoint: &str) {
     let workspace = Workspace::from_fixture("egress");
     workspace.write(
         ".github/workflows/live.yml",
@@ -203,7 +205,9 @@ jobs:
     );
     workspace.append(
         "ci/egress/endpoints.toml",
-        "\n[[named]]\njob = \"live.yml#integration-accounts\"\nexception = \"integration-account\"\nendpoints = [\"tunnel.goodfetch.dev:443\"]\n",
+        &format!(
+            "\n[[named]]\njob = \"live.yml#integration-accounts\"\nexception = \"integration-account\"\nendpoints = [{endpoint:?}]\n"
+        ),
     );
 
     let outcome = workspace.xtask(&["egress", "check"]);
@@ -216,4 +220,167 @@ jobs:
         )]
     );
     assert_eq!(outcome.code, 1);
+}
+
+#[cfg(unix)]
+mod integration_accounts_script {
+    use std::path::Path;
+    use std::process::Command;
+
+    use crate::workspace::{Workspace, write_executable};
+
+    fn script_path() -> std::path::PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../ci/integration-accounts.sh")
+    }
+
+    #[test]
+    fn starts_daemon_and_quick_tunnel_exports_env_and_cleans_up_on_exit() {
+        let workspace = Workspace::from_fixture("egress");
+        let root = workspace.path();
+        let bin = root.join("fake-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        workspace.write(
+            "ci/live-checks.toml",
+            b"[[live-check]]\nid = \"demo\"\narea = 11\njob = \"live.yml#integration-accounts\"\nrun = \"true\"\n",
+        );
+
+        let daemon = bin.join("daemon");
+        write_executable(
+            &daemon,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "daemon" && "${2:-}" == "status" ]]; then
+  echo '{"major":0}'
+  exit 0
+fi
+if [[ "${1:-}" == "daemon" && "${2:-}" == "run" ]]; then
+  echo "test-daemon-token" > "$GOODFETCH_HOME/0/daemon.token"
+  echo "$$" > "$RECORD_DIR/daemon.pid"
+  echo '{"major":0,"address":"127.0.0.1:43210"}'
+  exec sleep 300
+fi
+exit 2
+"#,
+        );
+
+        let cloudflared = bin.join("cloudflared");
+        write_executable(
+            &cloudflared,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "$RECORD_DIR/cloudflared.args"
+echo "$$" > "$RECORD_DIR/tunnel.pid"
+echo "https://demo-quick-tunnel.trycloudflare.com" >&2
+exec sleep 300
+"#,
+        );
+
+        let xtask = bin.join("xtask");
+        write_executable(
+            &xtask,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+printf 'URL=%s\nTOKEN=%s\n' "$GOODFETCH_INTEGRATION_TUNNEL_URL" "$GOODFETCH_INTEGRATION_DAEMON_TOKEN" > "$RECORD_DIR/env.txt"
+"#,
+        );
+
+        let record = root.join("record");
+        std::fs::create_dir_all(&record).unwrap();
+
+        let output = Command::new(script_path())
+            .arg("run")
+            .current_dir(root)
+            .env("DAEMON_BIN", &daemon)
+            .env("CLOUDFLARED_BIN", &cloudflared)
+            .env("XTASK_BIN", &xtask)
+            .env("RECORD_DIR", &record)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "expected success, got {:?}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::read_to_string(record.join("env.txt")).unwrap(),
+            "URL=https://demo-quick-tunnel.trycloudflare.com\nTOKEN=test-daemon-token\n"
+        );
+        let args = std::fs::read_to_string(record.join("cloudflared.args")).unwrap();
+        assert!(args.contains("--no-autoupdate"), "{args}");
+        assert!(args.contains("--origin-ca-pool"), "{args}");
+        assert!(args.contains("--url https://127.0.0.1:43210"), "{args}");
+
+        for pid_file in ["daemon.pid", "tunnel.pid"] {
+            let pid = std::fs::read_to_string(record.join(pid_file)).unwrap();
+            let alive = Command::new("kill")
+                .args(["-0", pid.trim()])
+                .status()
+                .unwrap()
+                .success();
+            assert!(!alive, "{pid_file} ({}) was leaked after exit", pid.trim());
+        }
+    }
+
+    #[test]
+    fn fails_and_cleans_up_daemon_when_cloudflared_exits_without_a_url() {
+        let workspace = Workspace::from_fixture("egress");
+        let root = workspace.path();
+        let bin = root.join("fake-bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        workspace.write(
+            "ci/live-checks.toml",
+            b"[[live-check]]\nid = \"demo\"\narea = 11\njob = \"live.yml#integration-accounts\"\nrun = \"true\"\n",
+        );
+
+        let daemon = bin.join("daemon");
+        write_executable(
+            &daemon,
+            r#"#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "daemon" && "${2:-}" == "status" ]]; then
+  echo '{"major":0}'
+  exit 0
+fi
+echo "test-daemon-token" > "$GOODFETCH_HOME/0/daemon.token"
+echo "$$" > "$RECORD_DIR/daemon.pid"
+echo '{"major":0,"address":"127.0.0.1:43210"}'
+exec sleep 300
+"#,
+        );
+
+        let cloudflared = bin.join("cloudflared");
+        write_executable(
+            &cloudflared,
+            "#!/usr/bin/env bash\necho 'tunnel failed' >&2\nexit 1\n",
+        );
+
+        let xtask = bin.join("xtask");
+        write_executable(&xtask, "#!/usr/bin/env bash\nexit 0\n");
+
+        let record = root.join("record");
+        std::fs::create_dir_all(&record).unwrap();
+
+        let output = Command::new(script_path())
+            .arg("run")
+            .current_dir(root)
+            .env("DAEMON_BIN", &daemon)
+            .env("CLOUDFLARED_BIN", &cloudflared)
+            .env("XTASK_BIN", &xtask)
+            .env("RECORD_DIR", &record)
+            .output()
+            .unwrap();
+
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("cloudflared exited"), "{stderr}");
+        let pid = std::fs::read_to_string(record.join("daemon.pid")).unwrap();
+        let alive = Command::new("kill")
+            .args(["-0", pid.trim()])
+            .status()
+            .unwrap()
+            .success();
+        assert!(!alive, "daemon ({}) was leaked after failure", pid.trim());
+    }
 }

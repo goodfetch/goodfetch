@@ -225,7 +225,7 @@ fn strip_outer_parens(mut text: &str) -> &str {
         .strip_prefix('(')
         .and_then(|rest| rest.strip_suffix(')'))
     {
-        if !has_balanced_parens(inner) {
+        if scan_expression(inner, false).is_none() {
             break;
         }
         text = inner.trim();
@@ -233,43 +233,16 @@ fn strip_outer_parens(mut text: &str) -> &str {
     text
 }
 
-fn has_balanced_parens(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    let mut depth: usize = 0;
-    let mut in_quote = false;
-    let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_quote {
-            if byte == b'\'' {
-                if bytes.get(index + 1) == Some(&b'\'') {
-                    index += 2;
-                    continue;
-                }
-                in_quote = false;
-            }
-            index += 1;
-            continue;
-        }
-        match byte {
-            b'\'' => in_quote = true,
-            b'(' => depth += 1,
-            b')' => {
-                let Some(next) = depth.checked_sub(1) else {
-                    return false;
-                };
-                depth = next;
-            }
-            _ => {}
-        }
-        index += 1;
-    }
-    depth == 0 && !in_quote
-}
-
 /// Splits `expression` on top-level `&&`, returning `None` if a top-level `||`
 /// or unbalanced parentheses/quotes appear.
 fn split_top_level_and(expression: &str) -> Option<Vec<&str>> {
+    scan_expression(expression, true)
+}
+
+/// Walks `expression` tracking single-quoted strings (`''`-escaped) and
+/// parenthesis depth. Returns `None` on unbalanced parens/quotes, or when
+/// `split_and` is true and a top-level `||` appears.
+fn scan_expression(expression: &str, split_and: bool) -> Option<Vec<&str>> {
     let bytes = expression.as_bytes();
     let mut parts = Vec::new();
     let mut start = 0;
@@ -293,8 +266,8 @@ fn split_top_level_and(expression: &str) -> Option<Vec<&str>> {
             b'\'' => in_quote = true,
             b'(' => depth += 1,
             b')' => depth = depth.checked_sub(1)?,
-            b'|' if depth == 0 && bytes.get(index + 1) == Some(&b'|') => return None,
-            b'&' if depth == 0 && bytes.get(index + 1) == Some(&b'&') => {
+            b'|' if split_and && depth == 0 && bytes.get(index + 1) == Some(&b'|') => return None,
+            b'&' if split_and && depth == 0 && bytes.get(index + 1) == Some(&b'&') => {
                 parts.push(expression[start..index].trim());
                 index += 2;
                 start = index;
@@ -307,7 +280,9 @@ fn split_top_level_and(expression: &str) -> Option<Vec<&str>> {
     if depth != 0 || in_quote {
         return None;
     }
-    parts.push(expression[start..].trim());
+    if split_and {
+        parts.push(expression[start..].trim());
+    }
     Some(parts)
 }
 
@@ -332,5 +307,6 @@ fn is_vars_ident(text: &str) -> bool {
 }
 
 fn is_goodfetch_dev(host: &str) -> bool {
+    let host = host.trim_end_matches('.');
     host == "goodfetch.dev" || host.ends_with(".goodfetch.dev")
 }

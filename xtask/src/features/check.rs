@@ -366,15 +366,19 @@ fn defines(packages: &[String], id: &str) -> bool {
             crate_("goodfetch-protocol", "crates/goodfetch-protocol")
         }
         "sink" => crate_("goodfetch-sink", "crates/foxhound/goodfetch-sink"),
-        "adapter" => packages
-            .iter()
-            .any(|package| package.trim_end_matches('/').starts_with("adapters")),
-        "integration" => packages
-            .iter()
-            .any(|package| package.trim_end_matches('/').starts_with("integrations")),
+        "adapter" => under_folder(packages, "adapters"),
+        "integration" => under_folder(packages, "integrations"),
         "command" => products::EXECUTABLES
             .iter()
             .any(|executable| crate_(executable.package, executable.folder)),
         _ => false,
     }
+}
+
+fn under_folder(packages: &[String], folder: &str) -> bool {
+    let prefix = format!("{folder}/");
+    packages.iter().any(|package| {
+        let trimmed = package.trim_end_matches('/');
+        trimmed == folder || trimmed.starts_with(&prefix)
+    })
 }

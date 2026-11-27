@@ -245,8 +245,9 @@ jobs:
           target: x86_64-unknown-linux-gnu
       - name: Install pinned cloudflared before the deny
         run: ci/integration-accounts.sh install
-      - name: Build xtask before the deny
-        run: cargo build --quiet --locked --bin xtask
+      - name: Build xtask and goodfetch-collie before the deny
+        run: >-
+          cargo build --quiet --locked --bin xtask -p goodfetch-collie --bin goodfetch-collie
       - name: Set up the OS services the tests use
         run: ci/os-services.sh setup
       - name: Deny outbound traffic

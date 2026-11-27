@@ -99,6 +99,9 @@ pub struct Batch {
     pub run: RunCopy,
     /// Their Dataset.
     pub dataset: String,
+    /// The Dataset's declared JSON Schema, when the crawl declared one
+    /// (ADR 0026: declared schema comes first, else inferred).
+    pub declared_schema: Option<Value>,
     /// The Records, in number order with no gap.
     pub records: Vec<Delivered>,
 }

@@ -13,7 +13,7 @@ use rusqlite::Connection;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
-use crate::run_files::{TARGET, commit_at, run_file, sink};
+use crate::run_files::{TARGET, commit_at, run_file, sink, user_columns, user_record_of};
 
 /// The Sink's name in every test.
 const SINK: &str = "warehouse";
@@ -91,19 +91,26 @@ fn deliver(
 /// and Record.
 fn held(destination: &Path) -> Vec<(String, String, Value)> {
     let connection = Connection::open(destination).unwrap();
+    let cols = user_columns(&connection, TARGET);
+    let extra = if cols.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", {}",
+            cols.iter()
+                .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let mut select = connection
         .prepare(&format!(
-            "SELECT _goodfetch_run_id, _goodfetch_dataset, record FROM \"{TARGET}\" ORDER BY rowid"
+            "SELECT _goodfetch_run_id, _goodfetch_dataset{extra} FROM \"{TARGET}\" ORDER BY rowid"
         ))
         .unwrap();
     select
         .query_map((), |row| {
-            let record: String = row.get(2)?;
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                serde_json::from_str(&record).unwrap(),
-            ))
+            Ok((row.get(0)?, row.get(1)?, user_record_of(row, &cols, 2)?))
         })
         .unwrap()
         .collect::<rusqlite::Result<_>>()
@@ -114,20 +121,31 @@ fn held(destination: &Path) -> Vec<(String, String, Value)> {
 /// valid-from and valid-to times, in the order first written.
 fn versions(destination: &Path) -> Vec<(Value, String, String, Option<String>)> {
     let connection = Connection::open(destination).unwrap();
+    let cols = user_columns(&connection, TARGET);
+    let extra = if cols.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", {}",
+            cols.iter()
+                .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
     let mut select = connection
         .prepare(&format!(
-            "SELECT record, _goodfetch_key, _goodfetch_valid_from, _goodfetch_valid_to
+            "SELECT _goodfetch_key, _goodfetch_valid_from, _goodfetch_valid_to{extra}
              FROM \"{TARGET}\" ORDER BY rowid"
         ))
         .unwrap();
     select
         .query_map((), |row| {
-            let record: String = row.get(0)?;
             Ok((
-                serde_json::from_str(&record).unwrap(),
+                user_record_of(row, &cols, 3)?,
+                row.get(0)?,
                 row.get(1)?,
                 row.get(2)?,
-                row.get(3)?,
             ))
         })
         .unwrap()

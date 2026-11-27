@@ -544,9 +544,12 @@ impl Destination<'_> {
             })?;
         let target = self.settings.target.as_deref().unwrap_or(SQLITE_TARGET);
         let mode = self.settings.write_mode();
+        let schema = self.settings.schema.clone().unwrap_or_default();
         let driver = Driver::new(
             self.name,
-            SqliteSink::new(connection, target).with_mode(mode),
+            SqliteSink::new(connection, target)
+                .with_mode(mode)
+                .with_schema(schema),
             run,
             self.settings.datasets.clone(),
         )

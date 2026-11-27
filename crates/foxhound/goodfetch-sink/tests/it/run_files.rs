@@ -84,19 +84,68 @@ pub(crate) struct Row {
     pub(crate) record: Value,
 }
 
+/// The non-system columns of `table` in `connection`, in column order.
+pub(crate) fn user_columns(connection: &Connection, table: &str) -> Vec<String> {
+    connection
+        .prepare_cached("SELECT name FROM pragma_table_info(?1) ORDER BY cid")
+        .unwrap()
+        .query_map([table], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+        .into_iter()
+        .filter(|name| !name.starts_with("_goodfetch_"))
+        .collect()
+}
+
+/// Reconstructs a JSON object from `user_cols` starting at `offset` in
+/// `row`, omitting SQL `NULL` values.
+pub(crate) fn user_record_of(
+    row: &rusqlite::Row<'_>,
+    user_cols: &[String],
+    offset: usize,
+) -> rusqlite::Result<Value> {
+    let mut map = serde_json::Map::new();
+    for (idx, name) in user_cols.iter().enumerate() {
+        let value = match row.get_ref(offset + idx)? {
+            rusqlite::types::ValueRef::Null => continue,
+            rusqlite::types::ValueRef::Integer(i) => Value::from(i),
+            rusqlite::types::ValueRef::Real(f) => Value::from(f),
+            rusqlite::types::ValueRef::Text(bytes) => {
+                let text = std::str::from_utf8(bytes)
+                    .map_err(|error| rusqlite::Error::Utf8Error(offset + idx, error))?;
+                Value::String(text.to_owned())
+            }
+            rusqlite::types::ValueRef::Blob(bytes) => Value::from(bytes.to_vec()),
+        };
+        map.insert(name.clone(), value);
+    }
+    Ok(Value::Object(map))
+}
+
 /// The destination's rows, in the order they were first written.
 pub(crate) fn rows(destination: &Path) -> Vec<Row> {
     let connection = Connection::open(destination).unwrap();
-    let mut select = connection
-        .prepare_cached(
-            "SELECT _goodfetch_delivery_id, _goodfetch_run_id, _goodfetch_run_epoch,
-                    _goodfetch_dataset, _goodfetch_record_number, _goodfetch_committed_at, record
-             FROM records ORDER BY rowid",
+    let cols = user_columns(&connection, TARGET);
+    let extra = if cols.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", {}",
+            cols.iter()
+                .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
-        .unwrap();
+    };
+    let sql = format!(
+        "SELECT _goodfetch_delivery_id, _goodfetch_run_id, _goodfetch_run_epoch,
+                _goodfetch_dataset, _goodfetch_record_number, _goodfetch_committed_at{extra}
+         FROM \"{TARGET}\" ORDER BY rowid"
+    );
+    let mut select = connection.prepare(&sql).unwrap();
     select
         .query_map((), |row| {
-            let record: String = row.get(6)?;
             let run_epoch: i64 = row.get(2)?;
             let number: i64 = row.get(4)?;
             Ok(Row {
@@ -106,7 +155,7 @@ pub(crate) fn rows(destination: &Path) -> Vec<Row> {
                 dataset: row.get(3)?,
                 number: u64::try_from(number).unwrap(),
                 committed_at: row.get(5)?,
-                record: serde_json::from_str(&record).unwrap(),
+                record: user_record_of(row, &cols, 6)?,
             })
         })
         .unwrap()
@@ -114,17 +163,12 @@ pub(crate) fn rows(destination: &Path) -> Vec<Row> {
         .unwrap()
 }
 
-/// The text of each row's record, raw as the destination holds it.
+/// The text of each row's record, reconstructed from its typed columns.
 pub(crate) fn record_texts(destination: &Path) -> Vec<String> {
-    let connection = Connection::open(destination).unwrap();
-    let mut select = connection
-        .prepare_cached("SELECT record FROM records ORDER BY rowid")
-        .unwrap();
-    select
-        .query_map((), |row| row.get(0))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap()
+    rows(destination)
+        .into_iter()
+        .map(|row| row.record.to_string())
+        .collect()
 }
 
 /// Each row's Dataset and number, in the order first written.

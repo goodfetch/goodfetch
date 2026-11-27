@@ -4,7 +4,7 @@
 //! written.
 
 use goodfetch_sink::{
-    Batch, Failure, FailureKind, Primitives, Probe, RunCopy, SqliteSink, Written,
+    Batch, Failure, FailureKind, Primitives, Probe, RunCopy, SqliteError, SqliteSink, Written,
 };
 
 /// When the destination's link fails, counted in writes from 1.
@@ -39,7 +39,7 @@ impl Faulty {
 /// What the faulty link answers.
 #[derive(Debug)]
 pub(crate) enum LinkError {
-    Destination(rusqlite::Error),
+    Destination(SqliteError),
     Lost,
     Killed,
 }

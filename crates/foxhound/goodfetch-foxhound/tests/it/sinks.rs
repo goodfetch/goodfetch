@@ -42,26 +42,62 @@ struct Row {
 }
 
 /// The rows of the table `records` of the database at `path`, by Record
-/// number.
+/// number, reconstructing each Record from its non-`_goodfetch_*` columns.
 fn rows(path: &Path) -> Vec<Row> {
     let connection = Connection::open(path).unwrap();
-    let mut select = connection
-        .prepare(
-            "SELECT _goodfetch_delivery_id, _goodfetch_run_id, _goodfetch_run_epoch,
-                    _goodfetch_dataset, _goodfetch_record_number, record
-             FROM records ORDER BY _goodfetch_record_number",
+    let user_cols: Vec<String> = connection
+        .prepare_cached("SELECT name FROM pragma_table_info('records') ORDER BY cid")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+        .into_iter()
+        .filter(|name| !name.starts_with("_goodfetch_"))
+        .collect();
+    let extra = if user_cols.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ", {}",
+            user_cols
+                .iter()
+                .map(|c| format!("\"{}\"", c.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(", ")
         )
+    };
+    let mut select = connection
+        .prepare(&format!(
+            "SELECT _goodfetch_delivery_id, _goodfetch_run_id, _goodfetch_run_epoch,
+                    _goodfetch_dataset, _goodfetch_record_number{extra}
+             FROM records ORDER BY _goodfetch_record_number"
+        ))
         .unwrap();
     select
         .query_map((), |row| {
-            let record: String = row.get(5)?;
+            let mut map = serde_json::Map::new();
+            for (idx, name) in user_cols.iter().enumerate() {
+                let val = match row.get_ref(5 + idx)? {
+                    rusqlite::types::ValueRef::Null => continue,
+                    rusqlite::types::ValueRef::Integer(i) => Value::from(i),
+                    rusqlite::types::ValueRef::Real(f) => Value::from(f),
+                    rusqlite::types::ValueRef::Text(bytes) => {
+                        let s = std::str::from_utf8(bytes)
+                            .map_err(|err| rusqlite::Error::Utf8Error(5 + idx, err))?;
+                        Value::String(s.to_owned())
+                    }
+                    rusqlite::types::ValueRef::Blob(bytes) => Value::from(bytes.to_vec()),
+                };
+                map.insert(name.clone(), val);
+            }
             Ok(Row {
                 delivery_id: row.get(0)?,
                 run_id: row.get(1)?,
                 run_epoch: row.get(2)?,
                 dataset: row.get(3)?,
                 number: row.get(4)?,
-                record: serde_json::from_str(&record).unwrap(),
+                record: Value::Object(map),
             })
         })
         .unwrap()
@@ -380,27 +416,40 @@ fn set_headings_constraint(database: &Path, reject: bool) {
                  _goodfetch_dataset TEXT NOT NULL,
                  _goodfetch_record_number INTEGER NOT NULL,
                  _goodfetch_committed_at TEXT NOT NULL,
-                 record TEXT NOT NULL CHECK (json_extract(record, '$.url') NOT LIKE '%/headings/levels%'),
-                 _goodfetch_key TEXT
+                 _goodfetch_meta TEXT,
+                 _goodfetch_key TEXT,
+                 url TEXT CHECK (url NOT LIKE '%/headings/levels%')
              ) STRICT;",
         )
         .unwrap();
     } else {
-        conn.execute_batch(
-            "CREATE TABLE records_new (
-                 _goodfetch_delivery_id TEXT NOT NULL PRIMARY KEY,
-                 _goodfetch_run_id TEXT NOT NULL,
-                 _goodfetch_run_epoch INTEGER NOT NULL,
-                 _goodfetch_dataset TEXT NOT NULL,
-                 _goodfetch_record_number INTEGER NOT NULL,
-                 _goodfetch_committed_at TEXT NOT NULL,
-                 record TEXT NOT NULL,
-                 _goodfetch_key TEXT
-             ) STRICT;
-             INSERT INTO records_new SELECT * FROM records;
+        let cols: Vec<(String, String)> = conn
+            .prepare("SELECT name, type FROM pragma_table_info('records') ORDER BY cid")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        let defs: Vec<String> = cols
+            .iter()
+            .map(|(name, ty)| {
+                let q = format!("\"{name}\"");
+                if name == "_goodfetch_delivery_id" {
+                    format!("{q} {ty} NOT NULL PRIMARY KEY")
+                } else {
+                    format!("{q} {ty}")
+                }
+            })
+            .collect();
+        let names: Vec<String> = cols.iter().map(|(name, _)| format!("\"{name}\"")).collect();
+        let col_list = names.join(", ");
+        conn.execute_batch(&format!(
+            "CREATE TABLE records_new ({defs}) STRICT;
+             INSERT INTO records_new ({col_list}) SELECT {col_list} FROM records;
              DROP TABLE records;
              ALTER TABLE records_new RENAME TO records;",
-        )
+            defs = defs.join(", "),
+        ))
         .unwrap();
     }
 }

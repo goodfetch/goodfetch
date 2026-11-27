@@ -94,6 +94,8 @@ pub struct Driver<S> {
     failures: usize,
     /// How it keys its Records; none under `append`.
     keying: Option<Keying>,
+    /// Each Dataset's declared JSON Schema from the run file, read once.
+    declared_schemas: Option<BTreeMap<String, Option<Value>>>,
     /// The Run's Secret masks, applied to dead-letter Records and reasons.
     masks: Masks,
     /// Records isolated and dead-lettered during delivery, drained by the
@@ -164,6 +166,7 @@ impl<S: Primitives> Driver<S> {
             delivered: None,
             failures: 0,
             keying: None,
+            declared_schemas: None,
             masks: Masks::new(),
             dead_letters: Vec::new(),
         }
@@ -265,9 +268,14 @@ impl<S: Primitives> Driver<S> {
                 Some(keying) => Some(keying.fields(run_file, &dataset)?),
                 None => None,
             };
-            if let Some(early) =
-                self.deliver_dataset(run_file, &dataset, fields.as_deref(), &mut delivered)?
-            {
+            let declared_schema = self.declared_schema(run_file, &dataset)?;
+            if let Some(early) = self.deliver_dataset(
+                run_file,
+                &dataset,
+                fields.as_deref(),
+                declared_schema.as_ref(),
+                &mut delivered,
+            )? {
                 return Ok(early);
             }
         }
@@ -280,6 +288,31 @@ impl<S: Primitives> Driver<S> {
         })
     }
 
+    /// Reads the declared JSON Schema for `dataset` from `run_file`, caching
+    /// the run file's Dataset declarations on first call.
+    fn declared_schema(
+        &mut self,
+        run_file: &Connection,
+        dataset: &str,
+    ) -> rusqlite::Result<Option<Value>> {
+        if self.declared_schemas.is_none() {
+            let declarations = Declarations::read(run_file)?;
+            self.declared_schemas = Some(
+                declarations
+                    .declarations()
+                    .iter()
+                    .map(|declaration| (declaration.name.clone(), declaration.schema.clone()))
+                    .collect(),
+            );
+        }
+        Ok(self
+            .declared_schemas
+            .as_ref()
+            .and_then(|schemas| schemas.get(dataset))
+            .cloned()
+            .flatten())
+    }
+
     /// Delivers every committed page of `dataset` past `delivered`,
     /// returning early on supersession or a non-record failure.
     fn deliver_dataset(
@@ -287,6 +320,7 @@ impl<S: Primitives> Driver<S> {
         run_file: &Connection,
         dataset: &str,
         fields: Option<&[String]>,
+        declared_schema: Option<&Value>,
         delivered: &mut BTreeMap<String, u64>,
     ) -> rusqlite::Result<Option<Status>> {
         let run = self.run.clone();
@@ -322,9 +356,12 @@ impl<S: Primitives> Driver<S> {
                             batch.push(item);
                         }
                         Err(field) => {
-                            if let Some(early) =
-                                self.write_or_split(&run, dataset, std::mem::take(&mut batch))
-                            {
+                            if let Some(early) = self.write_or_split(
+                                &run,
+                                dataset,
+                                declared_schema,
+                                std::mem::take(&mut batch),
+                            ) {
                                 return Ok(Some(early));
                             }
                             let reason = format!(
@@ -344,7 +381,7 @@ impl<S: Primitives> Driver<S> {
                     None => batch.push(item),
                 }
             }
-            if let Some(early) = self.write_or_split(&run, dataset, batch) {
+            if let Some(early) = self.write_or_split(&run, dataset, declared_schema, batch) {
                 return Ok(Some(early));
             }
             delivered.insert(dataset.to_owned(), last);
@@ -358,6 +395,7 @@ impl<S: Primitives> Driver<S> {
         &mut self,
         run: &RunCopy,
         dataset: &str,
+        declared_schema: Option<&Value>,
         mut records: Vec<Delivered>,
     ) -> Option<Status> {
         if records.is_empty() {
@@ -366,6 +404,7 @@ impl<S: Primitives> Driver<S> {
         let batch = Batch {
             run: run.clone(),
             dataset: dataset.to_owned(),
+            declared_schema: declared_schema.cloned(),
             records,
         };
         match self.sink.write(&batch) {
@@ -391,10 +430,10 @@ impl<S: Primitives> Driver<S> {
                 }
                 let mid = records.len() / 2;
                 let right = records.split_off(mid);
-                if let Some(early) = self.write_or_split(run, dataset, records) {
+                if let Some(early) = self.write_or_split(run, dataset, declared_schema, records) {
                     return Some(early);
                 }
-                self.write_or_split(run, dataset, right)
+                self.write_or_split(run, dataset, declared_schema, right)
             }
         }
     }
@@ -499,9 +538,11 @@ impl<S: Primitives> Driver<S> {
             } else {
                 entry.run.clone()
             };
+            let declared_schema = self.declared_schema(run_file, &entry.dataset)?;
             let batch = Batch {
                 run: run.clone(),
                 dataset: entry.dataset.clone(),
+                declared_schema,
                 records: vec![Delivered {
                     delivery_id: entry.delivery_id.clone(),
                     number: entry.number,

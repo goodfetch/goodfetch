@@ -164,7 +164,7 @@ fn a_rejected_batch_splits_until_the_bad_record_is_isolated_and_dead_lettered() 
 fn a_sqlite_constraint_rejecting_one_record_delivers_good_records_and_dead_letters_the_bad_one() {
     let folder = tempfile::tempdir().unwrap();
     let file = folder.path().join("destination.sqlite");
-    // Pre-create the target table with a CHECK constraint rejecting `"bad":true`.
+    // Pre-create the target table with a CHECK constraint rejecting `bad = 1`.
     {
         let conn = Connection::open(&file).unwrap();
         conn.execute_batch(&format!(
@@ -175,8 +175,10 @@ fn a_sqlite_constraint_rejecting_one_record_delivers_good_records_and_dead_lette
                  _goodfetch_dataset TEXT NOT NULL,
                  _goodfetch_record_number INTEGER NOT NULL,
                  _goodfetch_committed_at TEXT NOT NULL,
-                 record TEXT NOT NULL CHECK (record NOT LIKE '%\"bad\":true%'),
-                 _goodfetch_key TEXT
+                 _goodfetch_meta TEXT,
+                 _goodfetch_key TEXT,
+                 sku TEXT,
+                 bad INTEGER CHECK (bad IS NULL OR bad = 0)
              ) STRICT;"
         ))
         .unwrap();
@@ -190,7 +192,7 @@ fn a_sqlite_constraint_rejecting_one_record_delivers_good_records_and_dead_lette
         1,
         &[
             json!({"sku": "a"}),
-            json!({"sku": "b", "bad": true}),
+            json!({"sku": "b", "bad": 1}),
             json!({"sku": "c"}),
             json!({"sku": "d"}),
         ],
@@ -217,7 +219,7 @@ fn a_sqlite_constraint_rejecting_one_record_delivers_good_records_and_dead_lette
     let conn = Connection::open(&file).unwrap();
     let landed: Vec<String> = conn
         .prepare(&format!(
-            "SELECT json_extract(record, '$.sku') FROM \"{TARGET}\" ORDER BY _goodfetch_record_number"
+            "SELECT sku FROM \"{TARGET}\" ORDER BY _goodfetch_record_number"
         ))
         .unwrap()
         .query_map([], |row| row.get(0))

@@ -110,9 +110,9 @@ struct Logged {
 }
 
 impl Primitives for Logged {
-    type Error = rusqlite::Error;
+    type Error = goodfetch_sink::SqliteError;
 
-    fn probe(&mut self, run: &RunCopy) -> rusqlite::Result<Probe> {
+    fn probe(&mut self, run: &RunCopy) -> Result<Probe, Self::Error> {
         match &mut self.handle {
             Handle::Sqlite(sink) => sink.probe(run),
             Handle::Model(class, held) => {
@@ -133,7 +133,7 @@ impl Primitives for Logged {
         }
     }
 
-    fn write(&mut self, batch: &Batch) -> rusqlite::Result<Written> {
+    fn write(&mut self, batch: &Batch) -> Result<Written, Self::Error> {
         let run_epoch = batch.run.run_epoch;
         for record in &batch.records {
             self.log.borrow_mut().push(Record::new(
@@ -169,7 +169,7 @@ impl Primitives for Logged {
         }
     }
 
-    fn map_failure(&self, error: rusqlite::Error) -> Failure {
+    fn map_failure(&self, error: Self::Error) -> Failure {
         Failure::new(FailureKind::Transient, error.to_string())
     }
 }

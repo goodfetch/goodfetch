@@ -14,6 +14,10 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// The route that accepts one JSON-RPC request per HTTP request.
 pub const RPC_PATH: &str = "/v1/rpc";
 
+/// The route that streams a Run's (or engine's) events as Server-Sent Events
+/// (`GET /v1/events?run=<id>&after=<position>`, ADRs 0027 and 0024).
+pub const EVENTS_PATH: &str = "/v1/events";
+
 /// The HTTP header carrying the Client's protocol version (`major.minor`),
 /// matching `hello`'s `protocol_version` (ADRs 0027 and 0030).
 pub const HEADER_PROTOCOL: &str = "goodfetch-protocol";

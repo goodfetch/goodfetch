@@ -13,7 +13,7 @@
 )]
 
 use std::fmt::Write as _;
-use std::io::{Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
 
@@ -21,7 +21,9 @@ use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
 use goodfetch_protocol::connection::{NOT_IN_PRODUCT, PROTOCOL_VERSION_UNSUPPORTED};
 use goodfetch_protocol::daemon::STATUS;
 use goodfetch_protocol::engine::ENGINE_INFO;
-use goodfetch_protocol::http_listener::{HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH};
+use goodfetch_protocol::http_listener::{
+    EVENTS_PATH, HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH,
+};
 use goodfetch_protocol::run::{RUN_FINISH, RUN_START};
 use serde_json::{Value, json};
 
@@ -37,6 +39,7 @@ pub(crate) enum Case {
     TokenRefusals,
     HostAndOriginRefusals,
     MalformedTraceHeaders,
+    EventsSseResume,
 }
 
 impl Case {
@@ -51,6 +54,9 @@ impl Case {
             "post-rpc-refuses-foreign-host-or-origin-with-403" => Self::HostAndOriginRefusals,
             "post-rpc-drops-malformed-or-over-long-trace-headers-without-refusing" => {
                 Self::MalformedTraceHeaders
+            }
+            "get-events-streams-sse-and-resumes-from-last-event-id-and-after" => {
+                Self::EventsSseResume
             }
             _ => return None,
         })
@@ -72,6 +78,7 @@ impl Case {
             Self::TokenRefusals => token_refusals(&endpoint, checks),
             Self::HostAndOriginRefusals => host_and_origin_refusals(&endpoint, checks),
             Self::MalformedTraceHeaders => malformed_trace_headers(&endpoint, checks),
+            Self::EventsSseResume => events_sse_resume(&endpoint, checks),
         }
         Ok(())
     }
@@ -447,6 +454,159 @@ fn malformed_trace_headers(endpoint: &HttpEndpoint, checks: &mut Checks) {
         checks.check(
             "malformed or over-long trace headers are dropped and the RPC still answers HTTP 200",
             status == 200 && answer["result"]["product"] == json!(Product::Collie.as_str()),
+        );
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct SseEvent {
+    id: u64,
+    event: String,
+    data: Value,
+}
+
+/// Reads the HTTP status and first complete SSE event from `GET /v1/events`.
+fn read_first_sse(
+    address: SocketAddr,
+    target: &str,
+    headers: &[(&str, &str)],
+) -> Result<(u16, Option<SseEvent>), String> {
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_global(Some(DEADLINE))
+        .build()
+        .new_agent();
+    let mut request = agent.get(format!("http://{address}{target}"));
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let response = request.call().map_err(|error| error.to_string())?;
+    let status = response.status().as_u16();
+    if status != 200 {
+        return Ok((status, None));
+    }
+    let mut reader = BufReader::new(response.into_body().into_reader());
+    let (mut id, mut event, mut data) = (None, None, None);
+    let mut line = String::new();
+    while reader
+        .read_line(&mut line)
+        .map_err(|error| error.to_string())?
+        > 0
+    {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() && id.is_some() {
+            break;
+        }
+        if let Some(v) = trimmed.strip_prefix("id: ") {
+            id = v.parse::<u64>().ok();
+        } else if let Some(v) = trimmed.strip_prefix("event: ") {
+            event = Some(v.to_owned());
+        } else if let Some(v) = trimmed.strip_prefix("data: ") {
+            data = serde_json::from_str::<Value>(v).ok();
+        }
+        line.clear();
+    }
+    match (id, event, data) {
+        (Some(id), Some(event), Some(data)) => Ok((status, Some(SseEvent { id, event, data }))),
+        _ => Err("SSE stream ended before yielding a complete event".to_owned()),
+    }
+}
+
+fn events_sse_resume(endpoint: &HttpEndpoint, checks: &mut Checks) {
+    let auth = format!("Bearer {}", endpoint.token);
+    let rpc_headers = [
+        ("Authorization", auth.as_str()),
+        (HEADER_PROTOCOL, endpoint.protocol.as_str()),
+        (HEADER_PRODUCT, Product::Collie.as_str()),
+        (HEADER_FORM, "catalog"),
+    ];
+    let Some((start_status, _)) = checks.needs(
+        "POST /v1/rpc starts Run for SSE conformance",
+        send_post(
+            endpoint.address,
+            RPC_PATH,
+            &rpc_headers,
+            &rpc_body(1, RUN_START.name, &json!({ "run_id": "conformance-sse" })),
+        ),
+    ) else {
+        return;
+    };
+    checks.check("run.start answers HTTP 200", start_status == 200);
+
+    let Some((status1, first)) = checks.needs(
+        "GET /v1/events streams first Run event",
+        read_first_sse(
+            endpoint.address,
+            &format!("{EVENTS_PATH}?run=conformance-sse&after=0"),
+            &[("Authorization", auth.as_str())],
+        ),
+    ) else {
+        return;
+    };
+    let Some(first) = first else {
+        checks.check("GET /v1/events answers HTTP 200 with an SSE event", false);
+        return;
+    };
+    checks.check(
+        "first SSE event carries position id and run.axes_changed for conformance-sse",
+        status1 == 200
+            && first.event == "run.axes_changed"
+            && first.data["data"]["run_id"] == json!("conformance-sse")
+            && first.data["data"]["lifecycle"] == json!("running"),
+    );
+
+    let _ = checks.needs(
+        "POST /v1/rpc finishes Run for SSE resume",
+        send_post(
+            endpoint.address,
+            RPC_PATH,
+            &rpc_headers,
+            &rpc_body(2, RUN_FINISH.name, &json!({ "run_id": "conformance-sse" })),
+        ),
+    );
+
+    let last_id = first.id.to_string();
+    let by_header = checks.needs(
+        "GET /v1/events reconnects with Last-Event-ID",
+        read_first_sse(
+            endpoint.address,
+            &format!("{EVENTS_PATH}?run=conformance-sse"),
+            &[
+                ("Authorization", auth.as_str()),
+                ("Last-Event-ID", last_id.as_str()),
+            ],
+        ),
+    );
+    let by_after = checks.needs(
+        "GET /v1/events resumes with after=<position>",
+        read_first_sse(
+            endpoint.address,
+            &format!("{EVENTS_PATH}?run=conformance-sse&after={last_id}"),
+            &[("Authorization", auth.as_str())],
+        ),
+    );
+    if let (Some((sh, Some(eh))), Some((sa, Some(ea)))) = (by_header, by_after) {
+        checks.check(
+            "Last-Event-ID and after produce the identical resumed SSE event",
+            sh == 200
+                && sa == 200
+                && eh == ea
+                && eh.id > first.id
+                && eh.data["data"]["lifecycle"] == json!("finished"),
+        );
+    }
+
+    if let Some((q_status, _)) = checks.needs(
+        "GET /v1/events refuses query-string token",
+        read_first_sse(
+            endpoint.address,
+            &format!("{EVENTS_PATH}?run=conformance-sse&token={}", endpoint.token),
+            &[],
+        ),
+    ) {
+        checks.check(
+            "GET /v1/events refuses token in query string with HTTP 401",
+            q_status == 401,
         );
     }
 }

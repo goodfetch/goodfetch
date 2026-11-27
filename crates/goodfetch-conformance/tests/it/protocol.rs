@@ -751,7 +751,10 @@ fn the_http_listener_suite_is_proved_against_collies_daemon_on_port_0() {
     assert_eq!(
         (outcomes(&document), case_outcomes(&document)),
         (
-            vec![("http_listener.rpc", Outcome::Proved)],
+            vec![
+                ("http_listener.rpc", Outcome::Proved),
+                ("http_listener.events", Outcome::Proved),
+            ],
             vec![
                 (
                     "post-rpc-carries-hello-headers-and-starts-an-outliving-run",
@@ -771,6 +774,10 @@ fn the_http_listener_suite_is_proved_against_collies_daemon_on_port_0() {
                 ),
                 (
                     "post-rpc-drops-malformed-or-over-long-trace-headers-without-refusing",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "get-events-streams-sse-and-resumes-from-last-event-id-and-after",
                     CaseOutcome::Passed
                 ),
             ]

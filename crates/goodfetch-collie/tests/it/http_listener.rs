@@ -17,7 +17,7 @@
 )]
 
 use std::fmt::Write as _;
-use std::io::{Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
@@ -406,4 +406,112 @@ fn the_http_listener_terminates_exposed_daemon_tls_and_passes_the_endpoint_table
     let exited = daemon.terminate();
 
     assert_eq!((ran, exited), (Ok(()), true));
+}
+
+/// Reads the first complete SSE event `(id, event, data)` from `url` via `ureq`.
+fn first_sse_event(url: &str, token: &str, last_event_id: Option<&str>) -> (u64, String, Value) {
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .new_agent();
+    let mut request = agent
+        .get(url)
+        .header("Authorization", &format!("Bearer {token}"));
+    if let Some(id) = last_event_id {
+        request = request.header("Last-Event-ID", id);
+    }
+    let response = request.call().unwrap();
+    assert_eq!(response.status().as_u16(), 200);
+    let mut reader = BufReader::new(response.into_body().into_reader());
+    let (mut id, mut event, mut data) = (None, None, None);
+    let mut line = String::new();
+    while reader.read_line(&mut line).unwrap() > 0 {
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+        if trimmed.is_empty() && id.is_some() {
+            break;
+        }
+        if let Some(v) = trimmed.strip_prefix("id: ") {
+            id = Some(v.parse::<u64>().unwrap());
+        } else if let Some(v) = trimmed.strip_prefix("event: ") {
+            event = Some(v.to_owned());
+        } else if let Some(v) = trimmed.strip_prefix("data: ") {
+            data = Some(serde_json::from_str::<Value>(v).unwrap());
+        }
+        line.clear();
+    }
+    (id.unwrap(), event.unwrap(), data.unwrap())
+}
+
+/// `GET /v1/events?run=<id>&after=<position>` streams a Run's events as SSE,
+/// resumes identically via `Last-Event-ID` and `after` after dropping, and
+/// refuses a token in the query string.
+///
+/// Covers: story:11-260
+#[test]
+fn get_events_streams_and_resumes_from_last_event_id_and_after() {
+    let env = TestEnv::new();
+    env.user_configuration(
+        "daemon.idle_timeout = 60000\nhttp_listener.enabled = true\nhttp_listener.port = 0\n",
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+    json_of(COLLIE.as_ref(), &env, &["daemon", "start", "--json"]);
+    let address = daemon_http_listener(&env).expect("http_listener bound");
+    let token = json_of(
+        COLLIE.as_ref(),
+        &env,
+        &["daemon", "http-listener-token", "--json"],
+    )["token"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let (start_code, _) = post_rpc(
+        address,
+        &token,
+        &json!({ "jsonrpc": "2.0", "id": 1, "method": "run.start", "params": { "run_id": "sse-it" } }),
+    );
+    assert_eq!(start_code, 200);
+
+    let first = first_sse_event(
+        &format!("http://{address}/v1/events?run=sse-it&after=0"),
+        &token,
+        None,
+    );
+    assert_eq!(first.1, "run.axes_changed");
+    assert_eq!(first.2["data"]["lifecycle"], json!("running"));
+
+    let (finish_code, _) = post_rpc(
+        address,
+        &token,
+        &json!({ "jsonrpc": "2.0", "id": 2, "method": "run.finish", "params": { "run_id": "sse-it" } }),
+    );
+    assert_eq!(finish_code, 200);
+
+    let last_id = first.0.to_string();
+    let by_header = first_sse_event(
+        &format!("http://{address}/v1/events?run=sse-it"),
+        &token,
+        Some(&last_id),
+    );
+    let by_after = first_sse_event(
+        &format!("http://{address}/v1/events?run=sse-it&after={last_id}"),
+        &token,
+        None,
+    );
+    assert_eq!(by_header, by_after);
+    assert!(by_header.0 > first.0);
+    assert_eq!(by_header.2["data"]["lifecycle"], json!("finished"));
+
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let query_refused = agent
+        .get(&format!(
+            "http://{address}/v1/events?run=sse-it&token={token}"
+        ))
+        .call()
+        .unwrap();
+    assert_eq!(query_refused.status().as_u16(), 401);
 }

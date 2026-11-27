@@ -1913,6 +1913,29 @@ pub(crate) fn http_error_bytes(
     bytes
 }
 
+/// Validates `hello` fields carried on HTTP headers through `handshake::answer`
+/// (ADRs 0027, 0030 and 0140), returning the protocol refusal error if rejected.
+pub(crate) async fn check_http_hello(
+    dispatch: &Dispatch,
+    events: &Events,
+    daemon: &dyn DaemonSide,
+    hello: &HelloParams,
+) -> Result<(), CallError> {
+    match handshake::answer(&dispatch.identity, events.instance(), hello) {
+        Ok(_) => Ok(()),
+        Err(refusal) => {
+            let handover = if refusal.by_product_or_version() {
+                daemon.refusing().await
+            } else {
+                false
+            };
+            let error = refusal.into_error(handover);
+            record(HELLO, Some(error.code()));
+            Err(error)
+        }
+    }
+}
+
 /// Serves one `POST /v1/rpc` request as a single-request Connection carriage
 /// (ADR 0027; ADR 0140's E1): checks `hello` through [`handshake::answer`],
 /// decodes the body once through `framing`, dispatches through `composition`,

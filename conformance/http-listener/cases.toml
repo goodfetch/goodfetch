@@ -35,3 +35,10 @@ covers = ["story:11-261"]
 [[capability.case]]
 id = "post-rpc-drops-malformed-or-over-long-trace-headers-without-refusing"
 covers = ["story:11-259"]
+
+[[capability]]
+name = "http_listener.events"
+
+[[capability.case]]
+id = "get-events-streams-sse-and-resumes-from-last-event-id-and-after"
+covers = ["story:11-260"]

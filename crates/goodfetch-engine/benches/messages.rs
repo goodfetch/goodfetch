@@ -50,7 +50,9 @@ use goodfetch_protocol::catalog::{
 use goodfetch_protocol::checkpoint::RUN_CHECKPOINTING;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::DaemonEndpoint;
-use goodfetch_protocol::http_listener::{HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH};
+use goodfetch_protocol::http_listener::{
+    EVENTS_PATH, HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH,
+};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::route::{ROUTE_FULFILL, RouteAnswered, RouteFulfillParams};
 use goodfetch_protocol::page::{BodyHandle, CHUNK_BYTES};
@@ -689,74 +691,162 @@ async fn connect(dialer: &InMemoryDialer, carriage: Carriage) -> (Sending, Recei
     }
 }
 
-/// Sends `traffic.small` + `traffic.large` `POST /v1/rpc` requests over one
-/// HTTP/1.1 connection on `dialer` and returns how many answers came back.
+/// Sends `run.start`, `traffic.small` + `traffic.large` `POST /v1/rpc` calls
+/// and `run.finish` while following that Run over `GET /v1/events` (ADRs 0027
+/// and 0140's E1), returning how many answers and SSE events came back.
 async fn http_client(dialer: InMemoryDialer, traffic: Traffic) -> Sent {
+    use http_body_util::Full;
+    use hyper::body::Bytes;
+
+    let (mut sse_sender, sse_conn) = open_http1(&dialer).await;
+    let (mut rpc_sender, rpc_conn) = open_http1(&dialer).await;
+    let sse_drive = async move {
+        let _ = sse_conn.await;
+    };
+    let rpc_drive = async move {
+        let _ = rpc_conn.await;
+    };
+
+    let auth = format!("Bearer {TOKEN}");
+    let run_traffic = async move {
+        let sse_req = hyper::Request::builder()
+            .method(hyper::Method::GET)
+            .uri(format!("{EVENTS_PATH}?run=b3-http&after=0"))
+            .header("Host", HTTP_ADDRESS)
+            .header("Authorization", &auth)
+            .body(Full::new(Bytes::new()))
+            .expect("invariant: literal SSE request");
+        let sse_response = sse_sender
+            .send_request(sse_req)
+            .await
+            .expect("invariant: GET /v1/events succeeds");
+        assert_eq!(sse_response.status(), hyper::StatusCode::OK);
+        let mut sse_body = sse_response.into_body();
+
+        let outgoing = send_http_rpc_traffic(&mut rpc_sender, &auth, traffic).await;
+        drop(rpc_sender);
+
+        let events = drain_http_sse_events(&mut sse_body).await;
+        drop(sse_body);
+        drop(sse_sender);
+        Sent {
+            outgoing,
+            event_batches: 0,
+            events,
+            log_lines: 0,
+            handler_requests: 0,
+            chunks: 0,
+        }
+    };
+    tokio::join!(sse_drive, rpc_drive, run_traffic).2
+}
+
+async fn open_http1(
+    dialer: &InMemoryDialer,
+) -> (
+    hyper::client::conn::http1::SendRequest<http_body_util::Full<hyper::body::Bytes>>,
+    hyper::client::conn::http1::Connection<
+        hyper_util::rt::TokioIo<Join<ConnectionReader, ConnectionWriter>>,
+        http_body_util::Full<hyper::body::Bytes>,
+    >,
+) {
     let (reader, writer) = dialer
         .connect()
         .await
         .expect("invariant: the HTTP listener accepts")
         .split();
     let io = hyper_util::rt::TokioIo::new(tokio::io::join(reader, writer));
-    let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+    hyper::client::conn::http1::handshake(io)
         .await
-        .expect("invariant: HTTP/1.1 handshake succeeds");
-    let drive = async move {
-        let _ = connection.await;
-    };
-    let send_all = async move {
-        use http_body_util::{BodyExt as _, Full};
-        use hyper::body::Bytes;
+        .expect("invariant: HTTP/1.1 handshake succeeds")
+}
 
-        let protocol = PROTOCOL_VERSION.to_string();
-        let auth = format!("Bearer {TOKEN}");
-        let mut outgoing = 0;
-        let large_body = "QUJD".repeat(LARGE_BYTES / 4);
-        let bodies = (1..=traffic.small)
-            .map(|current| {
-                format!(
-                    "{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"engine.info\",\"params\":{{}}}}"
-                )
-            })
-            .chain((traffic.small + 1..=traffic.small + traffic.large).map(|current| {
-                format!(
-                    "{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"route.fulfill\",\"params\":{{\"route_id\":\"route-1\",\"status\":200,\"body\":\"{large_body}\"}}}}"
-                )
-            }));
-        for body in bodies {
-            let request = hyper::Request::builder()
-                .method(hyper::Method::POST)
-                .uri(RPC_PATH)
-                .header("Host", HTTP_ADDRESS)
-                .header("Authorization", &auth)
-                .header(HEADER_PROTOCOL, &protocol)
-                .header(HEADER_PRODUCT, "collie")
-                .header(HEADER_FORM, "catalog")
-                .body(Full::new(Bytes::from(body)))
-                .expect("invariant: literal HTTP RPC request");
-            let response = sender
-                .send_request(request)
-                .await
-                .expect("invariant: HTTP RPC request succeeds");
-            assert_eq!(response.status(), hyper::StatusCode::OK);
-            let _ = response
-                .into_body()
-                .collect()
-                .await
-                .expect("invariant: HTTP RPC response body reads");
-            outgoing += 1;
+async fn send_http_rpc_traffic(
+    sender: &mut hyper::client::conn::http1::SendRequest<http_body_util::Full<hyper::body::Bytes>>,
+    auth: &str,
+    traffic: Traffic,
+) -> usize {
+    use http_body_util::{BodyExt as _, Full};
+    use hyper::body::Bytes;
+
+    let protocol = PROTOCOL_VERSION.to_string();
+    let mut outgoing = 0;
+    let large_body = "QUJD".repeat(LARGE_BYTES / 4);
+    let start_id = 1_usize;
+    let finish_id = 2 + traffic.small + traffic.large;
+    let bodies = std::iter::once(format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":{start_id},\"method\":\"run.start\",\"params\":{{\"run_id\":\"b3-http\"}}}}"
+    ))
+    .chain((2..=1 + traffic.small).map(|current| {
+        format!("{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"engine.info\",\"params\":{{}}}}")
+    }))
+    .chain((2 + traffic.small..=1 + traffic.small + traffic.large).map(|current| {
+        format!(
+            "{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"route.fulfill\",\"params\":{{\"route_id\":\"route-1\",\"status\":200,\"body\":\"{large_body}\"}}}}"
+        )
+    }))
+    .chain(std::iter::once(format!(
+        "{{\"jsonrpc\":\"2.0\",\"id\":{finish_id},\"method\":\"run.finish\",\"params\":{{\"run_id\":\"b3-http\"}}}}"
+    )));
+    for body in bodies {
+        let request = hyper::Request::builder()
+            .method(hyper::Method::POST)
+            .uri(RPC_PATH)
+            .header("Host", HTTP_ADDRESS)
+            .header("Authorization", auth)
+            .header(HEADER_PROTOCOL, &protocol)
+            .header(HEADER_PRODUCT, "collie")
+            .header(HEADER_FORM, "catalog")
+            .body(Full::new(Bytes::from(body)))
+            .expect("invariant: literal HTTP RPC request");
+        let response = sender
+            .send_request(request)
+            .await
+            .expect("invariant: HTTP RPC request succeeds");
+        assert_eq!(response.status(), hyper::StatusCode::OK);
+        let _ = response
+            .into_body()
+            .collect()
+            .await
+            .expect("invariant: HTTP RPC response body reads");
+        outgoing += 1;
+    }
+    outgoing
+}
+
+async fn drain_http_sse_events(sse_body: &mut hyper::body::Incoming) -> usize {
+    use http_body_util::BodyExt as _;
+
+    let mut buffer = String::new();
+    let mut events = 0;
+    let mut saw_finished_axes = false;
+    let mut saw_finished_progress = false;
+    while !(saw_finished_axes && saw_finished_progress) {
+        let frame = sse_body
+            .frame()
+            .await
+            .expect("invariant: SSE stream yields every Run lifecycle event")
+            .expect("invariant: SSE frame reads");
+        if let Some(chunk) = frame.data_ref() {
+            buffer.push_str(std::str::from_utf8(chunk).expect("invariant: UTF-8 SSE"));
+            while let Some(pos) = buffer.find("\n\n") {
+                let event_frame = &buffer[..pos];
+                if event_frame.contains("event: run.axes_changed")
+                    && event_frame.contains("\"lifecycle\":\"finished\"")
+                {
+                    saw_finished_axes = true;
+                }
+                if event_frame.contains("event: run.progress")
+                    && event_frame.contains("\"lifecycle\":\"finished\"")
+                {
+                    saw_finished_progress = true;
+                }
+                buffer.drain(..pos + 2);
+                events += 1;
+            }
         }
-        drop(sender);
-        Sent {
-            outgoing,
-            event_batches: 0,
-            events: 0,
-            log_lines: 0,
-            handler_requests: 0,
-            chunks: 0,
-        }
-    };
-    tokio::join!(drive, send_all).1
+    }
+    events
 }
 
 /// The Client: sends `lines` on `carriage`, answers each handler request,

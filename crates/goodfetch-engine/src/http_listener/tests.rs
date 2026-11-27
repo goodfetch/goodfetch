@@ -1,10 +1,13 @@
 use hyper::header::{HeaderMap, HeaderValue};
 
 use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
-use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
+use goodfetch_protocol::connection::{EngineInstance, Form, ProductVersion, Surface};
+use goodfetch_protocol::events::{LastRead, Position};
 use goodfetch_protocol::http_listener::{HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL};
 
-use super::{extract_trace_headers, parse_hello_headers, query_carries_token};
+use super::{
+    extract_trace_headers, parse_events_request, parse_hello_headers, query_carries_token,
+};
 
 #[test]
 fn query_carries_token_detects_token_parameters() {
@@ -71,4 +74,38 @@ fn extract_trace_headers_drops_non_utf8_and_keeps_valid_headers() {
         HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap(),
     );
     assert_eq!(extract_trace_headers(&non_utf8), None);
+}
+
+#[test]
+fn parse_events_request_treats_after_and_last_event_id_identically() {
+    let instance = EngineInstance::new("inst-1");
+    let empty = HeaderMap::new();
+
+    let (run, after) = parse_events_request(Some("run=run-a&after=7"), &empty, &instance).unwrap();
+    assert_eq!(
+        run.as_ref().map(goodfetch_protocol::run::RunId::as_str),
+        Some("run-a")
+    );
+    assert_eq!(
+        after,
+        Some(LastRead {
+            engine_instance: instance.clone(),
+            position: Position(7),
+        })
+    );
+
+    let mut with_header = HeaderMap::new();
+    with_header.insert("last-event-id", HeaderValue::from_static("7"));
+    let (run_h, after_h) =
+        parse_events_request(Some("run=run-a"), &with_header, &instance).unwrap();
+    assert_eq!(run_h, run);
+    assert_eq!(after_h, after);
+
+    // On SSE reconnect to the initial `?after=0` URL, `Last-Event-ID` wins.
+    let (_, resumed) =
+        parse_events_request(Some("run=run-a&after=0"), &with_header, &instance).unwrap();
+    assert_eq!(resumed, after);
+
+    assert!(parse_events_request(Some("after=not-a-number"), &empty, &instance).is_err());
+    assert!(parse_events_request(Some("run="), &empty, &instance).is_err());
 }

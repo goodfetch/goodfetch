@@ -347,9 +347,10 @@ fn run_messages(
     if cell.carriage == Carriage::HttpRpc {
         assert_eq!(
             sent.outgoing,
-            TRAFFIC.small + TRAFFIC.large,
+            TRAFFIC.small + TRAFFIC.large + 2,
             "every POST /v1/rpc request answered"
         );
+        assert!(sent.events >= 2, "GET /v1/events streamed the Run's events");
         return sent;
     }
     assert!(sent.event_batches > 0, "the Plugin's events went out");
@@ -433,7 +434,7 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
             .as_ref(),
     );
     let (incoming_messages, requests) = if cell.carriage == Carriage::HttpRpc {
-        let count_http = count(TRAFFIC.small + TRAFFIC.large);
+        let count_http = count(TRAFFIC.small + TRAFFIC.large + 2);
         (count_http, count_http)
     } else {
         (count(TRAFFIC.incoming()), count(TRAFFIC.requests()))

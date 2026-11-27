@@ -7,8 +7,13 @@
 
 use std::net::SocketAddr;
 
-use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::http_listener::{HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH};
+use goodfetch_protocol::catalog::{
+    Event, EventClass, Operation, OperationClass, OperationKind, Product, Reach, Stability,
+    schema_of,
+};
+use goodfetch_protocol::http_listener::{
+    EVENTS_PATH, HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH,
+};
 use goodfetch_test_support::TestEnv;
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::Bytes;
@@ -22,7 +27,9 @@ use serde_json::{Value, json};
 
 use super::daemon::{TOKEN, daemon as served, no_handover, options as daemon_options};
 use super::trace::{PARENT_ID, TRACEPARENT, exported};
-use super::{engine, records_of};
+use super::{engine, engine_with, records_of};
+use crate::call_error::CallError;
+use crate::composition::{CallContext, Contribution, Handler};
 use crate::daemon::DaemonOptions;
 use crate::endpoint::{Authorities, Exposure, REFUSAL_TARGET};
 use crate::http_listener::HttpListenerOptions;
@@ -516,4 +523,381 @@ fn trace_context_prefers_meta_falls_back_to_http_headers_and_drops_malformed() {
 
     // Span 3 started a fresh root trace after dropping the over-long/malformed headers.
     assert_eq!(server_spans[2].parent_span_id, SpanId::INVALID);
+}
+
+/// One parsed Server-Sent Event frame (`id`, `event`, JSON `data`).
+#[derive(Debug, PartialEq)]
+struct SseEvent {
+    id: u64,
+    event: String,
+    data: Value,
+}
+
+/// Parses a complete SSE frame (`id: ...\nevent: ...\ndata: ...\n\n`).
+fn parse_sse_frame(frame: &str) -> SseEvent {
+    let mut id = None;
+    let mut event = None;
+    let mut data = None;
+    for line in frame.lines() {
+        if let Some(value) = line.strip_prefix("id: ") {
+            id = Some(value.parse::<u64>().unwrap());
+        } else if let Some(value) = line.strip_prefix("event: ") {
+            event = Some(value.to_owned());
+        } else if let Some(value) = line.strip_prefix("data: ") {
+            data = Some(serde_json::from_str::<Value>(value).unwrap());
+        }
+    }
+    SseEvent {
+        id: id.expect("SSE frame missing id"),
+        event: event.expect("SSE frame missing event"),
+        data: data.expect("SSE frame missing data"),
+    }
+}
+
+/// Opens a streaming HTTP/1.1 connection for `GET /v1/events` and returns the
+/// response head + incoming body alongside the connection driver task handle.
+async fn open_sse(
+    dialer: &InMemoryDialer,
+    uri: &str,
+    extra_headers: &[(&str, &str)],
+) -> (
+    u16,
+    Option<String>,
+    hyper::body::Incoming,
+    tokio::task::JoinHandle<()>,
+) {
+    let (reader, writer) = dialer.connect().await.unwrap().split();
+    let io = TokioIo::new(tokio::io::join(reader, writer));
+    let (mut sender, connection) = http1::handshake(io).await.unwrap();
+    let driver = tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    let mut builder = Request::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .header("Host", HTTP_ADDRESS)
+        .header(
+            "Authorization",
+            format!("Bearer {HTTP_LISTENER_TEST_TOKEN}"),
+        );
+    for (name, value) in extra_headers {
+        builder = builder.header(*name, *value);
+    }
+    let response = sender
+        .send_request(builder.body(Full::new(Bytes::new())).unwrap())
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    (status, content_type, response.into_body(), driver)
+}
+
+/// Reads `count` complete SSE frames from `body`.
+async fn read_sse_events(body: &mut hyper::body::Incoming, count: usize) -> Vec<SseEvent> {
+    let mut buffer = String::new();
+    let mut events = Vec::with_capacity(count);
+    while events.len() < count {
+        let frame = body
+            .frame()
+            .await
+            .expect("SSE stream ended before expected event")
+            .unwrap();
+        if let Some(chunk) = frame.data_ref() {
+            buffer.push_str(std::str::from_utf8(chunk).unwrap());
+            while let Some(pos) = buffer.find("\n\n") {
+                let raw = buffer[..pos].to_owned();
+                buffer.drain(..pos + 2);
+                if !raw.is_empty() {
+                    events.push(parse_sse_frame(&raw));
+                }
+            }
+        }
+    }
+    events
+}
+
+async fn rpc_run_call(dialer: &InMemoryDialer, id: u64, method: &str, run_id: &str) -> u16 {
+    send_http(
+        dialer,
+        valid_rpc_request(&json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": { "run_id": run_id }
+        })),
+    )
+    .await
+    .0
+}
+
+async fn read_one_sse(
+    dialer: &InMemoryDialer,
+    uri: &str,
+    headers: &[(&str, &str)],
+) -> (u16, Option<String>, SseEvent) {
+    let (status, content_type, mut body, driver) = open_sse(dialer, uri, headers).await;
+    let event = read_sse_events(&mut body, 1).await.pop().unwrap();
+    drop(body);
+    driver.abort();
+    (status, content_type, event)
+}
+
+/// `GET /v1/events?run=<id>&after=<position>` streams a Run's events as SSE
+/// with `id` = event position; dropping and reconnecting with `Last-Event-ID`
+/// receives each subsequent event once; `after` and `Last-Event-ID` give the
+/// exact same stream; a token in the query string is refused with `401`.
+///
+/// Covers: story:11-260
+#[test]
+fn get_events_streams_run_events_resumes_identically_and_refuses_query_token() {
+    let (options, http_dialer) = with_http_listener();
+    let (
+        _,
+        (
+            first_status,
+            content_type,
+            first_event,
+            resumed_by_header,
+            resumed_by_after,
+            query_token_status,
+        ),
+    ) = served(
+        &engine(Product::Collie),
+        &TestEnv::new(),
+        options,
+        |_socket_dialer| async move {
+            assert_eq!(
+                (
+                    rpc_run_call(&http_dialer, 1, "run.start", "sse-a").await,
+                    rpc_run_call(&http_dialer, 2, "run.start", "sse-b").await,
+                ),
+                (200, 200)
+            );
+            let (first_status, content_type, first) = read_one_sse(
+                &http_dialer,
+                &format!("{EVENTS_PATH}?run=sse-a&after=0"),
+                &[],
+            )
+            .await;
+            assert_eq!(
+                (
+                    rpc_run_call(&http_dialer, 3, "run.finish", "sse-a").await,
+                    rpc_run_call(&http_dialer, 4, "run.finish", "sse-b").await,
+                ),
+                (200, 200)
+            );
+            let last_id = first.id.to_string();
+            let (header_status, _, resumed_header) = read_one_sse(
+                &http_dialer,
+                &format!("{EVENTS_PATH}?run=sse-a"),
+                &[("Last-Event-ID", &last_id)],
+            )
+            .await;
+            let (query_status, _, resumed_query) = read_one_sse(
+                &http_dialer,
+                &format!("{EVENTS_PATH}?run=sse-a&after={last_id}"),
+                &[],
+            )
+            .await;
+            assert_eq!((header_status, query_status), (200, 200));
+
+            let (q_status, _, _) = send_http(
+                &http_dialer,
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(format!(
+                        "{EVENTS_PATH}?run=sse-a&token={HTTP_LISTENER_TEST_TOKEN}"
+                    ))
+                    .header("Host", HTTP_ADDRESS)
+                    .header(
+                        "Authorization",
+                        format!("Bearer {HTTP_LISTENER_TEST_TOKEN}"),
+                    )
+                    .body(Full::new(Bytes::new()))
+                    .unwrap(),
+            )
+            .await;
+            drop(http_dialer);
+            (
+                first_status,
+                content_type,
+                first,
+                resumed_header,
+                resumed_query,
+                q_status,
+            )
+        },
+    );
+
+    assert_eq!(first_status, 200);
+    assert_eq!(
+        content_type.as_deref(),
+        Some("text/event-stream; charset=utf-8")
+    );
+    assert_eq!(first_event.event, "run.axes_changed");
+    assert_eq!(first_event.data["data"]["run_id"], json!("sse-a"));
+    assert_eq!(first_event.data["data"]["lifecycle"], json!("running"));
+    assert!(resumed_by_header.id > first_event.id);
+    assert_eq!(resumed_by_header.data["data"]["run_id"], json!("sse-a"));
+    assert_eq!(
+        resumed_by_header.data["data"]["lifecycle"],
+        json!("finished")
+    );
+    assert_eq!(resumed_by_header, resumed_by_after);
+    assert_eq!(query_token_status, 401);
+}
+
+const SSE_TEST_TELEMETRY: Event = Event {
+    name: "test.sse_progress",
+    description: "A test telemetry event for SSE coalescing.",
+    class: EventClass::Telemetry,
+    payload: schema_of::<Value>,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+const PUBLISH_BURST: Operation = Operation {
+    name: "test.publish_burst",
+    description: "Publishes a burst of telemetry events for one Run.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<Value>,
+    result: schema_of::<Value>,
+    events: &[&SSE_TEST_TELEMETRY],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: goodfetch_protocol::catalog::PROTOCOL_VERSION,
+};
+
+async fn read_chunked_sse_until_step(
+    reader: &mut tokio::io::BufReader<crate::transport::ConnectionReader>,
+    final_step: u64,
+) -> Vec<SseEvent> {
+    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _};
+
+    let mut seen = Vec::new();
+    let mut buffer = String::new();
+    let mut done = false;
+    while !done {
+        let mut size_line = String::new();
+        reader.read_line(&mut size_line).await.unwrap();
+        let size = usize::from_str_radix(size_line.trim(), 16).unwrap();
+        if size == 0 {
+            break;
+        }
+        let mut chunk = vec![0_u8; size + 2];
+        reader.read_exact(&mut chunk).await.unwrap();
+        buffer.push_str(std::str::from_utf8(&chunk[..size]).unwrap());
+        while let Some(pos) = buffer.find("\n\n") {
+            let raw = buffer[..pos].to_owned();
+            buffer.drain(..pos + 2);
+            if !raw.is_empty() {
+                let event = parse_sse_frame(&raw);
+                if event.data["data"]["step"] == json!(final_step) {
+                    done = true;
+                }
+                seen.push(event);
+            }
+        }
+    }
+    seen
+}
+
+/// Telemetry events coalesce with `dropped` when an SSE reader's credit window
+/// is full, and closing the reader tears down the subscription so subsequent
+/// work proceeds unimpeded.
+///
+/// Covers: story:11-260
+#[test]
+fn get_events_coalesces_telemetry_with_dropped_under_credits_and_unsubscribes_on_drop() {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
+
+    let contribution = Contribution::new("test-sse-telemetry").with_handler(Handler::new(
+        &PUBLISH_BURST,
+        |params: Value, context: CallContext| async move {
+            let run = params["run"].as_str().unwrap();
+            let count = params["count"].as_u64().unwrap();
+            let pad = "p".repeat(8192);
+            for step in 0..count {
+                context
+                    .events()
+                    .publish(
+                        &SSE_TEST_TELEMETRY,
+                        Some(run),
+                        &json!({ "run_id": run, "step": step, "pad": pad }),
+                    )
+                    .await;
+            }
+            Ok::<Value, CallError>(json!({ "published": count }))
+        },
+    ));
+    let test_engine = engine_with(Product::Collie, Some(contribution));
+    let (options, http_dialer) = with_http_listener();
+    let (_, (seen_events, post_drop_status)) = served(
+        &test_engine,
+        &TestEnv::new(),
+        options,
+        |_socket_dialer| async move {
+            let (reader, mut writer) = http_dialer.connect().await.unwrap().split();
+            let request = format!(
+                "GET {EVENTS_PATH}?run=burst-run HTTP/1.1\r\n\
+                 Host: {HTTP_ADDRESS}\r\n\
+                 Authorization: Bearer {HTTP_LISTENER_TEST_TOKEN}\r\n\r\n"
+            );
+            writer.write_all(request.as_bytes()).await.unwrap();
+            let mut reader = BufReader::new(reader);
+            let mut status_line = String::new();
+            reader.read_line(&mut status_line).await.unwrap();
+            assert!(status_line.contains("200"), "{status_line}");
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+
+            let (pub_status, _, _) = send_http(
+                &http_dialer,
+                valid_rpc_request(&json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "test.publish_burst",
+                    "params": { "run": "burst-run", "count": 100 }
+                })),
+            )
+            .await;
+            assert_eq!(pub_status, 200);
+
+            let seen = read_chunked_sse_until_step(&mut reader, 99).await;
+            drop(reader);
+            drop(writer);
+            let s_start = rpc_run_call(&http_dialer, 2, "run.start", "after-drop").await;
+            let s_finish = rpc_run_call(&http_dialer, 3, "run.finish", "after-drop").await;
+            drop(http_dialer);
+            (seen, (s_start, s_finish))
+        },
+    );
+
+    assert_eq!(post_drop_status, (200, 200));
+    assert!(
+        seen_events.len() < 100,
+        "telemetry events should coalesce under credits, got {} events",
+        seen_events.len()
+    );
+    assert!(
+        seen_events
+            .iter()
+            .any(|event| event.data["dropped"].as_u64().is_some_and(|n| n > 0)),
+        "expected a coalesced telemetry event with `dropped > 0`, got {seen_events:#?}"
+    );
 }

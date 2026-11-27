@@ -10,18 +10,22 @@
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::ProtocolVersion;
-use goodfetch_protocol::connection::{Form, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::connection::{EngineInstance, Form, HelloParams, ProductVersion, Surface};
+use goodfetch_protocol::events::{LastRead, Position};
 use goodfetch_protocol::http_listener::{
-    HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH, parse_form, parse_product,
+    EVENTS_PATH, HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH, parse_form, parse_product,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, TraceContext};
+use goodfetch_protocol::run::RunId;
 use http_body_util::{BodyExt as _, Full, LengthLimitError, Limited};
-use hyper::body::{Bytes, Incoming};
+use hyper::body::{Body, Bytes, Frame, Incoming, SizeHint};
 use hyper::header::{self, HeaderMap, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
@@ -36,8 +40,8 @@ use crate::engine_context::EngineContext;
 use crate::events::Events;
 use crate::framing::MAX_MESSAGE_BYTES;
 use crate::rpc::{
-    Dispatch, HttpAnswer, HttpContext, HttpRequest, HttpStatus, http_error_bytes,
-    serve_http_request, terminate_tls,
+    Dispatch, HttpAnswer, HttpContext, HttpRequest, HttpStatus, SseStream, check_http_hello,
+    http_error_bytes, open_sse_stream, serve_http_request, terminate_tls,
 };
 use crate::runs::Runs;
 use crate::sync::{AtomicU64, Ordering};
@@ -56,6 +60,45 @@ const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
 
 /// The `Content-Type` of every JSON-RPC response body.
 const APPLICATION_JSON: &str = "application/json";
+
+/// The `Content-Type` of Server-Sent Events (`GET /v1/events`).
+const TEXT_EVENT_STREAM: &str = "text/event-stream; charset=utf-8";
+
+/// The HTTP response body of the listener: a single JSON-RPC payload or a
+/// Server-Sent Events stream backed by `rpc::stream::SseStream`.
+enum HttpBody {
+    Full(Full<Bytes>),
+    Events(SseStream),
+}
+
+impl Body for HttpBody {
+    type Data = Bytes;
+    type Error = Infallible;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        match self.get_mut() {
+            Self::Full(full) => Pin::new(full).poll_frame(cx),
+            Self::Events(events) => Pin::new(events).poll_frame(cx),
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        match self {
+            Self::Full(full) => full.is_end_stream(),
+            Self::Events(_) => false,
+        }
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        match self {
+            Self::Full(full) => full.size_hint(),
+            Self::Events(events) => events.size_hint(),
+        }
+    }
+}
 
 /// Configuration for the Daemon's HTTP JSON-RPC listener, built by the
 /// Daemon's starter once `http_listener.enabled` is on.
@@ -213,7 +256,7 @@ impl Serving {
         request: Request<Incoming>,
         authorities: &Authorities,
         peer: Option<SocketAddr>,
-    ) -> Response<Full<Bytes>> {
+    ) -> Response<HttpBody> {
         let headers = request.headers();
         let effective = if self.exposure.termination.trusts(peer) {
             authorities.forwarded(
@@ -251,27 +294,22 @@ impl Serving {
                 Form::Catalog,
             );
         }
-        if request.uri().path() != RPC_PATH {
-            return self.json_error(
+        match request.uri().path() {
+            RPC_PATH => self.answer_rpc(request).await,
+            EVENTS_PATH => self.answer_events(&request).await,
+            _ => self.json_error(
                 StatusCode::NOT_FOUND,
                 &CallError::protocol(ProtocolFailure::InvalidRequest, "route not found"),
                 Form::Catalog,
-            );
+            ),
         }
+    }
+
+    async fn answer_rpc(&self, request: Request<Incoming>) -> Response<HttpBody> {
         if request.method() != Method::POST {
-            let mut response = self.json_error(
-                StatusCode::METHOD_NOT_ALLOWED,
-                &CallError::protocol(
-                    ProtocolFailure::InvalidRequest,
-                    "`/v1/rpc` accepts `POST` only",
-                ),
-                Form::Catalog,
-            );
-            response
-                .headers_mut()
-                .insert(header::ALLOW, HeaderValue::from_static("POST"));
-            return response;
+            return self.method_not_allowed("`/v1/rpc` accepts `POST` only", "POST");
         }
+        let headers = request.headers();
         if let Some(unauthorized) = self.check_token(request.uri().query(), headers).await {
             return unauthorized;
         }
@@ -298,13 +336,86 @@ impl Serving {
         http_response(answer)
     }
 
+    async fn answer_events(&self, request: &Request<Incoming>) -> Response<HttpBody> {
+        if request.method() != Method::GET {
+            return self.method_not_allowed("`/v1/events` accepts `GET` only", "GET");
+        }
+        let headers = request.headers();
+        if let Some(unauthorized) = self.check_token(request.uri().query(), headers).await {
+            return unauthorized;
+        }
+        if headers.contains_key(HEADER_PROTOCOL) || headers.contains_key(HEADER_PRODUCT) {
+            let hello = match parse_hello_headers(
+                headers,
+                &self.daemon.dispatch.identity.product_version,
+            ) {
+                Ok(hello) => hello,
+                Err(error) => {
+                    return self.json_error(StatusCode::BAD_REQUEST, &error, Form::Catalog);
+                }
+            };
+            let form = hello.form.unwrap_or(Form::Catalog);
+            if let Err(error) = check_http_hello(
+                &self.daemon.dispatch,
+                &self.daemon.events,
+                self.daemon.daemon.as_ref(),
+                &hello,
+            )
+            .await
+            {
+                return self.json_error(StatusCode::BAD_REQUEST, &error, form);
+            }
+        }
+        let (run, after) = match parse_events_request(
+            request.uri().query(),
+            headers,
+            self.daemon.events.instance(),
+        ) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return self.json_error(StatusCode::BAD_REQUEST, &error, Form::Catalog);
+            }
+        };
+        let Some(stream) = open_sse_stream(
+            &self.daemon.events,
+            after,
+            run,
+            self.daemon.dispatch.masks.clone(),
+            &self.owner,
+        )
+        .await
+        else {
+            return self.json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &CallError::protocol(
+                    ProtocolFailure::InternalError,
+                    "the Daemon's event stream is closed",
+                ),
+                Form::Catalog,
+            );
+        };
+        sse_response(stream)
+    }
+
+    fn method_not_allowed(&self, message: &str, allow: &'static str) -> Response<HttpBody> {
+        let mut response = self.json_error(
+            StatusCode::METHOD_NOT_ALLOWED,
+            &CallError::protocol(ProtocolFailure::InvalidRequest, message),
+            Form::Catalog,
+        );
+        response
+            .headers_mut()
+            .insert(header::ALLOW, HeaderValue::from_static(allow));
+        response
+    }
+
     /// Checks `Authorization: Bearer` and refuses tokens carried in the query
     /// string, logging and auditing each refusal.
     async fn check_token(
         &self,
         query: Option<&str>,
         headers: &HeaderMap,
-    ) -> Option<Response<Full<Bytes>>> {
+    ) -> Option<Response<HttpBody>> {
         let query_token = query_carries_token(query);
         match endpoint::bearer(headers) {
             None => {
@@ -371,7 +482,7 @@ impl Serving {
         answer
     }
 
-    fn unauthorized(&self, message: &str) -> Response<Full<Bytes>> {
+    fn unauthorized(&self, message: &str) -> Response<HttpBody> {
         let mut response = self.json_error(
             StatusCode::UNAUTHORIZED,
             &CallError::protocol(ProtocolFailure::InvalidRequest, message),
@@ -383,12 +494,7 @@ impl Serving {
         response
     }
 
-    fn json_error(
-        &self,
-        status: StatusCode,
-        error: &CallError,
-        form: Form,
-    ) -> Response<Full<Bytes>> {
+    fn json_error(&self, status: StatusCode, error: &CallError, form: Form) -> Response<HttpBody> {
         let body = http_error_bytes(
             error,
             form,
@@ -397,6 +503,82 @@ impl Serving {
         );
         json_response(status, Some(body))
     }
+}
+
+/// Parses `run=<id>`, `after=<position>` and `Last-Event-ID` for
+/// `GET /v1/events`. `Last-Event-ID` takes precedence over `after` so an SSE
+/// client reconnecting to its initial URL resumes from its last received ID;
+/// both parse identically through [`parse_position`].
+fn parse_events_request(
+    query: Option<&str>,
+    headers: &HeaderMap,
+    instance: &EngineInstance,
+) -> Result<(Option<RunId>, Option<LastRead>), CallError> {
+    let mut run: Option<RunId> = None;
+    let mut query_after: Option<String> = None;
+    if let Some(query) = query {
+        for (key, value) in url::form_urlencoded::parse(query.as_bytes()) {
+            match key.as_ref() {
+                "run" => {
+                    run = Some(RunId::parse(value.as_ref()).map_err(|error| {
+                        CallError::protocol(
+                            ProtocolFailure::InvalidParams,
+                            format!("invalid `run` query parameter: {error}"),
+                        )
+                    })?);
+                }
+                "after" => {
+                    query_after = Some(value.into_owned());
+                }
+                _ => {}
+            }
+        }
+    }
+    let last_event_id = headers
+        .get("last-event-id")
+        .map(|value| {
+            value.to_str().map(str::trim).map_err(|_| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    "`Last-Event-ID` header must be UTF-8",
+                )
+            })
+        })
+        .transpose()?
+        .filter(|value| !value.is_empty());
+    let raw_position = last_event_id.or(query_after.as_deref());
+    let after = raw_position
+        .map(|value| parse_position(value, instance))
+        .transpose()?;
+    Ok((run, after))
+}
+
+/// Parses an event position (`<u64>` on the current engine instance, or
+/// `<engine_instance>:<u64>`).
+fn parse_position(raw: &str, current: &EngineInstance) -> Result<LastRead, CallError> {
+    let trimmed = raw.trim();
+    if let Some((instance, position)) = trimmed.split_once(':') {
+        let position = position.parse::<u64>().map_err(|_| {
+            CallError::protocol(
+                ProtocolFailure::InvalidParams,
+                format!("`{trimmed}` is not a valid event position"),
+            )
+        })?;
+        return Ok(LastRead {
+            engine_instance: EngineInstance::new(instance),
+            position: Position(position),
+        });
+    }
+    let position = trimmed.parse::<u64>().map_err(|_| {
+        CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`{trimmed}` is not a valid event position"),
+        )
+    })?;
+    Ok(LastRead {
+        engine_instance: current.clone(),
+        position: Position(position),
+    })
 }
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -517,7 +699,7 @@ async fn read_body(body: Incoming) -> Result<Vec<u8>, (StatusCode, CallError)> {
     }
 }
 
-fn http_response(answer: HttpAnswer) -> Response<Full<Bytes>> {
+fn http_response(answer: HttpAnswer) -> Response<HttpBody> {
     let status = match answer.status {
         HttpStatus::Ok => StatusCode::OK,
         HttpStatus::Accepted => StatusCode::ACCEPTED,
@@ -526,10 +708,10 @@ fn http_response(answer: HttpAnswer) -> Response<Full<Bytes>> {
     json_response(status, answer.body)
 }
 
-fn json_response(status: StatusCode, body: Option<Vec<u8>>) -> Response<Full<Bytes>> {
+fn json_response(status: StatusCode, body: Option<Vec<u8>>) -> Response<HttpBody> {
     let has_body = body.is_some();
     let payload = body.map_or_else(Bytes::new, Bytes::from);
-    let mut response = Response::new(Full::new(payload));
+    let mut response = Response::new(HttpBody::Full(Full::new(payload)));
     *response.status_mut() = status;
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -539,6 +721,19 @@ fn json_response(status: StatusCode, body: Option<Vec<u8>>) -> Response<Full<Byt
             HeaderValue::from_static(APPLICATION_JSON),
         );
     }
+    response
+}
+
+fn sse_response(stream: SseStream) -> Response<HttpBody> {
+    let mut response = Response::new(HttpBody::Events(stream));
+    *response.status_mut() = StatusCode::OK;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static(TEXT_EVENT_STREAM),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    headers.insert("x-accel-buffering", HeaderValue::from_static("no"));
     response
 }
 

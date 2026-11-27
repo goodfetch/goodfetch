@@ -625,6 +625,7 @@ fetch:
     ci/rustfs/fetch.sh
     ci/fake-gcs/fetch.sh
     ci/azurite/fetch.sh
+    ci/postgres/fetch.sh
     ci/registry/fetch.sh
     ci/pypiserver/fetch.sh
 

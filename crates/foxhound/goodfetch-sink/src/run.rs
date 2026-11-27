@@ -852,7 +852,13 @@ fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
     };
     if !matches!(
         sink_type,
-        SinkType::Sqlite | SinkType::Webhook | SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob
+        SinkType::Sqlite
+            | SinkType::Webhook
+            | SinkType::S3
+            | SinkType::Gcs
+            | SinkType::AzureBlob
+            | SinkType::Postgres
+            | SinkType::Supabase
     ) {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
     }

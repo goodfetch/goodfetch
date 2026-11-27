@@ -55,6 +55,30 @@ impl ColumnType {
         }
     }
 
+    /// The PostgreSQL column type for this logical type (ADR 0026).
+    #[must_use]
+    pub const fn postgres_type(self) -> &'static str {
+        match self {
+            Self::Bool => "BOOLEAN",
+            Self::Integer => "BIGINT",
+            Self::Float => "DOUBLE PRECISION",
+            Self::Text => "TEXT",
+            Self::Json => "JSONB",
+        }
+    }
+
+    /// Infers a logical type from a PostgreSQL `information_schema.columns.data_type`.
+    #[must_use]
+    pub fn from_postgres_type(data_type: &str) -> Self {
+        match data_type.to_ascii_lowercase().as_str() {
+            "boolean" => Self::Bool,
+            "bigint" | "integer" | "smallint" => Self::Integer,
+            "double precision" | "real" | "numeric" => Self::Float,
+            "jsonb" | "json" => Self::Json,
+            _ => Self::Text,
+        }
+    }
+
     /// Infers a logical type from a SQLite declared column type read back
     /// from `pragma_table_info`.
     #[must_use]

@@ -35,6 +35,8 @@ thiserror.workspace = true
 # A Sink's driver opens once, whichever delivery reaches it first, and its
 # delivery task waits for a commit, a retry or its stop, whichever comes first.
 tokio = { workspace = true, features = ["macros", "sync"] }
+# PostgreSQL and Supabase Sinks (ADR 0026; issue 1162).
+tokio-postgres.workspace = true
 tracing.workspace = true
 url.workspace = true
 goodfetch-workspace-hack.workspace = true

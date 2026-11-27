@@ -17,6 +17,7 @@ mod driver;
 pub mod files;
 mod guarantee;
 pub mod object_store_sink;
+pub mod postgres;
 pub mod report;
 mod run;
 pub mod schedule;
@@ -38,6 +39,7 @@ pub use files::{
 };
 pub use guarantee::{meets, require};
 pub use object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
+pub use postgres::{DEFAULT_POSTGRES_TARGET, PostgresError, PostgresSink, map_postgres_error};
 pub use report::{SinkReportPart, SinkStateRow};
 pub use run::{Delivery, Sinks, contribution};
 pub use schedule::{

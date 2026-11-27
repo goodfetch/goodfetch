@@ -20,6 +20,7 @@ use crate::contract::{Batch, Failure, Primitives, Probe, RunCopy, Written};
 use crate::driver::Driver;
 use crate::files::{FilesConfig, FilesError, FilesSink};
 use crate::object_store_sink::{ObjectStoreBackend, ObjectStoreDestination, ObjectStoreError};
+use crate::postgres::{DEFAULT_POSTGRES_TARGET, PostgresError, PostgresSink};
 use crate::sqlite::{SqliteError, SqliteSink};
 use crate::throughput::Throughput;
 use crate::webhook::{DEFAULT_MAX_BATCH_BYTES, WebhookConfig, WebhookError, WebhookSink};
@@ -32,6 +33,7 @@ pub(super) enum BuiltInSink {
     Sqlite(SqliteSink),
     Webhook(WebhookSink),
     ObjectStore(FilesSink<ObjectStoreDestination>),
+    Postgres(PostgresSink),
 }
 
 /// Errors from any [`BuiltInSink`].
@@ -39,6 +41,7 @@ pub(super) enum BuiltInError {
     Sqlite(SqliteError),
     Webhook(WebhookError),
     ObjectStore(FilesError<ObjectStoreError>),
+    Postgres(PostgresError),
 }
 
 impl Primitives for BuiltInSink {
@@ -49,6 +52,7 @@ impl Primitives for BuiltInSink {
             Self::Sqlite(sink) => sink.probe(run).map_err(BuiltInError::Sqlite),
             Self::Webhook(sink) => sink.probe(run).map_err(BuiltInError::Webhook),
             Self::ObjectStore(sink) => sink.probe(run).map_err(BuiltInError::ObjectStore),
+            Self::Postgres(sink) => sink.probe(run).map_err(BuiltInError::Postgres),
         }
     }
 
@@ -57,6 +61,7 @@ impl Primitives for BuiltInSink {
             Self::Sqlite(sink) => sink.write(batch).map_err(BuiltInError::Sqlite),
             Self::Webhook(sink) => sink.write(batch).map_err(BuiltInError::Webhook),
             Self::ObjectStore(sink) => sink.write(batch).map_err(BuiltInError::ObjectStore),
+            Self::Postgres(sink) => sink.write(batch).map_err(BuiltInError::Postgres),
         }
     }
 
@@ -75,6 +80,9 @@ impl Primitives for BuiltInSink {
             Self::ObjectStore(sink) => sink
                 .write_with_timeout(batch, timeout)
                 .map_err(BuiltInError::ObjectStore),
+            Self::Postgres(sink) => sink
+                .write_with_timeout(batch, timeout)
+                .map_err(BuiltInError::Postgres),
         }
     }
 
@@ -83,6 +91,7 @@ impl Primitives for BuiltInSink {
             Self::Sqlite(sink) => sink.finish(run).map_err(BuiltInError::Sqlite),
             Self::Webhook(sink) => sink.finish(run).map_err(BuiltInError::Webhook),
             Self::ObjectStore(sink) => sink.finish(run).map_err(BuiltInError::ObjectStore),
+            Self::Postgres(sink) => sink.finish(run).map_err(BuiltInError::Postgres),
         }
     }
 
@@ -91,6 +100,7 @@ impl Primitives for BuiltInSink {
             Self::Sqlite(sink) => sink.dedup_window(),
             Self::Webhook(sink) => sink.dedup_window(),
             Self::ObjectStore(sink) => sink.dedup_window(),
+            Self::Postgres(sink) => sink.dedup_window(),
         }
     }
 
@@ -99,6 +109,7 @@ impl Primitives for BuiltInSink {
             (Self::Sqlite(sink), BuiltInError::Sqlite(err)) => sink.map_failure(err),
             (Self::Webhook(sink), BuiltInError::Webhook(err)) => sink.map_failure(err),
             (Self::ObjectStore(sink), BuiltInError::ObjectStore(err)) => sink.map_failure(err),
+            (Self::Postgres(sink), BuiltInError::Postgres(err)) => sink.map_failure(err),
             _ => unreachable!("invariant: error matches its BuiltInSink variant"),
         }
     }
@@ -186,6 +197,19 @@ impl Destination<'_> {
                 let config = FilesConfig::from_settings(self.settings.files.as_ref());
                 let prefix = self.settings.target.as_deref().unwrap_or_default();
                 BuiltInSink::ObjectStore(FilesSink::new(self.name, prefix, config, clock, dest))
+            }
+            Some(SinkType::Postgres | SinkType::Supabase) => {
+                let table = self
+                    .settings
+                    .target
+                    .as_deref()
+                    .unwrap_or(DEFAULT_POSTGRES_TARGET);
+                let schema_cfg = self.settings.schema.as_ref();
+                let contract = schema_cfg.and_then(|s| s.contract).unwrap_or_default();
+                let flatten = schema_cfg.and_then(|s| s.flatten).unwrap_or(false);
+                let pg = PostgresSink::new(resolved_dest, table, mode, contract, flatten)
+                    .map_err(|err| err.to_string())?;
+                BuiltInSink::Postgres(pg)
             }
             other => {
                 return Err(format!(

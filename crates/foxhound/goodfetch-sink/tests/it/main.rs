@@ -14,6 +14,7 @@ mod faults;
 mod files;
 mod model;
 mod outlive;
+mod postgres;
 mod retries;
 mod run_files;
 mod schema_drift;

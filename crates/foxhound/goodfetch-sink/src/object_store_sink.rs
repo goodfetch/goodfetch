@@ -469,12 +469,14 @@ fn build_gcs_store(
         .with_bucket_name(bucket)
         .with_client_options(client_options);
     if let Some(endpoint) = params.get("endpoint") {
-        builder = builder.with_url(endpoint);
+        builder = builder.with_base_url(endpoint);
     }
     if let Some(key_json) = params.get("service_account_key") {
         builder = builder.with_service_account_key(key_json);
     } else if allow_http {
-        builder = builder.with_skip_signature(true);
+        builder = builder
+            .with_skip_signature(true)
+            .with_bearer_token("anonymous");
     }
     Ok(Arc::new(builder.build()?))
 }

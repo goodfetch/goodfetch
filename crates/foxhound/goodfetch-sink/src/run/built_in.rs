@@ -169,9 +169,15 @@ impl Destination<'_> {
                 throughput.batch.max_bytes = throughput.batch.max_bytes.min(max_bytes);
                 BuiltInSink::Webhook(webhook)
             }
-            Some(SinkType::S3) => {
+            Some(sink_type @ (SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob)) => {
+                let backend = match sink_type {
+                    SinkType::S3 => ObjectStoreBackend::S3,
+                    SinkType::Gcs => ObjectStoreBackend::Gcs,
+                    SinkType::AzureBlob => ObjectStoreBackend::AzureBlob,
+                    _ => unreachable!("invariant: matched above"),
+                };
                 let dest = ObjectStoreDestination::from_url(
-                    ObjectStoreBackend::S3,
+                    backend,
                     self.name,
                     &resolved_dest,
                     self.settings.target.as_deref(),

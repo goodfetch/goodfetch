@@ -1,0 +1,5 @@
+# The pinned fake-gcs-server image the GCS Files-mode Sink conformance tests
+# run (ADRs 0026 and 0043).
+repository = "docker.io/fsouza/fake-gcs-server"
+tag = "1.56.1"
+digest = "sha256:797ce226d62f947c009dc40246b30cfb456b8473d8241407f9d6f2c04e4d69ef"

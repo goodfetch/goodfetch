@@ -852,11 +852,14 @@ fn unavailable(sink: &SinkSettings) -> Option<(&'static str, String)> {
     };
     if !matches!(
         sink_type,
-        SinkType::Sqlite | SinkType::Webhook | SinkType::S3
+        SinkType::Sqlite | SinkType::Webhook | SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob
     ) {
         return Some(("type", wire_name(serde_json::to_value(sink_type))));
     }
-    if matches!(sink_type, SinkType::S3) {
+    if matches!(
+        sink_type,
+        SinkType::S3 | SinkType::Gcs | SinkType::AzureBlob
+    ) {
         return sink
             .deliver
             .filter(|deliver| *deliver != DeliveredAs::Files)

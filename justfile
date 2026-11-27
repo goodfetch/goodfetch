@@ -623,6 +623,8 @@ fetch:
     ci/source-build/fetch.sh
     ci/valkey/fetch.sh
     ci/rustfs/fetch.sh
+    ci/fake-gcs/fetch.sh
+    ci/azurite/fetch.sh
     ci/registry/fetch.sh
     ci/pypiserver/fetch.sh
 

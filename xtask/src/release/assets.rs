@@ -25,6 +25,9 @@ use crate::products::Product;
 
 /// The digest table's name, among the files it lists.
 pub(super) const TABLE: &str = "SHA256SUMS";
+/// The published Operation catalog attached to every GitHub Release (ADRs 0030,
+/// 0032 and 0095; issue 1662).
+pub(super) const CATALOG_FILE: &str = goodfetch_protocol::published_catalog::PUBLISHED_CATALOG_FILE;
 /// The largest part, in bytes: 2,000 MiB, below GitHub's 2 GiB limit.
 pub(super) const PART_SIZE: u64 = 2000 << 20;
 /// What a part's name adds to its file's, before its number.
@@ -46,10 +49,10 @@ pub(super) const TARGETS: [&str; 8] = [
     "aarch64-pc-windows-msvc",
 ];
 
-/// The files each Product must put on the GitHub Release, each named after
-/// its executable (ADR 0094): its archive per target, which
-/// `[package.metadata.binstall]` and `docs/install.md` name, its debug
-/// symbols per target, and its SBOM.
+/// The files every release must put on the GitHub Release, each Product's
+/// files named after its executable (ADR 0094) plus the shared published
+/// Operation catalog (`goodfetch-catalog.json`, issue 1662): each Product's
+/// archive per target, debug symbols per target, and SBOM, and the catalog.
 fn product_files() -> Vec<String> {
     let mut files = Vec::new();
     for product in Product::ALL {
@@ -60,6 +63,7 @@ fn product_files() -> Vec<String> {
         }
         files.push(format!("{executable}.cdx.json"));
     }
+    files.push(CATALOG_FILE.to_owned());
     files
 }
 

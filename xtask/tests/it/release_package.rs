@@ -52,6 +52,10 @@ fn debug_name(executable: &str, target: &str) -> String {
 
 fn populated_workspace() -> Workspace {
     let workspace = Workspace::from_fixture("release");
+    workspace.write(
+        "crates/goodfetch-protocol/generated/goodfetch-catalog.json",
+        include_bytes!("../../../crates/goodfetch-protocol/generated/goodfetch-catalog.json"),
+    );
     // Minimal Python package sources so wheel assembly packages real modules.
     workspace.write(
         "sdks/python/collie-client/src/goodfetch_collie_client/__init__.py",

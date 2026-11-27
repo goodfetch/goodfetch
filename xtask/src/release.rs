@@ -28,6 +28,7 @@
 )]
 
 mod assets;
+mod attest;
 mod changelog;
 mod chromium;
 mod digests;
@@ -219,6 +220,12 @@ pub(crate) enum Command {
     /// Pushes an OCI Image Layout (multi-platform index, child manifests and
     /// blobs) to an OCI Distribution registry.
     OciPush(package::OciPushArguments),
+    /// Signs a release file with an ephemeral Ed25519 key and writes an in-toto
+    /// DSSE attestation beside it for local release rehearsal (ADRs 0016, 0032).
+    SignRehearsal(attest::SignRehearsalArguments),
+    /// Verifies a rehearsal artifact's detached signature and in-toto DSSE
+    /// attestation before reading it.
+    VerifyRehearsal(attest::VerifyRehearsalArguments),
 }
 
 #[expect(
@@ -237,6 +244,8 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
         Command::OciPush(arguments) => {
             package::run_oci_push(root, &arguments, environment.github_token.as_deref())
         }
+        Command::SignRehearsal(arguments) => attest::sign_rehearsal(root, &arguments),
+        Command::VerifyRehearsal(arguments) => attest::verify_rehearsal(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

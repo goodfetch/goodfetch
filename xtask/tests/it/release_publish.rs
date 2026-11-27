@@ -1483,3 +1483,32 @@ mod pypiserver {
         assert_eq!(outcome.notes(), [finding("pypi-quota", "goodfetch-collie")]);
     }
 }
+
+/// Issue 1662: the release plan lists `goodfetch-catalog.json` among the
+/// GitHub Release's files for a stable release, a release candidate, and a
+/// `0.y` preview, and holds publication until it is uploaded.
+#[rstest]
+#[case::stable("1.4.0")]
+#[case::release_candidate("1.4.0-rc.1")]
+#[case::preview("0.2.0")]
+fn plan_lists_the_published_catalog_for_stable_rc_and_preview(#[case] version: &str) {
+    let workspace = prepared(version);
+    let registries = Registries::serving(&Published::previous_release());
+
+    let outcome = plan(&workspace, version, &registries);
+
+    assert_eq!(outcome.code, 0, "{}", outcome.stderr);
+    let states = states(&outcome.stdout);
+    assert_eq!(
+        states.get("github asset goodfetch-catalog.json"),
+        Some(&"upload"),
+        "{}",
+        outcome.stdout
+    );
+    assert_eq!(
+        states.get(format!("github release v{version}").as_str()),
+        Some(&"held"),
+        "{}",
+        outcome.stdout
+    );
+}

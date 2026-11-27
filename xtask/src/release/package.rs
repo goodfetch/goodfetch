@@ -144,12 +144,28 @@ pub(super) fn run_package(root: &Path, arguments: &PackageArguments) -> Result<E
 
     package_archives(&binaries, &targets, &assets_dir)?;
     package_sboms(root, &semver, &assets_dir)?;
+    package_catalog(root, &assets_dir)?;
     package_npm(root, &semver, &binaries, &targets, &npm_dir)?;
     package_wheels(root, &pep440, &binaries, &targets, &wheels_dir)?;
     package_plugins(root, &semver, &binaries, &plugins_dir)?;
 
     output::line(&arguments.out.display().to_string());
     Ok(ExitCode::SUCCESS)
+}
+
+fn package_catalog(root: &Path, assets_dir: &Path) -> Result<()> {
+    let source = root.join(crate::tree::PUBLISHED_CATALOG);
+    let bytes = std::fs::read(&source).with_context(|| {
+        format!(
+            "reading {} (run `xtask codegen` first)",
+            crate::tree::PUBLISHED_CATALOG
+        )
+    })?;
+    goodfetch_protocol::published_catalog::PublishedCatalog::read(&bytes)
+        .with_context(|| format!("validating {}", source.display()))?;
+    let dest = assets_dir.join(assets::CATALOG_FILE);
+    std::fs::write(&dest, &bytes).with_context(|| format!("writing {}", dest.display()))?;
+    Ok(())
 }
 
 pub(super) fn run_oci_push(

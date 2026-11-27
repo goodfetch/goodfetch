@@ -801,3 +801,98 @@ fn an_input_value_removed_is_a_break_and_one_added_is_not() {
         outcome.stdout
     );
 }
+
+const PUBLISHED_CATALOG: &str = "crates/goodfetch-protocol/generated/goodfetch-catalog.json";
+
+/// Builds a minimal valid `goodfetch-catalog.json` from the fixture's catalog
+/// and bundle so `xtask api-check` tests compare the published catalog file
+/// directly against the previous release commit (issue 1662).
+fn write_published_catalog(workspace: &Workspace) {
+    let mut catalog: Value = serde_json::from_str(
+        &workspace.read_text("crates/goodfetch-protocol/generated/catalog.json"),
+    )
+    .unwrap();
+    for op in catalog["operations"].as_array_mut().unwrap() {
+        op["stability"] = json!("stable");
+    }
+    let bundle: Value = serde_json::from_str(&workspace.read_text(BUNDLE)).unwrap();
+    let document = json!({
+        "format_version": "0.1",
+        "protocol_version": "0.1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "catalog": catalog,
+        "connection": bundle["connection"],
+        "$defs": bundle["$defs"],
+    });
+    workspace.write(
+        PUBLISHED_CATALOG,
+        serde_json::to_string_pretty(&document).unwrap().as_bytes(),
+    );
+}
+
+#[test]
+fn published_catalog_breakage_check_catches_product_demotion_and_version_break() {
+    let workspace = released_with(write_published_catalog, "");
+
+    // Demote a Collie operation to Foxhound in `goodfetch-catalog.json` only
+    // and bump `format_version` major without an announcement.
+    edit_json(&workspace, PUBLISHED_CATALOG, |doc| {
+        doc["format_version"] = json!("1.0");
+        let ops = doc["catalog"]["operations"].as_array_mut().unwrap();
+        let collie_op = ops
+            .iter_mut()
+            .find(|op| op["product"] == "collie")
+            .expect("fixture has a collie operation");
+        collie_op["product"] = json!("foxhound");
+    });
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_ne!(
+        outcome.code, 0,
+        "expected api-check failure: {}",
+        outcome.stdout
+    );
+    let findings = outcome.findings();
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.kind == "unannounced-break"
+                && f.subject == "published-catalog format_version"),
+        "expected format_version break in {findings:?}\n{}",
+        outcome.stdout
+    );
+    assert!(
+        findings
+            .iter()
+            .any(|f| f.kind == "unannounced-break" && f.subject.starts_with("collie operations ")),
+        "expected collie break when demoting product mark in {findings:?}\n{}",
+        outcome.stdout
+    );
+}
+
+#[test]
+fn published_catalog_breakage_check_allows_additive_entry() {
+    let workspace = released_with(write_published_catalog, "");
+
+    edit_json(&workspace, PUBLISHED_CATALOG, |doc| {
+        doc["catalog"]["error_codes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "arrived_in": "0.2",
+                "description": "Added in a minor.",
+                "details": { "$ref": "#/$defs/SampleCrawlParams" },
+                "exit_code": null,
+                "group": "unavailable",
+                "json_rpc_class": -32006,
+                "name": "sample_added_error",
+                "product": "collie",
+                "retryable": false
+            }));
+    });
+
+    let outcome = workspace.xtask(&["api-check"]);
+
+    assert_eq!(outcome.code, 0, "{}\n{}", outcome.stdout, outcome.stderr);
+}

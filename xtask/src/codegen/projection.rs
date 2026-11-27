@@ -8,10 +8,11 @@
 
 use anyhow::{Context as _, Result};
 use serde::Deserialize as _;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::compat;
-use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::catalog::{PROTOCOL_VERSION, Product};
+use goodfetch_protocol::published_catalog::{PUBLISHED_CATALOG_VERSION, SCHEMA_DRAFT};
 
 pub(super) fn project(catalog: &Value, bundle: &Value, product: Product) -> Result<Value> {
     let catalog = catalog
@@ -50,6 +51,42 @@ pub(super) fn project(catalog: &Value, bundle: &Value, product: Product) -> Resu
         ),
     );
     Ok(Value::Object(projection))
+}
+
+/// The self-contained published Operation catalog (`goodfetch-catalog.json`)
+/// holding both Products' entries with their Product marks, the protocol
+/// version, the Connection framing types, and every `$defs` entry they refer
+/// to (ADRs 0030, 0032 and 0095; issue 1662).
+pub(super) fn published_catalog(catalog: &Value, bundle: &Value) -> Result<Value> {
+    let catalog_object = catalog
+        .as_object()
+        .context("the catalog is no JSON object")?;
+    let connection = bundle
+        .get("connection")
+        .and_then(Value::as_object)
+        .context("the bundle has no `connection` section")?;
+    let definitions = bundle
+        .get("$defs")
+        .and_then(Value::as_object)
+        .context("the bundle has no `$defs`")?;
+    let mut reached = compat::reached(catalog, definitions)?;
+    reached.extend(compat::reached(
+        &Value::Object(connection.clone()),
+        definitions,
+    )?);
+    let defs: Map<String, Value> = definitions
+        .iter()
+        .filter(|(name, _)| reached.contains_key(name.as_str()))
+        .map(|(name, schema)| (name.clone(), schema.clone()))
+        .collect();
+    Ok(json!({
+        "format_version": PUBLISHED_CATALOG_VERSION.to_string(),
+        "protocol_version": PROTOCOL_VERSION.to_string(),
+        "$schema": SCHEMA_DRAFT,
+        "catalog": catalog_object,
+        "connection": connection,
+        "$defs": defs,
+    }))
 }
 
 /// The formats a Collie client package reads itself, such as the delivery

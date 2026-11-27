@@ -36,6 +36,12 @@ fn debug_name(executable: &str, target: &str) -> String {
 #[test]
 fn packaged_wheels_and_npm_packages_install_cleanly_without_install_scripts() {
     let workspace = Workspace::from_fixture("release");
+    let committed_catalog =
+        include_bytes!("../../../crates/goodfetch-protocol/generated/goodfetch-catalog.json");
+    workspace.write(
+        "crates/goodfetch-protocol/generated/goodfetch-catalog.json",
+        committed_catalog,
+    );
     workspace.write(
         "sdks/python/collie-client/src/goodfetch_collie_client/__init__.py",
         b"VERSION = '1.4.0'\n",
@@ -110,6 +116,111 @@ fn packaged_wheels_and_npm_packages_install_cleanly_without_install_scripts() {
     ]);
     assert_eq!(digests_out.code, 0, "{}", digests_out.stderr);
     assert!(Path::new(&workspace.path().join("out/assets/SHA256SUMS")).is_file());
+
+    verify_catalog_rehearsal(&workspace, committed_catalog);
+}
+
+fn verify_catalog_rehearsal(workspace: &Workspace, committed_catalog: &[u8]) {
+    // Issue 1662: the rehearsal produces `goodfetch-catalog.json` matching
+    // `xtask codegen`'s output, signs and attests it, verifies both before
+    // reading it, and refuses any tampered file, signature, or attestation.
+    let packaged_catalog = workspace
+        .read("out/assets/goodfetch-catalog.json")
+        .expect("packaged assets include goodfetch-catalog.json");
+    assert_eq!(
+        packaged_catalog.as_slice(),
+        committed_catalog,
+        "packaged goodfetch-catalog.json must equal xtask codegen's output"
+    );
+    let signed = workspace.xtask(&[
+        "release",
+        "sign-rehearsal",
+        "--file",
+        "out/assets/goodfetch-catalog.json",
+        "--key-dir",
+        "out/rehearsal-keys",
+    ]);
+    assert_eq!(signed.code, 0, "{}", signed.stderr);
+    let verified = workspace.xtask(&[
+        "release",
+        "verify-rehearsal",
+        "--file",
+        "out/assets/goodfetch-catalog.json",
+        "--signature",
+        "out/assets/goodfetch-catalog.json.sig",
+        "--attestation",
+        "out/assets/goodfetch-catalog.json.sigstore.jsonl",
+        "--public-key",
+        "out/rehearsal-keys/rehearsal.pub",
+    ]);
+    assert_eq!(verified.code, 0, "{}", verified.stderr);
+    let parsed =
+        goodfetch_protocol::published_catalog::PublishedCatalog::read(&packaged_catalog).unwrap();
+    assert_eq!(
+        parsed.protocol_version,
+        goodfetch_protocol::catalog::PROTOCOL_VERSION
+    );
+
+    // Tampered file, signature, and attestation must each fail verification.
+    let mut tampered = packaged_catalog;
+    tampered.push(b' ');
+    workspace.write("out/assets/goodfetch-catalog-tampered.json", &tampered);
+    let bad_file = workspace.xtask(&[
+        "release",
+        "verify-rehearsal",
+        "--file",
+        "out/assets/goodfetch-catalog-tampered.json",
+        "--signature",
+        "out/assets/goodfetch-catalog.json.sig",
+        "--attestation",
+        "out/assets/goodfetch-catalog.json.sigstore.jsonl",
+        "--public-key",
+        "out/rehearsal-keys/rehearsal.pub",
+    ]);
+    assert_ne!(bad_file.code, 0, "tampered catalog must fail verification");
+
+    let mut bad_sig = workspace
+        .read("out/assets/goodfetch-catalog.json.sig")
+        .unwrap();
+    bad_sig[0] ^= 0xff;
+    workspace.write("out/assets/bad.sig", &bad_sig);
+    let bad_sig_run = workspace.xtask(&[
+        "release",
+        "verify-rehearsal",
+        "--file",
+        "out/assets/goodfetch-catalog.json",
+        "--signature",
+        "out/assets/bad.sig",
+        "--attestation",
+        "out/assets/goodfetch-catalog.json.sigstore.jsonl",
+        "--public-key",
+        "out/rehearsal-keys/rehearsal.pub",
+    ]);
+    assert_ne!(
+        bad_sig_run.code, 0,
+        "tampered signature must fail verification"
+    );
+
+    let bad_att = workspace
+        .read_text("out/assets/goodfetch-catalog.json.sigstore.jsonl")
+        .replace("application/vnd.in-toto+json", "application/json");
+    workspace.write("out/assets/bad.sigstore.jsonl", bad_att.as_bytes());
+    let bad_att_run = workspace.xtask(&[
+        "release",
+        "verify-rehearsal",
+        "--file",
+        "out/assets/goodfetch-catalog.json",
+        "--signature",
+        "out/assets/goodfetch-catalog.json.sig",
+        "--attestation",
+        "out/assets/bad.sigstore.jsonl",
+        "--public-key",
+        "out/rehearsal-keys/rehearsal.pub",
+    ]);
+    assert_ne!(
+        bad_att_run.code, 0,
+        "tampered attestation must fail verification"
+    );
 }
 
 fn verify_pip_wheel_install(workspace: &Workspace) {

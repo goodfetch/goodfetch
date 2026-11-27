@@ -29,6 +29,19 @@ done
 export GOODFETCH_REHEARSE_PACKAGED="$packaged"
 export GOODFETCH_REHEARSE_VERSION="$version"
 
+# 0. Published Operation catalog signature and attestation rehearsal (issue 1662).
+if [[ -n "$packaged" && -f "$packaged/assets/goodfetch-catalog.json" ]]; then
+  key_dir="$packaged/rehearsal-keys"
+  cargo run --quiet --bin xtask -- release sign-rehearsal \
+    --file "$packaged/assets/goodfetch-catalog.json" \
+    --key-dir "$key_dir"
+  cargo run --quiet --bin xtask -- release verify-rehearsal \
+    --file "$packaged/assets/goodfetch-catalog.json" \
+    --signature "$packaged/assets/goodfetch-catalog.json.sig" \
+    --attestation "$packaged/assets/goodfetch-catalog.json.sigstore.jsonl" \
+    --public-key "$key_dir/rehearsal.pub"
+fi
+
 # 1. TypeScript installed-package rehearsal against local Verdaccio (ADR 0069).
 pnpm exec vitest run --project install test-support/typescript/tests/install.install.test.ts
 

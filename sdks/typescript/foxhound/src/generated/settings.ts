@@ -2948,6 +2948,11 @@ const SPELLING: Spelling = {
     exchangeRates: "exchange_rates",
     maxPricePerPage: "max_price_per_page",
   }],
+  plugin: ["plugin", {
+    index: ["index", {
+      url: "url",
+    }],
+  }],
   plugins: { setting: "plugins", value: { values: { fields: { "approved": ["approved", { fields: { "page_script": "pageScript", "secret_values": "secretValues", "session_credentials": "sessionCredentials" } }] } } } },
   politeness: ["politeness", {
     backoff: ["backoff", {

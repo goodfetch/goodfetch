@@ -104,6 +104,11 @@ pub const PLUGINS: &str = "plugins";
 /// writes and which is deleted when it stops (ADR 0033).
 pub const PLUGIN_INSTANCES: &str = "instances";
 
+/// The Plugin index folder, outside the per-major folders, shared by both
+/// Products (ADR 0033, issue 911): holds the verified signed index and its
+/// last-seen freshness version.
+pub const PLUGIN_INDEX: &str = "plugin-index";
+
 /// A run folder's run file.
 pub const RUN_FILE: &str = "run.sqlite";
 

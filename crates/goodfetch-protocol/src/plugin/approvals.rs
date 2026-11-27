@@ -306,11 +306,13 @@ impl Approvals {
 
 /// Where a Plugin comes from, which sets whether it loads by default (ADRs
 /// 0033 and 0035).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum Origin {
     /// Shipped in the engine's own release: allowed by default.
     FirstParty,
     /// Anyone else's: loads only when the Operator policy allows it.
+    #[default]
     ThirdParty,
     /// A Private component, which is never first-party: loads only when the
     /// Operator policy allows it.

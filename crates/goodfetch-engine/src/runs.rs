@@ -4556,13 +4556,16 @@ impl Registry {
     /// The process Plugins of the Run `run_id`, started as tasks of its
     /// `owner` (ADR 0145).
     fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> Arc<RunPlugins> {
-        Arc::new(RunPlugins::new(
-            self.setup.engine.home(),
-            self.setup.engine.places().cloned(),
-            self.setup.product,
-            run_id.clone(),
-            (Arc::clone(owner), self.setup.engine.clock()),
-        ))
+        Arc::new(
+            RunPlugins::new(
+                self.setup.engine.home(),
+                self.setup.engine.places().cloned(),
+                self.setup.product,
+                run_id.clone(),
+                (Arc::clone(owner), self.setup.engine.clock()),
+            )
+            .with_audit(self.setup.engine.audit().clone()),
+        )
     }
 
     /// The progress of the live Run `run_id`, as `start` is, whose every

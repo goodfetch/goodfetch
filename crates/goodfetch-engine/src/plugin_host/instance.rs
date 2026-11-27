@@ -333,6 +333,7 @@ pub struct PluginInstance {
     next: Arc<AtomicI64>,
     clock: Clock,
     stopping: CancellationToken,
+    stop_reason: Arc<std::sync::Mutex<Option<CallError>>>,
     ended: watch::Receiver<Option<CallError>>,
 }
 
@@ -443,6 +444,7 @@ impl PluginInstance {
         let (calls, mailbox) = mpsc::channel(MAILBOX);
         let (cancels, cancelled_calls) = mpsc::unbounded_channel();
         let (ending, ended) = watch::channel(None);
+        let stop_reason = Arc::new(std::sync::Mutex::new(None));
         let own = owner.child();
         let stopping = own.token().child_token();
         let span = tracing::info_span!(
@@ -453,6 +455,7 @@ impl PluginInstance {
         let running = Running {
             owner: own,
             stopping: stopping.clone(),
+            stop_reason: Arc::clone(&stop_reason),
             config,
             scope,
             mailbox,
@@ -465,6 +468,7 @@ impl PluginInstance {
             next: Arc::new(AtomicI64::new(HELLO_ID + 1)),
             clock,
             stopping,
+            stop_reason,
             ended,
         };
         (handle, running, span)
@@ -593,6 +597,22 @@ impl PluginInstance {
         let _ = ended.wait_for(Option::is_some).await;
     }
 
+    /// Stops the instance immediately with an explicit refusal `reason`
+    /// (such as `plugin_revoked` when a revocation reaches a running
+    /// Plugin) so in-flight and later calls report `reason`.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future still stops the instance with `reason`.
+    pub async fn stop_with(&self, reason: CallError) {
+        if let Ok(mut slot) = self.stop_reason.lock()
+            && slot.is_none()
+        {
+            *slot = Some(reason);
+        }
+        self.stop().await;
+    }
+
     /// Why the instance ended, once it has.
     #[must_use]
     pub fn ended(&self) -> Option<CallError> {
@@ -667,6 +687,8 @@ struct Running {
     /// Cancelled when its owner is stopped or [`PluginInstance::stop`] is
     /// called.
     stopping: CancellationToken,
+    /// Explicit refusal reason set by [`PluginInstance::stop_with`], if any.
+    stop_reason: Arc<std::sync::Mutex<Option<CallError>>>,
     config: Config,
     scope: Scope,
     mailbox: mpsc::Receiver<Call>,
@@ -820,7 +842,11 @@ impl Running {
             Exit::Stopped(event) => {
                 // `run_ended` and `stop` stop the instance in every state.
                 let _ = instance.apply(event);
-                cancelled()
+                self.stop_reason
+                    .lock()
+                    .ok()
+                    .and_then(|mut slot| slot.take())
+                    .unwrap_or_else(cancelled)
             }
             Exit::Failed(reason) => reason,
         };

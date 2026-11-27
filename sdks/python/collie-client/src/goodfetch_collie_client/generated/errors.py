@@ -11,7 +11,7 @@ from typing import Final, Literal, Unpack
 
 from goodfetch_collie_client.caller import details_of
 from goodfetch_collie_client.goodfetch_error import ErrorClass, ErrorFields, GoodfetchError, retry_after_duration_of, retry_after_of
-from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConfinementUnavailableDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PluginDigestMismatchDetails, PluginNotAllowedDetails, PluginPermissionDeniedDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails, WebhookInvalidDetails
+from .models import AddressFamilyUnavailableDetails, ArtifactDownloadFailedDetails, ArtifactUnavailableOfflineDetails, BlockedDetails, BodyNotFoundDetails, BodyUnavailableDetails, BrowserLaunchFailedDetails, BrowserNeedsGuiSessionDetails, BrowserNotInstalledDetails, BrowserSandboxUnavailableDetails, CallCancelledDetails, CapabilityUnavailableDetails, CdpUrlNotAllowedDetails, CdpUrlNotBrowserDetails, CdpUrlUnauthorizedDetails, CdpUrlUnreachableDetails, CertificateChangedDetails, CertificateInvalidDetails, CheckpointBehindDetails, ConfinementUnavailableDetails, ConnectionOverloadedDetails, DaemonDrainingDetails, DaemonUnreachableDetails, DetachUnsupportedDetails, DialogAlreadyHandledDetails, EdgeHandlersUnsupportedDetails, EgressRefusedDetails, EngineExitedDetails, EnginePanickedDetails, ExecutableBlockedBySmartAppControlDetails, ExtractHandlerFailedDetails, ExtractorUnavailableDetails, FileWriteFailedDetails, FormatVersionUnsupportedDetails, HeaderValueInvalidDetails, HookFailedDetails, LimitNotUnderstoodDetails, LimitRaiseRefusedDetails, ListenerEventsLostDetails, LiveViewViewerLimitDetails, LocalAddressUnavailableDetails, LoggedOutDetails, ModelUnavailableDetails, NameLookupFailedDetails, NameNotResolvedDetails, NavigationFailedDetails, NavigationInterruptedDetails, NotADaemonDetails, NotInProductDetails, NotVerifiedDetails, PageCheckFailedDetails, PageCrashedDetails, PageFunctionFailedDetails, PageHandlerFailedDetails, PageMemoryExceededDetails, PageNavigatedDuringCallDetails, PageValueInvalidDetails, PathNotWritableDetails, PathUnsafeDetails, PatternUnsupportedDetails, PersonRequiredDetails, PluginDigestMismatchDetails, PluginIndexStaleDetails, PluginNotAllowedDetails, PluginPermissionDeniedDetails, PluginRevokedDetails, PolicyConflictDetails, ProtocolVersionUnsupportedDetails, ProxyAuthFailedDetails, ProxyProviderUnavailableDetails, ProxyRelayUnavailableDetails, ProxyUnavailableDetails, ReachedLimit, RecipeInvalidDetails, RecordingInvalidDetails, ResourcesExhaustedDetails, ResponseLimitExceededDetails, ResponseNotRecordedDetails, ResponseTruncatedDetails, RouteAlreadyHandledDetails, RunConflictDetails, RunDetails, RunIdInvalidDetails, RunInterruptedDetails, RunKeyMismatchDetails, RunStateFilesystemUnsupportedDetails, RunTargetUnbuiltDetails, ScheduleExistsDetails, ScheduleNotFoundDetails, ScheduleTriggerInvalidDetails, SchemaValidatorFailedDetails, SecretDomainNotAllowedDetails, SecretInputRefusedDetails, SecretUnavailableDetails, SecretUnboundDetails, SessionBoundToMachineDetails, SessionExportOpenFailedDetails, SettingInvalidDetails, SettingLockedDetails, SettingNotApplicableDetails, SettingUnknownDetails, SitePreferencesRefusedDetails, TargetNotUniqueDetails, TooManyCallsDetails, TooManyRedirectsDetails, ValueInvalidDetails, WebhookInvalidDetails
 
 ErrorGroup = Literal["program", "refused", "page", "model", "deadline_exceeded", "unavailable", "internal"]
 """The seven groups of Error codes, named for their remedy."""
@@ -961,6 +961,18 @@ class PluginFetchFailedError(UnavailableError):
         super().__init__(message, code="plugin_fetch_failed", group="unavailable", retryable=True, **fields)
 
 
+class PluginIndexStaleError(RefusedError):
+    """The Plugin index failed signature verification, carried an older freshness `version` than the last one seen, or passed its 14-day expiry. An expired index blocks loading third-party Plugins because revocation can no longer be checked; first-party Plugins still load. Refresh the index or import a fresh signed one with `goodfetch plugin index import <file>`."""
+
+    typed_details: PluginIndexStaleDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_index_stale", group="refused", retryable=False, **fields)
+        self.typed_details = details_of(PluginIndexStaleDetails, self.details)
+
+
 class PluginInstalledError(RefusedError):
     """The Plugin store holds a version of the Plugin already, and the Plugin lockfile does not pin its name to the reference's digest, so nothing is pulled and the lockfile is left as it was. `plugin update` replaces an installed Plugin."""
 
@@ -1023,6 +1035,18 @@ class PluginQuarantinedError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="plugin_quarantined", group="unavailable", retryable=False, **fields)
+
+
+class PluginRevokedError(RefusedError):
+    """The Plugin's digest or signer is on the Plugin index's revocation list: running instances are stopped at once, new starts are refused, and the revocation is recorded in the Audit log."""
+
+    typed_details: PluginRevokedDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="plugin_revoked", group="refused", retryable=False, **fields)
+        self.typed_details = details_of(PluginRevokedDetails, self.details)
 
 
 class PolicyConflictError(RefusedError):
@@ -1732,6 +1756,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "plugin_crashed": PluginCrashedError,
     "plugin_digest_mismatch": PluginDigestMismatchError,
     "plugin_fetch_failed": PluginFetchFailedError,
+    "plugin_index_stale": PluginIndexStaleError,
     "plugin_installed": PluginInstalledError,
     "plugin_lockfile_invalid": PluginLockfileInvalidError,
     "plugin_manifest_mismatch": PluginManifestMismatchError,
@@ -1739,6 +1764,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "plugin_permission_denied": PluginPermissionDeniedError,
     "plugin_protocol_unsupported": PluginProtocolUnsupportedError,
     "plugin_quarantined": PluginQuarantinedError,
+    "plugin_revoked": PluginRevokedError,
     "policy_conflict": PolicyConflictError,
     "protocol_version_unsupported": ProtocolVersionUnsupportedError,
     "proxy_auth_failed": ProxyAuthFailedError,

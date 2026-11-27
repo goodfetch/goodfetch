@@ -66,6 +66,7 @@ mod nothing_leaves;
 mod operator_endpoints;
 mod plugin_add;
 mod plugin_host;
+mod plugin_index;
 mod plugin_install;
 mod plugin_runtime;
 mod plugin_secrets;

@@ -1263,6 +1263,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Plugin index failed signature verification, carried an older freshness `version` than the last one seen, or passed its 14-day expiry. An expired index blocks loading third-party Plugins because revocation can no longer be checked; first-party Plugins still load. Refresh the index or import a fresh signed one with `goodfetch plugin index import <file>`.",
+      "details": {
+        "$ref": "#/$defs/PluginIndexStaleDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_index_stale",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Plugin store holds a version of the Plugin already, and the Plugin lockfile does not pin its name to the reference's digest, so nothing is pulled and the lockfile is left as it was. `plugin update` replaces an installed Plugin.",
       "exit_code": null,
       "group": "refused",
@@ -1334,6 +1347,19 @@
       "group": "unavailable",
       "json_rpc_class": -32006,
       "name": "plugin_quarantined",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin's digest or signer is on the Plugin index's revocation list: running instances are stopped at once, new starts are refused, and the revocation is recorded in the Audit log.",
+      "details": {
+        "$ref": "#/$defs/PluginRevokedDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_revoked",
       "product": "collie",
       "retryable": false
     },
@@ -10134,6 +10160,29 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "https://plugins.goodfetch.dev/plugin-index/index.json",
+      "deprecated": null,
+      "description": "The HTTPS URL serving the signed Plugin index (`plugin-index/index.json`), carrying its freshness `version`, 14-day expiry and revocation list. An Operator-configured endpoint (`egress.no_private_endpoints` refuses private addresses). Only Operator policy and user configuration set it; anywhere else it is `setting_not_applicable`.",
+      "fixed_for_run": false,
+      "name": "plugin.index.url",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "description": "The HTTPS URL serving the signed Plugin index (`plugin-index/index.json`) and its signature bundle, with no query, fragment or credentials.",
+        "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
+        "type": "string"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": {},
@@ -15291,10 +15340,24 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A person imported a fresh signed Plugin index verified offline against the bundled trust root: its freshness version and expiry.",
+      "name": "plugin_index_imported",
+      "product": "collie",
+      "type": "audit_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Plugin reported a quantity above its declared maximum, recorded in full.",
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Plugin index revoked a Plugin's digest or signer: running instances were stopped at once and new starts are refused, recording the Plugin, its digest, the revocation reason and the Run when stopped in flight.",
+      "name": "plugin_revoked",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

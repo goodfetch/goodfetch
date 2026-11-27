@@ -2875,6 +2875,23 @@
             },
             "type": "object"
           },
+          "plugin": {
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "additionalProperties": false,
+                "properties": {
+                  "url": {
+                    "description": "The HTTPS URL serving the signed Plugin index (`plugin-index/index.json`), carrying its freshness `version`, 14-day expiry and revocation list. An Operator-configured endpoint (`egress.no_private_endpoints` refuses private addresses). Only Operator policy and user configuration set it; anywhere else it is `setting_not_applicable`.",
+                    "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "plugins": {
             "additionalProperties": {
               "additionalProperties": false,
@@ -7443,6 +7460,23 @@
                   }
                 ],
                 "description": "The most a run pays for one page, as an amount and its currency such as `0.05 USD`; none by default. Raised only in configuration; a Recipe or a run only lowers it."
+              }
+            },
+            "type": "object"
+          },
+          "plugin": {
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "additionalProperties": false,
+                "properties": {
+                  "url": {
+                    "description": "The HTTPS URL serving the signed Plugin index (`plugin-index/index.json`), carrying its freshness `version`, 14-day expiry and revocation list. An Operator-configured endpoint (`egress.no_private_endpoints` refuses private addresses). Only Operator policy and user configuration set it; anywhere else it is `setting_not_applicable`.",
+                    "pattern": "^https://[^/?#@\\s]+(/[^?#\\s]*)?$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
               }
             },
             "type": "object"

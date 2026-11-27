@@ -1616,6 +1616,19 @@ class Image(BaseModel):
     """
 
 
+class IndexRefusalReason(StrEnum):
+    """Why a Plugin index was refused or blocked third-party loading."""
+
+    bad_signature = "bad_signature"
+    """Its signature did not verify under the trust root."""
+    untrusted_signer = "untrusted_signer"
+    """Its signer identity did not match the trust root's workflow and issuer."""
+    stale = "stale"
+    """Its `version` is older than the last version seen."""
+    expired = "expired"
+    """Its `expires_at` timestamp has passed."""
+
+
 class InitScriptEnded(BaseModel):
     """What an init script's subscription answers when its page closes."""
 
@@ -3087,6 +3100,22 @@ class PluginDigestMismatchDetails(BaseModel):
     """The Plugin's name."""
 
 
+class PluginIndexStaleDetails(BaseModel):
+    """What `plugin_index_stale` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    expires_at: str | None = None
+    """The index's `expires_at` timestamp in RFC 3339, when known."""
+    last_seen: Annotated[int | None, Field(ge=0)] = None
+    """The last freshness `version` previously seen, when known."""
+    reason: IndexRefusalReason
+    """Why the index was refused."""
+    version: Annotated[int | None, Field(ge=0)] = None
+    """The index's `version`, when known."""
+
+
 class PluginNotAllowedDetails(BaseModel):
     """What `plugin_not_allowed` details."""
 
@@ -3113,6 +3142,20 @@ class PluginPermissionDeniedDetails(BaseModel):
     """The permission it needs."""
     plugin: str
     """The Plugin's name."""
+
+
+class PluginRevokedDetails(BaseModel):
+    """What `plugin_revoked` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    digest: str | None = None
+    """The revoked digest, when known."""
+    plugin: str
+    """The Plugin's name."""
+    reason: str
+    """Why the index revoked it."""
 
 
 class PluginRun(BaseModel):

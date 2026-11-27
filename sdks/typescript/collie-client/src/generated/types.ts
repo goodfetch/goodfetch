@@ -1145,6 +1145,13 @@ export type PauseOrigin =
       step: EngineStep;
     };
 /**
+ * Why a Plugin index was refused or blocked third-party loading.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IndexRefusalReason".
+ */
+export type IndexRefusalReason = "bad_signature" | "untrusted_signer" | "stale" | "expired";
+/**
  * What judged a page: the Session's own Page check, or the built-in
  * detector of a Session that declares none (ADR 0006).
  *
@@ -7789,6 +7796,30 @@ export interface PluginDigestMismatchDetails {
   name: string;
 }
 /**
+ * What `plugin_index_stale` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginIndexStaleDetails".
+ */
+export interface PluginIndexStaleDetails {
+  /**
+   * The index's `expires_at` timestamp in RFC 3339, when known.
+   */
+  expiresAt?: string | null;
+  /**
+   * The last freshness `version` previously seen, when known.
+   */
+  lastSeen?: number | null;
+  /**
+   * Why the index was refused.
+   */
+  reason: IndexRefusalReason;
+  /**
+   * The index's `version`, when known.
+   */
+  version?: number | null;
+}
+/**
  * What `plugin_not_allowed` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7827,6 +7858,26 @@ export interface PluginPermissionDeniedDetails {
    * The Plugin's name.
    */
   plugin: string;
+}
+/**
+ * What `plugin_revoked` details.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginRevokedDetails".
+ */
+export interface PluginRevokedDetails {
+  /**
+   * The revoked digest, when known.
+   */
+  digest?: string | null;
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+  /**
+   * Why the index revoked it.
+   */
+  reason: string;
 }
 /**
  * A Plugin that ran in a Run (ADRs 0016 and 0033).

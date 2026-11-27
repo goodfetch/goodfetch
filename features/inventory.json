@@ -2285,6 +2285,17 @@
       ]
     },
     {
+      "id": "error:plugin_index_stale",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_installed",
       "kind": "error",
       "area": 7,
@@ -2352,6 +2363,17 @@
     },
     {
       "id": "error:plugin_quarantined",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:plugin_revoked",
       "kind": "error",
       "area": 7,
       "milestone": null,
@@ -10688,6 +10710,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:plugin.index.url",
+      "kind": "setting",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },

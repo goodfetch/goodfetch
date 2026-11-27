@@ -336,6 +336,9 @@ respect_robots_txt = true
 mark_robots_txt_ignored = true
 max_crawl_delay = 30000
 
+[settings.plugin.index]
+url = "https://plugins.example/plugin-index/index.json"
+
 [settings.crawl]
 sample_pages = 4
 handle_statuses = [4]
@@ -779,6 +782,9 @@ robots_txt_user_agent = "example"
 respect_robots_txt = true
 mark_robots_txt_ignored = true
 max_crawl_delay = 30000
+
+[lock.plugin.index]
+url = "https://plugins.example/plugin-index/index.json"
 
 [lock.crawl]
 sample_pages = 4

@@ -24,12 +24,14 @@ use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::plugin::approvals::{
     Origin, PLUGIN_NOT_ALLOWED, PluginNotAllowedDetails, PluginRefusal, admit, fix,
 };
+use goodfetch_protocol::plugin::index::{PluginIndex, SignerIdentity};
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
 use goodfetch_protocol::plugin::{PluginKindName, PluginManifest, Runtime};
 use goodfetch_protocol::run::RunId;
 use serde_json::Value;
 
 use super::extractor::{ProcessExtractor, unavailable};
+use crate::audit::AuditLog;
 use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
 use crate::clock::Clock;
@@ -37,6 +39,7 @@ use crate::home::Home;
 use crate::plugin_gate::{Inserting, PluginFetch, permission_denied};
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
+use crate::plugin_index::{self, LoadRefusal, PluginIndexStore};
 use crate::plugin_runtime::{self, RuntimeCatalog};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
 use crate::sandbox_probe::SandboxProbe;
@@ -44,9 +47,19 @@ use crate::secrets::{RunSecrets, SecretError};
 use crate::settings::{Layers, Resolved, resolve};
 use crate::tasks::TaskOwner;
 
+/// A running Plugin instance tracked by [`RunPlugins`] so revocations can
+/// stop it immediately.
+struct RunningInstance {
+    digest: Option<String>,
+    signer: Option<SignerIdentity>,
+    instance: PluginInstance,
+}
+
 /// One Run's process Plugins, started as its calls name them.
 pub struct RunPlugins {
     store: PluginStore,
+    index_store: PluginIndexStore,
+    audit: Option<AuditLog>,
     cache: CacheLocation,
     instances: PathBuf,
     places: Option<Arc<Places>>,
@@ -58,6 +71,9 @@ pub struct RunPlugins {
     /// Shared cache locks held for each started Plugin's runtime until the
     /// Run drops.
     held_runtimes: tokio::sync::Mutex<Vec<HeldArtifact>>,
+    /// Running Plugin instances, by name, tracked so revocations stop them
+    /// immediately.
+    running: tokio::sync::Mutex<BTreeMap<String, RunningInstance>>,
     /// The Extractors, by name, each set once its instance started: one
     /// whose start failed stays unset, so a Plugin installed after a failed
     /// start is found on the next call. The lock is held only to find a
@@ -88,6 +104,8 @@ impl RunPlugins {
     ) -> Self {
         Self {
             store: PluginStore::new(home.plugins()),
+            index_store: PluginIndexStore::new(home.plugin_index()),
+            audit: None,
             cache: CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
             instances: home.plugin_instances(),
             places,
@@ -96,8 +114,86 @@ impl RunPlugins {
             owner,
             clock,
             held_runtimes: tokio::sync::Mutex::new(Vec::new()),
+            running: tokio::sync::Mutex::new(BTreeMap::new()),
             extractors: tokio::sync::Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// Attaches the engine's [`AuditLog`] so Plugin revocations enforced
+    /// at start or on running instances are recorded in the Audit log.
+    #[must_use]
+    pub fn with_audit(mut self, audit: AuditLog) -> Self {
+        self.audit = Some(audit);
+        self
+    }
+
+    /// Tracks a running [`PluginInstance`] under `name`, `digest` and
+    /// `signer` so [`Self::enforce_revocations`] stops it at once if a
+    /// revocation arrives.
+    pub async fn track_instance(
+        &self,
+        name: String,
+        digest: Option<String>,
+        signer: Option<SignerIdentity>,
+        instance: PluginInstance,
+    ) {
+        self.running.lock().await.insert(
+            name,
+            RunningInstance {
+                digest,
+                signer,
+                instance,
+            },
+        );
+    }
+
+    /// Stops every currently running instance whose digest or signer
+    /// matches a revocation in `index`, evicts it from the Run's cache,
+    /// and records `plugin_revoked` in the Audit log. Returns the names of
+    /// the stopped Plugins.
+    pub async fn enforce_revocations(&self, index: &PluginIndex) -> Vec<String> {
+        let mut to_stop = Vec::new();
+        {
+            let mut running = self.running.lock().await;
+            let matching: Vec<String> = running
+                .iter()
+                .filter(|(_, record)| {
+                    index
+                        .revocation_for(record.digest.as_deref(), record.signer.as_ref())
+                        .is_some()
+                })
+                .map(|(name, _)| name.clone())
+                .collect();
+            for name in matching {
+                if let Some(record) = running.remove(&name)
+                    && let Some(revocation) =
+                        index.revocation_for(record.digest.as_deref(), record.signer.as_ref())
+                {
+                    to_stop.push((name, record, revocation.clone()));
+                }
+            }
+        }
+        let mut stopped = Vec::with_capacity(to_stop.len());
+        let now = self.clock.timestamp();
+        for (name, record, revocation) in to_stop {
+            self.extractors.lock().await.remove(&name);
+            let error = plugin_index::revoked_error(&name, record.digest.as_deref(), &revocation);
+            record.instance.stop_with(error).await;
+            if let Some(audit) = &self.audit {
+                plugin_index::audit_revocation(
+                    audit,
+                    &name,
+                    record.digest.as_deref(),
+                    &revocation,
+                    Some(self.run_id.clone()),
+                    true,
+                    now,
+                )
+                .await;
+            }
+            stopped.push(name);
+        }
+        stopped
     }
 
     /// The Extractor of the installed Plugin `name`, its instance started
@@ -176,7 +272,8 @@ impl RunPlugins {
                 .expect("invariant: the built-in defaults resolve");
             &defaults
         };
-        let entry = admitted(resolved, name, &installed)?;
+        let origin = self.check_index(name, installed.digest.as_deref()).await?;
+        let entry = admitted(origin, resolved, name, &installed)?;
         let probe = probe.clone();
         if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
             tracing::warn!(extractor = name, %refusal, "this host cannot confine an Extractor's Plugin");
@@ -212,6 +309,7 @@ impl RunPlugins {
             .resolve_runtime(name, &installed.manifest.runtime, resolved)
             .await?;
         let folder = self.instances.join(format!("{}-{name}", self.run_id));
+        let digest = installed.digest.clone();
         let places = self.places.clone();
         let plugin = self
             .owner
@@ -238,7 +336,43 @@ impl RunPlugins {
             },
             Scope::Run(self.run_id.clone()),
         );
+        self.track_instance(name.to_owned(), digest, None, instance.clone())
+            .await;
         Ok(ProcessExtractor::new(name.to_owned(), instance))
+    }
+
+    /// Checks the cached Plugin index for revocations and expiry, auditing
+    /// any revocation refusal, and returns the Plugin's [`Origin`].
+    async fn check_index(&self, name: &str, digest: Option<&str>) -> Result<Origin, StartError> {
+        let index_store = self.index_store.clone();
+        let now = self.clock.timestamp();
+        let status = self
+            .owner
+            .blocking(move || index_store.status(now))
+            .await
+            .map_err(|error| {
+                tracing::warn!(extractor = name, %error, "the Plugin index could not be read");
+                StartError::Refused(unavailable(name))
+            })?;
+        match plugin_index::check_load(&status, name, digest, None) {
+            Ok(origin) => Ok(origin),
+            Err(LoadRefusal::Revoked { revocation, error }) => {
+                if let Some(audit) = &self.audit {
+                    plugin_index::audit_revocation(
+                        audit,
+                        name,
+                        digest,
+                        &revocation,
+                        Some(self.run_id.clone()),
+                        false,
+                        now,
+                    )
+                    .await;
+                }
+                Err(StartError::Refused(*error))
+            }
+            Err(LoadRefusal::ExpiredIndex(error)) => Err(StartError::Refused(*error)),
+        }
     }
 
     /// Resolves and locks a Plugin's declared language runtime from the shared
@@ -318,6 +452,7 @@ pub enum StartError {
 ///
 /// `plugin_not_allowed` naming why.
 fn admitted(
+    origin: Origin,
     resolved: &Resolved,
     name: &str,
     installed: &Installed,
@@ -330,13 +465,7 @@ fn admitted(
         })?,
     };
     let found = installed.digest.as_deref();
-    admit(
-        Origin::ThirdParty,
-        entry.allow,
-        entry.digest.as_deref(),
-        found,
-    )
-    .map_err(|refusal| {
+    admit(origin, entry.allow, entry.digest.as_deref(), found).map_err(|refusal| {
         let (pinned, found, field) = match &refusal {
             PluginRefusal::Digest { pinned } => {
                 (Some(pinned.clone()), found.map(str::to_owned), "digest")

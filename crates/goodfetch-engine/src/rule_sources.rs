@@ -86,6 +86,35 @@ pub async fn get(
     fetching: &Fetching,
     limit: usize,
 ) -> Result<Fetched, SourceFailure> {
+    get_for(
+        url,
+        ConfiguredKind::CleanUpRulesSource,
+        headers,
+        fetching,
+        limit,
+    )
+    .await
+}
+
+/// GETs `url` as a configured endpoint of `kind` (such as
+/// [`ConfiguredKind::CleanUpRulesSource`] or [`ConfiguredKind::PluginIndex`])
+/// under `fetching`, following HTTPS redirects up to [`MAX_REDIRECTS`] and
+/// reading the body up to `limit` bytes.
+///
+/// # Errors
+///
+/// As [`SourceFailure`] says.
+///
+/// # Cancel safety
+///
+/// Dropping the future closes the connection.
+pub async fn get_for(
+    url: &str,
+    kind: ConfiguredKind,
+    headers: &[(&str, String)],
+    fetching: &Fetching,
+    limit: usize,
+) -> Result<Fetched, SourceFailure> {
     if fetching.offline.is_some() {
         return Err(SourceFailure::Offline);
     }
@@ -93,7 +122,7 @@ pub async fn get(
     let mut uri = first.clone();
     for _ in 0..=MAX_REDIRECTS {
         let own_host = uri.host() == first.host();
-        let mut response = send(&uri, if own_host { headers } else { &[] }, fetching).await?;
+        let mut response = send(&uri, kind, if own_host { headers } else { &[] }, fetching).await?;
         let host = uri.host().unwrap_or_default().to_owned();
         if response.status.is_redirection() && response.status != StatusCode::NOT_MODIFIED {
             let location = response
@@ -156,9 +185,10 @@ fn joined(base: &Uri, location: &str) -> String {
     format!("https://{authority}{folder}/{location}")
 }
 
-/// Sends one GET of `uri` with `headers`.
+/// Sends one GET of `uri` with `headers` for configured endpoint `kind`.
 async fn send(
     uri: &Uri,
+    kind: ConfiguredKind,
     headers: &[(&str, String)],
     fetching: &Fetching,
 ) -> Result<http_client::Response, SourceFailure> {
@@ -178,7 +208,7 @@ async fn send(
     // A source is an Operator-configured endpoint (ADRs 0017 and 0047):
     // `egress.no_private_endpoints` judges where it resolves.
     fetching
-        .endpoint(ConfiguredKind::CleanUpRulesSource)
+        .endpoint(kind)
         .send(request)
         .await
         .map_err(|failure| match failure {

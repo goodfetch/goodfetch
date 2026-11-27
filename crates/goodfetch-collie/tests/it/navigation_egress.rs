@@ -1042,3 +1042,304 @@ fn a_javascript_url_in_a_frame_whose_origin_the_policy_refuses_does_not_run() {
         (json!("egress_refused"), json!(SCRIPT), Ok(false))
     );
 }
+
+/// Rebinding end to end on Chromium (ADR 0067, ticket 1628): Collie's
+/// executable and Chromium run in a `DnsNamespace` whose resolver is the
+/// Proving ground's DNS fixture. Each rebinding case of the SSRF table, as
+/// a navigation, reaches its public stand-in once and is refused
+/// (`private_address`) on its next connection, with no connection reaching
+/// the target.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test's servers bind their own sockets on loopback, as sites outside the engine do (ADR 0060 covers the engine's sockets)"
+)]
+mod linux {
+    use std::io::{ErrorKind, Read as _, Write as _};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::thread;
+    use std::time::Duration;
+
+    use goodfetch_protocol::catalog::Product;
+    use goodfetch_protocol::connection::Surface;
+    use goodfetch_test_client::{Attached, Hello};
+    use goodfetch_test_support::{
+        Answer, BROWSERS_PATH_VARIABLE, DnsNamespace, Outcome, ProvingGround, Refusal, Runner,
+        SsrfCase, SsrfTable, TestEnv, browser_cache,
+    };
+    use serde_json::{Value, json};
+    use url::Url;
+
+    use super::{COLLIE, RELAYED, SEED, error, opened};
+    use crate::page::BROWSER_DEADLINE;
+
+    const CHILD: &str = "navigation_egress::linux::in_the_namespace_every_rebinding_case_is_refused_as_a_navigation_on_chromium";
+
+    /// The `alternating.dns.test` label for an IP address.
+    fn dns_label(address: IpAddr) -> String {
+        match address {
+            IpAddr::V4(v4) => v4.octets().map(|octet| octet.to_string()).join("-"),
+            IpAddr::V6(v6) => format!("{:032x}", u128::from(v6)),
+        }
+    }
+
+    /// An `alternating.dns.test` host name that answers `public` on its first
+    /// lookup and `rebound` on its next two lookups (repeating `rebound` so a
+    /// background lookup after the first navigation cannot wrap the fixture
+    /// back to `public` before the second navigation). When `rebound` is IPv6,
+    /// `nx` separates the two turns so the first lookup yields only `public`
+    /// and the next yield only `rebound`.
+    fn alternating_name(public: Ipv4Addr, rebound: IpAddr) -> String {
+        let first = dns_label(IpAddr::V4(public));
+        let second = dns_label(rebound);
+        match rebound {
+            IpAddr::V4(_) => format!("{first}.{second}.{second}.alternating.dns.test"),
+            IpAddr::V6(_) => format!("{first}.nx.nx.{second}.{second}.alternating.dns.test"),
+        }
+    }
+
+    /// A loopback HTTP server answering `200 OK` with `Connection: close` so
+    /// each navigation opens a fresh TCP connection through the egress relay.
+    struct PublicStandIn {
+        port: u16,
+        accepted: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        join: Option<thread::JoinHandle<()>>,
+    }
+
+    impl PublicStandIn {
+        fn start(address: Ipv4Addr) -> Self {
+            let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(address), 0)).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let accepted = Arc::new(AtomicUsize::new(0));
+            let stop = Arc::new(AtomicBool::new(false));
+            let accepted_in_thread = Arc::clone(&accepted);
+            let stop_in_thread = Arc::clone(&stop);
+            let join = thread::spawn(move || {
+                while !stop_in_thread.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            accepted_in_thread.fetch_add(1, Ordering::SeqCst);
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                            let mut buf = [0u8; 4096];
+                            let mut read = 0;
+                            while read < buf.len() {
+                                match stream.read(&mut buf[read..]) {
+                                    Ok(0) | Err(_) => break,
+                                    Ok(n) => {
+                                        read += n;
+                                        if buf[..read].windows(4).any(|w| w == b"\r\n\r\n") {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            let body = b"<html><head><link rel=\"icon\" href=\"data:,\"></head><body>ok</body></html>";
+                            let response = format!(
+                                "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                                body.len()
+                            );
+                            let _ = stream.write_all(response.as_bytes());
+                            let _ = stream.write_all(body);
+                            let _ = stream.flush();
+                        }
+                        Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            Self {
+                port,
+                accepted,
+                stop,
+                join: Some(join),
+            }
+        }
+
+        fn connections(&self) -> usize {
+            self.accepted.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for PublicStandIn {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(join) = self.join.take() {
+                let _ = join.join();
+            }
+        }
+    }
+
+    fn run_rebinding_case(
+        engine: &mut Attached,
+        next_id: &mut i64,
+        run_id: &str,
+        case: &SsrfCase,
+        public: Ipv4Addr,
+    ) -> Outcome {
+        let target = case.target_address(IpAddr::V4(public)).unwrap();
+        let server = PublicStandIn::start(public);
+        let port = server.port;
+        let watched = (target != IpAddr::V4(public) && target.is_loopback()).then(|| {
+            let listener = TcpListener::bind(SocketAddr::new(target, port)).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            listener
+        });
+        let host = alternating_name(public, target);
+        let parsed = Url::parse(&case.url).unwrap();
+        let path = parsed.path();
+        let url = format!("http://{host}:{port}{path}");
+        let settings = json!({
+            "egress": {
+                "allowed_domains": [host],
+                "private_ranges": [public.to_string()],
+            },
+        });
+        let mut ask = |method: &str, params: &Value| {
+            *next_id += 1;
+            engine.ask(*next_id, method, params)
+        };
+        let started = ask(
+            "run.start",
+            &json!({ "run_id": run_id, "settings": settings }),
+        );
+        assert!(started.get("result").is_some(), "{started}");
+        let page = opened(&ask("run.new_page", &json!({ "run_id": run_id })))
+            .page_id
+            .0;
+
+        let first = ask(
+            "page.goto",
+            &json!({ "page_id": page, "url": format!("{url}?n=1") }),
+        );
+        assert_eq!(
+            first["result"]["response"]["status"],
+            json!(200),
+            "case {}: first navigation reaches its public stand-in: {first}",
+            case.name
+        );
+        assert!(
+            server.connections() >= 1,
+            "case {}: public stand-in accepted no connection on first navigation",
+            case.name
+        );
+
+        let second = ask(
+            "page.goto",
+            &json!({ "page_id": page, "url": format!("{url}?n=2") }),
+        );
+        let _ = ask("run.finish", &json!({ "run_id": run_id }));
+
+        let mut connections = Vec::new();
+        if target == IpAddr::V4(public) && server.connections() >= 2 {
+            connections.push(IpAddr::V4(public));
+        }
+        if let Some(watched) = watched {
+            match watched.accept() {
+                Ok(_) => connections.push(target),
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+                Err(error) => panic!("watched target listener failed: {error}"),
+            }
+        }
+        let refusal = match error(&second) {
+            (code, details) if code == "egress_refused" => {
+                serde_json::from_value(details["rule"].clone())
+                    .ok()
+                    .map(|rule| Refusal::EgressRefused { rule })
+            }
+            _ => None,
+        };
+        Outcome {
+            refusal,
+            connections,
+        }
+    }
+
+    /// Covers: story:4-5, story:4-10, story:4-89, error:egress_refused, operation:page.goto
+    #[test]
+    fn every_rebinding_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium() {
+        let env = TestEnv::new();
+        let cache = browser_cache(&env).unwrap();
+        let env = env.with_variable(BROWSERS_PATH_VARIABLE, cache.to_str().unwrap());
+        let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+        let fixture = proving_ground.description().fixtures.dns.parse().unwrap();
+        let namespace = DnsNamespace::enter(&env, fixture).unwrap();
+
+        let output = namespace
+            .output(
+                &env,
+                std::env::current_exe().unwrap(),
+                [CHILD, "--include-ignored"],
+            )
+            .unwrap();
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success() && !stdout.contains("running 0 tests"),
+            "status={:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            output.status
+        );
+    }
+
+    #[ignore = "run as a child by navigation_egress::linux::every_rebinding_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium"]
+    #[test]
+    fn in_the_namespace_every_rebinding_case_is_refused_as_a_navigation_on_chromium() {
+        let env = TestEnv::new();
+        let cache = std::path::PathBuf::from(std::env::var(BROWSERS_PATH_VARIABLE).unwrap());
+        let runner = Runner::committed(
+            RELAYED.name,
+            file!(),
+            "every_rebinding_case_of_the_ssrf_table_is_refused_as_a_navigation_on_chromium",
+        )
+        .unwrap();
+        let controls = SsrfTable::parse(
+            r#"
+            [[cases]]
+            name = "public_rebinding_control"
+            family = "rebinding"
+            url = "http://rebind.ssrf.test/"
+            fetches = 2
+            target = "public"
+            refusal = { code = "egress_refused", rule = "private_address" }
+            "#,
+        )
+        .unwrap();
+
+        let mut engine = Attached::start_with(&env, COLLIE, BROWSER_DEADLINE, |command| {
+            command.env(BROWSERS_PATH_VARIABLE, &cache);
+        });
+        engine.send(
+            &Hello::needing(Product::Collie)
+                .surface(Surface::SdkPython)
+                .message(),
+        );
+        let _ = engine.next();
+        let mut next_id = 0;
+
+        let public = Ipv4Addr::new(127, 0, 0, 10);
+        let mut index = 0usize;
+        let result = runner.run(&controls.cases, IpAddr::V4(public), |case| {
+            index += 1;
+            let stand_in = Ipv4Addr::new(127, 0, 0, 10 + u8::try_from(index).unwrap());
+            let run_id = format!("rebind-{index}");
+            // Note: Runner checks target_address(public) for controls, so
+            // controls use `public` itself while each rebinding case gets its
+            // own stand-in address to keep alternating DNS turns isolated.
+            let address = if case.target == Some(Answer::Public) {
+                public
+            } else {
+                stand_in
+            };
+            run_rebinding_case(&mut engine, &mut next_id, &run_id, case, address)
+        });
+        let _ = engine.finish();
+
+        assert_eq!(result, Ok(()), "{}", result.clone().unwrap_err());
+    }
+}

@@ -123,6 +123,7 @@ mod release_digests;
 #[cfg(unix)]
 mod release_line;
 mod release_nightly;
+mod release_oci_helm;
 mod release_package;
 mod release_publish;
 mod release_rehearsal;

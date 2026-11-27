@@ -1,6 +1,7 @@
 //! OCI Image Layout builder and OCI Distribution pusher for first-party
 //! Plugin multi-platform image indexes (ADRs 0033 and 0094; issue 141).
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use anyhow::{Context as _, Result, bail};
@@ -12,6 +13,8 @@ const INDEX_MEDIA_TYPE: &str = "application/vnd.oci.image.index.v1+json";
 const MANIFEST_MEDIA_TYPE: &str = "application/vnd.oci.image.manifest.v1+json";
 const CONFIG_MEDIA_TYPE: &str = "application/vnd.oci.empty.v1+json";
 const LAYER_MEDIA_TYPE: &str = "application/vnd.goodfetch.plugin.binary.v1+octet-stream";
+const HELM_CONFIG_MEDIA_TYPE: &str = "application/vnd.cncf.helm.config.v1+json";
+const HELM_CHART_LAYER_MEDIA_TYPE: &str = "application/vnd.cncf.helm.chart.content.v1.tar+gzip";
 const USER_AGENT: &str = "goodfetch-xtask (https://github.com/goodfetch/goodfetch)";
 
 /// The six OCI platforms for a first-party Plugin multi-platform index
@@ -150,6 +153,163 @@ pub(super) fn write_plugin_layout(
     Ok(())
 }
 
+/// Packages one Product's Helm chart from the single shared chart source
+/// (`packaging/helm/goodfetch/`) into a CNCF Helm OCI Image Layout (`out_dir`),
+/// differing between Collie and Foxhound only by the chart name and the image
+/// repository it runs (ADRs 0049 and 0094; issue 202).
+pub(super) fn build_helm_chart_layout(
+    chart_src: &Path,
+    product_key: &str,
+    version: &str,
+    out_dir: &Path,
+) -> Result<()> {
+    let blobs_dir = out_dir.join("blobs").join("sha256");
+    std::fs::create_dir_all(&blobs_dir)
+        .with_context(|| format!("creating {}", blobs_dir.display()))?;
+
+    let chart_yaml_raw = std::fs::read_to_string(chart_src.join("Chart.yaml"))
+        .with_context(|| format!("reading {}/Chart.yaml", chart_src.display()))?;
+    let values_yaml_raw = std::fs::read_to_string(chart_src.join("values.yaml"))
+        .with_context(|| format!("reading {}/values.yaml", chart_src.display()))?;
+
+    let mut chart_yaml = String::new();
+    for line in chart_yaml_raw.lines() {
+        if line.starts_with("name:") {
+            let _ = writeln!(chart_yaml, "name: {product_key}");
+        } else if line.starts_with("version:") {
+            let _ = writeln!(chart_yaml, "version: {version}");
+        } else if line.starts_with("appVersion:") {
+            let _ = writeln!(chart_yaml, "appVersion: \"{version}\"");
+        } else {
+            chart_yaml.push_str(line);
+            chart_yaml.push('\n');
+        }
+    }
+    let values_yaml = values_yaml_raw.replace(
+        "repository: ghcr.io/goodfetch/collie",
+        &format!("repository: ghcr.io/goodfetch/{product_key}"),
+    );
+    let tar_gz = build_helm_chart_tgz(chart_src, product_key, &chart_yaml, &values_yaml)?;
+
+    let config_json = serde_json::json!({
+        "name": product_key,
+        "version": version,
+        "appVersion": version,
+        "apiVersion": "v2",
+        "type": "application",
+        "description": format!("Goodfetch {product_key} Helm chart (ADRs 0049, 0094)"),
+    });
+    let config_bytes = serde_json::to_vec(&config_json)?;
+    let (config_digest, config_size) = write_blob(&blobs_dir, &config_bytes)?;
+    let (layer_digest, layer_size) = write_blob(&blobs_dir, &tar_gz)?;
+
+    let mut annotations = std::collections::BTreeMap::new();
+    annotations.insert(
+        "org.opencontainers.image.title".to_owned(),
+        format!("{product_key}-{version}.tgz"),
+    );
+    annotations.insert(
+        "org.opencontainers.image.version".to_owned(),
+        version.to_owned(),
+    );
+
+    let manifest = OciManifest {
+        schema_version: 2,
+        media_type: MANIFEST_MEDIA_TYPE.to_owned(),
+        config: Descriptor {
+            media_type: HELM_CONFIG_MEDIA_TYPE.to_owned(),
+            digest: config_digest,
+            size: config_size,
+            platform: None,
+            annotations: None,
+        },
+        layers: vec![Descriptor {
+            media_type: HELM_CHART_LAYER_MEDIA_TYPE.to_owned(),
+            digest: layer_digest,
+            size: layer_size,
+            platform: None,
+            annotations: Some(annotations),
+        }],
+    };
+    let manifest_bytes = serde_json::to_vec(&manifest)?;
+    let (manifest_digest, manifest_size) = write_blob(&blobs_dir, &manifest_bytes)?;
+
+    let index = OciIndex {
+        schema_version: 2,
+        media_type: INDEX_MEDIA_TYPE.to_owned(),
+        manifests: vec![Descriptor {
+            media_type: MANIFEST_MEDIA_TYPE.to_owned(),
+            digest: manifest_digest,
+            size: manifest_size,
+            platform: None,
+            annotations: None,
+        }],
+    };
+    std::fs::write(
+        out_dir.join("oci-layout"),
+        b"{\"imageLayoutVersion\":\"1.0.0\"}\n",
+    )?;
+    std::fs::write(
+        out_dir.join("index.json"),
+        serde_json::to_vec_pretty(&index)?,
+    )?;
+    Ok(())
+}
+
+fn build_helm_chart_tgz(
+    chart_src: &Path,
+    product_key: &str,
+    chart_yaml: &str,
+    values_yaml: &str,
+) -> Result<Vec<u8>> {
+    let mut tar_gz = Vec::new();
+    let encoder = flate2::GzBuilder::new()
+        .mtime(0)
+        .write(&mut tar_gz, flate2::Compression::default());
+    let mut tar = tar::Builder::new(encoder);
+    append_tar_bytes(
+        &mut tar,
+        &format!("{product_key}/Chart.yaml"),
+        chart_yaml.as_bytes(),
+    )?;
+    append_tar_bytes(
+        &mut tar,
+        &format!("{product_key}/values.yaml"),
+        values_yaml.as_bytes(),
+    )?;
+    let templates_dir = chart_src.join("templates");
+    if templates_dir.is_dir() {
+        let mut entries: Vec<_> =
+            std::fs::read_dir(&templates_dir)?.collect::<std::result::Result<Vec<_>, _>>()?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let path = entry.path();
+            if path.is_file() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let bytes = std::fs::read(&path)?;
+                append_tar_bytes(&mut tar, &format!("{product_key}/templates/{name}"), &bytes)?;
+            }
+        }
+    }
+    let encoder = tar.into_inner()?;
+    encoder.finish()?;
+    Ok(tar_gz)
+}
+
+fn append_tar_bytes<W: std::io::Write>(
+    tar: &mut tar::Builder<W>,
+    path: &str,
+    bytes: &[u8],
+) -> Result<()> {
+    let mut header = tar::Header::new_gnu();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(0o644);
+    header.set_mtime(0);
+    header.set_cksum();
+    tar.append_data(&mut header, path, bytes)
+        .with_context(|| format!("adding {path} to Helm chart archive"))
+}
+
 /// Pushes an OCI Image Layout (blobs, child manifests, and multi-platform
 /// index) to `registry` under `repository:tag`.
 pub(super) fn push_layout(
@@ -177,6 +337,43 @@ pub(super) fn push_layout(
         let path = blobs_dir.join(hex);
         std::fs::read(&path).with_context(|| format!("reading OCI blob {}", path.display()))
     };
+
+    // Single-manifest OCI artifact (such as a Helm chart): upload its config
+    // and layer blobs, then push the manifest directly at `tag`.
+    if index.manifests.len() == 1 && index.manifests[0].platform.is_none() {
+        let entry = &index.manifests[0];
+        let manifest_bytes = read_blob(&entry.digest)?;
+        let manifest: OciManifest = serde_json::from_slice(&manifest_bytes)
+            .with_context(|| format!("parsing artifact manifest {}", entry.digest))?;
+        upload_blob(
+            &agent,
+            base,
+            repository,
+            &manifest.config.digest,
+            &read_blob(&manifest.config.digest)?,
+            token,
+        )?;
+        for layer in &manifest.layers {
+            upload_blob(
+                &agent,
+                base,
+                repository,
+                &layer.digest,
+                &read_blob(&layer.digest)?,
+                token,
+            )?;
+        }
+        put_manifest(
+            &agent,
+            base,
+            repository,
+            tag,
+            &entry.media_type,
+            &manifest_bytes,
+            token,
+        )?;
+        return Ok(());
+    }
 
     for entry in &index.manifests {
         let manifest_bytes = read_blob(&entry.digest)?;

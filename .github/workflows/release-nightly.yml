@@ -107,12 +107,14 @@ jobs:
           path: target/release-packaged
       - name: Install cosign for keyless Sigstore signatures
         uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
-      - name: Attest release assets, SBOMs, debug symbols, wheels and catalog
+      - name: Attest release assets, SBOMs, debug symbols, wheels, OCI images, charts and catalog
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             target/release-packaged/assets/*
             target/release-packaged/wheels/*.whl
+            target/release-packaged/oci/images/*.oci.tar
+            target/release-packaged/oci/images/*.cdx.json
       - name: Sign release assets with keyless Sigstore bundles
         run: |
           for file in target/release-packaged/assets/* target/release-packaged/wheels/*.whl; do
@@ -355,12 +357,27 @@ jobs:
               --tag nightly
           done
           for product in collie foxhound; do
-            oci_tar="target/release-attested/oci/images/${product}-${RELEASE_VERSION}.oci.tar"
-            if [[ -f "$oci_tar" ]]; then
-              docker buildx imagetools create \
-                --tag "${OCI_REGISTRY}/goodfetch/${product}:${RELEASE_VERSION}" \
-                --tag "${OCI_REGISTRY}/goodfetch/${product}:nightly" \
-                "oci-archive://${oci_tar}"
+            for variant in "" -slim -full -node -python; do
+              oci_tar="target/release-attested/oci/images/${product}-${RELEASE_VERSION}${variant}.oci.tar"
+              if [[ -f "$oci_tar" ]]; then
+                docker buildx imagetools create \
+                  --tag "${OCI_REGISTRY}/goodfetch/${product}:${RELEASE_VERSION}${variant}" \
+                  --tag "${OCI_REGISTRY}/goodfetch/${product}:nightly${variant}" \
+                  "oci-archive://${oci_tar}"
+              fi
+            done
+            chart_dir="target/release-attested/oci/charts/${product}"
+            if [[ -d "$chart_dir" ]]; then
+              cargo run --quiet --locked --bin xtask -- release oci-push \
+                --layout "$chart_dir" \
+                --registry "https://${OCI_REGISTRY}" \
+                --repository "goodfetch/charts/${product}" \
+                --tag "$RELEASE_VERSION"
+              cargo run --quiet --locked --bin xtask -- release oci-push \
+                --layout "$chart_dir" \
+                --registry "https://${OCI_REGISTRY}" \
+                --repository "goodfetch/charts/${product}" \
+                --tag nightly
             fi
           done
 

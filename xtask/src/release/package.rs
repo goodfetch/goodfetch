@@ -138,19 +138,53 @@ pub(super) fn run_package(root: &Path, arguments: &PackageArguments) -> Result<E
     let npm_dir = out.join("npm");
     let wheels_dir = out.join("wheels");
     let plugins_dir = out.join("oci").join("plugins");
-    for dir in [&assets_dir, &npm_dir, &wheels_dir, &plugins_dir] {
+    let charts_dir = out.join("oci").join("charts");
+    for dir in [
+        &assets_dir,
+        &npm_dir,
+        &wheels_dir,
+        &plugins_dir,
+        &charts_dir,
+    ] {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
 
     package_archives(&binaries, &targets, &assets_dir)?;
     package_sboms(root, &semver, &assets_dir)?;
     package_catalog(root, &assets_dir)?;
+    package_seccomp_profile(root, &assets_dir)?;
     package_npm(root, &semver, &binaries, &targets, &npm_dir)?;
     package_wheels(root, &pep440, &binaries, &targets, &wheels_dir)?;
     package_plugins(root, &semver, &binaries, &plugins_dir)?;
+    package_helm_charts(root, &semver, &charts_dir)?;
 
     output::line(&arguments.out.display().to_string());
     Ok(ExitCode::SUCCESS)
+}
+
+fn package_seccomp_profile(root: &Path, assets_dir: &Path) -> Result<()> {
+    let source = root.join("packaging/oci/seccomp-profile.json");
+    if !source.is_file() {
+        return Ok(());
+    }
+    let bytes = std::fs::read(&source).with_context(|| format!("reading {}", source.display()))?;
+    let _: Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("validating JSON in {}", source.display()))?;
+    let dest = assets_dir.join("goodfetch-seccomp.json");
+    std::fs::write(&dest, bytes).with_context(|| format!("writing {}", dest.display()))?;
+    Ok(())
+}
+
+fn package_helm_charts(root: &Path, semver: &str, charts_dir: &Path) -> Result<()> {
+    let chart_src = root.join("packaging/helm/goodfetch");
+    if !chart_src.join("Chart.yaml").is_file() {
+        return Ok(());
+    }
+    for product in Product::ALL {
+        let key = product.key();
+        oci_layout::build_helm_chart_layout(&chart_src, key, semver, &charts_dir.join(key))?;
+    }
+    Ok(())
 }
 
 fn package_catalog(root: &Path, assets_dir: &Path) -> Result<()> {

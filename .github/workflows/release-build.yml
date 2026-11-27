@@ -849,22 +849,45 @@ jobs:
           cargo run --quiet --locked --bin xtask -- release digests \
             --assets target/release-packaged/assets \
             --version "$RELEASE_VERSION"
-      - name: Build default OCI image tags for both Products from one shared recipe
+      - name: Build all five OCI image tags for both Products from one shared recipe
         env:
           RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
         run: |
-          mkdir -p target/oci-ctx/bin/amd64 target/oci-ctx/bin/arm64 target/release-packaged/oci/images
+          mkdir -p target/oci-ctx/bin/amd64 target/oci-ctx/bin/arm64 \
+            target/oci-ctx/clean-up-rules target/oci-ctx/browsers/default target/oci-ctx/browsers/full \
+            target/oci-ctx/sdk/npm/collie target/oci-ctx/sdk/npm/foxhound \
+            target/oci-ctx/sdk/wheels/collie target/oci-ctx/sdk/wheels/foxhound \
+            target/release-packaged/oci/images
           cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/amd64/goodfetch-collie
           cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/amd64/goodfetch-foxhound
           cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/arm64/goodfetch-collie
           cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/arm64/goodfetch-foxhound
+          cp -R target/release-packaged/npm/collie/* target/oci-ctx/sdk/npm/collie/
+          cp -R target/release-packaged/npm/foxhound/* target/oci-ctx/sdk/npm/foxhound/
+          cp target/release-packaged/wheels/goodfetch_collie_client-*.whl target/oci-ctx/sdk/wheels/collie/
+          cp target/release-packaged/wheels/goodfetch_collie-*.whl target/oci-ctx/sdk/wheels/collie/
+          cp target/release-packaged/wheels/goodfetch_collie_client-*.whl target/oci-ctx/sdk/wheels/foxhound/
+          cp target/release-packaged/wheels/goodfetch_foxhound-*.whl target/oci-ctx/sdk/wheels/foxhound/
+          if compgen -G "target/release-chromium/*" >/dev/null; then
+            cp -R target/release-chromium/* target/oci-ctx/browsers/default/
+            cp -R target/release-chromium/* target/oci-ctx/browsers/full/
+          fi
           for product in collie foxhound; do
-            docker buildx build \
-              --file packaging/oci/Containerfile \
-              --platform linux/amd64,linux/arm64 \
-              --build-arg "PRODUCT_EXECUTABLE=goodfetch-$product" \
-              --output "type=oci,dest=target/release-packaged/oci/images/$product-$RELEASE_VERSION.oci.tar" \
-              target/oci-ctx
+            for variant in default slim full node python; do
+              suffix=""
+              [[ "$variant" != "default" ]] && suffix="-${variant}"
+              docker buildx build \
+                --file packaging/oci/Containerfile \
+                --target "$variant" \
+                --platform linux/amd64,linux/arm64 \
+                --build-arg "PRODUCT_EXECUTABLE=goodfetch-${product}" \
+                --build-arg "PRODUCT_KEY=${product}" \
+                --sbom=true \
+                --output "type=oci,dest=target/release-packaged/oci/images/${product}-${RELEASE_VERSION}${suffix}.oci.tar" \
+                target/oci-ctx
+              cp "target/release-packaged/assets/goodfetch-${product}.cdx.json" \
+                "target/release-packaged/oci/images/${product}-${RELEASE_VERSION}${suffix}.cdx.json"
+            done
           done
       - name: Scan packaged release outputs for secrets
         id: leaks

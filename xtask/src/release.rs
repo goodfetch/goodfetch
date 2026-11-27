@@ -644,7 +644,32 @@ fn prepare(tree: Tree<'_>, version: &ProductVersion) -> Result<Vec<(String, Stri
             .is_some_and(|source| source.contains_key("editable"))
     })?);
 
+    // Shared Helm chart source versioned with the Product version (issue 202).
+    let helm_chart = "packaging/helm/goodfetch/Chart.yaml";
+    if let Ok(chart_text) = tree.read(helm_chart) {
+        let updated = update_helm_chart_yaml(&chart_text, &semver);
+        written.push((helm_chart.to_owned(), updated));
+    }
+
     Ok(written)
+}
+
+fn update_helm_chart_yaml(text: &str, semver: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 16);
+    for line in text.lines() {
+        if line.starts_with("version:") {
+            out.push_str("version: ");
+            out.push_str(semver);
+        } else if line.starts_with("appVersion:") {
+            out.push_str("appVersion: \"");
+            out.push_str(semver);
+            out.push('"');
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
 }
 
 /// `manifest`'s dependency tables of the `kinds` given, each target's

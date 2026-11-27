@@ -11,10 +11,11 @@
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
+use goodfetch_engine::mask::Masks;
 use goodfetch_engine::run::{run_layer, settings_error};
 use goodfetch_engine::run_identity::RunIdentity;
 use goodfetch_engine::run_state::RunState;
-use goodfetch_engine::runs::{RunKeys, RunParts};
+use goodfetch_engine::runs::{RunKeys, RunParts, Runs};
 use goodfetch_engine::secrets::{Purpose, RunSecrets};
 use goodfetch_engine::settings::{Opening, Resolved};
 use goodfetch_engine::tasks::TaskStarter;
@@ -25,7 +26,7 @@ use goodfetch_protocol::foxhound::sink::{
     CRAWL_MIN_SINK_GUARANTEE, DeliveredAs, SINK_PROBE, SINKS, SinkProbe, SinkProbeOutcome,
     SinkProbeParams, SinkSettings, SinkType, WriteMode,
 };
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{Lifecycle, Presence, RunId, RunKind, RunListParams};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, RunOrigin, SETTING_INVALID,
@@ -33,10 +34,11 @@ use goodfetch_protocol::settings::{
 };
 use rusqlite::Connection;
 use secrecy::ExposeSecret as _;
-use tokio::sync::{OnceCell, watch};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, watch};
 
 use crate::contract::{Failure, GuaranteeClass, RunCopy};
-use crate::driver::{Driver, Status};
+use crate::dead_letters;
+use crate::driver::{Driver, RetryOutcome, Status};
 use crate::guarantee;
 use crate::sqlite::SqliteSink;
 use crate::sync::Mutex;
@@ -85,9 +87,10 @@ impl Sinks {
     /// The deliveries of the Run `run`'s Datasets to each of the Sinks its
     /// `settings` name, which [`Delivery::start`] probes and starts and
     /// [`Delivery::finish`] finishes before the Run ends. `settings` passed
-    /// [`Sinks::check`].
+    /// [`Sinks::check`]; `runs` lets each Sink retry dead letters left by
+    /// earlier ended Runs (ADR 0026).
     #[must_use]
-    pub fn deliver(self, run: &RunParts, settings: &Resolved) -> Delivery {
+    pub fn deliver(self, run: &RunParts, settings: &Resolved, runs: &Runs) -> Delivery {
         let layer = layer(settings);
         let sinks = entries(settings)
             .map(|(name, settings)| {
@@ -98,7 +101,10 @@ impl Sinks {
                     identity: run.identity.clone(),
                     state: run.state.clone(),
                     keys: run.keys.clone(),
+                    runs: runs.clone(),
                     driver: OnceCell::new(),
+                    delivering: AsyncMutex::new(()),
+                    retried_dead_letters: OnceCell::new(),
                     stopped: watch::Sender::new(false),
                 })
             })
@@ -185,10 +191,13 @@ impl Delivery {
     }
 }
 
-/// Goodfetch-sink's handlers (ADR 0087): `sink.probe`.
+/// Goodfetch-sink's contribution (ADR 0087): `sink.probe` and the
+/// `sink_dead_letters` run-state table (ADR 0026).
 #[must_use]
 pub fn contribution() -> Contribution {
-    Contribution::new("goodfetch-sink").with_handler(Handler::new(&SINK_PROBE, probe))
+    Contribution::new("goodfetch-sink")
+        .with_run_state_tables(dead_letters::TABLES)
+        .with_handler(Handler::new(&SINK_PROBE, probe))
 }
 
 /// One Sink of a Run: its entry and what its delivery reads and writes.
@@ -199,9 +208,19 @@ struct Sink {
     identity: RunIdentity,
     state: RunState,
     keys: RunKeys,
+    /// The engine's Runs registry, used once per Sink to retry dead
+    /// letters left by earlier ended Runs (ADR 0026).
+    runs: Runs,
     /// Its delivery driver, once its destination opened; why it did not
     /// otherwise.
     driver: OnceCell<Result<Arc<Mutex<Driver<SqliteSink>>>, String>>,
+    /// Serializes delivery passes (including persisting dead letters into
+    /// `state`) so `Delivery::finish` never overtakes an in-flight pass
+    /// before `RunEnd::end` closes the run-state writer.
+    delivering: AsyncMutex<()>,
+    /// Set once dead letters from this Run and earlier ended Runs have
+    /// been retried.
+    retried_dead_letters: OnceCell<()>,
     /// Whether its delivery stopped: failed, superseded, refused at the
     /// Run's start or finished; its delivery task watches it while it
     /// waits, since the run file's commits go on until the Run's tasks end.
@@ -236,7 +255,10 @@ impl Sink {
     }
 
     /// Delivers what the run file has committed and says what follows.
+    /// On the first delivery pass, retries any dead letters stored for this
+    /// Sink in this Run or in earlier ended Runs (ADR 0026).
     async fn deliver(&self) -> Next {
+        let _turn = self.delivering.lock().await;
         let driver = match self.driver().await {
             Ok(driver) => driver,
             Err(cause) => {
@@ -245,28 +267,54 @@ impl Sink {
                 return Next::Stop;
             }
         };
+        let () = *self
+            .retried_dead_letters
+            .get_or_init(|| self.retry_dead_letters(&driver))
+            .await;
+        let driver_for_read = Arc::clone(&driver);
         let delivered = self
             .state
             .read(move |run_file| {
-                driver
+                let mut guard = driver_for_read
                     .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .deliver(run_file)
+                    .unwrap_or_else(PoisonError::into_inner);
+                let status = guard.deliver(run_file)?;
+                let rejected = guard.take_dead_letters();
+                Ok((status, rejected))
             })
             .await;
         let next = match delivered {
-            Ok(Status::Complete) => Next::Wait,
-            Ok(Status::Behind { failure, retry_in }) => {
-                tracing::info!(sink = %self.name, %failure, ?retry_in, "a Sink's delivery failed and is retried");
-                Next::Retry(retry_in)
-            }
-            Ok(Status::Failed(failure)) => {
-                tracing::warn!(sink = %self.name, %failure, "a Sink failed: it delivers nothing more");
-                Next::Stop
-            }
-            Ok(Status::Superseded { run_epoch }) => {
-                tracing::info!(sink = %self.name, run_epoch, "a later copy of the Run delivers to this Sink: this copy stops");
-                Next::Stop
+            Ok((status, rejected)) => {
+                if !rejected.is_empty() {
+                    let masks = self.keys.secrets().mask().masks().clone();
+                    if let Err(error) = self
+                        .state
+                        .write(move |connection| {
+                            for entry in &rejected {
+                                dead_letters::record(connection, entry, &masks)?;
+                            }
+                            Ok(())
+                        })
+                        .await
+                    {
+                        tracing::warn!(sink = %self.name, %error, "dead letters could not be recorded in the run file");
+                    }
+                }
+                match status {
+                    Status::Complete | Status::CompleteWithRejections => Next::Wait,
+                    Status::Behind { failure, retry_in } => {
+                        tracing::info!(sink = %self.name, %failure, ?retry_in, "a Sink's delivery failed and is retried");
+                        Next::Retry(retry_in)
+                    }
+                    Status::Failed(failure) => {
+                        tracing::warn!(sink = %self.name, %failure, "a Sink failed: it delivers nothing more");
+                        Next::Stop
+                    }
+                    Status::Superseded { run_epoch } => {
+                        tracing::info!(sink = %self.name, run_epoch, "a later copy of the Run delivers to this Sink: this copy stops");
+                        Next::Stop
+                    }
+                }
             }
             Err(error) => {
                 tracing::warn!(sink = %self.name, %error, "a Sink's delivery could not read the run file: it stops");
@@ -277,6 +325,83 @@ impl Sink {
             self.stopped.send_replace(true);
         }
         next
+    }
+
+    /// Retries dead letters stored for this Sink in this Run (on resume)
+    /// and in earlier ended Crawl Runs, removing each that succeeds and
+    /// updating each that is rejected again (ADR 0026).
+    async fn retry_dead_letters(&self, driver: &Arc<Mutex<Driver<SqliteSink>>>) {
+        let masks = self.keys.secrets().mask().masks().clone();
+        self.retry_own_dead_letters(driver, &masks).await;
+        self.retry_past_runs_dead_letters(driver, &masks).await;
+    }
+
+    async fn retry_own_dead_letters(&self, driver: &Arc<Mutex<Driver<SqliteSink>>>, masks: &Masks) {
+        let sink_name = self.name.clone();
+        let driver = Arc::clone(driver);
+        let outcome = self
+            .state
+            .read(move |run_file| retry_in(run_file, &sink_name, &driver))
+            .await;
+        let Ok(Some(outcome)) = outcome else {
+            return;
+        };
+        if outcome.delivered.is_empty() && outcome.still_rejected.is_empty() {
+            return;
+        }
+        let sink_name = self.name.clone();
+        let masks = masks.clone();
+        if let Err(error) = self
+            .state
+            .write(move |connection| apply_retry_outcome(connection, &sink_name, &outcome, &masks))
+            .await
+        {
+            tracing::warn!(sink = %self.name, %error, "dead-letter retry results could not be saved");
+        }
+    }
+
+    async fn retry_past_runs_dead_letters(
+        &self,
+        driver: &Arc<Mutex<Driver<SqliteSink>>>,
+        masks: &Masks,
+    ) {
+        let Ok(rows) = self.runs.list(RunListParams::default()).await else {
+            return;
+        };
+        for row in rows {
+            if row.run_id == *self.identity.id()
+                || row.presence != Presence::Present
+                || row.lifecycle == Lifecycle::Running
+                || row.kind != RunKind::Crawl
+            {
+                continue;
+            }
+            let Ok(mut reader) = self.runs.reader(row.run_id.clone()).await else {
+                continue;
+            };
+            let sink_name = self.name.clone();
+            let driver = Arc::clone(driver);
+            let outcome = reader
+                .read(move |run_file| retry_in(run_file, &sink_name, &driver))
+                .await;
+            let Ok(Some(outcome)) = outcome else {
+                continue;
+            };
+            if outcome.delivered.is_empty() && outcome.still_rejected.is_empty() {
+                continue;
+            }
+            let sink_name = self.name.clone();
+            let masks = masks.clone();
+            if let Err(error) = self
+                .runs
+                .update_ended(row.run_id.clone(), move |connection| {
+                    apply_retry_outcome(connection, &sink_name, &outcome, &masks)
+                })
+                .await
+            {
+                tracing::warn!(sink = %self.name, run_id = %row.run_id, %error, "earlier Run's dead letters could not be updated");
+            }
+        }
     }
 
     /// Ends its delivery of a Run that finished, once it delivered every
@@ -296,7 +421,7 @@ impl Sink {
             })
             .await;
         match finished {
-            Status::Complete => {}
+            Status::Complete | Status::CompleteWithRejections => {}
             Status::Superseded { run_epoch } => {
                 tracing::info!(sink = %self.name, run_epoch, "a later copy of the Run finishes this Sink's delivery");
             }
@@ -329,6 +454,41 @@ impl Sink {
             .await
             .clone()
     }
+}
+
+/// Retries every dead letter of `sink_name` stored in `run_file` through
+/// `driver`, or `None` when none are stored there.
+fn retry_in(
+    run_file: &Connection,
+    sink_name: &str,
+    driver: &Mutex<Driver<SqliteSink>>,
+) -> rusqlite::Result<Option<RetryOutcome>> {
+    let entries = dead_letters::list(run_file, sink_name)?;
+    if entries.is_empty() {
+        return Ok(None);
+    }
+    driver
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .retry_dead_letters(run_file, &entries)
+        .map(Some)
+}
+
+/// Applies `outcome` to `connection`'s `sink_dead_letters`: removes each
+/// delivered dead letter and updates each still-rejected one.
+fn apply_retry_outcome(
+    connection: &Connection,
+    sink_name: &str,
+    outcome: &RetryOutcome,
+    masks: &Masks,
+) -> rusqlite::Result<()> {
+    for id in &outcome.delivered {
+        dead_letters::remove(connection, sink_name, id)?;
+    }
+    for entry in &outcome.still_rejected {
+        dead_letters::record(connection, entry, masks)?;
+    }
+    Ok(())
 }
 
 /// A Sink's destination, as its entry names it.
@@ -389,7 +549,8 @@ impl Destination<'_> {
             SqliteSink::new(connection, target).with_mode(mode),
             run,
             self.settings.datasets.clone(),
-        );
+        )
+        .with_masks(secrets.mask().masks().clone());
         Ok(if mode == WriteMode::Append {
             driver
         } else {

@@ -535,6 +535,20 @@ INSERT INTO "seeds" VALUES(16,'{"kind":"added","id":"14","url":"https://shop.tes
 INSERT INTO "seeds" VALUES(17,'{"kind":"not_added","reason":"path_budget","url":"https://shop.test/pages/2"}');
 INSERT INTO "seeds" VALUES(18,'{"kind":"added","id":"15","url":"https://list.test/guide"}');
 INSERT INTO "seeds" VALUES(19,'{"kind":"added","id":"16","url":"https://list.test/guide/"}');
+CREATE TABLE sink_dead_letters (
+            sink TEXT NOT NULL,
+            delivery_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            run_epoch INTEGER NOT NULL,
+            dataset TEXT NOT NULL,
+            record_number INTEGER NOT NULL,
+            committed_at TEXT NOT NULL,
+            record TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            PRIMARY KEY (sink, delivery_id)
+        ) STRICT, WITHOUT ROWID;
+INSERT INTO "sink_dead_letters" VALUES('warehouse','crawl/warehouse/links/1','crawl',1,'links',1,'2026-01-05T09:00:01Z','{"href":"https://shop.test/broken"}','check constraint failed',1);
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,

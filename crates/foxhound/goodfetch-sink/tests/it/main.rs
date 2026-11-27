@@ -8,6 +8,7 @@
 )]
 
 mod conformance;
+mod dead_letters;
 mod faults;
 mod model;
 mod run_files;

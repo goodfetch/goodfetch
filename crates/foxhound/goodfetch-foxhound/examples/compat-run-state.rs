@@ -497,11 +497,35 @@ async fn learned(params: Value, context: CallContext) -> Result<Value, CallError
                 "the learned rule merges the seed"
             );
             link_cursors(connection, &invariants, &policy)?;
-            read_sitemap(connection)
+            read_sitemap(connection)?;
+            record_dead_letter(connection)
         })
         .await
         .expect("the pages are learned from");
     Ok(json!({ "learned": true }))
+}
+
+/// Records one dead-letter row on `crawl` so `compat/run-state` covers every
+/// column of `sink_dead_letters` (ADRs 0026 and 0066).
+fn record_dead_letter(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    goodfetch_sink::dead_letters::record(
+        connection,
+        &goodfetch_sink::dead_letters::DeadLetter {
+            sink: "warehouse".to_owned(),
+            delivery_id: goodfetch_sink::DeliveryId::new("crawl", "warehouse", "links", 1),
+            run: goodfetch_sink::RunCopy {
+                run_id: "crawl".to_owned(),
+                run_epoch: 1,
+            },
+            dataset: "links".to_owned(),
+            number: 1,
+            committed_at: "2026-01-05T09:00:01Z".to_owned(),
+            value: json!({ "href": "https://shop.test/broken" }),
+            reason: "check constraint failed".to_owned(),
+            attempts: 1,
+        },
+        &goodfetch_engine::mask::Masks::new(),
+    )
 }
 
 /// Hands the Frontier the guide of `list.test`: it redirects to its slashed

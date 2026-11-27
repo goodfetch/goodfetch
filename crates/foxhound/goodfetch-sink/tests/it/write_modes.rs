@@ -7,7 +7,7 @@ use std::path::Path;
 use goodfetch_dataset::Datasets;
 use goodfetch_protocol::foxhound::dataset::DatasetDeclaration;
 use goodfetch_protocol::foxhound::sink::WriteMode;
-use goodfetch_sink::{Driver, Failure, FailureKind, RunCopy, Status};
+use goodfetch_sink::{Driver, RunCopy, Status};
 use rstest::rstest;
 use rusqlite::Connection;
 use serde_json::{Value, json};
@@ -409,37 +409,55 @@ fn each_dataset_is_keyed_on_its_own_key_unless_the_sink_names_one(
 }
 
 /// A Record of a Dataset with no schema that lacks a field of its key
-/// fails the keyed Sink with `rejected_records`, before anything of its
-/// batch is written.
+/// joins the keyed Sink's dead letters while every keyed Record in the
+/// batch is delivered (ADR 0103).
 ///
-/// Covers: story:6-286
+/// Covers: story:6-286, story:6-289
 #[test]
-fn a_record_without_its_key_fails_a_keyed_sink() {
+fn a_record_without_its_key_joins_dead_letters() {
     let (_folder, file) = destination();
     let run_file = declared(&[("products", &["sku"])]);
     commit_at(
         &run_file,
         "products",
         1,
-        &[json!({"sku": "a", "price": 1}), json!({"price": 2})],
+        &[
+            json!({"sku": "a", "price": 1}),
+            json!({"price": 2}),
+            json!({"sku": "b", "price": 3}),
+        ],
         FIRST,
     );
 
-    let delivered = deliver(
-        &file,
-        WriteMode::Upsert,
-        None,
+    let mut driver = Driver::new(
+        SINK,
+        sink(&file).with_mode(WriteMode::Upsert),
         copy_of("run-1", 1),
-        &["products"],
-        &run_file,
-        false,
-    );
+        vec!["products".to_owned()],
+    )
+    .keyed(None);
+    let delivered = driver.deliver(&run_file).unwrap();
 
+    assert_eq!(delivered, Status::CompleteWithRejections);
+    let dead = driver.take_dead_letters();
+    assert_eq!(dead.len(), 1);
+    assert_eq!(dead[0].number, 2);
+    assert!(dead[0].reason.contains("sku"));
     assert_eq!(
-        delivered,
-        Status::Failed(Failure::new(FailureKind::RejectedRecords, ""))
+        held(&file),
+        vec![
+            (
+                "run-1".to_owned(),
+                "products".to_owned(),
+                json!({"sku": "a", "price": 1})
+            ),
+            (
+                "run-1".to_owned(),
+                "products".to_owned(),
+                json!({"sku": "b", "price": 3})
+            ),
+        ]
     );
-    assert_eq!(held(&file), Vec::<(String, String, Value)>::new());
 }
 
 /// Under `history`, a copy of a Run that takes over from an older copy

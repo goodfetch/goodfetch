@@ -1231,6 +1231,15 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 289
+title = "As an operator, I want a rejected batch split until the bad Records are isolated, those sent to a per-Sink dead-letter list with the destination's reason and retried on later Runs, so that one bad Record never blocks a Sink (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 299
 title = "As a user of both Products, I want `sinks.*` on a Collie engine refused with `not_in_product`, inactive for a Collie Run on a Foxhound engine, and listed as Foxhound's by `config explain`, so that one project file serves both Products (ADRs 0087, 0103)."
 milestone = "M4 Everything else"

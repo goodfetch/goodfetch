@@ -12,6 +12,7 @@
 //! and to finish them at its end; [`contribution`] answers `sink.probe`.
 
 mod contract;
+pub mod dead_letters;
 mod driver;
 mod guarantee;
 mod run;
@@ -22,7 +23,7 @@ pub use contract::{
     Batch, Delivered, DeliveryId, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
     Written,
 };
-pub use driver::{Driver, Status};
+pub use driver::{Driver, RetryOutcome, Status};
 pub use guarantee::{meets, require};
 pub use run::{Delivery, Sinks, contribution};
 pub use sqlite::SqliteSink;

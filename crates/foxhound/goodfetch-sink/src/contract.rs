@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::time::SystemTime;
 
+use goodfetch_engine::mask::{Masks, Scope};
 use serde_json::Value;
 
 /// One copy of a Run: the Run, and the run epoch its lease gave this copy
@@ -36,6 +37,12 @@ impl DeliveryId {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Reconstructs a stored delivery ID from its text.
+    #[must_use]
+    pub(crate) fn from_stored(text: String) -> Self {
+        Self(text)
     }
 }
 
@@ -186,6 +193,13 @@ impl Failure {
     #[must_use]
     pub fn kind(&self) -> FailureKind {
         self.kind
+    }
+
+    /// The destination's text, masked at [`Scope::Kept`] for a dead-letter
+    /// reason: no code reads the raw text (ADRs 0067 and 0127).
+    #[must_use]
+    pub(crate) fn masked_reason(&self, masks: &Masks) -> String {
+        masks.apply(&self.text.0, Scope::Kept).into_owned()
     }
 }
 

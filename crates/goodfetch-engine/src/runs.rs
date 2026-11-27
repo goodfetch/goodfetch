@@ -2771,6 +2771,32 @@ impl Runs {
         editing.edit(work).await
     }
 
+    /// Runs `work` in one transaction of the ended Run `run_id`'s state,
+    /// under its writer lock and a new run epoch, keeping its kept Exports
+    /// intact: for post-Run delivery bookkeeping such as removing retried
+    /// dead letters (ADR 0026).
+    ///
+    /// # Errors
+    ///
+    /// As [`Runs::edit`].
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future may leave `work` committed.
+    pub async fn update_ended<T, F>(&self, run_id: RunId, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Edit(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let editing = answered.await.map_err(|_| RunError::Stopped)??;
+        editing.update(work).await
+    }
+
     /// The same Runs, each Run started through them belonging to the
     /// Daemon's Connection `connection`.
     pub(crate) fn on_connection(&self, connection: ConnectionId) -> Self {

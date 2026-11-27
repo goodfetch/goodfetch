@@ -328,6 +328,19 @@ CREATE TABLE seeds (
             answer TEXT NOT NULL
         ) STRICT;
 INSERT INTO "seeds" VALUES(1,'{"kind":"not_added","reason":"max_segment_repeats","url":"https://shop.test/more/more/more/"}');
+CREATE TABLE sink_dead_letters (
+            sink TEXT NOT NULL,
+            delivery_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            run_epoch INTEGER NOT NULL,
+            dataset TEXT NOT NULL,
+            record_number INTEGER NOT NULL,
+            committed_at TEXT NOT NULL,
+            record TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            attempts INTEGER NOT NULL,
+            PRIMARY KEY (sink, delivery_id)
+        ) STRICT, WITHOUT ROWID;
 CREATE TABLE sitemap_entries (
             work_item TEXT NOT NULL,
             reason TEXT NOT NULL,

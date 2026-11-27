@@ -1,8 +1,9 @@
 # Which of goodfetch-sink's top-level modules may import which (ADR 0126).
 [modules]
 contract = []
-driver = ["contract"]
+dead_letters = ["contract"]
+driver = ["contract", "dead_letters"]
 guarantee = ["contract"]
-run = ["contract", "driver", "guarantee", "sqlite", "sync"]
+run = ["contract", "dead_letters", "driver", "guarantee", "sqlite", "sync"]
 sqlite = ["contract"]
 sync = []

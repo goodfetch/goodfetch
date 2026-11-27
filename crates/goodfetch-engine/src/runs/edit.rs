@@ -36,8 +36,29 @@ pub(super) struct Editing {
 
 impl Editing {
     /// Runs `work` in one transaction of the Run's state, under its writer
-    /// lock and a run epoch of its own, and answers what `work` answers.
-    pub(super) async fn edit<T, F>(mut self, work: F) -> Result<T, RunError>
+    /// lock and a run epoch of its own, and answers what `work` answers,
+    /// forgetting any kept Exports since `work` may erase Records.
+    pub(super) async fn edit<T, F>(self, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.run(true, work).await
+    }
+
+    /// Runs `work` in one transaction of the Run's state, under its writer
+    /// lock and a run epoch of its own, keeping the Run's Exports intact:
+    /// for post-Run delivery bookkeeping such as removing delivered dead
+    /// letters.
+    pub(super) async fn update<T, F>(self, work: F) -> Result<T, RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.run(false, work).await
+    }
+
+    async fn run<T, F>(mut self, forget_exports: bool, work: F) -> Result<T, RunError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
@@ -110,7 +131,11 @@ impl Editing {
         let at = self.folder.clone();
         self.owner
             .blocking(move || {
-                let forgotten = run_files::forget_exports(&at);
+                let forgotten = if forget_exports {
+                    run_files::forget_exports(&at)
+                } else {
+                    Ok(())
+                };
                 drop(lock);
                 forgotten
             })

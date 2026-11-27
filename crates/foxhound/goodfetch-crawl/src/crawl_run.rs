@@ -104,7 +104,7 @@ impl CrawlRun {
         (sinks, settings): (Sinks, &Resolved),
     ) -> Arc<Self> {
         Arc::new(Self {
-            sinks: sinks.deliver(parts, settings),
+            sinks: sinks.deliver(parts, settings, context.runs()),
             identity: parts.identity.clone(),
             state: parts.state.clone(),
             charging: parts.charging.clone(),

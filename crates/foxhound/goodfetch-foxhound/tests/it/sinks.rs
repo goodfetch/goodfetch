@@ -364,3 +364,134 @@ fn sink_probe_answers_the_class_a_sink_proves_or_why_it_failed() {
         "{unknown}"
     );
 }
+
+/// A Record a SQLite Sink's constraint rejects does not block the Sink:
+/// the batch splits, every good Record lands, the bad one joins the
+/// Creates `records` in `database` with a `CHECK` constraint rejecting
+/// `/headings/levels`, or rebuilds it without that constraint.
+fn set_headings_constraint(database: &Path, reject: bool) {
+    let conn = Connection::open(database).unwrap();
+    if reject {
+        conn.execute_batch(
+            "CREATE TABLE records (
+                 _goodfetch_delivery_id TEXT NOT NULL PRIMARY KEY,
+                 _goodfetch_run_id TEXT NOT NULL,
+                 _goodfetch_run_epoch INTEGER NOT NULL,
+                 _goodfetch_dataset TEXT NOT NULL,
+                 _goodfetch_record_number INTEGER NOT NULL,
+                 _goodfetch_committed_at TEXT NOT NULL,
+                 record TEXT NOT NULL CHECK (json_extract(record, '$.url') NOT LIKE '%/headings/levels%'),
+                 _goodfetch_key TEXT
+             ) STRICT;",
+        )
+        .unwrap();
+    } else {
+        conn.execute_batch(
+            "CREATE TABLE records_new (
+                 _goodfetch_delivery_id TEXT NOT NULL PRIMARY KEY,
+                 _goodfetch_run_id TEXT NOT NULL,
+                 _goodfetch_run_epoch INTEGER NOT NULL,
+                 _goodfetch_dataset TEXT NOT NULL,
+                 _goodfetch_record_number INTEGER NOT NULL,
+                 _goodfetch_committed_at TEXT NOT NULL,
+                 record TEXT NOT NULL,
+                 _goodfetch_key TEXT
+             ) STRICT;
+             INSERT INTO records_new SELECT * FROM records;
+             DROP TABLE records;
+             ALTER TABLE records_new RENAME TO records;",
+        )
+        .unwrap();
+    }
+}
+
+/// Sink's dead-letter list with SQLite's reason, and once the constraint
+/// is lifted a later Run retries the dead letter and removes it on
+/// success (ADR 0026).
+///
+/// Covers: story:6-289
+#[test]
+fn a_bad_record_is_dead_lettered_and_retried_on_a_later_run() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let database = env.folder().join("sink.sqlite");
+    set_headings_constraint(&database, true);
+
+    let index = proving_ground.start_url(MARKDOWN_TASK).unwrap();
+    let second = format!("{index}/headings/levels");
+    let sink_settings = json!({
+        "fetch": { "tier": "http" },
+        "sinks": {
+            "mine": {
+                "type": "sqlite",
+                "datasets": ["pages"],
+                "destination": format!("env:{DESTINATION}"),
+            },
+        },
+    });
+    let extraction = json!({ "formats": { "markdown": true }, "follow": "none" });
+
+    let mut engine = crate::attached_with(&env, None, |command| {
+        command.env(DESTINATION, &database);
+    });
+    let (started1, _) = crawl_read(
+        &mut engine,
+        &proving_ground,
+        (
+            "dl-run-1",
+            &[
+                json!({ "url": index, "label": "page" }),
+                json!({ "url": second, "label": "page" }),
+            ],
+        ),
+        &extraction,
+        &sink_settings,
+    );
+    assert!(started1.get("result").is_some(), "{started1}");
+    assert!(engine.finished());
+
+    let landed_after_1 = rows(&database);
+    assert_eq!(landed_after_1.len(), 1);
+    assert_eq!(landed_after_1[0].run_id, "dl-run-1");
+    let run1_file = crate::run_file(&env, "dl-run-1");
+    let dead_after_1 = goodfetch_sink::dead_letters::list(&run1_file, "mine").unwrap();
+    assert_eq!(dead_after_1.len(), 1);
+    assert!(
+        dead_after_1[0]
+            .value
+            .to_string()
+            .contains("/headings/levels")
+    );
+    assert_ne!(dead_after_1[0].reason, "");
+    drop(run1_file);
+
+    set_headings_constraint(&database, false);
+
+    let mut engine2 = crate::attached_with(&env, None, |command| {
+        command.env(DESTINATION, &database);
+    });
+    let (started2, _) = crawl_read(
+        &mut engine2,
+        &proving_ground,
+        ("dl-run-2", &[json!({ "url": index, "label": "page" })]),
+        &extraction,
+        &sink_settings,
+    );
+    assert!(started2.get("result").is_some(), "{started2}");
+    assert!(engine2.finished());
+
+    let run1_file = crate::run_file(&env, "dl-run-1");
+    assert_eq!(
+        goodfetch_sink::dead_letters::list(&run1_file, "mine").unwrap(),
+        Vec::new(),
+        "Run 1's dead letter was removed once Run 2 delivered it"
+    );
+    let landed_after_2 = rows(&database);
+    assert_eq!(landed_after_2.len(), 3);
+    assert!(
+        landed_after_2
+            .iter()
+            .any(|row| row.run_id == "dl-run-1"
+                && row.record.to_string().contains("/headings/levels"))
+    );
+}

@@ -168,7 +168,7 @@ pub fn contribution_with(
     blocks: Arc<dyn BlockClassifier>,
 ) -> Contribution {
     let handler_pages: Arc<dyn HandlerPages> = Arc::new(handler_pages);
-    let interception = Interception::default();
+    let interception = Interception::with_blocks(Arc::clone(&blocks));
     let dialogs = Dialogs::default();
     let pages = Pages {
         sessions: Sessions::new(
@@ -469,6 +469,7 @@ async fn gesture(
             window: &page.run.send_window,
             lease: page.lease(),
         },
+        human_input: page.human_input.clone(),
     };
     let acted = page
         .life
@@ -1225,7 +1226,12 @@ impl BrowserPages for Opener {
     }
 
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
-        self.pages.blocks.classify(response, markup)
+        // A tier's transport ends a hop its proxy answered with the proxy's
+        // own error before a document is served, so a served one is the
+        // site's.
+        self.pages
+            .blocks
+            .classify(response, proxy::Party::Site, markup)
     }
 }
 

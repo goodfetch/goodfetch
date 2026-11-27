@@ -264,6 +264,9 @@ rows! {
     ActionFillCommands => "C3.commands.fill", "action", "fill_commands";
     /// `C3.commands`, of a press: a CDP command a key press's attempt sent.
     ActionPressCommands => "C3.commands.press", "action", "press_commands";
+    /// `C3.commands`, of human-like input: a CDP command a `stealth` Session's
+    /// human-like gesture sent (ADR 0140, #1018).
+    ActionHumanInputCommands => "C3.commands.human_input", "action", "human_input_commands";
     /// `C3.commands`, of a scroll collection's scroll: a CDP command a
     /// scroll's attempt sent.
     ActionScrollCollectCommands => "C3.commands.scroll_collect", "action", "scroll_collect_commands";

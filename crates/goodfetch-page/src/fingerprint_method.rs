@@ -9,29 +9,45 @@
 //! #395 has nothing of theirs yet. `basic` has each page show its values
 //! through the browser's own overrides, and `js_injection` through a script
 //! run in the main world of each document of the page's own process, which
-//! Provenance marks as a main-world injection (ADRs 0019 and 0048); its
-//! out-of-process frames and its workers are not masked yet (#913). `engine` is not built: a
+//! Provenance marks as a main-world injection (ADRs 0019 and 0048). None of
+//! a page's overrides reaches its out-of-process frames or its workers, so
+//! each takes them on its own target before it runs (`children`): a frame
+//! `basic`'s values but the screen, which Chromium sets on a page alone,
+//! and `js_injection`'s script; a dedicated, shared or service worker the
+//! values a worker reads, its user agent, time zone and core count, and no
+//! script. A shared or service worker's `navigator.userAgent` and every
+//! worker's `navigator.platform` stay the browser's own. `engine` is not built: a
 //! `stealth` Session that leaves the method unset falls back to `basic`
 //! with its warning, and one that asks for `engine` is refused (ADR 0083).
-//! The values come from the Session's Identity profile once it is built
-//! (#993); until then each method shows the machine's own.
+//! The values come from the Session's Identity profile (#993), at the
+//! version of the browser that runs it; with `stealth.generated_identity`
+//! off the Session has none, and each method shows the browser's own.
+//! Until the proxy exit gives them (#997), a profile's time zone and
+//! geolocation stay the machine's.
 
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
+
+use goodfetch_engine::CallError;
 use goodfetch_engine::audit::Origin;
+use goodfetch_identity_profile::{BrowserVersion, IdentityProfile, refresh_version_fields};
 use goodfetch_protocol::audit::{Actor, FINGERPRINT_METHOD_CHOSEN};
 use goodfetch_protocol::page::{PageId, SessionId};
 use goodfetch_protocol::run::RunWarning;
 use goodfetch_protocol::run::warning::{
     FINGERPRINT_BASIC, FINGERPRINT_BASIC_FALLBACK, FINGERPRINT_JS_INJECTION, FINGERPRINT_NONE,
+    STEALTH_RUNTIME_ALLOWED,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use serde_json::json;
 
-use crate::access_mode::{FingerprintMethod, MethodSource, SessionIdentityPlan};
+use crate::access_mode::{FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan};
 use crate::browser_run::BrowserRun;
-use crate::cdp::{CdpPage, Emulated};
+use crate::cdp::launch::Window;
+use crate::cdp::{CdpPage, Emulated, Geolocation, ScreenSize, TargetSession, UserAgentOverride};
+use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_functions::{Injection, Injections};
 use crate::pool::Placement;
 use crate::trace;
@@ -70,27 +86,37 @@ impl Method {
 
 /// How a `stealth` Session masks its browser's fingerprint: its method,
 /// the layer that set it or its fallback to `basic` for want of a
-/// Goodfetch Chromium, the layer that chose `stealth`, and the values its
-/// pages show.
+/// Goodfetch Chromium, the layer that chose `stealth`, the Identity profile
+/// its pages show, none with `stealth.generated_identity` off, whether
+/// `stealth.allow_runtime` lets them turn on the browser's `Runtime`
+/// domain, and the window its browser shows them in.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FingerprintPlan {
     method: Method,
     source: MethodSource,
     stealth: SettingsLayer,
-    values: Emulated,
+    identity: Option<Box<IdentityProfile>>,
+    runtime: RuntimeDomain,
+    window: Window,
 }
 
 impl FingerprintPlan {
-    /// The plan of a Session that opens as `plan` says: none for a
-    /// Session that is not `stealth`, nor for a method this engine does not
-    /// build, which [`SessionIdentityPlan::built`] refuses first.
-    pub(crate) fn of(plan: &SessionIdentityPlan) -> Option<Self> {
+    /// The plan of a Session that opens as `plan` says, showing `identity`:
+    /// none for a Session that is not `stealth`, nor for a method this
+    /// engine does not build, which [`SessionIdentityPlan::built`] refuses
+    /// first.
+    pub(crate) fn of(
+        plan: &SessionIdentityPlan,
+        identity: Option<IdentityProfile>,
+    ) -> Option<Self> {
         let profile = plan.profile.as_ref()?;
         Some(Self {
             method: Method::built(profile.fingerprint_method)?,
             source: profile.method_source,
             stealth: plan.layer,
-            values: Emulated::default(),
+            identity: identity.map(Box::new),
+            runtime: profile.runtime,
+            window: Window::of(profile.headless),
         })
     }
 
@@ -109,9 +135,23 @@ impl FingerprintPlan {
     }
 
     /// The refusal of a `page.on` that needs the browser's `Runtime`
-    /// domain on one of its pages, which a detector sees (#599's Q2).
-    pub(crate) fn runtime_refusal(&self) -> goodfetch_engine::CallError {
-        crate::access_mode::runtime_under_stealth(self.stealth)
+    /// domain on one of its pages, which a detector sees: none once
+    /// `stealth.allow_runtime` allows it (#599's Q2).
+    pub(crate) fn runtime_refusal(&self) -> Option<goodfetch_engine::CallError> {
+        (self.runtime == RuntimeDomain::Refused)
+            .then(|| crate::access_mode::runtime_under_stealth(self.stealth))
+    }
+
+    /// The warning the Session `session`'s Run report carries when
+    /// `stealth.allow_runtime` lets its pages turn on the browser's
+    /// `Runtime` domain.
+    fn runtime_warning(&self, session: &SessionId) -> Option<RunWarning> {
+        (self.runtime == RuntimeDomain::Allowed).then(|| RunWarning {
+            code: STEALTH_RUNTIME_ALLOWED.to_owned(),
+            message: "A `stealth` Session ran with `stealth.allow_runtime`: its pages could turn on the browser's `Runtime` domain, which a detector sees.".to_owned(),
+            sessions: vec![session.0.clone()],
+            folder: None,
+        })
     }
 
     /// Where its Sessions are placed: every built method shares a browser
@@ -122,18 +162,24 @@ impl FingerprintPlan {
         }
     }
 
-    /// The values its pages show through the browser's own overrides:
-    /// `basic`'s alone.
-    fn emulated(&self) -> Option<&Emulated> {
-        (self.method == Method::Basic && self.values != Emulated::default()).then_some(&self.values)
+    /// How its browser shows its pages: in a window unless the Session's
+    /// `browser.headless` says otherwise (ADR 0035).
+    pub(crate) const fn window(&self) -> Window {
+        self.window
     }
 
-    /// The script its pages run before each document's own: `js_injection`'s
-    /// alone, when it has a value to show.
-    fn init_script(&self) -> Option<String> {
-        (self.method == Method::JsInjection)
-            .then(|| init_script(&self.values))
-            .flatten()
+    /// The values its pages show through the browser's own overrides,
+    /// `basic`'s, and the script they run before each document's own,
+    /// `js_injection`'s: its Identity profile at the version of the browser
+    /// that reports `product`. Neither without an Identity profile.
+    fn primitives(&self, product: Option<&str>) -> (Option<Emulated>, Option<String>) {
+        match (self.method, self.identity.as_deref()) {
+            (Method::None, _) | (_, None) => (None, None),
+            (Method::Basic, Some(identity)) => (Some(shown_at(identity, product)), None),
+            (Method::JsInjection, Some(identity)) => {
+                (None, init_script(&shown_at(identity, product)))
+            }
+        }
     }
 
     /// The warning the Session `session`'s Run report carries, and whether
@@ -158,18 +204,22 @@ impl FingerprintPlan {
             ),
         };
         let once = self.method == Method::None;
-        // Until an Identity profile gives it values (#993), a masking
-        // method shows the machine's own as well.
-        let unmasked = self.method != Method::None && self.values == Emulated::default();
+        let unmasked = match (self.method, self.identity.as_deref()) {
+            (Method::None, _) => None,
+            (_, None) => Some(
+                "Its pages show the browser's own values, as `stealth.generated_identity` is off.",
+            ),
+            // Until the proxy exit gives them (#997).
+            (_, Some(identity)) => identity.exit.time_zone.is_none().then_some(
+                "Its time zone and geolocation are the machine's own, as no proxy exit gives them values yet.",
+            ),
+        };
         let warning = RunWarning {
             code: code.to_owned(),
-            message: if unmasked {
-                format!(
-                    "{message} Its time zone, locale, geolocation and core count are the machine's own too, as no Identity profile gives them values yet."
-                )
-            } else {
-                message.to_owned()
-            },
+            message: unmasked.map_or_else(
+                || message.to_owned(),
+                |unmasked| format!("{message} {unmasked}"),
+            ),
             sessions: if once {
                 Vec::new()
             } else {
@@ -187,6 +237,7 @@ impl FingerprintPlan {
             "session_id": session,
             "method": self.method.as_str(),
             "fell_back": self.fell_back(),
+            "runtime_allowed": self.runtime == RuntimeDomain::Allowed,
         })
     }
 
@@ -211,6 +262,11 @@ impl FingerprintPlan {
         };
         if let Err(error) = kept {
             tracing::warn!(%error, "the warning of a Session's Fingerprint method was not kept");
+        }
+        if let Some(warning) = self.runtime_warning(session)
+            && let Err(error) = run.warnings.warn(warning).await
+        {
+            tracing::warn!(%error, "the warning of a Session's `Runtime` domain was not kept");
         }
         let origin = Origin {
             actor: Actor::Engine,
@@ -251,10 +307,12 @@ impl FingerprintPlan {
         (run, session, page_id): (&BrowserRun, &SessionId, &PageId),
         injections: &Injections,
     ) -> Result<(), goodfetch_engine::CallError> {
-        if let Some(values) = self.emulated() {
-            page.emulate_opening(values).await?;
+        let (values, script) = self.primitives(page.browser_product());
+        if let Some(values) = values {
+            page.emulate_opening(&values).await?;
+            page.emulate_in_context_workers(values);
         }
-        if let Some(script) = self.init_script() {
+        if let Some(script) = script {
             page.add_init_script_opening(script).await?;
             injections
                 .mark(&run.trace, session, page_id, Injection::FingerprintMethod)
@@ -264,20 +322,160 @@ impl FingerprintPlan {
     }
 }
 
+/// What a page's out-of-process frames and dedicated workers show, which
+/// none of the page's own overrides reach: its browser's identity, then
+/// what `plan`'s method has them show.
+struct ChildMasks {
+    page: CdpPage,
+    /// `basic`'s values in a frame: all of the page's but its screen.
+    frame: Option<Emulated>,
+    /// `basic`'s values in a worker, of which it reads its own.
+    worker: Option<Emulated>,
+    /// `js_injection`'s script, run in a frame's documents; a worker runs
+    /// no page script.
+    script: Option<String>,
+}
+
+impl ChildMasks {
+    /// Has the child on `session`, of kind `kind`, show them.
+    async fn show(&self, kind: ChildKind, session: &TargetSession) -> Result<(), CallError> {
+        let child = self.page.child(session);
+        child.show_identity_opening(kind).await?;
+        match kind {
+            ChildKind::Frame => {
+                if let Some(values) = &self.frame {
+                    child.emulate_opening(values).await?;
+                }
+                if let Some(script) = &self.script {
+                    child.add_init_script_opening(script.clone()).await?;
+                }
+            }
+            ChildKind::Worker => {
+                if let Some(values) = &self.worker {
+                    child.emulate_worker_opening(values).await?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// What a page of `page`'s Session does with each of its out-of-process
+/// frames and dedicated workers, which `page_children::follow` hands over
+/// before it runs: the child shows its headless browser's identity, as its
+/// page does, then what the Session's Fingerprint method `plan`, if any,
+/// shows on the page (ADR 0035's rows). A child that cannot take them does
+/// not run.
+pub(crate) fn children(plan: Option<&FingerprintPlan>, page: &CdpPage) -> OnChild {
+    let (values, script) =
+        plan.map_or((None, None), |plan| plan.primitives(page.browser_product()));
+    let masks = Arc::new(ChildMasks {
+        page: page.clone(),
+        frame: values.as_ref().map(Emulated::in_frame),
+        worker: values,
+        script,
+    });
+    Arc::new(move |child: &Child| {
+        let (masks, kind, session) = (Arc::clone(&masks), child.kind, child.session.clone());
+        Box::pin(async move {
+            match masks.show(kind, &session).await {
+                Ok(()) => true,
+                Err(error) => {
+                    tracing::warn!(?kind, %error, "a page's child could not take its Session's identity");
+                    false
+                }
+            }
+        })
+    })
+}
+
+/// The values a page shows of `identity` at the version of the browser
+/// that reports `product`, such as `HeadlessChrome/131.0.6778.85`, or at
+/// the drawn version when `product` names none it can read.
+fn shown_at(identity: &IdentityProfile, product: Option<&str>) -> Emulated {
+    let mut identity = identity.clone();
+    if let Some(version) = product
+        .and_then(|product| product.split_once('/'))
+        .and_then(|(_, version)| BrowserVersion::parse(version))
+    {
+        refresh_version_fields(&mut identity, version);
+    }
+    shown(&identity)
+}
+
+/// The values a page shows of `identity`: its user agent with its
+/// `Accept-Language` header, `navigator.platform` and client hints, its
+/// screen, its first language, its core count, and the exit's time zone
+/// and geolocation, when it has them.
+fn shown(identity: &IdentityProfile) -> Emulated {
+    let accept_language = identity
+        .http
+        .headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("accept-language"))
+        .map(|(_, value)| value.clone());
+    Emulated {
+        user_agent: Some(UserAgentOverride {
+            user_agent: identity.user_agent.clone(),
+            accept_language,
+            platform: identity.navigator.platform.clone(),
+            client_hints: identity.client_hints.clone(),
+        }),
+        screen: Some(ScreenSize {
+            width: identity.screen.width,
+            height: identity.screen.height,
+            avail_width: identity.screen.avail_width,
+            avail_height: identity.screen.avail_height,
+        }),
+        time_zone: identity.exit.time_zone.clone(),
+        locale: identity.navigator.languages.first().cloned(),
+        languages: identity.navigator.languages.clone(),
+        geolocation: identity.exit.geolocation.map(|at| Geolocation {
+            latitude: at.latitude,
+            longitude: at.longitude,
+            accuracy: at.accuracy,
+        }),
+        core_count: Some(identity.navigator.hardware_concurrency),
+    }
+}
+
 /// `js_injection`'s script, which has a document read `values` in place of
 /// its machine's: none when it has none to show. Each value is written as
 /// a JSON literal, so no value can break out of the script.
 fn init_script(values: &Emulated) -> Option<String> {
     let mut lines = Vec::new();
+    if let Some(agent) = &values.user_agent {
+        let user_agent = json!(agent.user_agent);
+        let platform = json!(agent.platform);
+        lines.push(format!(
+            "define(Navigator.prototype, \"userAgent\", {user_agent});\n  define(Navigator.prototype, \"platform\", {platform});"
+        ));
+    }
+    if let Some(screen) = values.screen {
+        let ScreenSize {
+            width,
+            height,
+            avail_width,
+            avail_height,
+        } = screen;
+        lines.push(format!(
+            "define(Screen.prototype, \"width\", {width});\n  define(Screen.prototype, \"height\", {height});\n  define(Screen.prototype, \"availWidth\", {avail_width});\n  define(Screen.prototype, \"availHeight\", {avail_height});"
+        ));
+    }
     if let Some(cores) = values.core_count {
         lines.push(format!(
             "define(Navigator.prototype, \"hardwareConcurrency\", {cores});"
         ));
     }
     if let Some(locale) = &values.locale {
-        let locale = json!(locale);
+        let locale_json = json!(locale);
+        let languages = if values.languages.is_empty() {
+            json!([locale])
+        } else {
+            json!(values.languages)
+        };
         lines.push(format!(
-            "define(Navigator.prototype, \"language\", {locale});\n  define(Navigator.prototype, \"languages\", Object.freeze([{locale}]));"
+            "define(Navigator.prototype, \"language\", {locale_json});\n  define(Navigator.prototype, \"languages\", Object.freeze({languages}));"
         ));
     }
     if let Some(zone) = &values.time_zone {

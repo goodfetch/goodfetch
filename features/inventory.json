@@ -11395,6 +11395,17 @@
       ]
     },
     {
+      "id": "setting:stealth.allow_runtime",
+      "kind": "setting",
+      "area": 8,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:stealth.allowed_builds",
       "kind": "setting",
       "area": 8,

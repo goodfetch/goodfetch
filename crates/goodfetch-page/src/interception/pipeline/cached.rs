@@ -23,6 +23,7 @@
 //! gate and the reader judge what the site sends.
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -30,10 +31,12 @@ use data_encoding::BASE64;
 use goodfetch_engine::mask::Scope;
 use goodfetch_engine::response_cache::{CacheRequest, KeptOut, ResponseHead, Source, Stale};
 use goodfetch_engine::response_limits::{Decoding, Limits};
+use goodfetch_protocol::page::PageResponse;
 
 use super::{COOKIE, Held, PageContext, Sender, lock};
 use crate::cdp::driver::cdp_response;
 use crate::cdp::{ContinueRequest, Header, NetworkId, PausedId, PausedRequest};
+use crate::proxy::{self, PROXY_STATUS};
 
 /// The response header naming a body's content codings.
 const CONTENT_ENCODING: &str = "content-encoding";
@@ -50,6 +53,8 @@ pub(super) struct Storing {
     kept_out: Option<KeptOut>,
     /// The stale entry its conditions name.
     stale: Option<Stale>,
+    /// Whether this request is a document navigation.
+    navigation: bool,
 }
 
 impl Storing {
@@ -107,6 +112,7 @@ impl PageContext {
                 request: asked.request,
                 kept_out: asked.kept_out,
                 stale,
+                navigation: held.navigation,
             },
         );
         false
@@ -257,6 +263,11 @@ impl PageContext {
         }
         // The browser gives the body decoded: the head stored says so.
         if let Some(body) = cdp_response::body_if_whole(&self.driver, paused.id().as_str()).await {
+            if self.is_blocked(paused.url(), &head, &body, storing.navigation)
+                && !caching.stores(&storing.request, &head, Some(KeptOut::Blocked))
+            {
+                return false;
+            }
             let head = ResponseHead {
                 status,
                 headers: without_codings(head.headers),
@@ -266,6 +277,56 @@ impl PageContext {
                 .await;
         }
         false
+    }
+
+    /// Whether the Product's Block classifier names a Block cause for this
+    /// site response, keeping challenge and refusal pages out of the Response
+    /// cache with no extra document read (ADRs 0046, 0053, 0140; #871).
+    fn is_blocked(&self, url: &str, head: &ResponseHead, body: &[u8], navigation: bool) -> bool {
+        let html = head.headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-type") && value.to_ascii_lowercase().contains("html")
+        });
+        if !navigation && head.status < 400 && !html {
+            return false;
+        }
+        let mut headers: BTreeMap<String, String> = BTreeMap::new();
+        for (name, value) in &head.headers {
+            headers
+                .entry(name.to_ascii_lowercase())
+                .and_modify(|existing| {
+                    existing.push('\n');
+                    existing.push_str(value);
+                })
+                .or_insert_with(|| value.clone());
+        }
+        let party = self.driver.proxy().map_or(proxy::Party::Site, |proxy| {
+            let proxy_status = headers.get(PROXY_STATUS).map(String::as_str);
+            proxy::party(proxy.response(url, proxy_status))
+        });
+        if party == proxy::Party::Proxy {
+            return false;
+        }
+        let response = PageResponse {
+            url: url.to_owned(),
+            status: head.status,
+            status_text: String::new(),
+            headers,
+            encoding: None,
+            request_id: String::new(),
+            from_service_worker: false,
+        };
+        let matched: Vec<&str> = self
+            .state
+            .blocks
+            .markers(head.status)
+            .into_iter()
+            .filter(|marker| contains_ascii_case_insensitive(body, marker.as_bytes()))
+            .collect();
+        let markup = matched.join("\n");
+        self.state
+            .blocks
+            .classify(&response, party, &markup)
+            .is_some()
     }
 
     /// Answers the request `id` to `url` with `head` and `body`: whether
@@ -350,6 +411,17 @@ fn conditional(mut sent: Vec<Header>, conditions: &[(String, String)]) -> Vec<He
         value: value.clone(),
     }));
     sent
+}
+
+/// Whether `haystack` contains `needle`, matching ASCII letters
+/// case-insensitively without allocating a lowercased copy of `haystack`.
+fn contains_ascii_case_insensitive(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    haystack
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
 #[cfg(test)]

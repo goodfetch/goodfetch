@@ -4,7 +4,8 @@
 //! Browser data folder of the Run's own, its background traffic off by the table
 //! `pinned_download` owns (ADR 0043); headless only when `browser.headless`
 //! says so, the site seeing one identity either way (the driver's user agent, ADR
-//! 0092); every page keeps its timers behind another tab or window (ADR
+//! 0092), and `navigator.webdriver` false in every frame (story 8-1);
+//! every page keeps its timers behind another tab or window (ADR
 //! 0085's question); the back/forward cache is off, so going back or
 //! forward always loads its document again (ADR 0121, with no setting); a
 //! page whose load failed stays on its error page, never loaded again by
@@ -65,6 +66,11 @@ const SHELL_WEBRTC_POLICY: &str = "--force-webrtc-ip-handling-policy=disable_non
 /// the egress relay refuses again, would be raised by the page's next call
 /// as that call's own (fix-queue 83).
 const NO_AUTO_RELOAD: &str = "--disable-auto-reload";
+
+/// Blink's automation flag off: a browser driven over its debugging pipe
+/// otherwise answers `navigator.webdriver` true in every frame, the first
+/// thing a bot check reads (story 8-1, ADR 0035's `standard` row).
+const NO_AUTOMATION_FLAG: &str = "--disable-blink-features=AutomationControlled";
 
 /// Chromium's sandbox switched off, which only a launch whose
 /// `security.browser_sandbox` is off passes (ADRs 0017 and 0049): it also
@@ -156,6 +162,7 @@ pub(crate) fn arguments(launch: &Launch<'_>) -> Arguments {
             "--use-mock-keychain",
             "--disable-back-forward-cache",
             NO_AUTO_RELOAD,
+            NO_AUTOMATION_FLAG,
         ]
         .into_iter()
         .chain(BACKGROUND_PAGES)

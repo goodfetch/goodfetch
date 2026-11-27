@@ -1,0 +1,23 @@
+set = "human-input"
+
+# Human-like input's third-party sources (ADRs 0018 and 0035; spec #599, #1018).
+# Cursory's recorded mouse movements are LGPL-3.0-or-later data downloaded at
+# runtime into the Browser cache, never embedded or compiled into any
+# executable, and kept replaceable (`download-only`). Goodfetch's reshaping step
+# is written from Cursory's published outline, not from its code.
+# ghost-cursor (MIT) is ported to Rust in `ghost_cursor.rs` as the offline
+# fallback when the recordings are absent (`modified`).
+
+[[input]]
+name = "Cursory's mouse movements"
+version = "51a40db323fec9c294af099112e2df08d8cf5086"
+license = "LGPL-3.0-or-later"
+source = "https://github.com/Vinyzu/cursory/blob/51a40db323fec9c294af099112e2df08d8cf5086/cursory/trajectories.json.gz"
+use = "download-only"
+
+[[input]]
+name = "ghost-cursor"
+version = "5525a783fcf833a60f1b0746a8f80653ccfee2ba"
+license = "MIT"
+source = "https://github.com/Xetera/ghost-cursor/tree/5525a783fcf833a60f1b0746a8f80653ccfee2ba/src"
+use = "modified"

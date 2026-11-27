@@ -19500,6 +19500,11 @@
           "type": "string"
         },
         {
+          "const": "group_member",
+          "description": "A Group member's own scope for machine-specific settings (ADRs 0028\nand 0055): local addresses, TLS files and browser paths, applied only\non the named Group member.",
+          "type": "string"
+        },
+        {
           "const": "project_configuration",
           "description": "Project configuration.",
           "type": "string"
@@ -28347,6 +28352,27 @@
       ],
       "value": {
         "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": true,
+      "default": null,
+      "deprecated": null,
+      "description": "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope.",
+      "fixed_for_run": false,
+      "name": "browser.executable_path",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "string"
       },
       "weakening": null,
       "weakens": false

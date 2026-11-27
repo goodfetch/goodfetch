@@ -1734,6 +1734,7 @@ const SPELLING: Spelling = {
     accessMode: "access_mode",
     blockResources: "block_resources",
     cdpCommandLog: "cdp_command_log",
+    executablePath: "executable_path",
     headless: "headless",
     headlessShell: "headless_shell",
     mirror: "mirror",

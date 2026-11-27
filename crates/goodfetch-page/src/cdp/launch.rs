@@ -41,7 +41,8 @@ use goodfetch_engine::sandbox_probe::{self, Probed};
 use goodfetch_engine::settings::{Resolved, RunSettings, get_or_default};
 use goodfetch_engine::transport;
 use goodfetch_protocol::browser_cache::{
-    BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser, READ_ONLY,
+    BROWSER_EXECUTABLE_PATH, BROWSER_NOT_INSTALLED, BrowserNotInstalledDetails, MissingBrowser,
+    READ_ONLY,
 };
 use goodfetch_protocol::page::{
     BROWSER_HEADLESS, BROWSER_HEADLESS_SHELL, BROWSER_LAUNCH_FAILED, BrowserExit,
@@ -206,7 +207,13 @@ async fn executable(
     (home, pins): (&Home, &Pins),
     shell: Option<SettingsLayer>,
 ) -> Result<(PathBuf, Option<HeldArtifact>, &'static str), CallError> {
-    let choice = BrowserChoice::Default;
+    let choice = get_or_default::<Option<&str>>(
+        on.settings().map(RunSettings::resolved),
+        &BROWSER_EXECUTABLE_PATH,
+    )
+    .map_or(BrowserChoice::Default, |path| {
+        BrowserChoice::Path(PathBuf::from(path))
+    });
     match browser_source(Platform::current(), &choice, &BTreeMap::new()) {
         BrowserSource::Pinned {
             name,

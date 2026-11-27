@@ -27,7 +27,7 @@ mod scopes;
 mod tests;
 mod values;
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Product;
@@ -42,7 +42,7 @@ pub(crate) use files::json_of_table;
 pub use files::{
     LOWEST_MINOR_KEY, MachineLayers, SettingsFiles, configuration, find_project,
     fuzz_settings_file, operator_policy, policy_version, project_settings, rewrite, set,
-    user_configuration,
+    user_configuration, user_configuration_with_members,
 };
 pub use hosts::HostEntry;
 pub(crate) use keys::fixed_keys;
@@ -76,6 +76,7 @@ struct Inner {
     owner: TaskOwner,
     work: CountedWork,
     host: Host,
+    group_member: crate::sync::Mutex<Option<String>>,
     snapshot: Snapshot,
 }
 
@@ -251,6 +252,7 @@ impl Settings {
                 search,
                 found: tokio::sync::OnceCell::new(),
             },
+            group_member: crate::sync::Mutex::new(None),
             snapshot: Snapshot {
                 first: tokio::sync::OnceCell::new(),
                 kept: tokio::sync::watch::Sender::new(Kept::default()),
@@ -266,6 +268,26 @@ impl Settings {
     /// The Product whose keys it applies.
     pub fn product(&self) -> Product {
         self.0.product
+    }
+
+    /// Sets this engine's Group member name so `[group_member.<name>]`
+    /// machine-specific settings apply on this member alone (ADRs 0028 and
+    /// 0055).
+    pub fn set_group_member(&self, member: Option<String>) {
+        *self
+            .0
+            .group_member
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = member;
+    }
+
+    /// This engine's Group member name, if it belongs to a Daemon group.
+    pub fn group_member(&self) -> Option<String> {
+        self.0
+            .group_member
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Reads the machine's layers now, and keeps them as the engine's
@@ -359,10 +381,12 @@ impl Settings {
             kept.begun += 1;
             ticket = kept.begun;
         });
-        let machine = Arc::new(MachineSettings::of(
-            self.0.files.load(self.0.product),
-            self.0.product,
-        ));
+        let member = self.group_member();
+        let loaded = match member.as_deref() {
+            Some(member) => self.0.files.load_for(self.0.product, Some(member)),
+            None => self.0.files.load(self.0.product),
+        };
+        let machine = Arc::new(MachineSettings::of(loaded, self.0.product));
         kept.send_if_modified(|kept| {
             let later = ticket > kept.read;
             if later {
@@ -481,10 +505,12 @@ impl Settings {
         if opening.exposed {
             project = project.with_run_authority();
         }
+        let group_member = machine.group_member_values();
         let layers = Layers {
             host: machine.defaults_under(host),
             operator_policy: machine.operator_policy.clone(),
             user_configuration: machine.user_configuration.clone(),
+            group_member,
             project_configuration: project,
             recipe,
             registered,

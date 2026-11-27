@@ -185,6 +185,7 @@ pub(super) fn start(
         ));
     }
     engine.hold_peer_link(group, peering);
+    engine.settings().set_group_member(Some(kept.name.clone()));
     Ok(())
 }
 
@@ -198,6 +199,8 @@ pub(super) fn running(engine: &EngineContext) -> Option<Arc<Peering>> {
 /// left its group: once this answers, the listener's address is free.
 pub(super) async fn stop(engine: &EngineContext) {
     engine.stop_peer_link().await;
+    engine.settings().set_group_member(None);
+    engine.settings().refresh().await;
 }
 
 /// Serves the peer link again when the Daemon starts in a group: listens
@@ -237,6 +240,8 @@ pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
         &engine, identity, store, listener, &kept, lead_epoch, members,
     ) {
         tracing::warn!(%error, "the peer listener cannot present the kept identity");
+    } else {
+        engine.settings().refresh().await;
     }
 }
 

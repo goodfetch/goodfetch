@@ -186,6 +186,11 @@
             "type": "string"
           },
           {
+            "const": "group_member",
+            "description": "A Group member's own scope for machine-specific settings (ADRs 0028\nand 0055): local addresses, TLS files and browser paths, applied only\non the named Group member.",
+            "type": "string"
+          },
+          {
             "const": "project_configuration",
             "description": "Project configuration.",
             "type": "string"

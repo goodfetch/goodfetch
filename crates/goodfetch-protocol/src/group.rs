@@ -48,6 +48,19 @@ const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 /// The peer protocol's version, `major.minor` (ADRs 0055 and 0066).
 pub const PEER_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
+/// Whether `name` is a valid Group member name: one RFC 1123 DNS label of
+/// 1 to 63 lowercase ASCII letters, digits or hyphens, starting and ending
+/// with a letter or digit.
+#[must_use]
+pub fn is_group_member_name(name: &str) -> bool {
+    let allowed = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
+    let bytes = name.as_bytes();
+    (1..=63).contains(&bytes.len())
+        && bytes.first().copied().is_some_and(allowed)
+        && bytes.last().copied().is_some_and(allowed)
+        && bytes.iter().all(|&byte| allowed(byte) || byte == b'-')
+}
+
 /// The method of the peer protocol's first message.
 pub const HELLO: &str = "hello";
 

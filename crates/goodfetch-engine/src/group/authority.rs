@@ -78,13 +78,7 @@ impl GroupMemberName {
     ///
     /// [`GroupMemberNameInvalid`] otherwise.
     pub fn new(name: &str) -> Result<Self, GroupMemberNameInvalid> {
-        let allowed = |byte: u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-        let bytes = name.as_bytes();
-        let label = (1..=63).contains(&bytes.len())
-            && bytes.first().copied().is_some_and(allowed)
-            && bytes.last().copied().is_some_and(allowed)
-            && bytes.iter().all(|&byte| allowed(byte) || byte == b'-');
-        if label {
+        if goodfetch_protocol::group::is_group_member_name(name) {
             Ok(Self(name.to_owned()))
         } else {
             Err(GroupMemberNameInvalid(name.to_owned()))

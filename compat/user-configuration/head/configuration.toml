@@ -110,6 +110,7 @@ read_only = true
 
 [settings.browser]
 mirror = "https://mirror.example/chrome-for-testing-public"
+executable_path = "example"
 headless = true
 headless_shell = true
 cdp_command_log = true

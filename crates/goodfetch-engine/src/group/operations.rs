@@ -76,6 +76,7 @@ async fn init(params: GroupInitParams, context: CallContext) -> Result<GroupForm
         vec![lead.name.clone()],
     )
     .map_err(|error| internal(&error))?;
+    context.engine().settings().refresh().await;
     Ok(GroupFormed {
         lead_epoch,
         peer_address,
@@ -174,6 +175,7 @@ async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoin
         Vec::new(),
     )
     .map_err(|error| internal(&error))?;
+    context.engine().settings().refresh().await;
     Ok(GroupJoined {
         lead_epoch: admitted.lead_epoch,
         peer_address,

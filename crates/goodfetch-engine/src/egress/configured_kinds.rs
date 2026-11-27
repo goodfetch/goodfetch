@@ -49,10 +49,11 @@ pub enum ConfiguredKind {
 }
 
 /// The layers whose value makes a destination Operator-configured: the
-/// Operator policy and user and project configuration.
+/// Operator policy and user, group-member and project configuration.
 const CONFIGURATION: &[SettingsLayer] = &[
     SettingsLayer::OperatorPolicy,
     SettingsLayer::UserConfiguration,
+    SettingsLayer::GroupMember,
     SettingsLayer::ProjectConfiguration,
 ];
 

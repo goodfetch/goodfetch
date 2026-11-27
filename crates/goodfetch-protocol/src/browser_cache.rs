@@ -426,6 +426,25 @@ pub const BROWSER_MIRROR: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn no_executable_path() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
+/// `browser.executable_path` (ADRs 0024, 0028 and 0055; #1617).
+pub const BROWSER_EXECUTABLE_PATH: Setting = Setting {
+    name: "browser.executable_path",
+    description: "The path of an installed Chromium-family browser executable on this machine, launched in place of the Browser cache's pinned Chrome for Testing build: `null` by default. Set in user configuration, an Operator policy, or a Group member's scope.",
+    kind: ValueKind::Text,
+    default: no_executable_path,
+    clearable: true,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// What `browser install --json` prints (spec #608).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct BrowserInstalled {
@@ -515,7 +534,12 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[MAX_UNUSED_AGE, READ_ONLY, BROWSER_MIRROR],
+    settings: &[
+        MAX_UNUSED_AGE,
+        READ_ONLY,
+        BROWSER_MIRROR,
+        BROWSER_EXECUTABLE_PATH,
+    ],
     hook_stages: &[],
     shared_type_values: &[],
 };

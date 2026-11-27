@@ -4804,6 +4804,12 @@ class SettingsLayer(StrEnum):
     """An Operator policy."""
     user_configuration = "user_configuration"
     """User configuration."""
+    group_member = "group_member"
+    """
+    A Group member's own scope for machine-specific settings (ADRs 0028
+    and 0055): local addresses, TLS files and browser paths, applied only
+    on the named Group member.
+    """
     project_configuration = "project_configuration"
     """Project configuration."""
     recipe = "recipe"

@@ -41,6 +41,7 @@ fn policy(settings: Value, lock: Value, cap: Value) -> Policy {
         settings: values(SettingsLayer::OperatorPolicy, settings),
         lock: values(SettingsLayer::OperatorPolicy, lock),
         cap: values(SettingsLayer::OperatorPolicy, cap),
+        group_members: std::collections::BTreeMap::new(),
         version: Some("sha256:0123456789abcdef".to_owned()),
         managed: None,
     }
@@ -75,6 +76,9 @@ fn only(layer: SettingsLayer, key: &str, value: &Value) -> Layers {
         }
         SettingsLayer::UserConfiguration => {
             layers.user_configuration = values(layer, set);
+        }
+        SettingsLayer::GroupMember => {
+            layers.group_member = values(layer, set);
         }
         SettingsLayer::ProjectConfiguration => {
             layers.project_configuration = values(layer, set);
@@ -111,6 +115,7 @@ fn every_layer_sets_navigation() -> Layers {
             SettingsLayer::UserConfiguration,
             json!({ "timeout": { "navigation": 2_000 } }),
         ),
+        group_member: Values::default(),
         project_configuration: values(
             SettingsLayer::ProjectConfiguration,
             json!({ "timeout.navigation": 3_000 }),
@@ -1966,6 +1971,7 @@ proptest! {
                 policy(table(policy_value), json!({}), json!({}))
             },
             user_configuration: values(SettingsLayer::UserConfiguration, table(user)),
+            group_member: Values::default(),
             project_configuration: values(SettingsLayer::ProjectConfiguration, table(project)),
             recipe: None,
             registered: Values::default(),
@@ -1986,6 +1992,7 @@ proptest! {
     }
 }
 
+mod group_member;
 mod operator_policy;
 mod placeholders;
 mod presets;

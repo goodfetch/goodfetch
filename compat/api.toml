@@ -399,3 +399,23 @@ reason = "The group Run index names a run's owning Group member (ADR 0055, issue
 [[announced]]
 entry = "typescript @goodfetch/collie-client/generated/types RunOwner"
 reason = "The group Run index names a run's owning Group member (ADR 0055, issue 242): `RunOwner` gains the `{ groupMember: string }` variant beside `daemon` and `attached`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound SettingsLayer"
+reason = "Daemon groups add the group-member settings scope for machine-specific settings (ADRs 0028 and 0055, issue 1617): `SettingsLayer` gains `group_member`."

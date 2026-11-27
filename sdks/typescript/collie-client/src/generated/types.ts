@@ -208,7 +208,7 @@ export type Asked = true;
  * via the `definition` "SettingsLayer".
  */
 export type SettingsLayer =
-  "default" | "operator_policy" | "user_configuration" | "project_configuration" | "recipe" | "run";
+  "default" | "operator_policy" | "user_configuration" | "group_member" | "project_configuration" | "recipe" | "run";
 /**
  * A Run ID (ADR 0036): lowercase letters, digits, `.`, `_` and `-`, starting and ending with a letter or a digit, never a name Windows reserves for a device.
  *

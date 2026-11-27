@@ -21,6 +21,36 @@ use super::{Checks, Site, finish_run, poll, start_run};
 use crate::protocol::connection::{Connection, Gone};
 use crate::proving_ground::ReceivedRequests;
 
+/// A stealth case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Case {
+    EveryContextShowsTheSessionsIdentity,
+}
+
+impl Case {
+    /// The case a suite's case ID names.
+    pub(crate) fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "every-frame-and-worker-of-a-page-shows-its-sessions-identity" => {
+                Self::EveryContextShowsTheSessionsIdentity
+            }
+            _ => return None,
+        })
+    }
+
+    /// Runs the case on the open Connection against `site`.
+    pub(crate) fn run(
+        self,
+        connection: &mut Connection,
+        site: &Site,
+        checks: &mut Checks,
+    ) -> Result<(), Gone> {
+        match self {
+            Self::EveryContextShowsTheSessionsIdentity => every_context(connection, site, checks),
+        }
+    }
+}
+
 /// The host of the probe page and its workers.
 pub(super) const HOST: &str = "consistency.test";
 
@@ -110,7 +140,7 @@ impl Probed {
 /// out-of-process frame and its dedicated worker read the user agent every
 /// request of the Session sends, while each of its five contexts reads the
 /// page's time zone and core count (ADR 0035's rows; ticket #913).
-pub(super) fn every_context(
+fn every_context(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,

@@ -134,9 +134,10 @@ pub(crate) enum Case {
     Structured(formats::structured::Case),
     /// A `content.extractor` case (#788).
     Extractor(formats::extractor::Case),
-    HeadlessIdentity,
-    EveryContextShowsTheSessionsIdentity,
-    BackgroundTimer,
+    /// A launch case (#696).
+    Launch(launch::Case),
+    /// A stealth case (spec #599).
+    Stealth(stealth::Case),
     ClickWaitsOutACover,
     TransientDuplicateIsWaitedOut,
     LocatorSurvivesARerender,
@@ -609,11 +610,6 @@ impl Case {
             "markdown-and-html-default-to-the-main-content-and-an-unknown-option-is-invalid-params" => {
                 Self::FormatsDefaultsAndUnknownOptions
             }
-            "a-headless-page-shows-the-site-its-windows-identity" => Self::HeadlessIdentity,
-            "every-frame-and-worker-of-a-page-shows-its-sessions-identity" => {
-                Self::EveryContextShowsTheSessionsIdentity
-            }
-            "a-page-behind-another-keeps-its-timer-and-its-focus" => Self::BackgroundTimer,
             "a-click-on-a-covered-target-lands-once-the-cover-leaves" => Self::ClickWaitsOutACover,
             "an-ambiguous-target-that-becomes-unique-is-acted-on" => {
                 Self::TransientDuplicateIsWaitedOut
@@ -653,7 +649,9 @@ impl Case {
                     .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
                     .or_else(|| formats::references::Case::from_id(id).map(Self::References))
                     .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
-                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor));
+                    .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor))
+                    .or_else(|| launch::Case::from_id(id).map(Self::Launch))
+                    .or_else(|| stealth::Case::from_id(id).map(Self::Stealth));
             }
         })
     }
@@ -751,11 +749,8 @@ impl Case {
             }
             Self::References(case) => case.run(connection, site, checks),
             Self::Structured(case) => case.run(connection, site, checks),
-            Self::HeadlessIdentity => launch::headless_identity(connection, site, checks),
-            Self::EveryContextShowsTheSessionsIdentity => {
-                stealth::every_context(connection, site, checks)
-            }
-            Self::BackgroundTimer => launch::background_timer(connection, site, checks),
+            Self::Launch(case) => case.run(connection, site, checks),
+            Self::Stealth(case) => case.run(connection, site, checks),
             Self::ClickWaitsOutACover => guard::lands(
                 connection,
                 site,

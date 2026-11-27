@@ -56,6 +56,15 @@ A value this package does not know, which a newer engine may send, is kept as re
 - `connection`: Its Connection.
 """
 
+ListEnded: TypeAlias = Literal["end_of_list", "max_rows"] | str
+"""How a scroll collection ended, open (ADR 0079).
+
+A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+
+- `end_of_list`: `idle_steps` steps in a row brought no new key.
+- `max_rows`: It kept `max_rows` rows.
+"""
+
 ModelUnavailableReason: TypeAlias = Literal["unreachable", "server_error", "rate_limited"] | str
 """Why a Model provider could not answer (ADR 0101), open (ADR 0079).
 

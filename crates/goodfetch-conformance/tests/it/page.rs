@@ -1,5 +1,5 @@
 //! The page suite (spec #577, tickets #695, #696, #697, #698, #699, #702, #703, #704, #706, #707, #708, #713, #715, #717, #719, #705, #710 and #716; spec #580,
-//! tickets #783, #789 and #2402) against an Attached engine of Collie's executable, given by path, on
+//! tickets #783, #789, #2402 and #796) against an Attached engine of Collie's executable, given by path, on
 //! the local Proving ground (ADR 0094): its browser from a Browser cache in
 //! the test's own folder, which its environment names (ADR 0059).
 //!
@@ -78,13 +78,17 @@ const PAGE_REQUEST: Part = (
 );
 const DIALOGS: Part = ("dialogs", &["dialogs"]);
 const POPUPS: Part = ("popups", &["popups"]);
-const PAGE_FUNCTIONS: Part = ("page-functions", &["page_functions"]);
+const PAGE_FUNCTIONS: Part = (
+    "page-functions",
+    &["page_functions", "page_functions.scroll_collect"],
+);
 const READ: Part = ("read", &["read"]);
 const WAITS: Part = ("waits", &["waits"]);
 const ROBOTS_TXT: Part = ("robots-txt", &["robots_txt"]);
+const RESPONSE_CACHE: Part = ("response-cache", &["response_cache"]);
 
 /// Every part.
-const PARTS: [Part; 21] = [
+const PARTS: [Part; 22] = [
     SESSIONS,
     PROXY_LIMITS,
     NAVIGATION,
@@ -106,6 +110,7 @@ const PARTS: [Part; 21] = [
     READ,
     WAITS,
     ROBOTS_TXT,
+    RESPONSE_CACHE,
 ];
 
 #[test]
@@ -333,7 +338,7 @@ fn the_page_suite_proves_popups_against_collies_attached_engine() {
     prove(POPUPS);
 }
 
-/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed, operation:locator.evaluate_all
+/// Covers: operation:page.reload, story:5-34, story:5-35, operation:page.evaluate, operation:page.add_init_script, error:page_value_invalid, error:page_function_failed, operation:locator.evaluate_all, story:6-23, story:6-24, story:6-25, story:6-26, story:6-27, operation:locator.scroll_collect, error:deadline_exceeded, setting:timeout.action
 #[test]
 fn the_page_suite_proves_page_functions_against_collies_attached_engine() {
     prove(PAGE_FUNCTIONS);
@@ -355,4 +360,10 @@ fn the_page_suite_proves_waits_against_collies_attached_engine() {
 #[test]
 fn the_page_suite_proves_robots_txt_against_collies_attached_engine() {
     prove(ROBOTS_TXT);
+}
+
+/// Covers: story:6-41, story:6-51, setting:cache.mode, setting:browser.service_workers, operation:page.goto, operation:page.evaluate, operation:run.new_session, operation:session.new_page
+#[test]
+fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
+    prove(RESPONSE_CACHE);
 }

@@ -1,9 +1,11 @@
 //! One page's pipeline: each request its target pauses goes through the
 //! steps the interception lists, in order, answered by the page's reader,
 //! or as a task of the page's Run when its verdict waits.
-//! Steps 3 to 8 for what the last route sends on are [`steps`]'s; step 6,
-//! the page's navigation gate, waits, so it is asked here. A document's
-//! response pauses too, for the gate to judge.
+//! Steps 3 to 8 for what the last route sends on are [`steps`]'s, but for
+//! two asked here once [`steps`] built the command that sends it on: step
+//! 5, the Response cache ([`cached`]), which judges the request as it
+//! leaves, and step 6, the page's navigation gate, which waits. A
+//! document's response pauses too, for the gate to judge.
 //!
 //! Size: one paused request's way through the steps, each of which reads
 //! and answers the same held request on the same page; the steps' pure
@@ -70,6 +72,8 @@ use crate::page_value::{
 use crate::paused_body;
 use crate::proxy::{self, PROXY_STATUS, ProxyPermit};
 
+mod cached;
+
 /// Whose requests a pipeline holds.
 pub(crate) enum Sender {
     /// A page's, which the Page ID of the request it serves names, as its
@@ -131,6 +135,10 @@ pub(super) struct PageContext {
     /// paused, by the interception's ID, each with its network ID: a
     /// request that fails first, or a target that goes, drops its waiter.
     responses: Mutex<BTreeMap<PausedId, Fetching>>,
+    /// The requests sent on with their response paused for the Response
+    /// cache, by the interception's ID: a request that fails first, or a
+    /// target that goes, drops it.
+    storing: Mutex<BTreeMap<PausedId, cached::Storing>>,
     /// A service worker's requests that carry a page's navigation, sent on
     /// with their response paused for the gate to judge, by the
     /// interception's ID: the page each carries a navigation of.
@@ -220,6 +228,7 @@ impl PageContext {
             blocking,
             refusals,
             responses: Mutex::new(BTreeMap::new()),
+            storing: Mutex::new(BTreeMap::new()),
             carried: Mutex::new(BTreeMap::new()),
             document: Mutex::new(Arc::from("")),
             authenticated: Mutex::new(Authenticated::default()),
@@ -305,6 +314,7 @@ pub(super) async fn dispatch(mut events: InterceptionEvents, context: Arc<PageCo
     // The target went: no `fetch` it sent on gets a response now, and what
     // the reader answers itself ends as the browser fails its answers.
     lock(&context.responses).clear();
+    lock(&context.storing).clear();
     while answering.answers.next().await.is_some() {}
 }
 
@@ -937,7 +947,12 @@ impl PageContext {
         // The page whose navigation a service worker's request carries.
         let mut gated: Option<Arc<PageState>> = None;
         let command = match stepped {
-            Ok(steps::Sent::Continue(command)) => {
+            Ok(steps::Sent::Continue(mut command)) => {
+                // Step 5: the Response cache, before the gate and the
+                // proxy, since a response it serves sends no request.
+                if !fetch && self.served_from_cache(held, &mut command).await {
+                    return Ok(());
+                }
                 // Step 6: the page's navigation gate; its lease check is
                 // asked before the command that sends the request on.
                 let admitted = if held.navigation {
@@ -948,7 +963,6 @@ impl PageContext {
                 } else {
                     self.admit_for_worker(held).await
                 };
-                let mut command = command;
                 match admitted {
                     Err((refusal, carried)) => {
                         return Err(self.gate_refused(held, &refusal, carried.as_deref()).await);
@@ -993,13 +1007,11 @@ impl PageContext {
                 return Err(refused.error());
             }
         };
-        if held.navigation {
-            *lock(&self.document) = Arc::from(held.url());
-        }
         self.sent_on(held, command, fetch, gated.as_deref()).await
     }
 
-    /// Sends `held` on with `command`, then tells the gate that admitted it
+    /// Sends `held` on with `command`, a main-frame navigation's URL
+    /// becoming the page's document, then tells the gate that admitted it
     /// that the browser took the command, so a delay counts from its send
     /// (ADR 0086): the page's own for a hop of its main frame's
     /// navigation, the page's whose navigation it carries, `carried`, for a
@@ -1015,6 +1027,9 @@ impl PageContext {
         fetch: bool,
         carried: Option<&PageState>,
     ) -> Result<(), CallError> {
+        if held.navigation {
+            *lock(&self.document) = Arc::from(held.url());
+        }
         if let Err(failure) = self.cdp.continue_request(command).await {
             tracing::debug!(?failure, "a paused request went before it was sent on");
             // A `fetch` whose request was never sent on gets no response.
@@ -1178,6 +1193,7 @@ impl PageContext {
         lock(&self.responses).retain(|_, fetching| {
             fetching.network_id.as_ref().map(NetworkId::as_str) != network_id
         });
+        lock(&self.storing).retain(|_, storing| !storing.sent_as(failed.network_id()));
         let mut permit = lock(&self.permit);
         if permit
             .as_ref()
@@ -1413,12 +1429,13 @@ impl PageContext {
     /// navigation brought back, goes on once the page's navigation gate
     /// judged it, and on its refusal the page is left on a blank document,
     /// the navigation call waiting on it raising the refusal; any other
-    /// response goes on as it came.
+    /// response goes on as it came, once the Response cache stored it.
     async fn responded(&self, paused: &PausedRequest) {
         let document = self.main_document(paused);
         let carried = lock(&self.carried)
             .remove(paused.id())
             .and_then(|page| page.upgrade());
+        let storing = lock(&self.storing).remove(paused.id());
         let status = paused.status();
         if document {
             self.proxy_answered(paused, status).await;
@@ -1453,7 +1470,7 @@ impl PageContext {
         {
             return;
         }
-        self.continue_response(paused.id()).await;
+        self.stored_or_sent_on(paused, storing).await;
     }
 
     /// Reads the main frame's document whose response is paused at

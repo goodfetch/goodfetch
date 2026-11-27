@@ -8,9 +8,10 @@
 //! `page.download` and answers no response, the page keeping its document;
 //! and each document's response names the encoding it was decoded with.
 //!
-//! The fetch edge and content-coding pages are reached over plain
-//! HTTP/1.1, since the browser does not trust the Proving ground's
-//! authority until the engine's TLS relay does (ADR 0042).
+//! The HTTP/1.1 fetch edge and content-coding pages are reached over plain
+//! HTTP/1.1; the HTTP/2 stream reset reaches `h2.fetch-edge.test` over TLS
+//! through the engine's relay with user configuration trusting the Proving
+//! ground's authority (`tls.trusted_cas`, ADR 0042).
 
 use goodfetch_protocol::connection::CANCEL;
 use goodfetch_protocol::events::{CREDIT, EVENTS, EVENTS_SUBSCRIBE};
@@ -19,9 +20,18 @@ use goodfetch_protocol::page::{
 };
 use serde_json::{Value, json};
 
+use super::consent::walls;
 use super::navigation::{answered, call, failed_with, open, open_page, response, url_on};
 use super::{Checks, Site, finish_run};
 use crate::protocol::connection::{Connection, Gone};
+use crate::protocol::target::EngineTarget;
+
+/// The Proving ground's HTTP/2 fetch-edge host (ADR 0118).
+pub(super) const HTTP2_HOST: &str = "h2.fetch-edge.test";
+
+/// The name, in the engine's per-major folder, of the copy of the Proving
+/// ground's authority that user configuration trusts for [`HTTP2_HOST`].
+const HTTP2_AUTHORITY_FILE: &str = "conformance-fetch-edge-h2-authority.pem";
 
 /// A case of these lines, by its ID in the page suite's case list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,6 +72,7 @@ impl Case {
     pub(super) fn run(
         self,
         connection: &mut Connection,
+        target: &EngineTarget,
         site: &Site,
         checks: &mut Checks,
     ) -> Result<(), Gone> {
@@ -70,7 +81,7 @@ impl Case {
             Self::RetryAfterOnARedirectIsNotWaited => {
                 retry_after_on_a_redirect(connection, site, checks)
             }
-            Self::CutDocumentsAreTruncated => cut_documents(connection, site, checks),
+            Self::CutDocumentsAreTruncated => cut_documents(connection, target, site, checks),
             Self::ContentCodingsDecodeAsChrome => content_codings(connection, site, checks),
             Self::FileNavigationIsADownload => file_navigation(connection, site, checks),
             Self::ResponsesNameTheirDecodedEncoding => decoded_encodings(connection, site, checks),
@@ -164,13 +175,63 @@ fn retry_after_on_a_redirect(
     finish_run(connection, run_id)
 }
 
-/// A main document cut by a length mismatch, a chunked stream ending early
-/// or a compressed stream cut before its `Content-Length` raises
-/// `response_truncated` for a `load` wait, naming the bytes received and
-/// expected; one that returned at `commit` answers the response, leaving
-/// the cut to the body's read (pitfall H15).
+/// Checks one cut document URL: fails a `load` wait with
+/// `response_truncated` (retryable, naming the URL and bytes received) and
+/// answers 200 at `commit`.
+fn check_cut(
+    connection: &mut Connection,
+    page: &Value,
+    (what, url, declared): (&str, &str, bool),
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let loaded = call(connection, PAGE_GOTO.name, page, &json!({ "url": url }))?;
+    let data = &loaded["error"]["data"];
+    checks.check(
+        format!(
+            "{what} fails a `load` wait with `{}`",
+            RESPONSE_TRUNCATED.name
+        ),
+        data["code"] == json!(RESPONSE_TRUNCATED.name),
+    );
+    checks.check(
+        format!("{what}: a retry may succeed"),
+        data["retryable"] == json!(true),
+    );
+    checks.check(
+        format!("{what}: it names the URL"),
+        data["url"] == json!(url),
+    );
+    let received = data["received"].as_u64();
+    let expected = data["expected"].as_u64();
+    if declared {
+        checks.check(
+            format!("{what}: fewer bytes arrived than its `Content-Length` declared"),
+            matches!((received, expected), (Some(received), Some(expected)) if received < expected),
+        );
+    } else {
+        checks.check(
+            format!("{what}: it names the bytes received and no length expected"),
+            received.is_some() && data["expected"].is_null(),
+        );
+    }
+    let committed = call(
+        connection,
+        PAGE_GOTO.name,
+        page,
+        &json!({ "url": url, "wait_until": "commit" }),
+    )?;
+    answered(&committed, &format!("{what} at `commit`"), url, 200, checks);
+    Ok(())
+}
+
+/// A main document cut by a length mismatch, a chunked stream ending early,
+/// a compressed stream cut before its `Content-Length`, or an HTTP/2
+/// stream reset raises `response_truncated` for a `load` wait, naming the
+/// URL and bytes received; one that returned at `commit` answers the
+/// response, leaving the cut to the body's read (pitfall H15).
 fn cut_documents(
     connection: &mut Connection,
+    target: &EngineTarget,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
@@ -197,45 +258,68 @@ fn cut_documents(
         return finish_run(connection, run_id);
     };
     for (what, url, declared) in &cuts {
-        let loaded = call(connection, PAGE_GOTO.name, &page, &json!({ "url": url }))?;
-        let data = &loaded["error"]["data"];
-        checks.check(
-            format!(
-                "{what} fails a `load` wait with `{}`",
-                RESPONSE_TRUNCATED.name
-            ),
-            data["code"] == json!(RESPONSE_TRUNCATED.name),
-        );
-        checks.check(
-            format!("{what}: a retry may succeed"),
-            data["retryable"] == json!(true),
-        );
-        checks.check(
-            format!("{what}: it names the URL"),
-            data["url"] == json!(url),
-        );
-        let received = data["received"].as_u64();
-        let expected = data["expected"].as_u64();
-        if *declared {
-            checks.check(
-                format!("{what}: fewer bytes arrived than its `Content-Length` declared"),
-                matches!((received, expected), (Some(received), Some(expected)) if received < expected),
-            );
-        } else {
-            checks.check(
-                format!("{what}: it names the bytes received and no length expected"),
-                received.is_some() && data["expected"].is_null(),
-            );
-        }
-        let committed = call(
-            connection,
-            PAGE_GOTO.name,
-            &page,
-            &json!({ "url": url, "wait_until": "commit" }),
-        )?;
-        answered(&committed, &format!("{what} at `commit`"), url, 200, checks);
+        check_cut(connection, &page, (what, url, *declared), checks)?;
     }
-    finish_run(connection, run_id)
+    finish_run(connection, run_id)?;
+    cut_http2_stream(connection, target, site, checks)
+}
+
+/// Over TLS with user configuration trusting the Proving ground's
+/// authority for `h2.fetch-edge.test`, an HTTP/2 main document whose stream
+/// is reset after its headers fails a `load` wait with `response_truncated`
+/// and answers 200 at `commit`, arrived over HTTP/2 (`h2`).
+fn cut_http2_stream(
+    connection: &mut Connection,
+    target: &EngineTarget,
+    site: &Site,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let url = site.named_secure_url(HTTP2_HOST, "/cut/reset");
+    walls::with_trusted_authority(
+        connection,
+        target,
+        site,
+        (
+            "conformance-cut-documents-h2-home",
+            HTTP2_HOST,
+            HTTP2_AUTHORITY_FILE,
+        ),
+        checks,
+        |connection, site, checks| {
+            let run_id = "conformance-cut-documents-h2";
+            let Some(page) = open_page(connection, site, run_id, checks)? else {
+                return finish_run(connection, run_id);
+            };
+            check_cut(
+                connection,
+                &page,
+                ("an HTTP/2 stream reset after its headers", &url, true),
+                checks,
+            )?;
+            finish_run(connection, run_id)?;
+            let observed = checks
+                .needs(
+                    "the Proving ground's observations list the HTTP/2 requests",
+                    site.proving_ground.received_requests(),
+                )
+                .map(|requests| {
+                    requests
+                        .of_the_case()
+                        .filter(|request| {
+                            request.host == HTTP2_HOST && request.target == "/cut/reset"
+                        })
+                        .map(|request| request.protocol.clone())
+                        .collect::<Vec<_>>()
+                });
+            checks.check(
+                "the cut document arrived over HTTP/2 (`h2`)",
+                observed.as_ref().is_some_and(|protocols| {
+                    !protocols.is_empty() && protocols.iter().all(|p| p == "h2")
+                }),
+            );
+            Ok(())
+        },
+    )
 }
 
 /// A body whose listed content coding fails to decode fails the navigation

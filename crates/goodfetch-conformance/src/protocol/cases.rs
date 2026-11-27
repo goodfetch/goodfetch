@@ -460,9 +460,10 @@ pub(crate) fn user_configuration(settings: &str) -> String {
 /// host whose robots.txt answers late, and the `bombs` family's own
 /// host, whose zstd frame asks for a window past 8 MB (ADR 0067); and the
 /// delivery cases' plain host, which an engine would otherwise look up.
-const NAMED_HOSTS: [&str; 13] = [
+const NAMED_HOSTS: [&str; 14] = [
     delivery::PLAIN_HOST,
     "fetch-edge.test",
+    fetch_edge::HTTP2_HOST,
     fetch_tiers::cached::HOST,
     "scope.test",
     "elsewhere.test",
@@ -681,7 +682,7 @@ impl Case {
             Self::NavigationPastItsDeadline => {
                 navigation::past_its_deadline(connection, site, checks)
             }
-            Self::FetchEdge(case) => case.run(connection, site, checks),
+            Self::FetchEdge(case) => case.run(connection, target, site, checks),
             Self::PageRequest(case) => case.run(connection, target, site, checks),
             Self::Dialog(case) => case.run(connection, site, checks),
             Self::Popup(case) => case.run(connection, site, checks),

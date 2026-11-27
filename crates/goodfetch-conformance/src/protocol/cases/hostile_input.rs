@@ -14,8 +14,6 @@
 //! the Brotli and zstd bombs at the ratio, and fails a zstd frame whose
 //! window is past RFC 9659's 8 MB as a decoding failure.
 
-use std::path::Path;
-
 use goodfetch_protocol::hostile_input::HEADER_VALUE_INVALID;
 use goodfetch_protocol::page::request::PAGE_REQUEST;
 use goodfetch_protocol::page::route::{
@@ -31,7 +29,7 @@ use super::consent::walls;
 use super::navigation::{call, failed_with};
 use super::robots_txt::PAST_THE_SIZE_HOST;
 use super::routes::{Act, Routes, glob, goto};
-use super::{Checks, Site, finish_run, new_page, start_run, user_configuration};
+use super::{Checks, Site, finish_run, new_page, start_run};
 use crate::protocol::connection::{Connection, Gone, code_of};
 use crate::protocol::target::EngineTarget;
 use crate::proving_ground::ObservedRequest;
@@ -431,18 +429,6 @@ fn coded_past_the_frame(
 /// ground's authority that user configuration trusts for [`BOMBS_HOST`].
 const AUTHORITY_FILE: &str = "conformance-bombs-authority.pem";
 
-/// Writes `pem` to `file`, or removes `file` when `pem` is `None`.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "the harness is synchronous and runs no async worker"
-)]
-fn place(file: &Path, pem: Option<&str>) -> std::io::Result<()> {
-    match pem {
-        Some(pem) => std::fs::write(file, pem),
-        None => std::fs::remove_file(file),
-    }
-}
-
 /// Over `https://`, where a browser offers `br` and `zstd` (it offers
 /// neither over `http://` to a host other than localhost), `page.request`
 /// to the Brotli and zstd bombs (`bombs/3`, `bombs/4`) raises
@@ -471,49 +457,20 @@ fn coded_bombs_over_tls(
         "the Brotli and zstd bombs start over `https://`",
         brotli.starts_with("https://") && zstd.starts_with("https://"),
     );
-    let first = "conformance-hostile-coded-bombs-home";
-    start_run(connection, site, first, &json!({}), checks)?;
-    finish_run(connection, first)?;
-    let major = target
-        .environment
-        .get("GOODFETCH_HOME")
-        .and_then(|home| walls::major_of(home, first));
-    let authority = checks.needs(
-        "the Proving ground serves its certificate authority",
-        site.proving_ground.certificate_authority(),
-    );
-    let (Some(major), Some(authority)) = (major, authority) else {
-        checks.check(
-            "the engine's per-major folder and the Proving ground's authority are found",
-            false,
-        );
-        return Ok(());
-    };
-    let file = major.join(AUTHORITY_FILE);
-    checks.read(
-        "the Proving ground's authority is written beside the user configuration",
-        place(&file, Some(&authority)),
-    );
-    let Some(before) = checks.needs(
-        "user configuration trusts the Proving ground's authority for `bombs.test`",
-        walls::configure(
-            &major,
-            Some(&user_configuration(&format!(
-                "[settings.tls.trusted_cas]\n\"{BOMBS_HOST}\" = [{}]\n",
-                json!(file.display().to_string())
-            ))),
+    walls::with_trusted_authority(
+        connection,
+        target,
+        site,
+        (
+            "conformance-hostile-coded-bombs-home",
+            BOMBS_HOST,
+            AUTHORITY_FILE,
         ),
-    ) else {
-        checks.needs("the authority's copy is removed", place(&file, None));
-        return Ok(());
-    };
-    let outcome = coded_bombs_on(connection, site, [&brotli, &zstd], &past_the_window, checks);
-    checks.needs(
-        "user configuration is put back",
-        walls::configure(&major, before.as_deref()),
-    );
-    checks.needs("the authority's copy is removed", place(&file, None));
-    outcome
+        checks,
+        |connection, site, checks| {
+            coded_bombs_on(connection, site, [&brotli, &zstd], &past_the_window, checks)
+        },
+    )
 }
 
 /// [`coded_bombs_over_tls`]'s Run, once user configuration trusts the

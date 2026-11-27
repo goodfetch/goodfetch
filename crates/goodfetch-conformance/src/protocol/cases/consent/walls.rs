@@ -276,6 +276,76 @@ pub(crate) fn configure(
     Ok(before)
 }
 
+/// Writes `pem` to `file`, or removes `file` when `pem` is `None`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the harness is synchronous and runs no async worker"
+)]
+fn place(file: &std::path::Path, pem: Option<&str>) -> std::io::Result<()> {
+    match pem {
+        Some(pem) => std::fs::write(file, pem),
+        None => std::fs::remove_file(file),
+    }
+}
+
+/// Runs `body` while user configuration trusts the Proving ground's
+/// certificate authority for `host` (`tls.trusted_cas`), restoring the
+/// prior user configuration and removing the authority file afterwards.
+pub(crate) fn with_trusted_authority<F>(
+    connection: &mut Connection,
+    target: &crate::protocol::target::EngineTarget,
+    site: &Site,
+    (probe_run, host, authority_file): (&str, &str, &str),
+    checks: &mut Checks,
+    body: F,
+) -> Result<(), Gone>
+where
+    F: FnOnce(&mut Connection, &Site, &mut Checks) -> Result<(), Gone>,
+{
+    start_run(connection, site, probe_run, &json!({}), checks)?;
+    finish(connection, probe_run)?;
+    let major = target
+        .environment
+        .get("GOODFETCH_HOME")
+        .and_then(|home| major_of(home, probe_run));
+    let authority = checks.needs(
+        "the Proving ground serves its certificate authority",
+        site.proving_ground.certificate_authority(),
+    );
+    let (Some(major), Some(authority)) = (major, authority) else {
+        checks.check(
+            "the engine's per-major folder and the Proving ground's authority are found",
+            false,
+        );
+        return Ok(());
+    };
+    let file = major.join(authority_file);
+    checks.read(
+        "the Proving ground's authority is written beside the user configuration",
+        place(&file, Some(&authority)),
+    );
+    let Some(before) = checks.needs(
+        &format!("user configuration trusts the Proving ground's authority for `{host}`"),
+        configure(
+            &major,
+            Some(&user_configuration(&format!(
+                "[settings.tls.trusted_cas]\n\"{host}\" = [{}]\n",
+                json!(file.display().to_string())
+            ))),
+        ),
+    ) else {
+        checks.needs("the authority's copy is removed", place(&file, None));
+        return Ok(());
+    };
+    let outcome = body(connection, site, checks);
+    checks.needs(
+        "user configuration is put back",
+        configure(&major, before.as_deref()),
+    );
+    checks.needs("the authority's copy is removed", place(&file, None));
+    outcome
+}
+
 /// With `consent.domains` listing `consent.test` in user configuration, the
 /// wall is accepted through a trusted click, its page answers its next
 /// call, and Provenance records the acceptance with the domain and the

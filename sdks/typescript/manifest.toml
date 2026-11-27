@@ -3290,3 +3290,7 @@ reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."
 [[unreached]]
 entries = ["run.rejected_records"]
 reason = "Issue 1489 adds `rejectedRecords` to a Run read through `openCrawlRun`."
+
+[[unreached]]
+entries = ["crawl_request.enqueue_links_by_clicking_elements"]
+reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueueLinksByClickingElements` in area 11."

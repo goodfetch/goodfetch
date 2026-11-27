@@ -3904,6 +3904,16 @@
       ]
     },
     {
+      "id": "operation:crawl_request.enqueue_links_by_clicking_elements",
+      "kind": "operation",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:crawl_request.links",
       "kind": "operation",
       "area": 6,
@@ -25127,6 +25137,26 @@
       "kind": "story",
       "area": 6,
       "milestone": "M1 Core",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-234",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M3 Browser automation",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-235",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M3 Browser automation",
       "status": "active",
       "products": [
         "foxhound"

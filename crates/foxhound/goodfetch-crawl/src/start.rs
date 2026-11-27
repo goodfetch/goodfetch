@@ -107,7 +107,8 @@ pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
     let pages = code_free::Pages::default();
     let [read_outcomes, read_failed_requests] = outcomes::handlers();
     let [add_seed, add_seeds] = seeding::handlers(&crawls);
-    let [read_links, enqueue_links] = enqueue::links::handlers(&crawls, &tiers);
+    let [read_links, enqueue_links, enqueue_links_by_clicking] =
+        enqueue::links::handlers(&crawls, &tiers);
     // A per-page feature switched off is recorded once per Run (ADR 0138).
     let contribution = SWITCHED_OFF_FEATURES.into_iter().fold(
         Contribution::new("goodfetch-crawl"),
@@ -133,6 +134,7 @@ pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
         .with_handler(push::handler(pushing))
         .with_handler(read_links)
         .with_handler(enqueue_links)
+        .with_handler(enqueue_links_by_clicking)
         .with_handler(add_seed)
         .with_handler(add_seeds)
         .with_handler(read_outcomes)

@@ -158,6 +158,7 @@ mod datasets;
 mod declaration;
 mod decoding;
 mod discovered_api;
+mod discovery_clicks;
 mod effect_window;
 mod enqueue_links;
 mod erase;

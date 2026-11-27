@@ -75,6 +75,36 @@
         }
       ]
     },
+    "AbortedDiscoveryRequest": {
+      "description": "An unsafe network request aborted unsent during a discovery click (issue\n1087): any method other than `GET`, `HEAD` or `OPTIONS`.",
+      "oneOf": [
+        {
+          "description": "A request with an unsafe HTTP method was aborted before leaving the\nbrowser so discovery clicks never place an order or mutate a site.",
+          "properties": {
+            "kind": {
+              "const": "unsafe_request_aborted",
+              "type": "string"
+            },
+            "method": {
+              "arrived_in": "0.1",
+              "description": "The aborted request's HTTP method, such as `POST`.",
+              "type": "string"
+            },
+            "url": {
+              "arrived_in": "0.1",
+              "description": "The aborted request's URL.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method",
+            "url"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Acted": {
       "description": "What a locator action answers once its input landed on its target:\nnothing, since no operation returns a handle on an element (ADR 0085).",
       "type": "object"
@@ -2890,6 +2920,88 @@
       ],
       "type": "object"
     },
+    "CrawlRequestEnqueueLinksByClickingElementsParams": {
+      "additionalProperties": false,
+      "description": "What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on\nthe attempt's browser page whose matched elements are clicked in document\norder through the guard to discover script-only links (ADR 0093; issue 1087).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "crawl_request_id": {
+          "arrived_in": "0.1",
+          "description": "The ID of the crawl request whose attempt enqueues.",
+          "type": "string"
+        },
+        "exclude": {
+          "arrived_in": "0.1",
+          "description": "URL patterns a link must match none of, besides the crawl's scope.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "include": {
+          "arrived_in": "0.1",
+          "description": "URL patterns, globs as `crawl.scope.include`'s, of which a link must\nmatch one when there are any, besides the crawl's scope, which they\nonly narrow.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "label": {
+          "arrived_in": "0.1",
+          "description": "Their Label.",
+          "type": "string"
+        },
+        "lease_epoch": {
+          "arrived_in": "0.1",
+          "description": "The attempt's lease epoch, as `crawl_request.handle` gave it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "At most this many links are added; once they are, each later\ndiscovered URL the Frontier would judge is not added, with\n`link_limit`. None for no limit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "locator": {
+          "$ref": "#/$defs/Locator",
+          "arrived_in": "0.1",
+          "description": "The locator, on the browser page `crawl_request.handle` gave."
+        },
+        "payload": {
+          "arrived_in": "0.1",
+          "description": "The one Payload every discovered link takes."
+        },
+        "priority": {
+          "arrived_in": "0.1",
+          "default": 0,
+          "description": "Their priority among the requests of their domain, as\n`crawl_request.enqueue`'s; 0 by default.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "crawl_request_id",
+        "lease_epoch",
+        "locator",
+        "label"
+      ],
+      "type": "object"
+    },
     "CrawlRequestEnqueueLinksParams": {
       "additionalProperties": false,
       "description": "What `crawl_request.enqueue_links` takes: every link a locator matches,\nto add from one attempt under one Label (ADR 0093).",
@@ -5156,6 +5268,34 @@
       "description": "What `page.on_dialog` answers when its page closes.",
       "type": "object"
     },
+    "DiscoveryClickRefusal": {
+      "description": "A matched element whose discovery click the guard refused (issue 1087).",
+      "properties": {
+        "code": {
+          "arrived_in": "0.1",
+          "description": "The guard's Error code (for example `deadline_exceeded`).",
+          "type": "string"
+        },
+        "index": {
+          "arrived_in": "0.1",
+          "description": "Zero-based index of the matched element in document order.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "message": {
+          "arrived_in": "0.1",
+          "description": "Why the guard refused the click.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
     "DownloadId": {
       "description": "A Download of a Run, named by the engine when it keeps its file:\n`<run_id>.download-<position>`.",
       "type": "string"
@@ -6071,6 +6211,39 @@
           "description": "Each element's answer.",
           "items": {
             "$ref": "#/$defs/EnqueuedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "links"
+      ],
+      "type": "object"
+    },
+    "EnqueuedLinksByClickingElements": {
+      "description": "What `crawl_request.enqueue_links_by_clicking_elements` answers: what\nbecame of each discovered link, each unsafe request aborted unsent, and\nany matched element whose click the guard refused (issue 1087).",
+      "properties": {
+        "aborted": {
+          "arrived_in": "0.1",
+          "description": "Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted\nunsent during the clicks.",
+          "items": {
+            "$ref": "#/$defs/AbortedDiscoveryRequest"
+          },
+          "type": "array"
+        },
+        "links": {
+          "arrived_in": "0.1",
+          "description": "Each discovered link's admission answer, as `crawl_request.enqueue_links`\nanswers.",
+          "items": {
+            "$ref": "#/$defs/EnqueuedLink"
+          },
+          "type": "array"
+        },
+        "refused": {
+          "arrived_in": "0.1",
+          "description": "Matched elements whose click the guard refused.",
+          "items": {
+            "$ref": "#/$defs/DiscoveryClickRefusal"
           },
           "type": "array"
         }
@@ -25728,6 +25901,25 @@
       "reach": "sdk_only",
       "result": {
         "$ref": "#/$defs/EnqueuedLinks"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue_links_by_clicking_elements",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueLinksByClickingElementsParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/EnqueuedLinksByClickingElements"
       },
       "stability": "experimental"
     },

@@ -3501,6 +3501,25 @@
     {
       "arrived_in": "0.1",
       "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
+      "description": "Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "crawl_request.enqueue_links_by_clicking_elements",
+      "params": {
+        "$ref": "#/$defs/CrawlRequestEnqueueLinksByClickingElementsParams"
+      },
+      "product": "foxhound",
+      "reach": "sdk_only",
+      "result": {
+        "$ref": "#/$defs/EnqueuedLinksByClickingElements"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
       "class": "read",
       "deprecated": null,
       "description": "Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.",

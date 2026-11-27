@@ -830,6 +830,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 234
+title = "As a crawl developer, I want `enqueueLinksByClickingElements` on the browser tier to click matched elements through the guard and record script-only navigations, popups and History API URL changes without navigating away, escalating from `http` under `auto`, so that pages whose links exist only in scripts are crawled whole (CO-06, pitfall U14)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 235
+title = "As a crawl developer, I want discovery clicks to abort any request whose method is not `GET`, `HEAD` or `OPTIONS` before it leaves the browser and report it as `unsafe_request_aborted` with its method and URL, and report guard refusals, so that discovering links never mutates a site or places an order (ADRs 0010, 0014, 0106)."
+milestone = "M3 Browser automation"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 236
 title = "As a crawl developer, I want enqueues, seeds, Records and Key-value store writes an attempt staged to commit together or be discarded together, so that a failed attempt leaves no stray link (ADR 0093)."
 milestone = "M1 Core"

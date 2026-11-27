@@ -12,7 +12,7 @@ from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_experimental
 
 from goodfetch_collie_client.generated.models import RunParams, RunStarted
-from .models import CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams
+from .models import CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, EnqueuedLinksByClickingElements, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -55,6 +55,14 @@ class AsyncFoxhoundOperations:
         """
         warn_experimental("crawl_request.enqueue_links")
         return result_of(EnqueuedLinks, await self._caller.call("crawl_request.enqueue_links", params))
+
+    async def crawl_request_enqueue_links_by_clicking_elements(self, params: CrawlRequestEnqueueLinksByClickingElementsParams) -> EnqueuedLinksByClickingElements:
+        """Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("crawl_request.enqueue_links_by_clicking_elements")
+        return result_of(EnqueuedLinksByClickingElements, await self._caller.call("crawl_request.enqueue_links_by_clicking_elements", params))
 
     async def crawl_request_links(self, params: CrawlRequestLinksParams) -> CrawlRequestLinks:
         """Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.
@@ -274,6 +282,14 @@ class FoxhoundOperations:
         warn_experimental("crawl_request.enqueue_links")
         return result_of(EnqueuedLinks, self._caller.call("crawl_request.enqueue_links", params))
 
+    def crawl_request_enqueue_links_by_clicking_elements(self, params: CrawlRequestEnqueueLinksByClickingElementsParams) -> EnqueuedLinksByClickingElements:
+        """Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("crawl_request.enqueue_links_by_clicking_elements")
+        return result_of(EnqueuedLinksByClickingElements, self._caller.call("crawl_request.enqueue_links_by_clicking_elements", params))
+
     def crawl_request_links(self, params: CrawlRequestLinksParams) -> CrawlRequestLinks:
         """Reads each element a locator matches on the page a handler's attempt was given, in document order, as a handler context's `enqueueLinks` gives them to its Payload function: its `href` as written, its URL (the `href` resolved against the document's base URL, its query percent-encoded in the document's encoding, as a browser encodes it), its text and its attributes. A page no fetch tier serves fails with `closed`, a selector that is no CSS selector with `invalid_params`, and an attempt whose lease no longer holds with `attempt_ended`.
 
@@ -456,6 +472,7 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "crawl.start",
     "crawl_request.enqueue",
     "crawl_request.enqueue_links",
+    "crawl_request.enqueue_links_by_clicking_elements",
     "crawl_request.links",
     "crawl_request.push",
     "dataset.list",
@@ -489,6 +506,7 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "crawl.start": "idempotent_write",
     "crawl_request.enqueue": "idempotent_write",
     "crawl_request.enqueue_links": "idempotent_write",
+    "crawl_request.enqueue_links_by_clicking_elements": "idempotent_write",
     "crawl_request.links": "read",
     "crawl_request.push": "idempotent_write",
     "dataset.list": "read",

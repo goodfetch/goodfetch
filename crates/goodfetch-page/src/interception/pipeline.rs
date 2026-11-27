@@ -55,7 +55,7 @@ use super::hops;
 use super::lookups::Lookups;
 use super::routes::Route;
 use super::steps::{self, Blocking, Overrides, Stopped, entries};
-use super::{PageState, RunPowers, lock};
+use super::{PageState, RunPowers, is_safe_discovery_method, lock};
 use crate::cdp::driver::{PageDriver, cdp_response};
 use crate::cdp::{
     AuthChallenge, CdpPage, ContinueRequest, Fulfill, Header, InterceptionEvent,
@@ -516,6 +516,12 @@ impl PageContext {
     /// navigation gate or its proxy's Permit, on a hop of the main frame's
     /// navigation or a service worker's request that may carry one.
     fn request_waits(&self, paused: &PausedRequest) -> bool {
+        if self
+            .state
+            .discovery_handles(paused.method(), self.main_document(paused))
+        {
+            return false;
+        }
         let url = paused.url();
         if self.state.routes.matches_any(url) || self.state.session.matches_any(url) {
             return true;
@@ -562,6 +568,20 @@ impl PageContext {
     /// Runs one paused request through the pipeline.
     async fn intercept(&self, paused: PausedRequest) {
         let navigation = self.main_document(&paused);
+        if let Some(slot) = self.state.discovery_slot() {
+            let method = paused.method();
+            let url = paused.url();
+            if !is_safe_discovery_method(method) {
+                slot.capture.record_aborted(method, url, slot.is_popup);
+                let _ = self.cdp.fail(paused.id(), AbortReason::Aborted).await;
+                return;
+            }
+            if navigation {
+                slot.capture.record_url(url, slot.is_popup);
+                let _ = self.cdp.fail(paused.id(), AbortReason::Aborted).await;
+                return;
+            }
+        }
         let mut held = Held {
             paused,
             overrides: Overrides::default(),

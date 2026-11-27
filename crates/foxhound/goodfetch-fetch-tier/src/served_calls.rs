@@ -32,6 +32,7 @@
 
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS;
 use goodfetch_protocol::page::dialog::{DIALOG_ACCEPT, DIALOG_DISMISS, PAGE_ON_DIALOG};
 use goodfetch_protocol::page::events::{PAGE_ON, PAGE_WAIT_FOR_REQUEST_FINISHED, RESPONSE_BODY};
 use goodfetch_protocol::page::functions::{
@@ -55,7 +56,7 @@ use goodfetch_protocol::page::{
 };
 
 /// The row of each call the catalog's page entries hold.
-const ROWS: [(&Operation, Row); 42] = [
+const ROWS: [(&Operation, Row); 43] = [
     (&PAGE_FORMATS, Row::Read),
     (&PAGE_READ, Row::Read),
     (&LOCATOR_WAIT_FOR, Row::StateWait),
@@ -85,6 +86,10 @@ const ROWS: [(&Operation, Row); 42] = [
     (&PAGE_ON_DIALOG, Row::Gesture),
     (&DIALOG_ACCEPT, Row::Gesture),
     (&DIALOG_DISMISS, Row::Gesture),
+    (
+        &CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS,
+        Row::Gesture,
+    ),
     (&PAGE_GOTO, Row::Navigation),
     (&PAGE_RELOAD, Row::Navigation),
     (&PAGE_GO_BACK, Row::Navigation),

@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams } from "./types.ts";
+import type { CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, EnqueuedLinksByClickingElements, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkDeliver, SinkDeliverParams, SinkList, SinkListParams, SinkProbe, SinkProbeParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -12,6 +12,7 @@ export interface FoxhoundOperationTypes {
   "crawl.start": { params: CrawlStartParams; result: RunStarted };
   "crawl_request.enqueue": { params: CrawlRequestEnqueueParams; result: Enqueued };
   "crawl_request.enqueue_links": { params: CrawlRequestEnqueueLinksParams; result: EnqueuedLinks };
+  "crawl_request.enqueue_links_by_clicking_elements": { params: CrawlRequestEnqueueLinksByClickingElementsParams; result: EnqueuedLinksByClickingElements };
   "crawl_request.links": { params: CrawlRequestLinksParams; result: CrawlRequestLinks };
   "crawl_request.push": { params: CrawlRequestPushParams; result: CrawlRequestPushed };
   "dataset.list": { params: DatasetListParams; result: DatasetList };
@@ -42,6 +43,7 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "crawl.start": { experimental: true, deprecated: undefined },
   "crawl_request.enqueue": { experimental: true, deprecated: undefined },
   "crawl_request.enqueue_links": { experimental: true, deprecated: undefined },
+  "crawl_request.enqueue_links_by_clicking_elements": { experimental: true, deprecated: undefined },
   "crawl_request.links": { experimental: true, deprecated: undefined },
   "crawl_request.push": { experimental: true, deprecated: undefined },
   "dataset.list": { experimental: true, deprecated: undefined },
@@ -72,6 +74,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "crawl.start": "crawl.start",
   "crawl_request.enqueue": "crawlRequest.enqueue",
   "crawl_request.enqueue_links": "crawlRequest.enqueueLinks",
+  "crawl_request.enqueue_links_by_clicking_elements": "crawlRequest.enqueueLinksByClickingElements",
   "crawl_request.links": "crawlRequest.links",
   "crawl_request.push": "crawlRequest.push",
   "dataset.list": "dataset.list",
@@ -102,6 +105,7 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "crawl.start": "idempotent_write",
   "crawl_request.enqueue": "idempotent_write",
   "crawl_request.enqueue_links": "idempotent_write",
+  "crawl_request.enqueue_links_by_clicking_elements": "idempotent_write",
   "crawl_request.links": "read",
   "crawl_request.push": "idempotent_write",
   "dataset.list": "read",
@@ -173,6 +177,16 @@ export class FoxhoundOperations {
   crawlRequestEnqueueLinks(params: CrawlRequestEnqueueLinksParams): Promise<EnqueuedLinks> {
     warnExperimental("crawl_request.enqueue_links");
     return this.#caller.call("crawl_request.enqueue_links", params, {});
+  }
+
+  /**
+   * Finds links that exist only in scripts by clicking each element a locator matches on the attempt's browser page in document order through the guard (a handler context's `enqueueLinksByClickingElements`). Main-frame navigations and popup first requests started by each click are recorded and aborted before leaving the browser, History API URL changes (`pushState`/`replaceState`) are recorded, and any request with a method other than `GET`, `HEAD` or `OPTIONS` is aborted unsent and reported as `unsafe_request_aborted` with its method and URL. Each recorded URL is admitted as an enqueue under `label`, `payload`, `include`, `exclude`, `limit` and `priority`; a guard refusal stops that click and is reported in `refused`. On a non-browser tier it escalates under `fetch.tier: auto` and fails with `browser_required` under a forced tier. Because clicks change the page's state, call it last in a handler.
+   *
+   * @experimental
+   */
+  crawlRequestEnqueueLinksByClickingElements(params: CrawlRequestEnqueueLinksByClickingElementsParams): Promise<EnqueuedLinksByClickingElements> {
+    warnExperimental("crawl_request.enqueue_links_by_clicking_elements");
+    return this.#caller.call("crawl_request.enqueue_links_by_clicking_elements", params, {});
   }
 
   /**

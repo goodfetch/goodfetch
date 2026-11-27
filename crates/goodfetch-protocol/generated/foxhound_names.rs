@@ -29,7 +29,7 @@ pub const KIND_PARTS: &[&str] = &["run.progress"];
 pub const METRICS: &[&str] = &["goodfetch.sample.crawled_pages", "goodfetch.work_item.leased", "goodfetch.work_item.queued", "goodfetch.work_item.retried"];
 
 /// The operations only Foxhound carries.
-pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "crawl_request.enqueue_links", "crawl_request.links", "crawl_request.push", "dataset.erase", "dataset.list", "dataset.page", "dataset.query", "dataset.search", "export.save_as", "export.stream", "record.search", "run.add_seed", "run.add_seeds", "run.export", "run.failed_requests", "run.outcomes", "run.records", "run.rejected_records", "run.retry_failed", "run.seeds", "sample.crawl", "sink.deliver", "sink.list", "sink.probe"];
+pub const OPERATIONS: &[&str] = &["crawl.serve", "crawl.start", "crawl_request.enqueue", "crawl_request.enqueue_links", "crawl_request.enqueue_links_by_clicking_elements", "crawl_request.links", "crawl_request.push", "dataset.erase", "dataset.list", "dataset.page", "dataset.query", "dataset.search", "export.save_as", "export.stream", "record.search", "run.add_seed", "run.add_seeds", "run.export", "run.failed_requests", "run.outcomes", "run.records", "run.rejected_records", "run.retry_failed", "run.seeds", "sample.crawl", "sink.deliver", "sink.list", "sink.probe"];
 
 /// The plugin kinds only Foxhound carries.
 pub const PLUGIN_KINDS: &[&str] = &["sample_page_filter"];

@@ -119,8 +119,8 @@ use crate::page_navigation::{self, Destination};
 use crate::page_owner::PageOwners;
 use crate::page_reads;
 use crate::page_value::{
-    BrowserPages, EngineFetch, EngineFetched, FetchedBody, HandlerPages, HeldPlace, Opening,
-    OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
+    BrowserPages, DiscoveredByClicking, EngineFetch, EngineFetched, FetchedBody, HandlerPages,
+    HeldPlace, Opening, OwnFetch, PageValue, PooledSession, ProgramPages, ServedFormatsAhead,
 };
 use crate::placeholders::Placeholders;
 use crate::proxy;
@@ -133,6 +133,7 @@ mod arrival;
 mod blocked;
 mod blocking_off;
 mod clean_up;
+mod discovery;
 mod plugin_extractor;
 pub(crate) mod served_formats;
 mod waits;
@@ -1183,6 +1184,23 @@ impl BrowserPages for Opener {
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block> {
         self.pages.blocks.classify(response, markup)
     }
+
+    fn discover_links_by_clicking<'a>(
+        &'a self,
+        page_id: &'a PageId,
+        selector: &'a str,
+        context: &'a CallContext,
+    ) -> Opening<'a, Result<DiscoveredByClicking, CallError>> {
+        Box::pin(async move {
+            let (page, _) = self
+                .pages
+                .open(page_id, |page| {
+                    Ok(Some(page.driver.action_deadline().clone()))
+                })
+                .await?;
+            discovery::run(&self.pages.sessions, &page, page_id, selector, context).await
+        })
+    }
 }
 
 /// What a navigation charges its page's Run before it is sent (issue 3416).
@@ -1392,6 +1410,7 @@ impl Pages {
         let request = Request {
             operation,
             selector: &locator.selector,
+            handle: None,
             action,
             window: Window {
                 limit,

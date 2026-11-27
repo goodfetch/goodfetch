@@ -28,6 +28,10 @@
 //!   navigation's response keeps the site's headers. A page with none, as
 //!   every page a program opens, is read as the browser reads it.
 //!
+//! Size: one concern, the handler-page boundary contract (`PageValue`,
+//! `BrowserPages`, `HandlerPages`, `NavigationGate`, `ResponseObserver`,
+//! `DocumentReader`) kept together so Collie and Foxhound share one seam.
+//!
 //! [`HandlerPages`] is the seam that gives a page both when it opens; a
 //! Collie engine's gives every page none. The pages opened in a page's
 //! Session, the engine's own page that sends its `page.request` among
@@ -96,6 +100,22 @@ impl OwnFetch<'_> {
     pub fn is_bodiless_get(&self) -> bool {
         self.method == "GET" && self.body.is_none_or(<[u8]>::is_empty)
     }
+}
+
+/// What discovery clicks found on a browser page (issue 1087): every URL
+/// recorded from main-frame navigations, popups and History API changes, any
+/// unsafe request (`method` not `GET`/`HEAD`/`OPTIONS`) aborted unsent, and
+/// any matched element whose click the guard refused.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DiscoveredByClicking {
+    /// The document's base URL before the clicks ran.
+    pub base_url: String,
+    /// Discovered URLs in click order.
+    pub urls: Vec<String>,
+    /// Unsafe requests aborted unsent: `(method, url)`.
+    pub aborted: Vec<(String, String)>,
+    /// Matched elements refused by the guard: `(index, error_code, message)`.
+    pub refused: Vec<(u64, String, String)>,
 }
 
 /// The browser pages a Product opens for its handlers itself (ADR 0093's
@@ -275,6 +295,23 @@ pub trait BrowserPages: Send + Sync {
     /// blocks as its browser (spec #600). None for a document no rule
     /// classifies.
     fn classify(&self, response: &PageResponse, markup: &str) -> Option<Block>;
+
+    /// Clicks every element matching `selector` on the browser page `page_id`
+    /// in document order through the guard while aborting navigations, popups
+    /// and unsafe requests at interception (issue 1087).
+    fn discover_links_by_clicking<'a>(
+        &'a self,
+        _page_id: &'a PageId,
+        _selector: &'a str,
+        _context: &'a CallContext,
+    ) -> Opening<'a, Result<DiscoveredByClicking, CallError>> {
+        Box::pin(async {
+            Err(CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                "this browser pages implementation does not support discovery clicks",
+            ))
+        })
+    }
 }
 
 /// A request a Product sends from inside a Session's browser through

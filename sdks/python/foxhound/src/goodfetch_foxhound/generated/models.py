@@ -65,6 +65,30 @@ class FoxhoundTypes(BaseModel):
     )
 
 
+class AbortedDiscoveryRequest1(BaseModel):
+    """
+    A request with an unsafe HTTP method was aborted before leaving the
+    browser so discovery clicks never place an order or mutate a site.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    kind: Literal["unsafe_request_aborted"]
+    method: str
+    """The aborted request's HTTP method, such as `POST`."""
+    url: str
+    """The aborted request's URL."""
+
+
+class AbortedDiscoveryRequest(RootModel[AbortedDiscoveryRequest1]):
+    root: AbortedDiscoveryRequest1
+    """
+    An unsafe network request aborted unsent during a discovery click (issue
+    1087): any method other than `GET`, `HEAD` or `OPTIONS`.
+    """
+
+
 class AttemptError(BaseModel):
     """The error an attempt failed with."""
 
@@ -178,6 +202,50 @@ class CrawlHookHandled(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class CrawlRequestEnqueueLinksByClickingElementsParams(BaseModel):
+    """
+    What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on
+    the attempt's browser page whose matched elements are clicked in document
+    order through the guard to discover script-only links (ADR 0093; issue 1087).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    crawl_request_id: str
+    """The ID of the crawl request whose attempt enqueues."""
+    exclude: list[str] | None = None
+    """URL patterns a link must match none of, besides the crawl's scope."""
+    include: list[str] | None = None
+    """
+    URL patterns, globs as `crawl.scope.include`'s, of which a link must
+    match one when there are any, besides the crawl's scope, which they
+    only narrow.
+    """
+    label: str
+    """Their Label."""
+    lease_epoch: Annotated[int, Field(ge=0)]
+    """The attempt's lease epoch, as `crawl_request.handle` gave it."""
+    limit: Annotated[int | None, Field(ge=0)] = None
+    """
+    At most this many links are added; once they are, each later
+    discovered URL the Frontier would judge is not added, with
+    `link_limit`. None for no limit.
+    """
+    locator: Locator
+    """The locator, on the browser page `crawl_request.handle` gave."""
+    payload: Any | None = None
+    """The one Payload every discovered link takes."""
+    priority: int | None = 0
+    """
+    Their priority among the requests of their domain, as
+    `crawl_request.enqueue`'s; 0 by default.
+    """
+    run_id: RunId
+    """The crawl's Run."""
 
 
 class CrawlRequestEnqueueLinksParams(BaseModel):
@@ -484,6 +552,20 @@ class DeclaredExtract(BaseModel):
     """Its named fields, by name, each a value field, a list or rows."""
 
 
+class DiscoveryClickRefusal(BaseModel):
+    """A matched element whose discovery click the guard refused (issue 1087)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    code: str
+    """The guard's Error code (for example `deadline_exceeded`)."""
+    index: Annotated[int, Field(ge=0)]
+    """Zero-based index of the matched element in document order."""
+    message: str
+    """Why the guard refused the click."""
+
+
 class EncodingSource(StrEnum):
     """
     Where a document's encoding came from, in the order the tiers look
@@ -607,6 +689,30 @@ class EnqueuedLinks(BaseModel):
     )
     links: list[EnqueuedLink]
     """Each element's answer."""
+
+
+class EnqueuedLinksByClickingElements(BaseModel):
+    """
+    What `crawl_request.enqueue_links_by_clicking_elements` answers: what
+    became of each discovered link, each unsafe request aborted unsent, and
+    any matched element whose click the guard refused (issue 1087).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    aborted: list[AbortedDiscoveryRequest] | None = None
+    """
+    Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted
+    unsent during the clicks.
+    """
+    links: list[EnqueuedLink]
+    """
+    Each discovered link's admission answer, as `crawl_request.enqueue_links`
+    answers.
+    """
+    refused: list[DiscoveryClickRefusal] | None = None
+    """Matched elements whose click the guard refused."""
 
 
 class EquivalentForm(StrEnum):

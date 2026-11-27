@@ -1485,6 +1485,10 @@ reason = "Issue 1495 adds `outcomes`, `failed_requests` and `retry_failed`."
 entries = ["run.rejected_records"]
 reason = "Issue 1489 adds `rejected_records` to a Run read through `open_crawl_run`."
 
+[[unreached]]
+entries = ["crawl_request.enqueue_links_by_clicking_elements"]
+reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueue_links_by_clicking_elements` in area 11."
+
 [[target]]
 crate = "goodfetch-collie-client"
 name = "goodfetch::client"

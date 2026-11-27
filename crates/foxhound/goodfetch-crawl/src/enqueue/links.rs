@@ -47,8 +47,11 @@ use goodfetch_frontier::{Narrowing, Patterns, Url, document_base, key_link, reso
 use goodfetch_protocol::connection::CLOSED;
 use goodfetch_protocol::foxhound::crawl::ATTEMPT_ENDED;
 use goodfetch_protocol::foxhound::frontier::{
-    CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
-    CrawlRequestLinks, CrawlRequestLinksParams, EnqueuedLinks, MatchedLink,
+    AbortedDiscoveryRequest, CRAWL_REQUEST_ENQUEUE_LINKS,
+    CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS, CRAWL_REQUEST_LINKS,
+    CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams,
+    CrawlRequestLinks, CrawlRequestLinksParams, DiscoveryClickRefusal, EnqueuedLinks,
+    EnqueuedLinksByClickingElements, MatchedLink,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::Locator;
@@ -62,11 +65,12 @@ use crate::serving::{Crawls, LiveCrawl};
 use crate::staging::{Marked, Staging};
 use crate::work_items::AttemptKey;
 
-/// The handlers of `crawl_request.links` and `crawl_request.enqueue_links`
-/// on the live crawls of `crawls`, whose pages `tiers` serve.
-pub(crate) fn handlers(crawls: &Crawls, tiers: &FetchTiers) -> [Handler; 2] {
-    let (reading, enqueuing) = (crawls.clone(), crawls.clone());
-    let (read_on, enqueue_on) = (tiers.clone(), tiers.clone());
+/// The handlers of `crawl_request.links`, `crawl_request.enqueue_links` and
+/// `crawl_request.enqueue_links_by_clicking_elements` on the live crawls of
+/// `crawls`, whose pages `tiers` serve.
+pub(crate) fn handlers(crawls: &Crawls, tiers: &FetchTiers) -> [Handler; 3] {
+    let (reading, enqueuing, clicking) = (crawls.clone(), crawls.clone(), crawls.clone());
+    let (read_on, enqueue_on, click_on) = (tiers.clone(), tiers.clone(), tiers.clone());
     [
         Handler::new(&CRAWL_REQUEST_LINKS, move |params, context| {
             links(params, context, reading.clone(), read_on.clone())
@@ -74,6 +78,17 @@ pub(crate) fn handlers(crawls: &Crawls, tiers: &FetchTiers) -> [Handler; 2] {
         Handler::new(&CRAWL_REQUEST_ENQUEUE_LINKS, move |params, context| {
             enqueue_links(params, context, enqueuing.clone(), enqueue_on.clone())
         }),
+        Handler::new(
+            &CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS,
+            move |params, context| {
+                enqueue_links_by_clicking_elements(
+                    params,
+                    context,
+                    clicking.clone(),
+                    click_on.clone(),
+                )
+            },
+        ),
     ]
 }
 
@@ -211,6 +226,114 @@ pub(crate) async fn enqueue_links(
         Ok(None) | Err(StateError::Closed) => Err(attempt.ended()),
         Err(error) => Err(attempt.unavailable(error)),
     }
+}
+
+/// Discovers script-only links by clicking every element `params.locator`
+/// matches on the attempt's browser page in document order through the guard,
+/// aborting navigations, popups and unsafe requests at interception, then
+/// admits each discovered URL as an enqueue (issue 1087).
+async fn enqueue_links_by_clicking_elements(
+    params: CrawlRequestEnqueueLinksByClickingElementsParams,
+    context: CallContext,
+    crawls: Crawls,
+    tiers: FetchTiers,
+) -> Result<EnqueuedLinksByClickingElements, CallError> {
+    let attempt = Attempt {
+        run_id: &params.run_id,
+        key: AttemptKey::new(params.crawl_request_id.as_str(), params.lease_epoch),
+    };
+    let Some(LiveCrawl {
+        run,
+        egress,
+        invariants,
+        asking,
+        ..
+    }) = crawls.live(&params.run_id).await
+    else {
+        return Err(attempt.ended());
+    };
+    invariants.payloads().declares(&params.label)?;
+    let work = run.identity.metrics().counted_work().clone();
+    let include = Patterns::cached(&work, Row::BatchCompilations, &params.include)
+        .map_err(CallError::from)?;
+    let exclude = Patterns::cached(&work, Row::BatchCompilations, &params.exclude)
+        .map_err(CallError::from)?;
+    let every = params
+        .payload
+        .as_ref()
+        .map(|payload| Arc::new(Payload::of(payload.clone(), &work)));
+    invariants
+        .payloads()
+        .check(&params.label, every.as_deref(), &work)?;
+    let discovered = tiers
+        .discover_links_by_clicking(&params.locator, &context)
+        .await?;
+    let base = Url::parse(&discovered.base_url).map_err(|_| {
+        CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!(
+                "the page's base URL `{}` could not be parsed",
+                discovered.base_url
+            ),
+        )
+    })?;
+    let reading = Reading {
+        invariants: &invariants,
+        egress: &egress,
+        label: &params.label,
+        keeps_fragment: invariants.keeps_fragment(&params.label),
+        base: &base,
+        encoding: goodfetch_frontier::Encoding::for_label(b"utf-8")
+            .expect("invariant: utf-8 is a known encoding"),
+        narrowing: Narrowing {
+            include: &include,
+            exclude: &exclude,
+        },
+        work: &work,
+    };
+    let mut refused_payload = None;
+    let links: Vec<Link> = discovered
+        .urls
+        .into_iter()
+        .map(|url| {
+            reading.link(
+                Some(url),
+                Sight::Layout(trap_links::Seen::default()),
+                Chosen::Payload(every.clone()),
+                &mut refused_payload,
+            )
+        })
+        .collect();
+    let batch = LinksBatch {
+        request: LinksRequest::of_clicking(&params),
+        invariants,
+        links,
+        refused_payload,
+    };
+    let enqueued = match asking.links(batch).await {
+        Ok(Some(answered)) => answered?,
+        Ok(None) | Err(StateError::Closed) => return Err(attempt.ended()),
+        Err(error) => return Err(attempt.unavailable(error)),
+    };
+    let aborted = discovered
+        .aborted
+        .into_iter()
+        .map(|(method, url)| AbortedDiscoveryRequest::UnsafeRequestAborted { method, url })
+        .collect();
+    let refused = discovered
+        .refused
+        .into_iter()
+        .map(|(index, code, message)| DiscoveryClickRefusal {
+            index,
+            code,
+            message,
+        })
+        .collect();
+    Ok(EnqueuedLinksByClickingElements {
+        links: enqueued.links,
+        aborted,
+        refused,
+    })
 }
 
 /// Stages the links `params` names with its attempt as

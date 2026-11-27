@@ -12,6 +12,7 @@ export type FoxhoundWireType =
   | "CrawlDeclaration"
   | "CrawlExtraction"
   | "CrawlHookHandleParams"
+  | "CrawlRequestEnqueueLinksByClickingElementsParams"
   | "CrawlRequestEnqueueLinksParams"
   | "CrawlRequestEnqueueParams"
   | "CrawlRequestHandleParams"
@@ -87,6 +88,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "CrawlDeclaration": { fields: { "labels": ["labels", { items: { type: "DeclaredLabel" } }] } },
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },
+    "CrawlRequestEnqueueLinksByClickingElementsParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
     "CrawlRequestEnqueueLinksParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "locator": ["locator", { type: "Locator" }], "run_id": "runId" } },
     "CrawlRequestEnqueueParams": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch", "page_id": "pageId", "run_id": "runId" } },
     "CrawlRequestHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "page_id": "pageId", "response": ["response", { type: "PageResponse" }], "run_id": "runId", "session": ["session", { type: "ServingSession" }] } },
@@ -158,6 +160,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "crawl.start": { type: "CrawlStartParams" },
     "crawl_request.enqueue": { type: "CrawlRequestEnqueueParams" },
     "crawl_request.enqueue_links": { type: "CrawlRequestEnqueueLinksParams" },
+    "crawl_request.enqueue_links_by_clicking_elements": { type: "CrawlRequestEnqueueLinksByClickingElementsParams" },
     "crawl_request.links": { type: "CrawlRequestLinksParams" },
     "crawl_request.push": { type: "CrawlRequestPushParams" },
     "dataset.list": { type: "DatasetListParams" },

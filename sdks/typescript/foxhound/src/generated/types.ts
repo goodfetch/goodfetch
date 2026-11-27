@@ -3,6 +3,24 @@
 import type { AllowanceSource, AxisReason, Checkpoint, Completeness, EndingError, ExplainedSetting, FormatsRequest, GovernorLevel, HumanPause, Lifecycle, Locator, NothingDone, PageField, PageId, PageResponse, PlanReport, PluginRun, PointInTime, ProgressMessage, ProjectSettings, RecordingReport, RunId, RunLimit, RunStorage, RunUsage, RunWarning, RunWriter, SampleEchoed, SessionId, SettingLimit, StopReason, Tags, UncertainEffect, UnreadField, Verdict, WeakenedSetting } from "@goodfetch/collie-client/generated/types";
 
 /**
+ * An unsafe network request aborted unsent during a discovery click (issue
+ * 1087): any method other than `GET`, `HEAD` or `OPTIONS`.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "AbortedDiscoveryRequest".
+ */
+export type AbortedDiscoveryRequest = {
+  kind: "unsafe_request_aborted";
+  /**
+   * The aborted request's HTTP method, such as `POST`.
+   */
+  method: string;
+  /**
+   * The aborted request's URL.
+   */
+  url: string;
+};
+/**
  * Why a site refused a page (ADR 0035), on the wire as written.
  *
  * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
@@ -1189,6 +1207,63 @@ export interface PushedRecord {
  * via the `definition` "CrawlHookHandled".
  */
 export interface CrawlHookHandled {}
+/**
+ * What `crawl_request.enqueue_links_by_clicking_elements` takes: a locator on
+ * the attempt's browser page whose matched elements are clicked in document
+ * order through the guard to discover script-only links (ADR 0093; issue 1087).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "CrawlRequestEnqueueLinksByClickingElementsParams".
+ */
+export interface CrawlRequestEnqueueLinksByClickingElementsParams {
+  /**
+   * The ID of the crawl request whose attempt enqueues.
+   */
+  crawlRequestId: string;
+  /**
+   * URL patterns a link must match none of, besides the crawl's scope.
+   */
+  exclude?: string[];
+  /**
+   * URL patterns, globs as `crawl.scope.include`'s, of which a link must
+   * match one when there are any, besides the crawl's scope, which they
+   * only narrow.
+   */
+  include?: string[];
+  /**
+   * Their Label.
+   */
+  label: string;
+  /**
+   * The attempt's lease epoch, as `crawl_request.handle` gave it.
+   */
+  leaseEpoch: number;
+  /**
+   * At most this many links are added; once they are, each later
+   * discovered URL the Frontier would judge is not added, with
+   * `link_limit`. None for no limit.
+   */
+  limit?: number | null;
+  /**
+   * The locator, on the browser page `crawl_request.handle` gave.
+   */
+  locator: Locator;
+  /**
+   * The one Payload every discovered link takes.
+   */
+  payload?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Their priority among the requests of their domain, as
+   * `crawl_request.enqueue`'s; 0 by default.
+   */
+  priority?: number;
+  /**
+   * The crawl's Run.
+   */
+  runId: RunId;
+}
 /**
  * What `crawl_request.enqueue_links` takes: every link a locator matches,
  * to add from one attempt under one Label (ADR 0093).
@@ -2795,6 +2870,26 @@ export interface DatasetUnknownDetails {
   declared: string[];
 }
 /**
+ * A matched element whose discovery click the guard refused (issue 1087).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "DiscoveryClickRefusal".
+ */
+export interface DiscoveryClickRefusal {
+  /**
+   * The guard's Error code (for example `deadline_exceeded`).
+   */
+  code: string;
+  /**
+   * Zero-based index of the matched element in document order.
+   */
+  index: number;
+  /**
+   * Why the guard refused the click.
+   */
+  message: string;
+}
+/**
  * What `crawl_request.enqueue_links` answers: what became of each element
  * its locator matched, in document order.
  *
@@ -2806,6 +2901,30 @@ export interface EnqueuedLinks {
    * Each element's answer.
    */
   links: EnqueuedLink[];
+}
+/**
+ * What `crawl_request.enqueue_links_by_clicking_elements` answers: what
+ * became of each discovered link, each unsafe request aborted unsent, and
+ * any matched element whose click the guard refused (issue 1087).
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "EnqueuedLinksByClickingElements".
+ */
+export interface EnqueuedLinksByClickingElements {
+  /**
+   * Requests with a method other than `GET`, `HEAD` or `OPTIONS` aborted
+   * unsent during the clicks.
+   */
+  aborted?: AbortedDiscoveryRequest[];
+  /**
+   * Each discovered link's admission answer, as `crawl_request.enqueue_links`
+   * answers.
+   */
+  links: EnqueuedLink[];
+  /**
+   * Matched elements whose click the guard refused.
+   */
+  refused?: DiscoveryClickRefusal[];
 }
 /**
  * What `run.export` answers once the Export's file is whole (ADR 0103).

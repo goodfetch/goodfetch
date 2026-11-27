@@ -501,6 +501,7 @@ mod tests {
                     "crawl_request.enqueue",
                     "crawl_request.links",
                     "crawl_request.enqueue_links",
+                    "crawl_request.enqueue_links_by_clicking_elements",
                     "crawl_request.push",
                     "run.records",
                     "dataset.list",

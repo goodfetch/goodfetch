@@ -65,8 +65,8 @@ use goodfetch_extractor::fields::Found;
 use goodfetch_page::blocks::Block;
 use goodfetch_page::document_request::{DocumentRequest, Unread};
 use goodfetch_page::page_value::{
-    BrowserPages, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch, PageValue, PooledSession,
-    ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
+    BrowserPages, DiscoveredByClicking, HandlerPages, KeptFrom, KeptTree, Observer, OwnFetch,
+    PageValue, PooledSession, ProgramPages, Reader, ServedDocument, ServedFormatsAhead,
 };
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::Setting;
@@ -2130,6 +2130,40 @@ impl FetchTiers {
         context: &CallContext,
     ) -> Result<(PageId, Navigated), CallError> {
         self.browser_opening(hand_over, pooled, request, context, false)
+            .await
+    }
+
+    /// Clicks every element matching `locator` on its page in document order
+    /// through the guard to discover script-only links (issue 1087): on a
+    /// non-browser tier it escalates under `fetch.tier: auto` and fails with
+    /// `browser_required` under a forced tier.
+    ///
+    /// # Errors
+    ///
+    /// `attempt_ended` (escalated) or `browser_required` on a non-browser tier,
+    /// `invalid_params` for an invalid CSS selector, `closed` when the page is
+    /// closed, or the browser's error.
+    pub async fn discover_links_by_clicking(
+        &self,
+        locator: &goodfetch_protocol::page::Locator,
+        context: &CallContext,
+    ) -> Result<DiscoveredByClicking, CallError> {
+        let is_document_tier = lock(&self.served.pages).open.contains_key(&locator.page_id);
+        if is_document_tier {
+            return Err(self.unserved(
+                &locator.page_id,
+                goodfetch_protocol::foxhound::frontier::CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS.name,
+                false,
+            ));
+        }
+        let Some(pages) = self.served.browser.get() else {
+            return Err(CallError::protocol(
+                ProtocolFailure::InternalError,
+                "the engine's composition handed the fetch tiers no browser pages",
+            ));
+        };
+        pages
+            .discover_links_by_clicking(&locator.page_id, &locator.selector, context)
             .await
     }
 

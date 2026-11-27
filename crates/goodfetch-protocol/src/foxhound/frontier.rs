@@ -46,8 +46,11 @@ use crate::run::RunId;
 mod links;
 
 pub use links::{
-    CRAWL_REQUEST_ENQUEUE_LINKS, CRAWL_REQUEST_LINKS, CrawlRequestEnqueueLinksParams,
-    CrawlRequestLinks, CrawlRequestLinksParams, EnqueuedLink, EnqueuedLinks, MatchedLink,
+    AbortedDiscoveryRequest, CRAWL_REQUEST_ENQUEUE_LINKS,
+    CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS, CRAWL_REQUEST_LINKS,
+    CrawlRequestEnqueueLinksByClickingElementsParams, CrawlRequestEnqueueLinksParams,
+    CrawlRequestLinks, CrawlRequestLinksParams, DiscoveryClickRefusal, EnqueuedLink, EnqueuedLinks,
+    EnqueuedLinksByClickingElements, MatchedLink,
 };
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -997,6 +1000,7 @@ pub const ENTRIES: Entries = Entries {
         CRAWL_REQUEST_ENQUEUE,
         CRAWL_REQUEST_LINKS,
         CRAWL_REQUEST_ENQUEUE_LINKS,
+        CRAWL_REQUEST_ENQUEUE_LINKS_BY_CLICKING_ELEMENTS,
     ],
     events: &[],
     handler_requests: &[],

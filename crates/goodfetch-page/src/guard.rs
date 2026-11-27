@@ -131,6 +131,9 @@ pub(crate) struct Request<'a> {
     pub(crate) operation: &'static str,
     /// The locator's CSS selector.
     pub(crate) selector: &'a str,
+    /// Optional target handle in the guard world's registry; when set, `check.js`
+    /// acts on that handle instead of querying `selector` (issue 1087).
+    pub(crate) handle: Option<u64>,
     /// What it does.
     pub(crate) action: Action,
     /// How long it may wait.
@@ -256,11 +259,10 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             };
             return Err(at_deadline(asked, last, elapsed));
         }
-        let argument = check::argument(
-            Target::Selector(request.selector),
-            request.action.kind(),
-            remaining.min(SLICE),
-        );
+        let target = request
+            .handle
+            .map_or(Target::Selector(request.selector), Target::Handle);
+        let argument = check::argument(target, request.action.kind(), remaining.min(SLICE));
         let seen = match turn.check(CHECK, argument).await {
             Ok(value) => Seen::read(&value).map_err(|error| unreadable(&value, &error))?,
             Err(Unanswered::WorldGone) => continue,
@@ -279,7 +281,9 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                     match landed {
                         Landed::Landed => {
                             drop(turn);
-                            Box::pin(page.settle_gesture(watch)).await;
+                            if request.handle.is_none() {
+                                Box::pin(page.settle_gesture(watch)).await;
+                            }
                             return Ok(());
                         }
                         Landed::Intercepted { observed } => {

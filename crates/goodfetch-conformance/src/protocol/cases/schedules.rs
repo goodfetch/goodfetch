@@ -8,7 +8,8 @@
 //! which keeps the store.
 
 use goodfetch_protocol::schedule::{
-    SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_LIST,
+    SCHEDULE_CAP_EXCEEDED, SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET,
+    SCHEDULE_LIMITS_MAX, SCHEDULE_LIST, SCHEDULE_MAX_COUNT, SCHEDULE_MIN_INTERVAL,
     SCHEDULE_NOT_FOUND, SCHEDULE_PREVIEW, SCHEDULE_TRIGGER_INVALID,
 };
 use serde_json::{Value, json};
@@ -24,6 +25,8 @@ pub(crate) enum Case {
     List,
     Delete,
     Preview,
+    CapsRefusedBeforeCreate,
+    CapsWithinAndCountRefused,
 }
 
 impl Case {
@@ -35,6 +38,12 @@ impl Case {
             "a-list-holds-every-schedule-created" => Self::List,
             "a-delete-answers-whether-it-deleted-the-schedule" => Self::Delete,
             "a-preview-reads-both-dst-transitions-and-refuses-a-bad-trigger" => Self::Preview,
+            "a-schedule-past-min-interval-or-period-limit-cap-is-refused" => {
+                Self::CapsRefusedBeforeCreate
+            }
+            "a-schedule-within-caps-is-created-and-a-second-past-max-count-is-refused" => {
+                Self::CapsWithinAndCountRefused
+            }
             _ => return None,
         })
     }
@@ -47,6 +56,8 @@ impl Case {
             Self::List => list(connection, checks),
             Self::Delete => delete(connection, checks),
             Self::Preview => preview(connection, checks),
+            Self::CapsRefusedBeforeCreate => caps_refused_before_create(connection, checks),
+            Self::CapsWithinAndCountRefused => caps_within_and_count_refused(connection, checks),
         }
     }
 }
@@ -266,4 +277,113 @@ fn occurrence_ats(answer: &Value) -> Vec<&str> {
         .flatten()
         .filter_map(|occ| occ["at"].as_str())
         .collect()
+}
+
+fn cap_refusal_matches(answer: &Value, expected_cap: &str, expected_policy: &str) -> bool {
+    *code_of(answer) == json!(SCHEDULE_CAP_EXCEEDED.name)
+        && answer["error"]["data"]["retryable"] == json!(false)
+        && answer["error"]["data"]["cap"] == json!(expected_cap)
+        && answer["error"]["data"]["policy"] == json!(expected_policy)
+}
+
+fn caps_refused_before_create(
+    connection: &mut Connection,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let too_frequent = answer_of(
+        connection,
+        SCHEDULE_CREATE.name,
+        &json!({
+            "definition": {
+                "id": "caps-too-fast",
+                "target": { "recipe": "shop-prices" },
+                "trigger": { "every": 60_000 },
+                "time_zone": "Europe/Paris",
+                "limits": { "day": [{ "usage_kind": "pages", "amount": 50 }] },
+            }
+        }),
+    )?;
+    checks.check(
+        "schedule below schedule.min_interval fails with non-retryable schedule_cap_exceeded",
+        cap_refusal_matches(&too_frequent, "min_interval", SCHEDULE_MIN_INTERVAL.name),
+    );
+
+    let limit_too_high = answer_of(
+        connection,
+        SCHEDULE_CREATE.name,
+        &json!({
+            "definition": {
+                "id": "caps-limit-high",
+                "target": { "recipe": "shop-prices" },
+                "trigger": { "every": 600_000 },
+                "time_zone": "Europe/Paris",
+                "limits": { "day": [{ "usage_kind": "pages", "amount": 200 }] },
+            }
+        }),
+    )?;
+    checks.check(
+        "schedule above schedule.limits_max fails with non-retryable schedule_cap_exceeded",
+        cap_refusal_matches(&limit_too_high, "period_limit", SCHEDULE_LIMITS_MAX.name),
+    );
+
+    let limit_omitted = answer_of(
+        connection,
+        SCHEDULE_CREATE.name,
+        &json!({
+            "definition": {
+                "id": "caps-limit-missing",
+                "target": { "recipe": "shop-prices" },
+                "trigger": { "every": 600_000 },
+                "time_zone": "Europe/Paris",
+            }
+        }),
+    )?;
+    checks.check(
+        "schedule omitting a capped period Limit fails with non-retryable schedule_cap_exceeded",
+        cap_refusal_matches(&limit_omitted, "period_limit", SCHEDULE_LIMITS_MAX.name),
+    );
+    Ok(())
+}
+
+fn caps_within_and_count_refused(
+    connection: &mut Connection,
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let first = answer_of(
+        connection,
+        SCHEDULE_CREATE.name,
+        &json!({
+            "definition": {
+                "id": "caps-ok-one",
+                "target": { "recipe": "shop-prices" },
+                "trigger": { "every": 600_000 },
+                "time_zone": "Europe/Paris",
+                "limits": { "day": [{ "usage_kind": "pages", "amount": 50 }] },
+            }
+        }),
+    )?;
+    checks.check(
+        "schedule within all Operator policy caps is created",
+        first["result"]["schedule_id"] == json!("caps-ok-one")
+            && first["result"]["warnings"] == json!([]),
+    );
+
+    let second = answer_of(
+        connection,
+        SCHEDULE_CREATE.name,
+        &json!({
+            "definition": {
+                "id": "caps-too-many",
+                "target": { "recipe": "shop-prices" },
+                "trigger": { "every": 600_000 },
+                "time_zone": "Europe/Paris",
+                "limits": { "day": [{ "usage_kind": "pages", "amount": 50 }] },
+            }
+        }),
+    )?;
+    checks.check(
+        "second schedule past schedule.max_count fails with non-retryable schedule_cap_exceeded",
+        cap_refusal_matches(&second, "count", SCHEDULE_MAX_COUNT.name),
+    );
+    Ok(())
 }

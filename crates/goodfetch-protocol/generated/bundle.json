@@ -23672,6 +23672,55 @@
         }
       ]
     },
+    "ScheduleCapExceededDetails": {
+      "description": "What `schedule_cap_exceeded` details: which Operator policy cap was\nexceeded and which Operator policy setting (and version, when present)\nimposed it.",
+      "properties": {
+        "cap": {
+          "$ref": "#/$defs/ScheduleCapKind",
+          "arrived_in": "0.1",
+          "description": "Which cap was exceeded: `count`, `min_interval` or `period_limit`."
+        },
+        "policy": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy key that set the cap (`schedule.max_count`,\n`schedule.min_interval` or `schedule.limits_max`).",
+          "type": "string"
+        },
+        "policy_version": {
+          "arrived_in": "0.1",
+          "description": "The Operator policy's version, when the policy carries one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cap",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "ScheduleCapKind": {
+      "description": "Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).",
+      "oneOf": [
+        {
+          "const": "count",
+          "description": "`schedule.max_count`: maximum number of Schedules held by the Daemon.",
+          "type": "string"
+        },
+        {
+          "const": "min_interval",
+          "description": "`schedule.min_interval`: minimum interval between consecutive occurrences.",
+          "type": "string"
+        },
+        {
+          "const": "period_limit",
+          "description": "`schedule.limits_max`: maximum period Limit on a Schedule.",
+          "type": "string"
+        }
+      ],
+      "open": true
+    },
     "ScheduleCreateParams": {
       "additionalProperties": false,
       "description": "What `schedule.create` takes.",
@@ -23740,6 +23789,27 @@
           ],
           "arrived_in": "0.1",
           "description": "Its ID; one is made when absent: `s` and a lowercase ULID."
+        },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePeriodLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Schedule's period Limits (`day`, `week`, `month`), counted in\nits time zone and bounded by Operator policy's `schedule.limits_max`."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Schedule's own `schedule.*` settings, nested by key, layered\nabove user configuration and held to Operator policy locks and caps.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "target": {
           "$ref": "#/$defs/ScheduleTarget",
@@ -23842,10 +23912,31 @@
           "description": "The person who created it, for whom its occurrences fire.",
           "type": "string"
         },
+        "limits": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchedulePeriodLimits"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The Schedule's period Limits, when the definition set any."
+        },
         "schedule_id": {
           "$ref": "#/$defs/ScheduleId",
           "arrived_in": "0.1",
           "description": "Its ID."
+        },
+        "settings": {
+          "additionalProperties": true,
+          "arrived_in": "0.1",
+          "description": "The Schedule's own `schedule.*` settings, when the definition set any.",
+          "type": [
+            "object",
+            "null"
+          ]
         },
         "state": {
           "$ref": "#/$defs/ScheduleState",
@@ -23968,6 +24059,46 @@
       "required": [
         "schedule_id"
       ],
+      "type": "object"
+    },
+    "SchedulePeriodLimits": {
+      "additionalProperties": false,
+      "description": "Period Limits on a Schedule, or Operator policy caps on them\n(`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage\nacross the Schedule's runs per `day`, `week` or `month` in the\nSchedule's time zone.",
+      "properties": {
+        "day": {
+          "arrived_in": "0.1",
+          "description": "Limits per day, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "month": {
+          "arrived_in": "0.1",
+          "description": "Limits per month, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "week": {
+          "arrived_in": "0.1",
+          "description": "Limits per week, counted in the Schedule's time zone.",
+          "items": {
+            "$ref": "#/$defs/RunLimit"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SchedulePreview": {
@@ -29743,6 +29874,89 @@
                 },
                 "type": "object"
               },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "session": {
                 "additionalProperties": false,
                 "properties": {
@@ -32371,6 +32585,231 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "catch_up": {
+                    "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+                    "oneOf": [
+                      {
+                        "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "until_next",
+                        "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+                      }
+                    ]
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limits_max": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "day": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "month": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "week": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`."
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "overlap": {
+                    "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+                    "enum": [
+                      "skip",
+                      "queue_one",
+                      "allow",
+                      "replace"
+                    ]
+                  },
+                  "pause_timeout": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "const": "next_occurrence",
+                            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -36863,6 +37302,231 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "catch_up": {
+                    "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+                    "oneOf": [
+                      {
+                        "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "until_next",
+                        "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+                      }
+                    ]
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limits_max": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "day": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "month": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "week": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`."
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "overlap": {
+                    "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+                    "enum": [
+                      "skip",
+                      "queue_one",
+                      "allow",
+                      "replace"
+                    ]
+                  },
+                  "pause_timeout": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "const": "next_occurrence",
+                            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }
@@ -41371,6 +42035,231 @@
                 "properties": {
                   "echo_repeats": {
                     "description": "How many times the sample operation repeats a text.",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "schedule": {
+                "additionalProperties": false,
+                "properties": {
+                  "auto_pause": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "failures": {
+                        "description": "How many consecutive failed, rejected or failed-to-start occurrences auto-pause a Schedule: `3` by default, `0` for never.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "catch_up": {
+                    "description": "How far back a Schedule catches up its latest missed occurrence after downtime or sleep: `until_next` (default, until the occurrence after it is due), a duration in whole milliseconds, or `0` for never.",
+                    "oneOf": [
+                      {
+                        "description": "Catch-up window in whole milliseconds; 0 means never catch up.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "const": "until_next",
+                        "description": "Catch up the latest missed occurrence until the occurrence after it is due."
+                      }
+                    ]
+                  },
+                  "jitter": {
+                    "description": "Upper bound in milliseconds of the fixed random delay drawn once at Schedule creation and added to every occurrence; `0` by default.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "limits_max": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "day": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "month": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "week": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "amount": {
+                                  "description": "Maximum count of the Usage kind, or millionths of the currency.",
+                                  "minimum": 0,
+                                  "type": "integer"
+                                },
+                                "currency": {
+                                  "description": "Optional ISO 4217 currency code for a price Limit.",
+                                  "pattern": "^[A-Z]{3}$",
+                                  "type": "string"
+                                },
+                                "usage_kind": {
+                                  "description": "The Usage kind capped.",
+                                  "minLength": 1,
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "usage_kind",
+                                "amount"
+                              ],
+                              "type": "object"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Operator policy cap on a Schedule's period Limits (`day`, `week`, `month`); unset by default. Set only in an Operator policy; a Schedule whose period Limits exceed it or omit a capped period Limit fails with `schedule_cap_exceeded`."
+                  },
+                  "max_count": {
+                    "anyOf": [
+                      {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Maximum number of Schedules the Daemon may hold; unset by default. Set only in an Operator policy; a creation past it fails with `schedule_cap_exceeded`."
+                  },
+                  "min_interval": {
+                    "anyOf": [
+                      {
+                        "description": "A duration in milliseconds.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Minimum interval in milliseconds allowed between consecutive occurrences of a Schedule; unset by default. Set only in an Operator policy; a creation below it fails with `schedule_cap_exceeded`."
+                  },
+                  "overlap": {
+                    "description": "How a Schedule handles an occurrence due while its previous run is still live: `skip` (default), `queue_one`, `allow` or `replace`.",
+                    "enum": [
+                      "skip",
+                      "queue_one",
+                      "allow",
+                      "replace"
+                    ]
+                  },
+                  "pause_timeout": {
+                    "anyOf": [
+                      {
+                        "oneOf": [
+                          {
+                            "description": "Human pause timeout in whole milliseconds, at least 1; 0 is refused and `null` clears it.",
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          {
+                            "const": "next_occurrence",
+                            "description": "Time out at the Schedule's next due occurrence (24 hours for an after-a-run trigger)."
+                          }
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "A scheduled run's Human pause timeout: `next_occurrence` by default (24 hours for an after-a-run trigger), a duration of at least 1 millisecond, or `null` for none; `0` is refused."
+                  },
+                  "retention": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "changed_watches": {
+                        "description": "How many recent Watch runs that detected a change a Schedule keeps: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "history": {
+                        "description": "How long a Schedule's occurrence history is kept before retention drops older records, in milliseconds: 90 days by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "runs": {
+                        "description": "How many recent target runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "watch_runs": {
+                        "description": "How many recent Watch runs a Schedule keeps before retention discards older ones: `10` by default.",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "tick": {
+                    "description": "Maximum sleep interval of the Daemon's scheduler loop in milliseconds before waking to re-check due occurrences: 60 s by default. Set only in user configuration or an Operator policy.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "wake_threshold": {
+                    "description": "Wall-clock advance beyond monotonic time, in milliseconds, that the scheduler treats as a machine wake from sleep: 2 minutes by default. Set only in user configuration or an Operator policy.",
                     "minimum": 0,
                     "type": "integer"
                   }

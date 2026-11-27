@@ -191,6 +191,7 @@ export type CollieWireType =
   | "RunStopping"
   | "RunStorage"
   | "RunUsage"
+  | "ScheduleCapExceededDetails"
   | "ScheduleCreateParams"
   | "ScheduleCreated"
   | "ScheduleDefinition"
@@ -199,6 +200,7 @@ export type CollieWireType =
   | "ScheduleList"
   | "ScheduleNotFoundDetails"
   | "ScheduleParams"
+  | "SchedulePeriodLimits"
   | "SchedulePreview"
   | "SchedulePreviewParams"
   | "ScheduleTrigger"
@@ -426,14 +428,16 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunStopping": { fields: { "cause": ["cause", { type: "StopReason" }], "run_id": "runId" } },
     "RunStorage": { fields: { "free_bytes": "freeBytes" } },
     "RunUsage": { fields: { "browser_time": "browserTime", "limits": ["limits", { items: { type: "AppliedLimit" } }], "model": ["model", { type: "ModelUsage" }], "model_allowance": ["modelAllowance", { items: { type: "ModelAllowance" } }], "other": ["other", { items: { type: "KindUsage" } }], "paid_fetches": "paidFetches", "paid_solves": "paidSolves", "proxy_bytes": "proxyBytes", "proxy_bytes_by_kind": "proxyBytesByKind", "proxy_price": "proxyPrice" } },
+    "ScheduleCapExceededDetails": { fields: { "policy_version": "policyVersion" } },
     "ScheduleCreateParams": { fields: { "definition": ["definition", { type: "ScheduleDefinition" }] } },
     "ScheduleCreated": { fields: { "schedule_id": "scheduleId" } },
-    "ScheduleDefinition": { fields: { "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
+    "ScheduleDefinition": { fields: { "limits": ["limits", { type: "SchedulePeriodLimits" }], "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleExistsDetails": { fields: { "schedule_id": "scheduleId" } },
-    "ScheduleInfo": { fields: { "created_at": ["createdAt", "time"], "schedule_id": "scheduleId", "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
+    "ScheduleInfo": { fields: { "created_at": ["createdAt", "time"], "limits": ["limits", { type: "SchedulePeriodLimits" }], "schedule_id": "scheduleId", "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleList": { fields: { "schedules": ["schedules", { items: { type: "ScheduleInfo" } }] } },
     "ScheduleNotFoundDetails": { fields: { "schedule_id": "scheduleId" } },
     "ScheduleParams": { fields: { "schedule_id": "scheduleId" } },
+    "SchedulePeriodLimits": { fields: { "day": ["day", { items: { type: "RunLimit" } }], "month": ["month", { items: { type: "RunLimit" } }], "week": ["week", { items: { type: "RunLimit" } }] } },
     "SchedulePreview": { fields: { "description": ["description", { type: "TriggerDescription" }], "occurrences": ["occurrences", { items: { type: "PreviewOccurrence" } }], "time_zone": "timeZone" } },
     "SchedulePreviewParams": { fields: { "after": ["after", "time"], "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleTrigger": { type: "EveryTrigger" },

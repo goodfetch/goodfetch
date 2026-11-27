@@ -769,6 +769,71 @@ fn the_schedule_suite_is_independent_of_the_hosts_time_zone_and_locale() {
     );
 }
 
+/// Operator policy caps (`schedule.max_count`, `schedule.min_interval`,
+/// `schedule.limits_max`) refuse violating creations with
+/// `schedule_cap_exceeded` and allow a Schedule within caps, in both
+/// `Attached` and `Daemon` modes.
+///
+/// Covers: story:10-10, error:schedule_cap_exceeded
+#[expect(
+    clippy::doc_markdown,
+    reason = "Covers: declarations carry raw Feature IDs (ADR 0072)"
+)]
+#[rstest::rstest]
+fn the_schedule_caps_are_proved_against_collies_attached_engine_and_daemon(
+    #[values(EngineMode::Attached, EngineMode::Daemon)] mode: EngineMode,
+) {
+    let env = TestEnv::new();
+    let major_dir = env.home().join("0.0");
+    std::fs::create_dir_all(&major_dir).unwrap();
+    std::fs::write(
+        major_dir.join("operator-policy.toml"),
+        r#"version = "0.1"
+
+[settings.schedule]
+max_count = 1
+min_interval = 300000
+
+[settings.schedule.limits_max]
+day = [{ usage_kind = "pages", amount = 100 }]
+"#,
+    )
+    .unwrap();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, mode);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::schedule_caps(), &target, &proving_ground).unwrap();
+    crate::keep(
+        &document,
+        &format!("schedule-caps-collie-{mode:?}").to_lowercase(),
+    );
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("schedule.caps", Outcome::Proved)],
+            vec![
+                (
+                    "a-schedule-past-min-interval-or-period-limit-cap-is-refused",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "a-schedule-within-caps-is-created-and-a-second-past-max-count-is-refused",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The protocol suite's `engine.info` case with Foxhound as its Product, as
 /// a suite whose contract needs Foxhound declares it.
 fn foxhound_suite() -> ProtocolSuite {

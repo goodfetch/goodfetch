@@ -1518,6 +1518,11 @@ number = 10
 kind = "error"
 prefix = "schedule_"
 
+[[area]]
+number = 10
+kind = "setting"
+prefix = "schedule."
+
 # Area 12 (spec #592).
 # Foxhound's Datasets screen (#1211, spec #593): `dataset.list` and
 # `dataset.page`, which the Records grid reads.

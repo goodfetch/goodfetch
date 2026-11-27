@@ -18,6 +18,7 @@ from goodfetch_collie_client.generated.open_values import (
     NotAddedReason,
     NotificationEvent,
     ReportedHookStage,
+    ScheduleCapKind,
     ScheduleState,
     TriggerInvalidReason,
     Verdict,
@@ -4154,6 +4155,28 @@ class SandboxEnvironment(StrEnum):
     """
 
 
+class ScheduleCapExceededDetails(BaseModel):
+    """
+    What `schedule_cap_exceeded` details: which Operator policy cap was
+    exceeded and which Operator policy setting (and version, when present)
+    imposed it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    cap: ScheduleCapKind
+    """Which cap was exceeded: `count`, `min_interval` or `period_limit`."""
+    policy: str
+    """
+    The Operator policy key that set the cap (`schedule.max_count`,
+    `schedule.min_interval` or `schedule.limits_max`).
+    """
+    policy_version: str | None = None
+    """The Operator policy's version, when the policy carries one."""
+
+
 class ScheduleDeleted(BaseModel):
     """What `schedule.delete` answers."""
 
@@ -4208,6 +4231,25 @@ class ScheduleParams(BaseModel):
     How long the call may take, in milliseconds, at least 1: absent for
     `timeout.wait`, `null` for none (ADR 0080).
     """
+
+
+class SchedulePeriodLimits(BaseModel):
+    """
+    Period Limits on a Schedule, or Operator policy caps on them
+    (`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage
+    across the Schedule's runs per `day`, `week` or `month` in the
+    Schedule's time zone.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: list[RunLimit] | None = None
+    """Limits per day, counted in the Schedule's time zone."""
+    month: list[RunLimit] | None = None
+    """Limits per month, counted in the Schedule's time zone."""
+    week: list[RunLimit] | None = None
+    """Limits per week, counted in the Schedule's time zone."""
 
 
 class ScheduleTarget(RootModel[RecipeTarget | RunTarget]):
@@ -8428,6 +8470,16 @@ class ScheduleDefinition(BaseModel):
     )
     id: ScheduleId | None = None
     """Its ID; one is made when absent: `s` and a lowercase ULID."""
+    limits: SchedulePeriodLimits | None = None
+    """
+    The Schedule's period Limits (`day`, `week`, `month`), counted in
+    its time zone and bounded by Operator policy's `schedule.limits_max`.
+    """
+    settings: dict[str, Any] | None = None
+    """
+    The Schedule's own `schedule.*` settings, nested by key, layered
+    above user configuration and held to Operator policy locks and caps.
+    """
     target: ScheduleTarget
     """What it starts."""
     time_zone: str | None = None
@@ -8475,8 +8527,12 @@ class ScheduleInfo(BaseModel):
     """When it was created."""
     creator: str
     """The person who created it, for whom its occurrences fire."""
+    limits: SchedulePeriodLimits | None = None
+    """The Schedule's period Limits, when the definition set any."""
     schedule_id: ScheduleId
     """Its ID."""
+    settings: dict[str, Any] | None = None
+    """The Schedule's own `schedule.*` settings, when the definition set any."""
     state: ScheduleState
     """Whether it fires."""
     target: ScheduleTarget

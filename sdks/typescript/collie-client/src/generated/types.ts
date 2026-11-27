@@ -1855,6 +1855,19 @@ export type StartedAs = "new" | "resumed" | "ended";
  */
 export type RunStateFilesystem = "nfs" | "smb" | "fuse_object_storage";
 /**
+ * Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `count`: `schedule.max_count`: maximum number of Schedules held by the Daemon.
+ * - `min_interval`: `schedule.min_interval`: minimum interval between consecutive occurrences.
+ * - `period_limit`: `schedule.limits_max`: maximum period Limit on a Schedule.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleCapKind".
+ */
+export type ScheduleCapKind = "count" | "min_interval" | "period_limit" | (string & {});
+/**
  * What a Schedule starts: a Recipe with its inputs, or a code-free
  * catalog run by its own start parameters, each with the run's settings
  * and timeout (ADRs 0036 and 0080). The scheduler sets the run's ID,
@@ -9502,6 +9515,29 @@ export interface SampleStorePutResult {
   replaced: boolean;
 }
 /**
+ * What `schedule_cap_exceeded` details: which Operator policy cap was
+ * exceeded and which Operator policy setting (and version, when present)
+ * imposed it.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ScheduleCapExceededDetails".
+ */
+export interface ScheduleCapExceededDetails {
+  /**
+   * Which cap was exceeded: `count`, `min_interval` or `period_limit`.
+   */
+  cap: ScheduleCapKind;
+  /**
+   * The Operator policy key that set the cap (`schedule.max_count`,
+   * `schedule.min_interval` or `schedule.limits_max`).
+   */
+  policy: string;
+  /**
+   * The Operator policy's version, when the policy carries one.
+   */
+  policyVersion?: string | null;
+}
+/**
  * What `schedule.create` takes.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9530,6 +9566,18 @@ export interface ScheduleDefinition {
    */
   id?: ScheduleId | null;
   /**
+   * The Schedule's period Limits (`day`, `week`, `month`), counted in
+   * its time zone and bounded by Operator policy's `schedule.limits_max`.
+   */
+  limits?: SchedulePeriodLimits | null;
+  /**
+   * The Schedule's own `schedule.*` settings, nested by key, layered
+   * above user configuration and held to Operator policy locks and caps.
+   */
+  settings?: {
+    [k: string]: unknown;
+  } | null;
+  /**
    * What it starts.
    */
   target: ScheduleTarget;
@@ -9542,6 +9590,29 @@ export interface ScheduleDefinition {
    * When.
    */
   trigger: ScheduleTrigger;
+}
+/**
+ * Period Limits on a Schedule, or Operator policy caps on them
+ * (`schedule.limits_max`, ADRs 0036, 0041 and 0080): caps on total Usage
+ * across the Schedule's runs per `day`, `week` or `month` in the
+ * Schedule's time zone.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchedulePeriodLimits".
+ */
+export interface SchedulePeriodLimits {
+  /**
+   * Limits per day, counted in the Schedule's time zone.
+   */
+  day?: RunLimit[] | null;
+  /**
+   * Limits per month, counted in the Schedule's time zone.
+   */
+  month?: RunLimit[] | null;
+  /**
+   * Limits per week, counted in the Schedule's time zone.
+   */
+  week?: RunLimit[] | null;
 }
 /**
  * What `schedule.create` answers.
@@ -9634,9 +9705,19 @@ export interface ScheduleInfo {
    */
   creator: string;
   /**
+   * The Schedule's period Limits, when the definition set any.
+   */
+  limits?: SchedulePeriodLimits | null;
+  /**
    * Its ID.
    */
   scheduleId: ScheduleId;
+  /**
+   * The Schedule's own `schedule.*` settings, when the definition set any.
+   */
+  settings?: {
+    [k: string]: unknown;
+  } | null;
   /**
    * Whether it fires.
    */

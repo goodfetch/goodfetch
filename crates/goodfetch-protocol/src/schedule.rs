@@ -24,6 +24,18 @@ use crate::connection::WaitedFor;
 use crate::open_value::UnknownValue;
 use crate::point_in_time::PointInTime;
 
+pub mod settings;
+
+pub use settings::{
+    CATCH_UP_UNTIL_NEXT, DEFAULT_RETENTION_HISTORY_MS, DEFAULT_TICK_MS, DEFAULT_WAKE_THRESHOLD_MS,
+    PAUSE_TIMEOUT_NEXT_OCCURRENCE, SCHEDULE_AUTO_PAUSE_FAILURES, SCHEDULE_CATCH_UP,
+    SCHEDULE_CATCH_UP_SHAPE, SCHEDULE_JITTER, SCHEDULE_LIMITS_MAX, SCHEDULE_MAX_COUNT,
+    SCHEDULE_MIN_INTERVAL, SCHEDULE_OVERLAP, SCHEDULE_PAUSE_TIMEOUT, SCHEDULE_PAUSE_TIMEOUT_SHAPE,
+    SCHEDULE_PERIOD_LIMITS_SHAPE, SCHEDULE_RETENTION_CHANGED_WATCHES, SCHEDULE_RETENTION_HISTORY,
+    SCHEDULE_RETENTION_RUNS, SCHEDULE_RETENTION_WATCH_RUNS, SCHEDULE_TICK, SCHEDULE_WAKE_THRESHOLD,
+    ScheduleCatchUp, ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits,
+};
+
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
 /// What a `schedule.*` call past its `timeout.wait` waited for: the
@@ -359,6 +371,16 @@ pub struct ScheduleDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub time_zone: Option<String>,
+    /// The Schedule's own `schedule.*` settings, nested by key, layered
+    /// above user configuration and held to Operator policy locks and caps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Option<Map<String, Value>>,
+    /// The Schedule's period Limits (`day`, `week`, `month`), counted in
+    /// its time zone and bounded by Operator policy's `schedule.limits_max`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Option<SchedulePeriodLimits>,
 }
 
 /// Whether a Schedule fires.
@@ -413,6 +435,14 @@ pub struct ScheduleInfo {
     #[serde(with = "crate::point_in_time")]
     #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
     pub created_at: SystemTime,
+    /// The Schedule's own `schedule.*` settings, when the definition set any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: Option<Map<String, Value>>,
+    /// The Schedule's period Limits, when the definition set any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limits: Option<SchedulePeriodLimits>,
 }
 
 /// Something about a created Schedule its program should know, which did
@@ -598,11 +628,69 @@ pub const SCHEDULE_EXISTS: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// Which Operator policy cap a Schedule exceeded (`schedule_cap_exceeded`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+#[schemars(extend("open" = true), transform = crate::open_value::known_members)]
+#[non_exhaustive]
+pub enum ScheduleCapKind {
+    /// `schedule.max_count`: maximum number of Schedules held by the Daemon.
+    Count,
+    /// `schedule.min_interval`: minimum interval between consecutive occurrences.
+    MinInterval,
+    /// `schedule.limits_max`: maximum period Limit on a Schedule.
+    PeriodLimit,
+    /// A cap kind this reader does not know, kept as received (ADR 0079).
+    #[serde(untagged)]
+    #[schemars(skip)]
+    Unknown(UnknownValue),
+}
+
+impl ScheduleCapKind {
+    /// Its canonical wire name.
+    pub const fn as_str(&self) -> &str {
+        match self {
+            Self::Count => "count",
+            Self::MinInterval => "min_interval",
+            Self::PeriodLimit => "period_limit",
+            Self::Unknown(value) => value.as_str(),
+        }
+    }
+}
+
+/// What `schedule_cap_exceeded` details: which Operator policy cap was
+/// exceeded and which Operator policy setting (and version, when present)
+/// imposed it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ScheduleCapExceededDetails {
+    /// Which cap was exceeded: `count`, `min_interval` or `period_limit`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cap: ScheduleCapKind,
+    /// The Operator policy key that set the cap (`schedule.max_count`,
+    /// `schedule.min_interval` or `schedule.limits_max`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy: String,
+    /// The Operator policy's version, when the policy carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub policy_version: Option<String>,
+}
+
 /// A trigger that does not parse.
 pub const SCHEDULE_TRIGGER_INVALID: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "schedule_trigger_invalid",
     description: "The Schedule's trigger does not parse, such as an `every` of 0. The details give the `expression`, the `position` where reading stopped and the `reason`.",
     group: ErrorGroup::Program,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// An Operator policy cap on Schedules was exceeded.
+pub const SCHEDULE_CAP_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "schedule_cap_exceeded",
+    description: "A Schedule creation or edit exceeds an Operator policy cap (`schedule.max_count`, `schedule.min_interval` or `schedule.limits_max`). The details name the `cap` and its `policy`.",
+    group: ErrorGroup::Refused,
     retryable: false,
     exit_code: None,
     arrived_in: ARRIVED_IN,
@@ -733,10 +821,11 @@ pub const ENTRIES: Entries = Entries {
         SCHEDULE_NOT_FOUND,
         SCHEDULE_EXISTS,
         SCHEDULE_TRIGGER_INVALID,
+        SCHEDULE_CAP_EXCEEDED,
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: settings::ALL,
     hook_stages: &[],
     shared_type_values: &[],
 };

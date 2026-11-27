@@ -42,6 +42,7 @@ pub(crate) enum ParsedTrigger {
 ///
 /// [`TriggerInvalid`] when an `every` interval is 0 or a cron expression
 /// fails to parse.
+#[cfg(test)]
 pub(crate) fn check(trigger: &ScheduleTrigger) -> Result<(), TriggerInvalid> {
     parse(trigger).map(|_| ())
 }
@@ -86,6 +87,44 @@ pub(crate) fn draw_jitter(upper_bound_ms: u64, mut draw: impl FnMut() -> u64) ->
         let sample = draw();
         if sample < threshold {
             return sample % upper_bound_ms;
+        }
+    }
+}
+
+/// The shortest interval between consecutive Occurrences of `trigger` in
+/// milliseconds, used to enforce Operator policy's `schedule.min_interval`
+/// cap (ADR 0036).
+///
+/// For `every`, returns `Some(every_ms)`. For `cron`, inspects consecutive
+/// Occurrences in UTC over a bounded window and returns the minimum gap in
+/// milliseconds (`None` if fewer than two Occurrences exist).
+pub(crate) fn min_interval_ms(trigger: &ParsedTrigger) -> Option<u64> {
+    const CRON_PROBE_COUNT: usize = 64;
+
+    match trigger {
+        ParsedTrigger::Every { every_ms, .. } => Some(*every_ms),
+        ParsedTrigger::Cron { cron, .. } => {
+            // Fixed UTC anchor so the interval check is independent of wall
+            // clock and DST transitions (ADR 0059).
+            let start =
+                Timestamp::from_second(1_767_225_600).expect("invariant: 2026-01-01T00:00:00Z");
+            let mut cursor = ZonedInstant(start.to_zoned(TimeZone::UTC));
+            let mut previous: Option<Timestamp> = None;
+            let mut shortest: Option<u64> = None;
+            for _ in 0..CRON_PROBE_COUNT {
+                let Ok(next) = cron.find_next_occurrence(&cursor, false) else {
+                    break;
+                };
+                let next_ts = next.0.timestamp();
+                if let Some(prev_ts) = previous {
+                    let gap_ms = u64::try_from(prev_ts.duration_until(next_ts).as_millis().max(0))
+                        .unwrap_or(u64::MAX);
+                    shortest = Some(shortest.map_or(gap_ms, |best| best.min(gap_ms)));
+                }
+                previous = Some(next_ts);
+                cursor = next;
+            }
+            shortest
         }
     }
 }

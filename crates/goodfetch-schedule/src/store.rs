@@ -52,7 +52,9 @@ const STATEMENTS: &[&str] = &[
         state TEXT NOT NULL,
         creator TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        jitter_ms INTEGER NOT NULL DEFAULT 0
+        jitter_ms INTEGER NOT NULL DEFAULT 0,
+        settings TEXT,
+        limits TEXT
     ) STRICT",
 ];
 
@@ -66,11 +68,24 @@ pub(crate) static STORE: UserStoreKind = UserStoreKind::new(
 );
 
 /// The columns a Schedule's row is read from, in [`schedule`]'s order.
-const COLUMNS: &str = "id, target, trigger, time_zone, version, state, creator, created_at";
+const COLUMNS: &str =
+    "id, target, trigger, time_zone, version, state, creator, created_at, settings, limits";
 
-/// Records `schedule` with its fixed `jitter_ms` unless the store holds a
-/// Schedule of its ID, the store's ID drawn by `store_id` first when it
-/// holds none yet, in one transaction: whether it recorded it.
+/// Outcome of an atomic [`create`] attempt inside the store's write transaction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CreateOutcome {
+    /// The Schedule was inserted.
+    Created,
+    /// A Schedule with that ID already existed.
+    Exists,
+    /// The store already held `existing_count` Schedules, reaching `max_count`.
+    CapExceeded { existing_count: u64 },
+}
+
+/// Records `schedule` with its fixed `jitter_ms` unless the store already
+/// holds a Schedule of its ID or already holds at least `max_count`
+/// Schedules, drawing the store's ID via `store_id` on first write, all in
+/// one transaction.
 ///
 /// # Errors
 ///
@@ -79,8 +94,9 @@ pub(crate) async fn create(
     store: &UserStore,
     schedule: ScheduleInfo,
     jitter_ms: u64,
+    max_count: Option<u64>,
     store_id: impl FnOnce() -> String + Send + 'static,
-) -> Result<bool, UserStoreError> {
+) -> Result<CreateOutcome, UserStoreError> {
     store
         .write(move |connection| {
             let held: Option<String> = connection
@@ -92,15 +108,36 @@ pub(crate) async fn create(
                     .prepare_cached("INSERT INTO store (only, store_id) VALUES (1, ?1)")?
                     .execute([store_id()])?;
             }
+            let exists: bool = connection
+                .prepare_cached("SELECT 1 FROM schedules WHERE id = ?1")?
+                .query_row([schedule.schedule_id.as_str()], |_| Ok(()))
+                .optional()?
+                .is_some();
+            if exists {
+                return Ok(CreateOutcome::Exists);
+            }
+            if let Some(cap) = max_count {
+                let count_i64: i64 = connection
+                    .prepare_cached("SELECT COUNT(*) FROM schedules")?
+                    .query_row([], |row| row.get(0))?;
+                let existing_count = u64::try_from(count_i64).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
+                })?;
+                if existing_count >= cap {
+                    return Ok(CreateOutcome::CapExceeded { existing_count });
+                }
+            }
             let version = i64::try_from(schedule.version)
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
             let jitter = i64::try_from(jitter_ms)
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+            let settings_json = schedule.settings.as_ref().map(json).transpose()?;
+            let limits_json = schedule.limits.as_ref().map(json).transpose()?;
             let inserted = connection
                 .prepare_cached(
                     "INSERT INTO schedules
-                        (id, target, trigger, time_zone, version, state, creator, created_at, jitter_ms)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                        (id, target, trigger, time_zone, version, state, creator, created_at, jitter_ms, settings, limits)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                      ON CONFLICT (id) DO NOTHING",
                 )?
                 .execute(params![
@@ -113,8 +150,33 @@ pub(crate) async fn create(
                     schedule.creator,
                     StoredTime(schedule.created_at),
                     jitter,
+                    settings_json,
+                    limits_json,
                 ])?;
-            Ok(inserted == 1)
+            Ok(if inserted == 1 {
+                CreateOutcome::Created
+            } else {
+                CreateOutcome::Exists
+            })
+        })
+        .await
+}
+
+/// How many Schedules the store currently holds (0 when the store does not
+/// exist yet).
+///
+/// # Errors
+///
+/// The store's, or a negative count from SQLite.
+pub(crate) async fn count(store: &UserStore) -> Result<u64, UserStoreError> {
+    store
+        .read(0, |connection| {
+            let total: i64 = connection
+                .prepare_cached("SELECT COUNT(*) FROM schedules")?
+                .query_row([], |row| row.get(0))?;
+            u64::try_from(total).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
+            })
         })
         .await
 }
@@ -221,6 +283,19 @@ fn from_json<T: DeserializeOwned>(row: &Row<'_>, column: usize) -> rusqlite::Res
     })
 }
 
+fn from_optional_json<T: DeserializeOwned>(
+    row: &Row<'_>,
+    column: usize,
+) -> rusqlite::Result<Option<T>> {
+    let text: Option<String> = row.get(column)?;
+    text.map(|raw| {
+        serde_json::from_str(&raw).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(column, Type::Text, Box::new(error))
+        })
+    })
+    .transpose()
+}
+
 /// The Schedule of a row of [`COLUMNS`].
 fn schedule(row: &Row<'_>) -> rusqlite::Result<ScheduleInfo> {
     let id: String = row.get(0)?;
@@ -242,6 +317,8 @@ fn schedule(row: &Row<'_>) -> rusqlite::Result<ScheduleInfo> {
         })?,
         creator: row.get(6)?,
         created_at,
+        settings: from_optional_json(row, 8)?,
+        limits: from_optional_json(row, 9)?,
     })
 }
 

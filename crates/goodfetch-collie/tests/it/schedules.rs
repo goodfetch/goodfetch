@@ -243,3 +243,219 @@ fn malformed_schedule_trigger_reaches_its_exit_code_through_the_binary() {
     assert_eq!(error["position"], json!(1));
     assert_eq!(error["reason"], json!("bad_step"));
 }
+
+/// Writes `contents` to `GOODFETCH_HOME/0.0/<file>` for `env`.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "CLI integration tests write Operator policy and user configuration files"
+)]
+fn write_home_file(env: &TestEnv, file: &str, contents: &str) {
+    let dir = env.home().join("0.0");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(file), contents).unwrap();
+}
+
+/// Operator policy caps (`schedule.max_count`, `schedule.min_interval`,
+/// `schedule.limits_max`) refuse violating creations with non-retryable
+/// `schedule_cap_exceeded` naming cap and policy, reaching ADR 0069's
+/// `RefusedError` exit code (`4`) through Collie's binary.
+///
+/// Covers: story:10-10, error:schedule_cap_exceeded, command:schedule.create
+#[test]
+fn schedule_cap_exceeded_reaches_its_exit_code_through_the_binary() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "operator-policy.toml",
+        r#"version = "0.1"
+
+[settings.schedule]
+max_count = 1
+min_interval = 300000
+
+[settings.schedule.limits_max]
+day = [{ usage_kind = "pages", amount = 100 }]
+"#,
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    // 1. min_interval cap -> exit 4, cap = min_interval, policy = schedule.min_interval
+    let err = assert_create_refused(
+        &env,
+        r#"{"id":"too-fast","target":{"recipe":"shop-prices"},"trigger":{"every":60000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":50}]}}"#,
+        4,
+        "schedule_cap_exceeded",
+    );
+    assert_eq!(err["retryable"], json!(false));
+    assert_eq!(err["cap"], json!("min_interval"));
+    assert_eq!(err["policy"], json!("schedule.min_interval"));
+    assert!(
+        err["policy_version"]
+            .as_str()
+            .is_some_and(|version| version.starts_with("sha256:")),
+        "expected sha256 policy_version, got: {err}"
+    );
+
+    // 2. limits_max cap -> exit 4, cap = period_limit, policy = schedule.limits_max
+    let err = assert_create_refused(
+        &env,
+        r#"{"id":"over-limit","target":{"recipe":"shop-prices"},"trigger":{"every":600000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":200}]}}"#,
+        4,
+        "schedule_cap_exceeded",
+    );
+    assert_eq!(err["retryable"], json!(false));
+    assert_eq!(err["cap"], json!("period_limit"));
+    assert_eq!(err["policy"], json!("schedule.limits_max"));
+
+    // 3. Valid Schedule within all caps succeeds.
+    let ok = cli(&env, COLLIE)
+        .args([
+            "schedule",
+            "create",
+            "--definition",
+            r#"{"id":"within-caps","target":{"recipe":"shop-prices"},"trigger":{"every":600000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":50}]}}"#,
+            "--json",
+        ])
+        .json("ScheduleCreated")
+        .unwrap();
+    assert_eq!(ok.output.exit, Some(0), "{}", ok.output);
+
+    // 4. max_count cap -> exit 4, cap = count, policy = schedule.max_count
+    let err = assert_create_refused(
+        &env,
+        r#"{"id":"second-one","target":{"recipe":"shop-prices"},"trigger":{"every":600000},"time_zone":"Europe/Paris","limits":{"day":[{"usage_kind":"pages","amount":50}]}}"#,
+        4,
+        "schedule_cap_exceeded",
+    );
+    assert_eq!(err["retryable"], json!(false));
+    assert_eq!(err["cap"], json!("count"));
+    assert_eq!(err["policy"], json!("schedule.max_count"));
+}
+
+fn assert_create_refused(env: &TestEnv, definition: &str, exit: i32, code: &str) -> Value {
+    let refused = cli(env, COLLIE)
+        .args(["schedule", "create", "--definition", definition, "--json"])
+        .json("CommandFailed")
+        .unwrap();
+    assert_eq!(refused.output.exit, Some(exit), "{}", refused.output);
+    let err = refused.documents[0]["error"].clone();
+    assert_eq!(err["code"], json!(code), "{err}");
+    err
+}
+
+/// Schedule settings honour layer restrictions (`setting_not_applicable`),
+/// accept the nine per-Schedule keys in a Schedule's own `settings` with
+/// Operator policy lock/cap precedence (`setting_locked`), and `config
+/// explain` names the layer that decided each.
+///
+/// Covers: story:10-10, story:10-18, command:config.explain, command:schedule.create, error:setting_not_applicable, error:setting_locked
+#[test]
+fn schedule_settings_layers_locks_and_config_explain_work_through_the_binary() {
+    let env = TestEnv::new();
+    short_idle(&env, 60_000);
+    write_home_file(
+        &env,
+        "operator-policy.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 10\n\n[lock.schedule]\noverlap = \"skip\"\n\n[cap.schedule]\njitter = 10000\n",
+    );
+    write_home_file(
+        &env,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\ntick = 30000\nwake_threshold = 90000\n",
+    );
+    let _stops = StopsTheDaemon::of(&env, COLLIE);
+
+    // 1. `config explain schedule --json` names each deciding layer.
+    let explained = cli(&env, COLLIE)
+        .args(["config", "explain", "schedule", "--json"])
+        .json("SettingsExplanation")
+        .unwrap();
+    assert_eq!(explained.output.exit, Some(0), "{}", explained.output);
+    let by_key = |name: &str| {
+        explained.documents[0]["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["key"] == json!(name))
+            .unwrap_or_else(|| panic!("missing `{name}` in explain output"))
+            .clone()
+    };
+    assert_eq!(
+        by_key("schedule.max_count")["layer"],
+        json!("operator_policy")
+    );
+    assert_eq!(
+        by_key("schedule.overlap")["layer"],
+        json!("operator_policy")
+    );
+    assert_eq!(
+        by_key("schedule.overlap")["locked_by"],
+        json!("operator_policy")
+    );
+    assert_eq!(by_key("schedule.jitter")["cap"], json!(10000));
+    assert_eq!(
+        by_key("schedule.tick")["layer"],
+        json!("user_configuration")
+    );
+    assert_eq!(
+        by_key("schedule.wake_threshold")["layer"],
+        json!("user_configuration")
+    );
+    assert_eq!(
+        by_key("schedule.auto_pause.failures")["layer"],
+        json!("default")
+    );
+
+    // 2. Schedule's own `settings` accept per-Schedule keys within cap/lock.
+    let ok = cli(&env, COLLIE)
+        .args([
+            "schedule",
+            "create",
+            "--definition",
+            r#"{"id":"with-settings","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"jitter":5000,"auto_pause":{"failures":2}}}}"#,
+            "--json",
+        ])
+        .json("ScheduleCreated")
+        .unwrap();
+    assert_eq!(ok.output.exit, Some(0), "{}", ok.output);
+
+    // 3. Operator policy lock and cap win (`setting_locked`, exit 4).
+    assert_create_refused(
+        &env,
+        r#"{"id":"locked-overlap","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"overlap":"allow"}}}"#,
+        4,
+        "setting_locked",
+    );
+    assert_create_refused(
+        &env,
+        r#"{"id":"capped-jitter","target":{"recipe":"shop-prices"},"trigger":{"every":3600000},"time_zone":"Europe/Paris","settings":{"schedule":{"jitter":60000}}}"#,
+        4,
+        "setting_locked",
+    );
+
+    // 4. Machine-only and Operator-policy-only keys in Schedule's `settings`
+    //    answer `setting_not_applicable` (exit 3).
+    for restricted in [
+        r#"{"schedule":{"tick":15000}}"#,
+        r#"{"schedule":{"wake_threshold":30000}}"#,
+        r#"{"schedule":{"max_count":5}}"#,
+        r#"{"schedule":{"min_interval":1000}}"#,
+    ] {
+        let def = format!(
+            r#"{{"id":"bad-layer","target":{{"recipe":"shop-prices"}},"trigger":{{"every":3600000}},"time_zone":"Europe/Paris","settings":{restricted}}}"#
+        );
+        assert_create_refused(&env, &def, 3, "setting_not_applicable");
+    }
+
+    // 5. Operator-policy-only key in user configuration answers `setting_not_applicable`.
+    let env_bad_user = TestEnv::new();
+    short_idle(&env_bad_user, 60_000);
+    write_home_file(
+        &env_bad_user,
+        "configuration.toml",
+        "version = \"0.1\"\n\n[settings.schedule]\nmax_count = 5\n",
+    );
+    let _stops2 = StopsTheDaemon::of(&env_bad_user, COLLIE);
+    assert_create_refused(&env_bad_user, DEFINITION, 3, "setting_not_applicable");
+}

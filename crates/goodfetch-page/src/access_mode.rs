@@ -269,8 +269,8 @@ impl SessionIdentityPlan {
     /// The plan, when this engine builds every effect it asks for from the
     /// Session's `settings` (ADR 0083): `standard` and `identified` open,
     /// and so does `stealth`, but for the `engine` Fingerprint method,
-    /// human-like input, a chosen Chromium build and the headful launch it
-    /// defaults to, which open only once their tickets land. A generated
+    /// human-like input and a chosen Chromium build, which open only once
+    /// their tickets land. A generated
     /// identity keeps the machine's operating system under every method
     /// but `engine` (#599's Q5 and its re-cut of #997), so a
     /// `stealth.identity.os` that leaves it out is refused.
@@ -302,11 +302,6 @@ impl SessionIdentityPlan {
                 &STEALTH_CHROMIUM_BUILD,
                 Unbuilt::Set,
                 scope(&STEALTH_CHROMIUM_BUILD) != Scope::Default,
-            ),
-            (
-                &BROWSER_HEADLESS,
-                Unbuilt::Headful,
-                scope(&BROWSER_HEADLESS) == Scope::Default,
             ),
         ]
         .into_iter()
@@ -441,9 +436,6 @@ pub(crate) enum Unbuilt {
     On,
     /// A choice or a list set: left out, the Session opens.
     Set,
-    /// `browser.headless` left out, which `stealth` runs headful: set, the
-    /// Session opens.
-    Headful,
 }
 
 impl Refusal {
@@ -577,13 +569,6 @@ fn unbuilt_item(key: &str, layer: SettingsLayer, item: Unbuilt) -> CallError {
             format!(
                 "`{key}` is set in {}, and this engine does not build it yet: leave it out",
                 layer.as_str()
-            ),
-        ),
-        Unbuilt::Headful => unavailable(
-            (key, layer, "headful_stealth"),
-            format!("`{key}: true`"),
-            format!(
-                "a `stealth` Session runs headful when `{key}` is left out, and this engine does not launch a headful browser for it yet: set `{key}`"
             ),
         ),
     }

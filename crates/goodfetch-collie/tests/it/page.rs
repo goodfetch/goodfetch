@@ -586,16 +586,28 @@ fn a_launch_with_an_empty_browser_cache_fails_from_the_call_that_launches() {
 /// folder name's last, ASCII, part.
 #[cfg(unix)]
 pub(crate) fn browser_command_lines(env: &TestEnv) -> Vec<String> {
+    browser_processes(env)
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect()
+}
+
+/// [`browser_command_lines`], each with its process's id.
+#[cfg(unix)]
+pub(crate) fn browser_processes(env: &TestEnv) -> Vec<(u32, String)> {
     let name = env.folder().file_name().unwrap().to_string_lossy();
     let marker = name.rsplit(' ').next().unwrap().to_owned();
     let listed = Command::new("ps")
-        .args(["-axww", "-o", "args="])
+        .args(["-axww", "-o", "pid=,args="])
         .output()
         .unwrap();
     String::from_utf8_lossy(&listed.stdout)
         .lines()
         .filter(|line| line.contains(&marker) && line.contains("--user-data-dir="))
-        .map(str::to_owned)
+        .map(|line| {
+            let (pid, args) = line.trim_start().split_once(' ').unwrap();
+            (pid.parse().unwrap(), args.trim_start().to_owned())
+        })
         .collect()
 }
 

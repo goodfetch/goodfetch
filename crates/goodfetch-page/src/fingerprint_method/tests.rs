@@ -27,6 +27,7 @@ use crate::access_mode::{
     AccessMode, ChromiumBuild, FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan,
     StealthProfile,
 };
+use crate::cdp::launch::Window;
 use crate::cdp::{CdpPage, Emulated, Geolocation, ScreenSize, TargetSession, UserAgentOverride};
 use crate::live_run::played_page;
 use crate::page_children::{Child, ChildKind};
@@ -78,6 +79,7 @@ fn plan(
         stealth: SettingsLayer::Run,
         identity: identity.map(Box::new),
         runtime: RuntimeDomain::Refused,
+        window: Window::Headless,
     }
 }
 

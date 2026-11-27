@@ -70,7 +70,7 @@ use goodfetch_engine::run_state::{RunStateError, RunStateTables, SecretColumn, r
 use goodfetch_engine::runs::{self, RunError, RunKeyError};
 use goodfetch_engine::secrets::Purpose;
 use goodfetch_engine::settings::{
-    RunSettings, SettingsError, Values, check_session_source, setting,
+    RunSettings, SettingsError, Values, check_session_source, get_or_default, setting,
 };
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
 use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
@@ -85,7 +85,7 @@ use goodfetch_protocol::page::access_mode::{IDENTIFIED_SIGNATURE_AGENT, IDENTIFI
 use goodfetch_protocol::page::proxy::PROXY_PROVIDER;
 use goodfetch_protocol::page::session::{NewSessionParams, SessionOpened};
 use goodfetch_protocol::page::{
-    CONTENT_EXTRACTOR, CONTENT_EXTRACTORS, PageId, PageOpened, SessionId,
+    BROWSER_HEADLESS, CONTENT_EXTRACTOR, CONTENT_EXTRACTORS, PageId, PageOpened, SessionId,
 };
 use goodfetch_protocol::run::{Lifecycle, RUN_ENDED, RUN_NOT_FOUND, RunDetails, RunId};
 use goodfetch_protocol::setting_scopes;
@@ -111,7 +111,7 @@ use crate::browser_run::BrowserRun;
 use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
-use crate::cdp::launch::Launcher;
+use crate::cdp::launch::{Launcher, Window};
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
@@ -622,7 +622,7 @@ impl Sessions {
                     .pool
                     .borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
                 None => runs.pool.seat(
-                    placement(fingerprint.as_ref()),
+                    placement(&run, fingerprint.as_ref()),
                     egress(proxy.as_ref(), relay.as_ref()),
                     TaskStarter::clone(&owner),
                 ),
@@ -765,7 +765,7 @@ impl Sessions {
         let seat = match borrowed {
             Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
             None => pool.seat(
-                placement(fingerprint.as_ref()),
+                placement(run, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 TaskStarter::clone(&owner),
             ),
@@ -1850,7 +1850,7 @@ async fn reopened_session(
         ),
         None => (
             pool.seat(
-                placement(fingerprint.as_ref()),
+                placement(run, fingerprint.as_ref()),
                 egress(proxy.as_ref(), relay.as_ref()),
                 TaskStarter::clone(&owner),
             ),
@@ -2222,10 +2222,22 @@ async fn reopened_identity(
     Ok((signing, fingerprint))
 }
 
-/// Where a Session whose pages mask their fingerprint as `fingerprint`
-/// says, if they do, is placed in its Run's browser pool (ADR 0129).
-fn placement(fingerprint: Option<&FingerprintPlan>) -> Placement {
-    fingerprint.map_or(Placement::Shared, FingerprintPlan::placement)
+/// Where a Session of `run` whose pages mask their fingerprint as
+/// `fingerprint` says, if they do, is placed in its Run's browser pool
+/// (ADR 0129), and the window its browser shows them in: a `stealth`
+/// Session's own, and otherwise the one the Run's `browser.headless`
+/// asks for.
+fn placement(run: &BrowserRun, fingerprint: Option<&FingerprintPlan>) -> (Placement, Window) {
+    match fingerprint {
+        Some(fingerprint) => (fingerprint.placement(), fingerprint.window()),
+        None => (
+            Placement::Shared,
+            Window::of(get_or_default(
+                run.identity.settings().map(RunSettings::resolved),
+                &BROWSER_HEADLESS,
+            )),
+        ),
+    }
 }
 
 /// The side of the interception of the Session `session` of `run`, which

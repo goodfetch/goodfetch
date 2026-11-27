@@ -262,8 +262,9 @@ fn a_session_runs_on_its_sources_browser_family(
 /// one, but for the effects this engine does not build yet, each refused
 /// with `capability_unavailable` (ADR 0083) in the layer that set it, or
 /// the default's when `stealth` turns it on: the `engine` Fingerprint
-/// method, human-like input, a chosen Chromium build and a headful
-/// browser. A generated identity and what it is drawn from open.
+/// method, human-like input and a chosen Chromium build. A generated
+/// identity, what it is drawn from and the headful browser `stealth`
+/// defaults to open.
 ///
 /// Covers: setting:stealth.fingerprint_method, setting:stealth.generated_identity, setting:stealth.human_input, setting:stealth.identity.os, setting:stealth.chromium_build
 #[rstest]
@@ -277,7 +278,7 @@ fn a_session_runs_on_its_sources_browser_family(
 #[case::human_input_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "human_input": true } }), Err(Refusal::UnbuiltItem { key: "stealth.human_input", layer: USER, item: Unbuilt::On }))]
 #[case::what_an_identity_is_drawn_from(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "fingerprint_method": "basic", "human_input": false, "identity": { "os": ["windows", "macos", "linux"], "device": ["desktop"], "brand": ["edge"] } } }), json!({ "browser": { "headless": true } }), json!({}), Ok(()))]
 #[case::a_chromium_build_configured(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({ "browser": { "headless": true } }), json!({ "stealth": { "chromium_build": "clearcote" } }), Err(Refusal::UnbuiltItem { key: "stealth.chromium_build", layer: USER, item: Unbuilt::Set }))]
-#[case::a_headful_browser_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({}), json!({}), Err(Refusal::UnbuiltItem { key: "browser.headless", layer: SettingsLayer::Default, item: Unbuilt::Headful }))]
+#[case::a_headful_browser_by_default(json!({ "browser": { "access_mode": "stealth" }, "stealth": { "generated_identity": false, "human_input": false } }), json!({}), json!({}), Ok(()))]
 fn only_what_this_engine_builds_opens(
     #[case] own: Value,
     #[case] run_settings: Value,

@@ -87,7 +87,7 @@ pub(crate) use self::service_workers::{OnWorker, ServiceWorkers};
 pub(crate) use self::targets::pointer_click;
 use super::borrowed::{self, CdpUrl};
 use super::failures::call_error;
-use super::launch::{Launcher, launch};
+use super::launch::{Launcher, Window, launch};
 use super::{FrameId, TargetId};
 use crate::browser_run::BrowserRun;
 use crate::egress_relay::EgressRelay;
@@ -662,14 +662,15 @@ impl Connect for BorrowedBrowser {
 }
 
 /// A browser the engine launches for a Run, numbered in the Run's browser
-/// pool, on the first Session that needs it; it closes when the Run stops
-/// or the pool closes it.
+/// pool, on the first Session that needs it, showing its pages as its
+/// window says; it closes when the Run stops or the pool closes it.
 pub(crate) struct LocalBrowser {
     run: Arc<BrowserRun>,
     launcher: Launcher,
     home: Home,
     pins: Pins,
     number: u64,
+    window: Window,
     /// The browser's owner, beside its Run's Sessions (ADR 0146): it
     /// supervises the browser's process, reads its own events and holds
     /// every task started for it, so its stop closes the browser and ends
@@ -691,7 +692,7 @@ impl LocalBrowser {
         (run, launcher): (Arc<BrowserRun>, Launcher),
         home: Home,
         pins: Pins,
-        number: u64,
+        (number, window): (u64, Window),
         authority: Option<Arc<Authority>>,
     ) -> Self {
         let owner = run.identity.owner().child();
@@ -701,6 +702,7 @@ impl LocalBrowser {
             home,
             pins,
             number,
+            window,
             owner,
             state: Arc::default(),
             launched: OnceCell::new(),
@@ -795,6 +797,7 @@ impl Connect for LocalBrowser {
                     (&self.launcher, &self.home, &self.pins),
                     (
                         self.number,
+                        self.window,
                         self.authority.as_deref().map(Authority::spki_sha256),
                     ),
                     attempt.clone(),

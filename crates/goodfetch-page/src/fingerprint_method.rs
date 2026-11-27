@@ -45,6 +45,7 @@ use serde_json::json;
 
 use crate::access_mode::{FingerprintMethod, MethodSource, RuntimeDomain, SessionIdentityPlan};
 use crate::browser_run::BrowserRun;
+use crate::cdp::launch::Window;
 use crate::cdp::{CdpPage, Emulated, Geolocation, ScreenSize, TargetSession, UserAgentOverride};
 use crate::page_children::{Child, ChildKind, OnChild};
 use crate::page_functions::{Injection, Injections};
@@ -86,9 +87,9 @@ impl Method {
 /// How a `stealth` Session masks its browser's fingerprint: its method,
 /// the layer that set it or its fallback to `basic` for want of a
 /// Goodfetch Chromium, the layer that chose `stealth`, the Identity profile
-/// its pages show, none with `stealth.generated_identity` off, and whether
+/// its pages show, none with `stealth.generated_identity` off, whether
 /// `stealth.allow_runtime` lets them turn on the browser's `Runtime`
-/// domain.
+/// domain, and the window its browser shows them in.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct FingerprintPlan {
     method: Method,
@@ -96,6 +97,7 @@ pub(crate) struct FingerprintPlan {
     stealth: SettingsLayer,
     identity: Option<Box<IdentityProfile>>,
     runtime: RuntimeDomain,
+    window: Window,
 }
 
 impl FingerprintPlan {
@@ -114,6 +116,7 @@ impl FingerprintPlan {
             stealth: plan.layer,
             identity: identity.map(Box::new),
             runtime: profile.runtime,
+            window: Window::of(profile.headless),
         })
     }
 
@@ -157,6 +160,12 @@ impl FingerprintPlan {
         match self.method {
             Method::None | Method::JsInjection | Method::Basic => Placement::Shared,
         }
+    }
+
+    /// How its browser shows its pages: in a window unless the Session's
+    /// `browser.headless` says otherwise (ADR 0035).
+    pub(crate) const fn window(&self) -> Window {
+        self.window
     }
 
     /// The values its pages show through the browser's own overrides,

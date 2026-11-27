@@ -27,6 +27,7 @@ mod scopes;
 mod tests;
 mod values;
 
+use std::io;
 use std::sync::{Arc, PoisonError};
 
 use goodfetch_counted_work::{CountedWork, Row};
@@ -77,6 +78,7 @@ struct Inner {
     work: CountedWork,
     host: Host,
     group_member: crate::sync::Mutex<Option<String>>,
+    changes: tokio::sync::broadcast::Sender<()>,
     snapshot: Snapshot,
 }
 
@@ -253,6 +255,7 @@ impl Settings {
                 found: tokio::sync::OnceCell::new(),
             },
             group_member: crate::sync::Mutex::new(None),
+            changes: tokio::sync::broadcast::Sender::new(32),
             snapshot: Snapshot {
                 first: tokio::sync::OnceCell::new(),
                 kept: tokio::sync::watch::Sender::new(Kept::default()),
@@ -288,6 +291,102 @@ impl Settings {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// Subscribes to notifications sent whenever this engine writes its
+    /// Operator policy or user configuration files (used by a Lead Daemon to
+    /// push versioned updates to Group members, ADR 0055).
+    pub fn subscribe_changes(&self) -> tokio::sync::broadcast::Receiver<()> {
+        self.0.changes.subscribe()
+    }
+
+    /// Notifies subscribers that one of this engine's settings files changed.
+    pub fn notify_written(&self) {
+        let _ = self.0.changes.send(());
+    }
+
+    /// Reads the raw TOML text of `layer`'s file (`OperatorPolicy` or
+    /// `UserConfiguration`), returning `Ok(None)` when the file is absent.
+    ///
+    /// # Errors
+    ///
+    /// Any I/O error other than `NotFound`, or `InvalidInput` for another
+    /// layer.
+    pub async fn read_file_text(&self, layer: SettingsLayer) -> io::Result<Option<String>> {
+        let path = match layer {
+            SettingsLayer::OperatorPolicy => self.0.files.operator_policy().to_owned(),
+            SettingsLayer::UserConfiguration => self.0.files.user_configuration().to_owned(),
+            other => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("`{other:?}` has no machine settings file"),
+                ));
+            }
+        };
+        self.0
+            .owner
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "reads a settings file on Settings' blocking TaskOwner"
+                )]
+                match std::fs::read_to_string(&path) {
+                    Ok(text) => Ok(Some(text)),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+                    Err(error) => Err(error),
+                }
+            })
+            .await
+    }
+
+    /// Atomically writes (or removes when `content` is `None`) the cached
+    /// TOML file for `layer` (`OperatorPolicy` or `UserConfiguration`) on a
+    /// Group member and refreshes this engine's settings snapshot without
+    /// firing `changes` (ADR 0055).
+    ///
+    /// # Errors
+    ///
+    /// Any filesystem error while writing or removing the file, or
+    /// `InvalidInput` for another layer.
+    pub async fn write_cached_file(
+        &self,
+        layer: SettingsLayer,
+        content: Option<String>,
+    ) -> io::Result<()> {
+        let path = match layer {
+            SettingsLayer::OperatorPolicy => self.0.files.operator_policy().to_owned(),
+            SettingsLayer::UserConfiguration => self.0.files.user_configuration().to_owned(),
+            other => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("`{other:?}` has no machine settings file"),
+                ));
+            }
+        };
+        let settings = self.clone();
+        self.0
+            .owner
+            .blocking(move || {
+                if let Some(text) = content {
+                    if let Some(parent) = path.parent() {
+                        crate::durable::create_folder(parent)?;
+                    }
+                    crate::durable::replace(&path, text.as_bytes())?;
+                } else {
+                    #[expect(
+                        clippy::disallowed_methods,
+                        reason = "removes a cached settings file on Settings' blocking TaskOwner"
+                    )]
+                    match std::fs::remove_file(&path) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                settings.read_blocking();
+                Ok(())
+            })
+            .await
     }
 
     /// Reads the machine's layers now, and keeps them as the engine's

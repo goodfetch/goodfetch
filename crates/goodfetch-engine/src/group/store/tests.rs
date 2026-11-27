@@ -536,3 +536,71 @@ fn members_lists_the_lead_and_admitted_group_members() {
         );
     });
 }
+
+/// Persisted read-mostly control-state snapshots enforce monotonic versions
+/// across restarts and are cleared on `leave()`.
+#[test]
+fn replicated_stores_persist_monotonically_and_clear_on_leave() {
+    use goodfetch_protocol::group::{ControlStateSnapshot, StoredReplicatedStore};
+
+    let env = TestEnv::new();
+    let first = store(&env);
+    runtime().block_on(async {
+        let _ = formed(&first).await;
+        assert!(
+            super::save_replicated_store(
+                &first,
+                ControlStateSnapshot {
+                    store: "operator_policy".to_owned(),
+                    version: 2,
+                    content: Some("version = \"0.1\"\n".to_owned()),
+                },
+            )
+            .await
+            .unwrap()
+        );
+        // Older or equal version is ignored atomically by SQLite.
+        assert!(
+            !super::save_replicated_store(
+                &first,
+                ControlStateSnapshot {
+                    store: "operator_policy".to_owned(),
+                    version: 1,
+                    content: Some("stale".to_owned()),
+                },
+            )
+            .await
+            .unwrap()
+        );
+        assert!(
+            !super::save_replicated_store(
+                &first,
+                ControlStateSnapshot {
+                    store: "operator_policy".to_owned(),
+                    version: 2,
+                    content: Some("duplicate".to_owned()),
+                },
+            )
+            .await
+            .unwrap()
+        );
+    });
+    drop(first);
+
+    let reopened = store(&env);
+    runtime().block_on(async {
+        assert_eq!(
+            super::load_replicated_stores(&reopened).await.unwrap(),
+            vec![StoredReplicatedStore {
+                store: "operator_policy".to_owned(),
+                version: 2,
+                content: Some("version = \"0.1\"\n".to_owned()),
+            }]
+        );
+        assert!(leave(&reopened).await.unwrap());
+        assert_eq!(
+            super::load_replicated_stores(&reopened).await.unwrap(),
+            Vec::new()
+        );
+    });
+}

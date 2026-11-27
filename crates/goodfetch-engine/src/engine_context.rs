@@ -26,6 +26,7 @@ use serde_json::Value;
 use crate::audit::AuditLog;
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::control_state::ControlStateRegistry;
 use crate::endpoint::Refusals;
 use crate::entropy::Entropy;
 use crate::governor::Governor;
@@ -139,6 +140,8 @@ pub(crate) struct Host {
     /// What forwards the calls the major's Daemon keeps to it: an
     /// Attached engine's that can start its Daemon; none on a Daemon.
     pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
+    /// The Daemon group control-state store registry (ADR 0055).
+    pub(crate) control_stores: Arc<ControlStateRegistry>,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -246,6 +249,7 @@ struct Held {
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
     peer_link: Mutex<Option<HeldPeerLink>>,
+    control_stores: Arc<ControlStateRegistry>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -283,6 +287,7 @@ impl EngineContext {
             entropy,
             places,
             daemon,
+            control_stores,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -300,6 +305,7 @@ impl EngineContext {
                 places: places.map(Arc::new),
                 daemon,
                 peer_link: Mutex::new(None),
+                control_stores,
             }),
         }
     }
@@ -471,6 +477,13 @@ impl EngineContext {
     /// minute (`endpoint`).
     pub fn refusals(&self) -> Refusals {
         self.refusals.clone()
+    }
+
+    /// The Daemon group control-state store registry declaring each area's
+    /// store as single-writer at the Lead Daemon or read-mostly and cached
+    /// (ADR 0055).
+    pub fn control_stores(&self) -> &Arc<ControlStateRegistry> {
+        &self.held.control_stores
     }
 }
 

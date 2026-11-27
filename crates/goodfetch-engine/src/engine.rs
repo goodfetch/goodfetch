@@ -33,6 +33,7 @@ use crate::attached::{ParentWatch, PrivateFiles, relay};
 use crate::audit::{AuditEvents, AuditLog};
 use crate::clock::Clock;
 use crate::composition::{Composition, CompositionError};
+use crate::control_state::ControlStateRegistry;
 use crate::controls::Controls;
 use crate::daemon::{self, DaemonEnd, DaemonOptions};
 use crate::endpoint::Refusals;
@@ -85,6 +86,7 @@ pub struct Engine {
     needs_you_sources: Vec<NeedsYouSource>,
     secret_providers: Vec<(Provider, ProviderFactory)>,
     user_stores: Vec<&'static UserStoreKind>,
+    control_stores: Arc<ControlStateRegistry>,
     controls: Controls,
     events: EventsOptions,
     metrics: Metrics,
@@ -148,6 +150,7 @@ impl Engine {
             needs_you_sources: composition.needs_you_sources(),
             secret_providers: composition.secret_providers(),
             user_stores: composition.user_stores(),
+            control_stores: Arc::new(composition.control_stores()?),
             controls: composition.controls(),
             events: EventsOptions::default(),
             metrics,
@@ -563,6 +566,7 @@ impl Engine {
                 entropy: dependencies.entropy.stream(HANDLERS_STREAM),
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,
+                control_stores: Arc::clone(&self.control_stores),
             },
         );
         let secrets = Secrets::new(

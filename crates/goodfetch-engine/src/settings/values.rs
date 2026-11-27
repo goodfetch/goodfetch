@@ -164,7 +164,7 @@ impl Values {
 
     /// Merges `other`'s entries over this layer's, combining each key's
     /// values under [`over`] so maps merge and scalars override.
-    pub(crate) fn merge_from(&mut self, other: &Self) {
+    pub fn merge_from(&mut self, other: &Self) {
         for (name, value) in &other.applied {
             match self.applied.get(*name) {
                 Some(existing) => {

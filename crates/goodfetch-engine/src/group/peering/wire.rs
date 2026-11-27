@@ -38,7 +38,7 @@ use crate::wire::request_line;
 pub(super) const OPENING_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The longest message of the peer link; a longer one is refused.
-const LINE_LIMIT: usize = 64 * 1024;
+const LINE_LIMIT: usize = 1024 * 1024;
 
 /// How many bytes one read of the peer link takes at most.
 const READ_BYTES: usize = 8 * 1024;

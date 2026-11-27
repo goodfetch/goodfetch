@@ -794,3 +794,117 @@ fn toxiproxy_partition_blocks_a_group_member_until_healed() {
     let after_heal = answered(&member, &["group", "leave"], "GroupLeft");
     assert_eq!(after_heal["name"].as_str(), Some("partitioned"));
 }
+
+fn setting_of(doc: &Value, key: &str) -> Option<(Value, String)> {
+    doc["settings"].as_array()?.iter().find_map(|entry| {
+        (entry["key"].as_str() == Some(key)).then(|| {
+            (
+                entry["value"].clone(),
+                entry["layer"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+    })
+}
+
+fn wait_for_explained_setting(env: &TestEnv, key: &str, expected: &Value, layer: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let doc = answered(env, &["config", "explain"], "SettingsExplanation");
+        if setting_of(&doc, key) == Some((expected.clone(), layer.to_owned())) {
+            return doc;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    panic!("setting {key} did not reach {expected} ({layer})");
+}
+
+/// Lead Daemon replicates Operator policy and user configuration to every
+/// Group member; `[group_member.<name>]` machine-specific settings apply only
+/// on that Group member, and live `config.user_write` updates on the Lead
+/// Daemon propagate to joined Group members (ADR 0055, issue 243).
+///
+/// Covers: story:3-93, story:3-107
+#[test]
+fn lead_replicates_policy_and_user_configuration_with_group_member_scope() {
+    let lead = bare_home();
+    let worker = bare_home();
+    let _stops = [&lead, &worker].map(|env| StopsTheDaemon::of(env, COLLIE));
+
+    let lead_layout = HomeLayout::of(lead.home());
+    std::fs::create_dir_all(lead_layout.per_major()).unwrap();
+    std::fs::write(
+        lead_layout.operator_policy(),
+        r#"version = "0.1"
+
+[settings.politeness]
+sharing = "per_daemon"
+
+[settings.timeout]
+navigation = 45000
+
+[group_member.worker-a.browser]
+executable_path = "/opt/browsers/worker-a"
+
+[group_member.worker-b.browser]
+executable_path = "/opt/browsers/worker-b"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        lead_layout.user_configuration(),
+        "version = \"0.1\"\n\n[settings.timeout]\naction = 12000\n",
+    )
+    .unwrap();
+
+    let formed = formed(&lead);
+    let minted = answered(&lead, &["group", "token"], "JoinTokenMinted");
+    let _joined = answered(
+        &worker,
+        &join(
+            formed["peer_address"].as_str().unwrap(),
+            minted["token"].as_str().unwrap(),
+            minted["authority_key"].as_str().unwrap(),
+            "worker-a",
+        ),
+        "GroupJoined",
+    );
+
+    let explained = wait_for_explained_setting(
+        &worker,
+        "browser.executable_path",
+        &json!("/opt/browsers/worker-a"),
+        "group_member",
+    );
+    assert_eq!(
+        setting_of(&explained, "timeout.navigation"),
+        Some((json!(45_000), "operator_policy".to_owned()))
+    );
+    assert_eq!(
+        setting_of(&explained, "timeout.action"),
+        Some((json!(12_000), "user_configuration".to_owned()))
+    );
+
+    let lead_runtime = RuntimeFile::read(&runtime_file(&lead)).unwrap();
+    let mut client = DaemonClient::connect(&lead_runtime.endpoint);
+    let hello = client.open(
+        &Hello::needing(Product::Collie)
+            .id("hello")
+            .surface(goodfetch_protocol::connection::Surface::Cli)
+            .token(&lead_runtime.token),
+    );
+    assert!(hello.get("result").is_some(), "{hello}");
+    let written = client.call(
+        1,
+        "config.user_write",
+        &json!({ "changes": [{ "key": "timeout.action", "value": 18_000 }] }),
+    );
+    assert!(written.get("result").is_some(), "{written}");
+    drop(client);
+
+    wait_for_explained_setting(
+        &worker,
+        "timeout.action",
+        &json!(18_000),
+        "user_configuration",
+    );
+}

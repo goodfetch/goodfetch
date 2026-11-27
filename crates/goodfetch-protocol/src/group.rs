@@ -28,8 +28,16 @@
 //! with it and sends [`RENEW`] in place of `hello`, likewise alone, and one
 //! that leaves the group sends [`LEAVE`] the same way.
 
+mod control_state;
+
 use std::fmt;
 use std::time::SystemTime;
+
+pub use control_state::{
+    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, ControlStateMode, ControlStateSnapshot,
+    PeerControlStatePushParams, PeerControlStatePushResult, PeerControlStateSyncParams,
+    PeerControlStateSyncResult, StoredReplicatedStore,
+};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -782,6 +790,11 @@ pub struct StoredGroup {
     /// not expired, revoked or not; none on any other Daemon.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub certificates: Vec<StoredCertificate>,
+    /// The highest versioned snapshot of each read-mostly control-state store
+    /// kept by this Group member (ADR 0055).
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub replicated_stores: Vec<StoredReplicatedStore>,
 }
 
 /// A Group member certificate the Lead Daemon signed, as its

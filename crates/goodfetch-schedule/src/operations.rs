@@ -8,9 +8,11 @@
 //! such as a Linked engine, runs these handlers.
 
 use goodfetch_engine::clock::Clock;
+use goodfetch_engine::control_state::STORE_SCHEDULES;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::user_store::{UserStore, UserStoreError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler, kept_by_the_daemon};
+use goodfetch_protocol::group::ControlStateMode;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::schedule::{
     SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST,
@@ -29,6 +31,7 @@ use crate::{definition, store, trigger};
 pub fn contribution() -> Contribution {
     Contribution::new("schedule")
         .with_user_store(&store::STORE)
+        .with_control_store(STORE_SCHEDULES, ControlStateMode::ReadMostlyCached)
         .with_handler(Handler::new(&SCHEDULE_CREATE, create))
         .with_handler(Handler::new(&SCHEDULE_LIST, list))
         .with_handler(Handler::new(&SCHEDULE_GET, get))

@@ -42,6 +42,7 @@ use crate::accounts::Principal;
 use crate::admission::Gates;
 use crate::call_error::CallError;
 use crate::client::Client;
+use crate::control_state::ControlStateRegistry;
 use crate::controls::{Controls, Recorded};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
@@ -56,6 +57,7 @@ use crate::secrets::ProviderFactory;
 use crate::settings::RunSettings;
 use crate::staging::{AttemptStaging, AttemptWrites};
 use crate::user_store::UserStoreKind;
+use goodfetch_protocol::group::ControlStateMode;
 use goodfetch_protocol::run::{RunId, RunKind};
 use goodfetch_protocol::secret_reference::Provider;
 
@@ -673,6 +675,7 @@ pub struct Contribution {
     runs_of_calls: Vec<Arc<dyn RunOfCall>>,
     watched_sessions: Vec<Arc<dyn WatchedSessions>>,
     user_stores: Vec<&'static UserStoreKind>,
+    control_stores: Vec<(&'static str, ControlStateMode)>,
     attempt_stagings: Vec<Arc<dyn AttemptStaging>>,
 }
 
@@ -681,6 +684,7 @@ impl Contribution {
     pub fn new(name: &'static str) -> Self {
         Self {
             user_stores: Vec::new(),
+            control_stores: Vec::new(),
             secret_providers: Vec::new(),
             runs_of_calls: Vec::new(),
             watched_sessions: Vec::new(),
@@ -761,6 +765,15 @@ impl Contribution {
     #[must_use]
     pub fn with_user_store(mut self, kind: &'static UserStoreKind) -> Self {
         self.user_stores.push(kind);
+        self
+    }
+
+    /// The same, declaring `store` in the Daemon group control-state
+    /// registry as either single-writer at the Lead Daemon or read-mostly
+    /// and cached on every Group member (ADR 0055).
+    #[must_use]
+    pub fn with_control_store(mut self, store: &'static str, mode: ControlStateMode) -> Self {
+        self.control_stores.push((store, mode));
         self
     }
 
@@ -939,6 +952,17 @@ pub enum CompositionError {
         /// The second.
         second: &'static str,
     },
+    /// Two contributions declared one control-state store with conflicting
+    /// replication modes (ADR 0055).
+    #[error("control-state store `{store}` was declared as both {first:?} and {second:?}")]
+    ConflictingControlStore {
+        /// The store's name.
+        store: String,
+        /// The mode declared first.
+        first: ControlStateMode,
+        /// The conflicting mode declared later.
+        second: ControlStateMode,
+    },
 }
 
 impl Composition {
@@ -1067,6 +1091,29 @@ impl Composition {
             .iter()
             .flat_map(|contribution| contribution.user_stores.iter().copied())
             .collect()
+    }
+
+    /// The Daemon group control-state store registry built from ADR 0055's
+    /// engine defaults and every contribution's declarations.
+    ///
+    /// # Errors
+    ///
+    /// [`CompositionError::ConflictingControlStore`] when two contributions
+    /// declare one store under conflicting modes.
+    pub(crate) fn control_stores(&self) -> Result<ControlStateRegistry, CompositionError> {
+        let mut registry = ControlStateRegistry::with_defaults();
+        for contribution in &self.contributions {
+            for &(store, mode) in &contribution.control_stores {
+                registry.register(store, mode).map_err(|conflict| {
+                    CompositionError::ConflictingControlStore {
+                        store: conflict.store,
+                        first: conflict.first,
+                        second: conflict.second,
+                    }
+                })?;
+            }
+        }
+        Ok(registry)
     }
 
     /// Every contribution's sources of "Needs you", in order.

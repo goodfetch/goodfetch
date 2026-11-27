@@ -4,5 +4,6 @@
 //! every run of it passes before generating others, are in
 //! `fixtures/fault_plans/<scenario>/`.
 
+mod control_state;
 mod group;
 mod usage;

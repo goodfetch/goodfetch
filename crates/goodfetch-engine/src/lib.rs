@@ -26,6 +26,7 @@ pub mod client;
 pub mod clock;
 mod composition;
 mod config;
+pub mod control_state;
 pub mod controls;
 pub mod crash_report;
 pub mod daemon;

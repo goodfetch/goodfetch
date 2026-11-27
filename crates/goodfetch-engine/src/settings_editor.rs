@@ -194,6 +194,7 @@ impl SettingsEditor {
                 // and the Audit log, the files it wrote before any failure
                 // included (ADR 0140).
                 self.settings.refresh_blocking();
+                self.settings.notify_written();
                 wrote?;
                 Ok((
                     answer,

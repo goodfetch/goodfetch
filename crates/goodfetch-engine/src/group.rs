@@ -36,6 +36,11 @@ mod peer_tls;
 mod peering;
 mod store;
 
+pub use crate::control_state::{
+    ApplyOutcome, ControlStateConflict, ControlStateError, ControlStateRegistry,
+    ENGINE_CONTROL_STORES, ReplicatedEntry, ReplicatedState, STORE_OPERATOR_POLICY,
+    STORE_USER_CONFIGURATION,
+};
 pub(crate) use authority::KeptAuthority;
 pub use authority::{
     AUTHORITY_LIFETIME, AuthorityError, CERTIFICATE_LIFETIME, GroupAuthority,

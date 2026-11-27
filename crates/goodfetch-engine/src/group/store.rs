@@ -16,7 +16,9 @@ use std::time::SystemTime;
 use data_encoding::{BASE64, HEXLOWER};
 use goodfetch_protocol::catalog::{ProtocolVersion, schema_of};
 use goodfetch_protocol::formats::{Format, Rule, Storage};
-use goodfetch_protocol::group::{LeadEpoch, LeadEpochStaleDetails, StoredGroup};
+use goodfetch_protocol::group::{
+    ControlStateSnapshot, LeadEpoch, LeadEpochStaleDetails, StoredGroup, StoredReplicatedStore,
+};
 use goodfetch_protocol::home;
 use rcgen::SerialNumber;
 use rusqlite::types::Type;
@@ -52,6 +54,7 @@ const TABLES: &[&str] = &[
     "identity",
     "members",
     "certificates",
+    "replicated_stores",
 ];
 
 /// The statements that make them.
@@ -94,6 +97,11 @@ const STATEMENTS: &[&str] = &[
         name TEXT NOT NULL,
         expires_at TEXT NOT NULL,
         revoked_at TEXT
+    ) STRICT",
+    "CREATE TABLE IF NOT EXISTS replicated_stores (
+        store TEXT PRIMARY KEY,
+        version INTEGER NOT NULL,
+        content TEXT
     ) STRICT",
 ];
 
@@ -720,6 +728,68 @@ fn decoded(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<Vec<u8>> 
     BASE64.decode(text.as_bytes()).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(column, Type::Text, Box::new(error))
     })
+}
+
+/// Loads every persisted read-mostly control-state snapshot held in the group
+/// store (ADR 0055).
+///
+/// # Errors
+///
+/// The store's, or a row this version cannot read.
+pub(crate) async fn load_replicated_stores(
+    store: &UserStore,
+) -> Result<Vec<StoredReplicatedStore>, UserStoreError> {
+    store
+        .read(Vec::new(), |connection| {
+            connection
+                .prepare_cached(
+                    "SELECT store, version, content FROM replicated_stores ORDER BY store",
+                )?
+                .query_map([], |row| {
+                    let version = u64::try_from(row.get::<_, i64>(1)?).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(1, Type::Integer, Box::new(error))
+                    })?;
+                    Ok(StoredReplicatedStore {
+                        store: row.get(0)?,
+                        version,
+                        content: row.get(2)?,
+                    })
+                })?
+                .collect()
+        })
+        .await
+}
+
+/// Persists `snapshot` in `replicated_stores` if and only if its version is
+/// strictly greater than the version already stored for `snapshot.store`.
+/// Returns `true` when the row was inserted or updated.
+///
+/// # Errors
+///
+/// The store's, after which nothing changed.
+pub(crate) async fn save_replicated_store(
+    store: &UserStore,
+    snapshot: ControlStateSnapshot,
+) -> Result<bool, UserStoreError> {
+    store
+        .write(move |connection| {
+            let changed = connection
+                .prepare_cached(
+                    "INSERT INTO replicated_stores (store, version, content)
+                     VALUES (?1, ?2, ?3)
+                     ON CONFLICT(store) DO UPDATE SET
+                         version = excluded.version,
+                         content = excluded.content
+                     WHERE excluded.version > replicated_stores.version",
+                )?
+                .execute(params![
+                    snapshot.store,
+                    stored(snapshot.version)?,
+                    snapshot.content,
+                ])?;
+            Ok(changed > 0)
+        })
+        .await
 }
 
 #[cfg(test)]

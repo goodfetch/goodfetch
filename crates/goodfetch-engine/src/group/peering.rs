@@ -12,6 +12,11 @@
 //! The listener presents the identity the group store keeps and trusts
 //! the revocation list it holds, both read again at each link, so a
 //! renewal or a revocation counts from the next link on.
+//!
+//! Size: one concern, the peer listener's lifecycle and opening-message
+//! dispatch (join, renew, leave, Run index feed, control-state replication,
+//! and peer links) kept together so every peer link shares one TLS acceptor,
+//! lead-epoch gate, and refusal path.
 
 use std::sync::{Arc, PoisonError};
 use std::time::Duration;
@@ -20,9 +25,10 @@ use data_encoding::BASE64;
 use goodfetch_protocol::audit::{Listener, RefusalReason};
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
-    GROUP_MEMBER_EXISTS, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
-    PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerRenewParams, PeerRunIndexReportParams,
-    RENEW, RUN_INDEX_REPORT,
+    CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_MEMBER_EXISTS, HELLO, JOIN, JOIN_TOKEN_REFUSED,
+    LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION, PeerControlStatePushParams,
+    PeerControlStateSyncParams, PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerRenewParams,
+    PeerRunIndexReportParams, RENEW, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
@@ -43,6 +49,7 @@ use super::{
 };
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::control_state::{ControlStateRegistry, ReplicatedState};
 use crate::endpoint::Refusals;
 use crate::engine_context::EngineContext;
 use crate::framing::{Call, Frame, Incoming, decode};
@@ -65,12 +72,24 @@ const OPEN_AT_MOST: usize = 64;
 const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
 
 /// Engine services shared with the peer listener (production always provides
-/// all three; isolated loopback unit tests may leave unused ones empty).
-#[derive(Clone, Default)]
+/// all services; isolated loopback unit tests may leave unused ones empty).
+#[derive(Clone)]
 pub(super) struct PeerServices {
     pub(super) settings: Option<Settings>,
     pub(super) run_index: Option<RunIndex>,
     pub(super) refusals: Option<Refusals>,
+    pub(super) control_stores: Arc<ControlStateRegistry>,
+}
+
+impl Default for PeerServices {
+    fn default() -> Self {
+        Self {
+            settings: None,
+            run_index: None,
+            refusals: None,
+            control_stores: Arc::new(ControlStateRegistry::with_defaults()),
+        }
+    }
 }
 
 impl PeerServices {
@@ -79,6 +98,7 @@ impl PeerServices {
             settings: Some(engine.settings().clone()),
             run_index: Some(engine.run_index().clone()),
             refusals: Some(engine.refusals().clone()),
+            control_stores: Arc::clone(engine.control_stores()),
         }
     }
 }
@@ -99,6 +119,10 @@ pub(super) struct Peering {
     epochs: tokio::sync::Mutex<LeadEpochs>,
     /// Lead Daemon confirmation and fencing state (ADR 0055).
     leadership: Mutex<Leadership>,
+    /// Replicated read-mostly control-state snapshots and versions (ADR 0055).
+    control_state: tokio::sync::Mutex<ReplicatedState>,
+    /// Wakes the Lead Daemon's control-state replicator on new writes or joins.
+    control_wake: Arc<tokio::sync::Notify>,
     /// Engine services (settings, Run index, endpoint refusals).
     services: PeerServices,
 }
@@ -144,7 +168,7 @@ impl Presenting {
 ///
 /// [`PeerTlsError`] when the kept certificate, key or authority is
 /// unusable.
-pub(super) fn start(
+pub(super) async fn start(
     engine: &EngineContext,
     identity: Identity,
     store: UserStore,
@@ -162,6 +186,8 @@ pub(super) fn start(
         engine.clock(),
         PeerServices::from_engine(engine),
     )?);
+    peering.hydrate_control_state().await;
+    engine.settings().set_group_member(Some(kept.name.clone()));
     let group = engine.owner().part("daemon group");
     group.spawn(serve(
         listener,
@@ -178,14 +204,22 @@ pub(super) fn start(
             group.part("lead confirmation"),
         ));
     }
-    if !kept.is_lead() {
+    if kept.is_lead() {
+        group.spawn(control_state::replicate_control_state(
+            Arc::clone(&peering),
+            group.part("control state replication"),
+        ));
+    } else {
         group.spawn(run_index::feed_run_index(
             Arc::clone(&peering),
             group.part("run index feed"),
         ));
+        group.spawn(control_state::sync_control_state(
+            Arc::clone(&peering),
+            group.part("control state sync"),
+        ));
     }
     engine.hold_peer_link(group, peering);
-    engine.settings().set_group_member(Some(kept.name.clone()));
     Ok(())
 }
 
@@ -238,7 +272,9 @@ pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
     };
     if let Err(error) = start(
         &engine, identity, store, listener, &kept, lead_epoch, members,
-    ) {
+    )
+    .await
+    {
         tracing::warn!(%error, "the peer listener cannot present the kept identity");
     } else {
         engine.settings().refresh().await;
@@ -311,6 +347,7 @@ impl Peering {
         } else {
             Leadership::not_lead(&kept.name)
         };
+        let control_state = ReplicatedState::new(Arc::clone(&services.control_stores));
         Ok(Self {
             identity,
             name: kept.name.clone(),
@@ -319,6 +356,8 @@ impl Peering {
             clock,
             epochs: tokio::sync::Mutex::new(LeadEpochs::for_member(kept.name.clone(), lead_epoch)),
             leadership: Mutex::new(leadership),
+            control_state: tokio::sync::Mutex::new(control_state),
+            control_wake: Arc::new(tokio::sync::Notify::new()),
             services,
         })
     }
@@ -546,6 +585,12 @@ impl Peering {
                 Opening::RunIndexReport(request) => {
                     Some(self.run_index_report(&presented, request).await)
                 }
+                Opening::ControlStatePush(request) => {
+                    Some(self.control_state_push(&presented, request).await)
+                }
+                Opening::ControlStateSync(request) => {
+                    Some(self.control_state_sync(&presented, request).await)
+                }
                 Opening::Refused(reply) => Some(reply),
                 Opening::Other(first) => {
                     self.member(&mut stream, &mut lines, first).await;
@@ -688,6 +733,7 @@ impl Peering {
         {
             Admission::Admitted => {
                 self.on_member_added(name.as_str().to_owned());
+                self.notify_control_state();
                 Ok(PeerJoinResult {
                     lead_name: self.name.clone(),
                     protocol_version: settled,
@@ -784,6 +830,10 @@ enum Opening {
     Leave(Asked<PeerLeaveParams>),
     /// A `group.run_index.report`, likewise.
     RunIndexReport(Asked<PeerRunIndexReportParams>),
+    /// A `group.control_state.push`, likewise.
+    ControlStatePush(Asked<PeerControlStatePushParams>),
+    /// A `group.control_state.sync`, likewise.
+    ControlStateSync(Asked<PeerControlStateSyncParams>),
     /// The line refusing either.
     Refused(Vec<u8>),
     /// Another message, which opens a [`PeerLink`].
@@ -812,6 +862,14 @@ fn opening(identity: &Identity, first: Frame) -> Opening {
             (params.product, params.protocol_version)
         })
         .map(Opening::RunIndexReport),
+        CONTROL_STATE_PUSH => asked(identity, id, call, |params: &PeerControlStatePushParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::ControlStatePush),
+        CONTROL_STATE_SYNC => asked(identity, id, call, |params: &PeerControlStateSyncParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::ControlStateSync),
         _ => return Opening::Other(Frame::Line(line)),
     };
     read.unwrap_or_else(Opening::Refused)
@@ -923,6 +981,7 @@ fn lead_refusal(refusal: LeadRefusal) -> CallError {
 }
 
 mod confirmation;
+mod control_state;
 mod leaving;
 mod politeness;
 mod renewal;

@@ -246,7 +246,7 @@ fn a_peer_link_opens_with_hello() {
 /// fabricated `hello` of a Group member, at a version of the rule's table
 /// or of a pair of Products, gets its generated reply.
 ///
-/// Covers: story:3-95, format:peer-protocol
+/// Covers: story:3-95, story:3-108, format:peer-protocol
 #[rstest]
 fn each_fabricated_hello_gets_its_generated_reply(
     #[files("../goodfetch-protocol/generated/refusals/peer-protocol/*.json")] path: PathBuf,

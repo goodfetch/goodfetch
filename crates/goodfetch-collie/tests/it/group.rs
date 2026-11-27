@@ -7,10 +7,12 @@
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
+use std::time::{Duration, Instant};
+
 use goodfetch_test_support::{TestEnv, cli};
 use serde_json::Value;
 
-use crate::daemon::{StopsTheDaemon, short_idle};
+use crate::daemon::{StopsTheDaemon, short_idle, wait_until_stopped};
 use crate::engine_choice::daemon_dispatched;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
@@ -78,10 +80,16 @@ fn join_at<'a>(
     ]
 }
 
-/// What `group join` answers on `member`, joined as `worker` with a token
+/// What `group join` answers on `member`, joined as `name` with a token
 /// the Lead Daemon `lead`, which `formed` answered, mints, listening for
 /// peer links at `peer_address`.
-fn joined(lead: &TestEnv, formed: &Value, member: &TestEnv, peer_address: &str) -> Value {
+fn joined_as(
+    lead: &TestEnv,
+    formed: &Value,
+    member: &TestEnv,
+    name: &str,
+    peer_address: &str,
+) -> Value {
     let minted = answered(lead, &["group", "token"], "JoinTokenMinted");
     answered(
         member,
@@ -89,11 +97,18 @@ fn joined(lead: &TestEnv, formed: &Value, member: &TestEnv, peer_address: &str) 
             formed["peer_address"].as_str().unwrap(),
             minted["token"].as_str().unwrap(),
             minted["authority_key"].as_str().unwrap(),
-            "worker",
+            name,
             peer_address,
         ),
         "GroupJoined",
     )
+}
+
+/// What `group join` answers on `member`, joined as `worker` with a token
+/// the Lead Daemon `lead`, which `formed` answered, mints, listening for
+/// peer links at `peer_address`.
+fn joined(lead: &TestEnv, formed: &Value, member: &TestEnv, peer_address: &str) -> Value {
+    joined_as(lead, formed, member, "worker", peer_address)
 }
 
 fn formed(env: &TestEnv) -> Value {
@@ -246,4 +261,97 @@ fn the_lead_daemon_revokes_a_group_member_once() {
         ),
         (Some("worker"), Some("group_member_unknown"), Some("worker"))
     );
+}
+
+/// Stops `env`'s Daemon and waits until its serving lock is free so a
+/// restart binds the same peer address cleanly.
+fn stop_daemon(env: &TestEnv) {
+    let output = cli(env, COLLIE).args(["daemon", "stop"]).run().unwrap();
+    assert_eq!(output.exit, Some(0), "{output}");
+    wait_until_stopped(env);
+}
+
+/// Three Daemons on loopback form a group with the per-test CA from
+/// `group init`; after all three stop, the Lead Daemon refuses to act until
+/// it exchanges lead epochs with a majority (2 of 3) or an operator confirms
+/// it with `group lead --confirm`.
+///
+/// Covers: command:group.lead, operation:group.lead, error:lead_unconfirmed,
+/// story:3-106, story:3-108
+#[test]
+fn three_daemons_form_a_group_and_confirm_lead_by_majority_or_operator() {
+    let (lead, one, two) = (home(), home(), home());
+    let _stops = [&lead, &one, &two].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    joined_as(&lead, &formed, &one, "worker-one", "127.0.0.1:0");
+    joined_as(&lead, &formed, &two, "worker-two", "127.0.0.1:0");
+
+    let initial = answered(&lead, &["group", "lead"], "GroupLeadStatus");
+    let worker_lead = refused(&one, &["group", "lead"]);
+    assert_eq!(
+        (
+            initial["name"].as_str(),
+            initial["lead_epoch"].as_u64(),
+            initial["confirmed"].as_bool(),
+            initial["confirmed_by_operator"].as_bool(),
+            worker_lead.as_str(),
+        ),
+        (
+            Some("lead"),
+            Some(1),
+            Some(true),
+            Some(false),
+            Some("not_lead_daemon")
+        )
+    );
+
+    // Stop all three and restart only the Lead Daemon: with 1 of 3 reachable,
+    // it stays unconfirmed and refuses `group token`.
+    for env in [&two, &one, &lead] {
+        stop_daemon(env);
+    }
+    let unconfirmed = answered(&lead, &["group", "lead"], "GroupLeadStatus");
+    let blocked = refused(&lead, &["group", "token"]);
+    assert_eq!(
+        (unconfirmed["confirmed"].as_bool(), blocked.as_str()),
+        (Some(false), Some("lead_unconfirmed"))
+    );
+
+    // Restarting one Group member gives a 2-of-3 majority; the Lead Daemon
+    // confirms automatically and mints tokens again.
+    let started = cli(&one, COLLIE).args(["daemon", "start"]).run().unwrap();
+    assert_eq!(started.exit, Some(0), "{started}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut majority = answered(&lead, &["group", "lead"], "GroupLeadStatus");
+    while majority["confirmed"].as_bool() != Some(true) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+        majority = answered(&lead, &["group", "lead"], "GroupLeadStatus");
+    }
+    assert_eq!(
+        (
+            majority["confirmed"].as_bool(),
+            majority["confirmed_by_operator"].as_bool()
+        ),
+        (Some(true), Some(false))
+    );
+    let _minted = answered(&lead, &["group", "token"], "JoinTokenMinted");
+
+    // Isolated again after stopping both: `group lead --confirm` confirms by
+    // hand with the required warning and unblocks `group token`.
+    stop_daemon(&one);
+    stop_daemon(&lead);
+    assert_eq!(
+        refused(&lead, &["group", "token"]).as_str(),
+        Some("lead_unconfirmed")
+    );
+    let confirmed = answered(&lead, &["group", "lead", "--confirm"], "GroupLeadStatus");
+    assert_eq!(
+        (
+            confirmed["confirmed"].as_bool(),
+            confirmed["confirmed_by_operator"].as_bool(),
+            confirmed["warning"].as_str().is_some_and(|w| !w.is_empty()),
+        ),
+        (Some(true), Some(true), true)
+    );
+    let _minted = answered(&lead, &["group", "token"], "JoinTokenMinted");
 }

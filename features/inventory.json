@@ -467,6 +467,17 @@
       ]
     },
     {
+      "id": "command:group.lead",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:group.leave",
       "kind": "command",
       "area": 3,
@@ -1868,6 +1879,17 @@
       ]
     },
     {
+      "id": "error:group_politeness_unshared",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:handler_failed",
       "kind": "error",
       "area": 3,
@@ -2014,6 +2036,17 @@
     },
     {
       "id": "error:lead_epoch_stale",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:lead_unconfirmed",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -4285,6 +4318,17 @@
     },
     {
       "id": "operation:group.join",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:group.lead",
       "kind": "operation",
       "area": 3,
       "milestone": null,

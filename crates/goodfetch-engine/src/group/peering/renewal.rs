@@ -12,7 +12,7 @@
 //! [`CERTIFICATE_LIFETIME`]: crate::group::CERTIFICATE_LIFETIME
 //! [`renew_at`]: crate::group::identity::renew_at
 
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use data_encoding::BASE64;
@@ -27,9 +27,7 @@ use crate::clock::rfc3339;
 use crate::group::identity::{KeptIdentity, Renewed};
 use crate::group::operations::{internal, store_failed};
 use crate::group::store::Certified;
-use crate::group::{
-    GroupMemberKey, GroupMemberName, accepting, failure_line, result_line, stale, store,
-};
+use crate::group::{GroupMemberKey, GroupMemberName, accepting, failure_line, result_line, store};
 use crate::tasks::TaskOwner;
 
 /// The least time between two tries at renewing a certificate.
@@ -88,7 +86,7 @@ impl Peering {
         params: PeerRenewParams,
         revocations: &CertificateRevocationListDer<'_>,
     ) -> Result<PeerRenewResult, CallError> {
-        let lead_epoch = self.admit_epoch(params.lead_epoch)?;
+        let lead_epoch = self.admit_epoch(params.lead_epoch).await?;
         let name = presented_name(presented, &params.name)?;
         let public_key = public_key_of(&params.public_key)?;
         let authority = self.authority().await?;
@@ -227,20 +225,12 @@ impl Peering {
             protocol_version: PEER_PROTOCOL_VERSION,
             product: self.identity.product,
             product_version: self.identity.product_version.clone(),
-            lead_epoch: self
-                .epochs
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .highest(),
+            lead_epoch: self.highest_epoch().await,
             name: kept.name.clone(),
             public_key: BASE64.encode(key.public_key().raw()),
         };
         let answered: PeerRenewResult = ask_lead(kept, self.clock, RENEW, &params).await?;
-        self.epochs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .admit(answered.lead_epoch)
-            .map_err(|details| stale(&details))?;
+        let _ = self.admit_epoch(answered.lead_epoch).await?;
         let decoded = |text: &str| {
             BASE64.decode(text.as_bytes()).map_err(|_| {
                 CallError::protocol(

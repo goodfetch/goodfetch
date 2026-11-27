@@ -148,6 +148,11 @@ prefix = "lead_cannot_leave"
 [[area]]
 number = 3
 kind = "error"
+prefix = "lead_unconfirmed"
+
+[[area]]
+number = 3
+kind = "error"
 prefix = "not_in_a_group"
 
 [[area]]

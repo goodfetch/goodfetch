@@ -231,6 +231,11 @@ pub struct EngineContext {
     held: Arc<Held>,
 }
 
+struct HeldPeerLink {
+    owner: TaskOwner,
+    state: Arc<dyn std::any::Any + Send + Sync>,
+}
+
 /// What an engine's contexts share behind one pointer, which keeps every
 /// future that holds a context small (clippy's `large_futures`): its host,
 /// and the owner of its Daemon group's peer link while it is in a group.
@@ -240,7 +245,7 @@ struct Held {
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
-    peer_link: Mutex<Option<TaskOwner>>,
+    peer_link: Mutex<Option<HeldPeerLink>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -395,17 +400,28 @@ impl EngineContext {
     }
 
     /// Holds `link`, the owner of the tasks of the Daemon group's peer
-    /// link, in place of the one held before, which it cancels.
-    pub(crate) fn hold_peer_link(&self, link: TaskOwner) {
+    /// link, and its running `state`, in place of the one held before, which
+    /// it cancels.
+    pub(crate) fn hold_peer_link<T: Send + Sync + 'static>(&self, link: TaskOwner, state: Arc<T>) {
         let before = self
             .held
             .peer_link
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .replace(link);
+            .replace(HeldPeerLink { owner: link, state });
         if let Some(before) = before {
-            before.cancel();
+            before.owner.cancel();
         }
+    }
+
+    /// The running state of the Daemon group's peer link, if held as `T`.
+    pub(crate) fn peer_link_state<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        self.held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(|held| Arc::clone(&held.state).downcast::<T>().ok())
     }
 
     /// Stops the tasks of the Daemon group's peer link, if an owner of them
@@ -418,7 +434,7 @@ impl EngineContext {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(link) = held {
-            link.stop().await;
+            link.owner.stop().await;
         }
     }
 

@@ -41,6 +41,7 @@ use crate::catalog::{
 use crate::connection::ProductVersion;
 use crate::daemon::DaemonToken;
 use crate::point_in_time::PointInTime;
+use crate::run::RunIndexRow;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -66,6 +67,11 @@ pub const RENEW: &str = "group.renew";
 /// opens with its certificate, in place of [`HELLO`], to leave the group:
 /// the Lead Daemon revokes its certificates.
 pub const LEAVE: &str = "group.leave";
+
+/// The method a Group member sends the Lead Daemon, on a peer link it
+/// opens with its certificate, in place of [`HELLO`], to feed or re-report
+/// its Run index rows into the group Run index (ADR 0055).
+pub const RUN_INDEX_REPORT: &str = "group.run_index.report";
 
 /// A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
 /// promoted takes a higher one, and a Group member refuses a peer message
@@ -286,6 +292,46 @@ pub struct PeerLeaveResult {
     pub lead_epoch: LeadEpoch,
 }
 
+/// What a Group member sends the Lead Daemon to report its Run index rows
+/// into the group Run index, the one message of a peer link it opens with
+/// its certificate (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRunIndexReportParams {
+    /// The peer protocol version the Group member speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The highest lead epoch it has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// Its Group member name, which the certificate it presents names and
+    /// which becomes each reported row's owner.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub member: String,
+    /// The Run index rows it owns to record in the group Run index.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rows: Vec<RunIndexRow>,
+}
+
+/// What the Lead Daemon answers to a `group.run_index.report` it accepts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRunIndexReportResult {
+    /// The peer protocol version both speak: the lower of the two.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the Lead Daemon has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// How many Run index rows it recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub reported: u64,
+}
+
 /// What a Group member answers to `group.lead_epoch`: the highest lead
 /// epoch it has recorded, the sender's included.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -407,6 +453,27 @@ pub const NOT_IN_A_GROUP: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A Lead Daemon write attempted before it has confirmed its lead epoch.
+pub const LEAD_UNCONFIRMED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "lead_unconfirmed",
+    description: "The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs.",
+    group: ErrorGroup::Unavailable,
+    retryable: true,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `group.join` into a group with no Politeness store and no
+/// `politeness.sharing: per_daemon` in its Operator policy (ADRs 0053, 0055).
+pub const GROUP_POLITENESS_UNSHARED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "group_politeness_unshared",
+    description: "A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `group.init`.
 pub const GROUP_INIT: Operation = Operation {
     name: "group.init",
@@ -496,6 +563,57 @@ pub const GROUP_REVOKE: Operation = Operation {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// `group.lead`.
+pub const GROUP_LEAD: Operation = Operation {
+    name: "group.lead",
+    description: "Reports whether this Lead Daemon has confirmed its lead epoch, and under `--confirm` confirms it by hand when no majority of its last-known Group members can be reached (ADR 0055). Hand confirmation warns that the former Lead Daemon must not restart with its lead configuration. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; one fenced off by a higher lead epoch with `lead_epoch_stale`.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<GroupLeadParams>,
+    result: schema_of::<GroupLeadStatus>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `group.lead` takes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupLeadParams {
+    /// Confirms this Lead Daemon's lead epoch by hand when no majority of its
+    /// last-known Group members can be reached.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub confirm: bool,
+}
+
+/// What `group.lead` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GroupLeadStatus {
+    /// The Lead Daemon's Group member name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The lead epoch this Lead Daemon leads at.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// Whether this Lead Daemon has confirmed its lead epoch and may act.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub confirmed: bool,
+    /// Whether an operator confirmed it with `--confirm` rather than a
+    /// majority of its last-known Group members.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub confirmed_by_operator: bool,
+    /// The warning ADR 0055 requires after hand confirmation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub warning: Option<String>,
+}
 
 /// What `group.leave` takes: nothing.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -804,6 +922,7 @@ pub const ENTRIES: Entries = Entries {
         GROUP_JOIN,
         GROUP_LEAVE,
         GROUP_REVOKE,
+        GROUP_LEAD,
     ],
     events: &[],
     handler_requests: &[],
@@ -818,6 +937,8 @@ pub const ENTRIES: Entries = Entries {
         LEAD_CANNOT_LEAVE,
         GROUP_MEMBER_UNKNOWN,
         NOT_IN_A_GROUP,
+        LEAD_UNCONFIRMED,
+        GROUP_POLITENESS_UNSHARED,
     ],
     plugin_kinds: &[],
     metrics: &[],

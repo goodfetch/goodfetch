@@ -5012,6 +5012,48 @@ export interface GroupJoined {
   peerAddress: string;
 }
 /**
+ * What `group.lead` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeadParams".
+ */
+export interface GroupLeadParams {
+  /**
+   * Confirms this Lead Daemon's lead epoch by hand when no majority of its
+   * last-known Group members can be reached.
+   */
+  confirm?: boolean;
+}
+/**
+ * What `group.lead` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeadStatus".
+ */
+export interface GroupLeadStatus {
+  /**
+   * Whether this Lead Daemon has confirmed its lead epoch and may act.
+   */
+  confirmed: boolean;
+  /**
+   * Whether an operator confirmed it with `--confirm` rather than a
+   * majority of its last-known Group members.
+   */
+  confirmedByOperator: boolean;
+  /**
+   * The lead epoch this Lead Daemon leads at.
+   */
+  leadEpoch: LeadEpoch;
+  /**
+   * The Lead Daemon's Group member name.
+   */
+  name: string;
+  /**
+   * The warning ADR 0055 requires after hand confirmation.
+   */
+  warning?: string | null;
+}
+/**
  * What `group.leave` takes: nothing.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

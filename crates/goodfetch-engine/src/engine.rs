@@ -297,11 +297,10 @@ impl Engine {
             Some(RunOwner::Daemon(options.endpoint.clone())),
             options.install.take(),
         );
-        // A Daemon in a Daemon group serves its peer link again.
-        owner.spawn(crate::group::resume(
-            context.clone(),
-            self.identity().clone(),
-        ));
+        // A Daemon in a Daemon group serves its peer link again before
+        // accepting calls, so its listener and lead-confirmation state are
+        // ready at once.
+        crate::group::resume(context.clone(), self.identity().clone()).await;
         let ended = daemon::serve(
             daemon::Serving {
                 dispatch: Arc::clone(&self.dispatch),

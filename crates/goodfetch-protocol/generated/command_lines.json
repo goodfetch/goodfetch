@@ -469,6 +469,10 @@
           {
             "commands": [],
             "name": "revoke"
+          },
+          {
+            "commands": [],
+            "name": "lead"
           }
         ],
         "name": "group"
@@ -986,6 +990,10 @@
           {
             "commands": [],
             "name": "revoke"
+          },
+          {
+            "commands": [],
+            "name": "lead"
           }
         ],
         "name": "group"

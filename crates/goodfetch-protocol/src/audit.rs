@@ -319,11 +319,13 @@ pub enum Listener {
     EgressRelay,
     /// A Session's upstream proxy relay.
     ProxyRelay,
+    /// A Daemon group's mutual-TLS peer link (ADRs 0055 and 0067).
+    PeerLink,
 }
 
 impl Listener {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Stdio,
         Self::DaemonSocket,
         Self::ExposedDaemon,
@@ -333,6 +335,7 @@ impl Listener {
         Self::OpsListener,
         Self::EgressRelay,
         Self::ProxyRelay,
+        Self::PeerLink,
     ];
 
     /// Its name on the wire.
@@ -367,11 +370,20 @@ pub enum RefusalReason {
     /// A Connection opened without TLS on a listener that serves TLS, such
     /// as an Exposed Daemon with its certificate files (ADR 0049).
     TlsRequired,
+    /// A peer link presented a certificate signed by another group's
+    /// certificate authority (ADRs 0055 and 0067).
+    CertificateUnknownAuthority,
+    /// A peer link presented a revoked Group member certificate (ADRs 0055
+    /// and 0067).
+    CertificateRevoked,
+    /// A peer link presented an expired Group member certificate (ADRs 0055
+    /// and 0067).
+    CertificateExpired,
 }
 
 impl RefusalReason {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 13] = [
         Self::HelloNotFirst,
         Self::HelloTimedOut,
         Self::HelloTooLarge,
@@ -382,6 +394,9 @@ impl RefusalReason {
         Self::OriginForeign,
         Self::OriginMissing,
         Self::TlsRequired,
+        Self::CertificateUnknownAuthority,
+        Self::CertificateRevoked,
+        Self::CertificateExpired,
     ];
 
     /// Its name on the wire.

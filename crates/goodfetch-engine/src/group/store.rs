@@ -16,7 +16,7 @@ use std::time::SystemTime;
 use data_encoding::{BASE64, HEXLOWER};
 use goodfetch_protocol::catalog::{ProtocolVersion, schema_of};
 use goodfetch_protocol::formats::{Format, Rule, Storage};
-use goodfetch_protocol::group::{LeadEpoch, StoredGroup};
+use goodfetch_protocol::group::{LeadEpoch, LeadEpochStaleDetails, StoredGroup};
 use goodfetch_protocol::home;
 use rcgen::SerialNumber;
 use rusqlite::types::Type;
@@ -206,6 +206,78 @@ pub(crate) async fn identity(
                         })
                 })
                 .transpose()
+        })
+        .await
+}
+
+/// A Group member recorded in the Lead Daemon's `members` table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Member {
+    /// Its Group member name.
+    pub(crate) name: String,
+    /// Where it listens for peer links.
+    pub(crate) peer_address: String,
+}
+
+/// Every Group member the Lead Daemon last knew, in name order.
+///
+/// # Errors
+///
+/// The store's.
+pub(crate) async fn members(store: &UserStore) -> Result<Vec<Member>, UserStoreError> {
+    store
+        .read(Vec::new(), |connection| {
+            connection
+                .prepare_cached("SELECT name, peer_address FROM members ORDER BY name")?
+                .query_map([], |row| {
+                    Ok(Member {
+                        name: row.get(0)?,
+                        peer_address: row.get(1)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .await
+}
+
+/// Durably admits `epoch` against the highest lead epoch recorded in `store`:
+/// refuses a lower epoch with [`LeadEpochStaleDetails`], raises the stored
+/// row when `epoch` is higher, and returns the highest recorded epoch.
+///
+/// # Errors
+///
+/// The store's, after which nothing changed.
+pub(crate) async fn admit_epoch(
+    store: &UserStore,
+    epoch: LeadEpoch,
+) -> Result<Result<LeadEpoch, LeadEpochStaleDetails>, UserStoreError> {
+    store
+        .write(move |connection| {
+            let current: Option<i64> = connection
+                .prepare_cached("SELECT highest FROM lead_epoch")?
+                .query_row([], |row| row.get(0))
+                .optional()?;
+            let current = match current {
+                Some(value) => LeadEpoch::new(u64::try_from(value).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
+                })?),
+                None => LeadEpoch::new(0),
+            };
+            if epoch < current {
+                return Ok(Err(LeadEpochStaleDetails {
+                    lead_epoch: epoch,
+                    highest_lead_epoch: current,
+                }));
+            }
+            if epoch > current {
+                connection
+                    .prepare_cached(
+                        "INSERT INTO lead_epoch (only, highest) VALUES (1, ?1)
+                         ON CONFLICT (only) DO UPDATE SET highest = excluded.highest",
+                    )?
+                    .execute([stored(epoch.get())?])?;
+            }
+            Ok(Ok(current.max(epoch)))
         })
         .await
 }

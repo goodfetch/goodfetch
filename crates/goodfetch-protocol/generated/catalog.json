@@ -716,6 +716,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_politeness_unshared",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
       "details": {
         "$ref": "#/$defs/HandlerFailedDetails"
@@ -893,6 +903,16 @@
       "name": "lead_epoch_stale",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs.",
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "lead_unconfirmed",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -4015,6 +4035,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/GroupJoined"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Reports whether this Lead Daemon has confirmed its lead epoch, and under `--confirm` confirms it by hand when no majority of its last-known Group members can be reached (ADR 0055). Hand confirmation warns that the former Lead Daemon must not restart with its lead configuration. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; one fenced off by a higher lead epoch with `lead_epoch_stale`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.lead",
+      "params": {
+        "$ref": "#/$defs/GroupLeadParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupLeadStatus"
       },
       "stability": "experimental"
     },

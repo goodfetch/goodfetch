@@ -18,8 +18,8 @@ use rstest::rstest;
 use secrecy::ExposeSecret;
 
 use super::{
-    Admission, Certified, Joining, Revocation, STORE, admit, authority, certified, form, identity,
-    is_in_a_group, joined, leave, record_token, revoke,
+    Admission, Certified, Joining, Member, Revocation, STORE, admit, admit_epoch, authority,
+    certified, form, identity, is_in_a_group, joined, leave, members, record_token, revoke,
 };
 use crate::group::identity::KeptIdentity;
 use crate::group::{
@@ -481,5 +481,58 @@ fn a_daemon_that_leaves_forgets_its_group() {
         assert!(authority(&store).await.unwrap().is_none());
         assert!(!leave(&store).await.unwrap());
         formed(&store).await;
+    });
+}
+
+/// Raising the lead epoch persists across reopening the store, and lower
+/// epochs are refused with the highest recorded.
+#[test]
+fn a_raised_lead_epoch_persists_and_refuses_lower_ones() {
+    let env = TestEnv::new();
+    let first = store(&env);
+    runtime().block_on(async {
+        formed(&first).await;
+        assert_eq!(
+            admit_epoch(&first, LeadEpoch::new(3)).await.unwrap(),
+            Ok(LeadEpoch::new(3))
+        );
+    });
+    drop(first);
+
+    let reopened = store(&env);
+    runtime().block_on(async {
+        assert_eq!(
+            identity(&reopened).await.unwrap().unwrap().1,
+            LeadEpoch::new(3)
+        );
+        let refused = admit_epoch(&reopened, LeadEpoch::new(2))
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(refused.lead_epoch, LeadEpoch::new(2));
+        assert_eq!(refused.highest_lead_epoch, LeadEpoch::new(3));
+    });
+}
+
+/// The Lead Daemon's `members` list carries every admitted member in order.
+#[test]
+fn members_lists_the_lead_and_admitted_group_members() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        with_worker(&store).await;
+        assert_eq!(
+            members(&store).await.unwrap(),
+            vec![
+                Member {
+                    name: "lead".to_owned(),
+                    peer_address: "127.0.0.1:7000".to_owned(),
+                },
+                Member {
+                    name: "worker".to_owned(),
+                    peer_address: "127.0.0.1:7001".to_owned(),
+                },
+            ]
+        );
     });
 }

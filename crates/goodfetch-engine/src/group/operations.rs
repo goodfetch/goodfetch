@@ -10,15 +10,17 @@
 
 use goodfetch_protocol::daemon::DaemonToken;
 use goodfetch_protocol::group::{
-    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAVE, GROUP_MEMBER_UNKNOWN, GROUP_REVOKE,
-    GROUP_TOKEN, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupLeaveParams,
-    GroupLeft, GroupMemberRevoked, GroupRevokeParams, GroupTokenParams, JoinTokenMinted,
-    LEAD_CANNOT_LEAVE, NOT_IN_A_GROUP, NOT_LEAD_DAEMON,
+    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAD, GROUP_LEAVE, GROUP_MEMBER_UNKNOWN,
+    GROUP_REVOKE, GROUP_TOKEN, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined,
+    GroupLeadParams, GroupLeadStatus, GroupLeaveParams, GroupLeft, GroupMemberRevoked,
+    GroupRevokeParams, GroupTokenParams, JoinTokenMinted, LEAD_CANNOT_LEAVE, LEAD_UNCONFIRMED,
+    LeadEpoch, NOT_IN_A_GROUP, NOT_LEAD_DAEMON,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use secrecy::ExposeSecret;
 
 use super::identity::{KeptIdentity, renew_at};
+use super::leadership::OPERATOR_CONFIRM_WARNING;
 use super::peering::{self, Asking};
 use super::store::Revocation;
 use super::{GroupAuthority, GroupMemberKey, GroupMemberName, JoinToken, store};
@@ -39,6 +41,7 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&GROUP_JOIN, join))
         .with_handler(Handler::new(&GROUP_LEAVE, leave))
         .with_handler(Handler::new(&GROUP_REVOKE, revoke))
+        .with_handler(Handler::new(&GROUP_LEAD, lead))
         .guarded(&kept_by_the_daemon())
 }
 
@@ -70,6 +73,7 @@ async fn init(params: GroupInitParams, context: CallContext) -> Result<GroupForm
         listener,
         &lead,
         lead_epoch,
+        vec![lead.name.clone()],
     )
     .map_err(|error| internal(&error))?;
     Ok(GroupFormed {
@@ -80,6 +84,9 @@ async fn init(params: GroupInitParams, context: CallContext) -> Result<GroupForm
 }
 
 async fn token(_: GroupTokenParams, context: CallContext) -> Result<JoinTokenMinted, CallError> {
+    if let Some(peering) = peering::running(context.engine()) {
+        let _ = peering.require_confirmed_lead()?;
+    }
     let store = store_of(&context);
     let kept = store::authority(&store)
         .await
@@ -164,6 +171,7 @@ async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoin
         listener,
         &member,
         admitted.lead_epoch,
+        Vec::new(),
     )
     .map_err(|error| internal(&error))?;
     Ok(GroupJoined {
@@ -200,14 +208,42 @@ async fn revoke(
     params: GroupRevokeParams,
     context: CallContext,
 ) -> Result<GroupMemberRevoked, CallError> {
+    let running = peering::running(context.engine());
+    if let Some(peering) = &running {
+        let _ = peering.require_confirmed_lead()?;
+    }
     let store = store_of(&context);
     let name = member_name(&params.name)?;
     let revocation = store::revoke(&store, params.name, context.engine().clock().wall())
         .await
         .map_err(|error| store_failed(&error))?;
+    let revocation_list = revoked(revocation, &name)?;
+    if let Some(peering) = running {
+        peering.on_member_removed(name.as_str());
+    }
     Ok(GroupMemberRevoked {
-        revocation_list: revoked(revocation, &name)?,
+        revocation_list,
         name: name.as_str().to_owned(),
+    })
+}
+
+async fn lead(params: GroupLeadParams, context: CallContext) -> Result<GroupLeadStatus, CallError> {
+    let Some(peering) = peering::running(context.engine()) else {
+        return Err(not_lead());
+    };
+    let snapshot = if params.confirm {
+        peering.confirm_by_operator()?
+    } else {
+        peering.lead_status()?
+    };
+    Ok(GroupLeadStatus {
+        name: peering.name().to_owned(),
+        lead_epoch: snapshot.lead_epoch,
+        confirmed: snapshot.confirmed,
+        confirmed_by_operator: snapshot.confirmed_by_operator,
+        warning: snapshot
+            .confirmed_by_operator
+            .then(|| OPERATOR_CONFIRM_WARNING.to_owned()),
     })
 }
 
@@ -303,6 +339,22 @@ pub(super) fn not_lead() -> CallError {
     CallError::new(
         &NOT_LEAD_DAEMON,
         "This Daemon is not a Daemon group's Lead Daemon; run `group token` on the Lead Daemon, or `group init` to form a group here.",
+        &(),
+    )
+}
+
+/// The refusal of a Lead Daemon that has not yet confirmed its lead epoch.
+pub(super) fn lead_unconfirmed(
+    lead_epoch: LeadEpoch,
+    confirmed_by: usize,
+    total_members: usize,
+) -> CallError {
+    CallError::new(
+        &LEAD_UNCONFIRMED,
+        format!(
+            "The Lead Daemon has not yet confirmed lead epoch {} ({confirmed_by} of {total_members} last-known Group members reached): wait for a majority, or run `group lead --confirm` once no other Lead Daemon runs.",
+            lead_epoch.get()
+        ),
         &(),
     )
 }

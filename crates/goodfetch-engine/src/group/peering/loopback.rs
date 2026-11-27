@@ -43,13 +43,17 @@ pub(super) fn identity() -> Identity {
     }
 }
 
-fn opened(env: &TestEnv) -> UserStore {
+pub(super) fn opened_store(env: &TestEnv) -> UserStore {
     UserStore::open(
         env.home().join("0.1").join(STORE.file()),
         &STORE,
         None,
         Arc::new(TaskOwner::root(BlockingPolicy::Inline)),
     )
+}
+
+fn opened(env: &TestEnv) -> UserStore {
+    opened_store(env)
 }
 
 pub(super) fn name(text: &str) -> GroupMemberName {
@@ -82,7 +86,17 @@ pub(super) async fn lead(clock: Clock, renew_at: SystemTime) -> Lead {
         .await
         .unwrap()
         .unwrap();
-    let peering = Arc::new(Peering::new(identity(), store.clone(), &kept, first, clock).unwrap());
+    let peering = Arc::new(
+        Peering::new(
+            identity(),
+            store.clone(),
+            &kept,
+            first,
+            vec!["lead".to_owned()],
+            clock,
+        )
+        .unwrap(),
+    );
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     owner.spawn(serve(
         listener,
@@ -100,9 +114,9 @@ pub(super) async fn lead(clock: Clock, renew_at: SystemTime) -> Lead {
 }
 
 impl Lead {
-    /// Admits the Group member `member` with a join token, the authority
-    /// having signed `certificate` for it.
-    pub(super) async fn admit(&self, member: &str, certificate: Certified) {
+    /// Admits the Group member `member` at `peer_address` with a join token,
+    /// the authority having signed `certificate` for it.
+    pub(super) async fn admit_at(&self, member: &str, peer_address: &str, certificate: Certified) {
         let token = JoinToken::mint(now()).unwrap();
         assert!(
             store::record_token(&self.store, &token, now())
@@ -111,13 +125,19 @@ impl Lead {
         );
         let joining = Joining {
             name: member.to_owned(),
-            peer_address: "127.0.0.1:7001".to_owned(),
+            peer_address: peer_address.to_owned(),
             certificate,
         };
         let admitted = store::admit(&self.store, token.token.expose_secret(), joining, now())
             .await
             .unwrap();
         assert_eq!(admitted, store::Admission::Admitted);
+    }
+
+    /// Admits the Group member `member` with a join token, the authority
+    /// having signed `certificate` for it.
+    pub(super) async fn admit(&self, member: &str, certificate: Certified) {
+        self.admit_at(member, "127.0.0.1:7001", certificate).await;
     }
 
     /// The identity of the Group member `member`, admitted, which renews
@@ -169,7 +189,15 @@ pub(super) async fn joined(kept: &KeptIdentity, clock: Clock) -> Member {
             .await
             .unwrap()
     );
-    let peering = Peering::new(identity(), store.clone(), kept, LeadEpoch::new(1), clock).unwrap();
+    let peering = Peering::new(
+        identity(),
+        store.clone(),
+        kept,
+        LeadEpoch::new(1),
+        Vec::new(),
+        clock,
+    )
+    .unwrap();
     Member {
         peering,
         store,

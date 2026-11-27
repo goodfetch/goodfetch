@@ -1607,6 +1607,7 @@ Commands:
   join    Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`
   leave   Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still
   revoke  Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`
+  lead    Reports whether this Lead Daemon has confirmed its lead epoch, and under `--confirm` confirms it by hand when no majority of its last-known Group members can be reached (ADR 0055). Hand confirmation warns that the former Lead Daemon must not restart with its lead configuration. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; one fenced off by a higher lead epoch with `lead_epoch_stale`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1674,6 +1675,19 @@ Usage: goodfetch-collie group revoke [OPTIONS] --name <NAME>
 
 Options:
       --name <NAME>   The Group member name to remove
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-collie group lead --help
+Reports whether this Lead Daemon has confirmed its lead epoch, and under `--confirm` confirms it by hand when no majority of its last-known Group members can be reached (ADR 0055). Hand confirmation warns that the former Lead Daemon must not restart with its lead configuration. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; one fenced off by a higher lead epoch with `lead_epoch_stale`
+
+Usage: goodfetch-collie group lead [OPTIONS]
+
+Options:
+      --confirm       Confirms this Lead Daemon's lead epoch by hand when no majority of its last-known Group members can be reached
       --json          Prints the result as JSON
       --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
       --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command

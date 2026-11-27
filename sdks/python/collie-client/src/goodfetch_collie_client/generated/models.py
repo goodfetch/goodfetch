@@ -1527,6 +1527,19 @@ class GroupJoinParams(BaseModel):
     """The join token `group token` minted on the Lead Daemon."""
 
 
+class GroupLeadParams(BaseModel):
+    """What `group.lead` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confirm: bool | None = False
+    """
+    Confirms this Lead Daemon's lead epoch by hand when no majority of its
+    last-known Group members can be reached.
+    """
+
+
 class GroupLeaveParams(BaseModel):
     """What `group.leave` takes: nothing."""
 
@@ -6982,6 +6995,27 @@ class GroupJoined(BaseModel):
     """The group's lead epoch."""
     peer_address: str
     """The `host:port` the peer listener took."""
+
+
+class GroupLeadStatus(BaseModel):
+    """What `group.lead` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    confirmed: bool
+    """Whether this Lead Daemon has confirmed its lead epoch and may act."""
+    confirmed_by_operator: bool
+    """
+    Whether an operator confirmed it with `--confirm` rather than a
+    majority of its last-known Group members.
+    """
+    lead_epoch: LeadEpoch
+    """The lead epoch this Lead Daemon leads at."""
+    name: str
+    """The Lead Daemon's Group member name."""
+    warning: str | None = None
+    """The warning ADR 0055 requires after hand confirmation."""
 
 
 class HelloParams(BaseModel):

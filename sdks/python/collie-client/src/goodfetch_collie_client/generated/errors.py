@@ -597,6 +597,14 @@ class GroupMemberUnknownError(RefusedError):
         super().__init__(message, code="group_member_unknown", group="refused", retryable=False, **fields)
 
 
+class GroupPolitenessUnsharedError(RefusedError):
+    """A Daemon group of more than one Group member requires a shared Politeness store (`politeness.store`), or `politeness.sharing: per_daemon` in its Operator policy to keep Politeness per Daemon."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_politeness_unshared", group="refused", retryable=False, **fields)
+
+
 class HeaderValueInvalidError(ProgramError):
     """A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value."""
 
@@ -647,6 +655,14 @@ class LeadEpochStaleError(RefusedError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="lead_epoch_stale", group="refused", retryable=False, **fields)
         self.typed_details = details_of(LeadEpochStaleDetails, self.details)
+
+
+class LeadUnconfirmedError(UnavailableError):
+    """The Lead Daemon has not yet confirmed its lead epoch with a majority of its last-known Group members: wait for a majority to come within reach, or confirm by hand with `group lead --confirm` once you have verified no other Lead Daemon runs."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_unconfirmed", group="unavailable", retryable=True, **fields)
 
 
 class LimitNotUnderstoodError(RefusedError):
@@ -1706,11 +1722,13 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "group_lead_unreachable": GroupLeadUnreachableError,
     "group_member_exists": GroupMemberExistsError,
     "group_member_unknown": GroupMemberUnknownError,
+    "group_politeness_unshared": GroupPolitenessUnsharedError,
     "header_value_invalid": HeaderValueInvalidError,
     "hook_failed": HookFailedError,
     "join_token_refused": JoinTokenRefusedError,
     "lead_cannot_leave": LeadCannotLeaveError,
     "lead_epoch_stale": LeadEpochStaleError,
+    "lead_unconfirmed": LeadUnconfirmedError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
     "limit_reached": LimitReachedError,

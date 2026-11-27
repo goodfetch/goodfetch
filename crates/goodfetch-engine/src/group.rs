@@ -30,6 +30,7 @@
 mod authority;
 mod identity;
 mod join_tokens;
+mod leadership;
 mod operations;
 mod peer_tls;
 mod peering;
@@ -42,6 +43,7 @@ pub use authority::{
     GroupMemberPublicKey, GroupMemberPublicKeyInvalid, RevocationList,
 };
 pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused};
+pub use leadership::{ExchangeOutcome, LeadRefusal, LeadSnapshot, Leadership};
 pub use operations::contribution;
 pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting, joining};
 pub(crate) use peering::resume;

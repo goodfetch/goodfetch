@@ -3180,6 +3180,7 @@ entries = [
   "events.subscribe",
   "group.init",
   "group.join",
+  "group.lead",
   "group.leave",
   "group.revoke",
   "group.token",

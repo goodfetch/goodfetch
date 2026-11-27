@@ -43,12 +43,14 @@ impl Peering {
         settled: ProtocolVersion,
         params: PeerLeaveParams,
     ) -> Result<PeerLeaveResult, CallError> {
-        let lead_epoch = self.admit_epoch(params.lead_epoch)?;
+        let lead_epoch = self.admit_epoch(params.lead_epoch).await?;
+        let _ = self.require_confirmed_lead()?;
         let name = presented_name(presented, &params.name)?;
         let revocation = store::revoke(&self.store, params.name, self.clock.wall())
             .await
             .map_err(|error| store_failed(&error))?;
         revoked(revocation, &name)?;
+        self.on_member_removed(name.as_str());
         Ok(PeerLeaveResult {
             protocol_version: settled,
             lead_epoch,

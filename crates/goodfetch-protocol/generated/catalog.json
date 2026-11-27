@@ -5427,6 +5427,25 @@
     },
     {
       "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.preview",
+      "params": {
+        "$ref": "#/$defs/SchedulePreviewParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SchedulePreview"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,

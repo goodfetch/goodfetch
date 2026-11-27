@@ -7,19 +7,23 @@
 //! each call to it, and only a Daemon, or an engine that cannot start one,
 //! such as a Linked engine, runs these handlers.
 
+use std::time::Duration;
+
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::deadline::Deadline;
 use goodfetch_engine::user_store::{UserStore, UserStoreError};
 use goodfetch_engine::{CallContext, CallError, Contribution, Handler, kept_by_the_daemon};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::schedule::{
-    SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST,
-    SCHEDULE_NOT_FOUND, SCHEDULE_STORE_ANSWER, SCHEDULE_TRIGGER_INVALID, ScheduleCreateParams,
-    ScheduleCreated, ScheduleDeleted, ScheduleExistsDetails, ScheduleGetParams, ScheduleId,
-    ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleNotFoundDetails, ScheduleParams,
-    ScheduleState,
+    DEFAULT_PREVIEW_COUNT, MAX_PREVIEW_COUNT, SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS,
+    SCHEDULE_GET, SCHEDULE_INFO, SCHEDULE_LIST, SCHEDULE_NOT_FOUND, SCHEDULE_PREVIEW,
+    SCHEDULE_STORE_ANSWER, SCHEDULE_TRIGGER_INVALID, ScheduleCreateParams, ScheduleCreated,
+    ScheduleDeleted, ScheduleExistsDetails, ScheduleGetParams, ScheduleId, ScheduleInfo,
+    ScheduleList, ScheduleListParams, ScheduleNotFoundDetails, ScheduleParams, SchedulePreview,
+    SchedulePreviewParams, ScheduleState,
 };
 use goodfetch_protocol::settings::TIMEOUT_WAIT;
+use jiff::tz::TimeZone;
 
 use crate::{definition, store, trigger};
 
@@ -32,6 +36,7 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&SCHEDULE_CREATE, create))
         .with_handler(Handler::new(&SCHEDULE_LIST, list))
         .with_handler(Handler::new(&SCHEDULE_GET, get))
+        .with_handler(Handler::new(&SCHEDULE_PREVIEW, preview))
         .with_handler(Handler::new(&SCHEDULE_INFO, info))
         .with_handler(Handler::new(&SCHEDULE_DELETE, delete))
         .guarded(&kept_by_the_daemon())
@@ -65,11 +70,12 @@ async fn create(
         creator: engine.person().to_owned(),
         created_at: clock.wall(),
     };
+    let jitter_ms = trigger::draw_jitter(0, || engine.draw_u64());
     let draws = engine.clone();
     let created = within(
         deadline.as_ref(),
         &clock,
-        store::create(&store_of(&context), schedule, move || {
+        store::create(&store_of(&context), schedule, jitter_ms, move || {
             store::made_store_id(draws.draw_u64(), draws.draw_u64())
         }),
     )
@@ -104,6 +110,40 @@ async fn list(params: ScheduleListParams, context: CallContext) -> Result<Schedu
 
 async fn get(params: ScheduleGetParams, context: CallContext) -> Result<ScheduleInfo, CallError> {
     read_one(params.id, params.timeout, &context).await
+}
+
+async fn preview(
+    params: SchedulePreviewParams,
+    context: CallContext,
+) -> Result<SchedulePreview, CallError> {
+    let _deadline = deadline(&context, params.timeout).await?;
+    let count = params.count.unwrap_or(DEFAULT_PREVIEW_COUNT);
+    if count > MAX_PREVIEW_COUNT {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            format!("`count` is {count}; ask for at most {MAX_PREVIEW_COUNT} Occurrences."),
+        ));
+    }
+    let parsed = trigger::parse(&params.trigger).map_err(|refused| {
+        CallError::new(&SCHEDULE_TRIGGER_INVALID, refused.message, &refused.details)
+    })?;
+    let engine = context.engine();
+    let time_zone = definition::time_zone(params.time_zone.as_deref(), engine.host_zone())
+        .map_err(|unknown| {
+            CallError::protocol(ProtocolFailure::InvalidParams, unknown.to_string())
+        })?;
+    let zone = TimeZone::get(&time_zone).expect("invariant: `definition::time_zone` validated it");
+    let after = params.after.unwrap_or_else(|| engine.clock().wall());
+    let count = usize::try_from(count).expect("invariant: count <= MAX_PREVIEW_COUNT");
+    let occurrences = trigger::occurrences(&parsed, &zone, after, Duration::ZERO, after, count)
+        .map_err(|refused| {
+            CallError::new(&SCHEDULE_TRIGGER_INVALID, refused.message, &refused.details)
+        })?;
+    Ok(SchedulePreview {
+        description: trigger::describe(&parsed),
+        time_zone,
+        occurrences,
+    })
 }
 
 async fn info(params: ScheduleParams, context: CallContext) -> Result<ScheduleInfo, CallError> {

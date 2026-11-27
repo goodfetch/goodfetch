@@ -4024,6 +4024,21 @@
       ],
       "type": "object"
     },
+    "CronTrigger": {
+      "additionalProperties": false,
+      "description": "A cron expression: five fields (minute, hour, day of month, month, day\nof week) plus optional seconds first, `L`, `W`, `#` and the\n`@daily`-style macros (ADR 0036).",
+      "properties": {
+        "cron": {
+          "arrived_in": "0.1",
+          "description": "The cron expression, such as `0 9 * * MON-FRI` or `@daily`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cron"
+      ],
+      "type": "object"
+    },
     "DaemonDrainingDetails": {
       "description": "What `daemon_draining` details.",
       "properties": {
@@ -13159,6 +13174,26 @@
         }
       ]
     },
+    "PreviewOccurrence": {
+      "description": "One previewed Occurrence of a trigger: its UTC instant and its local\ncivil date-time with offset in the preview's IANA time zone.",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/PointInTime",
+          "arrived_in": "0.1",
+          "description": "When the Occurrence falls, as a UTC instant."
+        },
+        "local": {
+          "arrived_in": "0.1",
+          "description": "The same instant written in the preview's IANA time zone with its\noffset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "local"
+      ],
+      "type": "object"
+    },
     "PrivateEndpoint": {
       "additionalProperties": false,
       "description": "An Attached engine's private endpoint (ADRs 0024 and 0031): where it\nlistens, a `0600` Unix socket on macOS and Linux or loopback TCP on\nWindows, and the `0600` file holding the token that each Connection's\n`hello` there carries, as a Daemon's does.",
@@ -18187,6 +18222,95 @@
       ],
       "type": "object"
     },
+    "SchedulePreview": {
+      "description": "What `schedule.preview` answers.",
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/TriggerDescription",
+          "arrived_in": "0.1",
+          "description": "The plain-words description of the trigger."
+        },
+        "occurrences": {
+          "arrived_in": "0.1",
+          "description": "The next occurrences strictly after `after` (or now), in order.",
+          "items": {
+            "$ref": "#/$defs/PreviewOccurrence"
+          },
+          "type": "array"
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone used.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "description",
+        "time_zone",
+        "occurrences"
+      ],
+      "type": "object"
+    },
+    "SchedulePreviewParams": {
+      "additionalProperties": false,
+      "description": "What `schedule.preview` takes: a trigger, an optional IANA time zone\n(the Daemon host's when absent), an optional instant after which\noccurrences are listed (now when absent) and how many to list (5 when\nabsent, at most 100).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PointInTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The instant strictly after which occurrences are listed; now when\nabsent."
+        },
+        "count": {
+          "arrived_in": "0.1",
+          "description": "How many occurrences to list; 5 when absent, at most 100.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "time_zone": {
+          "arrived_in": "0.1",
+          "description": "The IANA time zone, such as `Europe/Paris`; the Daemon host's when\nabsent, never \"local\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeout": {
+          "arrived_in": "0.1",
+          "description": "How long the call may take, in milliseconds, at least 1: absent for\n`timeout.wait`, `null` for none (ADR 0080).",
+          "format": "uint64",
+          "minimum": 0,
+          "setting": "timeout.wait",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trigger": {
+          "$ref": "#/$defs/ScheduleTrigger",
+          "arrived_in": "0.1",
+          "description": "The trigger to preview."
+        }
+      },
+      "required": [
+        "trigger"
+      ],
+      "type": "object"
+    },
     "ScheduleState": {
       "description": "Whether a Schedule fires.",
       "oneOf": [
@@ -18213,6 +18337,10 @@
     },
     "ScheduleTrigger": {
       "anyOf": [
+        {
+          "$ref": "#/$defs/CronTrigger",
+          "description": "A cron expression."
+        },
         {
           "$ref": "#/$defs/EveryTrigger",
           "description": "At a fixed interval."
@@ -20376,6 +20504,107 @@
         }
       ]
     },
+    "StructuredTriggerDescription": {
+      "description": "The structured form of a trigger's plain-words description, which a\nClient translates into its own locale (ADR 0073).",
+      "oneOf": [
+        {
+          "description": "A fixed-interval trigger: every `every` milliseconds from `anchor`.",
+          "properties": {
+            "anchor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PointInTime"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "arrived_in": "0.1",
+              "description": "The anchor instant, when the trigger names one."
+            },
+            "every": {
+              "arrived_in": "0.1",
+              "description": "The interval, in milliseconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "every",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "every"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A cron expression, split into its normalized fields and DST class.",
+          "properties": {
+            "day_of_month": {
+              "arrived_in": "0.1",
+              "description": "The day-of-month field.",
+              "type": "string"
+            },
+            "day_of_week": {
+              "arrived_in": "0.1",
+              "description": "The day-of-week field.",
+              "type": "string"
+            },
+            "expression": {
+              "arrived_in": "0.1",
+              "description": "The expression as given.",
+              "type": "string"
+            },
+            "fixed_time": {
+              "arrived_in": "0.1",
+              "description": "Whether DST treats this expression as fixed-time (runs once\nafter a spring gap and once in an autumn overlap) rather than\nwildcard or step (skips a gap and runs on both passes of an\noverlap).",
+              "type": "boolean"
+            },
+            "hours": {
+              "arrived_in": "0.1",
+              "description": "The hours field.",
+              "type": "string"
+            },
+            "kind": {
+              "const": "cron",
+              "type": "string"
+            },
+            "minutes": {
+              "arrived_in": "0.1",
+              "description": "The minutes field.",
+              "type": "string"
+            },
+            "month": {
+              "arrived_in": "0.1",
+              "description": "The month field.",
+              "type": "string"
+            },
+            "seconds": {
+              "arrived_in": "0.1",
+              "description": "The seconds field, when the expression named one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "expression",
+            "minutes",
+            "hours",
+            "day_of_month",
+            "month",
+            "day_of_week",
+            "fixed_time"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SubscriptionEnded": {
       "description": "What `events.subscribe` answers when its subscription ends without the\nClient cancelling it: the engine stopped.",
       "type": "object"
@@ -20857,6 +21086,26 @@
         "field",
         "text",
         "transform"
+      ],
+      "type": "object"
+    },
+    "TriggerDescription": {
+      "description": "The plain-words description of a trigger (ADR 0073): a structured form\na Client can render in its own locale, and the engine's English\nrendering.",
+      "properties": {
+        "english": {
+          "arrived_in": "0.1",
+          "description": "The trigger in plain English, such as `Every 15 minutes` or\n`At 09:00, Monday through Friday`.",
+          "type": "string"
+        },
+        "structured": {
+          "$ref": "#/$defs/StructuredTriggerDescription",
+          "arrived_in": "0.1",
+          "description": "The structured form of the trigger, for a Client's own translation."
+        }
+      },
+      "required": [
+        "structured",
+        "english"
       ],
       "type": "object"
     },
@@ -27579,6 +27828,25 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/ScheduleList"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": true,
+      "class": "read",
+      "deprecated": null,
+      "description": "Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "schedule.preview",
+      "params": {
+        "$ref": "#/$defs/SchedulePreviewParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/SchedulePreview"
       },
       "stability": "experimental"
     },

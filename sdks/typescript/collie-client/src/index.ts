@@ -36,6 +36,7 @@ export {
   Schedules,
   type CreatedSchedule,
   type ScheduleCallOptions,
+  type SchedulePreviewOptions,
   type ScheduleWriteOptions,
 } from "./schedules.ts";
 export { Response } from "./response.ts";

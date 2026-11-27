@@ -1,7 +1,9 @@
 use rstest::rstest;
 use serde_json::json;
 
-use super::{ScheduleDefinition, ScheduleId, ScheduleTarget, ScheduleTrigger};
+use super::{
+    ScheduleDefinition, ScheduleId, SchedulePreviewParams, ScheduleTarget, ScheduleTrigger,
+};
 
 #[rstest]
 #[case::one_letter("a")]
@@ -63,4 +65,30 @@ fn a_definition_reads_its_target_and_every_trigger_as_given() {
         serde_json::to_value(&definition).expect("written")["trigger"]["anchor"],
         json!("2026-11-25T09:00:00Z")
     );
+}
+
+#[test]
+fn a_definition_reads_a_cron_trigger_and_preview_params_round_trip() {
+    let definition: ScheduleDefinition = serde_json::from_value(json!({
+        "target": { "recipe": "./prices.recipe.ts" },
+        "trigger": { "cron": "0 9 * * MON-FRI" },
+        "time_zone": "Europe/Paris",
+    }))
+    .expect("cron definition");
+
+    assert!(matches!(
+        &definition.trigger,
+        ScheduleTrigger::Cron(cron) if cron.cron == "0 9 * * MON-FRI"
+    ));
+
+    let preview: SchedulePreviewParams = serde_json::from_value(json!({
+        "trigger": { "cron": "30 2 * * *" },
+        "time_zone": "Europe/Paris",
+        "after": "2026-03-29T00:00:00Z",
+        "count": 3,
+    }))
+    .expect("preview params");
+    assert_eq!(preview.time_zone.as_deref(), Some("Europe/Paris"));
+    assert!(preview.after.is_some());
+    assert_eq!(preview.count, Some(3));
 }

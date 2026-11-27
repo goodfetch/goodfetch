@@ -1870,7 +1870,7 @@ export type ScheduleTarget = RecipeTarget | RunTarget;
  * This interface was referenced by `CollieTypes`'s JSON-Schema
  * via the `definition` "ScheduleTrigger".
  */
-export type ScheduleTrigger = EveryTrigger;
+export type ScheduleTrigger = CronTrigger | EveryTrigger;
 /**
  * Whether a Schedule fires.
  *
@@ -1882,6 +1882,63 @@ export type ScheduleTrigger = EveryTrigger;
  * via the `definition` "ScheduleState".
  */
 export type ScheduleState = "on" | (string & {});
+/**
+ * The structured form of a trigger's plain-words description, which a
+ * Client translates into its own locale (ADR 0073).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "StructuredTriggerDescription".
+ */
+export type StructuredTriggerDescription =
+  | {
+      /**
+       * The anchor instant, when the trigger names one.
+       */
+      anchor?: PointInTime | null;
+      /**
+       * The interval, in milliseconds.
+       */
+      every: number;
+      kind: "every";
+    }
+  | {
+      /**
+       * The day-of-month field.
+       */
+      dayOfMonth: string;
+      /**
+       * The day-of-week field.
+       */
+      dayOfWeek: string;
+      /**
+       * The expression as given.
+       */
+      expression: string;
+      /**
+       * Whether DST treats this expression as fixed-time (runs once
+       * after a spring gap and once in an autumn overlap) rather than
+       * wildcard or step (skips a gap and runs on both passes of an
+       * overlap).
+       */
+      fixedTime: boolean;
+      /**
+       * The hours field.
+       */
+      hours: string;
+      kind: "cron";
+      /**
+       * The minutes field.
+       */
+      minutes: string;
+      /**
+       * The month field.
+       */
+      month: string;
+      /**
+       * The seconds field, when the expression named one.
+       */
+      seconds?: string | null;
+    };
 /**
  * Why a trigger does not parse.
  *
@@ -3451,6 +3508,20 @@ export interface CreditParams {
    * The streaming call's id.
    */
   id: RequestId;
+}
+/**
+ * A cron expression: five fields (minute, hour, day of month, month, day
+ * of week) plus optional seconds first, `L`, `W`, `#` and the
+ * `@daily`-style macros (ADR 0036).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "CronTrigger".
+ */
+export interface CronTrigger {
+  /**
+   * The cron expression, such as `0 9 * * MON-FRI` or `@daily`.
+   */
+  cron: string;
 }
 /**
  * What `daemon_draining` details.
@@ -7634,6 +7705,24 @@ export interface PressParams {
   locator: Locator;
 }
 /**
+ * One previewed Occurrence of a trigger: its UTC instant and its local
+ * civil date-time with offset in the preview's IANA time zone.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PreviewOccurrence".
+ */
+export interface PreviewOccurrence {
+  /**
+   * When the Occurrence falls, as a UTC instant.
+   */
+  at: PointInTime;
+  /**
+   * The same instant written in the preview's IANA time zone with its
+   * offset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.
+   */
+  local: string;
+}
+/**
  * What `protocol_version_unsupported` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9622,6 +9711,79 @@ export interface ScheduleParams {
    * `timeout.wait`, `null` for none (ADR 0080).
    */
   timeout?: number | null;
+}
+/**
+ * What `schedule.preview` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchedulePreview".
+ */
+export interface SchedulePreview {
+  /**
+   * The plain-words description of the trigger.
+   */
+  description: TriggerDescription;
+  /**
+   * The next occurrences strictly after `after` (or now), in order.
+   */
+  occurrences: PreviewOccurrence[];
+  /**
+   * The IANA time zone used.
+   */
+  timeZone: string;
+}
+/**
+ * The plain-words description of a trigger (ADR 0073): a structured form
+ * a Client can render in its own locale, and the engine's English
+ * rendering.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "TriggerDescription".
+ */
+export interface TriggerDescription {
+  /**
+   * The trigger in plain English, such as `Every 15 minutes` or
+   * `At 09:00, Monday through Friday`.
+   */
+  english: string;
+  /**
+   * The structured form of the trigger, for a Client's own translation.
+   */
+  structured: StructuredTriggerDescription;
+}
+/**
+ * What `schedule.preview` takes: a trigger, an optional IANA time zone
+ * (the Daemon host's when absent), an optional instant after which
+ * occurrences are listed (now when absent) and how many to list (5 when
+ * absent, at most 100).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SchedulePreviewParams".
+ */
+export interface SchedulePreviewParams {
+  /**
+   * The instant strictly after which occurrences are listed; now when
+   * absent.
+   */
+  after?: PointInTime | null;
+  /**
+   * How many occurrences to list; 5 when absent, at most 100.
+   */
+  count?: number | null;
+  /**
+   * The IANA time zone, such as `Europe/Paris`; the Daemon host's when
+   * absent, never "local".
+   */
+  timeZone?: string | null;
+  /**
+   * How long the call may take, in milliseconds, at least 1: absent for
+   * `timeout.wait`, `null` for none (ADR 0080).
+   */
+  timeout?: number | null;
+  /**
+   * The trigger to preview.
+   */
+  trigger: ScheduleTrigger;
 }
 /**
  * What `schedule_trigger_invalid` details.

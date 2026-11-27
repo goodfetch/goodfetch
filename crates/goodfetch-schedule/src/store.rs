@@ -51,7 +51,8 @@ const STATEMENTS: &[&str] = &[
         version INTEGER NOT NULL,
         state TEXT NOT NULL,
         creator TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        jitter_ms INTEGER NOT NULL DEFAULT 0
     ) STRICT",
 ];
 
@@ -67,9 +68,9 @@ pub(crate) static STORE: UserStoreKind = UserStoreKind::new(
 /// The columns a Schedule's row is read from, in [`schedule`]'s order.
 const COLUMNS: &str = "id, target, trigger, time_zone, version, state, creator, created_at";
 
-/// Records `schedule` unless the store holds a Schedule of its ID, the
-/// store's ID drawn by `store_id` first when it holds none yet, in one
-/// transaction: whether it recorded it.
+/// Records `schedule` with its fixed `jitter_ms` unless the store holds a
+/// Schedule of its ID, the store's ID drawn by `store_id` first when it
+/// holds none yet, in one transaction: whether it recorded it.
 ///
 /// # Errors
 ///
@@ -77,6 +78,7 @@ const COLUMNS: &str = "id, target, trigger, time_zone, version, state, creator, 
 pub(crate) async fn create(
     store: &UserStore,
     schedule: ScheduleInfo,
+    jitter_ms: u64,
     store_id: impl FnOnce() -> String + Send + 'static,
 ) -> Result<bool, UserStoreError> {
     store
@@ -92,11 +94,13 @@ pub(crate) async fn create(
             }
             let version = i64::try_from(schedule.version)
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+            let jitter = i64::try_from(jitter_ms)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
             let inserted = connection
                 .prepare_cached(
                     "INSERT INTO schedules
-                        (id, target, trigger, time_zone, version, state, creator, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                        (id, target, trigger, time_zone, version, state, creator, created_at, jitter_ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                      ON CONFLICT (id) DO NOTHING",
                 )?
                 .execute(params![
@@ -108,8 +112,38 @@ pub(crate) async fn create(
                     schedule.state.as_str(),
                     schedule.creator,
                     StoredTime(schedule.created_at),
+                    jitter,
                 ])?;
             Ok(inserted == 1)
+        })
+        .await
+}
+
+/// The stored fixed jitter offset of `id`, in milliseconds, if the store
+/// holds it.
+///
+/// # Errors
+///
+/// The store's, or a negative value in the row.
+#[cfg(test)]
+pub(crate) async fn jitter_ms(
+    store: &UserStore,
+    id: &ScheduleId,
+) -> Result<Option<u64>, UserStoreError> {
+    let id = id.as_str().to_owned();
+    store
+        .read(None, move |connection| {
+            let stored: Option<i64> = connection
+                .prepare_cached("SELECT jitter_ms FROM schedules WHERE id = ?1")?
+                .query_row([id], |row| row.get(0))
+                .optional()?;
+            stored
+                .map(|value| {
+                    u64::try_from(value).map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(0, Type::Integer, Box::new(error))
+                    })
+                })
+                .transpose()
         })
         .await
 }

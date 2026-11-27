@@ -251,7 +251,7 @@ impl StateMachineTest for Subject {
                 let draw = subject.draw();
                 let created = subject
                     .runtime
-                    .block_on(create(&store, schedule(IDS[id], every), draw))
+                    .block_on(create(&store, schedule(IDS[id], every), 0, draw))
                     .unwrap();
                 assert_eq!(
                     created,
@@ -280,7 +280,7 @@ impl StateMachineTest for Subject {
                 let vfs = &subject.vfs;
                 // Acknowledged or not, the model counts it uncertain.
                 let (_, ()) = subject.runtime.block_on(async {
-                    tokio::join!(create(&store, schedule(IDS[id], every), draw), async {
+                    tokio::join!(create(&store, schedule(IDS[id], every), 0, draw), async {
                         vfs.crash(kind);
                     })
                 });
@@ -308,7 +308,9 @@ impl StateMachineTest for Subject {
                     .iter()
                     .position(|id| *id == info.schedule_id.as_str())
                     .expect("an ID of the case");
-                let ScheduleTrigger::Every(every) = info.trigger;
+                let ScheduleTrigger::Every(every) = info.trigger else {
+                    panic!("model test creates Every triggers only");
+                };
                 (id, every.every)
             })
             .collect();

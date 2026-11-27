@@ -725,8 +725,45 @@ fn the_schedule_store_is_proved_against_collies_attached_engine_and_daemon(
                     "a-delete-answers-whether-it-deleted-the-schedule",
                     CaseOutcome::Passed
                 ),
+                (
+                    "a-preview-reads-both-dst-transitions-and-refuses-a-bad-trigger",
+                    CaseOutcome::Passed
+                ),
             ]
         ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
+/// Schedule occurrences depend only on each Schedule's stored time zone,
+/// never on the host's `TZ` or `LANG` (ADR 0073): under
+/// `TZ=Pacific/Chatham` and `LANG=tr_TR.UTF-8`, the Schedule suite still
+/// proves every case, both DST transitions in `Europe/Paris` included.
+///
+/// Covers: story:10-9, story:10-15, story:10-16, story:10-17, operation:schedule.preview
+#[test]
+fn the_schedule_suite_is_independent_of_the_hosts_time_zone_and_locale() {
+    let env = TestEnv::new()
+        .with_time_zone("Pacific/Chatham")
+        .unwrap()
+        .with_locale("tr-TR")
+        .unwrap();
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, EngineMode::Attached);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::schedule(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "schedule-collie-chatham-tr");
+
+    assert_eq!(
+        outcomes(&document),
+        vec![("schedule", Outcome::Proved)],
         "{}",
         serde_json::to_string_pretty(&document).unwrap()
     );

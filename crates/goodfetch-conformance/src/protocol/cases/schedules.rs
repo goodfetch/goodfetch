@@ -9,7 +9,7 @@
 
 use goodfetch_protocol::schedule::{
     SCHEDULE_CREATE, SCHEDULE_DELETE, SCHEDULE_EXISTS, SCHEDULE_GET, SCHEDULE_LIST,
-    SCHEDULE_NOT_FOUND,
+    SCHEDULE_NOT_FOUND, SCHEDULE_PREVIEW, SCHEDULE_TRIGGER_INVALID,
 };
 use serde_json::{Value, json};
 
@@ -23,6 +23,7 @@ pub(crate) enum Case {
     Get,
     List,
     Delete,
+    Preview,
 }
 
 impl Case {
@@ -33,6 +34,7 @@ impl Case {
             "a-get-reads-the-schedule-as-it-was-defined" => Self::Get,
             "a-list-holds-every-schedule-created" => Self::List,
             "a-delete-answers-whether-it-deleted-the-schedule" => Self::Delete,
+            "a-preview-reads-both-dst-transitions-and-refuses-a-bad-trigger" => Self::Preview,
             _ => return None,
         })
     }
@@ -44,6 +46,7 @@ impl Case {
             Self::Get => get(connection, checks),
             Self::List => list(connection, checks),
             Self::Delete => delete(connection, checks),
+            Self::Preview => preview(connection, checks),
         }
     }
 }
@@ -146,4 +149,121 @@ fn delete(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> 
         *code_of(&gone) == json!(SCHEDULE_NOT_FOUND.name),
     );
     Ok(())
+}
+
+fn preview(connection: &mut Connection, checks: &mut Checks) -> Result<(), Gone> {
+    // Spring DST gap in Europe/Paris (2026-03-29: 02:00..03:00 skipped).
+    let fixed_spring = answer_of(
+        connection,
+        SCHEDULE_PREVIEW.name,
+        &json!({
+            "trigger": { "cron": "30 2 * * *" },
+            "time_zone": "Europe/Paris",
+            "after": "2026-03-29T00:00:00Z",
+            "count": 2,
+        }),
+    )?;
+    let spring_ats: Vec<&str> = occurrence_ats(&fixed_spring);
+    checks.check(
+        "fixed-time cron in the spring DST gap fires once at the first valid instant after the gap",
+        spring_ats == ["2026-03-29T01:00:00Z", "2026-03-30T00:30:00Z"]
+            && fixed_spring["result"]["description"]["structured"]["fixed_time"] == json!(true)
+            && fixed_spring["result"]["description"]["english"]
+                .as_str()
+                .is_some_and(|text| !text.is_empty()),
+    );
+
+    let step_spring = answer_of(
+        connection,
+        SCHEDULE_PREVIEW.name,
+        &json!({
+            "trigger": { "cron": "*/30 * * * *" },
+            "time_zone": "Europe/Paris",
+            "after": "2026-03-29T00:45:00Z",
+            "count": 2,
+        }),
+    )?;
+    checks.check(
+        "step cron skips the spring DST gap",
+        occurrence_ats(&step_spring) == ["2026-03-29T01:00:00Z", "2026-03-29T01:30:00Z"],
+    );
+
+    // Autumn DST overlap in Europe/Paris (2026-10-25: 02:00..03:00 happens twice).
+    let fixed_autumn = answer_of(
+        connection,
+        SCHEDULE_PREVIEW.name,
+        &json!({
+            "trigger": { "cron": "30 2 * * *" },
+            "time_zone": "Europe/Paris",
+            "after": "2026-10-24T23:00:00Z",
+            "count": 2,
+        }),
+    )?;
+    checks.check(
+        "fixed-time cron fires once in the repeated autumn hour",
+        occurrence_ats(&fixed_autumn) == ["2026-10-25T00:30:00Z", "2026-10-26T01:30:00Z"],
+    );
+
+    let step_autumn = answer_of(
+        connection,
+        SCHEDULE_PREVIEW.name,
+        &json!({
+            "trigger": { "cron": "*/30 * * * *" },
+            "time_zone": "Europe/Paris",
+            "after": "2026-10-24T23:45:00Z",
+            "count": 4,
+        }),
+    )?;
+    checks.check(
+        "step cron fires on both passes of the repeated autumn hour",
+        occurrence_ats(&step_autumn)
+            == [
+                "2026-10-25T00:00:00Z",
+                "2026-10-25T00:30:00Z",
+                "2026-10-25T01:00:00Z",
+                "2026-10-25T01:30:00Z",
+            ],
+    );
+
+    let interval = answer_of(
+        connection,
+        SCHEDULE_PREVIEW.name,
+        &json!({
+            "trigger": { "every": 3_600_000, "anchor": "2026-03-29T00:15:00Z" },
+            "time_zone": "Europe/Paris",
+            "after": "2026-03-29T00:15:00Z",
+            "count": 2,
+        }),
+    )?;
+    checks.check(
+        "anchored interval counts elapsed time across DST",
+        occurrence_ats(&interval) == ["2026-03-29T01:15:00Z", "2026-03-29T02:15:00Z"],
+    );
+
+    let bad = answer_of(
+        connection,
+        SCHEDULE_PREVIEW.name,
+        &json!({
+            "trigger": { "cron": "*/0 * * * *" },
+            "time_zone": "Europe/Paris",
+        }),
+    )?;
+    checks.check(
+        "malformed cron fails with schedule_trigger_invalid naming expression, position and reason",
+        *code_of(&bad) == json!(SCHEDULE_TRIGGER_INVALID.name)
+            && bad["error"]["data"]["expression"] == json!("*/0 * * * *")
+            && bad["error"]["data"]["position"] == json!(1)
+            && bad["error"]["data"]["reason"] == json!("bad_step"),
+    );
+
+    Ok(())
+}
+
+fn occurrence_ats(answer: &Value) -> Vec<&str> {
+    answer["result"]["occurrences"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|occ| occ["at"].as_str())
+        .collect()
 }

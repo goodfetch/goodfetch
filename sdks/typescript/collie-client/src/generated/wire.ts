@@ -141,6 +141,7 @@ export type CollieWireType =
   | "PlanReport"
   | "PluginRun"
   | "PressParams"
+  | "PreviewOccurrence"
   | "PrivateEndpoint"
   | "ProtocolVersionUnsupportedDetails"
   | "ReachedLimit"
@@ -198,6 +199,8 @@ export type CollieWireType =
   | "ScheduleList"
   | "ScheduleNotFoundDetails"
   | "ScheduleParams"
+  | "SchedulePreview"
+  | "SchedulePreviewParams"
   | "ScheduleTrigger"
   | "SchemaValidatorFailedDetails"
   | "SessionOnParams"
@@ -212,12 +215,14 @@ export type CollieWireType =
   | "SigningKeyDirectory"
   | "SigningKeyDirectoryParams"
   | "StopReason"
+  | "StructuredTriggerDescription"
   | "SystemInfo"
   | "Table"
   | "ThinNotification"
   | "TierProvenance"
   | "TimeRange"
   | "TransformProvenance"
+  | "TriggerDescription"
   | "UncertainEffect"
   | "UsageListResult"
   | "UsageRaiseParams"
@@ -371,6 +376,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
+    "PreviewOccurrence": { fields: { "at": ["at", "time"] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
     "ReachedLimit": { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } },
@@ -428,6 +434,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ScheduleList": { fields: { "schedules": ["schedules", { items: { type: "ScheduleInfo" } }] } },
     "ScheduleNotFoundDetails": { fields: { "schedule_id": "scheduleId" } },
     "ScheduleParams": { fields: { "schedule_id": "scheduleId" } },
+    "SchedulePreview": { fields: { "description": ["description", { type: "TriggerDescription" }], "occurrences": ["occurrences", { items: { type: "PreviewOccurrence" } }], "time_zone": "timeZone" } },
+    "SchedulePreviewParams": { fields: { "after": ["after", "time"], "time_zone": "timeZone", "trigger": ["trigger", { type: "ScheduleTrigger" }] } },
     "ScheduleTrigger": { type: "EveryTrigger" },
     "SchemaValidatorFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_type": "exceptionType" } },
     "SessionOnParams": { fields: { "session_id": "sessionId" } },
@@ -442,12 +450,14 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
     "SigningKeyDirectoryParams": { fields: { "signing_keys": "signingKeys", "valid_for": "validFor" } },
     "StopReason": { union: { tag: "kind", known: ["abort", "pause", "migrate", "timeout", "drain", "limit", "limit_not_understood", "engine_lost", "engine_panicked", "resources"], path: { fields: { "period": ["period", { type: "Period" }], "resets_at": ["resetsAt", "time"], "usage_kind": "usageKind" } } } },
+    "StructuredTriggerDescription": { fields: { "anchor": ["anchor", "time"], "day_of_month": "dayOfMonth", "day_of_week": "dayOfWeek", "fixed_time": "fixedTime" } },
     "SystemInfo": { fields: { "concurrency": ["concurrency", { type: "Concurrency" }], "cpu": ["cpu", { type: "CpuReading" }], "last_resort": "lastResort", "memory": ["memory", { type: "MemoryReading" }], "pressure_source": "pressureSource" } },
     "Table": { fields: { "body_rows": "bodyRows", "header_rows": "headerRows" } },
     "ThinNotification": { fields: { "event_id": "eventId", "run_id": "runId", "schedule_id": "scheduleId" } },
     "TierProvenance": { fields: { "calls_sent_on": "callsSentOn", "forced_by": "forcedBy" } },
     "TimeRange": { fields: { "from": ["from", "time"], "until": ["until", "time"] } },
     "TransformProvenance": { fields: { "anchor": ["anchor", "time"], "time_zone": "timeZone" } },
+    "TriggerDescription": { fields: { "structured": ["structured", { type: "StructuredTriggerDescription" }] } },
     "UncertainEffect": { fields: { "crawl_request": "crawlRequest", "first_command": "firstCommand", "since": ["since", "time"] } },
     "UsageListResult": { fields: { "limits": ["limits", { items: { type: "LimitUsage" } }] } },
     "UsageRaiseParams": { fields: { "period": ["period", { type: "Period" }], "scope_id": "scopeId", "usage_kind": "usageKind" } },
@@ -534,6 +544,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "schedule.create": { type: "ScheduleCreateParams" },
     "schedule.delete": { type: "ScheduleParams" },
     "schedule.info": { type: "ScheduleParams" },
+    "schedule.preview": { type: "SchedulePreviewParams" },
     "session.close": { type: "SessionParams" },
     "session.new_page": { type: "NewSessionPageParams" },
     "session.on": { type: "SessionOnParams" },
@@ -591,6 +602,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "schedule.get": { type: "ScheduleInfo" },
     "schedule.info": { type: "ScheduleInfo" },
     "schedule.list": { type: "ScheduleList" },
+    "schedule.preview": { type: "SchedulePreview" },
     "session.new_page": { type: "PageOpened" },
     "signing_key.create": { type: "SigningKeyCreated" },
     "signing_key.directory": { type: "SigningKeyDirectory" },

@@ -164,8 +164,21 @@ pub struct RunTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ScheduleTrigger {
+    /// A cron expression.
+    Cron(CronTrigger),
     /// At a fixed interval.
     Every(EveryTrigger),
+}
+
+/// A cron expression: five fields (minute, hour, day of month, month, day
+/// of week) plus optional seconds first, `L`, `W`, `#` and the
+/// `@daily`-style macros (ADR 0036).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CronTrigger {
+    /// The cron expression, such as `0 9 * * MON-FRI` or `@daily`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cron: String,
 }
 
 /// A fixed interval: an occurrence every `every` milliseconds from the
@@ -185,6 +198,146 @@ pub struct EveryTrigger {
     )]
     #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
     pub anchor: Option<SystemTime>,
+}
+
+/// How many occurrences `schedule.preview` returns when `count` is absent.
+pub const DEFAULT_PREVIEW_COUNT: u32 = 5;
+
+/// The most occurrences one `schedule.preview` call may ask for, bounding
+/// per-call work (STYLE.md).
+pub const MAX_PREVIEW_COUNT: u32 = 100;
+
+/// The plain-words description of a trigger (ADR 0073): a structured form
+/// a Client can render in its own locale, and the engine's English
+/// rendering.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TriggerDescription {
+    /// The structured form of the trigger, for a Client's own translation.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub structured: StructuredTriggerDescription,
+    /// The trigger in plain English, such as `Every 15 minutes` or
+    /// `At 09:00, Monday through Friday`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub english: String,
+}
+
+/// The structured form of a trigger's plain-words description, which a
+/// Client translates into its own locale (ADR 0073).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StructuredTriggerDescription {
+    /// A fixed-interval trigger: every `every` milliseconds from `anchor`.
+    Every {
+        /// The interval, in milliseconds.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        every: u64,
+        /// The anchor instant, when the trigger names one.
+        #[serde(
+            with = "crate::point_in_time::nullable",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+        anchor: Option<SystemTime>,
+    },
+    /// A cron expression, split into its normalized fields and DST class.
+    Cron {
+        /// The expression as given.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        expression: String,
+        /// The seconds field, when the expression named one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        seconds: Option<String>,
+        /// The minutes field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        minutes: String,
+        /// The hours field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        hours: String,
+        /// The day-of-month field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        day_of_month: String,
+        /// The month field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        month: String,
+        /// The day-of-week field.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        day_of_week: String,
+        /// Whether DST treats this expression as fixed-time (runs once
+        /// after a spring gap and once in an autumn overlap) rather than
+        /// wildcard or step (skips a gap and runs on both passes of an
+        /// overlap).
+        #[schemars(extend("arrived_in" = "0.1"))]
+        fixed_time: bool,
+    },
+}
+
+/// One previewed Occurrence of a trigger: its UTC instant and its local
+/// civil date-time with offset in the preview's IANA time zone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PreviewOccurrence {
+    /// When the Occurrence falls, as a UTC instant.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub at: SystemTime,
+    /// The same instant written in the preview's IANA time zone with its
+    /// offset, such as `2026-03-29T03:00:00+02:00[Europe/Paris]`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub local: String,
+}
+
+/// What `schedule.preview` takes: a trigger, an optional IANA time zone
+/// (the Daemon host's when absent), an optional instant after which
+/// occurrences are listed (now when absent) and how many to list (5 when
+/// absent, at most 100).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SchedulePreviewParams {
+    /// The trigger to preview.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub trigger: ScheduleTrigger,
+    /// The IANA time zone, such as `Europe/Paris`; the Daemon host's when
+    /// absent, never "local".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time_zone: Option<String>,
+    /// The instant strictly after which occurrences are listed; now when
+    /// absent.
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub after: Option<SystemTime>,
+    /// How many occurrences to list; 5 when absent, at most 100.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub count: Option<u32>,
+    /// How long the call may take, in milliseconds, at least 1: absent for
+    /// `timeout.wait`, `null` for none (ADR 0080).
+    #[serde(
+        default,
+        deserialize_with = "crate::settings::present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(extend("arrived_in" = "0.1", "setting" = "timeout.wait"))]
+    pub timeout: Option<Option<u64>>,
+}
+
+/// What `schedule.preview` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SchedulePreview {
+    /// The plain-words description of the trigger.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub description: TriggerDescription,
+    /// The IANA time zone used.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub time_zone: String,
+    /// The next occurrences strictly after `after` (or now), in order.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub occurrences: Vec<PreviewOccurrence>,
 }
 
 /// What a Schedule is, as a program writes it.
@@ -509,6 +662,24 @@ pub const SCHEDULE_GET: Operation = Operation {
     arrived_in: ARRIVED_IN,
 };
 
+/// `schedule.preview`.
+pub const SCHEDULE_PREVIEW: Operation = Operation {
+    name: "schedule.preview",
+    description: "Describes a Schedule's trigger in plain words and lists its next Occurrences in a time zone strictly after `after` (now when absent; 5 by default, at most 100), including DST transitions. A trigger that does not parse fails with `schedule_trigger_invalid`.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SchedulePreviewParams>,
+    result: schema_of::<SchedulePreview>,
+    events: &[],
+    cancellable: true,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `schedule.info`.
 pub const SCHEDULE_INFO: Operation = Operation {
     name: "schedule.info",
@@ -552,6 +723,7 @@ pub const ENTRIES: Entries = Entries {
         SCHEDULE_CREATE,
         SCHEDULE_LIST,
         SCHEDULE_GET,
+        SCHEDULE_PREVIEW,
         SCHEDULE_INFO,
         SCHEDULE_DELETE,
     ],

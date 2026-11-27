@@ -1050,6 +1050,17 @@
       ]
     },
     {
+      "id": "command:schedule.preview",
+      "kind": "command",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:session.close",
       "kind": "command",
       "area": 11,
@@ -4945,6 +4956,17 @@
     },
     {
       "id": "operation:schedule.list",
+      "kind": "operation",
+      "area": 10,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:schedule.preview",
       "kind": "operation",
       "area": 10,
       "milestone": null,

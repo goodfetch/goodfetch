@@ -425,6 +425,14 @@ impl ClientConnection {
         )
     }
 
+    /// Opens a bidirectional streaming call of `method` with `params` (such as
+    /// Foxhound's `run.add_seeds`), letting the caller observe incoming
+    /// notifications (`$/credit`, `$/enqueued`) and send notifications
+    /// (`$/seeds`) until the call answers.
+    pub fn feed(&self, method: &str, params: &impl Serialize) -> crate::Feed {
+        crate::Feed::open(self.sender(), method, typed_params(method, params))
+    }
+
     /// Fails unless the calling process opened the Connection, as each
     /// use of it does: a Product crate's connection checks it before it
     /// waits on tasks of its own.

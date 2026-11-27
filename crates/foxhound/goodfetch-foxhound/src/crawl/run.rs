@@ -12,6 +12,7 @@ use goodfetch_collie_client::{
     Answer, BoxError, Call, ClientConnection, Error, EventStream, HandlerCall, Reply, Run,
 };
 use goodfetch_protocol::foxhound::export::ExportFormat;
+use goodfetch_protocol::foxhound::frontier::Enqueued;
 use goodfetch_protocol::foxhound::progress::CrawlRunProgress;
 use goodfetch_protocol::foxhound::report::CrawlRunReport;
 use goodfetch_protocol::run::{
@@ -22,8 +23,9 @@ use serde_json::Value;
 use super::export::ExportDataset;
 use super::outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
 use super::records::{Reach, ReadRecords, ReadRejectedRecords};
+use super::seeds::{AddSeed, AddSeeds};
 use super::{
-    CrawlContext, CrawlId, Dataset, Delivered, Forget, answer, delivered, params_unread, sent,
+    CrawlContext, CrawlId, Dataset, Delivered, Forget, Seed, answer, delivered, params_unread, sent,
 };
 use crate::crawl_requests::CrawlRequests;
 use crate::sync::Mutex;
@@ -38,12 +40,112 @@ pub struct CrawlRun {
     /// The crawl that started the Run, whose Labels its requests name.
     pub(super) crawl: CrawlId,
     pub(super) declared: Arc<[String]>,
+    /// Each seed's original answer from `crawl.start`, read without a round trip.
+    pub(super) seeds: Arc<[Enqueued]>,
 }
 
 impl CrawlRun {
     /// The Run's ID.
     pub fn id(&self) -> &RunId {
         self.run.id()
+    }
+
+    /// Lists each seed's answer, in the order the crawl's start gave them, as
+    /// the Frontier answered it when the Run began: added, with its crawl
+    /// request's ID and its URL as parsed, or not added, with its reason
+    /// (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+    /// cap's name). A relative seed is `invalid_url`, since nothing gives it a
+    /// base. So a crawl that does nothing says why. Read from the Run's
+    /// committed state, so it works on a Run no program holds.
+    ///
+    /// Read from `crawl.start`'s answer with no round trip, including after a
+    /// resume (ADR 0102).
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn seeds(&self) -> &[Enqueued] {
+        &self.seeds
+    }
+
+    /// Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+    /// as soon as the Run state accepts it (written with the next Run-state
+    /// batch at the default durability, or committed before answering at
+    /// `full`), and answers as an enqueue does: added, with its crawl request's
+    /// ID and its URL as parsed, or not added, with its reason (`duplicate`,
+    /// `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+    /// `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+    /// Through a handler's context, naming its `attempt`, it is staged with
+    /// that attempt: once the attempt ended it fails with `attempt_ended`. A
+    /// Run this engine does not run as a live crawl, or a crawl already ending
+    /// its Run, fails with `run_not_found`.
+    ///
+    /// The seed carries the Label's typed Payload (`Seed::new` refuses a wrong
+    /// Payload type or a Payload on a `Label<()>` at compile time, ADR 0082):
+    ///
+    /// ```compile_fail
+    /// use goodfetch_foxhound::{Crawl, CrawlRun, Seed};
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Shelf { number: u32 }
+    ///
+    /// fn wrong_payload(run: &CrawlRun, crawl: &mut Crawl<'_>) {
+    ///     let shelf = crawl.label::<Shelf>("shelf").unwrap();
+    ///     let _ = run.add_seed(Seed::new("https://shop.test/shelf/1", &shelf, ()));
+    /// }
+    /// ```
+    ///
+    /// ```compile_fail
+    /// use goodfetch_foxhound::{Crawl, CrawlRun, Seed};
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Shelf { number: u32 }
+    ///
+    /// fn payload_on_unit_label(run: &CrawlRun, crawl: &mut Crawl<'_>) {
+    ///     let page = crawl.label::<()>("page").unwrap();
+    ///     let _ = run.add_seed(Seed::new("https://shop.test/", &page, Shelf { number: 1 }));
+    /// }
+    /// ```
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seed(&self, seed: Seed) -> AddSeed {
+        AddSeed::new(
+            self.connection.clone(),
+            self.id().clone(),
+            self.crawl,
+            &self.declared,
+            seed,
+            None,
+        )
+    }
+
+    /// Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+    /// each as `run.add_seed` does, in order, so a million seeds never sit in
+    /// memory. The engine grants the call 256 credits with `$/credit`, one seed
+    /// each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+    /// never more than its credits, and the engine admits each batch (staged
+    /// with `attempt` when named, or written with the next Run-state batch at
+    /// default durability), sends its answers in one `$/enqueued {id, answers}`
+    /// and grants as many credits again. Once it answered the batch marked
+    /// `end`, the call answers how many seeds were added and how many were not.
+    /// Cancelling it keeps the seeds already answered. A batch beyond the
+    /// credits granted, or a seed that is no seed, fails the call with
+    /// `invalid_params`; a Run this engine does not run as a live crawl, or a
+    /// crawl already ending its Run, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seeds<S>(&self, seeds: S) -> AddSeeds
+    where
+        S: Stream<Item = Seed> + Send + 'static,
+    {
+        AddSeeds::new(
+            self.connection.clone(),
+            self.id().clone(),
+            self.crawl,
+            Arc::clone(&self.declared),
+            seeds,
+            None,
+        )
     }
 
     /// Answers whether the start that opened the Run's handle began the Run,

@@ -26,6 +26,7 @@ from goodfetch_collie_client.generated.models import (
     PageResponse,
     PlanReport,
     PluginRun,
+    Product,
     ProgressMessage,
     ProjectSettings,
     RecordingReport,
@@ -40,6 +41,7 @@ from goodfetch_collie_client.generated.models import (
     SampleEchoed,
     SessionId,
     SettingLimit,
+    StartedAs,
     StopReason,
     Tags,
     UncertainEffect,
@@ -1642,20 +1644,6 @@ class RobotsTxtMark(StrEnum):
     """
 
 
-class RunAddSeedsParams(BaseModel):
-    """
-    What `run.add_seeds` takes: the running crawl its Client streams seeds
-    to.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-    )
-    run_id: RunId
-    """The crawl's Run."""
-
-
 class RunExportParams(BaseModel):
     """What `run.export` takes."""
 
@@ -2687,6 +2675,32 @@ class CrawlRunProgress(RunProgress):
     """Whether an engine works it."""
 
 
+class CrawlStarted(BaseModel):
+    """
+    What `crawl.start` answers: the Run it started or reopened, and each
+    seed's original answer in order, so `run.seeds()` answers with no round
+    trip, including after a resume (ADR 0102).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    lifecycle: Lifecycle
+    """Where it is now."""
+    needs: Product
+    """
+    The Product it needs (ADR 0098): Collie until it uses an entry the
+    catalog marks Foxhound's, Foxhound from then on.
+    """
+    run_id: RunId
+    """The Run's ID."""
+    seeds: list[Enqueued] | None = None
+    """Each seed's original answer in order, as `run.seeds` answers."""
+    started_as: StartedAs
+    """Whether the start began it."""
+
+
 class DatasetList(BaseModel):
     """What `dataset.list` answers."""
 
@@ -2940,6 +2954,26 @@ class RecordSort(BaseModel):
     """Its direction."""
     field: str
     """The field's name."""
+
+
+class RunAddSeedsParams(BaseModel):
+    """
+    What `run.add_seeds` takes: the running crawl its Client streams seeds
+    to.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    attempt: SeedAttempt | None = None
+    """
+    The attempt that adds them, when a handler streams seeds through its
+    context's `run`; absent, the program streams them from outside any
+    attempt.
+    """
+    run_id: RunId
+    """The crawl's Run."""
 
 
 class Seed(RootModel[RequestSeed | SitemapSeed]):

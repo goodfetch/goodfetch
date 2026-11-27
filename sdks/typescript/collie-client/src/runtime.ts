@@ -47,6 +47,7 @@ export { collieOperationClasses, collieOperationNames } from "./generated/operat
 export { collieWire, type CollieWireType } from "./generated/wire.ts";
 export {
   fromWire,
+  toWire,
   type Wire,
   type WireField,
   type WirePath,

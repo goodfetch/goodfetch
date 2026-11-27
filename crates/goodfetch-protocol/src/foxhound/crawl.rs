@@ -24,7 +24,7 @@ use crate::catalog::{
 use crate::foxhound::dataset::{DatasetDeclaration, RecordData};
 use crate::foxhound::declaration::CrawlDeclaration;
 use crate::foxhound::fetch::FetchTier;
-use crate::foxhound::frontier::{HttpBody, HttpMethod};
+use crate::foxhound::frontier::{Enqueued, HttpBody, HttpMethod};
 use crate::foxhound::hook::CrawlHookDeclaration;
 use crate::foxhound::report::CrawlRunReport;
 use crate::foxhound::session_pool::ServingSession;
@@ -566,6 +566,20 @@ pub struct CrawlRequestHandled {
     pub skipped: Option<HandlerSkip>,
 }
 
+/// What `crawl.start` answers: the Run it started or reopened, and each
+/// seed's original answer in order, so `run.seeds()` answers with no round
+/// trip, including after a resume (ADR 0102).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CrawlStarted {
+    /// What every Run's start answers.
+    #[serde(flatten)]
+    pub started: RunStarted,
+    /// Each seed's original answer in order, as `run.seeds` answers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub seeds: Vec<Enqueued>,
+}
+
 /// `crawl.start`.
 pub const CRAWL_START: Operation = Operation {
     name: "crawl.start",
@@ -574,7 +588,7 @@ pub const CRAWL_START: Operation = Operation {
     kind: OperationKind::Opener,
     reach: Reach::AllSurfaces,
     params: schema_of::<CrawlStartParams>,
-    result: schema_of::<RunStarted>,
+    result: schema_of::<CrawlStarted>,
     events: &[],
     cancellable: false,
     input: None,

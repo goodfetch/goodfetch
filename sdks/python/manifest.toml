@@ -3627,13 +3627,89 @@ reason = "A handler process of `workers=N` offers its handler with it (ADR 0024)
 entries = ["crawl_request.links"]
 reason = "What `enqueue_links` sends itself, before `crawl_request.enqueue_links`, when it is given a Payload function: the function reads each link it answers, so it has no member of its own."
 
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncAttemptRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "add_seed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AttemptRun"
+member = "add_seeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
-
-[[unreached]]
-entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
-reason = "Issue 1494 adds `seeds`, `add_seed` and `add_seeds` to a running crawl."
 
 [[logger]]
 package = "goodfetch-collie-client"

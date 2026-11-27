@@ -30,6 +30,7 @@ from typing import (
     TypeVar,
     cast,
     final,
+    overload,
 )
 
 import anyio
@@ -41,6 +42,7 @@ from goodfetch_collie_client.generated.handles import AsyncPage, Page, Session
 from goodfetch_collie_client.generated.models import (
     RunFinishParams,
     RunParams,
+    RunStarted,
     RunStopParams,
 )
 from goodfetch_collie_client.goodfetch_error import GoodfetchError
@@ -64,6 +66,7 @@ from goodfetch_foxhound.crawl import (
     DatasetRecord,
     HandlerAttempt,
     Label,
+    build_seed_for_crawl,
     check_startable,
     crawl_declaration,
     handler_of,
@@ -84,6 +87,7 @@ from goodfetch_foxhound.generated.models import (
     DatasetList,
     DatasetListParams,
     DatasetPageParams,
+    Enqueued,
     ExportCompression,
     ExportFormat,
     FailedRequests,
@@ -93,11 +97,14 @@ from goodfetch_foxhound.generated.models import (
     RejectedRecord,
     RejectedRecords,
     RetriedFailed,
+    RunAddSeedParams,
+    RunAddSeedsParams,
     RunExportParams,
     RunFailedRequestsParams,
     RunOutcomesParams,
     RunRejectedRecordsParams,
     RunRetryFailedParams,
+    SeedAttempt,
 )
 from goodfetch_foxhound.generated.models import (
     Export as WireExport,
@@ -108,9 +115,10 @@ from goodfetch_foxhound.generated.operations import (
     AsyncFoxhoundOperations,
     FoxhoundOperations,
 )
+from goodfetch_foxhound.seed_stream import SeedStreamReading
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterable
+    from collections.abc import AsyncIterable, Awaitable, Callable, Iterable, Mapping
     from datetime import timedelta
 
     from goodfetch_collie_client.connection import ClientConnection
@@ -118,10 +126,10 @@ if TYPE_CHECKING:
         KeyValueStoreAttempt,
         PageId,
         RunId,
-        RunStarted,
         SessionId,
     )
     from goodfetch_collie_client.handle import HandleHost
+    from goodfetch_collie_client.json_values import JSONObject
     from goodfetch_collie_client.key_value_store import KeyValueStore
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.portal import PrivateLoop
@@ -152,6 +160,9 @@ RECORD = "$/record"
 
 R = TypeVar("R")
 """What a Dataset's Records read as."""
+
+M = TypeVar("M", bound=BaseModel)
+"""What a Pydantic Payload model types as."""
 
 _Item = TypeVar("_Item")
 """What a read hands the program, one at a time."""
@@ -210,6 +221,7 @@ class AsyncCrawlRun(AsyncRun):
         crawl: AsyncCrawl | Crawl | None,
         crawls: CrawlRuns,
         *,
+        seeds: list[Enqueued] | None = None,
         detached: bool = False,
     ) -> None:
         """Takes its Connection, its start's answer, its crawl and the crawls' Runs.
@@ -221,9 +233,167 @@ class AsyncCrawlRun(AsyncRun):
         self._client = connection
         self._crawl = crawl
         self._crawls = crawls
+        self._seeds: list[Enqueued] = list(seeds or [])
         self._attempts: set[_Attempt] = set()
         self._stopping = False
         crawls.hold(self, self._handle)
+
+    def seeds(self) -> list[Enqueued]:
+        """Each seed's original answer in order, with no round trip (ADR 0102).
+
+        Lists each seed's answer, in the order the crawl's start gave them, as
+        the Frontier answered it when the Run began: added, with its crawl
+        request's ID and its URL as parsed, or not added, with its reason
+        (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+        cap's name). A relative seed is `invalid_url`, since nothing gives it a
+        base. So a crawl that does nothing says why. Read from the Run's
+        committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return list(self._seeds)
+
+    @overload
+    async def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[None] | str,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    async def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    async def add_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None = None,
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds one seed to the running crawl (`run.add_seed`, ADR 0102).
+
+        Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+        as soon as the Run state accepts it (written with the next Run-state
+        batch at the default durability, or committed before answering at
+        `full`), and answers as an enqueue does: added, with its crawl request's
+        ID and its URL as parsed, or not added, with its reason (`duplicate`,
+        `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+        `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+        Through a handler's context, naming its `attempt`, it is staged with
+        that attempt: once the attempt ended it fails with `attempt_ended`. A
+        Run this engine does not run as a live crawl, or a crawl already ending
+        its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        candidate = build_seed_for_crawl(
+            self._crawl,
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+        return await self._add_seed(candidate, attempt=None)
+
+    def add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+    ) -> AsyncSequence[Enqueued]:
+        """Streams seeds to the running crawl (`run.add_seeds`, ADRs 0024 and 0102).
+
+        Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+        each as `run.add_seed` does, in order, so a million seeds never sit in
+        memory. The engine grants the call 256 credits with `$/credit`, one seed
+        each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+        never more than its credits, and the engine admits each batch (staged
+        with `attempt` when named, or written with the next Run-state batch at
+        default durability), sends its answers in one `$/enqueued {id, answers}`
+        and grants as many credits again. Once it answered the batch marked
+        `end`, the call answers how many seeds were added and how many were not.
+        Cancelling it keeps the seeds already answered. A batch beyond the
+        credits granted, or a seed that is no seed, fails the call with
+        `invalid_params`; a Run this engine does not run as a live crawl, or a
+        crawl already ending its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._add_seeds(seeds, attempt=None)
+
+    async def _add_seed(
+        self, candidate: RequestSeed | SitemapSeed, *, attempt: SeedAttempt | None
+    ) -> Enqueued:
+        warn_entry("run.add_seed", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {"run_id": self._host.id, "seed": _wire(candidate)}
+        if attempt is not None:
+            fields["attempt"] = _wire(attempt)
+        params = RunAddSeedParams.model_validate(fields)
+        answer = await self._host.call("run.add_seed", params)
+        return result_of(Enqueued, answer)
+
+    def _add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+        *,
+        attempt: SeedAttempt | None,
+    ) -> AsyncSequence[Enqueued]:
+        warn_entry("run.add_seeds", EXPERIMENTAL_OPERATIONS, DEPRECATED_OPERATIONS)
+        fields: dict[str, object] = {"run_id": self._host.id}
+        if attempt is not None:
+            fields["attempt"] = _wire(attempt)
+        params = RunAddSeedsParams.model_validate(fields)
+        crawl = self._crawl
+        return self._open_sequence(
+            "run.add_seeds",
+            lambda connection, order: SeedStreamReading(
+                connection, params, crawl, seeds, order
+            ),
+        )
 
     def records(
         self, dataset: Dataset[R], *, after: int | None = None
@@ -775,13 +945,16 @@ class AsyncCrawlRun(AsyncRun):
         crawl_request = self._request_of(crawl, request)
         lease = self._lease_of(crawl, request)
         page_id = request.page_id
+        seed_attempt = SeedAttempt(
+            crawl_request_id=lease.crawl_request_id, lease_epoch=lease.lease_epoch
+        )
         if not isinstance(crawl, Crawl):
             page = (
                 None if page_id is None else self._page_of(page_id, request.session.id)
             )
             operations = AsyncFoxhoundOperations(self._host)
             store = self._attempt_key_value_store(lease.key_value_store_attempt())
-            run = AsyncAttemptRun(self.id, store, _AttemptReads(self))
+            run = AsyncAttemptRun(self.id, store, _AttemptReads(self, seed_attempt))
             context = AsyncCrawlContext(crawl_request, lease, run, operations, page)
             await cast("Callable[[AsyncCrawlContext[Any]], Awaitable[None]]", handler)(
                 context
@@ -797,7 +970,7 @@ class AsyncCrawlRun(AsyncRun):
         sync_run = AttemptRun(
             self.id,
             threaded.key_value_store(lease.key_value_store_attempt()),
-            _ThreadedReads(threaded.loop, _AttemptReads(self)),
+            _ThreadedReads(threaded.loop, _AttemptReads(self, seed_attempt)),
         )
         sync_context = CrawlContext(
             crawl_request,
@@ -880,6 +1053,139 @@ class CrawlRun(Run):
         _threaded[run] = _Threaded(
             loop, self._host, self._sessions, self._attempt_key_value_store
         )
+
+    def seeds(self) -> list[Enqueued]:
+        """Each seed's original answer in order, with no round trip (ADR 0102).
+
+        Lists each seed's answer, in the order the crawl's start gave them, as
+        the Frontier answered it when the Run began: added, with its crawl
+        request's ID and its URL as parsed, or not added, with its reason
+        (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+        cap's name). A relative seed is `invalid_url`, since nothing gives it a
+        base. So a crawl that does nothing says why. Read from the Run's
+        committed state, so it works on a Run no program holds.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        return self._crawl_run.seeds()
+
+    @overload
+    def add_seed(self, seed_or_url: RequestSeed | SitemapSeed) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[None] | str,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[M],
+        payload: M,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    @overload
+    def add_seed(
+        self,
+        seed_or_url: str,
+        label: Label[JSONObject],
+        payload: JSONObject,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued: ...
+    def add_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None = None,
+        payload: object = None,
+        *,
+        method: str | None = None,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        priority: int | None = None,
+        forefront: bool | None = None,
+        key: str | None = None,
+    ) -> Enqueued:
+        """Adds one seed to the running crawl (`run.add_seed`), as the async Run's.
+
+        Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+        as soon as the Run state accepts it (written with the next Run-state
+        batch at the default durability, or committed before answering at
+        `full`), and answers as an enqueue does: added, with its crawl request's
+        ID and its URL as parsed, or not added, with its reason (`duplicate`,
+        `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+        `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+        Through a handler's context, naming its `attempt`, it is staged with
+        that attempt: once the attempt ended it fails with `attempt_ended`. A
+        Run this engine does not run as a live crawl, or a crawl already ending
+        its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        run = self._crawl_run
+        candidate = build_seed_for_crawl(
+            run._crawl,  # pyright: ignore[reportPrivateUsage]
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+        try:
+            return self._loop.call(lambda: run._add_seed(candidate, attempt=None))  # pyright: ignore[reportPrivateUsage]
+        except LoopStopped:
+            raise closed_error("run.add_seed") from None
+
+    def add_seeds(
+        self, seeds: Iterable[RequestSeed | SitemapSeed]
+    ) -> Sequence[Enqueued]:
+        """Streams seeds to the running crawl (`run.add_seeds`), as the async Run's.
+
+        Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+        each as `run.add_seed` does, in order, so a million seeds never sit in
+        memory. The engine grants the call 256 credits with `$/credit`, one seed
+        each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+        never more than its credits, and the engine admits each batch (staged
+        with `attempt` when named, or written with the next Run-state batch at
+        default durability), sends its answers in one `$/enqueued {id, answers}`
+        and grants as many credits again. Once it answered the batch marked
+        `end`, the call answers how many seeds were added and how many were not.
+        Cancelling it keeps the seeds already answered. A batch beyond the
+        credits granted, or a seed that is no seed, fails the call with
+        `invalid_params`; a Run this engine does not run as a live crawl, or a
+        crawl already ending its Run, fails with `run_not_found`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        run = self._crawl_run
+
+        async def opening() -> AsyncSequence[Enqueued]:
+            return run._add_seeds(seeds, attempt=None)  # pyright: ignore[reportPrivateUsage]
+
+        return _on_thread(self._loop, "run.add_seeds", opening)
 
     def records(
         self, dataset: Dataset[R], *, after: int | None = None
@@ -1246,11 +1552,12 @@ class _CommittedRecords(Generic[R]):
 
 @final
 class _AttemptReads:
-    """What an `AsyncAttemptRun` reads its Run's committed Records through."""
+    """What an `AsyncAttemptRun` reads and seeds its Run through."""
 
-    def __init__(self, run: AsyncCrawlRun) -> None:
-        """Takes the crawl's Run the attempt belongs to."""
+    def __init__(self, run: AsyncCrawlRun, attempt: SeedAttempt) -> None:
+        """Takes the crawl's Run and attempt lease."""
         self._run = run
+        self._attempt = attempt
 
     def records(
         self, dataset: Dataset[R], after: int | None
@@ -1264,10 +1571,48 @@ class _AttemptReads:
         """The rejected Records of `dataset` committed when it is sent, past `after`."""
         return self._run._rejected(dataset, after, committed=True)  # pyright: ignore[reportPrivateUsage]
 
+    async def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+        """Adds one seed staged with this attempt."""
+        return await self._run._add_seed(candidate, attempt=self._attempt)  # pyright: ignore[reportPrivateUsage]
+
+    def add_seeds(
+        self,
+        seeds: Iterable[RequestSeed | SitemapSeed]
+        | AsyncIterable[RequestSeed | SitemapSeed],
+    ) -> AsyncSequence[Enqueued]:
+        """Streams seeds staged with this attempt."""
+        return self._run._add_seeds(seeds, attempt=self._attempt)  # pyright: ignore[reportPrivateUsage]
+
+    def build_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None,
+        payload: object,
+        method: str | None,
+        body: bytes | None,
+        headers: Mapping[str, str] | None,
+        priority: int | None,
+        forefront: bool | None,
+        key: str | None,
+    ) -> RequestSeed | SitemapSeed:
+        """Builds and validates one seed against the Run's crawl."""
+        return build_seed_for_crawl(
+            self._run._crawl,  # pyright: ignore[reportPrivateUsage]
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
+
 
 @final
 class _ThreadedReads:
-    """What an `AttemptRun` reads its Run's committed Records through, on the loop."""
+    """What an `AttemptRun` reads and seeds its Run through, on the loop."""
 
     def __init__(self, loop: PrivateLoop, reads: _AttemptReads) -> None:
         """Takes the Connection's private loop and the async reads it drives there."""
@@ -1295,6 +1640,50 @@ class _ThreadedReads:
             return reads.rejected_records(dataset, after)
 
         return _on_thread(self._loop, "run.rejected_records", reading)
+
+    def add_seed(self, candidate: RequestSeed | SitemapSeed) -> Enqueued:
+        """Adds one seed staged with this attempt, on the loop."""
+        reads = self._reads
+        try:
+            return self._loop.call(lambda: reads.add_seed(candidate))
+        except LoopStopped:
+            raise closed_error("run.add_seed") from None
+
+    def add_seeds(
+        self, seeds: Iterable[RequestSeed | SitemapSeed]
+    ) -> Sequence[Enqueued]:
+        """Streams seeds staged with this attempt, on the loop."""
+        reads = self._reads
+
+        async def opening() -> AsyncSequence[Enqueued]:
+            return reads.add_seeds(seeds)
+
+        return _on_thread(self._loop, "run.add_seeds", opening)
+
+    def build_seed(
+        self,
+        seed_or_url: RequestSeed | SitemapSeed | str,
+        label: Label[Any] | str | None,
+        payload: object,
+        method: str | None,
+        body: bytes | None,
+        headers: Mapping[str, str] | None,
+        priority: int | None,
+        forefront: bool | None,
+        key: str | None,
+    ) -> RequestSeed | SitemapSeed:
+        """Builds and validates one seed against the Run's crawl."""
+        return self._reads.build_seed(
+            seed_or_url,
+            label,
+            payload,
+            method,
+            body,
+            headers,
+            priority,
+            forefront,
+            key,
+        )
 
 
 def _on_thread(
@@ -1424,8 +1813,8 @@ class CrawlRuns:
             None if isinstance(crawl, CrawlDeclaration | CrawlExtraction) else crawl
         )
 
-        def opened(started: RunStarted) -> AsyncCrawlRun:
-            run = self._opened(served, detached, started)
+        def opened(started: RunStarted, seeds: list[Enqueued]) -> AsyncCrawlRun:
+            run = self._opened(served, detached, started, seeds)
             threaded.append(CrawlRun(loop, run))
             return run
 
@@ -1444,7 +1833,7 @@ class CrawlRuns:
     async def _start(
         self,
         crawl: AsyncCrawl | Crawl | CodeFreeCrawl,
-        opened: Callable[[RunStarted], AsyncCrawlRun],
+        opened: Callable[[RunStarted, list[Enqueued]], AsyncCrawlRun],
         *,
         seeds: Iterable[RequestSeed | SitemapSeed],
         run_id: str | None,
@@ -1481,9 +1870,24 @@ class CrawlRuns:
         operations = AsyncFoxhoundOperations(self._connection)
         starting = anyio.Event()
         self._starting.add(starting)
+        started_seeds: list[Enqueued] = []
+
+        async def start_crawl() -> RunStarted:
+            crawl_started = await operations.crawl_start(params)
+            if crawl_started.seeds:
+                started_seeds.extend(crawl_started.seeds)
+            return RunStarted(
+                run_id=crawl_started.run_id,
+                lifecycle=crawl_started.lifecycle,
+                started_as=crawl_started.started_as,
+                needs=crawl_started.needs,
+            )
+
         try:
             return await self._connection.start_run(
-                "crawl.start", functools.partial(operations.crawl_start, params), opened
+                "crawl.start",
+                start_crawl,
+                lambda started: opened(started, started_seeds),
             )
         finally:
             self._starting.discard(starting)
@@ -1515,9 +1919,15 @@ class CrawlRuns:
             spawner()(functools.partial(self._read, *self._reading))
 
     def _opened(
-        self, crawl: AsyncCrawl | Crawl | None, detached: bool, started: RunStarted
+        self,
+        crawl: AsyncCrawl | Crawl | None,
+        detached: bool,
+        started: RunStarted,
+        seeds: list[Enqueued],
     ) -> AsyncCrawlRun:
-        return AsyncCrawlRun(self._connection, started, crawl, self, detached=detached)
+        return AsyncCrawlRun(
+            self._connection, started, crawl, self, seeds=seeds, detached=detached
+        )
 
     async def _read(self, scope: anyio.CancelScope, ended: anyio.Event) -> None:
         """Reads the engine's messages while no call does, until `scope` is cancelled.

@@ -960,6 +960,15 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "(module)"
+member = "toWire"
+entry = "none"
+reason = "Turns a value in a program's names into its wire JSON (snake_case fields and RFC 3339 instants), for client-to-engine notifications such as Foxhound's `$/seeds` (ADRs 0024 and 0099)."
+words = ["to", "wire"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "ClientConnection"
 member = "caller"
 entry = "none"
@@ -2776,6 +2785,24 @@ form = "runtime"
 
 [[member]]
 package = "@goodfetch/collie-client/runtime"
+receiver = "Stream"
+member = "id"
+entry = "none"
+reason = "The streamed call's JSON-RPC request ID, for client-to-engine notifications naming the call."
+words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
+receiver = "Stream"
+member = "notify"
+entry = "none"
+reason = "Sends a client-to-engine JSON-RPC notification on the Connection, such as `$/seeds`."
+words = ["notify"]
+form = "runtime"
+
+[[member]]
+package = "@goodfetch/collie-client/runtime"
 receiver = "(module)"
 member = "FileSaving"
 entry = "none"
@@ -3628,11 +3655,47 @@ reason = "A handler process of `workers=N` offers its handler with it (ADR 0024)
 entries = ["crawl_request.links"]
 reason = "What `enqueueLinks` sends itself, before `crawl_request.enqueue_links`, when it is given a `LinkPayload` function: the function reads each link it answers, so it has no member of its own."
 
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "seeds"
+entry = "run.seeds"
+words = ["seeds"]
+form = "read"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "addSeed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "CrawlRun"
+member = "addSeeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "addSeed"
+entry = "run.add_seed"
+words = ["add", "seed"]
+form = "round_trip"
+
+[[member]]
+package = "@goodfetch/foxhound"
+receiver = "AttemptRun"
+member = "addSeeds"
+entry = "run.add_seeds"
+words = ["add", "seeds"]
+form = "round_trip"
+
 [[unreached]]
 entries = ["dataset.list", "dataset.page", "dataset.query", "dataset.search", "record.search"]
 reason = "No member reads a Run's Datasets yet."
-
-[[unreached]]
-entries = ["run.seeds", "run.add_seed", "run.add_seeds"]
-reason = "Issue 1494 adds `seeds()`, `addSeed` and `addSeeds` to a running crawl."
 

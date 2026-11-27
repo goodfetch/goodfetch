@@ -4839,6 +4839,46 @@
       ],
       "type": "object"
     },
+    "CrawlStarted": {
+      "description": "What `crawl.start` answers: the Run it started or reopened, and each\nseed's original answer in order, so `run.seeds()` answers with no round\ntrip, including after a resume (ADR 0102).",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is now."
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "description": "Each seed's original answer in order, as `run.seeds` answers.",
+          "items": {
+            "$ref": "#/$defs/Enqueued"
+          },
+          "type": "array"
+        },
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "run_id",
+        "started_as",
+        "lifecycle",
+        "needs"
+      ],
+      "type": "object"
+    },
     "CreditParams": {
       "additionalProperties": false,
       "description": "What `$/credit` grants: more events, or chunks, for a streaming call;\nsent by the engine, more seeds a `run.add_seeds` call takes.",
@@ -21191,6 +21231,18 @@
         "_meta": {
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
+        },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The attempt that adds them, when a handler streams seeds through its\ncontext's `run`; absent, the program streams them from outside any\nattempt."
         },
         "run_id": {
           "$ref": "#/$defs/RunId",

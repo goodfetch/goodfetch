@@ -8,6 +8,7 @@ import {
   seed,
   sitemap,
   type CrawlContext,
+  type CrawlRun,
   type Label,
   type RequestSeed,
   type Seed,
@@ -86,4 +87,27 @@ export async function linkPayloads(context: CrawlContext): Promise<void> {
   await context.enqueueLinks(links, shelf, () => ({ number: "one" }));
   // @ts-expect-error a Label without a Payload takes no Payload function
   await context.enqueueLinks(context.page.locator("a"), page, () => null);
+}
+
+// `run.addSeed` and `ctx.run.addSeed` type their Payload by their Label just like `seed` and `enqueue` (#1494).
+export async function addedSeeds(run: CrawlRun, context: CrawlContext): Promise<void> {
+  await run.addSeed("https://shop.test/", page);
+  await run.addSeed("https://shop.test/", page, { priority: 1 });
+  await run.addSeed("https://shop.test/shelf/1", shelf, { number: 1 });
+  await run.addSeed("https://shop.test/book/1", book, { isbn: "9780000000001" });
+  await run.addSeed(seed("https://shop.test/shelf/2", shelf, { number: 2 }));
+  await context.run.addSeed("https://shop.test/shelf/3", shelf, { number: 3 });
+  await context.run.addSeed("https://shop.test/", page);
+  // @ts-expect-error a Payload of another shape than its Label's
+  await run.addSeed("https://shop.test/shelf/1", shelf, { number: "one" });
+  // @ts-expect-error a Label with a Payload needs one
+  await run.addSeed("https://shop.test/shelf/1", shelf);
+  // @ts-expect-error a Label without a Payload takes none, only its options
+  await run.addSeed("https://shop.test/", page, { from: "home" }, { priority: 1 });
+  // @ts-expect-error a Payload of another shape than its Label's on ctx.run.addSeed
+  await context.run.addSeed("https://shop.test/shelf/1", shelf, { number: "one" });
+  // @ts-expect-error a Label with a Payload needs one on ctx.run.addSeed
+  await context.run.addSeed("https://shop.test/shelf/1", shelf);
+  // @ts-expect-error a Label without a Payload takes none on ctx.run.addSeed
+  await context.run.addSeed("https://shop.test/", page, { from: "home" }, { priority: 1 });
 }

@@ -244,11 +244,33 @@ impl ClientConnection {
         params: impl Serialize + Send + 'static,
         detached: bool,
     ) -> impl Future<Output = Result<Run, Error>> + Send + 'static {
+        let future = self.start_held_with(opener, params, detached, |started: RunStarted| {
+            (started, ())
+        });
+        async move { future.await.map(|(run, ())| run) }
+    }
+
+    /// As [`ClientConnection::start_held`], decoding the opener's answer as
+    /// `T` and returning its extra payload `U` alongside the opened [`Run`],
+    /// so `crawl.start` returns its initial seeds without a second round trip.
+    pub fn start_held_with<T, U, F>(
+        &self,
+        opener: &'static str,
+        params: impl Serialize + Send + 'static,
+        detached: bool,
+        split: F,
+    ) -> impl Future<Output = Result<(Run, U), Error>> + Send + 'static
+    where
+        T: serde::de::DeserializeOwned + Send + 'static,
+        U: Send + 'static,
+        F: FnOnce(T) -> (RunStarted, U) + Send + 'static,
+    {
         let log_level = engine_log_level();
         let connection = self.clone();
         async move {
             connection.follow_log_level(log_level).await?;
-            let started: RunStarted = connection.call(opener, &params).no_timeout().await?;
+            let answer: T = connection.call(opener, &params).no_timeout().await?;
+            let (started, extra) = split(answer);
             log_start(&started);
             let held = HeldRun::new(
                 connection,
@@ -256,11 +278,14 @@ impl ClientConnection {
                 started.lifecycle,
                 detached,
             );
-            Ok(Run {
-                host: Host::run(held),
-                opened: Arc::new(started),
-                sessions: Kept::default(),
-            })
+            Ok((
+                Run {
+                    host: Host::run(held),
+                    opened: Arc::new(started),
+                    sessions: Kept::default(),
+                },
+                extra,
+            ))
         }
     }
 }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use goodfetch_collie_client::{ClientConnection, Error, Limits};
 use goodfetch_protocol::catalog::SettingScope;
 use goodfetch_protocol::foxhound::crawl::{
-    CODE_FREE_LABEL, CRAWL_START, CrawlExtraction, CrawlStartParams,
+    CODE_FREE_LABEL, CRAWL_START, CrawlExtraction, CrawlStartParams, CrawlStarted,
 };
 use goodfetch_protocol::foxhound::declaration::CrawlDeclaration;
 use goodfetch_protocol::run::{RunId, Tags};
@@ -214,16 +214,22 @@ impl IntoFuture for StartCrawl {
             params.project = connection.project().cloned();
             requests.open(&connection)?;
             let detached = params.detached;
-            Ok(connection.start_held(CRAWL_START.name, params, detached))
+            Ok(connection.start_held_with(
+                CRAWL_START.name,
+                params,
+                detached,
+                |started: CrawlStarted| (started.started, started.seeds),
+            ))
         });
         Box::pin(async move {
-            let run = started?.await?;
+            let (run, seeds) = started?.await?;
             Ok(CrawlRun {
                 run,
                 connection,
                 requests,
                 crawl,
                 declared,
+                seeds: seeds.into(),
             })
         })
     }

@@ -49,6 +49,7 @@ mod handles;
 mod outcomes;
 mod records;
 mod run;
+mod seeds;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -62,6 +63,7 @@ pub use handles::{Dataset, Label, Seed};
 pub use outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
 pub use records::{DatasetRecord, ReadRecords, ReadRejectedRecords};
 pub use run::{CrawlCall, CrawlRun};
+pub use seeds::{AddSeed, AddSeeds};
 pub(crate) use start::target;
 pub use start::{CrawlTarget, StartCrawl};
 
@@ -450,58 +452,61 @@ impl<'a> Crawl<'a> {
         })
     }
 
-    /// Whether this crawl declares the Label named `name`.
-    fn declares(&self, name: &str) -> bool {
-        self.labels.iter().any(|declared| *declared.name == *name)
-    }
-
     /// `seed` as `crawl.start` takes it, or `label_unknown` for a Label of
     /// another crawl, or one named by name that it does not declare, the
     /// `payload_invalid` of its Payload, or the refusal of a request option
     /// given to a sitemap seed.
     fn own_seed(&self, seed: Seed) -> Result<SeedRequest, Error> {
-        match seed.seeded {
-            Seeded::Request {
-                mut request,
-                crawl,
-                payload,
-            } => {
-                if crawl != self.id {
-                    return Err(self.label_unknown(&request.label));
-                }
-                request.payload = Some(payload?);
-                Ok(SeedRequest::Request(request))
+        own_seed(self.id, &self.declared(), seed)
+    }
+}
+
+/// Validates and lowers `seed` against a crawl's `crawl_id` and `declared`
+/// Label names for `crawl.start`, `run.add_seed`, and `run.add_seeds`.
+pub(super) fn own_seed(
+    crawl_id: CrawlId,
+    declared: &[String],
+    seed: Seed,
+) -> Result<SeedRequest, Error> {
+    let has_label = |name: &str| declared.iter().any(|known| known == name);
+    match seed.seeded {
+        Seeded::Request {
+            mut request,
+            crawl,
+            payload,
+        } => {
+            if crawl != crawl_id {
+                return Err(label_unknown(&request.label, declared.to_vec()));
             }
-            Seeded::Named(request) => {
-                if !self.declares(&request.label) {
-                    return Err(self.label_unknown(&request.label));
-                }
-                Ok(SeedRequest::Request(request))
+            request.payload = Some(payload?);
+            Ok(SeedRequest::Request(request))
+        }
+        Seeded::Named(request) => {
+            if !has_label(&request.label) {
+                return Err(label_unknown(&request.label, declared.to_vec()));
             }
-            Seeded::Sitemap {
-                sitemap,
-                crawls,
-                refused,
-            } => {
-                if let Some(option) = refused {
-                    return Err(sitemap_option_refused(&sitemap, option));
-                }
-                let foreign = match &crawls {
-                    Some(crawls) => sitemap
-                        .rules
-                        .iter()
-                        .zip(crawls)
-                        .find_map(|(rule, crawl)| (*crawl != self.id).then_some(rule)),
-                    None => sitemap
-                        .rules
-                        .iter()
-                        .find(|rule| !self.declares(&rule.label)),
-                };
-                if let Some(rule) = foreign {
-                    return Err(self.label_unknown(&rule.label));
-                }
-                Ok(SeedRequest::Sitemap(sitemap))
+            Ok(SeedRequest::Request(request))
+        }
+        Seeded::Sitemap {
+            sitemap,
+            crawls,
+            refused,
+        } => {
+            if let Some(option) = refused {
+                return Err(sitemap_option_refused(&sitemap, option));
             }
+            let foreign = match &crawls {
+                Some(crawls) => sitemap
+                    .rules
+                    .iter()
+                    .zip(crawls)
+                    .find_map(|(rule, crawl)| (*crawl != crawl_id).then_some(rule)),
+                None => sitemap.rules.iter().find(|rule| !has_label(&rule.label)),
+            };
+            if let Some(rule) = foreign {
+                return Err(label_unknown(&rule.label, declared.to_vec()));
+            }
+            Ok(SeedRequest::Sitemap(sitemap))
         }
     }
 }

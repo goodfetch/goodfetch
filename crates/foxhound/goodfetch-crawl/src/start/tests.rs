@@ -764,7 +764,17 @@ fn a_crawls_seeds_reach_the_handler_and_their_records_commit_once() {
             records(&file),
         ),
         (
-            &json!({ "run_id": "shop", "started_as": "new", "lifecycle": "running", "needs": "foxhound" }),
+            &json!({
+                "run_id": "shop",
+                "started_as": "new",
+                "lifecycle": "running",
+                "needs": "foxhound",
+                "seeds": [
+                    { "kind": "added", "id": "1", "url": "https://shop.test/page/1" },
+                    { "kind": "added", "id": "2", "url": "https://shop.test/page/2" },
+                    { "kind": "added", "id": "3", "url": "https://shop.test/page/3" },
+                ],
+            }),
             (&json!("finished"), &json!("verified"), &json!("complete")),
             vec![
                 (

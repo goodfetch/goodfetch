@@ -43,8 +43,10 @@ import {
   type WirePath,
 } from "@goodfetch/collie-client/runtime";
 import {
+  checkCrawlStartable,
   checkPayload,
   checkRecords,
+  checkSeedPayloads,
   declaredLabel,
   enqueueLinksOptions,
   handlerOf,
@@ -59,8 +61,11 @@ import {
   type Dataset,
   type DatasetRecord,
   type Label,
+  type PayloadThen,
+  type RequestOptions,
 } from "./crawl.ts";
 import { makeExport, type Export, type ExportOptions } from "./export.ts";
+import { openSeedStream } from "./seed-stream.ts";
 import {
   HandlerFailedError,
   RecordInvalidError,
@@ -76,7 +81,9 @@ import {
   type CrawlRunProgress,
   type CrawlRunReport,
   type CrawlSettings,
+  type CrawlStarted,
   type DatasetRecord as WireDatasetRecord,
+  type Enqueued,
   type FoxhoundOperationTypes,
   type OutcomeKind,
   type OutcomesAfter,
@@ -85,6 +92,8 @@ import {
   type RunExportParams,
   type RunOutcomesParams,
   type RunRetryFailedParams,
+  type Seed,
+  type SeedAttempt,
 } from "./generated/index.ts";
 import { settingsOnWire } from "./generated/settings.ts";
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
@@ -176,6 +185,8 @@ export class CrawlRun extends Run {
   /** Its crawl, whose handlers its attempts run; none for a code-free crawl. */
   readonly #crawl: Crawl | undefined;
   readonly #crawlHost: CrawlHost;
+  /** Each seed's original answer from `crawl.start`, read with no round trip. */
+  readonly #seeds: readonly Enqueued[];
   /** The attempts running, each stopped when the Run is closed. */
   readonly #attempts = new Set<AbortController>();
   /** Whether `close()` was called: it stops the attempts and forgets the Run once. */
@@ -187,7 +198,7 @@ export class CrawlRun extends Run {
    */
   constructor(
     host: RunHost,
-    started: RunStarted,
+    started: CrawlStarted | RunStarted,
     crawl: Crawl | undefined,
     crawlHost: CrawlHost,
     detached = false,
@@ -198,6 +209,147 @@ export class CrawlRun extends Run {
     alsoInNamespace(this, "crawl");
     this.#crawl = crawl;
     this.#crawlHost = crawlHost;
+    this.#seeds = "seeds" in started && started.seeds !== undefined ? [...started.seeds] : [];
+  }
+
+  /**
+   * Lists each seed's answer, in the order the crawl's start gave them, as the
+   * Frontier answered it when the Run began: added, with its crawl request's ID
+   * and its URL as parsed, or not added, with its reason (`duplicate`,
+   * `domain_policy`, `unsupported_scheme`, `invalid_url` or a cap's name). A
+   * relative seed is `invalid_url`, since nothing gives it a base. So a crawl
+   * that does nothing says why. Read from the Run's committed state, so it
+   * works on a Run no program holds.
+   *
+   * Answered from `crawl.start`'s reply with no round trip, including after a
+   * resume (ADR 0102).
+   *
+   * @experimental
+   */
+  seeds(): readonly Enqueued[] {
+    return [...this.#seeds];
+  }
+
+  /**
+   * Adds one seed to a running crawl, `run.addSeed`, admitted and answered as
+   * soon as the Run state accepts it (written with the next Run-state batch at
+   * the default durability, or committed before answering at `full`), and
+   * answers as an enqueue does: added, with its crawl request's ID and its URL
+   * as parsed, or not added, with its reason (`duplicate`,
+   * `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+   * `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+   * Through a handler's context, naming its `attempt`, it is staged with that
+   * attempt: once the attempt ended it fails with `attempt_ended`. A Run this
+   * engine does not run as a live crawl, or a crawl already ending its Run,
+   * fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  addSeed(seed: Seed, options?: CallOptions): Promise<Enqueued>;
+  addSeed<P extends object | undefined>(
+    url: string,
+    label: Label<P>,
+    ...rest: PayloadThen<NoInfer<P>, RequestOptions & CallOptions>
+  ): Promise<Enqueued>;
+  async addSeed(
+    seedOrUrl: Seed | string,
+    labelOrOptions?: Label<object | undefined> | CallOptions,
+    ...rest: unknown[]
+  ): Promise<Enqueued> {
+    return this.#addSeed(seedOrUrl, labelOrOptions, rest, undefined);
+  }
+
+  /**
+   * Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+   * each as `run.add_seed` does, in order, so a million seeds never sit in
+   * memory. The engine grants the call 256 credits with `$/credit`, one seed
+   * each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never
+   * more than its credits, and the engine admits each batch (staged with
+   * `attempt` when named, or written with the next Run-state batch at default
+   * durability), sends its answers in one `$/enqueued {id, answers}` and
+   * grants as many credits again. Once it answered the batch marked `end`, the
+   * call answers how many seeds were added and how many were not. Cancelling
+   * it keeps the seeds already answered. A batch beyond the credits granted,
+   * or a seed that is no seed, fails the call with `invalid_params`; a Run
+   * this engine does not run as a live crawl, or a crawl already ending its
+   * Run, fails with `run_not_found`.
+   *
+   * @experimental
+   */
+  addSeeds(
+    source: Iterable<Seed> | AsyncIterable<Seed>,
+    options: CallOptions = {},
+  ): Sequence<Enqueued> {
+    return this.#addSeeds(source, options, undefined);
+  }
+
+  async #addSeed(
+    seedOrUrl: Seed | string,
+    labelOrOptions: Label<object | undefined> | CallOptions | undefined,
+    rest: readonly unknown[],
+    attempt: SeedAttempt | undefined,
+    attemptSignal?: AbortSignal,
+  ): Promise<Enqueued> {
+    warnEntry(foxhoundOperations, "run.add_seed");
+    attemptSignal?.throwIfAborted();
+    ensureRunOpen(this, "run.add_seed");
+    let wireSeed: Seed;
+    let callOptions: CallOptions | undefined;
+    if (typeof seedOrUrl === "string") {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- overload `(url, label, ...rest)` binds the second argument to a `Label`.
+      const label = labelOrOptions as Label<object | undefined>;
+      const name = this.#crawl === undefined ? label.name : declaredLabel(this.#crawl, label);
+      const given = payloadAndOptions<object | undefined, RequestOptions & CallOptions>(
+        label,
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `PayloadThen` types what follows `label` as its Payload and options.
+        rest as PayloadThen<object | undefined, RequestOptions & CallOptions>,
+      );
+      const payload = payloadOf(label, given.payload);
+      await checkPayload(label, payload.payload);
+      wireSeed = {
+        url: seedOrUrl,
+        label: name,
+        ...payload,
+        ...requestOptions(given.options ?? {}),
+      };
+      callOptions = given.options;
+    } else {
+      wireSeed = seedOrUrl;
+      if (this.#crawl !== undefined) {
+        checkCrawlStartable(this.#crawl, [wireSeed]);
+        await checkSeedPayloads(this.#crawl, [wireSeed]);
+      }
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- overload `(seed, options?)` binds the second argument to `CallOptions`.
+      callOptions = labelOrOptions as CallOptions | undefined;
+    }
+    const signal = mergeSignals(attemptSignal, callOptions?.signal);
+    const mergedOptions: CallOptions = signal === undefined ? {} : { signal };
+    return this.#crawlHost.calls.call(
+      "run.add_seed",
+      {
+        runId: this.id(),
+        seed: wireSeed,
+        ...(attempt === undefined ? {} : { attempt }),
+      },
+      mergedOptions,
+    );
+  }
+
+  #addSeeds(
+    source: Iterable<Seed> | AsyncIterable<Seed>,
+    options: CallOptions,
+    attempt: SeedAttempt | undefined,
+  ): Sequence<Enqueued> {
+    warnEntry(foxhoundOperations, "run.add_seeds");
+    ensureRunOpen(this, "run.add_seeds");
+    return openSeedStream({
+      connection: this.#crawlHost.connection,
+      runId: this.id(),
+      crawl: this.#crawl,
+      attempt,
+      source,
+      signal: options.signal,
+    });
   }
 
   /**
@@ -725,6 +877,23 @@ export class CrawlRun extends Run {
         records: (dataset, reading = {}) => this.#records(dataset, reading, "committed"),
         rejectedRecords: (dataset, reading = {}) =>
           this.#rejectedRecords(dataset, reading, "committed"),
+        addSeed: (
+          seedOrUrl: Seed | string,
+          labelOrOptions?: Label<object | undefined> | CallOptions,
+          ...rest: unknown[]
+        ) => this.#addSeed(seedOrUrl, labelOrOptions, rest, lease, signal),
+        addSeeds: (source, seedOptions = {}) =>
+          this.#addSeeds(
+            source,
+            {
+              ...seedOptions,
+              signal:
+                seedOptions.signal === undefined
+                  ? signal
+                  : AbortSignal.any([signal, seedOptions.signal]),
+            },
+            lease,
+          ),
       },
       get page(): Page {
         if (page === undefined) {
@@ -832,6 +1001,16 @@ export class CrawlRun extends Run {
       },
     };
   }
+}
+
+/** Combines two optional abort signals without allocating when at most one is set. */
+function mergeSignals(
+  first: AbortSignal | undefined,
+  second: AbortSignal | undefined,
+): AbortSignal | undefined {
+  if (first === undefined) return second;
+  if (second === undefined) return first;
+  return AbortSignal.any([first, second]);
 }
 
 /** Answers the engine's `crawl_request.handle` request for `run`. */

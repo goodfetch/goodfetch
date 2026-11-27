@@ -118,7 +118,13 @@ impl Attempt {
             .clone()
             .map(|page_id| run.page_of(page_id, params.session.id.clone()));
         Self {
-            run: AttemptRun::new(run, connection.clone(), &params),
+            run: AttemptRun::new(
+                run,
+                connection.clone(),
+                &params,
+                crawl,
+                Arc::clone(&declared),
+            ),
             connection,
             page,
             params,

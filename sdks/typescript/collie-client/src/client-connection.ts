@@ -8,6 +8,7 @@
 import { AttachedEngine, type EngineExit } from "./attached-engine.ts";
 import type { CallOptions, Caller, OperationTypes } from "./caller.ts";
 import { errorOfReply, type ErrorClasses } from "./errors.ts";
+import type { MessageId } from "./framing.ts";
 import {
   runtimeMessage,
   spelledOperation,
@@ -282,10 +283,14 @@ export type Served = (params: unknown, signal: AbortSignal) => Promise<unknown>;
 
 /** A call the engine streams to, as many notifications as its Client grants credits for. */
 export interface Stream {
+  /** The call's JSON-RPC request ID, when opened directly on a `ClientConnection`. */
+  readonly id?: MessageId;
   /** Its answer, once the engine has sent what it streams. */
   readonly result: Promise<unknown>;
   /** Lets the engine send `credits` more notifications. */
   grant(credits: number): void;
+  /** Sends a client-to-engine notification (such as `$/seeds`), when opened directly on a `ClientConnection`. */
+  notify?(method: string, params: unknown): void;
 }
 
 /** The common Connection under each Product's Connection type. */
@@ -741,7 +746,12 @@ export class ClientConnection implements AsyncDisposable {
     this.#openOrThrow(method);
     const channel = this.#channel;
     const { id, result } = channel.open(method, params, options);
-    return { result, grant: (credits) => channel.notify("$/credit", { id, credits }) };
+    return {
+      id,
+      result,
+      grant: (credits) => channel.notify("$/credit", { id, credits }),
+      notify: (noteMethod, noteParams) => channel.notify(noteMethod, noteParams),
+    };
   }
 
   /** Serves the engine's requests of `method` with `served`; a method none serves is answered `-32601`. */

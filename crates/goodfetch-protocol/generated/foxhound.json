@@ -4040,6 +4040,46 @@
       ],
       "type": "object"
     },
+    "CrawlStarted": {
+      "description": "What `crawl.start` answers: the Run it started or reopened, and each\nseed's original answer in order, so `run.seeds()` answers with no round\ntrip, including after a resume (ADR 0102).",
+      "properties": {
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle",
+          "arrived_in": "0.1",
+          "description": "Where it is now."
+        },
+        "needs": {
+          "$ref": "#/$defs/Product",
+          "arrived_in": "0.1",
+          "description": "The Product it needs (ADR 0098): Collie until it uses an entry the\ncatalog marks Foxhound's, Foxhound from then on."
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The Run's ID."
+        },
+        "seeds": {
+          "arrived_in": "0.1",
+          "description": "Each seed's original answer in order, as `run.seeds` answers.",
+          "items": {
+            "$ref": "#/$defs/Enqueued"
+          },
+          "type": "array"
+        },
+        "started_as": {
+          "$ref": "#/$defs/StartedAs",
+          "arrived_in": "0.1",
+          "description": "Whether the start began it."
+        }
+      },
+      "required": [
+        "run_id",
+        "started_as",
+        "lifecycle",
+        "needs"
+      ],
+      "type": "object"
+    },
     "DaemonDrainingDetails": {
       "description": "What `daemon_draining` details.",
       "properties": {
@@ -15756,6 +15796,18 @@
           "$ref": "#/$defs/RequestMeta",
           "arrived_in": "0.1"
         },
+        "attempt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SeedAttempt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The attempt that adds them, when a handler streams seeds through its\ncontext's `run`; absent, the program streams them from outside any\nattempt."
+        },
         "run_id": {
           "$ref": "#/$defs/RunId",
           "arrived_in": "0.1",
@@ -25823,7 +25875,7 @@
       "product": "foxhound",
       "reach": "all_surfaces",
       "result": {
-        "$ref": "#/$defs/RunStarted"
+        "$ref": "#/$defs/CrawlStarted"
       },
       "stability": "experimental"
     },
@@ -27175,7 +27227,7 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Adds one seed to a running crawl, `run.addSeed`, committed at once, and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is bound to that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+      "description": "Adds one seed to a running crawl, `run.addSeed`, admitted and answered as soon as the Run state accepts it (written with the next Run-state batch at the default durability, or committed before answering at `full`), and answers as an enqueue does: added, with its crawl request's ID and its URL as parsed, or not added, with its reason (`duplicate`, `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on. Through a handler's context, naming its `attempt`, it is staged with that attempt: once the attempt ended it fails with `attempt_ended`. A Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
       "events": [],
       "kind": "round_trip",
       "name": "run.add_seed",
@@ -27194,7 +27246,7 @@
       "cancellable": true,
       "class": "idempotent_write",
       "deprecated": null,
-      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine commits each batch, sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
+      "description": "Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers each as `run.add_seed` does, in order, so a million seeds never sit in memory. The engine grants the call 256 credits with `$/credit`, one seed each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches, never more than its credits, and the engine admits each batch (staged with `attempt` when named, or written with the next Run-state batch at default durability), sends its answers in one `$/enqueued {id, answers}` and grants as many credits again. Once it answered the batch marked `end`, the call answers how many seeds were added and how many were not. Cancelling it keeps the seeds already answered. A batch beyond the credits granted, or a seed that is no seed, fails the call with `invalid_params`; a Run this engine does not run as a live crawl, or a crawl already ending its Run, fails with `run_not_found`.",
       "events": [],
       "kind": "sequence",
       "name": "run.add_seeds",

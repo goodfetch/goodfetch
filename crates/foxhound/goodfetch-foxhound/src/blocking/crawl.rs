@@ -4,6 +4,10 @@
 //! the connection's tracked blocking threads, never on its runtime's
 //! workers, as many at once as the engine sends; [`Crawl::serve`] blocks
 //! the calling thread until the Run ends and returns its report.
+//!
+//! Size: one concern, the blocking crawl facade (`Crawl`, `CrawlRun`,
+//! `StartCrawl`, `CrawlContext`, `AttemptRun`) mirroring the async crawl
+//! surface on the connection's blocking runtime.
 
 use std::fmt;
 use std::future::IntoFuture as _;
@@ -198,6 +202,49 @@ impl AttemptRun {
     pub fn rejected_records<I>(&self, dataset: &Dataset<I>) -> ReadRejectedRecords {
         ReadRejectedRecords::new(
             self.inner.rejected_records(dataset),
+            self.connection.clone(),
+        )
+    }
+
+    /// Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+    /// as soon as the Run state accepts it (written with the next Run-state
+    /// batch at the default durability, or committed before answering at
+    /// `full`), and answers as an enqueue does: added, with its crawl request's
+    /// ID and its URL as parsed, or not added, with its reason (`duplicate`,
+    /// `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+    /// `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+    /// Through a handler's context, naming its `attempt`, it is staged with
+    /// that attempt: once the attempt ended it fails with `attempt_ended`. A
+    /// Run this engine does not run as a live crawl, or a crawl already ending
+    /// its Run, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seed(&self, seed: Seed) -> super::AddSeed {
+        super::AddSeed::new(self.inner.add_seed(seed), self.connection.clone())
+    }
+
+    /// Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+    /// each as `run.add_seed` does, in order, so a million seeds never sit in
+    /// memory. The engine grants the call 256 credits with `$/credit`, one seed
+    /// each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+    /// never more than its credits, and the engine admits each batch (staged
+    /// with `attempt` when named, or written with the next Run-state batch at
+    /// default durability), sends its answers in one `$/enqueued {id, answers}`
+    /// and grants as many credits again. Once it answered the batch marked
+    /// `end`, the call answers how many seeds were added and how many were not.
+    /// Cancelling it keeps the seeds already answered. A batch beyond the
+    /// credits granted, or a seed that is no seed, fails the call with
+    /// `invalid_params`; a Run this engine does not run as a live crawl, or a
+    /// crawl already ending its Run, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seeds<I>(&self, seeds: I) -> super::AddSeeds
+    where
+        I: IntoIterator<Item = Seed>,
+        I::IntoIter: Send + 'static,
+    {
+        super::AddSeeds::new(
+            self.inner.add_seeds(futures_util::stream::iter(seeds)),
             self.connection.clone(),
         )
     }
@@ -650,6 +697,62 @@ impl CrawlRun {
     /// The Run's ID.
     pub fn id(&self) -> &RunId {
         self.inner.id()
+    }
+
+    /// Lists each seed's answer, in the order the crawl's start gave them, as
+    /// the Frontier answered it when the Run began: added, with its crawl
+    /// request's ID and its URL as parsed, or not added, with its reason
+    /// (`duplicate`, `domain_policy`, `unsupported_scheme`, `invalid_url` or a
+    /// cap's name). A relative seed is `invalid_url`, since nothing gives it a
+    /// base. So a crawl that does nothing says why. Read from the Run's
+    /// committed state, so it works on a Run no program holds.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn seeds(&self) -> &[Enqueued] {
+        self.inner.seeds()
+    }
+
+    /// Adds one seed to a running crawl, `run.addSeed`, admitted and answered
+    /// as soon as the Run state accepts it (written with the next Run-state
+    /// batch at the default durability, or committed before answering at
+    /// `full`), and answers as an enqueue does: added, with its crawl request's
+    /// ID and its URL as parsed, or not added, with its reason (`duplicate`,
+    /// `unsupported_scheme`, `invalid_url` or a cap's name). A relative seed is
+    /// `invalid_url`. An idle `crawl.keep_alive` crawl takes it and goes on.
+    /// Through a handler's context, naming its `attempt`, it is staged with
+    /// that attempt: once the attempt ended it fails with `attempt_ended`. A
+    /// Run this engine does not run as a live crawl, or a crawl already ending
+    /// its Run, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seed(&self, seed: Seed) -> super::AddSeed {
+        super::AddSeed::new(self.inner.add_seed(seed), self.connection.clone())
+    }
+
+    /// Takes a stream of seeds for a running crawl, `run.addSeeds`, and answers
+    /// each as `run.add_seed` does, in order, so a million seeds never sit in
+    /// memory. The engine grants the call 256 credits with `$/credit`, one seed
+    /// each; the Client sends seeds in `$/seeds {id, seeds, end?}` batches,
+    /// never more than its credits, and the engine admits each batch (staged
+    /// with `attempt` when named, or written with the next Run-state batch at
+    /// default durability), sends its answers in one `$/enqueued {id, answers}`
+    /// and grants as many credits again. Once it answered the batch marked
+    /// `end`, the call answers how many seeds were added and how many were not.
+    /// Cancelling it keeps the seeds already answered. A batch beyond the
+    /// credits granted, or a seed that is no seed, fails the call with
+    /// `invalid_params`; a Run this engine does not run as a live crawl, or a
+    /// crawl already ending its Run, fails with `run_not_found`.
+    ///
+    /// Experimental: outside semver until it is promoted (ADR 0030).
+    pub fn add_seeds<I>(&self, seeds: I) -> super::AddSeeds
+    where
+        I: IntoIterator<Item = Seed>,
+        I::IntoIter: Send + 'static,
+    {
+        super::AddSeeds::new(
+            self.inner.add_seeds(futures_util::stream::iter(seeds)),
+            self.connection.clone(),
+        )
     }
 
     /// Answers whether the start that opened the Run's handle began the Run,

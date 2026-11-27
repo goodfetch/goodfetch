@@ -25,6 +25,7 @@ pub use goodfetch_collie_client::blocking::{
     Locator, Page, Query, RawCall, Response, Run, SaveFile, Schedule, Schedules, Session, Start,
 };
 pub use outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
+pub use seeds::{AddSeed, AddSeeds};
 
 use crate::crawl_requests::CrawlRequests;
 use crate::foxhound::{ConnectOptions, ENGINE};
@@ -32,6 +33,7 @@ use crate::foxhound::{ConnectOptions, ENGINE};
 mod crawl;
 mod export;
 mod outcomes;
+mod seeds;
 
 /// A connection to Foxhound whose calls block: `foxhound.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same

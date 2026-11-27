@@ -31,6 +31,7 @@ mod limits;
 mod live_seeds;
 mod outcomes;
 mod politeness;
+mod progress;
 mod public_items;
 mod resume;
 mod seeds;

@@ -2592,6 +2592,18 @@
           "minimum": 0,
           "type": "integer"
         },
+        "handler_concurrency_layer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingsLayer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The settings layer that set `crawl.handler.concurrency` (ADR 0102)."
+        },
         "handlers": {
           "arrived_in": "0.1",
           "description": "How many handlers run.",

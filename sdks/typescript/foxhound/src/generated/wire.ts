@@ -78,7 +78,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
   types: {
     ...collieWire.types,
     "CertificateExceptionMark": { fields: { "spki_sha256": "spkiSha256" } },
-    "CrawlConcurrency": { fields: { "allowance_set_by": "allowanceSetBy", "handler_concurrency": "handlerConcurrency", "open_pages": "openPages", "page_allowance": "pageAllowance" } },
+    "CrawlConcurrency": { fields: { "allowance_set_by": "allowanceSetBy", "handler_concurrency": "handlerConcurrency", "handler_concurrency_layer": "handlerConcurrencyLayer", "open_pages": "openPages", "page_allowance": "pageAllowance" } },
     "CrawlDeclaration": { fields: { "labels": ["labels", { items: { type: "DeclaredLabel" } }] } },
     "CrawlExtraction": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "CrawlHookHandleParams": { fields: { "crawl_request": "crawlRequest", "lease_epoch": "leaseEpoch", "run_id": "runId" } },

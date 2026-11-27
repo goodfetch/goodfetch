@@ -41,6 +41,7 @@ from goodfetch_collie_client.generated.models import (
     SampleEchoed,
     SessionId,
     SettingLimit,
+    SettingsLayer,
     StartedAs,
     StopReason,
     Tags,
@@ -141,6 +142,8 @@ class CrawlConcurrency(BaseModel):
     """The Resource governor's level, once it sampled."""
     handler_concurrency: Annotated[int, Field(ge=0)]
     """`crawl.handler.concurrency`, per serving Connection."""
+    handler_concurrency_layer: SettingsLayer | None = None
+    """The settings layer that set `crawl.handler.concurrency` (ADR 0102)."""
     handlers: Annotated[int, Field(ge=0)]
     """How many handlers run."""
     open_pages: Annotated[int | None, Field(ge=0)] = None

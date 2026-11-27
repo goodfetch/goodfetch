@@ -28,6 +28,7 @@ use goodfetch_collie_client::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::entropy::Entropy;
+use goodfetch_engine::governor::System;
 use goodfetch_engine::home::{Home, RunStateLocation};
 use goodfetch_engine::installed::{InstalledList, fingerprint};
 use goodfetch_engine::politeness::PolitenessOptions;
@@ -854,8 +855,9 @@ impl LinkedEngine {
             product_version: version(),
             channel: Channel::CratesIo,
         };
-        let engine =
-            Engine::new(identity, &(engine.composition)()).map_err(Error::engine_failed)?;
+        let engine = Engine::new(identity, &(engine.composition)())
+            .map_err(Error::engine_failed)?
+            .with_governor(System::os());
         let (network, dialer) = transport::in_memory();
         let tasks = TaskTracker::new();
         let (home, clock) = (dependencies.home.clone(), dependencies.clock);

@@ -1789,8 +1789,9 @@ impl Runs {
     /// The Secret-provider driver, and what a call outside any Run resolves
     /// through: the engine's providers, each bounded by `timeout.secret`'s
     /// default, its values masked. `signing_key.*` makes and reads keys
-    /// through them (ADR 0045).
-    pub(crate) fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
+    /// through them (ADR 0045), and `sink.probe` resolves a Sink's
+    /// destination through them (ADR 0026).
+    pub fn outside_a_run(&self) -> (&Secrets, RunSecrets) {
         (&self.secrets, run_secrets(&self.secrets, None))
     }
 

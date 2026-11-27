@@ -23,8 +23,9 @@ rusqlite.workspace = true
 secrecy.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-# A Sink's driver opens once, whichever delivery reaches it first.
-tokio = { workspace = true, features = ["sync"] }
+# A Sink's driver opens once, whichever delivery reaches it first, and its
+# delivery task waits for a commit, a retry or its stop, whichever comes first.
+tokio = { workspace = true, features = ["macros", "sync"] }
 tracing.workspace = true
 goodfetch-workspace-hack.workspace = true
 

@@ -3224,6 +3224,10 @@ entries = ["sample.echo", "sample.crawl"]
 reason = "The engine's sample operations, which tests and benchmarks call; no Product member serves them."
 
 [[unreached]]
+entries = ["sink.probe"]
+reason = "A probe of one configured Sink outside any Run (issue 1128), for an operator's tooling; spec 582 gives it no SDK member, and issue 1146's `sink list` reports each Sink's class."
+
+[[unreached]]
 entries = ["connection.set_log_level"]
 reason = "The Connection sends it itself, following the level the program's logging asks of the engine's logs (ADR 0078); no member sets it."
 

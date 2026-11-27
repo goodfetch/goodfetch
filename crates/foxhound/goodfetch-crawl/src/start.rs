@@ -155,7 +155,18 @@ pub fn contribution(tiers: FetchTiers, sinks: Sinks) -> Contribution {
                 let (redeclared, crawls, tiers) =
                     (redeclaring.clone(), resuming.clone(), tiers.clone());
                 Box::pin(async move {
-                    let run = CrawlRun::of(&run, &context, (sinks, settings.resolved()));
+                    // A resumed copy probes its Sinks again (ADR 0026): one
+                    // that no longer meets the Run's minimum ends it.
+                    let run =
+                        match CrawlRun::started(&run, &context, (sinks, settings.resolved()))
+                            .await
+                        {
+                            Ok(started) => started,
+                            Err(error) => {
+                                tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Sinks were refused");
+                                return;
+                            }
+                        };
                     let hooks = redeclared.record(&run.identity, &run.state).await;
                     // Boxed: the resumed delivery's future is large.
                     Box::pin(delivery::resume(
@@ -311,7 +322,9 @@ async fn start(
         .map_err(start_error)?;
     match started {
         Started::New(run) => {
-            let run = CrawlRun::of(&run, &context, (sinks, settings.resolved()));
+            // A Sink below the Run's `crawl.min_sink_guarantee` refuses it
+            // before it does any work (ADR 0026).
+            let run = CrawlRun::started(&run, &context, (sinks, settings.resolved())).await?;
             let started = RunStarted {
                 run_id: run.identity.id().clone(),
                 started_as: StartedAs::New,

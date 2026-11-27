@@ -8,7 +8,6 @@
 
 use std::sync::Arc;
 
-use goodfetch_engine::CallContext;
 use goodfetch_engine::admission::{self, Admission, AdmissionError, Gates};
 use goodfetch_engine::entropy::RunEntropy;
 use goodfetch_engine::governor::RunGovernor;
@@ -20,7 +19,9 @@ use goodfetch_engine::run_state::RunState;
 use goodfetch_engine::run_trace::RunTrace;
 use goodfetch_engine::runs::{Ending, Progress, ReportWarnings, RunEnd, RunKeys, RunParts};
 use goodfetch_engine::settings::Resolved;
+use goodfetch_engine::{CallContext, CallError};
 use goodfetch_fetch_tier::BrowserRun;
+use goodfetch_protocol::run::EndingError;
 use goodfetch_sink::{Delivery, Sinks};
 
 /// A crawl's record of its live Run, which its delivery, its attempts and
@@ -63,8 +64,41 @@ pub(crate) struct CrawlRun {
 impl CrawlRun {
     /// The record of the Run whose `parts` the registry handed the crawl
     /// in `context`, delivering to the Sinks of `sinks` its `settings`
-    /// name.
-    pub(crate) fn of(
+    /// name, once those Sinks were probed against its
+    /// `crawl.min_sink_guarantee` and started delivering (ADR 0026),
+    /// before the Run does any other work; a refusal ends the Run `failed`
+    /// with it, having done nothing.
+    ///
+    /// # Errors
+    ///
+    /// As [`Delivery::start`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Delivery::start`]'s; a refused Run's ending is
+    /// [`CrawlRun::end`]'s.
+    pub(crate) async fn started(
+        parts: &RunParts,
+        context: &CallContext,
+        sinks: (Sinks, &Resolved),
+    ) -> Result<Arc<Self>, CallError> {
+        let run = Self::of(parts, context, sinks);
+        let Err(error) = run.sinks.start().await else {
+            return Ok(run);
+        };
+        run.end(Ending::Failed(EndingError {
+            code: error.code().to_owned(),
+            message: error.message().to_owned(),
+            details: error.details().cloned().unwrap_or_default(),
+        }))
+        .await;
+        Err(error)
+    }
+
+    /// The record of the Run whose `parts` the registry handed the crawl
+    /// in `context`, delivering to the Sinks of `sinks` its `settings`
+    /// name, which [`CrawlRun::started`] starts.
+    fn of(
         parts: &RunParts,
         context: &CallContext,
         (sinks, settings): (Sinks, &Resolved),

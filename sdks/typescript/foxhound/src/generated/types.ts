@@ -607,6 +607,27 @@ export type QueryRefusal = "syntax" | "unknown_name" | "not_a_read" | "run_not_s
  * via the `definition` "SheetCapacity".
  */
 export type SheetCapacity = "rows" | "columns" | "cell_length";
+/**
+ * What a Sink's probe found.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkProbeOutcome".
+ */
+export type SinkProbeOutcome =
+  | {
+      /**
+       * The class.
+       */
+      class: GuaranteeClass;
+      status: "proved";
+    }
+  | {
+      /**
+       * Why, for people.
+       */
+      cause: string;
+      status: "failed";
+    };
 
 /**
  * The root of the layer's types, which holds no value of its own.
@@ -3678,6 +3699,70 @@ export interface SheetCapacityExceededDetails {
    * The most a sheet holds of it.
    */
   maximum: number;
+}
+/**
+ * What `sink_guarantee_unmet` details.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkGuaranteeUnmetDetails".
+ */
+export interface SinkGuaranteeUnmetDetails {
+  /**
+   * Why the probe failed, for people; none when it proved a class.
+   */
+  cause?: string | null;
+  /**
+   * The class the Sink's probe proved; none when the probe failed.
+   */
+  proved?: GuaranteeClass | null;
+  /**
+   * The class the Run requires, its `crawl.min_sink_guarantee`.
+   */
+  required: GuaranteeClass;
+  /**
+   * The Sink's name, its key under `sinks`.
+   */
+  sink: string;
+}
+/**
+ * What `sink.probe` answers.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkProbe".
+ */
+export interface SinkProbe {
+  /**
+   * What its probe found.
+   */
+  outcome: SinkProbeOutcome;
+  /**
+   * The Sink's name.
+   */
+  sink: string;
+}
+/**
+ * What `sink.probe` takes: the Sink, by its name among the `sinks` the
+ * settings resolve to as a crawl's Run would.
+ *
+ * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
+ * via the `definition` "SinkProbeParams".
+ */
+export interface SinkProbeParams {
+  /**
+   * The project configuration the Client found, layer 3 (ADR 0083).
+   */
+  project?: ProjectSettings | null;
+  /**
+   * Settings over the connection's, nested by key, as a crawl's Run
+   * takes them (ADR 0083), such as the `sinks` to probe.
+   */
+  settings?: {
+    [k: string]: unknown;
+  };
+  /**
+   * The Sink's name, its key under `sinks`.
+   */
+  sink: string;
 }
 /**
  * What `staging_full` names: the setting that bounds an attempt's staged

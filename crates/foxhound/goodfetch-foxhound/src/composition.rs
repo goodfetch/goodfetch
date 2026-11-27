@@ -43,6 +43,7 @@ pub fn composition_with(tiers: FetchTiers) -> Composition {
         .with(goodfetch_session_pool::contribution())
         .with(goodfetch_dataset::contribution(goodfetch_crawl::url_of))
         .with(goodfetch_crawl::contribution(tiers, Sinks::new()))
+        .with(goodfetch_sink::contribution())
         .with(goodfetch_sql_tab::contribution())
 }
 

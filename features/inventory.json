@@ -1105,6 +1105,16 @@
       ]
     },
     {
+      "id": "command:sink.probe",
+      "kind": "command",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:skill.install",
       "kind": "command",
       "area": 11,
@@ -2818,6 +2828,16 @@
       "id": "error:sheet_capacity_exceeded",
       "kind": "error",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:sink_guarantee_unmet",
+      "kind": "error",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [
@@ -4995,6 +5015,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:sink.probe",
+      "kind": "operation",
+      "area": null,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },
@@ -9312,6 +9342,16 @@
       "id": "setting:crawl.max_url_length",
       "kind": "setting",
       "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:crawl.min_sink_guarantee",
+      "kind": "setting",
+      "area": null,
       "milestone": null,
       "status": "active",
       "products": [
@@ -25499,6 +25539,26 @@
     },
     {
       "id": "story:6-282",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-283",
+      "kind": "story",
+      "area": 6,
+      "milestone": "M4 Everything else",
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "story:6-284",
       "kind": "story",
       "area": 6,
       "milestone": "M4 Everything else",

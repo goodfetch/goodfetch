@@ -3,7 +3,7 @@
 import type { CallOptions, Caller } from "@goodfetch/collie-client/generated";
 import { type EntryMarkers, warnExperimental } from "@goodfetch/collie-client/runtime";
 import type { RunParams, RunStarted } from "@goodfetch/collie-client/generated/types";
-import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult } from "./types.ts";
+import type { CrawlRequestEnqueueLinksParams, CrawlRequestEnqueueParams, CrawlRequestLinks, CrawlRequestLinksParams, CrawlRequestOutcomes, CrawlRequestPushParams, CrawlRequestPushed, CrawlRunReport, CrawlStartParams, DatasetList, DatasetListParams, DatasetPage, DatasetPageParams, DatasetQueryParams, DatasetQueryResult, DatasetSearchPage, DatasetSearchParams, Enqueued, EnqueuedLinks, Export, ExportSaveAsParams, ExportSaved, ExportStreamParams, ExportStreamed, FailedRequests, RecordSearchParams, RecordSearchResult, RecordsRead, RejectedRecords, RetriedFailed, RunAddSeedParams, RunAddSeedsParams, RunExportParams, RunFailedRequestsParams, RunOutcomesParams, RunRecordsParams, RunRejectedRecordsParams, RunRetryFailedParams, RunSeeds, RunSeedsAdded, RunSeedsParams, SampleCrawlParams, SampleCrawlResult, SinkProbe, SinkProbeParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 /** The params and result of each of Foxhound's operations. */
@@ -31,6 +31,7 @@ export interface FoxhoundOperationTypes {
   "run.retry_failed": { params: RunRetryFailedParams; result: RetriedFailed };
   "run.seeds": { params: RunSeedsParams; result: RunSeeds };
   "sample.crawl": { params: SampleCrawlParams; result: SampleCrawlResult };
+  "sink.probe": { params: SinkProbeParams; result: SinkProbe };
 }
 
 /** The registry of Foxhound's operations, with their markers, which a hand-written member serving one warns of through `warnEntry` (ADR 0099). */
@@ -58,6 +59,7 @@ export const foxhoundOperations: Readonly<Record<keyof FoxhoundOperationTypes, E
   "run.retry_failed": { experimental: true, deprecated: undefined },
   "run.seeds": { experimental: true, deprecated: undefined },
   "sample.crawl": { experimental: false, deprecated: undefined },
+  "sink.probe": { experimental: true, deprecated: undefined },
 };
 
 /** The name of each of Foxhound's operations in TypeScript form, which the runtime's own errors head a call with (ADR 0079's note of 2026-11-19). */
@@ -85,6 +87,7 @@ export const foxhoundOperationNames: Readonly<Record<keyof FoxhoundOperationType
   "run.retry_failed": "run.retryFailed",
   "run.seeds": "run.seeds",
   "sample.crawl": "sample.crawl",
+  "sink.probe": "sink.probe",
 };
 
 /** The class of each of Foxhound's operations (ADR 0011): after a reconnect, a call in flight is sent again only when it is a read or an idempotent write (ADR 0079). */
@@ -112,6 +115,7 @@ export const foxhoundOperationClasses: Readonly<Record<keyof FoxhoundOperationTy
   "run.retry_failed": "effect",
   "run.seeds": "read",
   "sample.crawl": "effect",
+  "sink.probe": "idempotent_write",
 };
 
 /** Foxhound's operations that send a message, each an async method. */
@@ -350,5 +354,16 @@ export class FoxhoundOperations {
    */
   sampleCrawl(params: SampleCrawlParams): Promise<SampleCrawlResult> {
     return this.#caller.call("sample.crawl", params, {});
+  }
+
+  /**
+   * Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.
+   *
+   * @experimental
+   */
+  sinkProbe(params: SinkProbeParams): Promise<SinkProbe> {
+    warnExperimental("sink.probe");
+    warnDeprecatedSettings(params.settings);
+    return this.#caller.call("sink.probe", params, {});
   }
 }

@@ -242,6 +242,12 @@ export interface FoxhoundSettings {
      */
     readonly maxURLLength?: number | null;
     /**
+     * The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+     *
+     * `crawl.min_sink_guarantee`.
+     */
+    readonly minSinkGuarantee?: "fenced" | "record_fenced" | "keyed" | "at_least_once" | null;
+    /**
      * Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
      *
      * `crawl.path_budgets`.
@@ -1516,6 +1522,12 @@ export interface CrawlSettings {
      */
     readonly maxURLLength?: number | null;
     /**
+     * The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.
+     *
+     * `crawl.min_sink_guarantee`.
+     */
+    readonly minSinkGuarantee?: "fenced" | "record_fenced" | "keyed" | "at_least_once" | null;
+    /**
      * Budgets for sections of a site, each a table of `pattern`, a glob read as Playwright reads one and matched in the engine against a URL's path and query, such as `/shop?*`, and `max_requests`: the first entry whose pattern a request's URL matches counts it, and once that entry counted `max_requests`, a further request it matches first is not added, with `path_budget`, and a Run that refused one ends `incomplete`, its reasons naming the pattern and the count. A later entry the URL also matches does not count it. None by default.
      *
      * `crawl.path_budgets`.
@@ -2734,6 +2746,7 @@ const SPELLING: Spelling = {
     maxSitemapNesting: "max_sitemap_nesting",
     maxStagedEnqueues: "max_staged_enqueues",
     maxURLLength: "max_url_length",
+    minSinkGuarantee: "min_sink_guarantee",
     pathBudgets: { setting: "path_budgets", value: { items: { fields: { "max_requests": "maxRequests" } } } },
     payload: ["payload", {
       maxSize: "max_size",

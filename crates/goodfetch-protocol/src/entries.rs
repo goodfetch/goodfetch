@@ -512,6 +512,7 @@ mod tests {
                     "run.failed_requests",
                     "run.retry_failed",
                     "run.rejected_records",
+                    "sink.probe",
                     "dataset.query",
                     "dataset.search",
                     "record.search",

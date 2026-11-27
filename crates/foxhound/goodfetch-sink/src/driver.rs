@@ -104,6 +104,28 @@ impl<S: Primitives> Driver<S> {
         self.class
     }
 
+    /// Probes the Sink now, as the first delivery would, and answers the
+    /// guarantee class its destination proves; the next delivery takes up
+    /// after what the probe found the destination holds (ADR 0026).
+    ///
+    /// # Errors
+    ///
+    /// The probe's failure, as the Sink's translation point maps it; the
+    /// next delivery probes again.
+    pub fn probe(&mut self) -> Result<GuaranteeClass, Failure> {
+        match self.sink.probe(&self.run) {
+            Ok(probe) => {
+                self.class = Some(probe.class);
+                self.delivered = Some(probe.delivered);
+                Ok(probe.class)
+            }
+            Err(error) => {
+                self.delivered = None;
+                Err(self.sink.map_failure(error))
+            }
+        }
+    }
+
     /// Delivers the Records `run_file` has committed past those the
     /// destination holds, in number order per Dataset, and says where the
     /// delivery stands.

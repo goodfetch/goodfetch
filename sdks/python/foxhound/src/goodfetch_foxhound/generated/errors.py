@@ -12,7 +12,7 @@ from typing import Final, Unpack
 from goodfetch_collie_client.generated.errors import PageError, ProgramError, RefusedError, UnavailableError
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, ErrorClass, ErrorFields, retry_after_of
 from goodfetch_collie_client.caller import details_of
-from .models import BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
+from .models import BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, SinkGuaranteeUnmetDetails, StagingFullDetails
 
 
 class AttemptEndedError(BaseGoodfetchError):
@@ -326,6 +326,18 @@ class SheetCapacityExceededError(ProgramError):
         self.typed_details = details_of(SheetCapacityExceededDetails, self.details)
 
 
+class SinkGuaranteeUnmetError(RefusedError):
+    """A Sink of a crawl's Run proved a weaker Guarantee class than the Run's `crawl.min_sink_guarantee`, or its probe failed, so the Run was refused at its start and did no work. The details name the Sink, the class required, the class its probe proved, if any, and the cause of a failed probe. Deliver to a destination that proves the class, such as a Fenced SQLite Sink, or lower `crawl.min_sink_guarantee`."""
+
+    typed_details: SinkGuaranteeUnmetDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="sink_guarantee_unmet", group="refused", retryable=False, **fields)
+        self.typed_details = details_of(SinkGuaranteeUnmetDetails, self.details)
+
+
 class StagingFullError(ProgramError):
     """The call would stage one more admission (an enqueue, an `enqueueLinks` call or a seed added through `ctx.run`) with an attempt that already staged `crawl.max_staged_enqueues` of them, which the attempt holds in the engine's memory until it commits. Nothing was staged. Enqueue many links with one `enqueueLinks` call, or raise the setting, which `limit` names."""
 
@@ -368,6 +380,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "retry_requested": RetryRequestedError,
     "sample_crawl_refused": SampleCrawlRefusedError,
     "sheet_capacity_exceeded": SheetCapacityExceededError,
+    "sink_guarantee_unmet": SinkGuaranteeUnmetError,
     "staging_full": StagingFullError,
 }
 """The exception class of each Error code."""

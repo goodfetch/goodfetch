@@ -1195,6 +1195,24 @@ status = "active"
 product = "foxhound"
 
 [[story]]
+id = 283
+title = "As an operator, I want each Sink probed when configured and at Run start, and given the Guarantee class it proves (Fenced, Record-fenced, Keyed or At-least-once), so that a destination's name never promises what it cannot do (ADR 0026)."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
+id = 284
+title = "As a crawl developer, I want a Run that sets `crawl.min_sink_guarantee` refused at its start with `sink_guarantee_unmet` when one of its Sinks cannot meet that class, so that a crawl that needs fencing never runs without it (ADR 0026) **(shape)**."
+milestone = "M4 Everything else"
+journey = false
+not_journey = "part"
+status = "active"
+product = "foxhound"
+
+[[story]]
 id = 285
 title = "As a crawl developer, I want every delivery to carry its delivery ID, the Record's Dataset and number, and the run epoch, a stale epoch refused where the destination can compare and set, so that a zombie copy never overwrites the current run (ADRs 0003, 0008)."
 milestone = "M4 Everything else"

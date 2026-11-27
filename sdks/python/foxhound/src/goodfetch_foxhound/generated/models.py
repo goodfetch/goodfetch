@@ -1957,6 +1957,70 @@ class SheetCapacityExceededDetails(BaseModel):
     """The most a sheet holds of it."""
 
 
+class SinkGuaranteeUnmetDetails(BaseModel):
+    """What `sink_guarantee_unmet` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str | None = None
+    """Why the probe failed, for people; none when it proved a class."""
+    proved: GuaranteeClass | None = None
+    """The class the Sink's probe proved; none when the probe failed."""
+    required: GuaranteeClass
+    """The class the Run requires, its `crawl.min_sink_guarantee`."""
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
+class SinkProbeOutcome1(BaseModel):
+    """Its destination proved a Guarantee class."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    class_: Annotated[GuaranteeClass, Field(alias="class")]
+    """The class."""
+    status: Literal["proved"]
+
+
+class SinkProbeOutcome2(BaseModel):
+    """Its probe failed: its destination did not resolve, open or answer."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    cause: str
+    """Why, for people."""
+    status: Literal["failed"]
+
+
+class SinkProbeOutcome(RootModel[SinkProbeOutcome1 | SinkProbeOutcome2]):
+    root: SinkProbeOutcome1 | SinkProbeOutcome2
+    """What a Sink's probe found."""
+
+
+class SinkProbeParams(BaseModel):
+    """
+    What `sink.probe` takes: the Sink, by its name among the `sinks` the
+    settings resolve to as a crawl's Run would.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    project: ProjectSettings | None = None
+    """The project configuration the Client found, layer 3 (ADR 0083)."""
+    settings: dict[str, Any] | None = None
+    """
+    Settings over the connection's, nested by key, as a crawl's Run
+    takes them (ADR 0083), such as the `sinks` to probe.
+    """
+    sink: str
+    """The Sink's name, its key under `sinks`."""
+
+
 class SinkStatus(StrEnum):
     """A Sink's delivery status (ADRs 0026 and 0103)."""
 
@@ -2924,6 +2988,18 @@ class Seeds(RootModel[list[Seed]]):
 
     root: Annotated[list[Seed], Field(min_length=1)]
     """A crawl's seeds, at least one."""
+
+
+class SinkProbe(BaseModel):
+    """What `sink.probe` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    outcome: SinkProbeOutcome
+    """What its probe found."""
+    sink: str
+    """The Sink's name."""
 
 
 class SinkReport(BaseModel):

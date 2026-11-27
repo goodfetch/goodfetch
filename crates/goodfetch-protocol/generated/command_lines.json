@@ -978,6 +978,15 @@
         "commands": [
           {
             "commands": [],
+            "name": "probe"
+          }
+        ],
+        "name": "sink"
+      },
+      {
+        "commands": [
+          {
+            "commands": [],
             "name": "search"
           }
         ],

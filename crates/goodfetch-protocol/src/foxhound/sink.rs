@@ -2,16 +2,22 @@
 //! one family per Sink, each entry a [`SinkSettings`] of the keys every
 //! Sink type shares, set on a connection or a crawl's Run and refused on a
 //! Label. [`GuaranteeClass`] is what a Sink's probe proves of its
-//! destination, which its delivery reports.
+//! destination, which its delivery reports; `crawl.min_sink_guarantee`
+//! refuses a Run whose Sink proves less, and `sink.probe` probes one Sink
+//! on demand.
 
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::catalog::{Authority, Entries, ProtocolVersion, Setting, ValueKind, ValueShape};
+use crate::catalog::{
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
+};
 use crate::foxhound::export::{ExportCompression, ExportFormat};
 use crate::secret_reference::{REFERENCE_PATTERN, SecretReference};
+use crate::settings::ProjectSettings;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -564,16 +570,132 @@ pub enum GuaranteeClass {
     AtLeastOnce,
 }
 
-/// A crawl's Sinks' entries: their settings.
+/// `crawl.min_sink_guarantee` (ADR 0026).
+pub const CRAWL_MIN_SINK_GUARANTEE: Setting = Setting {
+    name: "crawl.min_sink_guarantee",
+    description: "The weakest Guarantee class a crawl's Run accepts of each of its Sinks, from the strongest: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). Each Sink is probed at the Run's start, and a Sink whose probe proves a weaker class, or fails, refuses the start with `sink_guarantee_unmet` before the Run does any work. None by default: any class is accepted, and a Sink whose probe fails delivers nothing; `null` clears it.",
+    kind: ValueKind::Choice(&["fenced", "record_fenced", "keyed", "at_least_once"]),
+    default: no_minimum,
+    clearable: true,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+fn no_minimum() -> Value {
+    Value::Null
+}
+
+/// A crawl's Run refused at its start for a Sink below its
+/// `crawl.min_sink_guarantee` (ADR 0026).
+pub const SINK_GUARANTEE_UNMET: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "sink_guarantee_unmet",
+    description: "A Sink of a crawl's Run proved a weaker Guarantee class than the Run's `crawl.min_sink_guarantee`, or its probe failed, so the Run was refused at its start and did no work. The details name the Sink, the class required, the class its probe proved, if any, and the cause of a failed probe. Deliver to a destination that proves the class, such as a Fenced SQLite Sink, or lower `crawl.min_sink_guarantee`.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `sink_guarantee_unmet` details.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkGuaranteeUnmetDetails {
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// The class the Run requires, its `crawl.min_sink_guarantee`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub required: GuaranteeClass,
+    /// The class the Sink's probe proved; none when the probe failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub proved: Option<GuaranteeClass>,
+    /// Why the probe failed, for people; none when it proved a class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub cause: Option<String>,
+}
+
+/// What `sink.probe` takes: the Sink, by its name among the `sinks` the
+/// settings resolve to as a crawl's Run would.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SinkProbeParams {
+    /// The Sink's name, its key under `sinks`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// Settings over the connection's, nested by key, as a crawl's Run
+    /// takes them (ADR 0083), such as the `sinks` to probe.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub settings: serde_json::Map<String, Value>,
+    /// The project configuration the Client found, layer 3 (ADR 0083).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub project: Option<ProjectSettings>,
+}
+
+/// What `sink.probe` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SinkProbe {
+    /// The Sink's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sink: String,
+    /// What its probe found.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub outcome: SinkProbeOutcome,
+}
+
+/// What a Sink's probe found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum SinkProbeOutcome {
+    /// Its destination proved a Guarantee class.
+    Proved {
+        /// The class.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        class: GuaranteeClass,
+    },
+    /// Its probe failed: its destination did not resolve, open or answer.
+    Failed {
+        /// Why, for people.
+        #[schemars(extend("arrived_in" = "0.1"))]
+        cause: String,
+    },
+}
+
+/// `sink.probe` (ADR 0026).
+pub const SINK_PROBE: Operation = Operation {
+    name: "sink.probe",
+    description: "Probes one Sink now, by its name among the `sinks` the connection's settings and the call's `settings` resolve to, as a crawl's Run would, and answers the Guarantee class its destination proves: `fenced`, `record_fenced`, `keyed` or `at_least_once` (ADR 0026). A probe may create what the Sink writes to, such as a SQLite Sink's table. A probe that fails answers `failed` with its cause, such as a destination that did not resolve or open; a Sink the settings do not name answers `failed` naming those they do. A Sink this engine does not deliver to yet fails with `capability_unavailable`. A crawl's Run probes each of its Sinks again at its start.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<SinkProbeParams>,
+    result: schema_of::<SinkProbe>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// A crawl's Sinks' entries: their settings, `sink.probe` and the refusal
+/// of a Run whose Sink proves too little.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[SINK_PROBE],
     events: &[],
     handler_requests: &[],
-    error_codes: &[],
+    error_codes: &[SINK_GUARANTEE_UNMET],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[SINKS],
+    settings: &[SINKS, CRAWL_MIN_SINK_GUARANTEE],
     hook_stages: &[],
     shared_type_values: &[],
 };

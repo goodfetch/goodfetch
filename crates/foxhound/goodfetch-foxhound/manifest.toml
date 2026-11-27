@@ -1454,6 +1454,10 @@ entries = ["sample.crawl"]
 reason = "The engine's sample crawl, which tests and benchmarks call; no Product member serves it."
 
 [[unreached]]
+entries = ["sink.probe"]
+reason = "A probe of one configured Sink outside any Run (issue 1128), for an operator's tooling; spec 582 gives it no SDK member, and issue 1146's `sink list` reports each Sink's class."
+
+[[unreached]]
 entries = ["crawl.serve"]
 reason = "A handler process of `workers=N` offers its handler with it (ADR 0024); issue 2804 adds `serve`."
 

@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use goodfetch_sink::{
     Batch, DeliveryId, Driver, Failure, FailureKind, GuaranteeClass, Primitives, Probe, RunCopy,
-    SqliteSink, Status, Written,
+    SqliteSink, Status, Written, require,
 };
 use goodfetch_test_support::{
     CrashKind, CrashVfs, Fault, ObservationLog, Operation, Record, TestEnv, ValueDigest,
@@ -329,4 +329,40 @@ fn delivery_across_a_crash_inside_a_batch_passes_the_fencing_checker(
         }
     );
     fencing(&log.borrow(), judged(class)).unwrap();
+}
+
+/// A Sink's probe, before it delivers anything, reports the Guarantee
+/// class its destination proves: the SQLite Sink Fenced, each model
+/// destination its own class. A Run whose minimum is that class accepts
+/// it, and a Run whose minimum is Fenced refuses every weaker Sink with
+/// `sink_guarantee_unmet`, naming it.
+///
+/// Covers: story:6-283, story:6-284
+#[rstest]
+fn a_probe_reports_its_class_and_a_fenced_minimum_refuses_a_weaker_one(
+    #[values(
+        GuaranteeClass::Fenced,
+        GuaranteeClass::RecordFenced,
+        GuaranteeClass::Keyed,
+        GuaranteeClass::AtLeastOnce
+    )]
+    class: GuaranteeClass,
+) {
+    let env = TestEnv::new();
+    let log: Log = Rc::new(RefCell::new(ObservationLog::for_test(&env)));
+    let mut probing = driver(Destination::of(class, &env).sink(&log), 1);
+
+    let proved = probing.probe().unwrap();
+
+    assert_eq!(proved, class);
+    assert_eq!(probing.class(), Some(class));
+    assert!(require(Some(class), SINK, Ok(proved)).is_ok());
+    let under_fenced = require(Some(GuaranteeClass::Fenced), SINK, Ok(proved));
+    if class == GuaranteeClass::Fenced {
+        assert!(under_fenced.is_ok());
+    } else {
+        let refusal = under_fenced.unwrap_err();
+        assert_eq!(refusal.code(), "sink_guarantee_unmet");
+        assert!(refusal.message().contains(SINK), "{refusal}");
+    }
 }

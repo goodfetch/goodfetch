@@ -6,10 +6,13 @@
 //! and each Sink fills only the primitives `probe`, `write` and
 //! `map_failure`. The in-binary SQLite Sink is the first. [`Sinks`] is the
 //! crate's composition value, which the crawl's Run asks to check its
-//! `sinks` at the start and to deliver to them while it goes.
+//! `sinks` at the start, to probe them against its
+//! `crawl.min_sink_guarantee` and to deliver to them while it goes;
+//! [`contribution`] answers `sink.probe`.
 
 mod contract;
 mod driver;
+mod guarantee;
 mod run;
 mod sqlite;
 mod sync;
@@ -19,5 +22,6 @@ pub use contract::{
     Written,
 };
 pub use driver::{Driver, Status};
-pub use run::{Delivery, Sinks};
+pub use guarantee::{meets, require};
+pub use run::{Delivery, Sinks, contribution};
 pub use sqlite::SqliteSink;

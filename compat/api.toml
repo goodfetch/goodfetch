@@ -198,11 +198,11 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundError"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every Foxhound error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundErrorCode"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound FoxhoundSettings"
@@ -222,11 +222,11 @@ reason = "`secrets` gains `placeholders`, which binds each Secret placeholder to
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundError"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every Foxhound error needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every Foxhound error needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundErrorCode"
-reason = "An Error code joins Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678): a switch over every code needs its case."
+reason = "Two Error codes join Foxhound's catalog, `sheet_capacity_exceeded` (issue 1678) and `sink_guarantee_unmet` (issue 1128): a switch over every code needs their cases."
 
 [[announced]]
 entry = "typescript @goodfetch/foxhound/generated FoxhoundSettings"

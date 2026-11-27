@@ -134,6 +134,12 @@
         product: Product::Foxhound,
     },
     Namespace {
+        name: "sink",
+        spelled: "sink",
+        about: "Calls the catalog's `sink` operations",
+        product: Product::Foxhound,
+    },
+    Namespace {
         name: "record",
         spelled: "record",
         about: "Calls the catalog's `record` operations",

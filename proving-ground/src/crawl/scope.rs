@@ -17,7 +17,7 @@
 //!   the cache serves never reaches the Proving ground: the interception's
 //!   cases read it (ADR 0085).
 //! - `scope.test/storage?mark=<mark>`, linked from nowhere, keeps `mark` (up
-//!   to 32 letters, digits and hyphens, else `none`) in a `mark` cookie and
+//!   to 64 letters, digits and hyphens, else `none`) in a `mark` cookie and
 //!   in `localStorage`, after its script reports the mark `localStorage`
 //!   held before it, or `none`, by loading `/storage/found?mark=<found>`
 //!   before the page's `load` event: the Sessions' cases read both from the
@@ -125,12 +125,12 @@ pub(super) fn respond(visit: &Visit<'_>) -> Page {
     }
 }
 
-/// `mark` when it is safe to show: up to 32 letters, digits and hyphens;
+/// `mark` when it is safe to show: up to 64 letters, digits and hyphens;
 /// else `none`.
 fn safe_mark(mark: Option<&str>) -> &str {
     mark.filter(|mark| {
         !mark.is_empty()
-            && mark.len() <= 32
+            && mark.len() <= 64
             && mark
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')

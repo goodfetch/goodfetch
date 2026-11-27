@@ -547,7 +547,20 @@ impl Pool {
         egress: SessionEgress,
         tasks: TaskStarter,
     ) -> Seat {
-        self.seat_of((placement, egress), None, tasks)
+        self.seat_of((placement, egress), None, Carried::default(), tasks)
+    }
+
+    /// A seat for a Session reopened from run state, carrying `carried`
+    /// cookies and `localStorage` into the first browser context it opens
+    /// (ADRs 0092, 0102).
+    pub(crate) fn seat_with_carried(
+        &self,
+        placement: BrowserPlacement,
+        egress: SessionEgress,
+        carried: Carried,
+        tasks: TaskStarter,
+    ) -> Seat {
+        self.seat_of((placement, egress), None, carried, tasks)
     }
 
     /// A seat for a Session on the Borrowed browser at `cdp_url`, which
@@ -561,6 +574,7 @@ impl Pool {
         self.seat_of(
             (BrowserPlacement::Shared, SessionEgress::default()),
             Some(browser),
+            Carried::default(),
             tasks,
         )
     }
@@ -569,6 +583,7 @@ impl Pool {
         &self,
         (placement, egress): (BrowserPlacement, SessionEgress),
         borrowed: Option<Arc<BorrowedBrowser>>,
+        carried: Carried,
         tasks: TaskStarter,
     ) -> Seat {
         let number = {
@@ -576,6 +591,8 @@ impl Pool {
             browsers.seats += 1;
             browsers.seats
         };
+        let origins = Origins::default();
+        origins.seed(carried.origins());
         let (place, commands) = mpsc::channel(PLACE_COMMANDS);
         let shared = Arc::new(SeatShared {
             pool: self.clone(),
@@ -583,12 +600,17 @@ impl Pool {
             placement,
             egress,
             borrowed,
-            origins: Origins::default(),
+            origins,
             place,
             tasks,
         });
         let ended = shared.tasks.child_token();
-        shared.spawn(keep_place(Arc::downgrade(&shared), commands, ended));
+        shared.spawn(keep_place(
+            Arc::downgrade(&shared),
+            commands,
+            carried,
+            ended,
+        ));
         Seat { shared }
     }
 
@@ -1329,9 +1351,13 @@ impl SeatShared {
 async fn keep_place(
     seat: Weak<SeatShared>,
     mut commands: mpsc::Receiver<PlaceCommand>,
+    carried: Carried,
     ended: CancellationToken,
 ) {
-    let mut place = Place::default();
+    let mut place = Place {
+        carried,
+        ..Place::default()
+    };
     loop {
         let command = tokio::select! {
             command = commands.recv() => command,

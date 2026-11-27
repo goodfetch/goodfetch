@@ -1365,6 +1365,7 @@ impl Pages {
         // A consent wall the runner found on the navigation's document is
         // the navigation's, once the runner judged it (ADR 0048).
         self.consent_verdict(page_id, &page, true).await?;
+        self.sessions.persist_page_state(&page).await;
         Ok(navigated)
     }
 
@@ -1422,6 +1423,7 @@ impl Pages {
         if outcome.password_filled {
             page.page_check.login.note_password_filled();
         }
+        self.sessions.persist_page_state(&page).await;
         Ok(Acted {})
     }
 
@@ -1499,6 +1501,7 @@ impl Pages {
                 },
             };
         events.keep_requested(fetched.response.request_id.clone(), kept);
+        self.sessions.persist_page_state(&page).await;
         Ok(fetched.response)
     }
 
@@ -1560,6 +1563,7 @@ impl Pages {
                 page_reads::evaluate(&CdpPage::of(&page.driver), expression, world, operation),
             )
             .await?;
+        self.sessions.persist_page_state(&page).await;
         page_functions::answered(returns, (form, operation))
     }
 

@@ -804,21 +804,16 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             )
             .await
             .expect("the Download's file is kept");
-        // The Borrowed browser's Session holds its source sealed
-        // under the Run's data key: one of the layout's shape
-        // (version, nonce, the 90 bytes of its `cdp_url` record and
-        // their tag), fixed, since a real one is random and the set
-        // must be the same at each write. The Session is closed, so
-        // no resume opens it.
-        let sealed_source: Vec<u8> = std::iter::once(1_u8)
-            .chain((0..24 + 90 + 16).map(|byte: u8| byte.wrapping_mul(53)))
-            .collect();
+        // Fixed blobs of the sealed layout's shape (version, nonce, payload
+        // and tag) on closed rows so no resume opens them.
+        let sealed_source = sealed_fixture(90, 53);
+        let sealed_state = sealed_fixture(64, 71);
         run.state
             .write(move |connection| {
                 connection
                     .execute(
-                        r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL), (3, 0, 1, '{}', 4417291851073961183, ?1)"#,
-                        [sealed_source],
+                        r#"INSERT INTO page_sessions (position, is_default, closed, settings, identity_seed, source, state) VALUES (1, 1, 0, '{}', 6178731391398722387, NULL, NULL), (2, 0, 1, '{"filter_lists.ads":false,"proxy.server":"http://proxy.example:3128","proxy.username":"user","proxy.password":"env:PROXY_PASSWORD"}', -2937466112876520115, NULL, ?2), (3, 0, 1, '{}', 4417291851073961183, ?1, NULL)"#,
+                        rusqlite::params![sealed_source, sealed_state],
                     )
                     .map(drop)?;
                 // What a Label learned on a domain (#926): a split
@@ -842,6 +837,15 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .expect("the Sessions, a tier choice and a suspected trap link are kept");
     }
     Ok(json!({ "run_id": "paused" }))
+}
+
+/// Deterministic bytes of the sealed-column layout (version byte `1`, 24-byte
+/// nonce, `payload` bytes, and 16-byte tag), used on closed Session rows so
+/// every `compat write` produces identical bytes.
+fn sealed_fixture(payload: u8, multiplier: u8) -> Vec<u8> {
+    std::iter::once(1_u8)
+        .chain((0..24 + payload + 16).map(|byte| byte.wrapping_mul(multiplier)))
+        .collect()
 }
 
 /// The handler's enqueue, from the home page's attempt, of a request that

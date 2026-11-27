@@ -13,12 +13,14 @@
 //! kept in run state for the Fingerprint method that seeds a browser with
 //! it, so recycling never changes it (ADRs 0040 and 0059).
 //!
-//! The Run's state keeps each Session it opened and whether it is closed, so
-//! a start resuming the Run under its ID, in this engine or another, finds
-//! its Sessions under the same IDs: the first call that reaches the resumed
-//! Run reopens them from its run state, each making its browser context
-//! again on its next page. A Session's ID names its Run, so a call naming a
-//! Session of a Run this engine has not reached yet reaches it. When the
+//! The Run's state keeps each Session it opened, whether it is closed, and
+//! (for a fresh Session) its cookies and `localStorage` sealed under the
+//! Run's data key, so a start resuming the Run under its ID, in this engine
+//! or another, finds its Sessions under the same IDs: the first call that
+//! reaches the resumed Run reopens them from its run state, each restoring
+//! its kept cookies and `localStorage` into its browser context on its next
+//! page (ADRs 0092 and 0102). A Session's ID names its Run, so a call naming
+//! a Session of a Run this engine has not reached yet reaches it. When the
 //! Run stops, its Sessions, its pages and its browsers go with it.
 //!
 //! Each Session and each page changes state only through its table
@@ -109,7 +111,7 @@ use crate::access_mode::{
 use crate::browser_run::BrowserRun;
 use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
-use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
+use crate::cdp::driver::{Carried, PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::cdp::launch::Launcher;
 use crate::cdp::live_view::WatchedTabs;
 use crate::consent::Consent;
@@ -134,14 +136,15 @@ use crate::trace;
 /// What the page crate adds to every run file: each Session the Run opened,
 /// by its position among them, whether it is the Run's default Session,
 /// whether it is closed, its own settings, as a JSON object by key, its
-/// identity seed, its 64 bits as SQLite's signed integer, and, for one on a
-/// Borrowed browser, its `cdp_url` and who gave it, so a resumed Run
-/// reopens it on that browser (`source`, null for a fresh Session), sealed
-/// under the Run's data key ([`SOURCE`]).
+/// identity seed, its 64 bits as SQLite's signed integer, for one on a
+/// Borrowed browser, its `cdp_url` and who gave it (`source`, null for a
+/// fresh Session), sealed under the Run's data key ([`SOURCE`]), and, for
+/// a fresh Session, its kept cookies and `localStorage` (`state`, null when
+/// empty or closed), sealed under the Run's data key ([`SESSION_STATE`]).
 pub(crate) const TABLES: RunStateTables = RunStateTables {
     name: "page-sessions",
     statements: &[
-        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB) STRICT",
+        "CREATE TABLE IF NOT EXISTS page_sessions (position INTEGER NOT NULL PRIMARY KEY, is_default INTEGER NOT NULL, closed INTEGER NOT NULL, settings TEXT NOT NULL, identity_seed INTEGER NOT NULL, source BLOB, state BLOB) STRICT",
     ],
 };
 
@@ -150,6 +153,13 @@ pub(crate) const TABLES: RunStateTables = RunStateTables {
 const SOURCE: SecretColumn = SecretColumn {
     table: "page_sessions",
     column: "source",
+};
+
+/// A Session's `state` is secret: its cookies and `localStorage` may hold
+/// login tokens and session identifiers (ADRs 0092, 0102).
+const SESSION_STATE: SecretColumn = SecretColumn {
+    table: "page_sessions",
+    column: "state",
 };
 
 /// What separates a Session's Run ID from its position in its ID; a
@@ -262,6 +272,18 @@ struct Session {
     /// The engine's Run index, where its pages' consent walls are recorded
     /// for "Needs you".
     run_index: RunIndex,
+    /// The cookies and `localStorage` last persisted to `page_sessions.state`,
+    /// serialized per Session so concurrent navigations cannot overwrite newer
+    /// state with older state.
+    saved_state: Arc<Mutex<SavedState>>,
+}
+
+/// The `localStorage` accumulated across origins a Session has visited and
+/// the [`Carried`] snapshot last written to run state.
+#[derive(Default)]
+struct SavedState {
+    storage: BTreeMap<String, Vec<(String, String)>>,
+    last: Carried,
 }
 
 /// A fresh Session a program opened, in a browser the engine launched.
@@ -622,16 +644,13 @@ impl Sessions {
         let (session, life, open) = {
             let mut state = self.state.lock().await;
             let runs = reached(&mut state, &run.identity)?;
-            let seat = match &borrowed {
-                Some(cdp_url) => runs
-                    .pool
-                    .borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
-                None => runs.pool.seat(
-                    placement(fingerprint.as_ref(), gpc),
-                    egress(proxy.as_ref(), relay.as_ref()),
-                    TaskStarter::clone(&owner),
-                ),
-            };
+            let seat = open_seat(
+                &runs.pool,
+                borrowed.as_ref(),
+                placement(fingerprint.as_ref(), gpc),
+                egress(proxy.as_ref(), relay.as_ref()),
+                TaskStarter::clone(&owner),
+            );
             let session = session_id(run.identity.id(), position);
             let life = SessionLife::new(session.clone(), attributes, SessionState::Opening);
             let interception = session_interception(
@@ -662,14 +681,34 @@ impl Sessions {
                 interception,
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
+                saved_state: Arc::default(),
             });
             self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session.clone(), &open);
             (session, life, open)
         };
+        self.seat_and_record(
+            (&run, &open),
+            (&session, &life),
+            (position, &settings, borrowed.as_ref(), gpc),
+            context,
+        )
+        .await
+    }
+
+    /// Opens the browser context of `open`, transitions its lifecycle to
+    /// `Open`, writes its run-state record, and emits its opening marks and
+    /// warnings.
+    async fn seat_and_record(
+        &self,
+        (run, open): (&Arc<BrowserRun>, &Arc<Session>),
+        (session, life): (&SessionId, &SessionLife),
+        (position, settings, borrowed, gpc): (u32, &Values, Option<&CdpUrl>, GpcPlan),
+        context: &CallContext,
+    ) -> Result<SessionOpened, CallError> {
         if let Err(error) = open.seat.open().await {
             life.open_failed(error.clone())?;
-            self.index.ended(&session, &open);
+            self.index.ended(session, open);
             open.interception.close();
             open.owner.stop().await;
             return Err(error);
@@ -679,15 +718,15 @@ impl Sessions {
             // A `close()` while it opened abandoned the open (S3).
             _ => return Err(cancelled(CancelledBy::Program, ClosedValue::Session)),
         }
-        self.record(&run, position, false, &settings, borrowed.as_ref(), context)
+        self.record(run, position, false, settings, borrowed, context)
             .await?;
-        mark_egress(&open, &session).await;
+        mark_egress(open, session).await;
         if let Some(fingerprint) = &open.fingerprint {
-            fingerprint.chosen(&run, &session).await;
+            fingerprint.chosen(run, session).await;
         }
-        warn_gpc(&run, &session, gpc).await;
+        warn_gpc(run, session, gpc).await;
         Ok(SessionOpened {
-            session_id: session,
+            session_id: session.clone(),
         })
     }
 
@@ -821,6 +860,7 @@ impl Sessions {
             interception,
             page_listeners: session_pages::PageListeners::default(),
             run_index: context.engine().run_index().clone(),
+            saved_state: Arc::default(),
         });
         {
             let mut state = self.state.lock().await;
@@ -1152,11 +1192,80 @@ impl Sessions {
             .state
             .write(move |connection| {
                 connection
-                    .prepare_cached("UPDATE page_sessions SET closed = 1 WHERE position = ?1")?
+                    .prepare_cached(
+                        "UPDATE page_sessions SET closed = 1, state = NULL WHERE position = ?1",
+                    )?
                     .execute([position])
                     .map(drop)
             })
             .await
+    }
+
+    /// Captures the cookies and current page's `localStorage` of `page`'s
+    /// Session and keeps them sealed in `page_sessions.state` when they
+    /// changed (ADRs 0092, 0102). A no-op for closed, pooled or Borrowed
+    /// Sessions; errors are logged and never fail the caller's operation.
+    pub(crate) async fn persist_page_state(&self, page: &OpenPage) {
+        let Some(open) = self.index.session(&page.session) else {
+            return;
+        };
+        if open.life.pooled() || open.held_frames.is_some() || !open.life.serves() {
+            return;
+        }
+        let mut saved = open.saved_state.lock().await;
+        if !open.life.serves() {
+            return;
+        }
+        let carried = match page.driver.capture_page_state(&mut saved.storage).await {
+            Ok(carried) => carried,
+            Err(error) => {
+                tracing::debug!(%error, "could not capture Session cookies and storage");
+                return;
+            }
+        };
+        if carried == saved.last {
+            return;
+        }
+        let sealed = if carried.is_empty() {
+            None
+        } else {
+            let bytes = match carried.to_bytes() {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    tracing::debug!(%error, "could not encode Session state");
+                    return;
+                }
+            };
+            match open
+                .run
+                .keys
+                .seal(&SESSION_STATE, &open.position.to_string(), &bytes)
+                .await
+            {
+                Ok(sealed) => Some(sealed),
+                Err(error) => {
+                    tracing::debug!(%error, "could not seal Session state");
+                    return;
+                }
+            }
+        };
+        let position = open.position;
+        let written = open
+            .run
+            .state
+            .write(move |connection| {
+                connection
+                    .prepare_cached(
+                        "UPDATE page_sessions SET state = ?1 WHERE position = ?2 AND closed = 0",
+                    )?
+                    .execute(rusqlite::params![sealed, position])
+                    .map(drop)
+            })
+            .await;
+        match written {
+            Ok(()) => saved.last = carried,
+            Err(error) => tracing::debug!(%error, "could not write Session state"),
+        }
     }
 
     /// Opens a page of the open Session `session` that the engine drives
@@ -1283,18 +1392,27 @@ impl Sessions {
             pooled: BTreeMap::new(),
         };
         let mut reopened = Vec::new();
-        for (position, is_default, closed, settings, source) in recorded {
-            runs.last = runs.last.max(position);
-            if is_default {
-                runs.default = Arc::new(OnceCell::new_with(Some(position)));
+        for entry in recorded {
+            runs.last = runs.last.max(entry.position);
+            if entry.is_default {
+                runs.default = Arc::new(OnceCell::new_with(Some(entry.position)));
             }
-            if closed {
-                runs.closed.insert(position);
+            if entry.closed {
+                runs.closed.insert(entry.position);
                 continue;
             }
-            let settings = recorded_settings(&settings, run, context)?;
-            reopened
-                .push(reopened_session((run, &pool), position, settings, source, context).await?);
+            let settings = recorded_settings(&entry.settings, run, context)?;
+            reopened.push(
+                reopened_session(
+                    (run, &pool),
+                    entry.position,
+                    settings,
+                    entry.source,
+                    entry.state,
+                    context,
+                )
+                .await?,
+            );
         }
         let mut state = self.state.lock().await;
         if state.runs.contains_key(run.identity.id()) {
@@ -1424,8 +1542,8 @@ impl Sessions {
                 connection
                     .prepare_cached(
                         "INSERT INTO page_sessions \
-                         (position, is_default, closed, settings, identity_seed, source) \
-                         VALUES (?1, ?2, 0, ?3, ?4, ?5)",
+                         (position, is_default, closed, settings, identity_seed, source, state) \
+                         VALUES (?1, ?2, 0, ?3, ?4, ?5, NULL)",
                     )?
                     .execute(rusqlite::params![
                         position, is_default, settings, seed, source
@@ -1734,10 +1852,37 @@ fn recorded_source(
     })
 }
 
+/// The kept cookies and `localStorage` of the Session at `position` of `run`,
+/// opened from its sealed `state` in run state.
+async fn opened_state(
+    sealed: Option<Sealed>,
+    position: u32,
+    run: &Arc<BrowserRun>,
+    context: &CallContext,
+) -> Result<Carried, CallError> {
+    let Some(sealed) = sealed else {
+        return Ok(Carried::default());
+    };
+    let bytes = run
+        .keys
+        .open(&SESSION_STATE, &position.to_string(), &sealed)
+        .await
+        .map_err(|error| no_source(run, error, context))?;
+    Carried::from_bytes(&bytes).map_err(|error| unavailable(run, &error, context))
+}
+
 /// A Session as the run state records it: its position, whether it is the
-/// default Session, whether it closed, its own settings and, for one on a
-/// Borrowed browser, its sealed source.
-type RecordedSession = (u32, bool, bool, String, Option<Sealed>);
+/// default Session, whether it closed, its own settings, for one on a
+/// Borrowed browser its sealed source, and for a fresh Session its sealed
+/// cookies and `localStorage`.
+struct RecordedSession {
+    position: u32,
+    is_default: bool,
+    closed: bool,
+    settings: String,
+    source: Option<Sealed>,
+    state: Option<Sealed>,
+}
 
 /// The Sessions the run state of `run` records, in position order.
 ///
@@ -1751,16 +1896,17 @@ async fn recorded_sessions(
     run.state
         .read(|connection| {
             let mut statement = connection.prepare(
-                "SELECT position, is_default, closed, settings, source FROM page_sessions ORDER BY position",
+                "SELECT position, is_default, closed, settings, source, state FROM page_sessions ORDER BY position",
             )?;
             let rows = statement.query_map([], |row| {
-                Ok((
-                    row.get::<_, u32>(0)?,
-                    row.get::<_, bool>(1)?,
-                    row.get::<_, bool>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, Option<Sealed>>(4)?,
-                ))
+                Ok(RecordedSession {
+                    position: row.get(0)?,
+                    is_default: row.get(1)?,
+                    closed: row.get(2)?,
+                    settings: row.get(3)?,
+                    source: row.get(4)?,
+                    state: row.get(5)?,
+                })
             })?;
             rows.collect::<rusqlite::Result<Vec<_>>>()
         })
@@ -1784,19 +1930,26 @@ fn recorded_settings(
 
 /// The open Session at `position` that the run state of `run` records,
 /// reopened on `pool` with its own `settings`, on the Borrowed browser its
-/// sealed `source` names if it has one, under an owner of its own, a child
-/// of the Run's. A proxy or signing key it cannot reopen is kept as its
-/// `reopen_failed`, which each page it is asked for raises.
+/// sealed `source` names if it has one, or with its sealed `state` (cookies
+/// and `localStorage`) carried into its next browser context, under an owner
+/// of its own, a child of the Run's. A proxy or signing key it cannot reopen
+/// is kept as its `reopen_failed`, which each page it is asked for raises.
 async fn reopened_session(
     (run, pool): (&Arc<BrowserRun>, &Pool),
     position: u32,
     settings: Values,
     source: Option<Sealed>,
+    state: Option<Sealed>,
     context: &CallContext,
 ) -> Result<Session, CallError> {
     let borrowed = match source {
         Some(sealed) => Some(opened_source(&sealed, position, run, context).await?),
         None => None,
+    };
+    let carried = if borrowed.is_some() {
+        Carried::default()
+    } else {
+        opened_state(state, position, run, context).await?
     };
     let owner = run.identity.owner().child();
     let (proxy, relay, reopen_failed) = reopened_egress(
@@ -1820,15 +1973,20 @@ async fn reopened_session(
         None,
         borrowed.is_some(),
     );
+    let saved_state = Arc::new(Mutex::new(SavedState {
+        storage: carried.storage_map(),
+        last: carried.clone(),
+    }));
     let (seat, attributes) = match &borrowed {
         Some(cdp_url) => (
             pool.borrowed_seat(cdp_url.clone(), TaskStarter::clone(&owner)),
             BORROWED,
         ),
         None => (
-            pool.seat(
+            pool.seat_with_carried(
                 placement(fingerprint.as_ref(), gpc),
                 egress(proxy.as_ref(), relay.as_ref()),
+                carried,
                 TaskStarter::clone(&owner),
             ),
             FRESH,
@@ -1863,6 +2021,7 @@ async fn reopened_session(
         interception,
         page_listeners: session_pages::PageListeners::default(),
         run_index: context.engine().run_index().clone(),
+        saved_state,
     })
 }
 
@@ -2171,6 +2330,21 @@ async fn reopened_identity(
     let identity = access_mode_opens(settings, &run.identity, None, context).await?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
     Ok((signing, FingerprintPlan::of(&identity)))
+}
+
+/// Takes a seat in `pool`: a Borrowed seat when `borrowed` names a browser,
+/// else a pooled seat under `placement` and `egress`.
+fn open_seat(
+    pool: &Pool,
+    borrowed: Option<&CdpUrl>,
+    placement: BrowserPlacement,
+    egress: SessionEgress,
+    tasks: TaskStarter,
+) -> Seat {
+    match borrowed {
+        Some(cdp_url) => pool.borrowed_seat(cdp_url.clone(), tasks),
+        None => pool.seat(placement, egress, tasks),
+    }
 }
 
 /// Where a Session whose pages mask their fingerprint as `fingerprint`

@@ -11,7 +11,7 @@
     reason = "a Session's origins are added and listed one at a time, never across another lock or an `.await`, so there is no lock order to test under loom (ADR 0060)"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use data_encoding::BASE64;
@@ -19,10 +19,11 @@ use goodfetch_cdp::generated::{browser, fetch, network, page, storage, target};
 use goodfetch_cdp::{Failure, SessionId as TargetSession};
 use goodfetch_cdp::{RawEvent, Subscription};
 use goodfetch_engine::CallError;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 
-use super::{Browser, Connect, GUARD_WORLD, SessionDriver, world};
+use super::{Browser, Connect, GUARD_WORLD, PageDriver, SessionDriver, world};
 use crate::errors::Call;
 
 /// The origins whose documents a Session's pages loaded, which its pages'
@@ -88,6 +89,18 @@ impl Origins {
         self.watched().origins.iter().cloned().collect()
     }
 
+    /// Adds `origins` that a Session already carried from run state, so a
+    /// later browser recycle still captures them even before a page visits
+    /// them again.
+    pub(crate) fn seed(&self, origins: impl IntoIterator<Item = String>) {
+        let mut watched = self.watched();
+        for origin in origins {
+            if origin.starts_with("http://") || origin.starts_with("https://") {
+                watched.origins.insert(origin);
+            }
+        }
+    }
+
     /// Waits until each page's reader read every event the connection
     /// handed it so far, so an origin the browser reported before an answer
     /// the caller already holds is listed, however far the reader's task
@@ -120,16 +133,50 @@ impl Origins {
     }
 }
 
-/// A Session's cookies and storage, taken from one browser for the next.
-#[derive(Clone, Debug, Default)]
+/// A Session's cookies and storage, taken from one browser for the next or
+/// kept sealed in run state for a resumed Run (ADRs 0040, 0092, 0102).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Carried {
     cookies: Vec<network::CookieParam>,
     /// Each origin's `localStorage` items, in their order.
     storage: Vec<(String, Vec<(String, String)>)>,
 }
 
+impl Carried {
+    /// Whether no cookies or `localStorage` entries are carried.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.cookies.is_empty() && self.storage.is_empty()
+    }
+
+    /// Encodes the carried state as JSON bytes for sealing in run state.
+    pub(crate) fn to_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(self)
+    }
+
+    /// Decodes carried state opened from run state.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(bytes)
+    }
+
+    /// The origins whose `localStorage` entries this state carries.
+    pub(crate) fn origins(&self) -> impl Iterator<Item = String> + '_ {
+        self.storage.iter().map(|(origin, _)| origin.clone())
+    }
+
+    /// The carried `localStorage` entries keyed by origin, for merging
+    /// updates from a resumed Session's pages.
+    pub(crate) fn storage_map(&self) -> BTreeMap<String, Vec<(String, String)>> {
+        self.storage.iter().cloned().collect()
+    }
+}
+
 /// The function that answers an origin's `localStorage` as its entries.
 const READ_STORAGE: &str = "() => Object.entries(localStorage)";
+
+/// The function that answers the current document's origin and its
+/// `localStorage` entries, or `null` when the document has no web origin or
+/// denies storage access.
+const READ_PAGE_STORAGE: &str = "() => { try { const o = location.origin; if (!o || o === 'null') return null; return { origin: o, items: Object.entries(localStorage) }; } catch { return null; } }";
 
 /// The function that sets each of its entries in an origin's
 /// `localStorage`.
@@ -218,6 +265,95 @@ impl<B: Connect> SessionDriver<B> {
             on_origin(&browser, &context, origin, WRITE_STORAGE, json!(items)).await?;
         }
         Ok(())
+    }
+}
+
+impl PageDriver {
+    /// Captures the Session's cookies from its browser context and refreshes
+    /// this page's main-frame origin in `stored`, returning what the Session
+    /// would carry on a resume. Runs in the guard's isolated world, never
+    /// through `Runtime.enable` (ADR 0019), and opens no extra target.
+    pub(crate) async fn capture_page_state(
+        &self,
+        stored: &mut BTreeMap<String, Vec<(String, String)>>,
+    ) -> Result<Carried, CallError> {
+        let call = self.browser.opening();
+        let cookies = self
+            .browser
+            .send(
+                None,
+                &storage::GetCookiesParams {
+                    browser_context_id: Some(self.context.clone()),
+                },
+                &call,
+            )
+            .await?
+            .cookies
+            .into_iter()
+            .map(cookie_param)
+            .collect();
+        match self.read_origin_storage(&call).await {
+            Ok(Some((origin, items))) => {
+                if items.is_empty() {
+                    stored.remove(&origin);
+                } else {
+                    stored.insert(origin, items);
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::debug!(%error, "could not read page localStorage for run state");
+            }
+        }
+        Ok(Carried {
+            cookies,
+            storage: stored
+                .iter()
+                .map(|(origin, items)| (origin.clone(), items.clone()))
+                .collect(),
+        })
+    }
+
+    /// Reads the current main frame's origin and `localStorage` entries in
+    /// the guard's isolated world, answering `None` for non-web origins.
+    async fn read_origin_storage(
+        &self,
+        call: &Call,
+    ) -> Result<Option<(String, Vec<(String, String)>)>, CallError> {
+        #[derive(Deserialize)]
+        struct OriginStorage {
+            origin: String,
+            items: Vec<(String, String)>,
+        }
+        let world = self
+            .browser
+            .send(
+                Some(&self.session),
+                &isolated_world(self.frame.clone()),
+                call,
+            )
+            .await?;
+        let called = self
+            .browser
+            .send(
+                Some(&self.session),
+                &world::call(READ_PAGE_STORAGE, Value::Null, world.execution_context_id),
+                call,
+            )
+            .await?;
+        let Some(value) = called.result.value else {
+            return Ok(None);
+        };
+        if value.is_null() {
+            return Ok(None);
+        }
+        let Ok(parsed) = serde_json::from_value::<OriginStorage>(value) else {
+            return Ok(None);
+        };
+        if !(parsed.origin.starts_with("http://") || parsed.origin.starts_with("https://")) {
+            return Ok(None);
+        }
+        Ok(Some((parsed.origin, parsed.items)))
     }
 }
 

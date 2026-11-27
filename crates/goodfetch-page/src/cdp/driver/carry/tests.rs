@@ -167,3 +167,52 @@ fn a_storage_pages_commit_ends_alike_whichever_it_reads_first(
         assert_eq!(ends, [committed; REPLAYS]);
     });
 }
+
+/// Carried cookies and `localStorage` round-trip through JSON bytes, report
+/// emptiness accurately, and seed an `Origins` set with web origins alone.
+#[test]
+fn carried_state_round_trips_and_seeds_web_origins() {
+    use super::Carried;
+    use goodfetch_cdp::generated::network;
+
+    assert!(Carried::default().is_empty());
+
+    let carried = Carried {
+        cookies: vec![network::CookieParam {
+            name: "mark".to_owned(),
+            value: "token-1".to_owned(),
+            url: None,
+            domain: Some("scope.test".to_owned()),
+            path: Some("/".to_owned()),
+            secure: Some(false),
+            http_only: Some(false),
+            same_site: Some(network::CookieSameSite::Lax),
+            expires: None,
+            priority: None,
+            source_scheme: None,
+            source_port: None,
+            partition_key: None,
+        }],
+        storage: vec![(
+            ORIGIN.to_owned(),
+            vec![("mark".to_owned(), "token-1".to_owned())],
+        )],
+    };
+    assert!(!carried.is_empty());
+
+    let bytes = carried.to_bytes().expect("carried state encodes");
+    let decoded = Carried::from_bytes(&bytes).expect("carried state decodes");
+    assert_eq!(decoded, carried);
+    assert_eq!(
+        decoded.storage_map().get(ORIGIN),
+        Some(&vec![("mark".to_owned(), "token-1".to_owned())])
+    );
+
+    let origins = Origins::default();
+    origins.seed(
+        decoded
+            .origins()
+            .chain(std::iter::once("about:blank".to_owned())),
+    );
+    assert_eq!(origins.list(), vec![ORIGIN.to_owned()]);
+}

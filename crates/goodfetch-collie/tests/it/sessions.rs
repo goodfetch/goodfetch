@@ -12,9 +12,13 @@
 use goodfetch_protocol::catalog::Product;
 #[cfg(unix)]
 use goodfetch_protocol::page::{PageOpened, SessionId};
-use goodfetch_test_support::{Mode, TestEnv};
 #[cfg(unix)]
-use goodfetch_test_support::{ProvingGround, browser_cache, skipped_without_gui_session};
+use goodfetch_test_client::HomeLayout;
+#[cfg(unix)]
+use goodfetch_test_support::{
+    Canaries, Output, ProvingGround, SecretKind, browser_cache, skipped_without_gui_session,
+};
+use goodfetch_test_support::{Mode, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
 
@@ -567,25 +571,56 @@ fn browsers_left(env: &TestEnv) -> usize {
     crate::page::browser_command_lines(env).len()
 }
 
-/// Covers: story:5-60, operation:run.resume, operation:session.new_page, operation:session.close
+/// Inspects a killed Run's SQLite files and Checkpoint for canary leaks and
+/// returns `(leaks, checkpoint_exists, recorded_states)` where each entry of
+/// `recorded_states` is `(position, closed, has_state)`.
 #[cfg(unix)]
-#[test]
-fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state() {
-    let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let cache = browser_cache(&env).unwrap();
-    let mut engine = started(&env, &cache, &proving_ground, "resumed");
-    let default_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "resumed" })));
-    let own = session_of(&engine.ask(3, "run.new_session", &json!({ "run_id": "resumed" })));
-    let closed = session_of(&engine.ask(4, "run.new_session", &json!({ "run_id": "resumed" })));
-    let _ = engine.ask(5, "session.close", &json!({ "session_id": closed }));
-    engine.kill();
-    let left = browsers_left(&env);
+fn sealed_session_state_check(
+    env: &TestEnv,
+    run_id: &str,
+    canaries: &Canaries,
+) -> (Vec<String>, bool, Vec<(u32, bool, bool)>) {
+    let folder = HomeLayout::of(env.home()).run_folder(run_id);
+    let files = ["run.sqlite", "run.sqlite-wal", "checkpoint.sqlite"].map(|file| folder.join(file));
+    let held: Vec<Output<'_>> = files
+        .iter()
+        .filter(|file| file.exists())
+        .map(|file| Output::Path(file))
+        .collect();
+    let leaks: Vec<String> = canaries
+        .search(&held)
+        .unwrap()
+        .into_iter()
+        .map(|hit| format!("{} in {}", hit.canary, hit.output))
+        .collect();
+    let recorded_states: Vec<(u32, bool, bool)> = {
+        let connection = rusqlite::Connection::open(&files[0]).unwrap();
+        let mut statement = connection
+            .prepare(
+                "SELECT position, closed, state IS NOT NULL FROM page_sessions ORDER BY position",
+            )
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    (leaks, files[2].exists(), recorded_states)
+}
 
-    let mut resumed =
-        Attached::start_with(&env, COLLIE, crate::page::BROWSER_DEADLINE, |command| {
-            command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, &cache);
-        });
+/// Starts a fresh attached engine and resumes `run_id` with `proving_ground`'s
+/// host resolution.
+#[cfg(unix)]
+fn resumed_engine(
+    env: &TestEnv,
+    cache: &std::path::Path,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+) -> (Attached, Value) {
+    let mut resumed = Attached::start_with(env, COLLIE, crate::page::BROWSER_DEADLINE, |command| {
+        command.env(goodfetch_test_support::BROWSERS_PATH_VARIABLE, cache);
+    });
     resumed.send(&goodfetch_test_client::hello(Product::Collie));
     let _ = resumed.next();
     let resolve: serde_json::Map<String, Value> = proving_ground
@@ -598,35 +633,128 @@ fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state
         1,
         "run.resume",
         &json!({
-            "run_id": "resumed",
+            "run_id": run_id,
             "settings": {
                 "network": { "resolve": resolve },
                 "egress": { "private_ranges": resolve.keys().collect::<Vec<_>>() },
             },
         }),
     );
+    (resumed, resume)
+}
+
+/// Covers: story:5-60, operation:run.resume, operation:session.new_page, operation:session.close
+#[cfg(unix)]
+#[test]
+fn a_run_resumed_after_its_engine_was_killed_reopens_its_sessions_from_run_state() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut canaries = Canaries::new(env.seed());
+    let default_mark = canaries.plant(SecretKind::SessionCookie).value().to_owned();
+    let own_mark = canaries.plant(SecretKind::SessionCookie).value().to_owned();
+    let closed_mark = canaries.plant(SecretKind::SessionCookie).value().to_owned();
+
+    let mut engine = started(&env, &cache, &proving_ground, "resumed");
+    let default_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "resumed" })));
+    assert_eq!(
+        store(
+            &mut engine,
+            3,
+            &proving_ground,
+            &default_page,
+            &default_mark
+        ),
+        json!(200)
+    );
+    let own = session_of(&engine.ask(4, "run.new_session", &json!({ "run_id": "resumed" })));
+    let own_before = page_in(&mut engine, 5, &own);
+    assert_eq!(
+        store(&mut engine, 6, &proving_ground, &own_before, &own_mark),
+        json!(200)
+    );
+    let closed = session_of(&engine.ask(7, "run.new_session", &json!({ "run_id": "resumed" })));
+    let closed_before = page_in(&mut engine, 8, &closed);
+    assert_eq!(
+        store(
+            &mut engine,
+            9,
+            &proving_ground,
+            &closed_before,
+            &closed_mark
+        ),
+        json!(200)
+    );
+    let _ = engine.ask(10, "session.close", &json!({ "session_id": closed }));
+    let checkpointed = engine.ask(11, "run.checkpoint", &json!({ "run_id": "resumed" }));
+    engine.kill();
+    let left = browsers_left(&env);
+
+    let (leaks, checkpoint_exists, recorded_states) =
+        sealed_session_state_check(&env, "resumed", &canaries);
+    let (mut resumed, resume) = resumed_engine(&env, &cache, &proving_ground, "resumed");
     let own_page = page_in(&mut resumed, 2, &own);
-    let stored = store(&mut resumed, 3, &proving_ground, &own_page, "own");
+    let own_after = store(&mut resumed, 3, &proving_ground, &own_page, "after-own");
     let default_again = opened(&resumed.ask(4, "run.new_page", &json!({ "run_id": "resumed" })));
-    let still_closed = resumed.ask(5, "session.new_page", &json!({ "session_id": closed }));
-    let closed_again = resumed.ask(6, "session.close", &json!({ "session_id": closed }));
-    let finished = resumed.ask(7, "run.finish", &json!({ "run_id": "resumed" }));
+    let default_after = store(
+        &mut resumed,
+        5,
+        &proving_ground,
+        &default_again,
+        "after-default",
+    );
+    let still_closed = resumed.ask(6, "session.new_page", &json!({ "session_id": closed }));
+    let closed_again = resumed.ask(7, "session.close", &json!({ "session_id": closed }));
+    let finished = resumed.ask(8, "run.finish", &json!({ "run_id": "resumed" }));
     let _ = resumed.finish();
+
+    let sent_after: Vec<(String, Value)> =
+        storage_requests(&proving_ground, "/storage?mark=after-");
+    let found_after: Vec<String> = storage_requests(&proving_ground, "/storage/found")
+        .into_iter()
+        .skip(3)
+        .map(|(target, _)| target)
+        .collect();
 
     assert_eq!(
         (
             left,
+            leaks,
+            checkpointed.get("result").is_some() && checkpoint_exists,
+            recorded_states,
             &resume["result"]["started_as"],
-            (own_page.session_id == own, stored),
-            default_again.session_id == default_page.session_id,
+            (own_page.session_id == own, own_after),
+            (
+                default_again.session_id == default_page.session_id,
+                default_after
+            ),
+            sent_after,
+            found_after,
             (code_of(&still_closed), &closed_again["result"]),
             &finished["result"]["lifecycle"],
         ),
         (
             0,
+            Vec::new(),
+            true,
+            vec![(1, false, true), (2, false, true), (3, true, false)],
             &json!("resumed"),
             (true, json!(200)),
-            true,
+            (true, json!(200)),
+            vec![
+                (
+                    "/storage?mark=after-own".to_owned(),
+                    json!([["mark", own_mark]]),
+                ),
+                (
+                    "/storage?mark=after-default".to_owned(),
+                    json!([["mark", default_mark]]),
+                ),
+            ],
+            vec![
+                format!("/storage/found?mark={own_mark}"),
+                format!("/storage/found?mark={default_mark}"),
+            ],
             (&json!("closed"), &json!({})),
             &json!("finished"),
         )

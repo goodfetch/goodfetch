@@ -427,6 +427,7 @@ fn revoked_digest_stops_running_instance_refuses_start_and_audits() {
                 product: Product::Collie,
                 fetch,
                 clock,
+                spend: None,
             },
             Scope::Run(run_id.clone()),
         );

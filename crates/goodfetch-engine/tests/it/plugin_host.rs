@@ -165,6 +165,7 @@ fn start_in_memory(
             product: Product::Collie,
             fetch: Arc::new(fetch),
             clock,
+            spend: None,
         },
         Scope::Task(None),
     );

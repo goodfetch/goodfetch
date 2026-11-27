@@ -180,6 +180,7 @@ fn engine_with_use_kettle_op() -> crate::Engine {
                     product: Product::Collie,
                     fetch,
                     clock,
+                    spend: None,
                 },
                 Scope::Run(id),
             );

@@ -40,6 +40,7 @@ use crate::home::Home;
 use crate::plugin_gate::{Inserting, PluginFetch, permission_denied};
 use crate::plugin_host::instance::{self, PluginInstance, Scope};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
+use crate::plugin_host::spend::SpendAccountant;
 use crate::plugin_index::{self, LoadRefusal, PluginIndexStore};
 use crate::plugin_runtime::{self, RuntimeCatalog};
 use crate::plugin_store::{Installed, PluginStore, StoreError};
@@ -61,6 +62,7 @@ pub struct RunPlugins {
     store: PluginStore,
     index_store: PluginIndexStore,
     audit: Option<AuditLog>,
+    spend: Option<Arc<dyn SpendAccountant>>,
     cache: CacheLocation,
     instances: PathBuf,
     places: Option<Arc<Places>>,
@@ -107,6 +109,7 @@ impl RunPlugins {
             store: PluginStore::new(home.plugins()),
             index_store: PluginIndexStore::new(home.plugin_index()),
             audit: None,
+            spend: None,
             cache: CacheLocation::new(home.root(), home.browsers_path().map(Path::to_path_buf)),
             instances: home.plugin_instances(),
             places,
@@ -125,6 +128,14 @@ impl RunPlugins {
     #[must_use]
     pub fn with_audit(mut self, audit: AuditLog) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    /// Attaches the Run's spend accountant so started Plugin instances
+    /// account for declared spend against currency Limits (ADR 0033).
+    #[must_use]
+    pub fn with_spend(mut self, spend: Arc<dyn SpendAccountant>) -> Self {
+        self.spend = Some(spend);
         self
     }
 
@@ -438,6 +449,7 @@ impl RunPlugins {
                 product: self.product,
                 fetch: Arc::new(fetch),
                 clock: self.clock,
+                spend: self.spend.clone(),
             },
             Scope::Run(self.run_id.clone()),
         );

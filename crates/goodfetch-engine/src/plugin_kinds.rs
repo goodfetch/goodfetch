@@ -42,6 +42,10 @@ use crate::deadline::Deadline;
 use crate::plugin_host::instance::CallFailure;
 use crate::settings::Resolved;
 
+pub use crate::plugin_host::spend::{
+    DeclaredUnit, ReportedSpend, SpendAccountant, SpendTicket, plugin_price_unknown,
+};
+
 pub mod extractor;
 pub mod run_plugins;
 
@@ -252,6 +256,7 @@ impl Failure {
                 Self::Malformed(handler_failed())
             }
             CallFailure::DeadlineExceeded(error) => Self::DeadlineExceeded(error),
+            CallFailure::Refused(error) => Self::Refused(error),
             CallFailure::Unavailable(error) => {
                 if error.code() == PLUGIN_CRASHED.name {
                     Self::Crashed(error)

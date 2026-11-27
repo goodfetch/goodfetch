@@ -41,6 +41,7 @@ mod manifest;
 mod names;
 pub mod net;
 pub mod settings;
+pub mod spend;
 pub mod update;
 
 pub use fuzz::{fuzz_plugin_manifest, fuzz_plugin_messages};

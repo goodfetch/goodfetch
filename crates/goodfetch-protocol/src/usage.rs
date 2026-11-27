@@ -79,6 +79,10 @@ pub const PLUGIN_CALLS: &str = "plugin_calls";
 /// milliseconds, counted per implementation (ADR 0033; area 7 charges it).
 pub const PLUGIN_TIME: &str = "plugin_time";
 
+/// The Usage kind of raw spend units a Plugin reported outside the engine,
+/// and their price by currency (ADR 0033; area 7 reserves and settles it).
+pub const PLUGIN_UNITS: &str = "plugin_units";
+
 /// One Limit of the Usage ledger: a generic row, which a newer engine may
 /// write with a scope kind, a Usage kind, a currency or a period this one
 /// does not know (ADR 0041).
@@ -498,6 +502,12 @@ pub const ENTRIES: Entries = Entries {
             shared_type: SharedType::UsageKind,
             name: PLUGIN_TIME,
             description: "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
+            arrived_in: ARRIVED_IN,
+        },
+        SharedTypeValue {
+            shared_type: SharedType::UsageKind,
+            name: PLUGIN_UNITS,
+            description: "Raw spend units a Plugin reported outside the engine, and their price by currency (ADR 0033).",
             arrived_in: ARRIVED_IN,
         },
         SharedTypeValue {

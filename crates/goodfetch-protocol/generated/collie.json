@@ -10142,6 +10142,26 @@
       ],
       "type": "object"
     },
+    "PluginPriceUnknownDetails": {
+      "description": "Details carried by `plugin_price_unknown`.",
+      "properties": {
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "unit": {
+          "arrived_in": "0.1",
+          "description": "The declared spend unit that has no price.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "unit"
+      ],
+      "type": "object"
+    },
     "PluginRemoveParams": {
       "additionalProperties": false,
       "description": "What `plugin.remove` takes (ADR 0033, issue 928).",
@@ -10397,6 +10417,46 @@
         "found_signer",
         "digest",
         "fix"
+      ],
+      "type": "object"
+    },
+    "PluginUnitUsage": {
+      "description": "What a Run used of one spend unit a Plugin reported, and its price when\npriced (ADR 0033).",
+      "properties": {
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageAmount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The price of those units, when priced, in millionths of its currency."
+        },
+        "quantity": {
+          "arrived_in": "0.1",
+          "description": "The raw quantity reported, recorded in full.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unit": {
+          "arrived_in": "0.1",
+          "description": "The spend unit's name, as declared in the manifest's `spend` table.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "unit",
+        "quantity"
       ],
       "type": "object"
     },
@@ -13970,6 +14030,14 @@
           "description": "Its paid solves, by currency (ADR 0035).",
           "items": {
             "$ref": "#/$defs/UsageAmount"
+          },
+          "type": "array"
+        },
+        "plugin_units": {
+          "arrived_in": "0.1",
+          "description": "Its Plugins' reported raw spend units, by Plugin and unit, with each\nunit's price when priced (ADR 0033), in Plugin then unit order.",
+          "items": {
+            "$ref": "#/$defs/PluginUnitUsage"
           },
           "type": "array"
         },
@@ -18938,6 +19006,19 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "plugin_permission_denied",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A Plugin call cannot run under a currency Limit because the Plugin declares a spend unit with no price, which a currency Limit treats as unbounded. Set a price for the unit in Operator policy (`plugins.<name>.spend.<unit>.price`), or remove the currency Limit.",
+      "details": {
+        "$ref": "#/$defs/PluginPriceUnknownDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_price_unknown",
       "product": "collie",
       "retryable": false
     },
@@ -29332,6 +29413,13 @@
       "arrived_in": "0.1",
       "description": "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
       "name": "plugin_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Raw spend units a Plugin reported outside the engine, and their price by currency (ADR 0033).",
+      "name": "plugin_units",
       "product": "collie",
       "type": "usage_kind"
     },

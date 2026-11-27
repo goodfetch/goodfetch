@@ -52,7 +52,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use goodfetch_confinement::launch::Launch;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, OperationClass, Product};
@@ -60,7 +60,10 @@ use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL, WaitedFor};
 use goodfetch_protocol::effect::UncertainReason;
 use goodfetch_protocol::error_code::ErrorCode;
 use goodfetch_protocol::jsonrpc::{ErrorObject, ProtocolFailure, RequestId};
-use goodfetch_protocol::plugin::net::{NET_FETCH, NetFetchParams, NetFetchResult};
+use goodfetch_protocol::plugin::net::{
+    NET_FETCH, NetFetchParams, NetFetchResult, PLUGIN_CALL_BACK_REFUSED,
+};
+use goodfetch_protocol::plugin::spend::{USAGE_REPORT, UsageReportParams, UsageReportResult};
 use goodfetch_protocol::plugin::{
     CANCEL, CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
     PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginCancelParams,
@@ -77,6 +80,7 @@ use super::lifecycle::{
     self, InstanceEffect, InstanceEvent, InstanceState, InvalidInstanceTransition, RecentCrashes,
 };
 use super::process::{Ended, Pipes, PluginProcess};
+use super::spend::{DeclaredSpend, ReportedSpend, SpendAccountant};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::deadline::{Deadline, Enclosing};
@@ -118,6 +122,8 @@ pub struct Plugin {
     pub fetch: Arc<PluginFetch>,
     /// The clock its calls' deadlines wait on.
     pub clock: Clock,
+    /// Optional Run spend accounting for the Plugin's declared `spend` units.
+    pub spend: Option<Arc<dyn SpendAccountant>>,
 }
 
 /// What starts an in-memory Plugin instance, over duplex streams speaking
@@ -132,6 +138,8 @@ pub struct InMemoryPlugin {
     pub fetch: Arc<PluginFetch>,
     /// The clock its calls' deadlines wait on.
     pub clock: Clock,
+    /// Optional Run spend accounting for the Plugin's declared `spend` units.
+    pub spend: Option<Arc<dyn SpendAccountant>>,
 }
 
 /// The Plugin's end of an in-memory instance's pipes: what the engine writes
@@ -309,6 +317,10 @@ pub enum CallFailure {
     /// crashed, quarantined, or stopped with its Run or its task.
     #[error(transparent)]
     Unavailable(CallError),
+    /// The Run's Usage or spend rules refused the call (`limit_reached`,
+    /// `limit_not_understood`, `plugin_price_unknown`).
+    #[error(transparent)]
+    Refused(CallError),
 }
 
 /// What made a Plugin's answer unreadable, for people and the log: never
@@ -332,6 +344,7 @@ pub struct PluginInstance {
     cancels: mpsc::UnboundedSender<Cancel>,
     next: Arc<AtomicI64>,
     clock: Clock,
+    spend: Option<DeclaredSpend>,
     stopping: CancellationToken,
     stop_reason: Arc<std::sync::Mutex<Option<CallError>>>,
     ended: watch::Receiver<Option<CallError>>,
@@ -345,6 +358,8 @@ struct Call {
     line: Vec<u8>,
     class: OperationClass,
     uncertain: Option<Arc<dyn UncertainReporter>>,
+    sent: Arc<AtomicBool>,
+    reported: Arc<std::sync::Mutex<ReportedSpend>>,
     answer: oneshot::Sender<Result<Received, CallFailure>>,
 }
 
@@ -397,7 +412,8 @@ impl PluginInstance {
             product: plugin.product,
             fetch: plugin.fetch,
         };
-        let (handle, running, span) = Self::prepare(owner, config, scope, plugin.clock);
+        let (handle, running, span) =
+            Self::prepare(owner, config, scope, plugin.clock, plugin.spend);
         owner.spawn(running.run_process(start_process).instrument(span));
         handle
     }
@@ -418,7 +434,8 @@ impl PluginInstance {
             product: plugin.product,
             fetch: plugin.fetch,
         };
-        let (handle, running, span) = Self::prepare(owner, config, scope, plugin.clock);
+        let (handle, running, span) =
+            Self::prepare(owner, config, scope, plugin.clock, plugin.spend);
         owner.spawn(
             running
                 .run_pipes(Backend::InMemory, engine_write, engine_read)
@@ -440,11 +457,14 @@ impl PluginInstance {
         config: Config,
         scope: Scope,
         clock: Clock,
+        spend: Option<Arc<dyn SpendAccountant>>,
     ) -> (Self, Running, tracing::Span) {
         let (calls, mailbox) = mpsc::channel(MAILBOX);
         let (cancels, cancelled_calls) = mpsc::unbounded_channel();
         let (ending, ended) = watch::channel(None);
         let stop_reason = Arc::new(std::sync::Mutex::new(None));
+        let declared_spend =
+            DeclaredSpend::new(config.manifest.name.clone(), &config.manifest.spend, spend);
         let own = owner.child();
         let stopping = own.token().child_token();
         let span = tracing::info_span!(
@@ -467,6 +487,7 @@ impl PluginInstance {
             cancels,
             next: Arc::new(AtomicI64::new(HELLO_ID + 1)),
             clock,
+            spend: declared_spend,
             stopping,
             stop_reason,
             ended,
@@ -527,12 +548,18 @@ impl PluginInstance {
         {
             return Err(CallFailure::Unavailable(lease.withheld(ended, method)));
         }
+        let call_spend = match &self.spend {
+            Some(declared) => Some(declared.reserve().await?),
+            None => None,
+        };
         let id = RequestId::Number(self.next.fetch_add(1, Ordering::Relaxed));
         let line = wire::request_line(&id, method, params).map_err(|error| {
             CallFailure::Unavailable(internal(&format!(
                 "the params of `{method}` encode: {error}"
             )))
         })?;
+        let sent = Arc::new(AtomicBool::new(false));
+        let reported = Arc::new(std::sync::Mutex::new(ReportedSpend::default()));
         let (answer, answered) = oneshot::channel();
         let call = Call {
             id: id.clone(),
@@ -540,6 +567,8 @@ impl PluginInstance {
             line,
             class: options.class,
             uncertain: options.uncertain,
+            sent: Arc::clone(&sent),
+            reported: Arc::clone(&reported),
             answer,
         };
         let mut guard = CancelGuard {
@@ -564,7 +593,7 @@ impl PluginInstance {
         )
         .await;
         guard.disarm();
-        match timed {
+        let outcome = match timed {
             Ok(result) => result,
             Err(deadline_error) => {
                 let (ack_tx, ack_rx) = oneshot::channel();
@@ -581,7 +610,22 @@ impl PluginInstance {
                 }
                 Err(CallFailure::DeadlineExceeded(deadline_error))
             }
+        };
+        if let Some(spend) = call_spend {
+            let was_sent = sent.load(Ordering::Acquire);
+            let answered = matches!(
+                outcome,
+                Ok(_) | Err(CallFailure::Answered(_) | CallFailure::Malformed(_))
+            );
+            let reported = reported.lock().map(|slot| slot.clone()).unwrap_or_default();
+            let settled = spend.finish(was_sent, answered, reported).await;
+            if outcome.is_ok()
+                && let Err(refusal) = settled
+            {
+                return Err(refusal);
+            }
         }
+        outcome
     }
 
     /// Stops the instance and waits until its process is gone and its
@@ -1029,9 +1073,9 @@ impl Running {
         }
     }
 
-    /// The Plugin's call back `call`, with the id `id`: refused, or run as
-    /// a task of the instance's owner, whose answer comes back through
-    /// [`CallBacks::answers`].
+    /// The Plugin's call back `call`, with the id `id`: `usage.report` records
+    /// raw spend units synchronously, and `net.fetch` runs as a task of the
+    /// instance's owner, whose answer comes back through [`CallBacks::answers`].
     async fn called_back<W: AsyncWrite + Unpin>(
         &self,
         instance: &mut Instance,
@@ -1039,6 +1083,20 @@ impl Running {
         id: RequestId,
         call: &framing::Call,
     ) {
+        if call.method() == USAGE_REPORT {
+            let line = match self.record_usage_report(instance, call) {
+                Ok(()) => match wire::success_line(&id, &UsageReportResult {}) {
+                    Ok(line) => line,
+                    Err(error) => wire::failure_line(
+                        Some(id),
+                        internal(&format!("a `{USAGE_REPORT}` result encodes: {error}"))
+                            .to_error_object(),
+                    ),
+                },
+                Err(error) => wire::failure_line(Some(id), error.to_error_object()),
+            };
+            return write(&self.stopping, stdin, &line).await;
+        }
         let admitted = served(call).and_then(|params| {
             admit_call_back(
                 &instance.waiting,
@@ -1067,6 +1125,44 @@ impl Running {
             // An instance that ended reads no answer.
             let _ = answers.send(call_back_line(id, outcome)).await;
         });
+    }
+
+    /// Validates and records a Plugin's `usage.report` call back against its
+    /// active in-flight call.
+    fn record_usage_report(
+        &self,
+        instance: &Instance,
+        call: &framing::Call,
+    ) -> Result<(), CallError> {
+        let params: UsageReportParams = serde_json::from_str(call.params().unwrap_or("null"))
+            .map_err(|error| {
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!("the params of `{USAGE_REPORT}` cannot be read: {error}"),
+                )
+            })?;
+        let Some(active) = instance.waiting.get(&params.call_id) else {
+            return Err(code(
+                &PLUGIN_CALL_BACK_REFUSED,
+                &format!(
+                    "`{USAGE_REPORT}` named call `{:?}`, which this instance does not await",
+                    params.call_id
+                ),
+            ));
+        };
+        if !self.config.manifest.spend.contains_key(&params.unit) {
+            return Err(code(
+                &PLUGIN_CALL_BACK_REFUSED,
+                &format!(
+                    "`{USAGE_REPORT}` named unit `{}`, which `{}`'s manifest does not declare",
+                    params.unit, self.config.manifest.name
+                ),
+            ));
+        }
+        if let Ok(mut reported) = active.reported.lock() {
+            reported.add(params.unit, params.quantity);
+        }
+        Ok(())
     }
 
     /// A call its caller made.
@@ -1125,6 +1221,12 @@ impl Running {
                 return None;
             }
             Ok(Incoming::Notification(call)) => {
+                if call.method() == USAGE_REPORT {
+                    if let Err(error) = self.record_usage_report(instance, &call) {
+                        stray(&format!("refused `{USAGE_REPORT}` notification: {error}"));
+                    }
+                    return None;
+                }
                 stray(&format!(
                     "the Plugin sent the notification `{}`, which the host does not serve",
                     call.method()
@@ -1276,6 +1378,7 @@ async fn send<W: AsyncWrite + Unpin>(
     stdin: &mut W,
     call: Call,
 ) {
+    call.sent.store(true, Ordering::Release);
     write(stopping, stdin, &call.line).await;
     instance.waiting.insert(call.id.clone(), call);
 }

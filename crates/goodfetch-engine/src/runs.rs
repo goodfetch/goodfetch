@@ -108,6 +108,7 @@ pub use self::clean_up::{Answering, Chosen, CleanUpVersions, Fallback, Holding, 
 pub use self::end::RunEnd;
 pub use self::import::fuzz_run_state_import;
 pub use self::keys::RunKeys;
+pub use self::plugin_spend::{RunSpendAccountant, limit_not_understood, limit_reached};
 pub use self::progress::{PartValue, PauseHeld, Progress, ProgressPart, TypedPart, TypedParts};
 pub use self::reader::{RunFileOpener, RunReader};
 pub use self::reindex::{Reindexed, reindex};
@@ -4558,6 +4559,7 @@ impl Registry {
                     finish,
                     send_window.clone(),
                 ),
+                plugins: self.plugins(run_id, &owner, charging.clone(), warnings.clone()),
                 charging,
                 keys,
                 warnings,
@@ -4569,7 +4571,6 @@ impl Registry {
                 trace,
                 entropy: RunEntropy::new(self.setup.entropy.fork()),
                 send_window,
-                plugins: self.plugins(run_id, &owner),
             }),
             identity,
             state,
@@ -4594,7 +4595,13 @@ impl Registry {
 
     /// The process Plugins of the Run `run_id`, started as tasks of its
     /// `owner` (ADR 0145).
-    fn plugins(&self, run_id: &RunId, owner: &Arc<TaskOwner>) -> Arc<RunPlugins> {
+    fn plugins(
+        &self,
+        run_id: &RunId,
+        owner: &Arc<TaskOwner>,
+        charging: RunCharging,
+        warnings: ReportWarnings,
+    ) -> Arc<RunPlugins> {
         Arc::new(
             RunPlugins::new(
                 self.setup.engine.home(),
@@ -4603,7 +4610,8 @@ impl Registry {
                 run_id.clone(),
                 (Arc::clone(owner), self.setup.engine.clock()),
             )
-            .with_audit(self.setup.engine.audit().clone()),
+            .with_audit(self.setup.engine.audit().clone())
+            .with_spend(RunSpendAccountant::new(charging, warnings)),
         )
     }
 
@@ -5623,6 +5631,7 @@ pub mod lifecycle;
 mod list;
 mod opening;
 pub mod outcome;
+mod plugin_spend;
 mod progress;
 mod reader;
 mod reindex;

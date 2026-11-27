@@ -145,8 +145,9 @@ export type RunWarningCode = "baseline_unavailable" | "block_resources_visible" 
  * - `paid_solves`: Paid solves and their price, by currency (ADR 0035); its Limits carry must understand.
  * - `plugin_calls`: Calls a run made into Plugins, of every form, per implementation (ADR 0033).
  * - `plugin_time`: The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).
+ * - `plugin_units`: Raw spend units a Plugin reported outside the engine, and their price by currency (ADR 0033).
  * - `proxy_bytes`: Bytes a run sent and received through a proxy, per proxy kind.
  * - `requests`: Requests a run sent: a crawl's Crawl requests, and a page's navigations.
  * - `sample_echoes`: Texts the sample operation repeated.
  */
-export type UsageKind = "browser_time" | "model_calls" | "model_tokens" | "page_crashes" | "paid_solves" | "plugin_calls" | "plugin_time" | "proxy_bytes" | "requests" | "sample_echoes" | (string & {});
+export type UsageKind = "browser_time" | "model_calls" | "model_tokens" | "page_crashes" | "paid_solves" | "plugin_calls" | "plugin_time" | "plugin_units" | "proxy_bytes" | "requests" | "sample_echoes" | (string & {});

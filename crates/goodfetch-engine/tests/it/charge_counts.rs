@@ -27,11 +27,11 @@ fn a_covered_charge_and_a_slice_taken_each_count_their_own_work() {
     assert_eq!(
         default,
         Counted {
-            covered: 109,
-            slices: 11,
+            covered: 146,
+            slices: 14,
             statements: 0,
-            transactions: 11,
-            syncs: 11,
+            transactions: 14,
+            syncs: 14,
             opens: 0,
         }
     );
@@ -68,7 +68,7 @@ fn no_limit_takes_the_slices_work_away() {
     assert_eq!(
         off,
         Counted {
-            covered: 120,
+            covered: 160,
             slices: 0,
             statements: 0,
             transactions: 0,

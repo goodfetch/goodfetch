@@ -496,6 +496,10 @@ fn the_bundle_holds_the_plugin_protocols_types_and_the_plugin_manifest() {
                 "params": reference("NetFetchParams"),
                 "result": reference("NetFetchResult"),
             },
+            "usage_report": {
+                "params": reference("UsageReportParams"),
+                "result": reference("UsageReportResult"),
+            },
             "manifest": reference("PluginManifest"),
         })
     );

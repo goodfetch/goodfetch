@@ -166,6 +166,7 @@ impl Plugin {
             product: Product::Collie,
             fetch: Arc::new(fetch),
             clock: Clock::system(),
+            spend: None,
         }
     }
 }

@@ -666,6 +666,25 @@ impl RunCharging {
             .await
     }
 
+    /// Journals `counted` directly into the Run's run state without touching
+    /// ledger Slices.
+    pub(super) async fn record_counted_direct(
+        &self,
+        counted: Vec<Counted>,
+    ) -> Result<(), ChargeError> {
+        let epoch = self.0.state.epoch();
+        let journal = self.0.journal;
+        let charged = Charged {
+            used: Vec::new(),
+            counted,
+        };
+        self.0
+            .state
+            .write(move |connection| journal(connection, epoch, &charged, false))
+            .await?;
+        Ok(())
+    }
+
     /// Makes `change` on the Run's charging, journals what it charged, and
     /// asks the Run to stop at its next safe point when a Limit refused it;
     /// answers none once the Run ended. A change that is a step in memory
@@ -675,7 +694,7 @@ impl RunCharging {
     /// `change` may run twice. Either way the journal is queued under the
     /// charging's lock ([`RunCharging::on_charging`]), so journals reach
     /// the run state in the order of the changes.
-    async fn charged<T, F>(&self, change: F) -> Result<Option<T>, ChargeError>
+    pub(super) async fn charged<T, F>(&self, change: F) -> Result<Option<T>, ChargeError>
     where
         T: Send + 'static,
         F: Fn(&mut Change<'_>) -> Result<(T, Charged), Unmade> + Send + 'static,
@@ -717,7 +736,7 @@ impl RunCharging {
     /// what it gave back: always a step in memory, made where the Run asks
     /// for it unless its charging is held ([`RunCharging::on_charging`]).
     /// A Run that ended settles nothing.
-    async fn settled<F>(&self, settle: F) -> Result<(), ChargeError>
+    pub(super) async fn settled<F>(&self, settle: F) -> Result<(), ChargeError>
     where
         F: FnOnce(&mut Charging) -> Charged + Send + 'static,
     {

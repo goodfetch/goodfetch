@@ -19147,6 +19147,26 @@
       "description": "What a Plugin answers to `$/ping`: nothing.",
       "type": "object"
     },
+    "PluginPriceUnknownDetails": {
+      "description": "Details carried by `plugin_price_unknown`.",
+      "properties": {
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "unit": {
+          "arrived_in": "0.1",
+          "description": "The declared spend unit that has no price.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "unit"
+      ],
+      "type": "object"
+    },
     "PluginProtocolRange": {
       "additionalProperties": false,
       "description": "A range of plugin protocol versions, both ends included.",
@@ -19423,6 +19443,46 @@
         "found_signer",
         "digest",
         "fix"
+      ],
+      "type": "object"
+    },
+    "PluginUnitUsage": {
+      "description": "What a Run used of one spend unit a Plugin reported, and its price when\npriced (ADR 0033).",
+      "properties": {
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageAmount"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "The price of those units, when priced, in millionths of its currency."
+        },
+        "quantity": {
+          "arrived_in": "0.1",
+          "description": "The raw quantity reported, recorded in full.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unit": {
+          "arrived_in": "0.1",
+          "description": "The spend unit's name, as declared in the manifest's `spend` table.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plugin",
+        "unit",
+        "quantity"
       ],
       "type": "object"
     },
@@ -25076,6 +25136,14 @@
           },
           "type": "array"
         },
+        "plugin_units": {
+          "arrived_in": "0.1",
+          "description": "Its Plugins' reported raw spend units, by Plugin and unit, with each\nunit's price when priced (ADR 0033), in Plugin then unit order.",
+          "items": {
+            "$ref": "#/$defs/PluginUnitUsage"
+          },
+          "type": "array"
+        },
         "plugins": {
           "arrived_in": "0.1",
           "description": "Its calls into Plugin kinds' implementations, of every form, and the\ntime they took, by implementation (ADR 0033), in name order.",
@@ -29603,6 +29671,38 @@
         "usage_kind",
         "amount"
       ],
+      "type": "object"
+    },
+    "UsageReportParams": {
+      "description": "What `usage.report` reports to the engine: the call being served, the\ndeclared unit name, and the raw quantity spent.",
+      "properties": {
+        "call_id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the engine's call the Plugin is serving."
+        },
+        "quantity": {
+          "arrived_in": "0.1",
+          "description": "The raw quantity of `unit` spent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unit": {
+          "arrived_in": "0.1",
+          "description": "The spend unit's name, as declared in the manifest's `spend` table.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "unit",
+        "quantity"
+      ],
+      "type": "object"
+    },
+    "UsageReportResult": {
+      "description": "What the engine answers to `usage.report`: acknowledgement that the\nreported quantity was recorded for the call.",
       "type": "object"
     },
     "UsageSetParams": {
@@ -45715,6 +45815,14 @@
       },
       "result": {
         "$ref": "#/$defs/PluginPingResult"
+      }
+    },
+    "usage_report": {
+      "params": {
+        "$ref": "#/$defs/UsageReportParams"
+      },
+      "result": {
+        "$ref": "#/$defs/UsageReportResult"
       }
     }
   },

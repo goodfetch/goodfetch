@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::net::{NET_FETCH, NetFetchParams};
+use super::spend::{USAGE_REPORT, UsageReportParams};
 use super::{
     CANCEL, HELLO, PING, PLUGIN_PROTOCOL, PluginCancelParams, PluginHelloParams, PluginHelloResult,
     PluginManifest, PluginPingParams, check_hello,
@@ -81,6 +82,8 @@ pub fn fuzz_plugin_messages(data: &[u8]) {
                     let _ = PluginPingParams::deserialize(&params);
                 } else if method == NET_FETCH {
                     let _ = NetFetchParams::deserialize(&params);
+                } else if method == USAGE_REPORT {
+                    let _ = UsageReportParams::deserialize(&params);
                 }
             }
             Message::Notification(Notification { method, params, .. }) if method == CANCEL => {

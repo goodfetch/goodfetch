@@ -38,10 +38,10 @@ use goodfetch_protocol::run::{RESERVED_TAG_PREFIX, Tags};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
     RUN_IN_USE, RUN_LIVE, RUN_NOT_FOUND, RUN_NOT_OWNED, RUN_SET_PROGRESS_MESSAGE, RUN_START,
-    RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, ReachedLimit, RunAbortParams, RunConflictDetails,
-    RunDetails, RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunLimit,
-    RunParams, RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted,
-    RunStopParams, RunUsage, StartInput, StartedAs, StopReason,
+    RUN_STATE_UNAVAILABLE, RUN_STOP, RUN_USAGE, RunAbortParams, RunConflictDetails, RunDetails,
+    RunDiscarded, RunFinishParams, RunId, RunIdInvalidDetails, RunKind, RunLimit, RunParams,
+    RunProgress, RunReport, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams,
+    RunUsage, StartInput, StartedAs, StopReason,
 };
 use goodfetch_protocol::run::{
     RUN_INTERRUPTED, RUN_LIST, RUN_PROGRESS_READ, RUN_REPORT, RunInterruptedDetails, RunList,
@@ -51,9 +51,6 @@ use goodfetch_protocol::run::{
     RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
 };
 use goodfetch_protocol::secret_reference::SecretReference;
-use goodfetch_protocol::usage::{
-    LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
-};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
@@ -324,34 +321,7 @@ pub fn start_error(error: StartError) -> CallError {
     }
 }
 
-/// `limit_reached`, naming the Limit's scope, Usage kind and period.
-pub fn limit_reached(reached: &ReachedLimit) -> CallError {
-    let period = reached
-        .period
-        .as_ref()
-        .map(|period| format!(" this {} ({})", period.every.as_str(), period.time_zone))
-        .unwrap_or_default();
-    CallError::new(
-        &LIMIT_REACHED,
-        format!(
-            "The {} Limit on {} has nothing left{period}; wait for its next period, or ask a person to raise it.",
-            reached.scope.kind, reached.usage_kind
-        ),
-        reached,
-    )
-}
-
-/// `limit_not_understood`, naming the Limit.
-pub fn limit_not_understood(limit: Limit) -> CallError {
-    CallError::new(
-        &LIMIT_NOT_UNDERSTOOD,
-        format!(
-            "A newer engine set a {} Limit on {} that this engine cannot evaluate; upgrade it.",
-            limit.scope.kind, limit.usage_kind
-        ),
-        &LimitNotUnderstoodDetails { limit },
-    )
-}
+pub use crate::runs::{limit_not_understood, limit_reached};
 
 /// A run a draining Daemon refuses to start or resume (ADR 0049).
 fn draining(run_id: Option<RunId>) -> CallError {

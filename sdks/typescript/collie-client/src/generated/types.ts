@@ -8384,6 +8384,22 @@ export interface PluginPermissionDeniedDetails {
   plugin: string;
 }
 /**
+ * Details carried by `plugin_price_unknown`.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginPriceUnknownDetails".
+ */
+export interface PluginPriceUnknownDetails {
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+  /**
+   * The declared spend unit that has no price.
+   */
+  unit: string;
+}
+/**
  * What `plugin.remove` takes (ADR 0033, issue 928).
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -8558,6 +8574,31 @@ export interface PluginSignerChangedDetails {
    * The signer identity previously recorded for the installed Plugin.
    */
   previousSigner: string;
+}
+/**
+ * What a Run used of one spend unit a Plugin reported, and its price when
+ * priced (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginUnitUsage".
+ */
+export interface PluginUnitUsage {
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+  /**
+   * The price of those units, when priced, in millionths of its currency.
+   */
+  price?: UsageAmount | null;
+  /**
+   * The raw quantity reported, recorded in full.
+   */
+  quantity: number;
+  /**
+   * The spend unit's name, as declared in the manifest's `spend` table.
+   */
+  unit: string;
 }
 /**
  * What `plugin.update` takes (ADR 0033, issue 924).
@@ -10192,6 +10233,11 @@ export interface RunUsage {
    * Its paid solves, by currency (ADR 0035).
    */
   paidSolves?: UsageAmount[];
+  /**
+   * Its Plugins' reported raw spend units, by Plugin and unit, with each
+   * unit's price when priced (ADR 0033), in Plugin then unit order.
+   */
+  pluginUnits?: PluginUnitUsage[];
   /**
    * Its calls into Plugin kinds' implementations, of every form, and the
    * time they took, by implementation (ADR 0033), in name order.

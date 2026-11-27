@@ -1358,6 +1358,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "A Plugin call cannot run under a currency Limit because the Plugin declares a spend unit with no price, which a currency Limit treats as unbounded. Set a price for the unit in Operator policy (`plugins.<name>.spend.<unit>.price`), or remove the currency Limit.",
+      "details": {
+        "$ref": "#/$defs/PluginPriceUnknownDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "plugin_price_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Plugin and the engine share no plugin protocol version, which the reply to `hello` says before any other message. Upgrade the older side: the Plugin, or the engine.",
       "exit_code": null,
       "group": "unavailable",
@@ -15511,6 +15524,13 @@
       "arrived_in": "0.1",
       "description": "The time a run's calls into Plugins took, in milliseconds, per implementation (ADR 0033).",
       "name": "plugin_time",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Raw spend units a Plugin reported outside the engine, and their price by currency (ADR 0033).",
+      "name": "plugin_units",
       "product": "collie",
       "type": "usage_kind"
     },

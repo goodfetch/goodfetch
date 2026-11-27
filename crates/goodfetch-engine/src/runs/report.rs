@@ -10,6 +10,7 @@
 //! place of the Run's handle (ADR 0145).
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -17,13 +18,13 @@ use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
-    UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginUnitUsage, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage,
+    RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
-    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME, PROXY_BYTES,
-    REQUESTS,
+    BROWSER_TIME, MODEL_CALLS, MODEL_TOKENS, PAID_SOLVES, PLUGIN_CALLS, PLUGIN_TIME, PLUGIN_UNITS,
+    PROXY_BYTES, REQUESTS,
 };
 use rusqlite::{Connection, OptionalExtension as _};
 
@@ -255,6 +256,7 @@ pub(super) fn usage(
             .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?,
         proxy_bytes_by_kind: proxy_bytes_by_kind(connection)?,
         plugins: plugins(connection)?,
+        plugin_units: plugin_units(connection)?,
         ..RunUsage::default()
     };
     let mut statement = connection.prepare_cached(
@@ -283,8 +285,8 @@ pub(super) fn usage(
             (REQUESTS, None) => usage.requests = amount,
             (PAID_SOLVES, currency) => usage.paid_solves.push(UsageAmount { currency, amount }),
             (PAID_FETCH, currency) => usage.paid_fetches.push(UsageAmount { currency, amount }),
-            // `plugins` holds them, by implementation.
-            (PLUGIN_CALLS | PLUGIN_TIME, None) => {}
+            // `plugins` and `plugin_units` hold them, by implementation and unit.
+            (PLUGIN_CALLS | PLUGIN_TIME, None) | (PLUGIN_UNITS, _) => {}
             (_, currency) => usage.other.push(KindUsage {
                 usage_kind,
                 currency,
@@ -358,6 +360,53 @@ fn plugins(connection: &Connection) -> rusqlite::Result<Vec<PluginUsage>> {
         }
     }
     Ok(plugins)
+}
+
+/// What the Run used of each Plugin's declared spend units, in Plugin then
+/// unit order: the parts of `plugin_units`.
+fn plugin_units(connection: &Connection) -> rusqlite::Result<Vec<PluginUnitUsage>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT part, amount FROM usage_parts WHERE usage_kind = ?1 ORDER BY part",
+    )?;
+    let rows = statement.query_map([PLUGIN_UNITS], |row| {
+        let amount: i64 = row.get(1)?;
+        Ok((row.get::<_, String>(0)?, u64::try_from(amount).unwrap_or(0)))
+    })?;
+    let mut by_key: BTreeMap<(String, String), (u64, Option<UsageAmount>)> = BTreeMap::new();
+    for row in rows {
+        let (part, amount) = row?;
+        if let Some(rest) = part.strip_prefix("qty:")
+            && let Some((plugin, unit)) = rest.split_once(':')
+        {
+            let entry = by_key
+                .entry((plugin.to_owned(), unit.to_owned()))
+                .or_insert((0, None));
+            entry.0 = entry.0.saturating_add(amount);
+        } else if let Some(rest) = part.strip_prefix("price:")
+            && let Some((plugin, rest)) = rest.split_once(':')
+            && let Some((currency, unit)) = rest.split_once(':')
+        {
+            let entry = by_key
+                .entry((plugin.to_owned(), unit.to_owned()))
+                .or_insert((0, None));
+            entry.1 = Some(UsageAmount {
+                currency: Some(currency.to_owned()),
+                amount,
+            });
+        }
+    }
+    Ok(by_key
+        .into_iter()
+        .filter(|(_, (quantity, price))| {
+            *quantity > 0 || price.as_ref().is_some_and(|priced| priced.amount > 0)
+        })
+        .map(|((plugin, unit), (quantity, price))| PluginUnitUsage {
+            plugin,
+            unit,
+            quantity,
+            price,
+        })
+        .collect())
 }
 
 /// Adds `delta` to what the Run used of `part` of `usage_kind`.

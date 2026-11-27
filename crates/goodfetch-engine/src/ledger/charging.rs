@@ -15,6 +15,9 @@
 //!
 //! A live Run charges through [`RunCharging`], the value of its charging
 //! that a function takes in place of the Run's handle (ADR 0145).
+//!
+//! Size: one concern, a single run's in-memory Limit cache, Slice drawing,
+//! reservation and settlement state machine (`Charging` and `Change`).
 
 use goodfetch_protocol::run::LimitSetter;
 use goodfetch_protocol::run::{AppliedLimit, ReachedLimit};
@@ -24,6 +27,10 @@ use rusqlite::Connection;
 
 pub use self::live::{Allowance, ChargeError, RunCharging, UnjournaledCharges};
 pub(crate) use self::live::{ChargingParts, StorageFailed};
+pub use self::plugin_spend::{
+    PluginUnitOutcome, PluginUnitReservation, PluginUnitReserve, plugin_unit_price_part,
+    plugin_unit_qty_part,
+};
 use super::{
     Holder, Ledger, LedgerError, LimitId, PeriodBounds, Placement, SliceId, SliceSizing,
     StoredLimit, TARGET, point_in_time,
@@ -203,6 +210,23 @@ impl Change<'_> {
         match self.reach {
             Reach::Held => Err(Unmade::NeedsLedger),
             Reach::Ledger => Ok(self.charging.allowed_by(usage_kind, currency)?),
+        }
+    }
+
+    /// Whether any currency Limit on `usage_kind` (in any currency) holds the
+    /// run: a step in memory when the held Limits are current (ADR 0140's E3).
+    ///
+    /// # Errors
+    ///
+    /// `NeedsLedger` when tried in memory while held Limits are stale or
+    /// unread; `Refused` as [`Charging::has_currency_limit`]'s.
+    pub fn has_currency_limit(&mut self, usage_kind: &str) -> Result<bool, Unmade> {
+        match self.reach {
+            Reach::Held => self
+                .charging
+                .has_currency_limit_held(usage_kind, self.now)
+                .ok_or(Unmade::NeedsLedger),
+            Reach::Ledger => Ok(self.charging.has_currency_limit(usage_kind, self.now)?),
         }
     }
 }
@@ -663,6 +687,42 @@ impl Charging {
         charged
     }
 
+    /// Whether any currency Limit on `usage_kind` (in any currency) holds the
+    /// run, as a step in memory when the held Limits are current (ADR 0140's
+    /// E3). None when the Limits must be read from the ledger.
+    pub fn has_currency_limit_held(&mut self, usage_kind: &str, now: Timestamp) -> Option<bool> {
+        if !self.current(now) {
+            return None;
+        }
+        let holding = self.limits.holding().ok()?;
+        Some(
+            holding.iter().any(|limit| {
+                limit.stored.usage_kind == usage_kind && limit.stored.currency.is_some()
+            }),
+        )
+    }
+
+    /// Whether any currency Limit on `usage_kind` (in any currency) holds the
+    /// run, reading the ledger only when the held Limits are not current.
+    ///
+    /// # Errors
+    ///
+    /// `NotUnderstood` when a Limit the run cannot be placed outside of
+    /// appeared, `Ledger` when the ledger cannot be read.
+    pub fn has_currency_limit(
+        &mut self,
+        usage_kind: &str,
+        now: Timestamp,
+    ) -> Result<bool, Refusal> {
+        if !self.current(now) {
+            self.read(now, Reading::Charge)?;
+        }
+        let holding = self.limits.holding()?;
+        Ok(holding
+            .iter()
+            .any(|limit| limit.stored.usage_kind == usage_kind && limit.stored.currency.is_some()))
+    }
+
     /// Who allows the run to pay for `usage_kind` in `currency` (ADRs 0041
     /// and 0045): the setter of the tightest Limit on it holding the run
     /// that a person or a managed Operator policy set, the only ones that
@@ -974,3 +1034,4 @@ fn reached(stored: &StoredLimit, now: Timestamp) -> Refusal {
 }
 
 mod live;
+mod plugin_spend;

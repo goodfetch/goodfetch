@@ -46,8 +46,9 @@ use rusqlite::{Connection, Row};
 
 use self::changes::Changes;
 pub use self::charging::{
-    Allowance, Change, ChargeError, Charged, Charging, Counted, Refusal, Reservation, RunCharging,
-    UnjournaledCharges, Unmade,
+    Allowance, Change, ChargeError, Charged, Charging, Counted, PluginUnitOutcome,
+    PluginUnitReservation, PluginUnitReserve, Refusal, Reservation, RunCharging,
+    UnjournaledCharges, Unmade, plugin_unit_price_part, plugin_unit_qty_part,
 };
 pub(crate) use self::charging::{ChargingParts, StorageFailed};
 pub use self::period::{PeriodBounds, bounds};

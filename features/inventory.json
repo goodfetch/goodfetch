@@ -2428,6 +2428,17 @@
       ]
     },
     {
+      "id": "error:plugin_price_unknown",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_protocol_unsupported",
       "kind": "error",
       "area": 7,

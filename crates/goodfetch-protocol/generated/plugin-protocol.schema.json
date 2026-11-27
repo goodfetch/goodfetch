@@ -1049,6 +1049,38 @@
           "type": "string"
         }
       ]
+    },
+    "UsageReportParams": {
+      "description": "What `usage.report` reports to the engine: the call being served, the\ndeclared unit name, and the raw quantity spent.",
+      "properties": {
+        "call_id": {
+          "$ref": "#/$defs/RequestId",
+          "arrived_in": "0.1",
+          "description": "The id of the engine's call the Plugin is serving."
+        },
+        "quantity": {
+          "arrived_in": "0.1",
+          "description": "The raw quantity of `unit` spent.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unit": {
+          "arrived_in": "0.1",
+          "description": "The spend unit's name, as declared in the manifest's `spend` table.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call_id",
+        "unit",
+        "quantity"
+      ],
+      "type": "object"
+    },
+    "UsageReportResult": {
+      "description": "What the engine answers to `usage.report`: acknowledgement that the\nreported quantity was recorded for the call.",
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1082,6 +1114,14 @@
     },
     "result": {
       "$ref": "#/$defs/PluginPingResult"
+    }
+  },
+  "usage_report": {
+    "params": {
+      "$ref": "#/$defs/UsageReportParams"
+    },
+    "result": {
+      "$ref": "#/$defs/UsageReportResult"
     }
   }
 }

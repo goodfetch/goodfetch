@@ -238,6 +238,11 @@ pub struct RunUsage {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub plugins: Vec<PluginUsage>,
+    /// Its Plugins' reported raw spend units, by Plugin and unit, with each
+    /// unit's price when priced (ADR 0033), in Plugin then unit order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin_units: Vec<PluginUnitUsage>,
     /// What it used of a Usage kind this engine does not name, kept as the
     /// ledger holds it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -348,6 +353,25 @@ pub struct PluginUsage {
     /// The time those calls took, in milliseconds.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub time: u64,
+}
+
+/// What a Run used of one spend unit a Plugin reported, and its price when
+/// priced (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginUnitUsage {
+    /// The Plugin's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin: String,
+    /// The spend unit's name, as declared in the manifest's `spend` table.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub unit: String,
+    /// The raw quantity reported, recorded in full.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub quantity: u64,
+    /// The price of those units, when priced, in millionths of its currency.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub price: Option<UsageAmount>,
 }
 
 /// An amount of a Usage kind counted in a currency, or as a count.

@@ -45,6 +45,7 @@ mod person_only;
 mod plugin_approvals;
 mod plugin_index;
 mod plugin_manage;
+mod plugin_spend;
 mod preamble;
 mod progress;
 mod raw_calls;

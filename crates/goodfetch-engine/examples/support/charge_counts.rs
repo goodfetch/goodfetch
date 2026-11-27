@@ -23,7 +23,7 @@ use goodfetch_engine::ledger::{
 };
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::run::{LimitScope, LimitSetter};
-use goodfetch_protocol::usage::{INSTALL, Limit, PAID_SOLVES, PROXY_BYTES, REQUESTS};
+use goodfetch_protocol::usage::{INSTALL, Limit, PAID_SOLVES, PLUGIN_UNITS, PROXY_BYTES, REQUESTS};
 use goodfetch_test_support::CrashVfs;
 use jiff::Timestamp;
 use rusqlite::{Connection, OpenFlags};
@@ -75,10 +75,17 @@ enum Charge {
     ProxyBytes = 1,
     /// One paid call ([`paid_call`]).
     PaidCall = 2,
+    /// One priced Plugin call ([`plugin_call`]).
+    PluginCall = 3,
 }
 
 /// Every kind of charge, in the order a round makes them.
-const KINDS: [Charge; 3] = [Charge::Request, Charge::ProxyBytes, Charge::PaidCall];
+const KINDS: [Charge; 4] = [
+    Charge::Request,
+    Charge::ProxyBytes,
+    Charge::PaidCall,
+    Charge::PluginCall,
+];
 
 impl Charge {
     /// Makes this charge on `charging`; answers what it used of each Slice.
@@ -92,6 +99,7 @@ impl Charge {
             }
             Self::ProxyBytes => proxy_bytes(charging, now),
             Self::PaidCall => paid_call(charging, now),
+            Self::PluginCall => plugin_call(charging, now),
         }
     }
 
@@ -101,7 +109,7 @@ impl Charge {
         match self {
             Self::Request => 1,
             Self::ProxyBytes => ALLOWANCE,
-            Self::PaidCall => WORST,
+            Self::PaidCall | Self::PluginCall => WORST,
         }
     }
 
@@ -110,7 +118,7 @@ impl Charge {
         match self {
             Self::Request => 1,
             Self::ProxyBytes => ALLOWANCE,
-            Self::PaidCall => COST,
+            Self::PaidCall | Self::PluginCall => COST,
         }
     }
 }
@@ -266,6 +274,30 @@ fn paid_call(charging: &mut Charging, now: Timestamp) -> Vec<(SliceId, u64)> {
     charged.used
 }
 
+/// One priced Plugin call (ADR 0033, issue 940): checks currency Limit
+/// presence in memory, reserves its worst case of [`WORST`] against
+/// `plugin_units`, and settles at [`COST`], a step in memory.
+fn plugin_call(charging: &mut Charging, now: Timestamp) -> Vec<(SliceId, u64)> {
+    let reserve = |change: &mut Change<'_>| {
+        let _ = change.has_currency_limit(PLUGIN_UNITS)?;
+        change.reserve(PLUGIN_UNITS, Some(CURRENCY), WORST)
+    };
+    let (reservation, charged) = reserved(charging, now, reserve);
+    let settled = charging.settle(reservation, COST);
+    let journaled: i64 = charged
+        .counted
+        .iter()
+        .chain(&settled.counted)
+        .map(|counted| counted.delta)
+        .sum();
+    assert_eq!(
+        journaled,
+        i64::try_from(COST).expect("invariant: a small cost"),
+        "a priced Plugin call's journals count its Usage once, at what it cost"
+    );
+    charged.used
+}
+
 /// The one run's charging on `ledger`, standing on the install.
 fn run_charging(ledger: &Ledger, folder: &Path) -> Charging {
     Charging::new(
@@ -308,6 +340,7 @@ pub(crate) fn charges(
             limit(REQUESTS, None, AMOUNT),
             limit(PROXY_BYTES, None, AMOUNT * ALLOWANCE),
             limit(PAID_SOLVES, Some(CURRENCY), AMOUNT * WORST),
+            limit(PLUGIN_UNITS, Some(CURRENCY), AMOUNT * WORST),
         ] {
             setting
                 .add_limit(&limit, now)

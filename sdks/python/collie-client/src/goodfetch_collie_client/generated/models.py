@@ -3313,6 +3313,18 @@ class PluginPermissionDeniedDetails(BaseModel):
     """The Plugin's name."""
 
 
+class PluginPriceUnknownDetails(BaseModel):
+    """Details carried by `plugin_price_unknown`."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    plugin: str
+    """The Plugin's name."""
+    unit: str
+    """The declared spend unit that has no price."""
+
+
 class PluginRemoved(BaseModel):
     """
     What `plugin.remove` answers once the Plugin is removed (ADR 0033,
@@ -8721,6 +8733,25 @@ class PluginSignerChangedDetails(BaseModel):
     """The signer identity previously recorded for the installed Plugin."""
 
 
+class PluginUnitUsage(BaseModel):
+    """
+    What a Run used of one spend unit a Plugin reported, and its price when
+    priced (ADR 0033).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    plugin: str
+    """The Plugin's name."""
+    price: UsageAmount | None = None
+    """The price of those units, when priced, in millionths of its currency."""
+    quantity: Annotated[int, Field(ge=0)]
+    """The raw quantity reported, recorded in full."""
+    unit: str
+    """The spend unit's name, as declared in the manifest's `spend` table."""
+
+
 class PluginUpdateParams(BaseModel):
     """What `plugin.update` takes (ADR 0033, issue 924)."""
 
@@ -10903,6 +10934,11 @@ class RunUsage(BaseModel):
     """Its Paid fetches, by currency (ADR 0045)."""
     paid_solves: list[UsageAmount] | None = None
     """Its paid solves, by currency (ADR 0035)."""
+    plugin_units: list[PluginUnitUsage] | None = None
+    """
+    Its Plugins' reported raw spend units, by Plugin and unit, with each
+    unit's price when priced (ADR 0033), in Plugin then unit order.
+    """
     plugins: list[PluginUsage] | None = None
     """
     Its calls into Plugin kinds' implementations, of every form, and the

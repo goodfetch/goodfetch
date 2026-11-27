@@ -76,6 +76,7 @@ use goodfetch_protocol::log::LogEvent;
 use goodfetch_protocol::model::{ModelRequest, ModelResponsePart};
 use goodfetch_protocol::page::Chunk;
 use goodfetch_protocol::plugin::net::{NetFetchParams, NetFetchResult};
+use goodfetch_protocol::plugin::spend::{UsageReportParams, UsageReportResult};
 use goodfetch_protocol::plugin::{
     PluginCancelParams, PluginHelloParams, PluginHelloResult, PluginManifest, PluginPingParams,
     PluginPingResult,
@@ -201,6 +202,10 @@ fn plugin_protocol(generator: &mut SchemaGenerator) -> Value {
         "net_fetch": {
             "params": generator.subschema_for::<NetFetchParams>(),
             "result": generator.subschema_for::<NetFetchResult>(),
+        },
+        "usage_report": {
+            "params": generator.subschema_for::<UsageReportParams>(),
+            "result": generator.subschema_for::<UsageReportResult>(),
         },
         "manifest": generator.subschema_for::<PluginManifest>(),
     })

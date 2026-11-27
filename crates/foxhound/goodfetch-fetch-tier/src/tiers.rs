@@ -1160,7 +1160,7 @@ impl FetchTiers {
             }
             None => (Arc::new(reqwest), None),
         };
-        let caching = Caching::of(engine.response_source(settings), &run.identity);
+        let caching = Caching::of(engine.response_source(settings), &run.identity, CALLER);
         Ok(HttpTier {
             addresses,
             transport: answering(caching.as_ref(), &transport),

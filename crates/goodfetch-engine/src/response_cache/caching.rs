@@ -16,7 +16,6 @@ use goodfetch_protocol::run::RunId;
 use super::{
     CacheRequest, Hit, Keeper, KeptOut, Partition, ResponseHead, ResponseSource, Source, Stale,
 };
-use crate::CALLER;
 use crate::clock::Clock;
 use crate::run_identity::RunIdentity;
 
@@ -31,13 +30,15 @@ pub struct Caching {
 }
 
 impl Caching {
-    /// What `run`'s transports answer from, `source` its own; none when it
-    /// only sends.
-    pub fn of(source: ResponseSource, run: &RunIdentity) -> Option<Arc<Self>> {
+    /// What `run`'s transports answer from, `source` its own, its
+    /// responses kept in the partition of `person`, whom the Run's
+    /// Connection acts for (the engine's `CALLER`); none when it only
+    /// sends.
+    pub fn of(source: ResponseSource, run: &RunIdentity, person: &str) -> Option<Arc<Self>> {
         Self::new(
             source,
             Partition {
-                person: CALLER.to_owned(),
+                person: person.to_owned(),
                 ..Partition::default()
             },
             run.id().clone(),

@@ -74,7 +74,7 @@ use goodfetch_engine::settings::{
     RunSettings, SettingsError, Values, check_session_source, setting,
 };
 use goodfetch_engine::tasks::{TaskOwner, TaskStarter};
-use goodfetch_engine::{CallContext, CallError, RunIndex, RunOfCall};
+use goodfetch_engine::{CALLER, CallContext, CallError, RunIndex, RunOfCall};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::browser_cache::PinnedBy;
 use goodfetch_protocol::catalog::{Authority, SettingScope};
@@ -2189,6 +2189,7 @@ fn session_interception(
         Caching::of(
             run.engine.response_source(settings.resolved()),
             &run.identity,
+            CALLER,
         )
         .map(|caching| caching.of_session(session))
     });

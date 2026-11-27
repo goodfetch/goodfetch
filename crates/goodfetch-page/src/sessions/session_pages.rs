@@ -732,18 +732,21 @@ fn opening_number(page: &PageId) -> Option<u64> {
 impl Session {
     /// How its pages are judged: by `page_check`, the one a page's value
     /// carries from its crawl request's Label, when given (ADR 0093), else
-    /// by its Page check, when it declares one; and whether it may hold a
-    /// login, having opened from a Session source. Only a Borrowed
-    /// browser's Session does today, at a `cdp_url`; a fresh one holds none
-    /// of its own until a `login` or a Saved identity can give it one (ADR
-    /// 0006).
+    /// by its Page check, when it declares one; and its shared login state
+    /// for ADR 0006's built-in detector (ticket #2447), marked held on a
+    /// Borrowed browser and otherwise promoted once a filled password field
+    /// reaches a document outside a login path.
     fn checking(&self, page_check: Option<&PageCheck>) -> Arc<Checking> {
+        let login = Arc::clone(self.pages.login());
+        if self.held_frames.is_some() {
+            login.mark_held();
+        }
         Arc::new(Checking {
             declared: page_check.map_or_else(
                 || Declared::of(&self.run.identity, &self.settings),
                 |check| Some(Declared::label(check)),
             ),
-            holds_login: self.held_frames.is_some(),
+            login,
         })
     }
 }

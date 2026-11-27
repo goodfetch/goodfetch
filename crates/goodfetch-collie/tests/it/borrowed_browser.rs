@@ -72,6 +72,9 @@ const POPUP: &str = "/popup";
 /// The site's large page: a plain-text body of [`LARGE_BYTES`].
 const LARGE: &str = "/large";
 
+/// The site's page outside a login path showing a single password field.
+const PASSWORD_FORM: &str = "/password-form";
+
 /// The person's own tab, which they open themselves.
 const MINE: &str = "/mine";
 
@@ -267,6 +270,9 @@ fn answer(
         }
         POPUP => {
             "<html><body><button id=leak onclick=\"window.open('http://leak.test:' + location.port + '/leak'); window.close()\">Leak</button></body></html>"
+        }
+        PASSWORD_FORM => {
+            "<html><body><form><input name=\"password\" type=\"password\"></form></body></html>"
         }
         _ => "<html><body><h1>Borrowed</h1></body></html>",
     };
@@ -1210,6 +1216,59 @@ fn going_back_on_a_borrowed_browser_answers_a_page_its_cache_restored() {
         (back.get("result").is_some(), &path["result"]["value"]),
         (true, &json!("/a")),
         "{back}"
+    );
+}
+
+/// On a Borrowed browser, which opened from a source carrying a login, the
+/// built-in detector raises `logged_out` immediately on both the redirect
+/// sign and the password-field sign without needing a prior password fill
+/// (ADR 0006, ticket #2447).
+///
+/// Covers: story:5-79, error:logged_out, operation:page.goto
+#[test]
+fn a_borrowed_browsers_built_in_detector_raises_on_redirect_and_password_field() {
+    let env = TestEnv::new();
+    let cache = browser_cache(&env).unwrap();
+    let lent = Lent::start(&env, &cache);
+    let site = Site::start();
+    site.redirect(
+        "/account",
+        &Redirect::Status {
+            status: 302,
+            location: "/login".to_owned(),
+        },
+    );
+    let mut program = Program::start(&env, &cache, Surface::SdkPython);
+    let started = program.call(
+        "run.start",
+        &json!({
+            "run_id": "borrowed-login-detector",
+            "settings": { "network": { "resolve": { SITE: [PUBLIC] } } },
+        }),
+    );
+    assert!(started.get("result").is_some(), "{started}");
+    let borrowed = program.borrow("borrowed-login-detector", &lent.cdp_url);
+    let page = program.new_page(&borrowed["result"]["session_id"]);
+
+    let redirected = program.goto(&page, &site.url(SITE, "/account"));
+    let password = program.goto(&page, &site.url(SITE, PASSWORD_FORM));
+    program.finish("borrowed-login-detector");
+    lent.stop();
+
+    assert_eq!(
+        (
+            redirected["error"]["data"]["code"].as_str(),
+            redirected["error"]["data"]["judged_by"].as_str(),
+            password["error"]["data"]["code"].as_str(),
+            password["error"]["data"]["judged_by"].as_str(),
+        ),
+        (
+            Some("logged_out"),
+            Some("built_in"),
+            Some("logged_out"),
+            Some("built_in"),
+        ),
+        "redirected={redirected}\npassword={password}"
     );
 }
 

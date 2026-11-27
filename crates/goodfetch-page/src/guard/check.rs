@@ -85,6 +85,11 @@ pub(crate) enum Seen {
         /// person picks rather than types, which the guard sets.
         #[serde(default)]
         set_value: bool,
+        /// For `fill`, whether the target is a password input
+        /// (`<input type="password">`), read from the same check with no
+        /// extra CDP command (ADR 0006, ticket #2447).
+        #[serde(default)]
+        password: bool,
     },
     /// A locator wait's matches are in the state it waits for.
     Ready {

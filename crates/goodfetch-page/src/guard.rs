@@ -178,6 +178,15 @@ enum Landed {
     Intercepted { observed: String },
 }
 
+/// What an action completed through the guard observed of its target.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Acted {
+    /// Whether `fill` wrote into a password input (`<input type="password">`),
+    /// so the Session learns when a later document outside a login path gives
+    /// it a login (ADR 0006, ticket #2447).
+    pub(crate) password_filled: bool,
+}
+
 /// Performs `request` on `page`, through the guard, timed by `clock`. The
 /// deadline holds however long the page takes to answer: an action whose
 /// page answers none of its checks, its main thread busy, or that never
@@ -200,7 +209,7 @@ pub(crate) async fn act(
     page: &PageDriver,
     request: Request<'_>,
     clock: &Clock,
-) -> Result<(), CallError> {
+) -> Result<Acted, CallError> {
     let started = clock.now();
     let asked = Asked {
         selector: request.selector,
@@ -228,7 +237,11 @@ pub(crate) async fn act(
 
 /// Performs `request` on `page` through the guard, as [`act`] does, until
 /// it lands, fails or its deadline passes between two checks.
-async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Result<(), CallError> {
+async fn attempt(
+    page: &PageDriver,
+    request: Request<'_>,
+    clock: &Clock,
+) -> Result<Acted, CallError> {
     // Every command the attempt sends counts on its kind's row: its checks,
     // its input, its disarm and its wait for a navigation it started alike.
     let page = &page.counting(request.action.commands());
@@ -280,7 +293,7 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                         Landed::Landed => {
                             drop(turn);
                             Box::pin(page.settle_gesture(watch)).await;
-                            return Ok(());
+                            return Ok(Acted::default());
                         }
                         Landed::Intercepted { observed } => {
                             last = Seen::waiting(Step::ReceivesEvents, observed);
@@ -289,30 +302,19 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
                 }
                 Action::Fill(_) | Action::Press(_) => return Err(mismatched(&seen)),
             },
-            Seen::Focused { set_value } => match &request.action {
-                Action::Fill(value) if set_value => {
-                    request.sent.mark(request.operation).await?;
-                    if set_picked(&mut turn, value).await? {
-                        return Ok(());
+            Seen::Focused {
+                set_value,
+                password,
+            } => match &request.action {
+                Action::Fill(value) => {
+                    if let Some(acted) =
+                        perform_fill(page, &request, &mut turn, value, set_value, password).await?
+                    {
+                        return Ok(acted);
                     }
                 }
-                Action::Fill(value) => {
-                    request.sent.mark(request.operation).await?;
-                    return fill(page, &mut turn, value).await;
-                }
                 Action::Press(events) => {
-                    request.sent.mark(request.operation).await?;
-                    let mut watch = page.watch_gesture();
-                    Box::pin(watch.during(async {
-                        CdpPage::of(page)
-                            .press_keys(events, turn.gesture_call())
-                            .await?;
-                        settled(&mut turn).await
-                    }))
-                    .await?;
-                    drop(turn);
-                    Box::pin(page.settle_gesture(watch)).await;
-                    return Ok(());
+                    return perform_press(page, &request, turn, events).await;
                 }
                 Action::Click => return Err(mismatched(&seen)),
             },
@@ -334,6 +336,47 @@ async fn attempt(page: &PageDriver, request: Request<'_>, clock: &Clock) -> Resu
             waiting @ Seen::Waiting { .. } => last = waiting,
         }
     }
+}
+
+/// Completes a focused fill; returns `None` when setting a picked control's
+/// value needs another check.
+async fn perform_fill(
+    page: &PageDriver,
+    request: &Request<'_>,
+    turn: &mut Turn,
+    value: &str,
+    set_value: bool,
+    password: bool,
+) -> Result<Option<Acted>, CallError> {
+    request.sent.mark(request.operation).await?;
+    if set_value {
+        return Ok(set_picked(turn, value).await?.then(Acted::default));
+    }
+    fill(page, turn, value).await?;
+    Ok(Some(Acted {
+        password_filled: password,
+    }))
+}
+
+/// Completes a focused key press and lets go of `turn` while its gesture settles.
+async fn perform_press(
+    page: &PageDriver,
+    request: &Request<'_>,
+    mut turn: Turn,
+    events: &KeyPress,
+) -> Result<Acted, CallError> {
+    request.sent.mark(request.operation).await?;
+    let mut watch = page.watch_gesture();
+    Box::pin(watch.during(async {
+        CdpPage::of(page)
+            .press_keys(events, turn.gesture_call())
+            .await?;
+        settled(&mut turn).await
+    }))
+    .await?;
+    drop(turn);
+    Box::pin(page.settle_gesture(watch)).await;
+    Ok(Acted::default())
 }
 
 /// An element another engine script handed the guard, by its handle in the

@@ -220,13 +220,16 @@ impl Index {
 
 /// The pages a Session holds, by ID, until it ends.
 #[derive(Default)]
-pub(super) struct HeldPages(
+pub(super) struct HeldPages {
     #[expect(
         clippy::disallowed_types,
         reason = "one map read and changed for one operation, never across another lock or an `.await`; the Sessions table's lock may be held around it, and is never taken under it, so there is no lock order to test under loom (ADR 0060)"
     )]
-    std::sync::Mutex<Held>,
-);
+    held: std::sync::Mutex<Held>,
+    /// Whether this Session holds a login for ADR 0006's built-in detector
+    /// (ticket #2447), shared by every page of the Session.
+    login: Arc<crate::recovery::LoginState>,
+}
 
 #[derive(Default)]
 struct Held {
@@ -236,10 +239,15 @@ struct Held {
 }
 
 impl HeldPages {
+    /// The Session's shared login state for the built-in detector.
+    pub(super) fn login(&self) -> &Arc<crate::recovery::LoginState> {
+        &self.login
+    }
+
     /// The pages, for one operation.
     fn held(&self) -> std::sync::MutexGuard<'_, Held> {
         // A panic under the lock leaves a map that stays whole.
-        self.0
+        self.held
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }

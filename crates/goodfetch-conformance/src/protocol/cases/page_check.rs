@@ -8,11 +8,14 @@
 //! match, a URL glob or regular expression, a CSS or `XPath` selector and a
 //! text, judges the same three pages. A page a click reached is judged too,
 //! raised by the wait for its URL. Without a Page check the built-in
-//! detector judges a redirect to the login page a lost login, from the
-//! `goto` that sent it or, for a script's navigation, from the page's next
-//! call, lets a `goto` to a login page through, and Provenance marks each
-//! page it judged as weakly checked; on a fresh Session, which holds no
-//! login of its own, a login form at a page's own URL is no lost login.
+//! detector judges a Session only once it holds a login (ADR 0006's owner
+//! decision of 2026-11-10, ticket #2447): before that, a redirect to a
+//! login path or a login form at a page's own URL answers its response
+//! while Provenance still marks each judged page as weakly checked; after a
+//! password field is filled and a document outside a login path arrives, a
+//! redirect to a login path or a login form at a page's own URL raises
+//! `logged_out` judged by `built_in`, while a failed login that returns to
+//! a login path gives no login.
 
 use goodfetch_protocol::page::events::PAGE_WAIT_FOR_REQUEST_FINISHED;
 use goodfetch_protocol::page::functions::PAGE_EVALUATE;
@@ -103,16 +106,19 @@ fn portal_check() -> Value {
     })
 }
 
-/// Signs `page`, on the portal's login page, in as `account` through its
-/// form; whether the report page the sign-in serves answered.
-fn sign_in(
+/// Signs `page`, on the portal's login page, in with `username` and
+/// `password`, waiting for a response matching `pattern`; answers the
+/// finished request's response status.
+fn submit_login(
     connection: &mut Connection,
     page: &PageOpened,
-    account: &TaskAccount,
-) -> Result<bool, Gone> {
+    username: &str,
+    password: &str,
+    pattern: &str,
+) -> Result<Value, Gone> {
     for (selector, value) in [
-        ("input[name=user]", account.username.as_str()),
-        ("input[name=password]", account.password.as_str()),
+        ("input[name=user]", username),
+        ("input[name=password]", password),
     ] {
         connection.call(
             LOCATOR_FILL.name,
@@ -121,13 +127,30 @@ fn sign_in(
     }
     let waiting = connection.request(
         PAGE_WAIT_FOR_REQUEST_FINISHED.name,
-        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/reports*" } }),
+        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": pattern } }),
     )?;
     let clicked = connection.request(
         LOCATOR_CLICK.name,
         &json!({ "locator": { "page_id": page.page_id, "selector": "button[type=submit]" } }),
     )?;
-    let (_, signed_in) = connection.both(clicked, waiting)?;
+    let (_, finished) = connection.both(clicked, waiting)?;
+    Ok(finished)
+}
+
+/// Signs `page`, on the portal's login page, in as `account` through its
+/// form; whether the report page the sign-in serves answered.
+fn sign_in(
+    connection: &mut Connection,
+    page: &PageOpened,
+    account: &TaskAccount,
+) -> Result<bool, Gone> {
+    let signed_in = submit_login(
+        connection,
+        page,
+        &account.username,
+        &account.password,
+        "**/reports*",
+    )?;
     Ok(signed_in["result"]["response"]["status"] == json!(200))
 }
 
@@ -296,13 +319,39 @@ fn each_form(connection: &mut Connection, site: &Site, checks: &mut Checks) -> R
     finish_run(connection, run_id)
 }
 
-/// Without a Page check: the catalog's listing answers its response; the
-/// login site's account page, which sends a Session without a login to its
-/// login page, raises `logged_out` judged by the built-in detector; a
-/// `goto` to the portal's login page itself answers its response; a
-/// script's navigation to the account page, which no call waited for,
-/// raises `logged_out` from the page's next call; and Provenance marks each
-/// of the four pages as weakly checked, with its verdict.
+/// Triggers a script navigation to `account` (which redirects to `/login`)
+/// and answers the page's next call (`document.title`).
+fn script_redirect_next_call(
+    connection: &mut Connection,
+    page: &PageOpened,
+    account: &str,
+    checks: &mut Checks,
+) -> Result<Value, Gone> {
+    let finished = connection.request(
+        PAGE_WAIT_FOR_REQUEST_FINISHED.name,
+        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/login" } }),
+    )?;
+    let sent = connection.request(
+        PAGE_EVALUATE.name,
+        &json!({ "page_id": page.page_id, "function": format!("() => {{ location.href = {}; }}", json!(account)) }),
+    )?;
+    let (sent, finished) = connection.both(sent, finished)?;
+    checks.answered(PAGE_EVALUATE.name, &sent);
+    checks.answered(PAGE_WAIT_FOR_REQUEST_FINISHED.name, &finished);
+    connection.call(
+        PAGE_EVALUATE.name,
+        &json!({ "page_id": page.page_id, "function": "() => document.title" }),
+    )
+}
+
+/// Without a Page check, the built-in detector judges a Session only once
+/// it holds a login (ADR 0006, ticket #2447): before login (and after a
+/// failed login that returns to a login path) redirects to `/login` answer
+/// their response while Provenance still writes `page_weakly_checked` with
+/// verdict `login_page`; once the program fills a password field and a
+/// document outside a login path arrives, a redirect to `/login` raises
+/// `logged_out` judged by `built_in` from `goto` or the page's next call,
+/// while a `goto` to `/login` itself still answers its response.
 fn built_in(
     connection: &mut Connection,
     target: &EngineTarget,
@@ -310,13 +359,14 @@ fn built_in(
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-check-built-in";
-    let (Some(listing), Some(account), Some(login)) = (
+    let (Some(listing), Some(account), Some(login), Some(portal_account)) = (
         site.start_url(CATALOG_TASK).map(str::to_owned),
         url_on(site, "login/2", "/account"),
         url_on(site, EXPIRY_TASK, "/login"),
+        site.account(EXPIRY_TASK).cloned(),
     ) else {
         checks.check(
-            "the Proving ground serves the catalog's listing, the login site's account page and the portal's login page",
+            "the Proving ground serves the catalog's listing, the login site's account page and the portal's login page with its account",
             false,
         );
         return Ok(());
@@ -332,42 +382,114 @@ fn built_in(
     );
     let sent = connection.goto(&page, &account)?;
     checks.check(
-        "a redirect to the login page raises `logged_out` judged by the built-in detector",
-        raised(&sent, LOGGED_OUT.name, "/login", 200)
-            && sent["error"]["data"]["judged_by"] == json!("built_in"),
+        "on a fresh Session with no login, a redirect to `/login` answers the login page's response",
+        responded_with(&sent, 200)
+            && sent["result"]["response"]["url"]
+                .as_str()
+                .is_some_and(|url| url.ends_with("/login")),
     );
     let went = connection.goto(&page, &login)?;
     checks.check(
         "a `goto` to a login page itself answers its response",
         responded_with(&went, 200),
     );
-    let finished = connection.request(
-        PAGE_WAIT_FOR_REQUEST_FINISHED.name,
-        &json!({ "page_id": page.page_id, "url": { "kind": "glob", "pattern": "**/login" } }),
+    let next = script_redirect_next_call(connection, &page, &account, checks)?;
+    checks.check(
+        "on a fresh Session with no login, a script redirect to `/login` does not raise from the page's next call",
+        next.get("result").is_some(),
+    );
+    check_failed_then_succeeded_login(
+        connection,
+        &page,
+        (&account, &login, &portal_account),
+        checks,
     )?;
-    let sent = connection.request(
-        PAGE_EVALUATE.name,
-        &json!({ "page_id": page.page_id, "function": format!("() => {{ location.href = {}; }}", json!(account)) }),
+    finish_run(connection, run_id)?;
+    check_built_in_provenance(target, run_id, &page, checks);
+    Ok(())
+}
+
+/// Checks that a wrong password returning `/login` gives no login, and that
+/// filling the right password and landing outside a login path makes later
+/// redirects to `/login` raise `logged_out` judged by `built_in`.
+fn check_failed_then_succeeded_login(
+    connection: &mut Connection,
+    page: &PageOpened,
+    (account, login, portal_account): (&str, &str, &TaskAccount),
+    checks: &mut Checks,
+) -> Result<(), Gone> {
+    let went = connection.goto(page, login)?;
+    checks.check(
+        "navigating to the portal's login page for a wrong-password attempt answers 200",
+        responded_with(&went, 200),
+    );
+    let failed = submit_login(
+        connection,
+        page,
+        &portal_account.username,
+        "wrong-password",
+        "**/login",
     )?;
-    let (sent, finished) = connection.both(sent, finished)?;
-    checks.answered(PAGE_EVALUATE.name, &sent);
-    checks.answered(PAGE_WAIT_FOR_REQUEST_FINISHED.name, &finished);
-    let next = connection.call(
+    checks.check(
+        "a wrong password answers the login page with 401",
+        failed["result"]["response"]["status"] == json!(401),
+    );
+    let after_wrong = connection.call(
         PAGE_EVALUATE.name,
         &json!({ "page_id": page.page_id, "function": "() => document.title" }),
     )?;
     checks.check(
-        "a redirect to the login page a script's navigation reached raises `logged_out` from the page's next call",
+        "the page's next call after a wrong password answers its value",
+        after_wrong.get("result").is_some(),
+    );
+    let still_fresh = connection.goto(page, account)?;
+    checks.check(
+        "after a wrong password returned a login path, a redirect to `/login` still answers its response",
+        responded_with(&still_fresh, 200),
+    );
+    let went = connection.goto(page, login)?;
+    let signed_in = responded_with(&went, 200) && sign_in(connection, page, portal_account)?;
+    checks.check(
+        "the program fills the password field and reaches a page outside a login path",
+        signed_in,
+    );
+    let sent = connection.goto(page, account)?;
+    checks.check(
+        "after a login, a redirect to `/login` raises `logged_out` judged by the built-in detector",
+        raised(&sent, LOGGED_OUT.name, "/login", 200)
+            && sent["error"]["data"]["judged_by"] == json!("built_in"),
+    );
+    let went = connection.goto(page, login)?;
+    checks.check(
+        "after a login, a `goto` to `/login` itself still answers its response",
+        responded_with(&went, 200),
+    );
+    let next = script_redirect_next_call(connection, page, account, checks)?;
+    checks.check(
+        "after a login, a script redirect to `/login` raises `logged_out` from the page's next call",
         raised(&next, LOGGED_OUT.name, "/login", 200)
             && next["error"]["data"]["judged_by"] == json!("built_in"),
     );
-    finish_run(connection, run_id)?;
+    Ok(())
+}
+
+/// Checks the `page_weakly_checked` Provenance entries written by [`built_in`].
+fn check_built_in_provenance(
+    target: &EngineTarget,
+    run_id: &str,
+    page: &PageOpened,
+    checks: &mut Checks,
+) {
     let lines = checks.run_trace(run_trace::provenance(target, run_id));
+    let weakly: Vec<&Value> = lines
+        .iter()
+        .filter(|line| {
+            line["action"] == json!(WEAKLY_CHECKED) && line["page_id"] == json!(page.page_id)
+        })
+        .collect();
     let marked = |path: &str, verdict: &str| {
-        lines.iter().any(|line| {
-            line["action"] == json!(WEAKLY_CHECKED)
-                && line["page_id"] == json!(page.page_id)
-                && line["verdict"] == json!(verdict)
+        weakly.iter().any(|line| {
+            line["verdict"] == json!(verdict)
                 && line["url"].as_str().is_some_and(|url| url.ends_with(path))
         })
     };
@@ -376,38 +498,46 @@ fn built_in(
         marked("/catalog/1", "passed"),
     );
     checks.check(
-        "Provenance marks the redirected login page as weakly checked and a login page",
-        marked("/login", "login_page"),
+        "Provenance marks the post-login report page as weakly checked and passed",
+        marked("/reports?page=1", "passed"),
+    );
+    let login_verdicts = weakly
+        .iter()
+        .filter(|line| {
+            line["verdict"] == json!("login_page")
+                && line["url"]
+                    .as_str()
+                    .is_some_and(|url| url.ends_with("/login"))
+        })
+        .count();
+    checks.check(
+        "Provenance marks every redirected `/login` page (before and after login) as weakly checked with verdict `login_page`",
+        login_verdicts == 5,
     );
     checks.check(
-        "Provenance marks each of the four pages the detector judged",
-        lines
-            .iter()
-            .filter(|line| line["action"] == json!(WEAKLY_CHECKED))
-            .count()
-            == 4,
+        "Provenance writes a `page_weakly_checked` entry for every judged page",
+        weakly.len() == 12,
     );
-    Ok(())
 }
 
-/// Without a Page check, on a fresh Session, which holds no login of its
-/// own until the program logs in itself (ADR 0006): the program signs in
-/// through the portal's form and reads the four report pages its login
-/// serves; the fifth, which the expired login answers with its login form
-/// and a 200 at the report page's own URL, is the program's way back in,
-/// not a lost login, so it answers its response.
+/// Without a Page check, on a fresh Session, a login form at a page's own
+/// URL answers its response before the Session holds a login; once the
+/// program fills a password field and reaches a page outside a login path,
+/// an expired login returning its login form at a report page's own URL
+/// raises `logged_out` judged by the built-in detector (ADR 0006, #2447).
 fn fresh_session(
     connection: &mut Connection,
     site: &Site,
     checks: &mut Checks,
 ) -> Result<(), Gone> {
     let run_id = "conformance-page-check-fresh-session";
-    let (Some(login), Some(account)) = (
+    let (Some(forms), Some(login), Some(account)) = (
+        url_on(site, "access/1", "/page-events/forms"),
         url_on(site, EXPIRY_TASK, "/login"),
         site.account(EXPIRY_TASK).cloned(),
     ) else {
         checks.check(
-            format!("the Proving ground serves `{EXPIRY_TASK}` with its account"),
+            format!("the Proving ground serves `access/1` and `{EXPIRY_TASK}` with its account"),
             false,
         );
         return Ok(());
@@ -416,6 +546,11 @@ fn fresh_session(
     let Some(page) = new_page(connection, run_id, checks)? else {
         return finish_run(connection, run_id);
     };
+    let before = connection.goto(&page, &forms)?;
+    checks.check(
+        "before login, a login form at a non-login URL answers its response on a fresh Session",
+        responded_with(&before, 200),
+    );
     let went = connection.goto(&page, &login)?;
     let signed_in = responded_with(&went, 200) && sign_in(connection, &page, &account)?;
     checks.check(
@@ -436,8 +571,9 @@ fn fresh_session(
         .expect("invariant: the case checked that the Proving ground serves the task");
     let went = connection.goto(&page, &expired)?;
     checks.check(
-        "the login form at a report page's own URL answers its response on a fresh Session",
-        responded_with(&went, 200),
+        "after login, a login form at a report page's own URL raises `logged_out` judged by the built-in detector",
+        raised(&went, LOGGED_OUT.name, "/reports?page=5", 200)
+            && went["error"]["data"]["judged_by"] == json!("built_in"),
     );
     finish_run(connection, run_id)
 }

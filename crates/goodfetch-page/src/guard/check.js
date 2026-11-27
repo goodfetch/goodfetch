@@ -152,6 +152,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
         return { state: "focused", set_value: true };
       }
       if (action === "fill") {
+        const password = element.localName === "input" && element.type === "password";
         if (element.isContentEditable) {
           const range = document.createRange();
           range.selectNodeContents(element);
@@ -161,6 +162,7 @@ async function check({ selector, handle, action, events, slice, min, max }) {
         } else {
           element.select();
         }
+        return { state: "focused", password };
       }
       return { state: "focused" };
     }

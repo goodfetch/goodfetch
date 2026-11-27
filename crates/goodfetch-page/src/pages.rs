@@ -1418,7 +1418,10 @@ impl Pages {
         if let Some(failure) = page.owner.dialogs().take_failure() {
             return Err(failure);
         }
-        acted?;
+        let outcome = acted?;
+        if outcome.password_filled {
+            page.page_check.login.note_password_filled();
+        }
         Ok(Acted {})
     }
 

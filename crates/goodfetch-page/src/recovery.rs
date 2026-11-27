@@ -11,17 +11,31 @@
 //! page's state; the recovery ladder that acts on a login page is a later
 //! ticket's (#747).
 //!
-//! The built-in detector reads a login page from two signs: a navigation
-//! redirected to a login path (a last path segment such as `login` or
-//! `sign-in`), or, on a Session that may hold a login, a page outside a
-//! login path showing one password field that takes no new password. A
-//! navigation sent to a login path itself is the program going to log in,
-//! never a lost login, and so is a password field on a fresh Session, which
-//! holds no login until the program logs in itself.
+//! The built-in detector judges a Session only once it holds a login
+//! (ADR 0006's owner decision of 2026-11-10, ticket #2447): a Session holds
+//! one when it opened from a source that carries one (a Borrowed browser
+//! today), or, on a Session the engine launched, from the first document
+//! outside a login path that arrives after the program filled a password
+//! field. A failed login that returns to a login path gives no login. On a
+//! Session that holds a login, the built-in detector reads a login page
+//! from two signs: a navigation redirected to a login path (a last path
+//! segment such as `login` or `sign-in`), or a page outside a login path
+//! showing one password field that takes no new password. Before the
+//! Session holds a login, a redirect to a login path answers its response
+//! while Provenance still writes `page_weakly_checked` with verdict
+//! `login_page`; a navigation sent to a login path itself is the program
+//! going to log in, never a lost login.
 //!
 //! A page reached by anything else, such as a click, a form, a script, a
 //! popup's opener or a redirect, is judged the same way by the call that
 //! waited for its navigation, or by the page's next call.
+#![expect(
+    clippy::disallowed_types,
+    reason = "the login state is one atomic state machine per Session guarding no data and no lock, so there is no ordering to test under loom (ADR 0060)"
+)]
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use goodfetch_counted_work::Row;
 use goodfetch_engine::CallError;
@@ -98,16 +112,69 @@ impl Declared {
     }
 }
 
+/// Whether a Session holds a login for ADR 0006's built-in detector
+/// (ticket #2447), shared by every page of the Session:
+/// - `FRESH`: opened with no login source and no login completed yet.
+/// - `PASSWORD_FILLED`: the program filled a password field; the next
+///   arriving document outside a login path promotes to `HELD`, while a
+///   document on a login path (a failed login) resets to `FRESH`.
+/// - `HELD`: opened from a source that carries a login (such as a Borrowed
+///   browser), or a document outside a login path arrived after filling a
+///   password field.
+#[derive(Debug, Default)]
+pub(crate) struct LoginState(AtomicU8);
+
+impl LoginState {
+    const FRESH: u8 = 0;
+    const PASSWORD_FILLED: u8 = 1;
+    const HELD: u8 = 2;
+
+    /// Marks that the Session opened from a source carrying a login.
+    pub(crate) fn mark_held(&self) {
+        self.0.store(Self::HELD, Ordering::Release);
+    }
+
+    /// Whether the Session currently holds a login.
+    pub(crate) fn holds_login(&self) -> bool {
+        self.0.load(Ordering::Acquire) == Self::HELD
+    }
+
+    /// Notes that the program filled a password field in this Session.
+    pub(crate) fn note_password_filled(&self) {
+        let _ = self.0.compare_exchange(
+            Self::FRESH,
+            Self::PASSWORD_FILLED,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Updates login state when a document at `url` arrives: a document
+    /// outside a login path promotes `PASSWORD_FILLED` to `HELD`; a
+    /// document on a login path resets `PASSWORD_FILLED` to `FRESH` so a
+    /// failed login gives no login. `HELD` stays `HELD`.
+    pub(crate) fn note_document(&self, url: &str) {
+        let next = if login_path(url) {
+            Self::FRESH
+        } else {
+            Self::HELD
+        };
+        let _ = self.0.compare_exchange(
+            Self::PASSWORD_FILLED,
+            next,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
+    }
+}
+
 /// How a Session's pages are judged.
 #[derive(Debug)]
 pub(crate) struct Checking {
     /// Its Page check, when it declares one.
     pub(crate) declared: Option<Declared>,
-    /// Whether it may hold a login: it opened from a Session source. A
-    /// fresh one holds none until the program logs in itself, so a
-    /// password field it shows is the program's own way in, never a lost
-    /// login (ADR 0006's built-in detector).
-    pub(crate) holds_login: bool,
+    /// Whether the Session holds a login (ADR 0006's built-in detector).
+    pub(crate) login: Arc<LoginState>,
 }
 
 /// One judgement: the page, its Session and Run, its Page check if it
@@ -150,10 +217,12 @@ struct Read {
 ///
 /// Dropping the future may lose a Provenance entry.
 pub(crate) async fn judge(judging: &Judging<'_>, response: &PageResponse) -> Result<(), CallError> {
-    match &judging.checking.declared {
+    let verdict = match &judging.checking.declared {
         Some(declared) => by_page_check(judging, declared, response).await,
         None => by_built_in(judging, response).await,
-    }
+    };
+    judging.checking.login.note_document(&response.url);
+    verdict
 }
 
 /// The verdict of the Session's own Page check.
@@ -229,12 +298,13 @@ async fn by_page_check(
 /// The verdict of the built-in detector, which Provenance marks as a weak
 /// check.
 async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(), CallError> {
+    let holds_login = judging.checking.login.holds_login();
     let login = if login_path(&response.url) {
         judging
             .requested
             .is_some_and(|requested| !same_document(requested, &response.url))
     } else {
-        judging.checking.holds_login && read(judging, &[]).await?.password
+        holds_login && read(judging, &[]).await?.password
     };
     trace::counted_provenance(
         judging.run,
@@ -248,7 +318,7 @@ async fn by_built_in(judging: &Judging<'_>, response: &PageResponse) -> Result<(
         }),
     )
     .await;
-    if login {
+    if login && holds_login {
         return Err(logged_out(response, JudgedBy::BuiltIn));
     }
     Ok(())
@@ -357,5 +427,44 @@ fn same_document(requested: &str, reached: &str) -> bool {
             requested == reached
         }
         _ => requested == reached,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LoginState;
+
+    #[test]
+    fn a_fresh_session_holds_a_login_only_after_a_password_fill_reaches_a_non_login_path() {
+        let state = LoginState::default();
+        assert!(!state.holds_login());
+
+        state.note_document("https://example.test/reports");
+        assert!(!state.holds_login());
+
+        state.note_password_filled();
+        state.note_document("https://example.test/login");
+        assert!(!state.holds_login());
+
+        state.note_document("https://example.test/reports");
+        assert!(!state.holds_login());
+
+        state.note_password_filled();
+        state.note_document("https://example.test/reports");
+        assert!(state.holds_login());
+
+        state.note_document("https://example.test/login");
+        assert!(state.holds_login());
+    }
+
+    #[test]
+    fn a_source_marked_held_holds_a_login_from_the_start() {
+        let state = LoginState::default();
+        state.mark_held();
+        assert!(state.holds_login());
+
+        state.note_password_filled();
+        state.note_document("https://example.test/login");
+        assert!(state.holds_login());
     }
 }

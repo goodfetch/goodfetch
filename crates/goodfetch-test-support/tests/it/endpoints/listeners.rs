@@ -213,9 +213,43 @@ fn first_message_refusal(line: &str, query_token: bool) -> Option<Reason> {
     }
 }
 
+/// What a WebSocket fixture listener carries once its handshake is
+/// accepted.
+#[derive(Clone, Copy, Debug)]
+enum Carried {
+    /// JSON-RPC, opened by a `hello`.
+    Protocol,
+    /// A Live view channel, opened by an `open` and answered `opened`.
+    LiveView,
+}
+
+/// The reason a strict Live view channel refuses a first message, or none.
+fn open_refusal(text: &str, query_token: bool) -> Option<Reason> {
+    let message: serde_json::Value = serde_json::from_str(text).unwrap();
+    if message["kind"] != "open" {
+        return Some(Reason::NotHello);
+    }
+    match message["token"].as_str() {
+        None if query_token => Some(Reason::TokenInQuery),
+        None => Some(Reason::TokenMissing),
+        Some(TOKEN) => None,
+        Some(_) => Some(Reason::TokenRefused),
+    }
+}
+
 /// Starts a WebSocket listener on loopback TCP, whose handshake must name
 /// its address as `Host` and `http://<address>` as `Origin`.
 pub(super) fn websocket(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
+    websocket_carrying(Carried::Protocol, behaviour)
+}
+
+/// Starts a Live view channel's listener on loopback TCP, whose handshake
+/// must name its address as `Host` and `http://<address>` as `Origin`.
+pub(super) fn live_view(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
+    websocket_carrying(Carried::LiveView, behaviour)
+}
+
+fn websocket_carrying(carried: Carried, behaviour: Behaviour) -> (SocketAddr, AuditLog) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let (sender, log) = mpsc::channel();
@@ -226,7 +260,7 @@ pub(super) fn websocket(behaviour: Behaviour) -> (SocketAddr, AuditLog) {
             serve_websocket(
                 connection.unwrap(),
                 [&authority, &origin],
-                behaviour,
+                (carried, behaviour),
                 &sender,
             );
         }
@@ -249,7 +283,12 @@ pub(super) fn websocket_over_tls(behaviour: Behaviour) -> (SocketAddr, AuditLog,
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             if let Some(stream) = terminated(connection.unwrap(), &tls, behaviour, &sender) {
-                serve_websocket(stream, [&authority, &origin], behaviour, &sender);
+                serve_websocket(
+                    stream,
+                    [&authority, &origin],
+                    (Carried::Protocol, behaviour),
+                    &sender,
+                );
             }
         }
     });
@@ -261,7 +300,7 @@ pub(super) fn websocket_over_tls(behaviour: Behaviour) -> (SocketAddr, AuditLog,
 fn serve_websocket<S: Read + Write>(
     stream: S,
     expected: [&str; 2],
-    behaviour: Behaviour,
+    (carried, behaviour): (Carried, Behaviour),
     audit: &Sender<Reason>,
 ) {
     use tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -314,9 +353,10 @@ fn serve_websocket<S: Read + Write>(
     let Ok(tungstenite::Message::Text(first)) = socket.read() else {
         return;
     };
-    let refusal = match behaviour {
-        Behaviour::Strict => first_message_refusal(&first, query_token),
-        Behaviour::Permissive | Behaviour::RefuseAll => None,
+    let refusal = match (behaviour, carried) {
+        (Behaviour::Strict, Carried::Protocol) => first_message_refusal(&first, query_token),
+        (Behaviour::Strict, Carried::LiveView) => open_refusal(&first, query_token),
+        (Behaviour::Permissive | Behaviour::RefuseAll, _) => None,
     };
     if let Some(reason) = refusal {
         audit.send(reason).unwrap();
@@ -324,7 +364,10 @@ fn serve_websocket<S: Read + Write>(
         while socket.read().is_ok() {}
         return;
     }
-    let reply = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}";
+    let reply = match carried {
+        Carried::Protocol => "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}",
+        Carried::LiveView => "{\"kind\":\"opened\",\"session\":\"s1\",\"tier\":\"screencast\"}",
+    };
     if socket.send(tungstenite::Message::text(reply)).is_err() {
         return;
     }

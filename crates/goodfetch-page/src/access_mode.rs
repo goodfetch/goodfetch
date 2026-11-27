@@ -25,6 +25,7 @@ mod tests;
 use goodfetch_engine::run::settings_error;
 use goodfetch_engine::settings::{Resolved, SettingsError, Values, catalog_value, value_as};
 use goodfetch_engine::{CallContext, CallError};
+use goodfetch_identity_profile::{Constraints, EngineFamily, NarrowingError, NarrowingKey};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::access_mode::{
     BROWSER_ACCESS_MODE, IDENTIFIED_ITEMS, IDENTIFIED_SIGNATURE_AGENT, IDENTIFIED_SIGNING_KEY,
@@ -345,7 +346,7 @@ pub(crate) struct StealthProfile {
 }
 
 /// Why a Session does not open in the Access mode its settings ask for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Refusal {
     /// A stealth item set on a Session that opens `standard`.
     ItemOnStandard { key: &'static str },
@@ -395,6 +396,14 @@ pub(crate) enum Refusal {
         key: &'static str,
         layer: SettingsLayer,
         item: Unbuilt,
+    },
+    /// The `stealth.identity.*` setting `key`, set in `layer`, whose values
+    /// the browser family's population does not hold, or together with the
+    /// identity's other values leave it empty, as `reason` says.
+    IdentityOutsidePopulation {
+        key: &'static str,
+        layer: SettingsLayer,
+        reason: String,
     },
 }
 
@@ -497,6 +506,11 @@ impl Refusal {
             }
             Self::EngineUnavailable { layer } => return engine_unavailable(layer),
             Self::UnbuiltItem { key, layer, item } => return unbuilt_item(key, layer, item),
+            Self::IdentityOutsidePopulation { key, layer, reason } => SettingsError::Invalid {
+                key: key.to_owned(),
+                layer: Some(layer),
+                reason,
+            },
         };
         settings_error(&error, context)
     }
@@ -691,6 +705,67 @@ pub(crate) fn resolve(
             profile: Some(stealth_profile(settings)),
             signing: None,
         }),
+    }
+}
+
+/// What a `stealth` Session's `stealth.identity.*` values narrow its
+/// browser family's population to.
+#[derive(Debug)]
+pub(crate) struct Narrowing {
+    family: EngineFamily,
+    os: Vec<String>,
+    device: Vec<String>,
+    brand: Vec<String>,
+}
+
+impl SessionIdentityPlan {
+    /// The narrowing this plan's `stealth.identity.*` values ask of the
+    /// population of `family`, Chromium or Firefox; none when they name
+    /// nothing, which every family draws from.
+    pub(crate) fn narrowing(&self, family: BrowserFamily) -> Option<Narrowing> {
+        let profile = self.profile.as_ref()?;
+        if profile.os.is_empty() && profile.device.is_empty() && profile.brand.is_empty() {
+            return None;
+        }
+        Some(Narrowing {
+            family: match family {
+                BrowserFamily::Firefox => EngineFamily::Firefox,
+                BrowserFamily::Chromium | BrowserFamily::WebKit => EngineFamily::Chromium,
+            },
+            os: profile.os.clone(),
+            device: profile.device.clone(),
+            brand: profile.brand.clone(),
+        })
+    }
+}
+
+impl Narrowing {
+    /// Whether the population draws a browser from this narrowing. It
+    /// blocks: the first narrowing of a process reads the whole embedded
+    /// population, so it runs on a blocking thread.
+    pub(crate) fn drawn(self) -> Result<(), NarrowingError> {
+        Constraints::narrowed(self.family, &self.os, &self.device, &self.brand).map(drop)
+    }
+}
+
+impl Refusal {
+    /// The refusal of a narrowing the population draws nothing from, at
+    /// the setting `error` stopped at, in the layer of `settings` that set
+    /// it.
+    pub(crate) fn outside_population(
+        settings: &SessionSettings<'_>,
+        error: &NarrowingError,
+    ) -> Self {
+        let setting = match error.key() {
+            NarrowingKey::Os => &STEALTH_IDENTITY_OS,
+            NarrowingKey::Device => &STEALTH_IDENTITY_DEVICE,
+            NarrowingKey::Brand => &STEALTH_IDENTITY_BRAND,
+        };
+        Self::IdentityOutsidePopulation {
+            key: setting.name,
+            layer: settings.scoped(setting).1.layer(),
+            reason: error.to_string(),
+        }
     }
 }
 

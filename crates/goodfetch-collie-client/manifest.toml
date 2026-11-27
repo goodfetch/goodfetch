@@ -2882,6 +2882,62 @@ reason = "The in-memory network `dial` opens Connections on."
 words = ["in", "memory"]
 form = "runtime"
 
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "verify_webhook"
+entry = "none"
+reason = "Checks a `webhook` channel's delivery in the program that receives it, with no engine and no Connection (ADR 0027; issue 1391): its Standard Webhooks signature against the secrets given, its timestamp within 5 minutes, and its body, read as a Notification payload; `webhook_invalid` otherwise."
+words = ["verify", "webhook"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "verify_webhook_with"
+entry = "none"
+reason = "`verify_webhook` with its options: a tolerance other than 5 minutes, the endpoint ID a `v2a` signature names, or the time to check the timestamp against."
+only = "TypeScript and Python take the options as an argument of `verifyWebhook` and `verify_webhook`."
+words = ["verify", "webhook", "with"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
+member = "VerifyWebhookOptions"
+entry = "none"
+reason = "The options `verify_webhook_with` takes, each left unset by default."
+only = "Python takes them as keyword arguments."
+words = ["verify", "webhook", "options"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "VerifyWebhookOptions"
+member = "tolerance"
+entry = "none"
+reason = "How far from now a delivery's timestamp may be, 5 minutes when left unset."
+words = ["tolerance"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "VerifyWebhookOptions"
+member = "endpoint"
+entry = "none"
+reason = "The endpoint ID the channel's `whsk_` key signs for, which a `v2a` signature names and a `whpk_` key needs."
+words = ["endpoint"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "VerifyWebhookOptions"
+member = "at"
+entry = "none"
+reason = "The time the timestamp is checked against, the system clock when left unset."
+words = ["at"]
+form = "read"
+
 [[unreached]]
 entries = [
   "audit.export",

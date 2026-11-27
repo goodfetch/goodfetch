@@ -32,5 +32,40 @@ extend-exclude = ["rnd/", "vendor/", "crates/goodfetch-cdp/protocol.json", "crat
 # « L'ADR 0048 reste tel quel », « fais comme tu recommandes et vas-y »). And the public key of RFC 9421's
 # Ed25519 test key (Appendix B.1.4) in Base64url, which tests sign with. And
 # Akamai's `_abck` cookie, which the sensor page sets (#1539). And
-# WebAuthn's `COSE` keys (RFC 9052), which the Accounts store keeps.
-extend-ignore-re = ["(?i)abck","\\bCOSE\\b","ThreatMetrix", "online-metrix", "\\bmis-", "\\bPNGs\\b", "look-alikes", "\\bnd-(router|neighbor)-", "\\bndJson", "(?i)\\bcaf(\\\\u|%C3)", "\\bCaf&eacute;", "für alle", "ses raisons", "\\bgrant_univeral_access\\b", "Alle (akzeptieren|ablehnen)", "LevelOptin", "\\bFebruar\\b", "\\bIST\\b", "\\bwriteable::Writeable\\b", "(?m)^    (\"[A-Z]{2}\", )*\"[A-Z]{2}\",$", "best pratice would build it", "Je confirme", "L'ADR 0048 reste tel quel", "fais comme tu recommandes et vas-y", "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs"]
+# WebAuthn's `COSE` keys (RFC 9052), which the Accounts store keeps. And
+# `mail-send`'s `Error::UnparseableReply`, as the crate spells it. And the
+# `whpk_` key the webhook verification tests give with no endpoint (#1391).
+# One entry a line, so two branches that each add one do not edit the same
+# line.
+extend-ignore-re = [
+  "2zPwzAhd9xyyTX6hydEXQjvUWwvpqA",
+  "\\bUnparseableReply\\b",
+  "(?i)abck",
+  "\\bCOSE\\b",
+  "ThreatMetrix",
+  "online-metrix",
+  "\\bmis-",
+  "\\bPNGs\\b",
+  "look-alikes",
+  "\\bnd-(router|neighbor)-",
+  "\\bndJson",
+  "(?i)\\bcaf(\\\\u|%C3)",
+  "\\bCaf&eacute;",
+  "für alle",
+  "ses raisons",
+  "\\bgrant_univeral_access\\b",
+  "Alle (akzeptieren|ablehnen)",
+  "LevelOptin",
+  "\\bFebruar\\b",
+  "\\bIST\\b",
+  "\\bwriteable::Writeable\\b",
+  "(?m)^    (\"[A-Z]{2}\", )*\"[A-Z]{2}\",$",
+  "best pratice would build it",
+  "Je confirme",
+  "L'ADR 0048 reste tel quel",
+  "fais comme tu recommandes et vas-y",
+  "assure-toi qu'il y a une PR par spec",
+  "full gates seulement sur ma demande",
+  "gestion dynamique en fonction",
+  "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
+]

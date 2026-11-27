@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# `just test-health <constrained|mutants> [ref]`: the test-health runs the
-# gate host's cron starts while ADR 0135 keeps GitHub Actions to the Release
-# suite (TESTING.md, After merge), on `main`'s head by default (the entries
-# in ci/test-health.crontab). They take the lock of the backstop's gate
+# `just test-health <constrained|mutants> [ref]`: the test-health runs,
+# started by hand while ADR 0135 keeps GitHub Actions to the Release suite
+# (TESTING.md, After merge), since no cron or timer runs tests (ADR 0135's
+# note of 2026-11-26), on `main`'s head by default. They take the lock of the backstop's gate
 # worktree (ci/gate-worktree.sh's `gate-backstop`), so they never run beside
 # the backstop or each other, and build in that worktree, reusing its build.
 # None starts while `just merge`'s gate runs, and a gate started during a run

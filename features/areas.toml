@@ -1428,6 +1428,20 @@ number = 11
 kind = "error"
 prefix = "connection_overloaded"
 
+# The Error code an SDK's webhook verification helper raises for a call
+# that is no verified delivery (ADR 0027; issue 1391).
+[[area]]
+number = 11
+kind = "error"
+prefix = "webhook_invalid"
+
+# The body of a `webhook` channel's delivery, which each SDK's verification
+# helper reads (ADRs 0027 and 0030; issue 1391).
+[[area]]
+number = 11
+kind = "format"
+prefix = "notification-payload"
+
 # A Client's own bounds on its transport, set in `connect()`'s own
 # `settings` (issue 2518).
 [[area]]
@@ -1533,6 +1547,28 @@ prefix = "needs_you."
 number = 12
 kind = "command"
 prefix = "needs-you"
+
+# Area 12's Live view (ADR 0031, spec #1937): its settings and the Error
+# code of a full channel. Live hiding stays area 5's.
+[[area]]
+number = 12
+kind = "setting"
+prefix = "live_view.enabled"
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "live_view.max_viewers"
+
+[[area]]
+number = 12
+kind = "setting"
+prefix = "live_view.tier"
+
+[[area]]
+number = 12
+kind = "error"
+prefix = "live_view_viewer_limit"
 
 # The Error code a Client raises when its Connection drops (#817).
 [[area]]

@@ -37,7 +37,7 @@ use goodfetch_engine::browser_cache::{
 };
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::files::DaemonFiles;
-use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
+use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, LiveViewAt, Succession};
 use goodfetch_engine::endpoint::{Authorities, Exposure, Termination};
 use goodfetch_engine::ops::{ConfiguredBrowsers, Ops, OpsOptions};
 use goodfetch_engine::run::local_settings_error;
@@ -51,6 +51,7 @@ use goodfetch_protocol::daemon::{
     ADDRESS, DRAIN_GRACE, DaemonEndpoint, DaemonStatus, DaemonToken, IDLE_TIMEOUT, TLS_CERT_FILE,
     TLS_KEY_FILE, TLS_UPSTREAM, TRUSTED_PROXIES, TrustedProxy,
 };
+use goodfetch_protocol::live_view::ENABLED as LIVE_VIEW_ENABLED;
 use goodfetch_protocol::ops::{ADDRESS as OPS_ADDRESS, OTLP_METRICS_ENDPOINT};
 use goodfetch_protocol::settings::{
     DAEMON_ADDRESS_VARIABLE as ADDRESS_VARIABLE,
@@ -139,6 +140,15 @@ impl Source {
     }
 }
 
+/// Where a Daemon at `endpoint` opens its Live view channels while
+/// `live_view` is on: its own listener on TCP; a Unix socket opens none.
+fn live_view_at(endpoint: &DaemonEndpoint, live_view: bool) -> Option<LiveViewAt> {
+    match endpoint {
+        DaemonEndpoint::Tcp(bound) => live_view.then_some(LiveViewAt::Listener(*bound)),
+        DaemonEndpoint::Unix(_) => None,
+    }
+}
+
 /// Runs the foreground Daemon until it drains or `daemon.stop` stops it.
 pub(in crate::executable) fn run(
     engine: &Engine,
@@ -191,6 +201,8 @@ pub(in crate::executable) fn run(
         };
         let ops = ops_listener(configured.ops, ops_token, &export, &files).await?;
         let asked = CancellationToken::new();
+        let live_view = configured.settings.get::<bool>(&LIVE_VIEW_ENABLED);
+        let live_view = live_view_at(&endpoint, live_view);
         let options = DaemonOptions {
             token,
             endpoint: endpoint.clone(),
@@ -210,6 +222,7 @@ pub(in crate::executable) fn run(
             },
             websocket: exposure(&endpoint, termination),
             accounts,
+            live_view,
         };
         announce(json, machine, identity, pid, &endpoint);
         tracing::info!(

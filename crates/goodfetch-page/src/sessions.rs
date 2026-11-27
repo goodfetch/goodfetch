@@ -104,12 +104,15 @@ pub(crate) use self::lifecycle::PageEvent;
 use self::lifecycle::{
     Attributes, Owner, PageEffect, SessionEffect, SessionEvent, SessionState, Source,
 };
-use crate::access_mode::{self, BrowserFamily, SessionIdentityPlan, SessionSettings, SigningPlan};
+use crate::access_mode::{
+    self, BrowserFamily, Refusal, SessionIdentityPlan, SessionSettings, SigningPlan,
+};
 use crate::browser_run::BrowserRun;
 use crate::cdp::CREATE_TARGET;
 use crate::cdp::borrowed::{CdpUrl, resolve_of};
 use crate::cdp::driver::{PageDriver, SessionEgress, Visibility, counted_as_opening};
 use crate::cdp::launch::Launcher;
+use crate::cdp::live_view::WatchedTabs;
 use crate::consent::Consent;
 use crate::dialogs::Dialogs;
 use crate::document_request::{DocumentRequest, Unread};
@@ -553,6 +556,11 @@ impl Sessions {
         }
     }
 
+    /// Its open Sessions' tabs, as the Live view watches them.
+    pub(crate) fn watched(&self) -> WatchedTabs {
+        self.index.watched()
+    }
+
     /// Each open page's owner, by its ID, which a call that acts as it
     /// arrives reads.
     pub(crate) fn page_owners(&self) -> &PageOwners {
@@ -588,7 +596,7 @@ impl Sessions {
                 .map_err(|error| settings_error(&error, context))?;
         }
         let settings = extractor_installed(settings, &run, context).await?;
-        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context)?;
+        let identity = access_mode_opens(&settings, &run.identity, named.as_ref(), context).await?;
         let fingerprint = FingerprintPlan::of(&identity);
         let borrowed = opening_source(named)?;
         no_local_address_on(&run, source_of(borrowed.as_ref()))?;
@@ -654,7 +662,7 @@ impl Sessions {
                 page_listeners: session_pages::PageListeners::default(),
                 run_index: context.engine().run_index().clone(),
             });
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session.clone(), &open);
             (session, life, open)
         };
@@ -692,7 +700,7 @@ impl Sessions {
         let run = live(run_id, context).await?;
         let named = named_source(&run, None, context);
         let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let default = Arc::clone(&reached(&mut *self.state.lock().await, &run.identity)?.default);
@@ -808,7 +816,7 @@ impl Sessions {
         {
             let mut state = self.state.lock().await;
             reached(&mut state, &run.identity)?;
-            self.index.opened(session.clone(), Arc::clone(&held));
+            self.index.opened(&session, Arc::clone(&held));
             self.watch_session(session.clone(), &held);
         }
         if let Some(fingerprint) = &held.fingerprint {
@@ -930,7 +938,7 @@ impl Sessions {
         let run = live(run_id, context).await?;
         let named = named_source(&run, pooled.source.clone(), context);
         let identity =
-            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context)?;
+            access_mode_opens(&Values::default(), &run.identity, named.as_ref(), context).await?;
         let borrowed = opening_source(named)?;
         self.reach(&run, context).await?;
         let cell = Arc::clone(
@@ -1287,7 +1295,7 @@ impl Sessions {
         for open in reopened {
             let session = session_id(run.identity.id(), open.position);
             let open = Arc::new(open);
-            self.index.opened(session.clone(), Arc::clone(&open));
+            self.index.opened(&session, Arc::clone(&open));
             self.watch_session(session, &open);
         }
         state.runs.insert(run.identity.id().clone(), runs);
@@ -1890,18 +1898,29 @@ struct NamedSource {
 /// The Access mode a Session of the Run `identity` names opens in, as its
 /// `own` settings, over the Run's, ask for from the source `named` (ADR
 /// 0021): the [`access_mode`](crate::access_mode) module's refusal when it
-/// does not open, or asks for an effect this engine does not build yet
-/// (ADR 0083).
-fn access_mode_opens(
+/// does not open, names a `stealth` identity its browser family's
+/// population does not hold, or asks for an effect this engine does not
+/// build yet (ADR 0083). The population is read on one of the Run's
+/// blocking threads.
+async fn access_mode_opens(
     own: &Values,
     identity: &RunIdentity,
     named: Option<&NamedSource>,
     context: &CallContext,
 ) -> Result<SessionIdentityPlan, CallError> {
     let source = named.map(|named| &named.source);
+    let family = BrowserFamily::of(source);
     let settings = SessionSettings::new(own, identity.settings().map(RunSettings::resolved));
-    access_mode::resolve(&settings, source, BrowserFamily::of(source))
-        .and_then(|plan| plan.built(&settings))
+    let plan = access_mode::resolve(&settings, source, family)
+        .map_err(|refusal| refusal.call_error(context))?;
+    if let Some(narrowing) = plan.narrowing(family) {
+        identity
+            .owner()
+            .blocking(move || narrowing.drawn())
+            .await
+            .map_err(|error| Refusal::outside_population(&settings, &error).call_error(context))?;
+    }
+    plan.built(&settings)
         .map_err(|refusal| refusal.call_error(context))
 }
 
@@ -2133,7 +2152,7 @@ async fn reopened_identity(
     if borrowed {
         return Ok((None, None));
     }
-    let identity = access_mode_opens(settings, &run.identity, None, context)?;
+    let identity = access_mode_opens(settings, &run.identity, None, context).await?;
     let signing = open_signing(run, identity.signing.as_ref(), context).await?;
     Ok((signing, FingerprintPlan::of(&identity)))
 }

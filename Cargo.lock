@@ -1924,6 +1924,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
+name = "encodify"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab7f638cb35e10aa08efd439d11ddcbeef7d52dd987c4956a6ff2cc1061020f3"
+dependencies = [
+ "memchr",
+ "simdutf8",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.42"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2382,6 +2392,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link 0.2.1",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2556,6 +2576,7 @@ name = "goodfetch-collie-client"
 version = "0.0.0"
 dependencies = [
  "data-encoding",
+ "ed25519-dalek",
  "encoding_rs",
  "futures-core",
  "futures-util",
@@ -2567,13 +2588,16 @@ dependencies = [
  "goodfetch-saved-file",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
+ "hmac 0.12.1",
  "libc",
  "loom",
  "proptest",
  "rstest",
  "schemars",
+ "secrecy",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -3007,6 +3031,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "goodfetch-identity-profile"
+version = "0.0.0"
+dependencies = [
+ "chacha20 0.10.2",
+ "flate2",
+ "goodfetch-test-support",
+ "goodfetch-workspace-hack",
+ "proptest",
+ "rstest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "goodfetch-memory-site"
 version = "0.0.0"
 dependencies = [
@@ -3033,6 +3072,7 @@ dependencies = [
 name = "goodfetch-notification"
 version = "0.0.0"
 dependencies = [
+ "data-encoding",
  "futures-util",
  "goodfetch-engine",
  "goodfetch-protocol",
@@ -3041,15 +3081,23 @@ dependencies = [
  "goodfetch-workspace-hack",
  "httpmock",
  "hyper",
+ "insta",
+ "mail-builder",
+ "mail-send",
  "proptest",
  "proptest-state-machine",
+ "quick-xml 0.41.0",
+ "rcgen",
  "rstest",
  "rusqlite",
+ "rustls",
  "secrecy",
- "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "smtp-proto",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "url",
 ]
@@ -3073,6 +3121,7 @@ dependencies = [
  "goodfetch-counted-work",
  "goodfetch-engine",
  "goodfetch-extractor",
+ "goodfetch-identity-profile",
  "goodfetch-protocol",
  "goodfetch-recording-gate",
  "goodfetch-runtime",
@@ -3256,18 +3305,15 @@ dependencies = [
  "goodfetch-runtime",
  "goodfetch-test-support",
  "goodfetch-workspace-hack",
- "hmac 0.12.1",
  "http-body-util",
  "hyper",
  "hyper-util",
- "jiff",
  "quick-xml 0.41.0",
  "rcgen",
  "rstest",
  "rustls",
  "secrecy",
  "serde_json",
- "sha2 0.10.9",
  "tokio",
  "tokio-rustls",
  "tracing",
@@ -4876,6 +4922,32 @@ name = "mac-addr"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3d25b0e0b648a86960ac23b7ad4abb9717601dec6f66c165f5b037f3f03065f"
+
+[[package]]
+name = "mail-builder"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aca3ad941e4c466402151719d6b4cea4bdfcb212b11e5970afa75e7d28c6502a"
+dependencies = [
+ "encodify",
+ "web-time",
+]
+
+[[package]]
+name = "mail-send"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a428956cced7e5493be6631590e009825635f6ffc3f19edbbf9e07418f8f2e2"
+dependencies = [
+ "encodify",
+ "gethostname",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "smtp-proto",
+ "tokio",
+ "tokio-rustls",
+]
 
 [[package]]
 name = "markup5ever"
@@ -7236,6 +7308,15 @@ name = "smallvec"
 version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+
+[[package]]
+name = "smtp-proto"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "142a5a642c6bd7ffd7e1b525ad6a6e9921ccef992dba4663974f8519209a00c1"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "snap"

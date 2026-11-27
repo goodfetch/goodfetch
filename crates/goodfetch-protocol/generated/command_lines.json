@@ -461,6 +461,14 @@
           {
             "commands": [],
             "name": "join"
+          },
+          {
+            "commands": [],
+            "name": "leave"
+          },
+          {
+            "commands": [],
+            "name": "revoke"
           }
         ],
         "name": "group"
@@ -970,6 +978,14 @@
           {
             "commands": [],
             "name": "join"
+          },
+          {
+            "commands": [],
+            "name": "leave"
+          },
+          {
+            "commands": [],
+            "name": "revoke"
           }
         ],
         "name": "group"

@@ -467,6 +467,28 @@
       ]
     },
     {
+      "id": "command:group.leave",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:group.revoke",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:group.token",
       "kind": "command",
       "area": 3,
@@ -1238,7 +1260,7 @@
     {
       "id": "error:authority_key_mismatch",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1815,7 +1837,7 @@
     {
       "id": "error:group_lead_unreachable",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1826,7 +1848,18 @@
     {
       "id": "error:group_member_exists",
       "kind": "error",
-      "area": null,
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:group_member_unknown",
+      "kind": "error",
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1930,7 +1963,7 @@
     {
       "id": "error:join_token_refused",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1965,6 +1998,17 @@
       "milestone": null,
       "status": "active",
       "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:lead_cannot_leave",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
         "foxhound"
       ]
     },
@@ -2134,6 +2178,17 @@
     },
     {
       "id": "error:not_a_daemon",
+      "kind": "error",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "error:not_in_a_group",
       "kind": "error",
       "area": 3,
       "milestone": null,
@@ -4230,6 +4285,28 @@
     },
     {
       "id": "operation:group.join",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:group.leave",
+      "kind": "operation",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:group.revoke",
       "kind": "operation",
       "area": 3,
       "milestone": null,

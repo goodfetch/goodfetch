@@ -1,6 +1,7 @@
 //! Daemon groups (ADR 0055): the peer protocol Group members speak to one
 //! another over the peer link, and its refusals; and the operations that
-//! form a group, [`GROUP_INIT`] and [`GROUP_TOKEN`].
+//! form a group, [`GROUP_INIT`], [`GROUP_TOKEN`] and [`GROUP_JOIN`], and
+//! remove a Group member from it, [`GROUP_LEAVE`] and [`GROUP_REVOKE`].
 //!
 //! The peer protocol is newline-delimited JSON-RPC 2.0 over the peer link's
 //! mutual TLS, versioned on its own (ADR 0066). The Group member that
@@ -24,7 +25,8 @@
 //! authority has the public key [`GROUP_JOIN`] pins, and sends [`JOIN`] in
 //! place of `hello`, the only message such a link carries. A Group member
 //! whose certificate nears its expiry opens a peer link to the Lead Daemon
-//! with it and sends [`RENEW`] in place of `hello`, likewise alone.
+//! with it and sends [`RENEW`] in place of `hello`, likewise alone, and one
+//! that leaves the group sends [`LEAVE`] the same way.
 
 use std::fmt;
 use std::time::SystemTime;
@@ -59,6 +61,11 @@ pub const JOIN: &str = "group.join";
 /// opens with its certificate, in place of [`HELLO`], to have its
 /// certificate renewed before it expires.
 pub const RENEW: &str = "group.renew";
+
+/// The method a Group member sends the Lead Daemon, on a peer link it
+/// opens with its certificate, in place of [`HELLO`], to leave the group:
+/// the Lead Daemon revokes its certificates.
+pub const LEAVE: &str = "group.leave";
 
 /// A Daemon group's lead epoch (ADRs 0003 and 0055): each Lead Daemon
 /// promoted takes a higher one, and a Group member refuses a peer message
@@ -246,6 +253,39 @@ pub struct PeerRenewResult {
     pub revocations: String,
 }
 
+/// What a Group member sends the Lead Daemon to leave the group, the one
+/// message of a peer link it opens with its certificate.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerLeaveParams {
+    /// The peer protocol version the Group member speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The highest lead epoch it has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// Its Group member name, which the certificate it presents names.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+}
+
+/// What the Lead Daemon answers to a `group.leave` it accepts, once it
+/// revoked the Group member's certificates.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerLeaveResult {
+    /// The peer protocol version both speak: the lower of the two.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the Lead Daemon has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+}
+
 /// What a Group member answers to `group.lead_epoch`: the highest lead
 /// epoch it has recorded, the sender's included.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -337,6 +377,36 @@ pub const GROUP_LEAD_UNREACHABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// `group.leave` or `group.revoke` of the Lead Daemon.
+pub const LEAD_CANNOT_LEAVE: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "lead_cannot_leave",
+    description: "The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `group.revoke` of a name the group has no Group member of.
+pub const GROUP_MEMBER_UNKNOWN: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "group_member_unknown",
+    description: "The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `group.leave` on a Daemon in no Daemon group.
+pub const NOT_IN_A_GROUP: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "not_in_a_group",
+    description: "This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`.",
+    group: ErrorGroup::Refused,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// `group.init`.
 pub const GROUP_INIT: Operation = Operation {
     name: "group.init",
@@ -390,6 +460,75 @@ pub const GROUP_JOIN: Operation = Operation {
     deprecated: None,
     arrived_in: ARRIVED_IN,
 };
+
+/// `group.leave`.
+pub const GROUP_LEAVE: Operation = Operation {
+    name: "group.leave",
+    description: "Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<GroupLeaveParams>,
+    result: schema_of::<GroupLeft>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `group.revoke`.
+pub const GROUP_REVOKE: Operation = Operation {
+    name: "group.revoke",
+    description: "Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.",
+    class: OperationClass::Effect,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<GroupRevokeParams>,
+    result: schema_of::<GroupMemberRevoked>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `group.leave` takes: nothing.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupLeaveParams {}
+
+/// What `group.leave` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GroupLeft {
+    /// The Group member name this Daemon had.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+}
+
+/// What `group.revoke` takes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GroupRevokeParams {
+    /// The Group member name to remove.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+}
+
+/// What `group.revoke` answers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GroupMemberRevoked {
+    /// The Group member name removed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// The number of the revocation list that revokes its certificates.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revocation_list: u64,
+}
 
 /// What `group.init` takes: the Lead Daemon's Group member name and where
 /// its peer listener listens.
@@ -508,6 +647,35 @@ pub struct StoredGroup {
     /// on any other Daemon.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub members: Vec<StoredMember>,
+    /// The Group member certificates the Lead Daemon signed and that have
+    /// not expired, revoked or not; none on any other Daemon.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub certificates: Vec<StoredCertificate>,
+}
+
+/// A Group member certificate the Lead Daemon signed, as its
+/// `certificates` row holds it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct StoredCertificate {
+    /// Its serial number, in lowercase hex.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub serial: String,
+    /// The Group member name it names.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub name: String,
+    /// When it stops being valid, in RFC 3339, UTC.
+    #[serde(with = "crate::point_in_time")]
+    #[schemars(with = "PointInTime", extend("arrived_in" = "0.1"))]
+    pub expires_at: SystemTime,
+    /// When the authority revoked it, in RFC 3339, UTC; none while it is
+    /// valid.
+    #[serde(
+        with = "crate::point_in_time::nullable",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schemars(with = "Option<PointInTime>", extend("arrived_in" = "0.1"))]
+    pub revoked_at: Option<SystemTime>,
 }
 
 /// A Daemon's own Group member identity, as its `identity` row holds it.
@@ -630,7 +798,13 @@ pub struct StoredJoinToken {
 /// The operations and Error codes of Daemon groups.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[GROUP_INIT, GROUP_TOKEN, GROUP_JOIN],
+    operations: &[
+        GROUP_INIT,
+        GROUP_TOKEN,
+        GROUP_JOIN,
+        GROUP_LEAVE,
+        GROUP_REVOKE,
+    ],
     events: &[],
     handler_requests: &[],
     error_codes: &[
@@ -641,6 +815,9 @@ pub const ENTRIES: Entries = Entries {
         GROUP_MEMBER_EXISTS,
         AUTHORITY_KEY_MISMATCH,
         GROUP_LEAD_UNREACHABLE,
+        LEAD_CANNOT_LEAVE,
+        GROUP_MEMBER_UNKNOWN,
+        NOT_IN_A_GROUP,
     ],
     plugin_kinds: &[],
     metrics: &[],

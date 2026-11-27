@@ -706,6 +706,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_member_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The program's handler failed with its own error, such as an exception; the attempt committed nothing. It is retried only when `crawl.retry.handler_failed` is on, since a bug fails the same way every time.",
       "details": {
         "$ref": "#/$defs/HandlerFailedDetails"
@@ -859,6 +869,16 @@
       "json_rpc_class": -32001,
       "name": "label_unknown",
       "product": "foxhound",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "lead_cannot_leave",
+      "product": "collie",
       "retryable": false
     },
     {
@@ -1060,6 +1080,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "not_a_daemon",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "not_in_a_group",
       "product": "collie",
       "retryable": false
     },
@@ -3985,6 +4015,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/GroupJoined"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.leave",
+      "params": {
+        "$ref": "#/$defs/GroupLeaveParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupLeft"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.revoke",
+      "params": {
+        "$ref": "#/$defs/GroupRevokeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupMemberRevoked"
       },
       "stability": "experimental"
     },

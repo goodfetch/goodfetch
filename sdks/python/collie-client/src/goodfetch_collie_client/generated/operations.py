@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 from goodfetch_collie_client.caller import AsyncCaller, Caller, result_of
 from goodfetch_collie_client.markers import warn_deprecated, warn_deprecated_settings, warn_experimental
 
-from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupTokenParams, InitScriptEnded, JoinTokenMinted, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
+from .models import Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupLeaveParams, GroupLeft, GroupMemberRevoked, GroupRevokeParams, GroupTokenParams, InitScriptEnded, JoinTokenMinted, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams
 from .settings import DEPRECATED_SETTINGS
 
 
@@ -173,6 +173,22 @@ class AsyncCollieOperations:
         """
         warn_experimental("group.join")
         return result_of(GroupJoined, await self._caller.call("group.join", params))
+
+    async def group_leave(self, params: GroupLeaveParams) -> GroupLeft:
+        """Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.leave")
+        return result_of(GroupLeft, await self._caller.call("group.leave", params))
+
+    async def group_revoke(self, params: GroupRevokeParams) -> GroupMemberRevoked:
+        """Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.revoke")
+        return result_of(GroupMemberRevoked, await self._caller.call("group.revoke", params))
 
     async def group_token(self, params: GroupTokenParams) -> JoinTokenMinted:
         """Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.
@@ -934,6 +950,22 @@ class CollieOperations:
         warn_experimental("group.join")
         return result_of(GroupJoined, self._caller.call("group.join", params))
 
+    def group_leave(self, params: GroupLeaveParams) -> GroupLeft:
+        """Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.leave")
+        return result_of(GroupLeft, self._caller.call("group.leave", params))
+
+    def group_revoke(self, params: GroupRevokeParams) -> GroupMemberRevoked:
+        """Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.
+
+        Experimental: outside semver until it is promoted (ADR 0030).
+        """
+        warn_experimental("group.revoke")
+        return result_of(GroupMemberRevoked, self._caller.call("group.revoke", params))
+
     def group_token(self, params: GroupTokenParams) -> JoinTokenMinted:
         """Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`.
 
@@ -1553,6 +1585,8 @@ EXPERIMENTAL_OPERATIONS: Final[frozenset[str]] = frozenset({
     "events.subscribe",
     "group.init",
     "group.join",
+    "group.leave",
+    "group.revoke",
     "group.token",
     "key_value_store.delete",
     "key_value_store.get",
@@ -1658,6 +1692,8 @@ OPERATION_CLASSES: Final[Mapping[str, Literal["read", "idempotent_write", "effec
     "events.subscribe": "read",
     "group.init": "effect",
     "group.join": "effect",
+    "group.leave": "effect",
+    "group.revoke": "effect",
     "group.token": "effect",
     "key_value_store.delete": "idempotent_write",
     "key_value_store.get": "read",

@@ -4566,6 +4566,72 @@
       ],
       "type": "object"
     },
+    "GroupLeaveParams": {
+      "additionalProperties": false,
+      "description": "What `group.leave` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "GroupLeft": {
+      "description": "What `group.leave` answers.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name this Daemon had.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "GroupMemberRevoked": {
+      "description": "What `group.revoke` answers.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name removed.",
+          "type": "string"
+        },
+        "revocation_list": {
+          "arrived_in": "0.1",
+          "description": "The number of the revocation list that revokes its certificates.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "revocation_list"
+      ],
+      "type": "object"
+    },
+    "GroupRevokeParams": {
+      "additionalProperties": false,
+      "description": "What `group.revoke` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name to remove.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "GroupTokenParams": {
       "additionalProperties": false,
       "description": "What `group.token` takes: nothing.",
@@ -16693,6 +16759,16 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "group_member_unknown",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value.",
       "details": {
         "$ref": "#/$defs/HeaderValueInvalidDetails"
@@ -16737,6 +16813,16 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "join_token_refused",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "lead_cannot_leave",
       "product": "collie",
       "retryable": false
     },
@@ -16929,6 +17015,16 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "not_a_daemon",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`.",
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "not_in_a_group",
       "product": "collie",
       "retryable": false
     },
@@ -19353,6 +19449,44 @@
       "reach": "all_surfaces",
       "result": {
         "$ref": "#/$defs/GroupJoined"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.leave",
+      "params": {
+        "$ref": "#/$defs/GroupLeaveParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupLeft"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "effect",
+      "deprecated": null,
+      "description": "Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "group.revoke",
+      "params": {
+        "$ref": "#/$defs/GroupRevokeParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/GroupMemberRevoked"
       },
       "stability": "experimental"
     },

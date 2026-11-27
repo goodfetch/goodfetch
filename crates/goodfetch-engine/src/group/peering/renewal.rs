@@ -18,80 +18,22 @@ use std::time::{Duration, SystemTime};
 use data_encoding::BASE64;
 use goodfetch_protocol::catalog::ProtocolVersion;
 use goodfetch_protocol::group::{PEER_PROTOCOL_VERSION, PeerRenewParams, PeerRenewResult, RENEW};
-use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
-use rustls::server::ParsedCertificate;
-use tokio::io::AsyncWriteExt;
-use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-use super::{OPENING_TIMEOUT, Peering, ask, public_key_of, unreachable};
+use super::{Asked, Peering, ask_lead, presented_name, public_key_of};
 use crate::call_error::CallError;
 use crate::clock::rfc3339;
-use crate::framing::{Frame, Incoming, decode};
 use crate::group::identity::{KeptIdentity, Renewed};
 use crate::group::operations::{internal, store_failed};
+use crate::group::store::Certified;
 use crate::group::{
-    GroupMemberKey, GroupMemberName, accepting, connecting, failure_line, opening_refusal,
-    result_line, stale, store,
+    GroupMemberKey, GroupMemberName, accepting, failure_line, result_line, stale, store,
 };
-use crate::product::Identity;
 use crate::tasks::TaskOwner;
-use crate::transport::connect_peer;
 
 /// The least time between two tries at renewing a certificate.
 const RETRY_AT_LEAST: Duration = Duration::from_secs(1);
-
-/// What the opening message of a peer link that presents a certificate
-/// is.
-pub(super) enum Opening {
-    /// A `group.renew` of the group's Product and of a version this
-    /// Daemon speaks.
-    Renew(RenewRequest),
-    /// The line refusing a `group.renew`.
-    Refused(Vec<u8>),
-    /// Another message, which opens a [`PeerLink`](crate::group::PeerLink).
-    Other(Frame),
-}
-
-/// A `group.renew`, accepted for its Product and version.
-pub(super) struct RenewRequest {
-    id: RequestId,
-    /// The peer protocol version the two settle on.
-    settled: ProtocolVersion,
-    params: PeerRenewParams,
-}
-
-/// What `first`, the opening message of a peer link that presents a
-/// certificate, is to the Daemon `identity`.
-pub(super) fn opening(identity: &Identity, first: Frame) -> Opening {
-    let Frame::Line(line) = first else {
-        return Opening::Other(first);
-    };
-    let Ok(Incoming::Request { id, call }) = decode(line.clone()) else {
-        return Opening::Other(Frame::Line(line));
-    };
-    if call.method() != RENEW {
-        return Opening::Other(Frame::Line(line));
-    }
-    let refuse = |error: CallError| Opening::Refused(failure_line(Some(id.clone()), &error));
-    let params: PeerRenewParams = match call.into_params().read() {
-        Ok(params) => params,
-        Err(error) => {
-            return refuse(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                format!("this `group.renew` is not the peer protocol's: {error}"),
-            ));
-        }
-    };
-    if let Some(error) = opening_refusal(identity, params.product, params.protocol_version) {
-        return refuse(error);
-    }
-    Opening::Renew(RenewRequest {
-        settled: PEER_PROTOCOL_VERSION.min(params.protocol_version),
-        id,
-        params,
-    })
-}
 
 /// Keeps the certificate of the Group member `peering` serves renewed,
 /// until `owner` stops or the Daemon is in no group.
@@ -118,13 +60,18 @@ pub(super) async fn keep_renewed(peering: Arc<Peering>, owner: TaskOwner) {
 
 impl Peering {
     /// The answer to the `group.renew` `request` of the Group member that
-    /// presented `presented`.
+    /// presented `presented`, to which the Lead Daemon hands
+    /// `revocations`, the list its listener enforces.
     pub(super) async fn renewal(
         &self,
         presented: &CertificateDer<'_>,
-        request: RenewRequest,
+        revocations: &CertificateRevocationListDer<'_>,
+        request: Asked<PeerRenewParams>,
     ) -> Vec<u8> {
-        match self.renew(presented, request.settled, request.params).await {
+        match self
+            .renew(presented, request.settled, request.params, revocations)
+            .await
+        {
             Ok(renewed) => result_line(&request.id, &renewed),
             Err(error) => failure_line(Some(request.id), &error),
         }
@@ -133,35 +80,23 @@ impl Peering {
     /// Signs a new certificate for the Group member that asks with
     /// `params`, the two speaking peer protocol `settled`, once its lead
     /// epoch is current, the certificate it `presented` names it and it is
-    /// a Group member still.
+    /// a Group member still, which the store records.
     async fn renew(
         &self,
         presented: &CertificateDer<'_>,
         settled: ProtocolVersion,
         params: PeerRenewParams,
+        revocations: &CertificateRevocationListDer<'_>,
     ) -> Result<PeerRenewResult, CallError> {
-        let lead_epoch = {
-            let mut epochs = self.epochs.lock().unwrap_or_else(PoisonError::into_inner);
-            epochs
-                .admit(params.lead_epoch)
-                .map_err(|details| stale(&details))?;
-            epochs.highest()
-        };
-        let name = GroupMemberName::new(&params.name).map_err(|error| {
-            CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
-        })?;
-        if !names(presented, &name) {
-            return Err(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                format!(
-                    "the certificate this peer link presents is not `{}`'s",
-                    name.as_str()
-                ),
-            ));
-        }
+        let lead_epoch = self.admit_epoch(params.lead_epoch)?;
+        let name = presented_name(presented, &params.name)?;
         let public_key = public_key_of(&params.public_key)?;
         let authority = self.authority().await?;
-        if !store::is_member(&self.store, params.name)
+        let now = self.clock.wall();
+        let signed = authority
+            .sign(&name, &public_key, now)
+            .map_err(|error| internal(&error))?;
+        if !store::certified(&self.store, params.name, Certified::from(&signed), now)
             .await
             .map_err(|error| store_failed(&error))?
         {
@@ -170,15 +105,12 @@ impl Peering {
                 format!("`{}` is no Group member of this group", name.as_str()),
             ));
         }
-        let signed = authority
-            .sign(&name, &public_key, self.clock.wall())
-            .map_err(|error| internal(&error))?;
         Ok(PeerRenewResult {
             protocol_version: settled,
             lead_epoch,
             certificate: BASE64.encode(&signed.certificate),
             certificate_expires_at: signed.not_after,
-            revocations: BASE64.encode(&self.revocations),
+            revocations: BASE64.encode(revocations),
         })
     }
 
@@ -242,10 +174,11 @@ impl Peering {
         let renewed = if kept.is_lead() {
             self.sign_own(&kept, now).await?
         } else {
-            self.ask_lead(&kept).await?
+            self.renewal_from_lead(&kept).await?
         };
         let renewed = kept.with(renewed);
-        let acceptor = accepting(renewed.presented(), &renewed.trust(), self.clock)
+        // The store never keeps an identity the listener cannot present.
+        accepting(renewed.presented(), &renewed.trust(), self.clock)
             .map_err(|error| internal(&error))?;
         if !store::renew(&self.store, renewed.clone())
             .await
@@ -256,8 +189,6 @@ impl Peering {
                 "this Daemon left its group while its certificate was renewed",
             ));
         }
-        *self.acceptor.lock().unwrap_or_else(PoisonError::into_inner) =
-            TlsAcceptor::from(Arc::new(acceptor));
         Ok(renewed)
     }
 
@@ -287,44 +218,24 @@ impl Peering {
     /// `group_lead_unreachable` when the Lead Daemon gives no answer in
     /// time, `lead_epoch_stale` when it answers with a lead epoch below the
     /// highest recorded, and the Lead Daemon's own refusal.
-    async fn ask_lead(&self, kept: &KeptIdentity) -> Result<Renewed, CallError> {
-        let lead = kept.lead_address.as_str();
-        let asked = async {
-            let name = GroupMemberName::new(&kept.lead_name).map_err(|error| internal(&error))?;
-            let config = connecting(kept.presented(), &kept.trust(), self.clock)
-                .map_err(|error| internal(&error))?;
-            let stream = connect_peer(lead)
-                .await
-                .map_err(|error| unreachable(lead, &error))?;
-            let mut stream = TlsConnector::from(Arc::new(config))
-                .connect(name.server_name(), stream)
-                .await
-                .map_err(|error| unreachable(lead, &error))?;
-            let key = GroupMemberKey::generate().map_err(|error| internal(&error))?;
-            let params = PeerRenewParams {
-                protocol_version: PEER_PROTOCOL_VERSION,
-                product: self.identity.product,
-                product_version: self.identity.product_version.clone(),
-                lead_epoch: self
-                    .epochs
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .highest(),
-                name: kept.name.clone(),
-                public_key: BASE64.encode(key.public_key().raw()),
-            };
-            let answered: PeerRenewResult = ask(&mut stream, lead, RENEW, &params).await?;
-            if let Err(error) = stream.shutdown().await {
-                tracing::debug!(%error, "a peer link did not close cleanly");
-            }
-            Ok::<_, CallError>((key, answered))
+    pub(super) async fn renewal_from_lead(
+        &self,
+        kept: &KeptIdentity,
+    ) -> Result<Renewed, CallError> {
+        let key = GroupMemberKey::generate().map_err(|error| internal(&error))?;
+        let params = PeerRenewParams {
+            protocol_version: PEER_PROTOCOL_VERSION,
+            product: self.identity.product,
+            product_version: self.identity.product_version.clone(),
+            lead_epoch: self
+                .epochs
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .highest(),
+            name: kept.name.clone(),
+            public_key: BASE64.encode(key.public_key().raw()),
         };
-        let (key, answered) = tokio::select! {
-            asked = asked => asked?,
-            () = self.clock.sleep(OPENING_TIMEOUT) => {
-                return Err(unreachable(lead, "it gave no answer in time"));
-            }
-        };
+        let answered: PeerRenewResult = ask_lead(kept, self.clock, RENEW, &params).await?;
         self.epochs
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -346,13 +257,6 @@ impl Peering {
             received_at: self.clock.wall(),
         })
     }
-}
-
-/// Whether `certificate` names the Group member `name`.
-fn names(certificate: &CertificateDer<'_>, name: &GroupMemberName) -> bool {
-    ParsedCertificate::try_from(certificate).is_ok_and(|parsed| {
-        rustls::client::verify_server_name(&parsed, &name.server_name()).is_ok()
-    })
 }
 
 #[cfg(test)]

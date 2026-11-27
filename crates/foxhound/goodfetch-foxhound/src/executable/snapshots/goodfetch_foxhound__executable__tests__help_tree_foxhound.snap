@@ -1792,9 +1792,11 @@ Calls the catalog's `group` operations
 Usage: goodfetch-foxhound group [OPTIONS] <COMMAND>
 
 Commands:
-  init   Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
-  token  Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`
-  join   Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`
+  init    Forms a Daemon group with this Daemon as its Lead Daemon: makes the group's certificate authority from the OS generator and signs this Daemon's own Group member certificate with it, keeps both in the Daemon's group store at lead epoch 1, listens for peer links at `peer_address`, and answers the lead epoch, the address the peer listener took and the SHA-256 of the authority's public key, which a Daemon that joins pins. A Daemon in a group already fails with `group_exists`. One store transaction: a cancel stops it only before it commits
+  token   Mints a join token on the Lead Daemon: 32 bytes of the OS generator, which one Daemon presents once with `group join` within 30 minutes, together with the SHA-256 of the authority's public key it pins. The group store keeps only the token's SHA-256, so the answer is the one place it shows. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`
+  join    Joins this Daemon to the Daemon group whose Lead Daemon listens at `lead`: makes the Daemon's key from the OS generator, opens a peer link that checks the Lead Daemon's certificate authority against `authority_key`, sends the join token, the name and the public key, and keeps the certificate the Lead Daemon signs, then listens for peer links at `peer_address`. The token works once, so a refusal of anything but the token leaves it valid. A Daemon in a group already fails with `group_exists`; a token the Lead Daemon does not hold with `join_token_refused`; a name taken with `group_member_exists`; another authority with `authority_key_mismatch`; a Lead Daemon out of reach with `group_lead_unreachable`
+  leave   Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still
+  revoke  Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`
 
 Options:
       --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
@@ -1842,6 +1844,31 @@ Options:
       --color <WHEN>                   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
       --daemon                         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
   -h, --help                           Print help
+
+$ goodfetch-foxhound group leave --help
+Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still
+
+Usage: goodfetch-foxhound group leave [OPTIONS]
+
+Options:
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound group revoke --help
+Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`
+
+Usage: goodfetch-foxhound group revoke [OPTIONS] --name <NAME>
+
+Options:
+      --name <NAME>   The Group member name to remove
+      --json          Prints the result as JSON
+      --attached      Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon        Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
 
 $ goodfetch-foxhound crawl --help
 Calls the catalog's `crawl` operations

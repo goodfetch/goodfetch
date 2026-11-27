@@ -50,6 +50,18 @@ fn home() -> TestEnv {
 /// The arguments of `group join` to `lead` with `token`, pinning `key`,
 /// as the Group member `name`.
 fn join<'a>(lead: &'a str, token: &'a str, key: &'a str, name: &'a str) -> [&'a str; 12] {
+    join_at(lead, token, key, name, "127.0.0.1:0")
+}
+
+/// The arguments of `group join` of [`join`], listening for peer links at
+/// `peer_address`.
+fn join_at<'a>(
+    lead: &'a str,
+    token: &'a str,
+    key: &'a str,
+    name: &'a str,
+    peer_address: &'a str,
+) -> [&'a str; 12] {
     [
         "group",
         "join",
@@ -62,8 +74,26 @@ fn join<'a>(lead: &'a str, token: &'a str, key: &'a str, name: &'a str) -> [&'a 
         "--name",
         name,
         "--peer-address",
-        "127.0.0.1:0",
+        peer_address,
     ]
+}
+
+/// What `group join` answers on `member`, joined as `worker` with a token
+/// the Lead Daemon `lead`, which `formed` answered, mints, listening for
+/// peer links at `peer_address`.
+fn joined(lead: &TestEnv, formed: &Value, member: &TestEnv, peer_address: &str) -> Value {
+    let minted = answered(lead, &["group", "token"], "JoinTokenMinted");
+    answered(
+        member,
+        &join_at(
+            formed["peer_address"].as_str().unwrap(),
+            minted["token"].as_str().unwrap(),
+            minted["authority_key"].as_str().unwrap(),
+            "worker",
+            peer_address,
+        ),
+        "GroupJoined",
+    )
 }
 
 fn formed(env: &TestEnv) -> Value {
@@ -108,9 +138,9 @@ fn group_init_and_token_run_on_the_daemon_for_one_authority() {
 /// nothing listens and a taken name are refused, and leave the token
 /// valid; after it, the token admits no other Daemon.
 ///
-/// Covers: command:group.join, story:3-95, error:authority_key_mismatch,
-/// error:group_lead_unreachable, error:group_member_exists,
-/// error:join_token_refused
+/// Covers: command:group.join, operation:group.join, story:3-95, story:3-106,
+/// error:authority_key_mismatch, error:group_lead_unreachable,
+/// error:group_member_exists, error:join_token_refused
 #[test]
 fn a_daemon_joins_the_lead_daemons_group_once_per_token() {
     let (lead, member, late) = (home(), home(), home());
@@ -144,4 +174,76 @@ fn a_daemon_joins_the_lead_daemons_group_once_per_token() {
         (Some(1), Some("join_token_refused"))
     );
     assert!(daemon_dispatched(&member, "group.join"));
+}
+
+/// A Group member leaves its group, which frees its name and its peer
+/// listener's address for a join again; the Lead Daemon cannot leave, and
+/// a Daemon in no group has none to leave.
+///
+/// Covers: command:group.leave, operation:group.leave, error:lead_cannot_leave,
+/// error:not_in_a_group
+#[test]
+fn a_group_member_leaves_and_may_join_again() {
+    let (lead, member) = (home(), home());
+    let _stops = [&lead, &member].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    let first = joined(&lead, &formed, &member, "127.0.0.1:0");
+    let address = first["peer_address"].as_str().unwrap();
+
+    let lead_leaves = refused(&lead, &["group", "leave"]);
+    let left = answered(&member, &["group", "leave"], "GroupLeft");
+    let again = refused(&member, &["group", "leave"]);
+    let rejoined = joined(&lead, &formed, &member, address);
+
+    assert_eq!(
+        (
+            lead_leaves.as_str(),
+            left["name"].as_str(),
+            again.as_str(),
+            rejoined["peer_address"].as_str(),
+        ),
+        (
+            Some("lead_cannot_leave"),
+            Some("worker"),
+            Some("not_in_a_group"),
+            Some(address),
+        )
+    );
+    assert!(daemon_dispatched(&member, "group.leave"));
+}
+
+/// The Lead Daemon revokes a Group member once, after which the member
+/// leaves on its side alone, the Lead Daemon refusing its certificate; a
+/// Group member revokes no one, and the Lead Daemon is not revoked.
+///
+/// Covers: command:group.revoke, operation:group.revoke, error:group_member_unknown,
+/// error:not_lead_daemon, error:lead_cannot_leave
+#[test]
+fn the_lead_daemon_revokes_a_group_member_once() {
+    let (lead, member) = (home(), home());
+    let _stops = [&lead, &member].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    joined(&lead, &formed, &member, "127.0.0.1:0");
+    let revoke = |name| ["group", "revoke", "--name", name];
+
+    let refusals = [
+        refused(&member, &revoke("worker")),
+        refused(&lead, &revoke("lead")),
+    ];
+    let revoked = answered(&lead, &revoke("worker"), "GroupMemberRevoked");
+    let twice = refused(&lead, &revoke("worker"));
+    let left = answered(&member, &["group", "leave"], "GroupLeft");
+
+    assert_eq!(
+        refusals.map(|code| code.as_str().unwrap().to_owned()),
+        ["not_lead_daemon", "lead_cannot_leave"]
+    );
+    assert_eq!(
+        (
+            revoked["name"].as_str(),
+            twice.as_str(),
+            left["name"].as_str()
+        ),
+        (Some("worker"), Some("group_member_unknown"), Some("worker"))
+    );
 }

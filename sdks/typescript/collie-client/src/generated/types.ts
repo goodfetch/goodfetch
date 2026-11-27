@@ -5012,6 +5012,53 @@ export interface GroupJoined {
   peerAddress: string;
 }
 /**
+ * What `group.leave` takes: nothing.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeaveParams".
+ */
+export interface GroupLeaveParams {}
+/**
+ * What `group.leave` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupLeft".
+ */
+export interface GroupLeft {
+  /**
+   * The Group member name this Daemon had.
+   */
+  name: string;
+}
+/**
+ * What `group.revoke` answers.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupMemberRevoked".
+ */
+export interface GroupMemberRevoked {
+  /**
+   * The Group member name removed.
+   */
+  name: string;
+  /**
+   * The number of the revocation list that revokes its certificates.
+   */
+  revocationList: number;
+}
+/**
+ * What `group.revoke` takes.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "GroupRevokeParams".
+ */
+export interface GroupRevokeParams {
+  /**
+   * The Group member name to remove.
+   */
+  name: string;
+}
+/**
  * What `group.token` takes: nothing.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema

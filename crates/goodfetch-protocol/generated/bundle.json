@@ -9235,6 +9235,72 @@
       ],
       "type": "object"
     },
+    "GroupLeaveParams": {
+      "additionalProperties": false,
+      "description": "What `group.leave` takes: nothing.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        }
+      },
+      "type": "object"
+    },
+    "GroupLeft": {
+      "description": "What `group.leave` answers.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name this Daemon had.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "GroupMemberRevoked": {
+      "description": "What `group.revoke` answers.",
+      "properties": {
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name removed.",
+          "type": "string"
+        },
+        "revocation_list": {
+          "arrived_in": "0.1",
+          "description": "The number of the revocation list that revokes its certificates.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "revocation_list"
+      ],
+      "type": "object"
+    },
+    "GroupRevokeParams": {
+      "additionalProperties": false,
+      "description": "What `group.revoke` takes.",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Group member name to remove.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "GroupTokenParams": {
       "additionalProperties": false,
       "description": "What `group.token` takes: nothing.",

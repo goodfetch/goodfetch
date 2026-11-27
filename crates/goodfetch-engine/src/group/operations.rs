@@ -1,21 +1,26 @@
 //! The `group.*` handlers an operator calls (ADR 0055): `group.init` forms
 //! a Daemon group with this Daemon as its Lead Daemon, `group.token` mints
-//! a join token on it, and `group.join` makes this Daemon a Group member of
-//! the group whose Lead Daemon it dials. Forming and joining open the peer
-//! listener. The group store is the Daemon's: an Attached engine that can
-//! start its major's Daemon forwards each call to it, and only a Daemon, or
-//! an engine that cannot start one, runs these handlers.
+//! a join token on it, `group.join` makes this Daemon a Group member of
+//! the group whose Lead Daemon it dials, `group.leave` takes it out, and
+//! `group.revoke` removes another Group member, on the Lead Daemon.
+//! Forming and joining open the peer listener, and leaving closes it. The
+//! group store is the Daemon's: an Attached engine that can start its
+//! major's Daemon forwards each call to it, and only a Daemon, or an
+//! engine that cannot start one, runs these handlers.
 
 use goodfetch_protocol::daemon::DaemonToken;
 use goodfetch_protocol::group::{
-    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_TOKEN, GroupFormed, GroupInitParams,
-    GroupJoinParams, GroupJoined, GroupTokenParams, JoinTokenMinted, NOT_LEAD_DAEMON,
+    GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAVE, GROUP_MEMBER_UNKNOWN, GROUP_REVOKE,
+    GROUP_TOKEN, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupLeaveParams,
+    GroupLeft, GroupMemberRevoked, GroupRevokeParams, GroupTokenParams, JoinTokenMinted,
+    LEAD_CANNOT_LEAVE, NOT_IN_A_GROUP, NOT_LEAD_DAEMON,
 };
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use secrecy::ExposeSecret;
 
 use super::identity::{KeptIdentity, renew_at};
 use super::peering::{self, Asking};
+use super::store::Revocation;
 use super::{GroupAuthority, GroupMemberKey, GroupMemberName, JoinToken, store};
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::known_certificates::KeyHash;
@@ -32,6 +37,8 @@ pub fn contribution() -> Contribution {
         .with_handler(Handler::new(&GROUP_INIT, init))
         .with_handler(Handler::new(&GROUP_TOKEN, token))
         .with_handler(Handler::new(&GROUP_JOIN, join))
+        .with_handler(Handler::new(&GROUP_LEAVE, leave))
+        .with_handler(Handler::new(&GROUP_REVOKE, revoke))
         .guarded(&kept_by_the_daemon())
 }
 
@@ -164,6 +171,86 @@ async fn join(params: GroupJoinParams, context: CallContext) -> Result<GroupJoin
         peer_address,
         certificate_expires_at: admitted.certificate_expires_at,
     })
+}
+
+async fn leave(_: GroupLeaveParams, context: CallContext) -> Result<GroupLeft, CallError> {
+    let store = store_of(&context);
+    let (kept, lead_epoch) = store::identity(&store)
+        .await
+        .map_err(|error| store_failed(&error))?
+        .ok_or_else(not_in_a_group)?;
+    if kept.is_lead() {
+        return Err(lead_cannot_leave());
+    }
+    peering::ask_to_leave(
+        &kept,
+        lead_epoch,
+        context.identity(),
+        context.engine().clock(),
+    )
+    .await?;
+    store::leave(&store)
+        .await
+        .map_err(|error| store_failed(&error))?;
+    peering::stop(context.engine()).await;
+    Ok(GroupLeft { name: kept.name })
+}
+
+async fn revoke(
+    params: GroupRevokeParams,
+    context: CallContext,
+) -> Result<GroupMemberRevoked, CallError> {
+    let store = store_of(&context);
+    let name = member_name(&params.name)?;
+    let revocation = store::revoke(&store, params.name, context.engine().clock().wall())
+        .await
+        .map_err(|error| store_failed(&error))?;
+    Ok(GroupMemberRevoked {
+        revocation_list: revoked(revocation, &name)?,
+        name: name.as_str().to_owned(),
+    })
+}
+
+/// The number of the revocation list that removed the Group member `name`,
+/// as the store answers `revocation`.
+///
+/// # Errors
+///
+/// `not_lead_daemon` off the Lead Daemon, `lead_cannot_leave` for the Lead
+/// Daemon's own name and `group_member_unknown` for a name the group has
+/// no Group member of.
+pub(super) fn revoked(revocation: Revocation, name: &GroupMemberName) -> Result<u64, CallError> {
+    match revocation {
+        Revocation::Revoked(number) => Ok(number),
+        Revocation::NotLead => Err(not_lead()),
+        Revocation::Lead => Err(lead_cannot_leave()),
+        Revocation::Unknown => Err(CallError::new(
+            &GROUP_MEMBER_UNKNOWN,
+            format!(
+                "The Daemon group has no Group member named `{}`: it left, was revoked, or never joined.",
+                name.as_str()
+            ),
+            &(),
+        )),
+    }
+}
+
+/// The refusal of the Lead Daemon's leaving or revocation.
+fn lead_cannot_leave() -> CallError {
+    CallError::new(
+        &LEAD_CANNOT_LEAVE,
+        "The Lead Daemon cannot leave its Daemon group, nor be revoked from it: promote another Group member to Lead Daemon first.",
+        &(),
+    )
+}
+
+/// The refusal of a Daemon in no group.
+fn not_in_a_group() -> CallError {
+    CallError::new(
+        &NOT_IN_A_GROUP,
+        "This Daemon belongs to no Daemon group; form one with `group init`, or join one with `group join`.",
+        &(),
+    )
 }
 
 /// Opens the peer listener at `address`, the `host:port` an operator gave:

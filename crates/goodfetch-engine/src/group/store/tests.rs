@@ -1,7 +1,8 @@
 //! The group store through its interface, on real SQLite in the test's
 //! folder: a group is formed or joined once, a join token admits one
-//! Daemon and expires, a Group member name is taken once, and no join token
-//! reaches the disk, only its digest.
+//! Daemon and expires, a Group member name is taken once, no join token
+//! reaches the disk, only its digest, a revoked Group member is removed in
+//! a new revocation list, and a Daemon that leaves forgets its group.
 #![expect(
     clippy::disallowed_methods,
     reason = "a test reads the store's files as bytes; on no Shared path (ADR 0140)"
@@ -12,16 +13,18 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::group::LeadEpoch;
 use goodfetch_test_support::{TestEnv, runtime};
+use rcgen::SerialNumber;
 use rstest::rstest;
 use secrecy::ExposeSecret;
 
 use super::{
-    Admission, Joining, STORE, admit, authority, form, identity, is_in_a_group, joined,
-    record_token,
+    Admission, Certified, Joining, Revocation, STORE, admit, authority, certified, form, identity,
+    is_in_a_group, joined, leave, record_token, revoke,
 };
 use crate::group::identity::KeptIdentity;
 use crate::group::{
-    GroupAuthority, GroupMemberName, JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused,
+    CERTIFICATE_LIFETIME, GroupAuthority, GroupMemberName, JOIN_TOKEN_LIFETIME, JoinToken,
+    JoinTokenRefused,
 };
 use crate::tasks::{BlockingPolicy, TaskOwner};
 use crate::user_store::UserStore;
@@ -81,8 +84,35 @@ async fn joining_as(store: &UserStore, given: &str, name: &str, at: SystemTime) 
     let joining = Joining {
         name: name.to_owned(),
         peer_address: "127.0.0.1:7001".to_owned(),
+        certificate: certificate(name, at),
     };
     admit(store, given, joining, at).await.unwrap()
+}
+
+/// A certificate signed at `at` for `name`, whose serial is the name's
+/// bytes and the number `n`.
+fn numbered(name: &str, n: u8, at: SystemTime) -> Certified {
+    let mut serial = name.as_bytes().to_vec();
+    serial.push(n);
+    Certified {
+        serial: SerialNumber::from_slice(&serial),
+        expires_at: at + CERTIFICATE_LIFETIME,
+    }
+}
+
+/// The first certificate signed at `at` for `name`.
+fn certificate(name: &str, at: SystemTime) -> Certified {
+    numbered(name, 0, at)
+}
+
+/// A Lead Daemon's store in which `worker` joined at `now()`.
+async fn with_worker(store: &UserStore) {
+    formed(store).await;
+    let minted = recorded(store).await;
+    assert_eq!(
+        joining_as(store, minted.token.expose_secret(), "worker", now()).await,
+        Admission::Admitted
+    );
 }
 
 #[test]
@@ -330,5 +360,126 @@ fn a_token_expired_a_lifetime_ago_is_forgotten_at_the_next_mint() {
             redeem(&store, old.token.expose_secret(), later).await,
             Admission::Refused(JoinTokenRefused::Unknown)
         );
+    });
+}
+
+/// A renewal is recorded for a Group member, and refused for a name the
+/// group has none of.
+#[test]
+fn a_renewed_certificate_is_recorded_for_a_group_member_alone() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        with_worker(&store).await;
+
+        let member = certified(
+            &store,
+            "worker".to_owned(),
+            numbered("worker", 1, now()),
+            now(),
+        )
+        .await
+        .unwrap();
+        let stranger = certified(
+            &store,
+            "stranger".to_owned(),
+            certificate("stranger", now()),
+            now(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!((member, stranger), (true, false));
+    });
+}
+
+/// Revoking a Group member removes it in a new revocation list, numbered
+/// one above the group's first, after which it is no Group member: a
+/// renewal is refused, and a second revocation finds no one.
+#[test]
+fn a_revoked_group_member_is_removed_in_the_next_revocation_list() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        with_worker(&store).await;
+        let (before, _) = identity(&store).await.unwrap().unwrap();
+
+        let revoked = revoke(&store, "worker".to_owned(), now()).await.unwrap();
+
+        assert_eq!(revoked, Revocation::Revoked(2));
+        let (after, _) = identity(&store).await.unwrap().unwrap();
+        assert_ne!(after.revocations, before.revocations);
+        assert!(
+            !certified(
+                &store,
+                "worker".to_owned(),
+                numbered("worker", 1, now()),
+                now()
+            )
+            .await
+            .unwrap()
+        );
+        assert_eq!(
+            revoke(&store, "worker".to_owned(), now()).await.unwrap(),
+            Revocation::Unknown
+        );
+        assert_eq!(authority(&store).await.unwrap().unwrap().lists_issued, 2);
+    });
+}
+
+#[rstest]
+#[case::the_lead_daemon("lead", Revocation::Lead)]
+#[case::a_name_with_no_group_member("stranger", Revocation::Unknown)]
+fn a_revocation_is_refused(#[case] name: &str, #[case] expected: Revocation) {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        with_worker(&store).await;
+        let (before, _) = identity(&store).await.unwrap().unwrap();
+
+        let refused = revoke(&store, name.to_owned(), now()).await.unwrap();
+
+        assert_eq!(refused, expected);
+        let (after, _) = identity(&store).await.unwrap().unwrap();
+        assert_eq!(after.revocations, before.revocations);
+    });
+}
+
+/// A Daemon that joined a group keeps no authority, so it revokes no one.
+#[test]
+fn a_group_member_that_is_not_the_lead_daemon_revokes_no_one() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        let mut theirs = GroupAuthority::create(now()).unwrap();
+        assert!(
+            joined(&store, lead(&mut theirs), LeadEpoch::new(1))
+                .await
+                .unwrap()
+        );
+
+        assert_eq!(
+            revoke(&store, "worker".to_owned(), now()).await.unwrap(),
+            Revocation::NotLead
+        );
+    });
+}
+
+/// A Daemon that leaves its group forgets all of it and may join or form
+/// another; one in no group has none to leave.
+#[test]
+fn a_daemon_that_leaves_forgets_its_group() {
+    let env = TestEnv::new();
+    let store = store(&env);
+    runtime().block_on(async {
+        with_worker(&store).await;
+
+        assert!(leave(&store).await.unwrap());
+
+        assert!(!is_in_a_group(&store).await.unwrap());
+        assert!(identity(&store).await.unwrap().is_none());
+        assert!(authority(&store).await.unwrap().is_none());
+        assert!(!leave(&store).await.unwrap());
+        formed(&store).await;
     });
 }

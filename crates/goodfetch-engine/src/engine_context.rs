@@ -232,13 +232,15 @@ pub struct EngineContext {
 }
 
 /// What an engine's contexts share behind one pointer, which keeps every
-/// future that holds a context small (clippy's `large_futures`): its host.
+/// future that holds a context small (clippy's `large_futures`): its host,
+/// and the owner of its Daemon group's peer link while it is in a group.
 struct Held {
     person: String,
     zone: String,
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
+    peer_link: Mutex<Option<TaskOwner>>,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -292,6 +294,7 @@ impl EngineContext {
                 entropy: Mutex::new(entropy),
                 places: places.map(Arc::new),
                 daemon,
+                peer_link: Mutex::new(None),
             }),
         }
     }
@@ -389,6 +392,34 @@ impl EngineContext {
     /// a Daemon and on an engine that cannot start one.
     pub(crate) fn daemon(&self) -> Option<&Arc<dyn ToTheDaemon>> {
         self.held.daemon.as_ref()
+    }
+
+    /// Holds `link`, the owner of the tasks of the Daemon group's peer
+    /// link, in place of the one held before, which it cancels.
+    pub(crate) fn hold_peer_link(&self, link: TaskOwner) {
+        let before = self
+            .held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replace(link);
+        if let Some(before) = before {
+            before.cancel();
+        }
+    }
+
+    /// Stops the tasks of the Daemon group's peer link, if an owner of them
+    /// is held: once this answers, they have ended.
+    pub(crate) async fn stop_peer_link(&self) {
+        let held = self
+            .held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(link) = held {
+            link.stop().await;
+        }
     }
 
     /// A draw of 64 random bits from the handlers' own stream of the

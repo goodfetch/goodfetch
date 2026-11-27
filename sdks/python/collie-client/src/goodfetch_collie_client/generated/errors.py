@@ -589,6 +589,14 @@ class GroupMemberExistsError(RefusedError):
         super().__init__(message, code="group_member_exists", group="refused", retryable=False, **fields)
 
 
+class GroupMemberUnknownError(RefusedError):
+    """The Daemon group has no Group member of this name, so nothing was revoked: it left already, was revoked, or never joined."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="group_member_unknown", group="refused", retryable=False, **fields)
+
+
 class HeaderValueInvalidError(ProgramError):
     """A header value the engine would send holds a CR, an LF or a NUL, which could end the header and start another, so it is refused before it reaches the wire or the browser. The details name the header and the character, never the value. Remove the character from the value."""
 
@@ -619,6 +627,14 @@ class JoinTokenRefusedError(RefusedError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="join_token_refused", group="refused", retryable=False, **fields)
+
+
+class LeadCannotLeaveError(RefusedError):
+    """The Lead Daemon cannot leave its Daemon group, nor be revoked from it, while it is the Lead Daemon: promote another Group member first, then remove this one."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="lead_cannot_leave", group="refused", retryable=False, **fields)
 
 
 class LeadEpochStaleError(RefusedError):
@@ -799,6 +815,14 @@ class NotADaemonError(ProgramError):
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="not_a_daemon", group="program", retryable=False, **fields)
         self.typed_details = details_of(NotADaemonDetails, self.details)
+
+
+class NotInAGroupError(RefusedError):
+    """This Daemon belongs to no Daemon group, so it has none to leave: form one with `group init`, or join one with `group join`."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="not_in_a_group", group="refused", retryable=False, **fields)
 
 
 class NotInProductError(UnavailableError):
@@ -1681,9 +1705,11 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "group_exists": GroupExistsError,
     "group_lead_unreachable": GroupLeadUnreachableError,
     "group_member_exists": GroupMemberExistsError,
+    "group_member_unknown": GroupMemberUnknownError,
     "header_value_invalid": HeaderValueInvalidError,
     "hook_failed": HookFailedError,
     "join_token_refused": JoinTokenRefusedError,
+    "lead_cannot_leave": LeadCannotLeaveError,
     "lead_epoch_stale": LeadEpochStaleError,
     "limit_not_understood": LimitNotUnderstoodError,
     "limit_raise_refused": LimitRaiseRefusedError,
@@ -1699,6 +1725,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "navigation_failed": NavigationFailedError,
     "navigation_interrupted": NavigationInterruptedError,
     "not_a_daemon": NotADaemonError,
+    "not_in_a_group": NotInAGroupError,
     "not_in_product": NotInProductError,
     "not_lead_daemon": NotLeadDaemonError,
     "not_verified": NotVerifiedError,

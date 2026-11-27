@@ -113,7 +113,7 @@ number = 3
 kind = "error"
 prefix = "lead_epoch"
 
-# Forming a Daemon group (spec #213, #242): `group init`, `group token` and
+# Forming a Daemon group (spec #213, #242): `group.*` operations, commands and
 # their refusals.
 [[area]]
 number = 3
@@ -128,7 +128,27 @@ prefix = "group."
 [[area]]
 number = 3
 kind = "error"
-prefix = "group_exists"
+prefix = "group_"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "authority_key_mismatch"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "join_token_refused"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_cannot_leave"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "not_in_a_group"
 
 [[area]]
 number = 3

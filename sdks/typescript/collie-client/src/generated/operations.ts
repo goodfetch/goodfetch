@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupTokenParams, InitScriptEnded, JoinTokenMinted, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined, GroupLeaveParams, GroupLeft, GroupMemberRevoked, GroupRevokeParams, GroupTokenParams, InitScriptEnded, JoinTokenMinted, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -30,6 +30,8 @@ export interface CollieOperationTypes {
   "events.subscribe": { params: EventsSubscribeParams; result: SubscriptionEnded };
   "group.init": { params: GroupInitParams; result: GroupFormed };
   "group.join": { params: GroupJoinParams; result: GroupJoined };
+  "group.leave": { params: GroupLeaveParams; result: GroupLeft };
+  "group.revoke": { params: GroupRevokeParams; result: GroupMemberRevoked };
   "group.token": { params: GroupTokenParams; result: JoinTokenMinted };
   "key_value_store.delete": { params: KeyValueStoreKeyParams; result: KeyValueStoreDeleted };
   "key_value_store.get": { params: KeyValueStoreKeyParams; result: KeyValueStoreValue };
@@ -130,6 +132,8 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "events.subscribe": { experimental: true, deprecated: undefined },
   "group.init": { experimental: true, deprecated: undefined },
   "group.join": { experimental: true, deprecated: undefined },
+  "group.leave": { experimental: true, deprecated: undefined },
+  "group.revoke": { experimental: true, deprecated: undefined },
   "group.token": { experimental: true, deprecated: undefined },
   "key_value_store.delete": { experimental: true, deprecated: undefined },
   "key_value_store.get": { experimental: true, deprecated: undefined },
@@ -230,6 +234,8 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "events.subscribe": "events.subscribe",
   "group.init": "group.init",
   "group.join": "group.join",
+  "group.leave": "group.leave",
+  "group.revoke": "group.revoke",
   "group.token": "group.token",
   "key_value_store.delete": "keyValueStore.delete",
   "key_value_store.get": "keyValueStore.get",
@@ -330,6 +336,8 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "events.subscribe": "read",
   "group.init": "effect",
   "group.join": "effect",
+  "group.leave": "effect",
+  "group.revoke": "effect",
   "group.token": "effect",
   "key_value_store.delete": "idempotent_write",
   "key_value_store.get": "read",
@@ -610,6 +618,26 @@ export class CollieOperations {
   groupJoin(params: GroupJoinParams): Promise<GroupJoined> {
     warnExperimental("group.join");
     return this.#caller.call("group.join", params, {});
+  }
+
+  /**
+   * Takes this Daemon out of its Daemon group: opens a peer link to the Lead Daemon with its certificate and sends `group.leave`, after which the Lead Daemon revokes every certificate it signed for it and no Group member accepts it again; then forgets its group and closes its peer listener. A Daemon in no group fails with `not_in_a_group`; the Lead Daemon with `lead_cannot_leave`; a Lead Daemon out of reach with `group_lead_unreachable`, after which the Daemon is in its group still.
+   *
+   * @experimental
+   */
+  groupLeave(params: GroupLeaveParams): Promise<GroupLeft> {
+    warnExperimental("group.leave");
+    return this.#caller.call("group.leave", params, {});
+  }
+
+  /**
+   * Removes the Group member `name` from the Daemon group, on the Lead Daemon: revokes every certificate the authority signed for it in a new revocation list, which the Lead Daemon's peer listener enforces from its next link and hands every Group member that renews, so no Group member accepts it again, and forgets it. One store transaction. A Daemon that is not a group's Lead Daemon fails with `not_lead_daemon`; the Lead Daemon's own name with `lead_cannot_leave`; a name with no Group member with `group_member_unknown`.
+   *
+   * @experimental
+   */
+  groupRevoke(params: GroupRevokeParams): Promise<GroupMemberRevoked> {
+    warnExperimental("group.revoke");
+    return this.#caller.call("group.revoke", params, {});
   }
 
   /**

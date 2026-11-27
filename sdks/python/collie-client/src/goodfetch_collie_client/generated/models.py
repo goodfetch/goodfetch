@@ -1527,6 +1527,46 @@ class GroupJoinParams(BaseModel):
     """The join token `group token` minted on the Lead Daemon."""
 
 
+class GroupLeaveParams(BaseModel):
+    """What `group.leave` takes: nothing."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+
+
+class GroupLeft(BaseModel):
+    """What `group.leave` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The Group member name this Daemon had."""
+
+
+class GroupMemberRevoked(BaseModel):
+    """What `group.revoke` answers."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    name: str
+    """The Group member name removed."""
+    revocation_list: Annotated[int, Field(ge=0)]
+    """The number of the revocation list that revokes its certificates."""
+
+
+class GroupRevokeParams(BaseModel):
+    """What `group.revoke` takes."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    """The Group member name to remove."""
+
+
 class GroupTokenParams(BaseModel):
     """What `group.token` takes: nothing."""
 

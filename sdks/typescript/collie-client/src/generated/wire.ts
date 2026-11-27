@@ -421,7 +421,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "RunListParams": { fields: { "ended": ["ended", { type: "TimeRange" }], "started": ["started", { type: "TimeRange" }], "watch_runs": "watchRuns" } },
     "RunMigrateParams": { fields: { "run_id": "runId" } },
     "RunMigrating": { fields: { "run_id": "runId" } },
-    "RunOwner": { fields: { "attached": ["attached", { type: "PrivateEndpoint" }] } },
+    "RunOwner": { fields: { "attached": ["attached", { type: "PrivateEndpoint" }], "group_member": "groupMember" } },
     "RunParams": { fields: { "run_id": "runId" } },
     "RunProgress": { fields: { "at": ["at", "time"], "checkpoint_at": ["checkpointAt", "time"], "pauses": ["pauses", { items: { type: "HumanPause" } }], "run_id": "runId", "stop_reason": ["stopReason", { type: "StopReason" }], "storage": ["storage", { type: "RunStorage" }] } },
     "RunProgressParams": { fields: { "run_id": "runId" } },

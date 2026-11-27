@@ -8,6 +8,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use goodfetch_engine::clock::Clock;
+use goodfetch_engine::group::reindex_to_lead;
 use goodfetch_engine::runs::reindex as rebuild;
 use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsReindexOutput};
 
@@ -38,6 +40,14 @@ pub(super) fn reindex(
         .collect();
     match rebuild(home, &identity.product_version, &locations) {
         Ok(rebuilt) => {
+            if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                && let Err(error) =
+                    runtime.block_on(reindex_to_lead(home, identity, Clock::system()))
+            {
+                tracing::warn!(%error, "rebuilt Run index could not be reported to the Lead Daemon");
+            }
             let run_index = rebuilt.run_index.display().to_string();
             if json {
                 output::json(&RunsReindexOutput {

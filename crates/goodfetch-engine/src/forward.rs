@@ -132,6 +132,7 @@ impl ToOwner {
                 let token = tasks.blocking(move || read_token(&token_file)).await.ok()?;
                 Some((private.address.clone(), token))
             }
+            RunOwner::GroupMember(_) => None,
         }
     }
 }

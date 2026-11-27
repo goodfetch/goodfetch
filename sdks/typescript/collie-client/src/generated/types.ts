@@ -1738,6 +1738,9 @@ export type RunOwner =
     }
   | {
       attached: PrivateEndpoint;
+    }
+  | {
+      groupMember: string;
     };
 /**
  * Why a Run stopped (ADRs 0029, 0080 and 0102).

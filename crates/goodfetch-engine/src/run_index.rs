@@ -32,7 +32,7 @@ use goodfetch_protocol::formats::{Compatibility, RUN_INDEX};
 use goodfetch_protocol::run::{Completeness, Lifecycle, Presence, RunId, RunIndexRow, Verdict};
 use goodfetch_protocol::settings::WALL_REFETCH_DOMAINS;
 use rusqlite::{Connection, OptionalExtension as _, Row};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use crate::lowest_minor::{self, Opener};
 use crate::run_identity::RunIdentity;
@@ -147,6 +147,10 @@ fn failed(path: &Path, error: &impl std::fmt::Display) -> RunStateError {
     }
 }
 
+/// How many written Run index rows the live feed buffers for a subscriber
+/// (such as a Group member feeding the Lead Daemon's group Run index).
+const WRITE_FEED_CAPACITY: usize = 256;
+
 /// The Run index of one user and major, as one engine opens it: its writer
 /// and the connection its reads keep, which its clones share.
 #[derive(Clone, Debug)]
@@ -155,6 +159,8 @@ pub struct RunIndex {
     /// Whether a call found the index's lowest minor raised past this
     /// engine, which never lowers again.
     locked_out: Arc<watch::Sender<bool>>,
+    /// Live stream of rows written to this index.
+    written: broadcast::Sender<RunIndexRow>,
 }
 
 impl RunIndex {
@@ -170,10 +176,17 @@ impl RunIndex {
     ) -> Self {
         let file = IndexFile::new(path, opener(engine), vfs);
         let locked_out = Arc::clone(&file.locked_out);
+        let (written, _) = broadcast::channel(WRITE_FEED_CAPACITY);
         Self {
             store: Arc::new(KeptStore::of(file, "run-index-writer", owner)),
             locked_out,
+            written,
         }
+    }
+
+    /// Subscribes to rows written to this Run index after the call.
+    pub(crate) fn subscribe_writes(&self) -> broadcast::Receiver<RunIndexRow> {
+        self.written.subscribe()
     }
 
     /// Whether a call found the index's lowest minor raised past this
@@ -189,9 +202,12 @@ impl RunIndex {
     /// `Sqlite` when the index cannot be opened or written, or its writer
     /// stopped, `Format` when its marker refuses this engine.
     pub(crate) async fn write(&self, row: RunIndexRow) -> Result<(), RunStateError> {
+        let broadcast = row.clone();
         self.store
             .write(None, move |file, connection| file.write(connection, &row))
-            .await
+            .await?;
+        let _ = self.written.send(broadcast);
+        Ok(())
     }
 
     /// The row of `run_id`, if the index lists the Run.
@@ -232,11 +248,17 @@ impl RunIndex {
     /// As [`IndexFile::erase`], and as [`Self::write`] when its writer
     /// stopped.
     pub(crate) async fn erase(&self, run_id: RunId) -> Result<bool, RunStateError> {
-        self.store
+        let lookup = run_id.clone();
+        let erased = self
+            .store
             .write(None, move |file, connection| {
                 file.erase(connection, &run_id)
             })
-            .await
+            .await?;
+        if erased && let Ok(Some(row)) = self.read(lookup).await {
+            let _ = self.written.send(row);
+        }
+        Ok(erased)
     }
 
     /// The rows of the Runs a storage stop left stopped (ADR 0122), present,

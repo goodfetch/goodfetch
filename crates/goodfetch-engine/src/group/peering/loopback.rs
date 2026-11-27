@@ -11,7 +11,7 @@ use goodfetch_protocol::group::LeadEpoch;
 use goodfetch_test_support::TestEnv;
 use secrecy::ExposeSecret;
 
-use super::{Peering, serve};
+use super::{PeerServices, Peering, serve};
 use crate::clock::Clock;
 use crate::group::identity::KeptIdentity;
 use crate::group::store::{self, Certified, Joining, STORE};
@@ -94,6 +94,7 @@ pub(super) async fn lead(clock: Clock, renew_at: SystemTime) -> Lead {
             first,
             vec!["lead".to_owned()],
             clock,
+            PeerServices::default(),
         )
         .unwrap(),
     );
@@ -196,6 +197,7 @@ pub(super) async fn joined(kept: &KeptIdentity, clock: Clock) -> Member {
         LeadEpoch::new(1),
         Vec::new(),
         clock,
+        PeerServices::default(),
     )
     .unwrap();
     Member {

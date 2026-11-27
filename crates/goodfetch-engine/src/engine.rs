@@ -507,7 +507,7 @@ impl Engine {
         forwarder: &Arc<ToOwner>,
     ) -> Option<Arc<dyn ToTheDaemon>> {
         let reach = match reached_at {
-            Some(RunOwner::Daemon(_)) => None,
+            Some(RunOwner::Daemon(_) | RunOwner::GroupMember(_)) => None,
             Some(RunOwner::Attached(_)) | None => self.daemon_reach.clone(),
         }?;
         Some(Arc::new(ThroughTheReach::new(reach, Arc::clone(forwarder))))

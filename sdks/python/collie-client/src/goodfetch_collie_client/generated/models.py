@@ -3945,8 +3945,17 @@ class RunOwner2(BaseModel):
     attached: PrivateEndpoint
 
 
-class RunOwner(RootModel[RunOwner1 | RunOwner2]):
-    root: RunOwner1 | RunOwner2
+class RunOwner3(BaseModel):
+    """A Group member of a Daemon group, named by its Group member name (ADR 0055)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    group_member: str
+
+
+class RunOwner(RootModel[RunOwner1 | RunOwner2 | RunOwner3]):
+    root: RunOwner1 | RunOwner2 | RunOwner3
     """Where the engine that owns a live Run is reached (ADR 0031)."""
 
 

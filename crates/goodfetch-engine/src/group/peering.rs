@@ -20,7 +20,8 @@ use data_encoding::BASE64;
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
     GROUP_MEMBER_EXISTS, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
-    PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerRenewParams, RENEW,
+    PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerRenewParams, PeerRunIndexReportParams,
+    RENEW, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer};
@@ -40,10 +41,13 @@ use super::{
 };
 use crate::call_error::CallError;
 use crate::clock::Clock;
+use crate::endpoint::Refusals;
 use crate::engine_context::EngineContext;
 use crate::framing::{Call, Frame, Incoming, decode};
 use crate::ops::connections_own;
 use crate::product::Identity;
+use crate::run_index::RunIndex;
+use crate::settings::Settings;
 use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
 use crate::transport::{PeerListener, PeerStream, listen_peer};
@@ -57,6 +61,25 @@ const OPEN_AT_MOST: usize = 64;
 /// How long the listener waits after a failure to accept that is not the
 /// connection's own, such as too many open files.
 const ACCEPT_PAUSE: Duration = Duration::from_secs(1);
+
+/// Engine services shared with the peer listener (production always provides
+/// all three; isolated loopback unit tests may leave unused ones empty).
+#[derive(Clone, Default)]
+pub(super) struct PeerServices {
+    pub(super) settings: Option<Settings>,
+    pub(super) run_index: Option<RunIndex>,
+    pub(super) refusals: Option<Refusals>,
+}
+
+impl PeerServices {
+    fn from_engine(engine: &EngineContext) -> Self {
+        Self {
+            settings: Some(engine.settings().clone()),
+            run_index: Some(engine.run_index().clone()),
+            refusals: Some(engine.refusals().clone()),
+        }
+    }
+}
 
 /// What the peer listener answers with.
 pub(super) struct Peering {
@@ -74,6 +97,8 @@ pub(super) struct Peering {
     epochs: tokio::sync::Mutex<LeadEpochs>,
     /// Lead Daemon confirmation and fencing state (ADR 0055).
     leadership: Mutex<Leadership>,
+    /// Engine services (settings, Run index, endpoint refusals).
+    services: PeerServices,
 }
 
 /// The TLS side of the listener, and the certificate and revocation list
@@ -133,6 +158,7 @@ pub(super) fn start(
         lead_epoch,
         members,
         engine.clock(),
+        PeerServices::from_engine(engine),
     )?);
     let group = engine.owner().part("daemon group");
     group.spawn(serve(
@@ -148,6 +174,12 @@ pub(super) fn start(
         group.spawn(confirmation::confirm_majority(
             Arc::clone(&peering),
             group.part("lead confirmation"),
+        ));
+    }
+    if !kept.is_lead() {
+        group.spawn(run_index::feed_run_index(
+            Arc::clone(&peering),
+            group.part("run index feed"),
         ));
     }
     engine.hold_peer_link(group, peering);
@@ -265,6 +297,7 @@ impl Peering {
         lead_epoch: LeadEpoch,
         members: Vec<String>,
         clock: Clock,
+        services: PeerServices,
     ) -> Result<Self, PeerTlsError> {
         let leadership = if kept.is_lead() {
             Leadership::starting(&kept.name, lead_epoch, members)
@@ -279,6 +312,7 @@ impl Peering {
             clock,
             epochs: tokio::sync::Mutex::new(LeadEpochs::new(lead_epoch)),
             leadership: Mutex::new(leadership),
+            services,
         })
     }
 
@@ -492,6 +526,9 @@ impl Peering {
                     Some(self.renewal(&presented, &revocations, request).await)
                 }
                 Opening::Leave(request) => Some(self.leaving(&presented, request).await),
+                Opening::RunIndexReport(request) => {
+                    Some(self.run_index_report(&presented, request).await)
+                }
                 Opening::Refused(reply) => Some(reply),
                 Opening::Other(first) => {
                     self.member(&mut stream, &mut lines, first).await;
@@ -606,6 +643,9 @@ impl Peering {
         revocations: &CertificateRevocationListDer<'_>,
     ) -> Result<PeerJoinResult, CallError> {
         let lead_epoch = self.require_confirmed_lead()?;
+        if let Some(settings) = &self.services.settings {
+            politeness::check_politeness_for_group(settings).await?;
+        }
         let name = GroupMemberName::new(&params.name).map_err(|error| {
             CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
         })?;
@@ -720,6 +760,8 @@ enum Opening {
     Renew(Asked<PeerRenewParams>),
     /// A `group.leave`, likewise.
     Leave(Asked<PeerLeaveParams>),
+    /// A `group.run_index.report`, likewise.
+    RunIndexReport(Asked<PeerRunIndexReportParams>),
     /// The line refusing either.
     Refused(Vec<u8>),
     /// Another message, which opens a [`PeerLink`].
@@ -744,6 +786,10 @@ fn opening(identity: &Identity, first: Frame) -> Opening {
             (params.product, params.protocol_version)
         })
         .map(Opening::Leave),
+        RUN_INDEX_REPORT => asked(identity, id, call, |params: &PeerRunIndexReportParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(Opening::RunIndexReport),
         _ => return Opening::Other(Frame::Line(line)),
     };
     read.unwrap_or_else(Opening::Refused)
@@ -825,10 +871,13 @@ fn lead_refusal(refusal: LeadRefusal) -> CallError {
 
 mod confirmation;
 mod leaving;
+mod politeness;
 mod renewal;
+mod run_index;
 mod wire;
 
 pub(super) use leaving::ask_to_leave;
+pub use run_index::reindex_to_lead;
 pub(super) use wire::{Asking, ask_to_join};
 #[cfg(test)]
 use wire::{ask, connect_peer_tls};

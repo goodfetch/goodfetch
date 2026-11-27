@@ -3,19 +3,28 @@
 //! `group.*` call to the major's Daemon, starting it when none runs. A
 //! Daemon joins over loopback: each test home runs a Daemon of its own.
 #![expect(
+    clippy::disallowed_methods,
+    reason = "the tests write Operator policy files and read the Run index SQLite file from their own threads"
+)]
+#![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
 )]
 
 use std::time::{Duration, Instant};
 
-use goodfetch_test_support::{TestEnv, cli};
-use serde_json::Value;
+use goodfetch_engine::home::Home;
+use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::ProductVersion;
+use goodfetch_test_client::{DaemonClient, Hello, HomeLayout};
+use goodfetch_test_support::{RuntimeFile, TestEnv, cli};
+use serde_json::{Value, json};
 
-use crate::daemon::{StopsTheDaemon, short_idle, wait_until_stopped};
+use crate::daemon::{StopsTheDaemon, runtime_file, short_idle, wait_until_stopped};
 use crate::engine_choice::daemon_dispatched;
 
 const COLLIE: &str = env!("CARGO_BIN_EXE_goodfetch-collie");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// An authority key no group has: the SHA-256 form, of 32 zero bytes.
 const NO_GROUPS_KEY: &str = "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -42,10 +51,30 @@ fn refused(env: &TestEnv, arguments: &[&str]) -> Value {
     checked.documents[0]["error"]["code"].clone()
 }
 
-/// A test home whose Daemon idles for a minute, and is stopped at the end.
-fn home() -> TestEnv {
+/// Writes an Operator policy setting `politeness.sharing = "per_daemon"` so
+/// a multi-member group test without a Valkey Politeness store is admitted.
+fn allow_per_daemon_politeness(env: &TestEnv) {
+    let layout = HomeLayout::of(env.home());
+    std::fs::create_dir_all(layout.per_major()).unwrap();
+    std::fs::write(
+        layout.operator_policy(),
+        "version = \"0.1\"\n\n[settings.politeness]\nsharing = \"per_daemon\"\n",
+    )
+    .unwrap();
+}
+
+/// A test home whose Daemon idles for a minute, with no Operator policy.
+fn bare_home() -> TestEnv {
     let env = TestEnv::new();
     short_idle(&env, 60_000);
+    env
+}
+
+/// A test home whose Daemon idles for a minute, with Operator policy
+/// permitting per-Daemon Politeness in a multi-member group.
+fn home() -> TestEnv {
+    let env = bare_home();
+    allow_per_daemon_politeness(&env);
     env
 }
 
@@ -354,4 +383,130 @@ fn three_daemons_form_a_group_and_confirm_lead_by_majority_or_operator() {
         (Some(true), Some(true), true)
     );
     let _minted = answered(&lead, &["group", "token"], "JoinTokenMinted");
+}
+
+/// A group of more than one Group member is refused without a Politeness store
+/// or `politeness.sharing = "per_daemon"` in the Operator policy; user
+/// configuration alone is not enough, and the refusal leaves the join token
+/// valid once the Operator policy permits it.
+///
+/// Covers: error:group_politeness_unshared, story:3-106
+#[test]
+fn a_second_member_is_refused_without_shared_politeness_or_operator_policy() {
+    let (lead, member) = (bare_home(), bare_home());
+    let _stops = [&lead, &member].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    let minted = answered(&lead, &["group", "token"], "JoinTokenMinted");
+    let (address, token, key) = (
+        formed["peer_address"].as_str().unwrap(),
+        minted["token"].as_str().unwrap(),
+        minted["authority_key"].as_str().unwrap(),
+    );
+
+    // Default settings refuse the second member without spending the token.
+    let without_policy = refused(&member, &join(address, token, key, "worker"));
+    assert_eq!(without_policy.as_str(), Some("group_politeness_unshared"));
+
+    // User configuration `politeness.sharing = "per_daemon"` is not enough:
+    // only the Operator policy (or `politeness.store`) allows a multi-member
+    // group without shared Politeness.
+    lead.user_configuration("daemon.idle_timeout = 60000\npoliteness.sharing = \"per_daemon\"\n");
+    stop_daemon(&lead);
+    let _lead_up = answered(&lead, &["group", "lead"], "GroupLeadStatus");
+    let user_config_only = refused(&member, &join(address, token, key, "worker"));
+    assert_eq!(user_config_only.as_str(), Some("group_politeness_unshared"));
+
+    // Adding `politeness.sharing = "per_daemon"` in Operator policy lets the
+    // same join token succeed.
+    allow_per_daemon_politeness(&lead);
+    stop_daemon(&lead);
+    let _lead_up = answered(&lead, &["group", "lead"], "GroupLeadStatus");
+    let admitted = answered(&member, &join(address, token, key, "worker"), "GroupJoined");
+    assert_eq!(admitted["lead_epoch"].as_u64(), Some(1));
+}
+
+/// Reads `(owner_json, presence)` for `run_id` from `env`'s Run index SQLite file.
+fn run_index_owner(env: &TestEnv, run_id: &str) -> Option<(Option<Value>, String)> {
+    let version = ProductVersion::parse(VERSION).unwrap();
+    let path = Home::new(env.home().to_path_buf()).run_index(&version);
+    let connection = rusqlite::Connection::open(path).ok()?;
+    connection
+        .query_row(
+            "SELECT owner, presence FROM runs WHERE run_id = ?1",
+            [run_id],
+            |row| {
+                let owner: Option<String> = row.get(0)?;
+                let presence: String = row.get(1)?;
+                Ok((owner.and_then(|s| serde_json::from_str(&s).ok()), presence))
+            },
+        )
+        .ok()
+}
+
+/// A Group member feeds the Lead Daemon's group Run index with rows naming
+/// that member as `owner`, and `runs reindex` on the Group member re-reports
+/// its runs to the Lead Daemon.
+///
+/// Covers: story:3-106
+#[test]
+fn a_group_member_feeds_the_lead_daemons_run_index_and_runs_reindex_re_reports() {
+    let (lead, member) = (home(), home());
+    let _stops = [&lead, &member].map(|env| StopsTheDaemon::of(env, COLLIE));
+    let formed = formed(&lead);
+    let _joined = joined(&lead, &formed, &member, "127.0.0.1:0");
+
+    // Start and finish a Run on the member's Daemon so its local Run index
+    // writes a row and feeds it to the Lead Daemon.
+    let runtime = RuntimeFile::read(&runtime_file(&member)).unwrap();
+    let mut client = DaemonClient::connect(&runtime.endpoint);
+    let hello = client.open(
+        &Hello::needing(Product::Collie)
+            .id("hello")
+            .token(&runtime.token),
+    );
+    assert!(hello.get("result").is_some(), "{hello}");
+    let started = client.call(1, "run.start", &json!({ "run_id": "group-run-1" }));
+    assert!(started.get("result").is_some(), "{started}");
+    let finished = client.call(2, "run.finish", &json!({ "run_id": "group-run-1" }));
+    assert!(finished.get("result").is_some(), "{finished}");
+    drop(client);
+
+    // Wait for the live feed to deliver the row to the Lead Daemon's Run index.
+    let expected_owner = Some(json!({ "group_member": "worker" }));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = run_index_owner(&lead, "group-run-1");
+    while seen.as_ref().and_then(|(o, _)| o.as_ref()) != expected_owner.as_ref()
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(50));
+        seen = run_index_owner(&lead, "group-run-1");
+    }
+    assert_eq!(seen, Some((expected_owner.clone(), "present".to_owned())));
+
+    let listed = answered(&lead, &["run", "list"], "RunList");
+    assert!(
+        listed["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["run_id"] == json!("group-run-1")),
+        "Lead Daemon run.list should include the member's Run: {listed}"
+    );
+
+    // Rebuilding the Lead Daemon's own index marks remote rows missing (their
+    // folders live on the member). Running `runs reindex` on the member
+    // re-reports them back to the Lead Daemon as present with `owner = worker`.
+    let lead_reindexed = answered(&lead, &["runs", "reindex"], "RunsReindexOutput");
+    assert_eq!(lead_reindexed["missing"].as_u64(), Some(1));
+    assert_eq!(
+        run_index_owner(&lead, "group-run-1"),
+        Some((None, "missing".to_owned()))
+    );
+
+    let member_reindexed = answered(&member, &["runs", "reindex"], "RunsReindexOutput");
+    assert_eq!(member_reindexed["present"].as_u64(), Some(1));
+    assert_eq!(
+        run_index_owner(&lead, "group-run-1"),
+        Some((expected_owner, "present".to_owned()))
+    );
 }

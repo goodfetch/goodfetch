@@ -14,7 +14,7 @@ use goodfetch_protocol::group::{
 use goodfetch_test_support::real_time_runtime;
 
 use super::super::loopback::{clock_at, closed_address, identity, lead, now};
-use super::super::{Peering, ask_peer, serve};
+use super::super::{PeerServices, Peering, ask_peer, serve};
 use crate::group::CERTIFICATE_LIFETIME;
 use crate::group::identity::KeptIdentity;
 use crate::group::store;
@@ -55,6 +55,7 @@ async fn serving_member(
             initial_epoch,
             Vec::new(),
             clock,
+            PeerServices::default(),
         )
         .unwrap(),
     );
@@ -107,6 +108,7 @@ fn a_group_member_durably_records_a_higher_lead_epoch_across_restarts() {
                 reloaded_epoch,
                 Vec::new(),
                 clock,
+                PeerServices::default(),
             )
             .unwrap(),
         );
@@ -165,6 +167,7 @@ fn a_restarting_three_member_lead_daemon_confirms_by_majority_once_one_peer_answ
             LeadEpoch::new(1),
             members,
             clock,
+            PeerServices::default(),
         )
         .unwrap();
 
@@ -209,6 +212,7 @@ fn a_restarting_lead_daemon_is_fenced_when_a_peer_holds_a_higher_epoch() {
             LeadEpoch::new(1),
             members,
             clock,
+            PeerServices::default(),
         )
         .unwrap();
 
@@ -255,6 +259,7 @@ fn operator_confirmation_unblocks_an_isolated_lead_daemon() {
             LeadEpoch::new(1),
             members,
             clock,
+            PeerServices::default(),
         )
         .unwrap();
 

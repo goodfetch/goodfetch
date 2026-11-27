@@ -46,6 +46,7 @@ pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused};
 pub use leadership::{ExchangeOutcome, LeadRefusal, LeadSnapshot, Leadership};
 pub use operations::contribution;
 pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting, joining};
+pub use peering::reindex_to_lead;
 pub(crate) use peering::resume;
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};

@@ -248,6 +248,12 @@ impl Resolved {
         self.settings.get(setting.name)
     }
 
+    /// The effective value of the setting named `name`, when the Product
+    /// honours it.
+    pub(crate) fn effective_named(&self, name: &str) -> Option<&Effective> {
+        self.settings.get(name)
+    }
+
     /// Each `timeout.*` Duration setting the Product honours that resolves a
     /// timeout, with its value and the layer that set it, in the catalog's
     /// order: what `hello`'s result reports, so a Client bounds a call it

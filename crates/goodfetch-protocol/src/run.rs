@@ -1419,6 +1419,8 @@ pub enum RunOwner {
     Daemon(DaemonEndpoint),
     /// An Attached engine, at its private endpoint.
     Attached(PrivateEndpoint),
+    /// A Group member of a Daemon group, named by its Group member name (ADR 0055).
+    GroupMember(String),
 }
 
 impl fmt::Display for RunOwner {
@@ -1428,6 +1430,7 @@ impl fmt::Display for RunOwner {
             Self::Attached(private) => {
                 write!(formatter, "the Attached engine at {}", private.address)
             }
+            Self::GroupMember(name) => write!(formatter, "the Group member `{name}`"),
         }
     }
 }

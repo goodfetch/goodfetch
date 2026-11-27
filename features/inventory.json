@@ -5076,6 +5076,38 @@
       ]
     },
     {
+      "id": "plugin-kind:extract",
+      "kind": "plugin-kind",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "plugin-kind:sample_page_filter",
+      "kind": "plugin-kind",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "plugin-kind:sample_store",
+      "kind": "plugin-kind",
+      "area": 1,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "row:AI-01",
       "kind": "row",
       "area": 9,
@@ -11786,6 +11818,16 @@
       "status": "active",
       "products": [
         "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "sink:sqlite",
+      "kind": "sink",
+      "area": 6,
+      "milestone": null,
+      "status": "active",
+      "products": [
         "foxhound"
       ]
     },

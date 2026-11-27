@@ -25,6 +25,7 @@ mod batch_check;
 mod browser_releases;
 mod budgets;
 mod chromium_expectations;
+mod chromium_gate;
 mod chromium_package;
 mod chromium_protocol;
 mod chromium_regenerate;
@@ -109,6 +110,7 @@ mod perf_script;
 #[cfg(unix)]
 mod pgo;
 mod pre_merge;
+mod probes;
 mod quarantine;
 mod quick;
 mod received_requests;

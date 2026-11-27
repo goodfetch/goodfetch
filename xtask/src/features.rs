@@ -9,6 +9,7 @@
     reason = "xtask is synchronous; the blocking-fs ban targets async crates (STYLE.md)"
 )]
 
+mod adapter;
 mod audit;
 mod check;
 mod command;
@@ -17,14 +18,17 @@ mod covers;
 mod entry;
 mod files;
 mod format;
+mod integration;
 mod inventory;
 mod listed;
 mod page;
+mod plugin_kind;
 mod report;
 mod row;
 mod rstest_names;
 mod scan;
 mod shared_type;
+mod sink;
 mod skill;
 mod story;
 

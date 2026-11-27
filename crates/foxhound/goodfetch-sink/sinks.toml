@@ -1,0 +1,4 @@
+# Built-in Sinks carried in `goodfetch-sink` (ADRs 0026 and 0072).
+# Each entry is a `SinkType` wire name (`snake_case`); `xtask codegen` lists
+# each as a Foxhound-only `sink:` Feature in `features/inventory.json`.
+sinks = ["sqlite"]

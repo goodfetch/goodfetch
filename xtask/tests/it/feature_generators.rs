@@ -1,10 +1,12 @@
 //! The Feature inventory's generators of `command:`, `block-cause:`,
-//! `mcp-profile:` and `skill:` (ADR 0072): each command of both Products'
-//! executables, each Block cause and MCP profile of the catalog and each
-//! agent skill is a Feature the moment it exists, with the Products that
-//! carry it, and leaves the inventory when it goes. A kind whose source does not exist yet
-//! generates nothing. A story is carried by both Products unless its entry
-//! names the one Product that carries it.
+//! `mcp-profile:`, `skill:`, `plugin-kind:`, `sink:`, `adapter:` and
+//! `integration:` (ADR 0072): each command of both Products' executables,
+//! each Block cause, MCP profile and Plugin kind of the catalog, each agent
+//! skill, each built-in Sink, each Framework adapter and each Integration
+//! action or trigger is a Feature the moment it exists, with the Products
+//! that carry it, and leaves the inventory when it goes. A kind whose source
+//! does not exist yet generates nothing. A story is carried by both Products
+//! unless its entry names the one Product that carries it.
 
 use serde_json::{Value, json};
 
@@ -383,8 +385,9 @@ fn the_check_fails_on_a_skill_the_inventory_lacks() {
     assert_eq!(outcome.code, 1);
 }
 
-/// The fixture has no executable crate, no Block cause, no MCP profile and no
-/// `skills/` folder, as the repository had before each source landed.
+/// The fixture has no executable crate, no Block cause, no MCP profile, no
+/// `skills/` folder, no `sinks.toml`, no `adapters/` folder and no
+/// `integrations/` folder, as the repository had before each source landed.
 #[test]
 fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
     let workspace = Workspace::from_fixture("codegen");
@@ -397,9 +400,327 @@ fn a_kind_whose_source_does_not_exist_generates_nothing_and_fails_nothing() {
             features_of_kind(&workspace, "block-cause"),
             features_of_kind(&workspace, "mcp-profile"),
             features_of_kind(&workspace, "skill"),
+            features_of_kind(&workspace, "sink"),
+            features_of_kind(&workspace, "adapter"),
+            features_of_kind(&workspace, "integration"),
         ],
-        [vec![], vec![], vec![], vec![]]
+        [vec![], vec![], vec![], vec![], vec![], vec![], vec![]]
     );
+}
+
+#[test]
+fn each_plugin_kind_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.edit(
+        FOXHOUND_ENTRIES,
+        "    plugin_kinds: &[],\n",
+        concat!(
+            "    plugin_kinds: &[crate::catalog::PluginKind {\n",
+            "        name: \"sample_page_filter\",\n",
+            "        description: \"A sample Foxhound Plugin kind.\",\n",
+            "        methods: &[],\n",
+            "        chosen_by: None,\n",
+            "        stability: Stability::Experimental,\n",
+            "        arrived_in: ARRIVED_IN,\n",
+            "    }],\n",
+        ),
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "plugin-kind"),
+        vec![
+            ("plugin-kind:sample_page_filter".to_owned(), foxhound()),
+            ("plugin-kind:sample_store".to_owned(), both()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_plugin_kind_leaves_the_inventory_and_empty_generates_nothing() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    assert_eq!(
+        features_of_kind(&workspace, "plugin-kind"),
+        vec![("plugin-kind:sample_store".to_owned(), both())]
+    );
+
+    workspace.edit(
+        COLLIE_ENTRIES,
+        concat!(
+            "    plugin_kinds: &[PluginKind {\n",
+            "        name: \"sample_store\",\n",
+            "        description: \"Keeps values by key for the sample operations.\",\n",
+            "        methods: &[PluginMethod {\n",
+            "            name: \"put\",\n",
+            "            description: \"Keeps a value under a key.\",\n",
+            "            params: schema_of::<SampleStorePutParams>,\n",
+            "            result: schema_of::<SampleStorePutResult>,\n",
+            "        }],\n",
+            "        chosen_by: None,\n",
+            "        stability: Stability::Experimental,\n",
+            "        arrived_in: ARRIVED_IN,\n",
+            "    }],\n",
+        ),
+        "    plugin_kinds: &[],\n",
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(features_of_kind(&workspace, "plugin-kind"), vec![]);
+}
+
+const SINKS_FILE: &str = "crates/foxhound/goodfetch-sink/sinks.toml";
+
+/// Adds `crates/foxhound/goodfetch-sink/sinks.toml` to the fixture, excluding
+/// that folder from the workspace glob as `goodfetch-fetch-tier` is excluded.
+fn add_sink_crate(workspace: &Workspace, body: &str) {
+    workspace.edit(
+        "Cargo.toml",
+        "  \"crates/foxhound/goodfetch-fetch-tier\",\n",
+        "  \"crates/foxhound/goodfetch-fetch-tier\",\n  \"crates/foxhound/goodfetch-sink\",\n",
+    );
+    workspace.write(SINKS_FILE, body.as_bytes());
+}
+
+#[test]
+fn each_built_in_sink_is_a_foxhound_feature() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_sink_crate(&workspace, "sinks = [\"sqlite\", \"postgres\"]\n");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "sink"),
+        vec![
+            ("sink:postgres".to_owned(), foxhound()),
+            ("sink:sqlite".to_owned(), foxhound()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_sink_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    add_sink_crate(&workspace, "sinks = [\"sqlite\", \"postgres\"]\n");
+    codegen(&workspace);
+    workspace.write(SINKS_FILE, b"sinks = [\"sqlite\"]\n");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "sink"),
+        vec![("sink:sqlite".to_owned(), foxhound())]
+    );
+}
+
+#[test]
+fn the_check_fails_on_a_sink_the_inventory_lacks() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    add_sink_crate(&workspace, "sinks = [\"sqlite\"]\n");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", "features/inventory.json")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn an_invalid_sinks_file_fails_codegen() {
+    for bad in [
+        "sinks = [\"not_a_catalog_sink\"]\n",
+        "sinks = [\"sqlite\", \"sqlite\"]\n",
+        "sinks = [\"sqlite\"]\nextra = true\n",
+    ] {
+        let workspace = Workspace::from_fixture("codegen");
+        add_sink_crate(&workspace, bad);
+
+        let outcome = workspace.xtask(&["codegen", "--check"]);
+
+        assert_ne!(outcome.code, 0, "expected failure for:\n{bad}");
+        assert!(
+            outcome.stderr.contains("sinks.toml"),
+            "expected sinks.toml error for:\n{bad}\ngot:\n{}",
+            outcome.stderr
+        );
+    }
+}
+
+#[test]
+fn each_adapter_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write("adapters/collie/README.md", b"# Collie adapters\n");
+    workspace.write(
+        "adapters/collie/ai-sdk/package.json",
+        b"{\"name\":\"@goodfetch/collie-ai-sdk\"}\n",
+    );
+    workspace.write(
+        "adapters/collie/langchain-python/pyproject.toml",
+        b"[project]\nname = \"goodfetch-collie-langchain\"\n",
+    );
+    workspace.write("adapters/collie/draft/notes.md", b"not a package\n");
+    // Foxhound carries its own package for `ai-sdk` (deduplicated with Collie's
+    // `both`) and a Foxhound-only adapter `llamaindex`.
+    workspace.write(
+        "adapters/foxhound/ai-sdk/package.json",
+        b"{\"name\":\"@goodfetch/foxhound-ai-sdk\"}\n",
+    );
+    workspace.write(
+        "adapters/foxhound/llamaindex/pyproject.toml",
+        b"[project]\nname = \"goodfetch-foxhound-llamaindex\"\n",
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "adapter"),
+        vec![
+            ("adapter:ai-sdk".to_owned(), both()),
+            ("adapter:langchain-python".to_owned(), both()),
+            ("adapter:llamaindex".to_owned(), foxhound()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_adapter_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write("adapters/collie/ai-sdk/package.json", b"{}\n");
+    workspace.write("adapters/collie/mastra/package.json", b"{}\n");
+    codegen(&workspace);
+    workspace.remove_folder("adapters/collie/mastra");
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "adapter"),
+        vec![("adapter:ai-sdk".to_owned(), both())]
+    );
+}
+
+#[test]
+fn the_check_fails_on_an_adapter_the_inventory_lacks() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    workspace.write("adapters/collie/ai-sdk/package.json", b"{}\n");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", "features/inventory.json")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn an_invalid_adapter_folder_name_fails_codegen() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write("adapters/collie/bad name/package.json", b"{}\n");
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_ne!(
+        outcome.code, 0,
+        "expected failure for invalid adapter folder name"
+    );
+}
+
+#[test]
+fn each_integration_action_and_trigger_is_a_feature_with_its_products() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write("integrations/collie/README.md", b"# Collie integrations\n");
+    workspace.write(
+        "integrations/collie/n8n/integration.toml",
+        b"actions = [\"start-recipe\"]\ntriggers = [\"notification\"]\n",
+    );
+    workspace.write("integrations/collie/draft/notes.md", b"no manifest\n");
+    // Foxhound repeats `start-recipe` (stays `both`) and adds `start-crawl` and
+    // `new-records` (Foxhound-only).
+    workspace.write(
+        "integrations/foxhound/n8n/integration.toml",
+        b"actions = [\"start-recipe\", \"start-crawl\"]\ntriggers = [\"new-records\"]\n",
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "integration"),
+        vec![
+            ("integration:n8n/new-records".to_owned(), foxhound()),
+            ("integration:n8n/notification".to_owned(), both()),
+            ("integration:n8n/start-crawl".to_owned(), foxhound()),
+            ("integration:n8n/start-recipe".to_owned(), both()),
+        ]
+    );
+}
+
+#[test]
+fn a_removed_integration_entry_leaves_the_inventory() {
+    let workspace = Workspace::from_fixture("codegen");
+    workspace.write(
+        "integrations/collie/n8n/integration.toml",
+        b"actions = [\"start-recipe\", \"get-run-report\"]\n",
+    );
+    codegen(&workspace);
+    workspace.write(
+        "integrations/collie/n8n/integration.toml",
+        b"actions = [\"start-recipe\"]\n",
+    );
+
+    codegen(&workspace);
+
+    assert_eq!(
+        features_of_kind(&workspace, "integration"),
+        vec![("integration:n8n/start-recipe".to_owned(), both())]
+    );
+}
+
+#[test]
+fn the_check_fails_on_an_integration_the_inventory_lacks() {
+    let workspace = Workspace::from_fixture("codegen");
+    codegen(&workspace);
+    workspace.write(
+        "integrations/foxhound/n8n/integration.toml",
+        b"actions = [\"start-crawl\"]\n",
+    );
+
+    let outcome = workspace.xtask(&["codegen", "--check"]);
+
+    assert_eq!(
+        outcome.findings(),
+        vec![finding("drift", "features/inventory.json")]
+    );
+    assert_eq!(outcome.code, 1);
+}
+
+#[test]
+fn an_invalid_integration_manifest_fails_codegen() {
+    for bad in [
+        "actions = [\"start-crawl\", \"start-crawl\"]\n",
+        "actions = [\"same\"]\ntriggers = [\"same\"]\n",
+        "actions = [\"bad/name\"]\n",
+        "actions = [\"bad:name\"]\n",
+        "actions = [\"\"]\n",
+        "actions = [\"ok\"]\nunknown = 1\n",
+    ] {
+        let workspace = Workspace::from_fixture("codegen");
+        workspace.write("integrations/foxhound/n8n/integration.toml", bad.as_bytes());
+
+        let outcome = workspace.xtask(&["codegen", "--check"]);
+
+        assert_ne!(outcome.code, 0, "expected failure for:\n{bad}");
+        assert!(
+            outcome.stderr.contains("integration.toml"),
+            "expected integration.toml error for:\n{bad}\ngot:\n{}",
+            outcome.stderr
+        );
+    }
 }
 
 /// A story of Foxhound's part, such as a work item's lease, names its

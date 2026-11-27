@@ -120,7 +120,7 @@ pub(crate) fn events(combination: &str) -> Result<KeyPress, UnknownKey> {
 }
 
 /// Blink editing command for a primary-modifier shortcut (`Control` on
-/// Linux/Windows, `Meta` on macOS) so `ControlOrMeta+a/c/v/x/z` invoke the
+/// Linux/Windows, `Meta` on macOS) so `ControlOrMeta+a/c/v/x` invoke the
 /// browser's native selection and clipboard actions reliably in headless
 /// Chromium (ticket #3290).
 fn editing_command(modifiers: i64, pressed: &Definition) -> Option<&'static str> {
@@ -137,7 +137,6 @@ fn editing_command(modifiers: i64, pressed: &Definition) -> Option<&'static str>
         "KeyC" => Some("copy"),
         "KeyV" => Some("paste"),
         "KeyX" => Some("cut"),
-        "KeyZ" => Some("undo"),
         _ => None,
     }
 }

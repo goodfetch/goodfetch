@@ -3,7 +3,9 @@
 
 use goodfetch_cdp::SessionId as TargetSession;
 use goodfetch_engine::CallError;
-use goodfetch_protocol::page::emulation::{Geolocation, NetworkThrottle, Viewport};
+use goodfetch_protocol::page::emulation::{
+    BrowserPermission, DeviceScaleFactor, Geolocation, NetworkThrottle, Viewport,
+};
 use goodfetch_test_support::runtime;
 use serde_json::{Value, json};
 
@@ -62,7 +64,7 @@ fn reapply_after_attach_restores_every_emulation_command() {
                 width: 375,
                 height: 812,
             }),
-            device_scale_factor: 2.0,
+            device_scale_factor: DeviceScaleFactor::new(2.0).unwrap(),
             locale: Some("fr-FR".to_owned()),
             timezone_id: Some("Europe/Paris".to_owned()),
             color_scheme: ColorScheme::Dark,
@@ -75,10 +77,10 @@ fn reapply_after_attach_restores_every_emulation_command() {
             has_touch: true,
             is_mobile: true,
             permissions: vec![
-                "geolocation".to_owned(),
-                "clipboard-read".to_owned(),
-                "accelerometer".to_owned(),
-                "gyroscope".to_owned(),
+                BrowserPermission::Geolocation,
+                BrowserPermission::ClipboardRead,
+                BrowserPermission::Accelerometer,
+                BrowserPermission::Gyroscope,
             ],
             throttle: Some(NetworkThrottle {
                 offline: false,
@@ -100,7 +102,7 @@ fn reapply_after_attach_restores_every_emulation_command() {
             },
             async {
                 let mut commands: Vec<(String, Value)> = Vec::new();
-                for _ in 0..10 {
+                for _ in 0..11 {
                     let command = played.command().await;
                     let method = command["method"].as_str().unwrap_or_default().to_owned();
                     let params = command["params"].clone();
@@ -119,6 +121,7 @@ fn reapply_after_attach_restores_every_emulation_command() {
             vec![
                 "Browser.resetPermissions",
                 "Browser.grantPermissions",
+                "Emulation.setUserAgentOverride",
                 "Emulation.setDeviceMetricsOverride",
                 "Emulation.setTouchEmulationEnabled",
                 "Emulation.setEmulatedMedia",
@@ -133,22 +136,25 @@ fn reapply_after_attach_restores_every_emulation_command() {
             sent[1].1["permissions"],
             json!(["geolocation", "clipboardReadWrite", "sensors"])
         );
-        assert_eq!(sent[2].1["width"], json!(375));
-        assert_eq!(sent[2].1["height"], json!(812));
-        assert_eq!(sent[2].1["mobile"], json!(true));
-        assert_eq!(sent[3].1["enabled"], json!(true));
-        assert_eq!(sent[4].1["features"][0]["value"], json!("dark"));
-        assert_eq!(sent[5].1["value"], json!(true));
-        assert_eq!(sent[6].1["locale"], json!("fr-FR"));
-        assert_eq!(sent[7].1["timezoneId"], json!("Europe/Paris"));
-        assert_eq!(sent[8].1["latitude"], json!(48.8566));
-        assert_eq!(sent[9].1["latency"], json!(200.0));
-        assert_eq!(sent[9].1["downloadThroughput"], json!(50000.0));
-        assert_eq!(sent[9].1["uploadThroughput"], json!(-1.0));
+        assert_eq!(sent[2].1["userAgent"], json!(""));
+        assert_eq!(sent[2].1["acceptLanguage"], json!("fr-FR"));
+        assert_eq!(sent[3].1["width"], json!(375));
+        assert_eq!(sent[3].1["height"], json!(812));
+        assert_eq!(sent[3].1["mobile"], json!(true));
+        assert_eq!(sent[4].1["enabled"], json!(true));
+        assert_eq!(sent[5].1["media"], json!(""));
+        assert_eq!(sent[5].1["features"][0]["value"], json!("dark"));
+        assert_eq!(sent[6].1["value"], json!(true));
+        assert_eq!(sent[7].1["locale"], json!("fr-FR"));
+        assert_eq!(sent[8].1["timezoneId"], json!("Europe/Paris"));
+        assert_eq!(sent[9].1["latitude"], json!(48.8566));
+        assert_eq!(sent[10].1["latency"], json!(200.0));
+        assert_eq!(sent[10].1["downloadThroughput"], json!(50000.0));
+        assert_eq!(sent[10].1["uploadThroughput"], json!(-1.0));
     });
 }
 
-/// Covers: story:5-39
+/// Covers: story:5-87
 #[test]
 fn empty_permissions_send_zero_commands_on_context_open() {
     runtime().block_on(async {

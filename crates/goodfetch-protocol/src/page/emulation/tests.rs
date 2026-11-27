@@ -3,9 +3,10 @@ use serde_json::json;
 use super::{
     BROWSER_COLOR_SCHEME, BROWSER_DEVICE_SCALE_FACTOR, BROWSER_GEOLOCATION, BROWSER_HAS_TOUCH,
     BROWSER_IS_MOBILE, BROWSER_JAVA_SCRIPT_ENABLED, BROWSER_LOCALE, BROWSER_PERMISSION_NAMES,
-    BROWSER_PERMISSIONS, BROWSER_TIMEZONE_ID, BROWSER_VIEWPORT, DEVICE_SCALE_FACTOR_SHAPE,
-    DeviceScaleFactor, GEOLOCATION_SHAPE, LOCALE_YIELDS_TO_AN_IMPORT, NETWORK_THROTTLE,
-    NETWORK_THROTTLE_SHAPE, TIMEZONE_YIELDS_TO_AN_IMPORT, VIEWPORT_SHAPE, Viewport,
+    BROWSER_PERMISSIONS, BROWSER_TIMEZONE_ID, BROWSER_VIEWPORT, BrowserPermission,
+    DEVICE_SCALE_FACTOR_SHAPE, DeviceScaleFactor, GEOLOCATION_SHAPE, LOCALE_YIELDS_TO_AN_IMPORT,
+    NETWORK_THROTTLE, NETWORK_THROTTLE_SHAPE, TIMEZONE_YIELDS_TO_AN_IMPORT, VIEWPORT_SHAPE,
+    Viewport,
 };
 
 #[test]
@@ -105,4 +106,9 @@ fn browser_permissions_lists_playwright_names_and_defaults_empty() {
             .check(&json!(["unknown-permission"]))
             .is_err()
     );
+    for (variant, name) in BrowserPermission::ALL.iter().zip(BROWSER_PERMISSION_NAMES) {
+        assert_eq!(variant.as_str(), *name);
+        let parsed: BrowserPermission = serde_json::from_value(json!(name)).unwrap();
+        assert_eq!(parsed, *variant);
+    }
 }

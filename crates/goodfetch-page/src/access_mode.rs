@@ -179,16 +179,8 @@ pub(crate) const fn borrowed(source: Option<&SessionSource>) -> bool {
 
 /// Whether `source` carries another browser's identity: an import, or a
 /// Profile directory used in place.
-pub(crate) const fn carries_an_identity(source: Option<&SessionSource>) -> bool {
-    matches!(
-        source,
-        Some(
-            SessionSource::StateFile { .. }
-                | SessionSource::CookieHeader { .. }
-                | SessionSource::InstalledBrowser { .. }
-                | SessionSource::ProfileDirectory { .. }
-        )
-    )
+pub(crate) fn carries_an_identity(source: Option<&SessionSource>) -> bool {
+    source.is_some_and(SessionSource::carries_an_identity)
 }
 
 /// Where a setting's value came from, nearest the Session last.

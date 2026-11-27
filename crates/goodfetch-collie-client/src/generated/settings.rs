@@ -1072,7 +1072,7 @@ pub mod network {
             ],
         );
 
-    /// Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page.
+    /// Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.
     ///
     /// `network.throttle`. `None` clears it.
     pub const THROTTLE: crate::settings::Setting<

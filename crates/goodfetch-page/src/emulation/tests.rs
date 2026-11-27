@@ -5,9 +5,12 @@
 
 use goodfetch_engine::settings::{Layers, Resolved, Values, resolve as resolve_settings};
 use goodfetch_protocol::catalog::Product;
-use goodfetch_protocol::page::emulation::{Geolocation, NetworkThrottle, Viewport};
+use goodfetch_protocol::page::emulation::{
+    BrowserPermission, DeviceScaleFactor, Geolocation, NetworkThrottle, Viewport,
+};
 use goodfetch_protocol::settings::SettingsLayer;
 use goodfetch_protocol::settings::session_source::SessionSource;
+use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use super::{ColorScheme, Refusal, SessionEmulation, SessionMode, resolve};
@@ -83,7 +86,10 @@ fn session_settings_override_defaults_and_trigger_device_metrics() {
             height: 812
         })
     );
-    assert!((plan.device_scale_factor - 2.0).abs() < f64::EPSILON);
+    assert_eq!(
+        plan.device_scale_factor,
+        DeviceScaleFactor::new(2.0).unwrap()
+    );
     assert_eq!(plan.locale.as_deref(), Some("fr-FR"));
     assert_eq!(plan.timezone_id.as_deref(), Some("Europe/Paris"));
     assert_eq!(plan.color_scheme, ColorScheme::Dark);
@@ -229,6 +235,24 @@ fn borrowed_browser_refuses_explicit_browser_settings_and_yields_inherited() {
             source: "cdp_url",
         })
     );
+
+    let explicit_throttle = read(
+        SettingsLayer::Run,
+        json!({ "network": { "throttle": { "latency": 150 } } }),
+    );
+    let throttle_settings = SessionSettings::new(&explicit_throttle, Some(&run));
+    assert_eq!(
+        resolve(
+            &throttle_settings,
+            Some(&cdp),
+            Some(SettingsLayer::Run),
+            BrowserFamily::Chromium,
+        ),
+        Err(Refusal::OnBorrowed {
+            key: "network.throttle",
+            source: "cdp_url",
+        })
+    );
 }
 
 /// Covers: story:5-59, setting:browser.is_mobile, setting:network.throttle
@@ -267,7 +291,7 @@ fn is_mobile_and_network_throttle_outside_chromium_raise_capability_unavailable(
 
 /// Covers: story:5-39, story:5-87, setting:browser.permissions
 #[test]
-fn clipboard_permissions_refuse_headful_and_allow_headless_and_borrowed_refuses_permissions() {
+fn headless_deduplicates_permissions_and_borrowed_refuses_permissions() {
     let clipboard = read(
         SettingsLayer::Run,
         json!({ "browser": { "permissions": ["geolocation", "clipboard-read", "clipboard-write", "geolocation"] } }),
@@ -280,30 +304,14 @@ fn clipboard_permissions_refuse_headful_and_allow_headless_and_borrowed_refuses_
     assert_eq!(
         plan.permissions,
         vec![
-            "geolocation".to_owned(),
-            "clipboard-read".to_owned(),
-            "clipboard-write".to_owned(),
+            BrowserPermission::Geolocation,
+            BrowserPermission::ClipboardRead,
+            BrowserPermission::ClipboardWrite,
         ]
     );
 
-    // Headful refuses clipboard-read and clipboard-write with setting_not_applicable.
-    let headful_run = resolve_run(json!({ "browser": { "headless": false } }), json!({}));
-    for permission in ["clipboard-read", "clipboard-write"] {
-        let own = read(
-            SettingsLayer::Run,
-            json!({ "browser": { "permissions": [permission] } }),
-        );
-        let settings = SessionSettings::new(&own, Some(&headful_run));
-        assert_eq!(
-            resolve(&settings, None, None, BrowserFamily::Chromium),
-            Err(Refusal::ClipboardHeadful {
-                permission: permission.to_owned(),
-                layer: SettingsLayer::Run,
-            })
-        );
-    }
-
     // Non-clipboard permissions work headful.
+    let headful_run = resolve_run(json!({ "browser": { "headless": false } }), json!({}));
     let geo = read(
         SettingsLayer::Run,
         json!({ "browser": { "permissions": ["geolocation"] } }),
@@ -313,7 +321,7 @@ fn clipboard_permissions_refuse_headful_and_allow_headless_and_borrowed_refuses_
         resolve(&geo_settings, None, None, BrowserFamily::Chromium)
             .unwrap()
             .permissions,
-        vec!["geolocation".to_owned()]
+        vec![BrowserPermission::Geolocation]
     );
 
     // Borrowed browser refuses explicit `browser.permissions`.
@@ -329,6 +337,26 @@ fn clipboard_permissions_refuse_headful_and_allow_headless_and_borrowed_refuses_
         Err(Refusal::OnBorrowed {
             key: "browser.permissions",
             source: "cdp_url",
+        })
+    );
+}
+
+/// Covers: story:5-39, setting:browser.permissions
+#[rstest]
+#[case::clipboard_read(BrowserPermission::ClipboardRead)]
+#[case::clipboard_write(BrowserPermission::ClipboardWrite)]
+fn headful_session_refuses_each_clipboard_permission(#[case] permission: BrowserPermission) {
+    let headful_run = resolve_run(json!({ "browser": { "headless": false } }), json!({}));
+    let own = read(
+        SettingsLayer::Run,
+        json!({ "browser": { "permissions": [permission.as_str()] } }),
+    );
+    let settings = SessionSettings::new(&own, Some(&headful_run));
+    assert_eq!(
+        resolve(&settings, None, None, BrowserFamily::Chromium),
+        Err(Refusal::ClipboardHeadful {
+            permission,
+            layer: SettingsLayer::Run,
         })
     );
 }

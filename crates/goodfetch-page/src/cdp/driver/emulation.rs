@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use goodfetch_cdp::generated::{browser, emulation, network};
+use goodfetch_protocol::page::emulation::BrowserPermission;
 
 use crate::emulation::{ColorScheme, SessionEmulation};
 
@@ -93,7 +94,7 @@ pub(super) fn page_commands(emulation: &SessionEmulation, force_all: bool) -> Ve
     if force_all || emulation.color_scheme != ColorScheme::Light {
         commands.push(PageCommand::SetEmulatedMedia(
             emulation::SetEmulatedMediaParams {
-                media: None,
+                media: force_all.then(String::new),
                 features: Some(vec![emulation::MediaFeature {
                     name: "prefers-color-scheme".to_owned(),
                     value: emulation.color_scheme.cdp_value().to_owned(),
@@ -164,7 +165,8 @@ fn device_metrics_command(emulation: &SessionEmulation, force_all: bool) -> Opti
     if !force_all && !emulation.needs_device_metrics_on_open() {
         return None;
     }
-    let non_default_scale = (emulation.device_scale_factor - 1.0).abs() > f64::EPSILON;
+    let non_default_scale = !emulation.device_scale_factor.is_default();
+    let scale = emulation.device_scale_factor.get();
     match emulation.viewport {
         Some(viewport) => {
             let width = i64::from(viewport.width);
@@ -173,7 +175,7 @@ fn device_metrics_command(emulation: &SessionEmulation, force_all: bool) -> Opti
                 width,
                 height,
                 Some((width, height)),
-                emulation.device_scale_factor,
+                scale,
                 emulation.is_mobile,
             )))
         }
@@ -182,7 +184,7 @@ fn device_metrics_command(emulation: &SessionEmulation, force_all: bool) -> Opti
                 0,
                 0,
                 None,
-                emulation.device_scale_factor,
+                scale,
                 emulation.is_mobile,
             )))
         }
@@ -252,43 +254,42 @@ fn throttle_command(emulation: &SessionEmulation, force_all: bool) -> Option<Pag
     Some(PageCommand::EmulateNetworkConditions(params))
 }
 
-/// Maps a Playwright permission name from `browser.permissions` to its CDP
+/// Maps a Playwright permission from `browser.permissions` to its CDP
 /// `Browser.PermissionType`.
-fn cdp_permission(name: &str) -> Option<browser::PermissionType> {
+const fn cdp_permission(permission: BrowserPermission) -> browser::PermissionType {
     use browser::PermissionType;
-    match name {
-        "geolocation" => Some(PermissionType::Geolocation),
-        "midi" => Some(PermissionType::Midi),
-        "midi-sysex" => Some(PermissionType::MidiSysex),
-        "notifications" => Some(PermissionType::Notifications),
-        "camera" => Some(PermissionType::VideoCapture),
-        "microphone" => Some(PermissionType::AudioCapture),
-        "background-sync" => Some(PermissionType::BackgroundSync),
-        "ambient-light-sensor" | "accelerometer" | "gyroscope" | "magnetometer" => {
-            Some(PermissionType::Sensors)
-        }
-        "clipboard-read" => Some(PermissionType::ClipboardReadWrite),
-        "clipboard-write" => Some(PermissionType::ClipboardSanitizedWrite),
-        "payment-handler" => Some(PermissionType::PaymentHandler),
-        "storage-access" => Some(PermissionType::StorageAccess),
-        "local-fonts" => Some(PermissionType::LocalFonts),
-        "screen-wake-lock" => Some(PermissionType::WakeLockScreen),
-        "idle-detection" => Some(PermissionType::IdleDetection),
-        "periodic-background-sync" => Some(PermissionType::PeriodicBackgroundSync),
-        "window-management" => Some(PermissionType::WindowManagement),
-        "local-network-access" => Some(PermissionType::LocalNetworkAccess),
-        _ => None,
+    match permission {
+        BrowserPermission::Geolocation => PermissionType::Geolocation,
+        BrowserPermission::Midi => PermissionType::Midi,
+        BrowserPermission::MidiSysex => PermissionType::MidiSysex,
+        BrowserPermission::Notifications => PermissionType::Notifications,
+        BrowserPermission::Camera => PermissionType::VideoCapture,
+        BrowserPermission::Microphone => PermissionType::AudioCapture,
+        BrowserPermission::BackgroundSync => PermissionType::BackgroundSync,
+        BrowserPermission::AmbientLightSensor
+        | BrowserPermission::Accelerometer
+        | BrowserPermission::Gyroscope
+        | BrowserPermission::Magnetometer => PermissionType::Sensors,
+        BrowserPermission::ClipboardRead => PermissionType::ClipboardReadWrite,
+        BrowserPermission::ClipboardWrite => PermissionType::ClipboardSanitizedWrite,
+        BrowserPermission::PaymentHandler => PermissionType::PaymentHandler,
+        BrowserPermission::StorageAccess => PermissionType::StorageAccess,
+        BrowserPermission::LocalFonts => PermissionType::LocalFonts,
+        BrowserPermission::ScreenWakeLock => PermissionType::WakeLockScreen,
+        BrowserPermission::IdleDetection => PermissionType::IdleDetection,
+        BrowserPermission::PeriodicBackgroundSync => PermissionType::PeriodicBackgroundSync,
+        BrowserPermission::WindowManagement => PermissionType::WindowManagement,
+        BrowserPermission::LocalNetworkAccess => PermissionType::LocalNetworkAccess,
     }
 }
 
 /// Deduplicated CDP permissions for `emulation.permissions`.
 fn cdp_permissions(emulation: &SessionEmulation) -> Vec<browser::PermissionType> {
     let mut mapped = Vec::with_capacity(emulation.permissions.len());
-    for name in &emulation.permissions {
-        if let Some(permission) = cdp_permission(name)
-            && !mapped.contains(&permission)
-        {
-            mapped.push(permission);
+    for &permission in &emulation.permissions {
+        let cdp = cdp_permission(permission);
+        if !mapped.contains(&cdp) {
+            mapped.push(cdp);
         }
     }
     mapped

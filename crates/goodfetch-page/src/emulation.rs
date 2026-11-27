@@ -1,18 +1,22 @@
-//! A Session's device emulation and network throttling plan (ADR 0083;
-//! spec #578, ticket #3289): [`resolve`] reads the `browser.*` emulation
-//! settings and `network.throttle` from the Session's own settings over its
-//! Run's, with its `session.source` and browser family, and produces a
+//! A Session's device emulation, network throttling, and permissions plan
+//! (ADR 0083; spec #578, tickets #3289 and #3290): [`resolve`] reads the
+//! `browser.*` emulation settings, `browser.permissions`, and
+//! `network.throttle` from the Session's own settings over its Run's, with
+//! its `session.source` and browser family, and produces a
 //! [`SessionEmulation`] or the [`Refusal`] the Session's opening answers
 //! with.
 //!
-//! - On a Borrowed browser (`cdp_url`, `running_browser`), any `browser.*`
-//!   emulation key set where the Session opens is refused with
-//!   `setting_not_applicable`; inherited values yield, and no emulation is
-//!   applied to the person's browser.
+//! - On a Borrowed browser (`cdp_url`, `running_browser`), any Session
+//!   emulation, permission, or throttling key (`EMULATION_SETTINGS`) set
+//!   where the Session opens is refused with `setting_not_applicable`;
+//!   inherited values yield, and no emulation is applied to the person's
+//!   browser.
 //! - Outside Chromium (`Firefox`, `WebKit`), `browser.is_mobile: true` and
 //!   a non-null `network.throttle` raise `capability_unavailable`.
 //! - `browser.viewport: null` uses the window's own size and is refused
 //!   with `setting_not_applicable` on a headless Session.
+//! - Clipboard permissions (`clipboard-read`, `clipboard-write`) are
+//!   refused with `setting_not_applicable` on a headful Session.
 //! - On an imported login or a Profile directory used in place, a non-null
 //!   `browser.locale` or `browser.timezone_id` set where the Session opens
 //!   is refused with `setting_locked` naming `session.source`; an inherited
@@ -22,48 +26,37 @@
 mod tests;
 
 use goodfetch_engine::run::settings_error;
-use goodfetch_engine::settings::SettingsError;
+use goodfetch_engine::settings::{SettingsError, value_as};
 use goodfetch_engine::{CallContext, CallError};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::page::BROWSER_HEADLESS;
 use goodfetch_protocol::page::emulation::{
     BROWSER_COLOR_SCHEME, BROWSER_DEVICE_SCALE_FACTOR, BROWSER_GEOLOCATION, BROWSER_HAS_TOUCH,
     BROWSER_IS_MOBILE, BROWSER_JAVA_SCRIPT_ENABLED, BROWSER_LOCALE, BROWSER_PERMISSIONS,
-    BROWSER_TIMEZONE_ID, BROWSER_VIEWPORT, DeviceScaleFactor, Geolocation, NETWORK_THROTTLE,
-    NetworkThrottle, Viewport,
+    BROWSER_TIMEZONE_ID, BROWSER_VIEWPORT, BrowserPermission, DeviceScaleFactor,
+    EMULATION_SETTINGS, Geolocation, NETWORK_THROTTLE, NetworkThrottle, Viewport,
 };
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
     CAPABILITY_UNAVAILABLE, CapabilityUnavailableDetails, SESSION_SOURCE, SettingLimit,
     SettingsLayer,
 };
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::access_mode::{BrowserFamily, Scope, SessionSettings, borrowed, carries_an_identity};
 
-/// The `browser.*` emulation and permission settings refused with
-/// `setting_not_applicable` when set directly where a Borrowed browser's
-/// Session opens (ADR 0083).
-const BORROWED_REFUSED: [&Setting; 10] = [
-    &BROWSER_VIEWPORT,
-    &BROWSER_DEVICE_SCALE_FACTOR,
-    &BROWSER_LOCALE,
-    &BROWSER_TIMEZONE_ID,
-    &BROWSER_COLOR_SCHEME,
-    &BROWSER_JAVA_SCRIPT_ENABLED,
-    &BROWSER_GEOLOCATION,
-    &BROWSER_HAS_TOUCH,
-    &BROWSER_IS_MOBILE,
-    &BROWSER_PERMISSIONS,
-];
-
-/// Clipboard permissions refused on a headful Session (`browser.headless: false`)
-/// so the engine does not touch the person's desktop clipboard (spec #578,
-/// ticket #3290).
-const CLIPBOARD_PERMISSIONS: [&str; 2] = ["clipboard-read", "clipboard-write"];
+/// Deserializes a setting value the catalog has already validated.
+fn decoded<T: DeserializeOwned>(setting: &Setting, value: &Value) -> T {
+    serde_json::from_value(value.clone()).unwrap_or_else(|error| {
+        panic!("invariant: the catalog checked `{}`: {error}", setting.name)
+    })
+}
 
 /// Emulated `prefers-color-scheme` media feature (spec #578).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) enum ColorScheme {
     #[default]
     Light,
@@ -79,14 +72,6 @@ impl ColorScheme {
             Self::Light => "light",
             Self::Dark => "dark",
             Self::NoPreference => "",
-        }
-    }
-
-    fn from_value(value: &Value) -> Self {
-        match value.as_str() {
-            Some("dark") => Self::Dark,
-            Some("no-preference") => Self::NoPreference,
-            _ => Self::Light,
         }
     }
 }
@@ -111,7 +96,7 @@ pub(crate) struct SessionEmulation {
     /// (headful only) or leaves a Borrowed browser untouched.
     pub(crate) viewport: Option<Viewport>,
     /// Device pixel ratio (`window.devicePixelRatio`).
-    pub(crate) device_scale_factor: f64,
+    pub(crate) device_scale_factor: DeviceScaleFactor,
     /// BCP 47 locale tag, if explicitly overridden.
     pub(crate) locale: Option<String>,
     /// IANA time zone ID, if explicitly overridden.
@@ -126,8 +111,8 @@ pub(crate) struct SessionEmulation {
     pub(crate) has_touch: bool,
     /// Whether mobile viewport layout is emulated (Chromium only).
     pub(crate) is_mobile: bool,
-    /// Playwright permission names granted to every page of the Session.
-    pub(crate) permissions: Vec<String>,
+    /// Playwright permissions granted to every page of the Session.
+    pub(crate) permissions: Vec<BrowserPermission>,
     /// Emulated network conditions (Chromium only).
     pub(crate) throttle: Option<NetworkThrottle>,
     /// Whether the Session's browser is borrowed, headless, or headful.
@@ -138,7 +123,7 @@ impl Default for SessionEmulation {
     fn default() -> Self {
         Self {
             viewport: Some(Viewport::DEFAULT),
-            device_scale_factor: DeviceScaleFactor::DEFAULT.get(),
+            device_scale_factor: DeviceScaleFactor::DEFAULT,
             locale: None,
             timezone_id: None,
             color_scheme: ColorScheme::Light,
@@ -176,7 +161,7 @@ impl SessionEmulation {
         if self.is_borrowed() {
             return false;
         }
-        let non_default_scale = (self.device_scale_factor - 1.0).abs() > f64::EPSILON;
+        let non_default_scale = !self.device_scale_factor.is_default();
         match self.viewport {
             Some(viewport) => {
                 !matches!(self.mode, SessionMode::Headless)
@@ -192,7 +177,8 @@ impl SessionEmulation {
 /// Why a Session's emulation settings cannot open.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Refusal {
-    /// A `browser.*` setting set where a Borrowed browser's Session opens.
+    /// A Session emulation, permission, or throttling setting set where a
+    /// Borrowed browser's Session opens.
     OnBorrowed {
         key: &'static str,
         source: &'static str,
@@ -209,7 +195,7 @@ pub(crate) enum Refusal {
     /// Clipboard permission (`clipboard-read` or `clipboard-write`) requested
     /// on a headful Session (`browser.headless: false`).
     ClipboardHeadful {
-        permission: String,
+        permission: BrowserPermission,
         layer: SettingsLayer,
     },
     /// `browser.locale` or `browser.timezone_id` set where a Session opens
@@ -237,7 +223,7 @@ impl Refusal {
                     key: key.to_owned(),
                     layer: SettingsLayer::Run,
                     fix: format!(
-                        "a Session opened from a `{source}` source borrows the browser, which keeps its own device settings: leave `{key}` out"
+                        "a Session opened from a `{source}` source borrows the browser, which keeps its own device and network settings: leave `{key}` out"
                     ),
                 },
                 context,
@@ -275,7 +261,9 @@ impl Refusal {
                     key: BROWSER_PERMISSIONS.name.to_owned(),
                     layer,
                     fix: format!(
-                        "`{permission}` is not granted in a headful browser (`browser.headless: false`), whose clipboard is the person's own desktop clipboard: remove `{permission}` from `browser.permissions` or run headless"
+                        "`{}` is not granted in a headful browser (`browser.headless: false`), whose clipboard is the person's own desktop clipboard: remove `{}` from `browser.permissions` or run headless",
+                        permission.as_str(),
+                        permission.as_str(),
                     ),
                 },
                 context,
@@ -326,7 +314,7 @@ pub(crate) fn resolve(
 ) -> Result<SessionEmulation, Refusal> {
     if borrowed(source) {
         let source_kind = source.map_or("borrowed", SessionSource::kind);
-        if let Some(key) = BORROWED_REFUSED
+        if let Some(key) = EMULATION_SETTINGS
             .iter()
             .find(|setting| settings.scoped(setting).1 == Scope::Session)
             .map(|setting| setting.name)
@@ -339,32 +327,28 @@ pub(crate) fn resolve(
         return Ok(SessionEmulation::borrowed());
     }
 
-    let headless = settings
-        .scoped(&BROWSER_HEADLESS)
-        .0
-        .as_bool()
-        .unwrap_or(true);
+    let headless: bool = value_as(&BROWSER_HEADLESS, settings.scoped(&BROWSER_HEADLESS).0);
     let (is_mobile, throttle) = resolve_chromium_only(settings, family)?;
     let viewport = resolve_viewport(settings, headless)?;
-    let device_scale_factor = settings
-        .scoped(&BROWSER_DEVICE_SCALE_FACTOR)
-        .0
-        .as_f64()
-        .unwrap_or(DeviceScaleFactor::DEFAULT.get());
+    let device_scale_factor: DeviceScaleFactor = decoded(
+        &BROWSER_DEVICE_SCALE_FACTOR,
+        settings.scoped(&BROWSER_DEVICE_SCALE_FACTOR).0,
+    );
     let locale = resolve_identity_text(settings, &BROWSER_LOCALE, source, source_layer)?;
     let timezone_id = resolve_identity_text(settings, &BROWSER_TIMEZONE_ID, source, source_layer)?;
-    let color_scheme = ColorScheme::from_value(settings.scoped(&BROWSER_COLOR_SCHEME).0);
-    let java_script_enabled = settings
-        .scoped(&BROWSER_JAVA_SCRIPT_ENABLED)
-        .0
-        .as_bool()
-        .unwrap_or(true);
-    let geolocation = resolve_geolocation(settings);
-    let has_touch = settings
-        .scoped(&BROWSER_HAS_TOUCH)
-        .0
-        .as_bool()
-        .unwrap_or(false);
+    let color_scheme: ColorScheme = decoded(
+        &BROWSER_COLOR_SCHEME,
+        settings.scoped(&BROWSER_COLOR_SCHEME).0,
+    );
+    let java_script_enabled: bool = value_as(
+        &BROWSER_JAVA_SCRIPT_ENABLED,
+        settings.scoped(&BROWSER_JAVA_SCRIPT_ENABLED).0,
+    );
+    let geolocation: Option<Geolocation> = decoded(
+        &BROWSER_GEOLOCATION,
+        settings.scoped(&BROWSER_GEOLOCATION).0,
+    );
+    let has_touch: bool = value_as(&BROWSER_HAS_TOUCH, settings.scoped(&BROWSER_HAS_TOUCH).0);
     let permissions = resolve_permissions(settings, headless)?;
 
     Ok(SessionEmulation {
@@ -392,7 +376,7 @@ fn resolve_chromium_only(
     family: BrowserFamily,
 ) -> Result<(bool, Option<NetworkThrottle>), Refusal> {
     let (is_mobile_val, is_mobile_scope) = settings.scoped(&BROWSER_IS_MOBILE);
-    let is_mobile = is_mobile_val.as_bool().unwrap_or(false);
+    let is_mobile: bool = value_as(&BROWSER_IS_MOBILE, is_mobile_val);
     if is_mobile && family != BrowserFamily::Chromium {
         return Err(Refusal::ChromiumOnly {
             key: BROWSER_IS_MOBILE.name,
@@ -402,21 +386,14 @@ fn resolve_chromium_only(
     }
 
     let (throttle_val, throttle_scope) = settings.scoped(&NETWORK_THROTTLE);
-    let throttle = if throttle_val.is_null() {
-        None
-    } else {
-        if family != BrowserFamily::Chromium {
-            return Err(Refusal::ChromiumOnly {
-                key: NETWORK_THROTTLE.name,
-                layer: throttle_scope.layer(),
-                family,
-            });
-        }
-        Some(
-            serde_json::from_value(throttle_val.clone())
-                .expect("invariant: the catalog checked `network.throttle`"),
-        )
-    };
+    let throttle: Option<NetworkThrottle> = decoded(&NETWORK_THROTTLE, throttle_val);
+    if throttle.is_some() && family != BrowserFamily::Chromium {
+        return Err(Refusal::ChromiumOnly {
+            key: NETWORK_THROTTLE.name,
+            layer: throttle_scope.layer(),
+            family,
+        });
+    }
     Ok((is_mobile, throttle))
 }
 
@@ -425,52 +402,31 @@ fn resolve_viewport(
     headless: bool,
 ) -> Result<Option<Viewport>, Refusal> {
     let (viewport_val, viewport_scope) = settings.scoped(&BROWSER_VIEWPORT);
-    if viewport_val.is_null() {
-        if headless {
-            return Err(Refusal::NullViewportHeadless {
-                layer: viewport_scope.layer(),
-            });
-        }
-        Ok(None)
-    } else {
-        Ok(Some(serde_json::from_value(viewport_val.clone()).expect(
-            "invariant: the catalog checked `browser.viewport`",
-        )))
+    let viewport: Option<Viewport> = decoded(&BROWSER_VIEWPORT, viewport_val);
+    if viewport.is_none() && headless {
+        return Err(Refusal::NullViewportHeadless {
+            layer: viewport_scope.layer(),
+        });
     }
-}
-
-fn resolve_geolocation(settings: &SessionSettings<'_>) -> Option<Geolocation> {
-    let val = settings.scoped(&BROWSER_GEOLOCATION).0;
-    if val.is_null() {
-        None
-    } else {
-        Some(
-            serde_json::from_value(val.clone())
-                .expect("invariant: the catalog checked `browser.geolocation`"),
-        )
-    }
+    Ok(viewport)
 }
 
 fn resolve_permissions(
     settings: &SessionSettings<'_>,
     headless: bool,
-) -> Result<Vec<String>, Refusal> {
+) -> Result<Vec<BrowserPermission>, Refusal> {
     let (permissions_val, permissions_scope) = settings.scoped(&BROWSER_PERMISSIONS);
-    let mut permissions = Vec::new();
-    if let Some(items) = permissions_val.as_array() {
-        for item in items {
-            let name = item
-                .as_str()
-                .expect("invariant: the catalog checked `browser.permissions` items as strings");
-            if !headless && CLIPBOARD_PERMISSIONS.contains(&name) {
-                return Err(Refusal::ClipboardHeadful {
-                    permission: name.to_owned(),
-                    layer: permissions_scope.layer(),
-                });
-            }
-            if !permissions.iter().any(|existing| existing == name) {
-                permissions.push(name.to_owned());
-            }
+    let declared: Vec<BrowserPermission> = decoded(&BROWSER_PERMISSIONS, permissions_val);
+    let mut permissions = Vec::with_capacity(declared.len());
+    for permission in declared {
+        if !headless && permission.is_clipboard() {
+            return Err(Refusal::ClipboardHeadful {
+                permission,
+                layer: permissions_scope.layer(),
+            });
+        }
+        if !permissions.contains(&permission) {
+            permissions.push(permission);
         }
     }
     Ok(permissions)
@@ -486,12 +442,9 @@ fn resolve_identity_text(
     source_layer: Option<SettingsLayer>,
 ) -> Result<Option<String>, Refusal> {
     let (value, scope) = settings.scoped(setting);
-    if value.is_null() {
+    let Some(text): Option<&str> = value_as(setting, value) else {
         return Ok(None);
-    }
-    let text = value
-        .as_str()
-        .expect("invariant: the catalog checked the setting as text");
+    };
     if text.trim().is_empty() {
         return Err(Refusal::BlankText {
             key: setting.name,

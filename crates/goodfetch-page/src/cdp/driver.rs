@@ -456,6 +456,46 @@ impl Browser {
         }
     }
 
+    /// Sends `Emulation.setUserAgentOverride` carrying the headless window
+    /// identity (when present) and `browser.locale` as `acceptLanguage`. On
+    /// headful Chromium and `chrome-headless-shell` (`identity: None`), sends
+    /// an empty `userAgent` (leaving Chromium's UA intact) whenever `locale`
+    /// is set or `force_all` restores after a Lent page's attach ends.
+    async fn apply_identity_locale(
+        &self,
+        session: &TargetSession,
+        emulation: &SessionEmulation,
+        call: &Call,
+        force_all: bool,
+    ) -> Result<(), CallError> {
+        if let Some(identity) = &self.identity {
+            return self
+                .send(
+                    Some(session),
+                    &identity.command(emulation.locale.as_deref()),
+                    call,
+                )
+                .await
+                .map(drop);
+        }
+        if !emulation.is_borrowed() && (force_all || emulation.locale.is_some()) {
+            return self
+                .send(
+                    Some(session),
+                    &cdp_emulation::SetUserAgentOverrideParams {
+                        user_agent: String::new(),
+                        accept_language: emulation.locale.clone(),
+                        platform: None,
+                        user_agent_metadata: None,
+                    },
+                    call,
+                )
+                .await
+                .map(drop);
+        }
+        Ok(())
+    }
+
     /// Sends the planned emulation commands for `emulation` on page target
     /// `session`. Sends zero commands at default headless settings when
     /// `force_all` is `false`.
@@ -988,7 +1028,7 @@ impl<B: Connect> SessionDriver<B> {
                     let contexts = browser
                         .send(None, &target::GetBrowserContextsParams {}, &opening)
                         .await?;
-                    return contexts.default_browser_context_id.ok_or_else(|| {
+                    let default = contexts.default_browser_context_id.ok_or_else(|| {
                         CallError::new(
                             &goodfetch_protocol::page::BROWSER_LAUNCH_FAILED,
                             "the Borrowed browser names no default browser context",
@@ -997,7 +1037,12 @@ impl<B: Connect> SessionDriver<B> {
                                 exit: None,
                             },
                         )
-                    });
+                    })?;
+                    browser
+                        .state
+                        .emulations
+                        .remember(&default, SessionEmulation::borrowed());
+                    return Ok(default);
                 }
                 // Through its egress relay, every connection, loopback's
                 // included; else through its proxy, if it has one.
@@ -1066,15 +1111,9 @@ impl<B: Connect> SessionDriver<B> {
         page.browser
             .reset_and_grant_permissions(&page.context, &self.emulation, &call)
             .await?;
-        if let Some(identity) = &page.browser.identity {
-            page.browser
-                .send(
-                    Some(&page.session),
-                    &identity.command(self.emulation.locale.as_deref()),
-                    &call,
-                )
-                .await?;
-        }
+        page.browser
+            .apply_identity_locale(&page.session, &self.emulation, &call, true)
+            .await?;
         page.browser
             .apply_emulation(&page.session, &self.emulation, &call, true)
             .await
@@ -1095,7 +1134,6 @@ impl<B: Connect> SessionDriver<B> {
         };
         // Its service workers' choice and emulation go with it.
         browser.state.service_workers.forget(context);
-        browser.state.emulations.forget(context);
         if self.browser.borrowed() {
             for target_id in std::mem::take(&mut *self.opened.lock().await) {
                 if let Err(failure) = browser
@@ -1107,6 +1145,7 @@ impl<B: Connect> SessionDriver<B> {
             }
             return;
         }
+        browser.state.emulations.forget(context);
         // Closed, each one's target detaches, and its commands in flight
         // fail at once.
         for target_id in browser.state.hidden.take(context) {
@@ -1243,15 +1282,9 @@ async fn prepare(
             &opening,
         )
         .await?;
-    if let Some(identity) = &browser.identity {
-        browser
-            .send(
-                Some(session),
-                &identity.command(emulation.locale.as_deref()),
-                &opening,
-            )
-            .await?;
-    }
+    browser
+        .apply_identity_locale(session, emulation, &opening, false)
+        .await?;
     browser
         .send(Some(session), &page::EnableParams::default(), &opening)
         .await?;

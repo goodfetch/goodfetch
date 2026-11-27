@@ -1,14 +1,15 @@
 //! Session permissions and the clipboard's refusal over stdio (spec #578,
 //! ticket #3290; ADR 0083):
 //! - `browser.permissions` (Playwright's names) grants permissions to every
-//!   page of the Session;
+//!   page of the Session (`story:5-87`);
 //! - `browser.permissions: ["geolocation"]` with `browser.geolocation` is
 //!   observed by every page of the Session;
 //! - clipboard permissions (`clipboard-read`, `clipboard-write`) are refused
 //!   with `setting_not_applicable` on a headful Session (`browser.headless:
-//!   false`) while allowed on a headless Session;
+//!   false`) while allowed on a headless Session (`story:5-39`);
 //! - a page copies and pastes through keyboard shortcuts and `evaluate` under
-//!   the granted permission, and no clipboard operation exists in the catalog.
+//!   the granted permission, and no clipboard operation exists in the catalog
+//!   (`story:5-39`).
 #![expect(
     clippy::doc_markdown,
     reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
@@ -19,16 +20,13 @@ use std::fmt::Write as _;
 use goodfetch_protocol::entries::MODULES;
 use goodfetch_protocol::page::session::SessionOpened;
 use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache};
-use serde_json::{Map, Value, json};
+use rstest::rstest;
+use serde_json::{Map, json};
 
-use crate::page::{opened, started, started_with};
+use crate::page::{eval, opened, secure, started, started_with};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 3290;
-
-fn secure(proving_ground: &ProvingGround, host: &str, path: &str) -> String {
-    format!("https://{host}:{}{path}", proving_ground.address().port())
-}
 
 fn trust_proving_ground(env: &TestEnv, proving_ground: &ProvingGround, hosts: &[&str]) {
     let ca = proving_ground.description().ca.display().to_string();
@@ -39,23 +37,10 @@ fn trust_proving_ground(env: &TestEnv, proving_ground: &ProvingGround, hosts: &[
     env.user_configuration(&toml);
 }
 
-fn eval(engine: &mut goodfetch_test_client::Attached, id: i64, page_id: &str, expr: &str) -> Value {
-    let answer = engine.ask(
-        id,
-        "page.evaluate",
-        &json!({ "page_id": page_id, "function": expr }),
-    );
-    assert!(
-        answer.get("error").is_none(),
-        "page.evaluate failed: {answer}"
-    );
-    answer["result"]["value"].clone()
-}
-
 /// `browser.permissions: ["geolocation"]` with `browser.geolocation` is
 /// observed by every page of the Session.
 ///
-/// Covers: story:5-39, setting:browser.permissions, setting:browser.geolocation
+/// Covers: story:5-87, setting:browser.permissions, setting:browser.geolocation
 #[test]
 fn geolocation_permission_and_override_are_observed_by_every_page_of_the_session() {
     let env = TestEnv::new();
@@ -135,17 +120,17 @@ fn geolocation_permission_and_override_are_observed_by_every_page_of_the_session
 }
 
 /// A headful Session (`browser.headless: false`) with a clipboard permission
-/// raises `setting_not_applicable`, while a headless Session accepts it;
-/// `browser.permissions` is also refused per page and on a Borrowed browser.
+/// raises `setting_not_applicable`.
 ///
-/// Covers: story:5-39, story:5-87, setting:browser.permissions, error:setting_not_applicable
-#[test]
-fn headful_session_refuses_clipboard_permissions_while_headless_allows_them() {
+/// Covers: story:5-39, setting:browser.permissions, error:setting_not_applicable
+#[rstest]
+#[case::clipboard_read("clipboard-read")]
+#[case::clipboard_write("clipboard-write")]
+fn headful_session_refuses_clipboard_permission(#[case] permission: &str) {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
 
-    // Headful Run (`browser.headless: false`): clipboard-read and clipboard-write are refused.
     let mut headful_settings = Map::new();
     headful_settings.insert("browser".to_owned(), json!({ "headless": false }));
     let mut headful = started_with(
@@ -156,33 +141,41 @@ fn headful_session_refuses_clipboard_permissions_while_headless_allows_them() {
         &headful_settings,
         |_| {},
     );
-    for (index, permission) in ["clipboard-read", "clipboard-write"].iter().enumerate() {
-        let refused = headful.ask(
-            i64::try_from(index + 2).unwrap(),
-            "run.new_session",
-            &json!({
-                "run_id": "headful-clip",
-                "settings": { "browser": { "permissions": [permission] } }
-            }),
-        );
-        assert_eq!(
-            (
-                refused["error"]["data"]["code"].clone(),
-                refused["error"]["data"]["key"].clone(),
-            ),
-            (
-                json!("setting_not_applicable"),
-                json!("browser.permissions")
-            ),
-            "expected headful refusal for {permission}: {refused}"
-        );
-    }
-    let _ = headful.ask(10, "run.finish", &json!({ "run_id": "headful-clip" }));
+    let refused = headful.ask(
+        2,
+        "run.new_session",
+        &json!({
+            "run_id": "headful-clip",
+            "settings": { "browser": { "permissions": [permission] } }
+        }),
+    );
+    assert_eq!(
+        (
+            refused["error"]["data"]["code"].clone(),
+            refused["error"]["data"]["key"].clone(),
+        ),
+        (
+            json!("setting_not_applicable"),
+            json!("browser.permissions")
+        ),
+        "expected headful refusal for {permission}: {refused}"
+    );
+    let _ = headful.ask(3, "run.finish", &json!({ "run_id": "headful-clip" }));
     let (_, exited) = headful.finish();
     assert!(exited);
+}
 
-    // Headless Run: clipboard permissions succeed; per-page and Borrowed browser are refused.
+/// A headless Session accepts clipboard permissions, while `browser.permissions`
+/// per page or on a Borrowed browser raises `setting_not_applicable`.
+///
+/// Covers: story:5-39, story:5-87, setting:browser.permissions, error:setting_not_applicable
+#[test]
+fn headless_session_allows_clipboard_permissions_while_per_page_and_borrowed_refuse() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
     let mut headless = started(&env, &cache, &proving_ground, "headless-clip");
+
     let opened_session = headless.ask(
         2,
         "run.new_session",
@@ -251,14 +244,11 @@ fn press_field(engine: &mut goodfetch_test_client::Attached, id: i64, page_id: &
     assert!(answer.get("error").is_none(), "press {key}: {answer}");
 }
 
-/// A page copies and pastes through keyboard shortcuts and `evaluate` under
-/// the granted clipboard permissions, and no clipboard operation exists in
-/// the catalog.
+/// No clipboard operation exists in the protocol catalog.
 ///
-/// Covers: story:5-87, setting:browser.permissions
+/// Covers: story:5-39
 #[test]
-fn page_copies_and_pastes_via_keyboard_shortcuts_and_evaluate_and_no_clipboard_operation_exists() {
-    // No clipboard operation exists in the protocol catalog.
+fn no_clipboard_operation_exists_in_catalog() {
     let clipboard_ops: Vec<&str> = MODULES
         .iter()
         .flat_map(|module| module.operations.iter())
@@ -269,7 +259,14 @@ fn page_copies_and_pastes_via_keyboard_shortcuts_and_evaluate_and_no_clipboard_o
         clipboard_ops.is_empty(),
         "unexpected clipboard operations in catalog: {clipboard_ops:?}"
     );
+}
 
+/// A page copies and pastes through keyboard shortcuts and `evaluate` under
+/// the granted clipboard permissions.
+///
+/// Covers: story:5-39, setting:browser.permissions
+#[test]
+fn page_copies_and_pastes_via_keyboard_shortcuts_and_evaluate() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();

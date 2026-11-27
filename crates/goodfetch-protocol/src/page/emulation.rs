@@ -16,34 +16,146 @@ use serde_json::{Value, json};
 use super::ARRIVED_IN;
 use crate::catalog::{Authority, Entries, Setting, SettingJson, ValueKind, ValueShape, Yielding};
 use crate::settings::SESSION_SOURCE;
+use crate::settings::session_source::SessionSource;
 
 /// The color schemes `browser.color_scheme` takes, Playwright's (spec #578).
 pub const COLOR_SCHEMES: &[&str] = &["light", "dark", "no-preference"];
 
+/// A browser permission accepted by `browser.permissions`, Playwright's
+/// names (ADR 0083; spec #578, ticket #3290).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BrowserPermission {
+    /// Geolocation API access.
+    Geolocation,
+    /// Web MIDI access.
+    Midi,
+    /// Web MIDI with sysex access.
+    MidiSysex,
+    /// Web Notifications API access.
+    Notifications,
+    /// Video capture (`camera`).
+    Camera,
+    /// Audio capture (`microphone`).
+    Microphone,
+    /// Background sync API access.
+    BackgroundSync,
+    /// Ambient light sensor access.
+    AmbientLightSensor,
+    /// Accelerometer sensor access.
+    Accelerometer,
+    /// Gyroscope sensor access.
+    Gyroscope,
+    /// Magnetometer sensor access.
+    Magnetometer,
+    /// Clipboard read access (refused on headful Sessions).
+    ClipboardRead,
+    /// Clipboard write access (refused on headful Sessions).
+    ClipboardWrite,
+    /// Payment Handler API access.
+    PaymentHandler,
+    /// Storage Access API permission.
+    StorageAccess,
+    /// Local Font Access API permission.
+    LocalFonts,
+    /// Screen Wake Lock API permission.
+    ScreenWakeLock,
+    /// Idle Detection API permission.
+    IdleDetection,
+    /// Periodic Background Sync API permission.
+    PeriodicBackgroundSync,
+    /// Window Management API permission.
+    WindowManagement,
+    /// Local Network Access permission.
+    LocalNetworkAccess,
+}
+
+impl BrowserPermission {
+    /// Every permission variant, in the same order as [`BROWSER_PERMISSION_NAMES`].
+    pub const ALL: [Self; 21] = [
+        Self::Geolocation,
+        Self::Midi,
+        Self::MidiSysex,
+        Self::Notifications,
+        Self::Camera,
+        Self::Microphone,
+        Self::BackgroundSync,
+        Self::AmbientLightSensor,
+        Self::Accelerometer,
+        Self::Gyroscope,
+        Self::Magnetometer,
+        Self::ClipboardRead,
+        Self::ClipboardWrite,
+        Self::PaymentHandler,
+        Self::StorageAccess,
+        Self::LocalFonts,
+        Self::ScreenWakeLock,
+        Self::IdleDetection,
+        Self::PeriodicBackgroundSync,
+        Self::WindowManagement,
+        Self::LocalNetworkAccess,
+    ];
+
+    /// Playwright's kebab-case name for this permission.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Geolocation => "geolocation",
+            Self::Midi => "midi",
+            Self::MidiSysex => "midi-sysex",
+            Self::Notifications => "notifications",
+            Self::Camera => "camera",
+            Self::Microphone => "microphone",
+            Self::BackgroundSync => "background-sync",
+            Self::AmbientLightSensor => "ambient-light-sensor",
+            Self::Accelerometer => "accelerometer",
+            Self::Gyroscope => "gyroscope",
+            Self::Magnetometer => "magnetometer",
+            Self::ClipboardRead => "clipboard-read",
+            Self::ClipboardWrite => "clipboard-write",
+            Self::PaymentHandler => "payment-handler",
+            Self::StorageAccess => "storage-access",
+            Self::LocalFonts => "local-fonts",
+            Self::ScreenWakeLock => "screen-wake-lock",
+            Self::IdleDetection => "idle-detection",
+            Self::PeriodicBackgroundSync => "periodic-background-sync",
+            Self::WindowManagement => "window-management",
+            Self::LocalNetworkAccess => "local-network-access",
+        }
+    }
+
+    /// Whether this permission accesses the clipboard, which is refused on
+    /// headful Sessions whose clipboard belongs to the person's desktop.
+    #[must_use]
+    pub const fn is_clipboard(self) -> bool {
+        matches!(self, Self::ClipboardRead | Self::ClipboardWrite)
+    }
+}
+
 /// The permission names `browser.permissions` accepts, Playwright's (ADR 0083;
 /// spec #578, ticket #3290).
 pub const BROWSER_PERMISSION_NAMES: &[&str] = &[
-    "geolocation",
-    "midi",
-    "midi-sysex",
-    "notifications",
-    "camera",
-    "microphone",
-    "background-sync",
-    "ambient-light-sensor",
-    "accelerometer",
-    "gyroscope",
-    "magnetometer",
-    "clipboard-read",
-    "clipboard-write",
-    "payment-handler",
-    "storage-access",
-    "local-fonts",
-    "screen-wake-lock",
-    "idle-detection",
-    "periodic-background-sync",
-    "window-management",
-    "local-network-access",
+    BrowserPermission::Geolocation.as_str(),
+    BrowserPermission::Midi.as_str(),
+    BrowserPermission::MidiSysex.as_str(),
+    BrowserPermission::Notifications.as_str(),
+    BrowserPermission::Camera.as_str(),
+    BrowserPermission::Microphone.as_str(),
+    BrowserPermission::BackgroundSync.as_str(),
+    BrowserPermission::AmbientLightSensor.as_str(),
+    BrowserPermission::Accelerometer.as_str(),
+    BrowserPermission::Gyroscope.as_str(),
+    BrowserPermission::Magnetometer.as_str(),
+    BrowserPermission::ClipboardRead.as_str(),
+    BrowserPermission::ClipboardWrite.as_str(),
+    BrowserPermission::PaymentHandler.as_str(),
+    BrowserPermission::StorageAccess.as_str(),
+    BrowserPermission::LocalFonts.as_str(),
+    BrowserPermission::ScreenWakeLock.as_str(),
+    BrowserPermission::IdleDetection.as_str(),
+    BrowserPermission::PeriodicBackgroundSync.as_str(),
+    BrowserPermission::WindowManagement.as_str(),
+    BrowserPermission::LocalNetworkAccess.as_str(),
 ];
 
 /// A page's viewport size in CSS pixels (spec #578, SA-23): both dimensions
@@ -96,6 +208,7 @@ pub const VIEWPORT_SHAPE: ValueShape = ValueShape {
 pub struct DeviceScaleFactor(f64);
 
 /// A number that is not a positive finite device pixel ratio.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, thiserror::Error)]
 #[error("`{0}` is no positive finite device scale factor")]
 pub struct InvalidDeviceScaleFactor(pub f64);
@@ -122,6 +235,12 @@ impl DeviceScaleFactor {
     #[must_use]
     pub const fn get(self) -> f64 {
         self.0
+    }
+
+    /// Whether this scale factor matches [`Self::DEFAULT`] (`1.0`).
+    #[must_use]
+    pub fn is_default(self) -> bool {
+        (self.0 - Self::DEFAULT.0).abs() <= f64::EPSILON
     }
 }
 
@@ -472,7 +591,7 @@ pub const BROWSER_PERMISSIONS: Setting = Setting {
 /// `network.throttle` (ADR 0083; spec #578).
 pub const NETWORK_THROTTLE: Setting = Setting {
     name: "network.throttle",
-    description: "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page.",
+    description: "Emulated network conditions (`offline`, `latency` in milliseconds, optional `download_bytes_per_second` and `upload_bytes_per_second`) applied to every page of the Session; `null` by default. Chromium only: set outside Chromium it raises `capability_unavailable`. Set where a Session opens or above, never per page, and refused where a Borrowed browser's Session opens.",
     kind: ValueKind::Shape(&NETWORK_THROTTLE_SHAPE),
     default: null,
     clearable: true,
@@ -508,10 +627,10 @@ fn set(value: &Value) -> bool {
 /// login or a Profile directory used in place, whose identity fixes
 /// `browser.locale` and `browser.timezone_id` (ADRs 0021, 0056 and 0083).
 fn fixes_locale_and_timezone(source: &Value) -> bool {
-    matches!(
-        source.get("kind").and_then(Value::as_str),
-        Some("state_file" | "cookie_header" | "installed_browser" | "profile_directory")
-    )
+    source
+        .get("kind")
+        .and_then(Value::as_str)
+        .is_some_and(SessionSource::kind_carries_an_identity)
 }
 
 /// An inherited `browser.locale` yields to an imported login or a Profile

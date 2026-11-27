@@ -21,26 +21,13 @@ use goodfetch_test_support::{ProvingGround, TestEnv, browser_cache, cli};
 use serde_json::{Value, json};
 
 use crate::COLLIE;
-use crate::page::{opened, started};
+use crate::page::{eval, opened, started};
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 3289;
 
 fn open_session(engine: &mut goodfetch_test_client::Attached, id: i64, params: &Value) -> Value {
     engine.ask(id, "run.new_session", params)
-}
-
-fn eval(engine: &mut goodfetch_test_client::Attached, id: i64, page_id: &str, expr: &str) -> Value {
-    let answer = engine.ask(
-        id,
-        "page.evaluate",
-        &json!({ "page_id": page_id, "function": expr }),
-    );
-    assert!(
-        answer.get("error").is_none(),
-        "page.evaluate failed: {answer}"
-    );
-    answer["result"]["value"].clone()
 }
 
 fn assert_setting_error(answer: &Value, code: &str, key: &str) {
@@ -77,22 +64,12 @@ fn open_session_page_at(
     page.page_id.0
 }
 
-/// Settings conformance cases, the `browser.*` lines: setting `browser.*`
-/// or `network.throttle` on a page's own call fails with
-/// `setting_not_applicable`; setting `browser.*` where a Borrowed browser's
-/// Session opens fails with `setting_not_applicable`; an explicit
-/// `browser.locale` where an imported-login Session opens fails with
-/// `setting_locked` naming `session.source`, while an inherited one yields
-/// in `config explain`.
+/// An inherited `browser.locale` yields to an imported login in `config explain`.
 ///
-/// Covers: story:5-59, setting:browser.viewport, setting:browser.locale, setting:network.throttle, error:setting_not_applicable, error:setting_locked
+/// Covers: story:5-59, setting:browser.locale
 #[test]
-fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding() {
+fn inherited_locale_yields_to_imported_login_in_config_explain() {
     let env = TestEnv::new();
-    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
-    let cache = browser_cache(&env).unwrap();
-
-    // Inherited `browser.locale` yields to an imported login in `config explain`.
     env.user_configuration(
         "[settings.browser]\n\
          locale = \"fr-FR\"\n\
@@ -112,9 +89,21 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
         json!("session.source"),
         "{explained_json}"
     );
+}
 
-    // Clear user config for the live engine scope tests.
+/// Settings conformance cases, the `browser.*` lines: setting `browser.*`
+/// or `network.throttle` on a page's own call fails with
+/// `setting_not_applicable`; setting them where a Borrowed browser's
+/// Session opens fails with `setting_not_applicable`; an explicit
+/// `browser.locale` where an imported-login Session opens fails with
+/// `setting_locked` naming `session.source`.
+///
+/// Covers: story:5-59, setting:browser.viewport, setting:browser.locale, setting:network.throttle, error:setting_not_applicable, error:setting_locked
+#[test]
+fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_locking() {
     let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
     let mut engine = started(&env, &cache, &proving_ground, "scopes");
 
     // 1. `browser.viewport` on `run.new_page` fails with `setting_not_applicable`.
@@ -152,8 +141,8 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
     );
     assert_setting_error(&page_throttle, "setting_not_applicable", "network.throttle");
 
-    // 3. `browser.viewport` set where a Borrowed browser's Session opens fails with `setting_not_applicable`.
-    let borrowed = open_session(
+    // 3. `browser.viewport` and `network.throttle` on a Borrowed browser Session fail with `setting_not_applicable`.
+    let borrowed_viewport = open_session(
         &mut engine,
         6,
         &json!({
@@ -162,12 +151,31 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
             "settings": { "browser": { "viewport": { "width": 800, "height": 600 } } }
         }),
     );
-    assert_setting_error(&borrowed, "setting_not_applicable", "browser.viewport");
+    assert_setting_error(
+        &borrowed_viewport,
+        "setting_not_applicable",
+        "browser.viewport",
+    );
+
+    let borrowed_throttle = open_session(
+        &mut engine,
+        7,
+        &json!({
+            "run_id": "scopes",
+            "source": { "kind": "cdp_url", "url": "http://127.0.0.1:9222" },
+            "settings": { "network": { "throttle": { "latency": 150 } } }
+        }),
+    );
+    assert_setting_error(
+        &borrowed_throttle,
+        "setting_not_applicable",
+        "network.throttle",
+    );
 
     // 4. `browser.locale` set where an imported-login Session opens fails with `setting_locked` naming `session.source`.
     let locked = open_session(
         &mut engine,
-        7,
+        8,
         &json!({
             "run_id": "scopes",
             "source": { "kind": "state_file", "path": "login.json" },
@@ -181,7 +189,7 @@ fn browser_settings_enforce_session_scope_borrowed_refusal_and_import_yielding()
         "{locked}"
     );
 
-    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "scopes" }));
+    let _ = engine.ask(9, "run.finish", &json!({ "run_id": "scopes" }));
     let (_, exited) = engine.finish();
     assert!(exited);
 }
@@ -319,10 +327,9 @@ fn assert_mobile_emulated_layout(engine: &mut goodfetch_test_client::Attached, l
 /// `browser.viewport` 375x812 with `browser.has_touch: true`,
 /// `device_scale_factor: 2`, `is_mobile: true`, `color_scheme: dark`,
 /// `locale: fr-FR` and `timezone_id: Asia/Tokyo`, it renders mobile
-/// (`narrow`) markup with all overrides observed. With
-/// `browser.java_script_enabled: false`, page scripts do not execute.
+/// (`narrow`) markup with all overrides observed.
 ///
-/// Covers: story:5-59, setting:browser.viewport, setting:browser.has_touch, setting:browser.device_scale_factor, setting:browser.is_mobile, setting:browser.color_scheme, setting:browser.locale, setting:browser.timezone_id, setting:browser.java_script_enabled
+/// Covers: story:5-59, setting:browser.viewport, setting:browser.has_touch, setting:browser.device_scale_factor, setting:browser.is_mobile, setting:browser.color_scheme, setting:browser.locale, setting:browser.timezone_id
 #[test]
 fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_desktop_under_default() {
     let env = TestEnv::new();
@@ -334,20 +341,34 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
     assert_desktop_default_layout(&mut engine, &layout_url);
     assert_mobile_emulated_layout(&mut engine, &layout_url);
 
-    // JS disabled Session: page script (`keys.js`, which sets `dataset.posting = "0"`) does not run.
+    let _ = engine.ask(9, "run.finish", &json!({ "run_id": "b18" }));
+    let (_, exited) = engine.finish();
+    assert!(exited);
+}
+
+/// With `browser.java_script_enabled: false`, page scripts do not execute.
+///
+/// Covers: story:5-59, setting:browser.java_script_enabled
+#[test]
+fn java_script_disabled_session_stops_page_scripts() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "no-js");
+
     let keys_url = proving_ground.url("1.keys.test", "/type");
     let no_js_page_id = open_session_page_at(
         &mut engine,
-        9,
+        2,
         &json!({
-            "run_id": "b18",
+            "run_id": "no-js",
             "settings": { "browser": { "java_script_enabled": false } }
         }),
         &keys_url,
     );
     let posting = eval(
         &mut engine,
-        12,
+        5,
         &no_js_page_id,
         "() => document.documentElement.dataset.posting ?? null",
     );
@@ -357,30 +378,27 @@ fn b18_responsive_layout_reads_mobile_markup_under_375x812_with_touch_and_deskto
         "page script ran despite java_script_enabled: false"
     );
 
-    let _ = engine.ask(13, "run.finish", &json!({ "run_id": "b18" }));
+    let _ = engine.ask(6, "run.finish", &json!({ "run_id": "no-js" }));
     let (_, exited) = engine.finish();
     assert!(exited);
 }
 
-/// `network.throttle` slows the Proving ground's page on Chromium;
 /// `browser.is_mobile` and `network.throttle` outside Chromium raise
 /// `capability_unavailable`.
 ///
-/// Covers: story:5-59, setting:network.throttle, setting:browser.is_mobile, error:capability_unavailable
+/// Covers: story:5-59, setting:browser.is_mobile, setting:network.throttle, error:capability_unavailable
 #[test]
-fn network_throttle_slows_chromium_and_chromium_only_settings_refuse_other_browsers() {
+fn chromium_only_settings_raise_capability_unavailable_outside_chromium() {
     let env = TestEnv::new();
     let proving_ground = ProvingGround::start(&env, SEED).unwrap();
     let cache = browser_cache(&env).unwrap();
-    let mut engine = started(&env, &cache, &proving_ground, "throttle");
-    let url = proving_ground.url("1.responsive.test", "/layout");
+    let mut engine = started(&env, &cache, &proving_ground, "non-chromium");
 
-    // Non-Chromium capability checks.
     let firefox_mobile = open_session(
         &mut engine,
         2,
         &json!({
-            "run_id": "throttle",
+            "run_id": "non-chromium",
             "source": {
                 "kind": "profile_directory",
                 "path": "/tmp/firefox-profile",
@@ -390,20 +408,17 @@ fn network_throttle_slows_chromium_and_chromium_only_settings_refuse_other_brows
             "settings": { "browser": { "is_mobile": true } }
         }),
     );
-    assert_eq!(
-        (
-            firefox_mobile["error"]["data"]["code"].clone(),
-            firefox_mobile["error"]["data"]["key"].clone(),
-        ),
-        (json!("capability_unavailable"), json!("browser.is_mobile")),
-        "{firefox_mobile}"
+    assert_setting_error(
+        &firefox_mobile,
+        "capability_unavailable",
+        "browser.is_mobile",
     );
 
     let webkit_throttle = open_session(
         &mut engine,
         3,
         &json!({
-            "run_id": "throttle",
+            "run_id": "non-chromium",
             "source": {
                 "kind": "installed_browser",
                 "browser": "safari",
@@ -412,26 +427,39 @@ fn network_throttle_slows_chromium_and_chromium_only_settings_refuse_other_brows
             "settings": { "network": { "throttle": { "latency": 200 } } }
         }),
     );
-    assert_eq!(
-        (
-            webkit_throttle["error"]["data"]["code"].clone(),
-            webkit_throttle["error"]["data"]["key"].clone(),
-        ),
-        (json!("capability_unavailable"), json!("network.throttle")),
-        "{webkit_throttle}"
+    assert_setting_error(
+        &webkit_throttle,
+        "capability_unavailable",
+        "network.throttle",
     );
 
+    let _ = engine.ask(4, "run.finish", &json!({ "run_id": "non-chromium" }));
+    let (_, exited) = engine.finish();
+    assert!(exited);
+}
+
+/// `network.throttle` slows the Proving ground's page on Chromium.
+///
+/// Covers: story:5-59, setting:network.throttle
+#[test]
+fn network_throttle_slows_proving_ground_navigation_on_chromium() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut engine = started(&env, &cache, &proving_ground, "throttle");
+    let url = proving_ground.url("1.responsive.test", "/layout");
+
     // Unthrottled warm baseline on Chromium.
-    let fast_page = opened(&engine.ask(4, "run.new_page", &json!({ "run_id": "throttle" })));
+    let fast_page = opened(&engine.ask(2, "run.new_page", &json!({ "run_id": "throttle" })));
     let warm = engine.ask(
-        5,
+        3,
         "page.goto",
         &json!({ "page_id": fast_page.page_id, "url": url }),
     );
     assert!(warm.get("error").is_none(), "{warm}");
     let t0 = Instant::now();
     let fast = engine.ask(
-        6,
+        4,
         "page.goto",
         &json!({ "page_id": fast_page.page_id, "url": url }),
     );
@@ -441,7 +469,7 @@ fn network_throttle_slows_chromium_and_chromium_only_settings_refuse_other_brows
     // Throttled Session on Chromium: 400 ms added latency slows the page.
     let slow_session_ans = open_session(
         &mut engine,
-        7,
+        5,
         &json!({
             "run_id": "throttle",
             "settings": {
@@ -454,13 +482,13 @@ fn network_throttle_slows_chromium_and_chromium_only_settings_refuse_other_brows
     let slow_session: SessionOpened = serde_json::from_value(slow_session_ans["result"].clone())
         .unwrap_or_else(|e| panic!("{e}: {slow_session_ans}"));
     let slow_page = opened(&engine.ask(
-        8,
+        6,
         "session.new_page",
         &json!({ "session_id": slow_session.session_id }),
     ));
     let t1 = Instant::now();
     let slow = engine.ask(
-        9,
+        7,
         "page.goto",
         &json!({ "page_id": slow_page.page_id, "url": url }),
     );
@@ -472,7 +500,7 @@ fn network_throttle_slows_chromium_and_chromium_only_settings_refuse_other_brows
         "expected throttled navigation ({slow_elapsed:?}) to be at least 350ms and slower than unthrottled ({fast_elapsed:?})"
     );
 
-    let _ = engine.ask(10, "run.finish", &json!({ "run_id": "throttle" }));
+    let _ = engine.ask(8, "run.finish", &json!({ "run_id": "throttle" }));
     let (_, exited) = engine.finish();
     assert!(exited);
 }

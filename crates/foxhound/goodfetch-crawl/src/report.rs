@@ -29,26 +29,33 @@ use rusqlite::{Connection, OptionalExtension as _};
 /// The crawl's part of its Run's report.
 pub(crate) struct CrawlParts;
 
+/// Applies the crawl's fact-only Verdict rule for weakened settings (ADR 0029):
+/// switching off `fetch.block_classification` removes a check the crawl's
+/// results rely on, whether or not the Run's end was written.
+fn apply_weakened_verdict(report: &mut RunReport) {
+    if report
+        .weakened
+        .iter()
+        .any(|setting| setting.key == FETCH_BLOCK_CLASSIFICATION.name)
+    {
+        report.needs_review(AxisReason {
+            code: FETCH_BLOCK_CLASSIFICATION.name.to_owned(),
+            message: format!(
+                "`{}` was switched off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the results.",
+                FETCH_BLOCK_CLASSIFICATION.name
+            ),
+            count: None,
+            call_id: None,
+        });
+    }
+}
+
 impl ReportPart for CrawlParts {
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()> {
         if !run_row::is_of_kind(connection, RunKind::Crawl)? {
             return Ok(());
         }
-        if report
-            .weakened
-            .iter()
-            .any(|setting| setting.key == FETCH_BLOCK_CLASSIFICATION.name)
-        {
-            report.needs_review(AxisReason {
-                code: FETCH_BLOCK_CLASSIFICATION.name.to_owned(),
-                message: format!(
-                    "`{}` was switched off: no document was read for a Challenge or a captcha, so a page a site blocked may be among the results.",
-                    FETCH_BLOCK_CLASSIFICATION.name
-                ),
-                count: None,
-                call_id: None,
-            });
-        }
+        apply_weakened_verdict(report);
         let (requests, records) = ended(connection)?;
         report.kind_parts.insert(
             "requests".to_owned(),
@@ -79,6 +86,12 @@ impl ReportPart for CrawlParts {
             });
         }
         Ok(())
+    }
+
+    fn fill_without_state(&self, kind: RunKind, report: &mut RunReport) {
+        if kind == RunKind::Crawl {
+            apply_weakened_verdict(report);
+        }
     }
 }
 

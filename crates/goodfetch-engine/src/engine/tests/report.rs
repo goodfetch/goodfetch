@@ -1086,3 +1086,60 @@ fn a_priced_part_charges_its_amount_and_its_price_together_or_neither() {
         )
     );
 }
+
+/// Issue 2549: a Run of any kind whose end cannot be written (a non-storage
+/// error) does not claim `verified`; its reason says the end was not written.
+#[test]
+fn an_unwritten_run_does_not_claim_verified() {
+    let env = TestEnv::new();
+    let run_file = run_folder(&env, "fenced-end").join("run.sqlite");
+    let engine = engine_with(Product::Collie, None);
+    let finished = super::attached_with(
+        &engine,
+        || {
+            let mut deps = super::dependencies(&env);
+            deps.run_state.durability = crate::run_state::Durability::FULL;
+            deps
+        },
+        async move |mut client| {
+            client.send(&[hello("collie", "0.1")]).await;
+            let _ = client.next().await.unwrap();
+            let _ = call(
+                &mut client,
+                1,
+                "run.start",
+                json!({
+                    "run_id": "fenced-end",
+                    "settings": { "run_state": { "durability": "full" } },
+                }),
+            )
+            .await;
+            let conn = Connection::open(&run_file).unwrap();
+            conn.execute("UPDATE run SET epoch = epoch + 1", [])
+                .unwrap();
+            drop(conn);
+            call(
+                &mut client,
+                2,
+                "run.finish",
+                json!({ "run_id": "fenced-end" }),
+            )
+            .await
+        },
+    );
+
+    let report = &finished["result"];
+    let reason_codes: Vec<&str> = report["verdict_reasons"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|reason| reason["code"].as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        (&report["verdict"], reason_codes),
+        (&json!("needs_review"), vec!["end_not_written"]),
+        "{report}"
+    );
+}

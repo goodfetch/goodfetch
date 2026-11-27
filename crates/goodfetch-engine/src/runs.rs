@@ -4673,6 +4673,7 @@ impl Registry {
         });
         let closing = Closing {
             run,
+            kind: live.kind,
             writer: Arc::clone(&live.writer),
             lock: Arc::clone(&live.lock),
             started_at: live.started_at,
@@ -5432,6 +5433,7 @@ fn kept_settings(run: &LiveRun) -> Option<Vec<ExplainedSetting>> {
 /// A Run on its way to its end.
 struct Closing {
     run: LiveRun,
+    kind: RunKind,
     writer: Arc<TaskOwner>,
     lock: Arc<File>,
     started_at: SystemTime,
@@ -5467,6 +5469,7 @@ impl Closing {
     async fn end(self) -> Ended {
         let Self {
             run,
+            kind,
             writer,
             lock,
             started_at,
@@ -5497,8 +5500,10 @@ impl Closing {
         };
         let limits = run.shared.charging.give_back(&writer).await;
         exceptions_used(&run, clock).await;
+        let (run_id, folder) = (run.identity.id().clone(), run.identity.folder().to_owned());
         let facts = EndFacts {
-            run_id: run.identity.id().clone(),
+            run_id: run_id.clone(),
+            kind,
             lifecycle,
             stop_reason,
             started_at,
@@ -5511,13 +5516,9 @@ impl Closing {
             error,
             finished,
         };
-        let state = run.state.clone();
-        let (run_id, folder) = (run.identity.id().clone(), run.identity.folder().to_owned());
-        // The Run's values stay in the engine's masks until its report,
-        // which its error and warnings may hold, is masked and kept.
-        let mask = run.shared.keys.secrets().mask().clone();
+        let (state, mask) = (run.state.clone(), run.shared.keys.secrets().mask().clone());
         drop(run);
-        let bare = report::masked(facts.bare(), mask.masks());
+        let unwritten = report::masked(report::unwritten(&facts, &parts), mask.masks());
         let ended = state
             .write_last(move |connection| {
                 let report =
@@ -5527,7 +5528,7 @@ impl Closing {
             })
             .await;
         let written = ended.is_ok();
-        // A report its run file holds, or the bare one, the only one there is.
+        // A report its run file holds, or the unwritten one, never claiming verified beyond its facts.
         let (mut report, kept): (_, fn(Box<RunReport>) -> Ended) = match ended {
             Ok(report) => (report, Ended::Report),
             Err(RunStateError::Storage { message, .. }) => {
@@ -5540,7 +5541,7 @@ impl Closing {
             }
             Err(error) => {
                 tracing::warn!(%error, "the Run's end was not written to its run state");
-                (bare, Ended::Unwritten)
+                (unwritten, Ended::Unwritten)
             }
         };
         report.checkpoint = last_checkpoint;

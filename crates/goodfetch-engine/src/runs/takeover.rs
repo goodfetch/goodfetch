@@ -235,6 +235,7 @@ impl TakeOver {
             .map_err(|error| self.unavailable(&error))?;
         let facts = EndFacts {
             run_id: self.run_id.clone(),
+            kind: recorded.kind,
             lifecycle,
             stop_reason: Some(self.by.reason()),
             started_at: recorded.started_at,

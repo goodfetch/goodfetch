@@ -17,8 +17,8 @@ use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunReport, RunUsage, RunWarning, StopReason,
-    UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunKind, RunReport, RunUsage, RunWarning,
+    StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -35,6 +35,11 @@ use crate::run_state::{RunState, RunStateError, Syncing};
 /// named here since every Run's report carries them (ADR 0101).
 const PAID_FETCH: &str = "paid_fetch";
 
+/// The Verdict reason code when a Run's end could not be written to its run
+/// state (for a non-storage error), so state-dependent checks were not read
+/// (ADR 0029, issue 2549).
+pub(super) const END_NOT_WRITTEN: &str = "end_not_written";
+
 /// What an area adds to a Run's report when the Run ends (ADR 0102), such
 /// as a crawl's `requests` and `records`, the Plan's report or the Plugins
 /// that ran: given through its composition value, it reads the Run's
@@ -49,11 +54,17 @@ pub trait ReportPart: Send + Sync {
     /// When the Run's state cannot be read: the report then goes without
     /// this part, and the failure is logged.
     fn fill(&self, connection: &Connection, report: &mut RunReport) -> rusqlite::Result<()>;
+
+    /// Applies any Verdict rule that depends only on the end facts (such as
+    /// `weakened`) when the Run's end could not be written and its state was
+    /// not read (ADR 0029, issue 2549).
+    fn fill_without_state(&self, _kind: RunKind, _report: &mut RunReport) {}
 }
 
 /// What the engine knows of a Run's end beside its state.
 pub(super) struct EndFacts {
     pub(super) run_id: RunId,
+    pub(super) kind: RunKind,
     pub(super) lifecycle: Lifecycle,
     pub(super) stop_reason: Option<StopReason>,
     pub(super) started_at: SystemTime,
@@ -67,6 +78,26 @@ pub(super) struct EndFacts {
     /// Why a `finished` Run's driver found its results short of its scope,
     /// if it did (ADRs 0093, 0118 and 0120).
     pub(super) finished: Vec<CompletenessReason>,
+}
+
+/// The report answered when a Run's end could not be written to its run state
+/// for a non-storage reason (ADR 0029, issue 2549): runs each part's fact-only
+/// Verdict rules without reading run state, and never claims `verified`
+/// because state-dependent Verdict checks (such as uncertain Effects) were
+/// not read.
+pub(super) fn unwritten(facts: &EndFacts, parts: &[Arc<dyn ReportPart>]) -> RunReport {
+    let mut report = facts.bare();
+    for part in parts {
+        part.fill_without_state(facts.kind, &mut report);
+    }
+    report.needs_review(AxisReason {
+        code: END_NOT_WRITTEN.to_owned(),
+        message: "The Run's end was not written to its run state, so its state was not read to verify the Verdict."
+            .to_owned(),
+        count: None,
+        call_id: None,
+    });
+    report
 }
 
 /// The report of a Run that ended as `ended` says, from its state on

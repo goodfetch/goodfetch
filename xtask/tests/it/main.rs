@@ -125,6 +125,7 @@ mod release_line;
 mod release_package;
 mod release_publish;
 mod release_suite;
+mod release_workflow;
 mod repeat;
 mod rss;
 mod runtimes;

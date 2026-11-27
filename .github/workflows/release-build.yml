@@ -1,0 +1,467 @@
+# Release build and local rehearsal workflow (spec #130, issue 141; ADRs 0024,
+# 0032, 0033, 0039, 0049, 0069, 0074, 0090, 0094 and 0095).
+#
+# Fixed order:
+#   1. `proving-ground` builds `goodfetch-proving-ground` for all eight targets.
+#   2. `sign-proving-ground` reserves Platform signing (#142) and fixes
+#      `proving-ground-digests.json` before the executables build.
+#   3. `fetch-chromium` verifies the committed Goodfetch Chromium manifest's
+#      input tree hashes and attestations and fetches by digest (never builds).
+#   4. `build-targets` builds both Products' executables in one job per target
+#      (Collie first, then Foxhound) plus shared helpers and first-party
+#      Plugins once; Linux musl uses static-PIE + DT_RELR + PGO via
+#      `ci/musl/cargo`.
+#   5. `sign-artifacts` reserves the Platform signing place (#142) between
+#      build and digests.
+#   6. `package-and-digests` packages archives, split debug symbols, SBOMs,
+#      npm root and platform packages, `py3-none` platform wheels, shared
+#      default OCI images, first-party Plugin multi-platform OCI layouts,
+#      `SHA256SUMS` and crate digest tables.
+#   7. `rehearse-{linux,windows,macos}` publishes to local stand-ins and runs
+#      ADR 0069's installed-package checks for both Products.
+name: release-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Product version to package for rehearsal (semver)"
+        required: false
+        default: "0.0.0-dev.0"
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Product version to build and package (semver)"
+        required: true
+        type: string
+  push:
+    branches:
+      - "release/*"
+
+permissions: {}
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  proving-ground:
+    name: "proving-ground (${{ matrix.target }})"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: ${{ matrix.target }}
+      - name: Install musl static-PIE toolchain
+        if: endsWith(matrix.target, '-linux-musl')
+        run: ci/musl/install.sh
+      - name: Build the Proving ground binary
+        env:
+          TARGET: ${{ matrix.target }}
+        run: ci/release/build-proving-ground.sh "$TARGET" target/proving-ground-out
+      - name: Scan Proving ground artifact for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/proving-ground-out
+      - name: Upload Proving ground binary
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-${{ matrix.target }}
+          path: target/proving-ground-out
+          if-no-files-found: error
+
+  sign-proving-ground:
+    name: sign-proving-ground
+    needs: [proving-ground]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Download built Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: proving-ground-*
+          merge-multiple: true
+          path: target/proving-ground-signed
+      # Platform signing of macOS and Windows Proving ground binaries plugs in
+      # right before `proving-ground-digests` in issue 142.
+      - name: Fix Proving ground digests before executables build
+        run: |
+          cargo run --quiet --locked --bin xtask -- release proving-ground-digests \
+            --binaries target/proving-ground-signed \
+            --out target/proving-ground-signed/proving-ground-digests.json
+      - name: Scan signed Proving ground artifacts for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/proving-ground-signed
+      - name: Upload signed Proving ground binaries and digest table
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proving-ground-digests
+          path: target/proving-ground-signed
+          if-no-files-found: error
+
+  fetch-chromium:
+    name: fetch-chromium
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install xtask
+        uses: ./.github/actions/xtask # zizmor: ignore[self-repository] actionlint lacks the $/ form
+      - name: Fetch verified Goodfetch Chromium bundles and chromedriver by digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p target/chromium-fetched
+          cargo run --quiet --locked --bin xtask -- release fetch-chromium \
+            --out target/chromium-fetched
+      - name: Scan fetched Chromium directory for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/chromium-fetched
+      - name: Upload fetched Goodfetch Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chromium-fetched
+          path: target/chromium-fetched
+          if-no-files-found: ignore
+
+  build-targets:
+    name: "build (${{ matrix.target }})"
+    needs: [sign-proving-ground]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: x86_64-pc-windows-msvc
+            runner: windows-2025
+          - target: aarch64-pc-windows-msvc
+            runner: windows-11-arm
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: ${{ matrix.target }}
+      - name: Install musl static-PIE toolchain
+        if: endsWith(matrix.target, '-linux-musl')
+        run: ci/musl/install.sh
+      - name: Download fixed Proving ground digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/proving-ground-digests
+      - name: Build both Products' executables and shared helpers once
+        env:
+          TARGET: ${{ matrix.target }}
+          GOODFETCH_PROVING_GROUND_DIGESTS: target/proving-ground-digests/proving-ground-digests.json
+        run: ci/release/build-target.sh "$TARGET" target/built-binaries
+      - name: Scan built target artifacts for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/built-binaries
+      - name: Upload built target binaries and split debug symbols
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: built-${{ matrix.target }}
+          path: target/built-binaries
+          if-no-files-found: error
+
+  sign-artifacts:
+    name: sign-artifacts
+    needs: [build-targets, fetch-chromium]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download built target binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: built-*
+          merge-multiple: true
+          path: target/signed-binaries
+      - name: Download fetched Goodfetch Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chromium-fetched
+          path: target/signed-chromium
+      # Clear place between build and digests for issue 142's Platform signing
+      # jobs (macOS Developer ID + notarytool, Windows Azure Artifact Signing)
+      # and signed-bundle smoke. Rehearsal hands unsigned bytes straight through.
+      - name: Scan signed staging directory for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/signed-binaries target/signed-chromium
+      - name: Upload signed binaries
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-binaries
+          path: target/signed-binaries
+          if-no-files-found: error
+      - name: Upload signed Chromium assets
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: signed-chromium
+          path: target/signed-chromium
+          if-no-files-found: ignore
+
+  package-and-digests:
+    name: package-and-digests
+    needs: [sign-proving-ground, sign-artifacts]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains and tools
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Download signed binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-binaries
+          path: target/release-binaries
+      - name: Download signed Proving ground binaries
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: proving-ground-digests
+          path: target/release-binaries
+      - name: Download signed Chromium assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: signed-chromium
+          path: target/release-chromium
+      - name: Package archives, npm, py3-none wheels, Plugin OCI layouts and SHA256SUMS
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+        run: |
+          cargo run --quiet --locked --bin xtask -- release package \
+            --version "$RELEASE_VERSION" \
+            --binaries target/release-binaries \
+            --out target/release-packaged
+          if compgen -G "target/release-chromium/*" >/dev/null; then
+            cp target/release-chromium/* target/release-packaged/assets/
+          fi
+          cargo run --quiet --locked --bin xtask -- release assets \
+            --folder target/release-packaged/assets
+          cargo run --quiet --locked --bin xtask -- release digests \
+            --assets target/release-packaged/assets \
+            --version "$RELEASE_VERSION"
+      - name: Build default OCI image tags for both Products from one shared recipe
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+        run: |
+          mkdir -p target/oci-ctx/bin/amd64 target/oci-ctx/bin/arm64 target/release-packaged/oci/images
+          cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/amd64/goodfetch-collie
+          cp target/release-binaries/x86_64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/amd64/goodfetch-foxhound
+          cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-collie target/oci-ctx/bin/arm64/goodfetch-collie
+          cp target/release-binaries/aarch64-unknown-linux-musl/goodfetch-foxhound target/oci-ctx/bin/arm64/goodfetch-foxhound
+          for product in collie foxhound; do
+            docker buildx build \
+              --file packaging/oci/Containerfile \
+              --platform linux/amd64,linux/arm64 \
+              --build-arg "PRODUCT_EXECUTABLE=goodfetch-$product" \
+              --output "type=oci,dest=target/release-packaged/oci/images/$product-$RELEASE_VERSION.oci.tar" \
+              target/oci-ctx
+          done
+      - name: Scan packaged release outputs for secrets
+        id: leaks
+        if: always()
+        run: ci/leaks.sh target/release-packaged
+      - name: Upload packaged release outputs
+        if: always() && steps.leaks.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-packaged
+          path: target/release-packaged
+          if-no-files-found: error
+
+  rehearse-linux:
+    name: rehearse-linux
+    needs: [package-and-digests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-unknown-linux-gnu
+          runtimes: release-linux
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: rehearse publishing and installed-package runs on Linux"
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+        run: ci/egress/under-deny.sh ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  rehearse-windows:
+    name: rehearse-windows
+    needs: [package-and-digests]
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Keep LF line endings on checkout
+        run: git config --global core.autocrlf false
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: x86_64-pc-windows-msvc
+          runtimes: release-other
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: rehearse publishing and installed-package runs on Windows"
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+        run: ci/egress/under-deny.sh ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+
+  rehearse-macos:
+    name: rehearse-macos
+    needs: [package-and-digests]
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the toolchains, tools and runtimes
+        uses: ./.github/actions/host-tools # zizmor: ignore[self-repository] actionlint lacks the $/ form
+        with:
+          target: aarch64-apple-darwin
+          runtimes: release-other
+      - name: Download packaged release outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packaged
+          path: target/release-packaged
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: "Test: rehearse publishing and installed-package runs on macOS"
+        env:
+          RELEASE_VERSION: ${{ inputs.version || '0.0.0-dev.0' }}
+        run: ci/release/rehearse.sh --packaged target/release-packaged --version "$RELEASE_VERSION"

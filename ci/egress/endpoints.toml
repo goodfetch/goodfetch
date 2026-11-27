@@ -254,3 +254,41 @@ job = "live.yml#screen-reader-windows"
 [[outside]]
 job = "live.yml#screen-reader-macos"
 reason = "VoiceOver runs on macOS itself, where the runner's standard user has no deny (ADR 0043's amendment of 2026-11-22)."
+
+# The release build and local rehearsal workflow (issue 141; ADRs 0032, 0039,
+# 0074 and 0094). Build, signing, Chromium fetch and packaging jobs run none
+# of the product's tests; Linux and Windows rehearsals run under the deny, and
+# macOS outside it as the Release suite's macOS cells do.
+[[outside]]
+job = "release-build.yml#proving-ground"
+reason = "It compiles the Proving ground release binary and runs none of the product."
+
+[[outside]]
+job = "release-build.yml#sign-proving-ground"
+reason = "It reserves Platform signing and hashes the Proving ground binaries without running the product."
+
+[[outside]]
+job = "release-build.yml#fetch-chromium"
+reason = "It verifies Goodfetch Chromium attestations through GitHub and fetches pinned bundles by digest without running the product (ADR 0074)."
+
+[[outside]]
+job = "release-build.yml#build-targets"
+reason = "It compiles both Products' executables and shared helpers for each target and runs none of the product."
+
+[[outside]]
+job = "release-build.yml#sign-artifacts"
+reason = "It reserves Platform signing between build and digests and runs none of the product (ADR 0039)."
+
+[[outside]]
+job = "release-build.yml#package-and-digests"
+reason = "It packages archives, npm packages, Python wheels, OCI images and Plugin OCI layouts and computes digests without running the product."
+
+[[deny]]
+job = "release-build.yml#rehearse-linux"
+
+[[deny]]
+job = "release-build.yml#rehearse-windows"
+
+[[outside]]
+job = "release-build.yml#rehearse-macos"
+reason = "As the Release suite's macOS cells, which run outside the deny on macOS itself (ADR 0043's amendment of 2026-11-22)."

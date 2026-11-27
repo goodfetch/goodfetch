@@ -1,0 +1,133 @@
+# Manually dispatched Model recordings recorder (ADRs 0065 and 0076, issue 415).
+#
+# Recordings change only on cause and through a reviewed pull request, never on
+# a timer. Step 1 (`gate`) runs bench's shared live-gate (#413): when
+# `vars.GOODFETCH_LIVE_RECORDER` is unset, it exits cleanly with zero calls and
+# the `record` job is skipped; when enabled, it prints planned trials, models
+# and worst-case USD from `bench/live-ai-caps.json` and refuses to start above
+# the recorder's cap ($2). When enabled, `record` runs under ADR 0043's deny
+# reaching only `ai-gateway.vercel.sh:443`, scrubs exchanges via
+# `xtask recordings scrub`, verifies with `xtask recordings check`, scans
+# outputs with `ci/leaks.sh`, and opens a pull request with cells labelled
+# `via = "vercel-ai-gateway"`.
+#
+# Kept disabled in the repository's Actions settings until M4 (#425).
+name: record models
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Comma-separated Vercel AI Gateway free-tier models to record"
+        type: string
+        default: "openai/gpt-5.4-nano"
+      trials:
+        description: "Planned exchanges per model (worst-case cap check)"
+        type: string
+        default: "17"
+      cells:
+        description: "Optional cell filter (empty records all free-tier cells)"
+        type: string
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: record-models
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      enabled: ${{ steps.live-gate.outputs.enabled }}
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check repository variable and compute worst-case spend before any call
+        id: live-gate
+        env:
+          GOODFETCH_LIVE_RECORDER: ${{ vars.GOODFETCH_LIVE_RECORDER }}
+          RECORDER_MODELS: ${{ inputs.models }}
+          RECORDER_TRIALS: ${{ inputs.trials }}
+        run: |
+          set -euo pipefail
+          result=$(node bench/src/cli.ts live-gate \
+            --job recorder \
+            --models "$RECORDER_MODELS" \
+            --trials "$RECORDER_TRIALS" \
+            --max-input-tokens 4000 \
+            --max-output-tokens 1000)
+          echo "$result"
+          if echo "$result" | grep -q '"status":"disabled"'; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  record:
+    name: record
+    needs: gate
+    if: needs.gate.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools and dependencies
+        uses: ./.github/actions/host-tools
+        with:
+          target: x86_64-unknown-linux-gnu
+      - name: Build xtask before the deny
+        run: cargo build --quiet --locked --bin xtask
+      - name: Set up the OS services the tests use
+        run: ci/os-services.sh setup
+      - name: Deny outbound traffic
+        run: ci/egress/egress.sh deny
+      - name: Refuse the Egress canary
+        run: ci/egress/egress.sh canary
+      - name: "Test: record Model recordings via Vercel AI Gateway and check allowlist"
+        env:
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+          RECORDER_CELLS: ${{ inputs.cells }}
+          RECORDER_MODELS: ${{ inputs.models }}
+        run: >-
+          ci/egress/under-deny.sh bash -euo pipefail -c
+          'cargo run --quiet --locked --bin xtask -- recordings check'
+      - name: Check that the deny refused nothing else
+        if: always()
+        run: ci/egress/egress.sh check
+      - name: Scan changed recordings for secrets before opening a pull request
+        id: leaks
+        run: ci/leaks.sh test-support/fixtures/model-recordings.toml
+      - name: Open pull request with recording diff
+        if: steps.leaks.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No recording changes to open a pull request for."
+            exit 0
+          fi
+          branch="recordings/refresh-${GITHUB_RUN_ID}"
+          git checkout -b "$branch"
+          git add -A
+          git commit -s -m "chore(recordings): refresh Model recordings via Vercel AI Gateway"
+          git push origin "HEAD:${branch}"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(recordings): refresh Model recordings via Vercel AI Gateway" \
+            --body "Recorded through the Vercel AI Gateway free tier (cells labelled \`via = \"vercel-ai-gateway\"\`) and verified with \`xtask recordings check\`. When committing the first real recording, add \`assert!(!files.is_empty(), \"no committed Model recording\")\` to \`the_fake_model_keeps_the_shape_of_every_committed_model_recording\` in \`proving-ground/tests/it/model_recordings.rs\` (issue 415)."

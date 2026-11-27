@@ -250,6 +250,15 @@ job = "live.yml#provider"
 exception = "model"
 endpoints = ["ai-gateway.vercel.sh:443"]
 
+[[outside]]
+job = "record-models.yml#gate"
+reason = "Runs bench's live-gate check on repository variable and worst-case USD from committed bench/live-ai-caps.json; makes zero network calls and runs none of the product (ADR 0065, #415)."
+
+[[named]]
+job = "record-models.yml#record"
+exception = "model"
+endpoints = ["ai-gateway.vercel.sh:443"]
+
 # ADR 0073's screen reader: under the deny on Windows, outside it on macOS
 # as the Release suite's macOS cells.
 [[deny]]

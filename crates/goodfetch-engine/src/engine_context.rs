@@ -37,6 +37,7 @@ use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::{Resolved, Settings};
+use crate::signed_set::TrustRoot;
 use crate::sync::Mutex;
 use crate::tasks::TaskOwner;
 use crate::user_store::{UserStore, UserStoreKind};
@@ -139,6 +140,9 @@ pub(crate) struct Host {
     /// What forwards the calls the major's Daemon keeps to it: an
     /// Attached engine's that can start its Daemon; none on a Daemon.
     pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
+    /// The trust root verifying signed Plugin index updates and offline
+    /// imports (bundled in production, injected as a value in tests, ADR 0059).
+    pub(crate) plugin_index_trust_root: TrustRoot,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -239,6 +243,7 @@ struct Held {
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
+    plugin_index_trust_root: TrustRoot,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -276,6 +281,7 @@ impl EngineContext {
             entropy,
             places,
             daemon,
+            plugin_index_trust_root,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -292,8 +298,16 @@ impl EngineContext {
                 entropy: Mutex::new(entropy),
                 places: places.map(Arc::new),
                 daemon,
+                plugin_index_trust_root,
             }),
         }
+    }
+
+    /// The trust root used to verify signed Plugin indexes (bundled with the
+    /// release or injected in tests, ADR 0059).
+    #[must_use]
+    pub fn plugin_index_trust_root(&self) -> &TrustRoot {
+        &self.held.plugin_index_trust_root
     }
 
     /// The Goodfetch home the engine runs in.

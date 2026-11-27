@@ -241,3 +241,87 @@ fn plugin_add_shows_everything_granted_before_writing_the_approval(
         "{shown}"
     );
 }
+
+/// `plugin search --json` prints kinds, signer identity and conformance
+/// results from the cached Plugin index, and `plugin index import --json` is
+/// refused with `person_required` (exit 4) naming `plugin index import`.
+///
+/// Covers: story:7-1, story:7-9, command:plugin.search, command:plugin.index_import
+#[test]
+fn plugin_search_lists_index_and_index_import_requires_a_person() {
+    let env = TestEnv::new();
+    let index_dir = env.home().join("plugin-index");
+    std::fs::create_dir_all(&index_dir).unwrap();
+    let fixture = json!({
+        "payload": {
+            "version": 3,
+            "signed_at": "2026-11-27T00:00:00Z",
+            "expires_at": "2099-12-31T00:00:00Z",
+            "plugins": [{
+                "name": "kettle",
+                "reference": "ghcr.io/vendor/goodfetch-plugin-kettle",
+                "digest": DIGEST,
+                "kinds": ["extract"],
+                "signer": {
+                    "issuer": "https://token.actions.githubusercontent.com",
+                    "workflow": "https://github.com/vendor/kettle/.github/workflows/release.yml@refs/tags/v1.0.0",
+                    "repository": "github.com/vendor/kettle",
+                },
+                "origin": "third_party",
+                "conformance": [{
+                    "suite": "extract",
+                    "passed": true,
+                    "engine_version": "0.1.0",
+                }],
+            }],
+            "revocations": [],
+        },
+        "bundle": {
+            "key_id": "test-key",
+            "issuer": "https://token.actions.githubusercontent.com",
+            "workflow": "https://github.com/goodfetch/goodfetch/.github/workflows/plugin-index.yml@refs/heads/main",
+            "signature": "AAAA",
+        },
+    });
+    std::fs::write(index_dir.join("index.json"), fixture.to_string()).unwrap();
+
+    // `plugin search --json` lists kinds, signer and conformance results.
+    let search = cli(&env, COLLIE)
+        .args(["plugin", "search", "--json"])
+        .run()
+        .unwrap();
+    assert_eq!(search.exit, Some(0), "stderr: {}", search.stderr);
+    let body: Value = serde_json::from_str(&search.stdout).unwrap();
+    assert_eq!(body["index_version"], json!(3));
+    assert_eq!(body["plugins"][0]["name"], json!("kettle"));
+    assert_eq!(body["plugins"][0]["kinds"], json!(["extract"]));
+    assert_eq!(
+        body["plugins"][0]["signer"]["repository"],
+        json!("github.com/vendor/kettle")
+    );
+    assert_eq!(body["plugins"][0]["conformance"][0]["passed"], json!(true));
+
+    // `plugin index import <file> --json` refuses with `person_required`, exit 4.
+    let index_file = env.folder().join("signed-index.json");
+    std::fs::write(&index_file, fixture.to_string()).unwrap();
+    let import = cli(&env, COLLIE)
+        .args([
+            "plugin",
+            "index",
+            "import",
+            index_file.to_str().unwrap(),
+            "--json",
+        ])
+        .run()
+        .unwrap();
+    assert_eq!(import.exit, Some(4));
+    let failed: Value = serde_json::from_str(&import.stdout).unwrap();
+    assert_eq!(failed["error"]["code"], json!("person_required"));
+    let fix = failed["error"]["details"]["fix"]
+        .as_str()
+        .or_else(|| failed["error"]["fix"].as_str());
+    assert!(
+        fix.is_some_and(|text| text.contains("plugin index import")),
+        "{failed}"
+    );
+}

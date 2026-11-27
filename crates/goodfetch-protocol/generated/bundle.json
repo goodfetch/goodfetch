@@ -3168,6 +3168,33 @@
       ],
       "type": "object"
     },
+    "ConformanceResult": {
+      "additionalProperties": false,
+      "description": "One conformance suite outcome recorded for a Plugin in the index.",
+      "properties": {
+        "engine_version": {
+          "arrived_in": "0.1",
+          "description": "The engine version the suite ran against.",
+          "type": "string"
+        },
+        "passed": {
+          "arrived_in": "0.1",
+          "description": "Whether the Plugin passed the suite.",
+          "type": "boolean"
+        },
+        "suite": {
+          "arrived_in": "0.1",
+          "description": "The conformance suite name, such as `extract`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "suite",
+        "passed",
+        "engine_version"
+      ],
+      "type": "object"
+    },
     "ConnectionOverloadedDetails": {
       "description": "What `connection_overloaded` names: the Connection's own bound the call\nwould pass, and its value. The Client raises it, never the engine.",
       "properties": {
@@ -9915,6 +9942,63 @@
       ],
       "type": "object"
     },
+    "IndexEntry": {
+      "additionalProperties": false,
+      "description": "One Plugin listed in the Plugin index (ADR 0033).",
+      "properties": {
+        "conformance": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "The conformance suite results CI recorded for this release.",
+          "items": {
+            "$ref": "#/$defs/ConformanceResult"
+          },
+          "type": "array"
+        },
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The digest of its latest multi-platform OCI image index,\n`sha256:<hex>`.",
+          "type": "string"
+        },
+        "kinds": {
+          "arrived_in": "0.1",
+          "description": "The Plugin kinds it implements.",
+          "items": {
+            "$ref": "#/$defs/PluginKindName"
+          },
+          "type": "array"
+        },
+        "name": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin",
+          "arrived_in": "0.1",
+          "default": "third_party",
+          "description": "Whether it is first-party, third-party or a Private component."
+        },
+        "reference": {
+          "arrived_in": "0.1",
+          "description": "Its OCI reference without digest, such as\n`ghcr.io/goodfetch/plugins/kettle`.",
+          "type": "string"
+        },
+        "signer": {
+          "$ref": "#/$defs/SignerIdentity",
+          "arrived_in": "0.1",
+          "description": "The repository and CI workflow identity expected to sign its\nprovenance attestation."
+        }
+      },
+      "required": [
+        "name",
+        "reference",
+        "digest",
+        "kinds",
+        "signer"
+      ],
+      "type": "object"
+    },
     "IndexRefusalReason": {
       "description": "Why a Plugin index was refused or blocked third-party loading.",
       "oneOf": [
@@ -15752,6 +15836,26 @@
         }
       ]
     },
+    "Origin": {
+      "description": "Where a Plugin comes from, which sets whether it loads by default (ADRs\n0033 and 0035).",
+      "oneOf": [
+        {
+          "const": "first_party",
+          "description": "Shipped in the engine's own release: allowed by default.",
+          "type": "string"
+        },
+        {
+          "const": "third_party",
+          "description": "Anyone else's: loads only when the Operator policy allows it.",
+          "type": "string"
+        },
+        {
+          "const": "private",
+          "description": "A Private component, which is never first-party: loads only when the\nOperator policy allows it.",
+          "type": "string"
+        }
+      ]
+    },
     "Outcome": {
       "description": "A capability's outcome (ADR 0033).",
       "oneOf": [
@@ -18205,6 +18309,116 @@
       ],
       "type": "object"
     },
+    "PluginIndex": {
+      "additionalProperties": false,
+      "description": "The Plugin index document (`plugin-index/index.json`, ADRs 0033, 0052\nand 0066): no `major.minor` format version, carrying only its monotonic\nfreshness `version`, signing and expiry timestamps, listed Plugins and\nrevocation list.",
+      "properties": {
+        "expires_at": {
+          "arrived_in": "0.1",
+          "description": "When this index expires (14 days after signing), in RFC 3339.",
+          "type": "string"
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "The Plugins currently listed in the index. Delisting removes an entry\nhere without adding it to `revocations`.",
+          "items": {
+            "$ref": "#/$defs/IndexEntry"
+          },
+          "type": "array"
+        },
+        "revocations": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "Revoked digests and signer identities.",
+          "items": {
+            "$ref": "#/$defs/Revocation"
+          },
+          "type": "array"
+        },
+        "signed_at": {
+          "arrived_in": "0.1",
+          "description": "When CI signed this index, in RFC 3339.",
+          "type": "string"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "Monotonic freshness version: an index with an older version than the\nlast seen is refused as stale.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "signed_at",
+        "expires_at"
+      ],
+      "type": "object"
+    },
+    "PluginIndexImportParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.index_import` takes (ADR 0033, issue 919).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "bundle": {
+          "$ref": "#/$defs/SignedBundle",
+          "arrived_in": "0.1",
+          "description": "The signed Plugin index bundle to verify offline against the release's\ntrust root and persist in the Goodfetch home."
+        }
+      },
+      "required": [
+        "bundle"
+      ],
+      "type": "object"
+    },
+    "PluginIndexImported": {
+      "description": "What `plugin.index_import` answers once the signed Plugin index is\nverified offline, persisted and recorded in the Audit log (ADR 0033,\nissue 919).",
+      "properties": {
+        "expires_at": {
+          "arrived_in": "0.1",
+          "description": "When the index expires, in RFC 3339.",
+          "type": "string"
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "description": "Number of Plugins listed in the imported index.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revocations": {
+          "arrived_in": "0.1",
+          "description": "Number of revocation entries in the imported index.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signed_at": {
+          "arrived_in": "0.1",
+          "description": "When CI signed the index, in RFC 3339.",
+          "type": "string"
+        },
+        "version": {
+          "arrived_in": "0.1",
+          "description": "The accepted index's monotonic freshness version.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "signed_at",
+        "expires_at",
+        "plugins",
+        "revocations"
+      ],
+      "type": "object"
+    },
     "PluginIndexStaleDetails": {
       "description": "What `plugin_index_stale` details.",
       "properties": {
@@ -18687,6 +18901,75 @@
         "name",
         "network_level"
       ],
+      "type": "object"
+    },
+    "PluginSearchParams": {
+      "additionalProperties": false,
+      "description": "What `plugin.search` takes (ADR 0033, issue 919).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginKindName"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "Optional filter restricting results to Plugins implementing this kind."
+        },
+        "query": {
+          "arrived_in": "0.1",
+          "description": "Optional case-insensitive text query matching a Plugin's name, kinds\nor signer identity; omitted lists every Plugin in the index.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PluginSearchResult": {
+      "description": "What `plugin.search` answers (ADR 0033, issue 919).",
+      "properties": {
+        "expired": {
+          "arrived_in": "0.1",
+          "description": "Whether the cached Plugin index is past its expiry at the query\ninstant.",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "arrived_in": "0.1",
+          "description": "RFC 3339 expiry timestamp of the cached Plugin index, when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index_version": {
+          "arrived_in": "0.1",
+          "description": "Freshness version of the cached Plugin index, when one has been\nloaded or imported.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "plugins": {
+          "arrived_in": "0.1",
+          "default": [],
+          "description": "Matching Plugins from the index, each carrying its kinds, signer\nidentity and conformance results.",
+          "items": {
+            "$ref": "#/$defs/IndexEntry"
+          },
+          "type": "array"
+        }
+      },
       "type": "object"
     },
     "PluginSettingsSchema": {
@@ -21565,6 +21848,47 @@
       },
       "required": [
         "readmitted"
+      ],
+      "type": "object"
+    },
+    "Revocation": {
+      "additionalProperties": false,
+      "description": "One entry of the Plugin index's revocation list (ADR 0033): revokes a\nspecific artifact digest, a signer identity, or both.",
+      "properties": {
+        "digest": {
+          "arrived_in": "0.1",
+          "description": "The revoked multi-platform OCI image index digest, `sha256:<hex>`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "arrived_in": "0.1",
+          "description": "Why the digest or signer was revoked.",
+          "type": "string"
+        },
+        "revoked_at": {
+          "arrived_in": "0.1",
+          "description": "When the revocation was issued, in RFC 3339.",
+          "type": "string"
+        },
+        "signer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignerIdentity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "A revoked signer identity: revokes every Plugin attested by it."
+        }
+      },
+      "required": [
+        "reason",
+        "revoked_at"
       ],
       "type": "object"
     },
@@ -26339,6 +26663,60 @@
         "figure",
         "maximum",
         "fix"
+      ],
+      "type": "object"
+    },
+    "SignatureBundle": {
+      "additionalProperties": false,
+      "description": "The signature bundle carried alongside a signed set (Plugin index or\nClean-up rules set, ADRs 0033 and 0047).",
+      "properties": {
+        "issuer": {
+          "arrived_in": "0.1",
+          "description": "OIDC issuer bound into the signature.",
+          "type": "string"
+        },
+        "key_id": {
+          "arrived_in": "0.1",
+          "description": "Identifier of the verifying key in the trust root.",
+          "type": "string"
+        },
+        "signature": {
+          "arrived_in": "0.1",
+          "description": "Base64-encoded Ed25519 signature over the domain-separated canonical\nJSON payload and signer claims.",
+          "type": "string"
+        },
+        "workflow": {
+          "arrived_in": "0.1",
+          "description": "Repository workflow reference bound into the signature.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key_id",
+        "issuer",
+        "workflow",
+        "signature"
+      ],
+      "type": "object"
+    },
+    "SignedBundle": {
+      "additionalProperties": false,
+      "description": "A signed, versioned, expiring set together with its [`SignatureBundle`]\n(ADRs 0033 and 0047).",
+      "properties": {
+        "bundle": {
+          "$ref": "#/$defs/SignatureBundle",
+          "arrived_in": "0.1",
+          "description": "The signature bundle verifying `payload`."
+        },
+        "payload": {
+          "$ref": "#/$defs/PluginIndex",
+          "arrived_in": "0.1",
+          "description": "The signed document."
+        }
+      },
+      "required": [
+        "payload",
+        "bundle"
       ],
       "type": "object"
     },

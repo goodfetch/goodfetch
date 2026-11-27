@@ -72,6 +72,58 @@ impl Prompt {
         Ok(yes(&answer))
     }
 
+    /// Refuses the prompt with `person_required` when no person answers,
+    /// naming `command` explicitly (for multi-word subcommands such as
+    /// `plugin index import`).
+    ///
+    /// # Errors
+    ///
+    /// The `person_required` exit code, once its refusal is printed.
+    pub(super) fn person_present_for(
+        &self,
+        command: &str,
+        json: bool,
+        human: &Human,
+    ) -> Result<(), ExitCode> {
+        if json || !human.can_ask() {
+            return Err(refused(
+                command,
+                self.elsewhere,
+                Some(self.operation),
+                (json, human),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Asks the person `question` once, naming `command` in any
+    /// `person_required` refusal.
+    ///
+    /// # Errors
+    ///
+    /// The `person_required` exit code, once its refusal is printed.
+    pub(super) fn ask_for(
+        &self,
+        command: &str,
+        question: &str,
+        warning: Option<&str>,
+        human: &Human,
+    ) -> Result<bool, ExitCode> {
+        self.person_present_for(command, false, human)?;
+        if let Some(warning) = warning {
+            human.warning(warning);
+        }
+        let answer = human.ask(&confirmation(question)).ok_or_else(|| {
+            refused(
+                command,
+                self.elsewhere,
+                Some(self.operation),
+                (false, human),
+            )
+        })?;
+        Ok(yes(&answer))
+    }
+
     /// The `person_required` refusal of the prompt.
     fn refused(&self, json: bool, human: &Human) -> ExitCode {
         let command = command_words(self.operation.name);

@@ -3001,3 +3001,7 @@ reason = "A Client that cannot read a page body's file streams it through `page.
 [[unreached]]
 entries = ["key_value_store.keys"]
 reason = "Issue 1284 adds the Rust store's `keys`."
+
+[[unreached]]
+entries = ["plugin.search"]
+reason = "Reached through the CLI `plugin search` and raw `connection.call(\"plugin.search\", ...)` (issue 919); typed SDK plugin-index helpers are not added yet."

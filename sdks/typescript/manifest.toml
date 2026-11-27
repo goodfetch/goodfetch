@@ -3324,3 +3324,7 @@ reason = "Issue 1495 adds `outcomes`, `failedRequests` and `retryFailed`."
 [[unreached]]
 entries = ["run.rejected_records"]
 reason = "Issue 1489 adds `rejectedRecords` to a Run read through `openCrawlRun`."
+
+[[unreached]]
+entries = ["plugin.search"]
+reason = "Reached through the CLI `plugin search` and raw `connection.call(\"plugin.search\", ...)` (issue 919); typed SDK plugin-index helpers are not added yet."

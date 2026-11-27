@@ -654,6 +654,20 @@ class Completeness(StrEnum):
     """It finished, but the engine cannot vouch that nothing was missed."""
 
 
+class ConformanceResult(BaseModel):
+    """One conformance suite outcome recorded for a Plugin in the index."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    engine_version: str
+    """The engine version the suite ran against."""
+    passed: bool
+    """Whether the Plugin passed the suite."""
+    suite: str
+    """The conformance suite name, such as `extract`."""
+
+
 class ConsoleLocation(BaseModel):
     """
     Where a console message was written: its script's URL and position, as
@@ -2388,6 +2402,23 @@ class NothingDone3(BaseModel):
     reason: Literal["nothing_pending"]
 
 
+class Origin(StrEnum):
+    """
+    Where a Plugin comes from, which sets whether it loads by default (ADRs
+    0033 and 0035).
+    """
+
+    first_party = "first_party"
+    """Shipped in the engine's own release: allowed by default."""
+    third_party = "third_party"
+    """Anyone else's: loads only when the Operator policy allows it."""
+    private = "private"
+    """
+    A Private component, which is never first-party: loads only when the
+    Operator policy allows it.
+    """
+
+
 class OverloadedBound(StrEnum):
     """
     A Connection's own bound on what it holds, as `connection_overloaded`
@@ -3124,6 +3155,28 @@ class PluginDigestMismatchDetails(BaseModel):
     """The Plugin's name."""
 
 
+class PluginIndexImported(BaseModel):
+    """
+    What `plugin.index_import` answers once the signed Plugin index is
+    verified offline, persisted and recorded in the Audit log (ADR 0033,
+    issue 919).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    expires_at: str
+    """When the index expires, in RFC 3339."""
+    plugins: Annotated[int, Field(ge=0)]
+    """Number of Plugins listed in the imported index."""
+    revocations: Annotated[int, Field(ge=0)]
+    """Number of revocation entries in the imported index."""
+    signed_at: str
+    """When CI signed the index, in RFC 3339."""
+    version: Annotated[int, Field(ge=0)]
+    """The accepted index's monotonic freshness version."""
+
+
 class PluginIndexStaleDetails(BaseModel):
     """What `plugin_index_stale` details."""
 
@@ -3209,6 +3262,22 @@ class PluginRun(BaseModel):
     """Its name."""
     network_level: str
     """The network level it ran at."""
+
+
+class PluginSearchParams(BaseModel):
+    """What `plugin.search` takes (ADR 0033, issue 919)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    kind: PluginKindName | None = None
+    """Optional filter restricting results to Plugins implementing this kind."""
+    query: str | None = None
+    """
+    Optional case-insensitive text query matching a Plugin's name, kinds
+    or signer identity; omitted lists every Plugin in the index.
+    """
 
 
 class PluginSettingsSchema(BaseModel):
@@ -5005,6 +5074,28 @@ class SettingsLayer(StrEnum):
     The run: a program's settings, a call's argument, a CLI flag or an
     Integration's form.
     """
+
+
+class SignatureBundle(BaseModel):
+    """
+    The signature bundle carried alongside a signed set (Plugin index or
+    Clean-up rules set, ADRs 0033 and 0047).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issuer: str
+    """OIDC issuer bound into the signature."""
+    key_id: str
+    """Identifier of the verifying key in the trust root."""
+    signature: str
+    """
+    Base64-encoded Ed25519 signature over the domain-separated canonical
+    JSON payload and signer claims.
+    """
+    workflow: str
+    """Repository workflow reference bound into the signature."""
 
 
 class SignerIdentity(BaseModel):
@@ -7316,6 +7407,40 @@ class HumanPause(BaseModel):
     """The condition that ends it by itself, as text."""
 
 
+class IndexEntry(BaseModel):
+    """One Plugin listed in the Plugin index (ADR 0033)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    conformance: Annotated[
+        list[ConformanceResult] | None, Field(validate_default=True)
+    ] = []
+    """The conformance suite results CI recorded for this release."""
+    digest: str
+    """
+    The digest of its latest multi-platform OCI image index,
+    `sha256:<hex>`.
+    """
+    kinds: list[PluginKindName]
+    """The Plugin kinds it implements."""
+    name: str
+    """The Plugin's name."""
+    origin: Origin | None = Origin.third_party
+    """Whether it is first-party, third-party or a Private component."""
+    reference: str
+    """
+    Its OCI reference without digest, such as
+    `ghcr.io/goodfetch/plugins/kettle`.
+    """
+    signer: SignerIdentity
+    """
+    The repository and CI workflow identity expected to sign its
+    provenance attestation.
+    """
+
+
 class KeyValueStoreBytes(BaseModel):
     """Bytes the store holds for a key, with their content type."""
 
@@ -8304,6 +8429,31 @@ class PluginAttestationInvalidDetails(BaseModel):
     """Why verification failed."""
 
 
+class PluginSearchResult(BaseModel):
+    """What `plugin.search` answers (ADR 0033, issue 919)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    expired: bool | None = None
+    """
+    Whether the cached Plugin index is past its expiry at the query
+    instant.
+    """
+    expires_at: str | None = None
+    """RFC 3339 expiry timestamp of the cached Plugin index, when present."""
+    index_version: Annotated[int | None, Field(ge=0)] = None
+    """
+    Freshness version of the cached Plugin index, when one has been
+    loaded or imported.
+    """
+    plugins: Annotated[list[IndexEntry] | None, Field(validate_default=True)] = []
+    """
+    Matching Plugins from the index, each carrying its kinds, signer
+    identity and conformance results.
+    """
+
+
 class PolicyChange(BaseModel):
     """One change `config.policy_write` makes."""
 
@@ -8444,6 +8594,25 @@ class RefetchDomainRemoved(BaseModel):
     nor the Operator policy lists it, which then changed nothing and
     recorded nothing.
     """
+
+
+class Revocation(BaseModel):
+    """
+    One entry of the Plugin index's revocation list (ADR 0033): revokes a
+    specific artifact digest, a signer identity, or both.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    digest: str | None = None
+    """The revoked multi-platform OCI image index digest, `sha256:<hex>`."""
+    reason: str
+    """Why the digest or signer was revoked."""
+    revoked_at: str
+    """When the revocation was issued, in RFC 3339."""
+    signer: SignerIdentity | None = None
+    """A revoked signer identity: revokes every Plugin attested by it."""
 
 
 class RouteAbortParams(BaseModel):
@@ -10084,6 +10253,35 @@ class PageReadParams(BaseModel):
     """The page."""
 
 
+class PluginIndex(BaseModel):
+    """
+    The Plugin index document (`plugin-index/index.json`, ADRs 0033, 0052
+    and 0066): no `major.minor` format version, carrying only its monotonic
+    freshness `version`, signing and expiry timestamps, listed Plugins and
+    revocation list.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expires_at: str
+    """When this index expires (14 days after signing), in RFC 3339."""
+    plugins: Annotated[list[IndexEntry] | None, Field(validate_default=True)] = []
+    """
+    The Plugins currently listed in the index. Delisting removes an entry
+    here without adding it to `revocations`.
+    """
+    revocations: Annotated[list[Revocation] | None, Field(validate_default=True)] = []
+    """Revoked digests and signer identities."""
+    signed_at: str
+    """When CI signed this index, in RFC 3339."""
+    version: Annotated[int, Field(ge=0)]
+    """
+    Monotonic freshness version: an index with an older version than the
+    last seen is refused as stale.
+    """
+
+
 class RecipeStartParams(BaseModel):
     """What `recipe.start` takes."""
 
@@ -10430,6 +10628,21 @@ class SettingsExplanation(BaseModel):
     """Each setting, by key."""
 
 
+class SignedBundle(BaseModel):
+    """
+    A signed, versioned, expiring set together with its [`SignatureBundle`]
+    (ADRs 0033 and 0047).
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bundle: SignatureBundle
+    """The signature bundle verifying `payload`."""
+    payload: PluginIndex
+    """The signed document."""
+
+
 class UsageListResult(BaseModel):
     """What `usage.list` answers, and what `usage --json` prints."""
 
@@ -10481,6 +10694,19 @@ class FormatsParams(BaseModel):
     """The formats."""
     page_id: PageId
     """The page."""
+
+
+class PluginIndexImportParams(BaseModel):
+    """What `plugin.index_import` takes (ADR 0033, issue 919)."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bundle: SignedBundle
+    """
+    The signed Plugin index bundle to verify offline against the release's
+    trust root and persist in the Goodfetch home.
+    """
 
 
 class RecordRead(BaseModel):

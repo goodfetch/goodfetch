@@ -58,6 +58,7 @@ use crate::runs::{
 use crate::sandbox_probe::{self, SandboxProbe};
 use crate::secrets::{self, Carried, DriverSlot, Keychain, ProviderFactory, Secrets};
 use crate::settings::{HostDefaults, HostSearch, Settings, SettingsFiles, get_or_default};
+use crate::signed_set::TrustRoot;
 use crate::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use crate::transition::{
     self,
@@ -93,6 +94,7 @@ pub struct Engine {
     driver_slot: DriverSlot,
     drain_grace: Duration,
     daemon_reach: Option<Arc<dyn DaemonReach>>,
+    plugin_index_trust_root: TrustRoot,
 }
 
 /// What an engine runs on, which `main` builds once (the system versions)
@@ -156,7 +158,16 @@ impl Engine {
             driver_slot: DriverSlot::default(),
             drain_grace: get_or_default(None, &DRAIN_GRACE),
             daemon_reach: None,
+            plugin_index_trust_root: TrustRoot::bundled(),
         })
+    }
+
+    /// The same, verifying signed Plugin index updates and offline imports
+    /// against `trust` instead of the bundled release trust root (ADR 0059).
+    #[must_use]
+    pub fn with_plugin_index_trust_root(mut self, trust: TrustRoot) -> Self {
+        self.plugin_index_trust_root = trust;
+        self
     }
 
     /// The same, recording the runtime's metrics on `metrics` (ADR 0050).
@@ -559,6 +570,7 @@ impl Engine {
                 entropy: dependencies.entropy.stream(HANDLERS_STREAM),
                 places: places(&dependencies.home, &dependencies.environment),
                 daemon,
+                plugin_index_trust_root: self.plugin_index_trust_root.clone(),
             },
         );
         let secrets = Secrets::new(

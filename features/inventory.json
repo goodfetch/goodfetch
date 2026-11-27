@@ -687,6 +687,28 @@
       ]
     },
     {
+      "id": "command:plugin.index.import",
+      "kind": "command",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "command:plugin.search",
+      "kind": "command",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:recipe.digest",
       "kind": "command",
       "area": 11,
@@ -4670,6 +4692,28 @@
     },
     {
       "id": "operation:plugin.add",
+      "kind": "operation",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.index_import",
+      "kind": "operation",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "operation:plugin.search",
       "kind": "operation",
       "area": 7,
       "milestone": null,

@@ -16,10 +16,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::audit::Actor;
+use goodfetch_protocol::plugin::PluginKindName;
 use goodfetch_protocol::plugin::approvals::Origin;
 use goodfetch_protocol::plugin::index::{
-    IndexRefusalReason, PLUGIN_INDEX_STALE, PLUGIN_REVOKED, PLUGIN_REVOKED_AUDIT, PluginIndex,
-    PluginIndexStaleDetails, PluginRevokedDetails, Revocation, SignedBundle, SignerIdentity,
+    IndexEntry, IndexRefusalReason, PLUGIN_INDEX_IMPORTED_AUDIT, PLUGIN_INDEX_STALE,
+    PLUGIN_REVOKED, PLUGIN_REVOKED_AUDIT, PluginIndex, PluginIndexImported,
+    PluginIndexStaleDetails, PluginRevokedDetails, PluginSearchParams, PluginSearchResult,
+    Revocation, SignedBundle, SignerIdentity,
 };
 use goodfetch_protocol::run::RunId;
 use jiff::Timestamp;
@@ -475,4 +478,131 @@ fn expired_loading_error(plugin: &str, index: &PluginIndex) -> CallError {
         ),
         &details,
     )
+}
+
+/// Filters `index`'s listed Plugins by optional `query` (case-insensitive
+/// substring across name, OCI reference, kinds and signer identity) and
+/// optional `kind`, returning matching entries sorted by name (ADR 0033,
+/// issue 919).
+#[must_use]
+pub fn search_entries(
+    index: &PluginIndex,
+    query: Option<&str>,
+    kind: Option<&PluginKindName>,
+) -> Vec<IndexEntry> {
+    let needle = query
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_ascii_lowercase);
+    let mut matches: Vec<IndexEntry> = index
+        .plugins
+        .iter()
+        .filter(|entry| kind.is_none_or(|wanted| entry.kinds.contains(wanted)))
+        .filter(|entry| {
+            let Some(needle) = needle.as_deref() else {
+                return true;
+            };
+            entry.name.to_ascii_lowercase().contains(needle)
+                || entry.reference.to_ascii_lowercase().contains(needle)
+                || entry
+                    .signer
+                    .repository
+                    .to_ascii_lowercase()
+                    .contains(needle)
+                || entry.signer.workflow.to_ascii_lowercase().contains(needle)
+                || entry
+                    .kinds
+                    .iter()
+                    .any(|entry_kind| entry_kind.as_str().to_ascii_lowercase().contains(needle))
+        })
+        .cloned()
+        .collect();
+    matches.sort_by(|left, right| left.name.cmp(&right.name));
+    matches
+}
+
+/// Builds a [`PluginSearchResult`] from a cached [`IndexStatus`] and
+/// [`PluginSearchParams`] (ADR 0033, issue 919).
+#[must_use]
+pub fn search_status(status: &IndexStatus, params: &PluginSearchParams) -> PluginSearchResult {
+    match status {
+        IndexStatus::Absent => PluginSearchResult {
+            index_version: None,
+            expires_at: None,
+            expired: false,
+            plugins: Vec::new(),
+        },
+        IndexStatus::Fresh(index) => PluginSearchResult {
+            index_version: Some(index.version),
+            expires_at: Some(index.expires_at.clone()),
+            expired: false,
+            plugins: search_entries(index, params.query.as_deref(), params.kind.as_ref()),
+        },
+        IndexStatus::Expired { index, .. } => PluginSearchResult {
+            index_version: Some(index.version),
+            expires_at: Some(index.expires_at.clone()),
+            expired: true,
+            plugins: search_entries(index, params.query.as_deref(), params.kind.as_ref()),
+        },
+    }
+}
+
+/// Records a `plugin_index_imported` Audit entry for `applied` and returns
+/// the [`PluginIndexImported`] summary (ADR 0033, issue 919).
+///
+/// # Errors
+///
+/// An internal error if the Audit log cannot record the entry.
+pub async fn record_import(
+    audit: &AuditLog,
+    origin: &audit::Origin,
+    applied: &PluginIndex,
+    now: Timestamp,
+) -> Result<PluginIndexImported, CallError> {
+    let plugins = u64::try_from(applied.plugins.len()).unwrap_or(u64::MAX);
+    let revocations = u64::try_from(applied.revocations.len()).unwrap_or(u64::MAX);
+    let details = json!({
+        "version": applied.version,
+        "signed_at": applied.signed_at,
+        "expires_at": applied.expires_at,
+        "plugins": plugins,
+        "revocations": revocations,
+    });
+    audit
+        .record(origin, &PLUGIN_INDEX_IMPORTED_AUDIT, details, now)
+        .await
+        .map_err(|error| {
+            CallError::protocol(
+                goodfetch_protocol::jsonrpc::ProtocolFailure::InternalError,
+                format!("the Audit log could not record the imported Plugin index: {error}"),
+            )
+        })?;
+    Ok(PluginIndexImported {
+        version: applied.version,
+        signed_at: applied.signed_at.clone(),
+        expires_at: applied.expires_at.clone(),
+        plugins,
+        revocations,
+    })
+}
+
+/// Verifies `bundle` offline against `trust`, persists it in `store`, and
+/// records `plugin_index_imported` in `audit` (ADR 0033, issue 919).
+///
+/// # Errors
+///
+/// `plugin_index_stale` when verification fails (leaving `store` untouched),
+/// or an internal error if the store or Audit log cannot be written.
+pub async fn import_and_audit(
+    store: &PluginIndexStore,
+    audit: &AuditLog,
+    origin: &audit::Origin,
+    bundle: SignedBundle<PluginIndex>,
+    trust: &TrustRoot,
+    now: Timestamp,
+) -> Result<PluginIndexImported, CallError> {
+    let applied = store
+        .apply(bundle, trust, now)
+        .map_err(IndexError::into_call_error)?;
+    record_import(audit, origin, &applied, now).await
 }

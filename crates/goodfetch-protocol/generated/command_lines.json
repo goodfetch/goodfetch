@@ -56,7 +56,20 @@
         "commands": [
           {
             "commands": [],
+            "name": "search"
+          },
+          {
+            "commands": [],
             "name": "add"
+          },
+          {
+            "commands": [
+              {
+                "commands": [],
+                "name": "import"
+              }
+            ],
+            "name": "index"
           }
         ],
         "name": "plugin"
@@ -517,7 +530,20 @@
         "commands": [
           {
             "commands": [],
+            "name": "search"
+          },
+          {
+            "commands": [],
             "name": "add"
+          },
+          {
+            "commands": [
+              {
+                "commands": [],
+                "name": "import"
+              }
+            ],
+            "name": "index"
           }
         ],
         "name": "plugin"

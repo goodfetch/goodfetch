@@ -4794,6 +4794,44 @@
       "cancellable": false,
       "class": "idempotent_write",
       "deprecated": null,
+      "description": "Imports a fresh signed Plugin index verified offline against the trust root the release bundles, for air-gapped hosts so revocation works without network access. Refuses a badly signed, untrusted, stale or expired index with `plugin_index_stale` leaving the cached index untouched, and records accepted imports in the Audit log as `plugin_index_imported`. Person-only (ADR 0099): any non-person surface is refused with `person_required`.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.index_import",
+      "params": {
+        "$ref": "#/$defs/PluginIndexImportParams"
+      },
+      "product": "collie",
+      "reach": "person_only",
+      "result": {
+        "$ref": "#/$defs/PluginIndexImported"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "read",
+      "deprecated": null,
+      "description": "Searches the local signed Plugin index, returning each matching Plugin's name, OCI reference, pinned digest, kinds, signer identity, origin and conformance results so users choose a Plugin by what it has proved. Available on every surface.",
+      "events": [],
+      "kind": "round_trip",
+      "name": "plugin.search",
+      "params": {
+        "$ref": "#/$defs/PluginSearchParams"
+      },
+      "product": "collie",
+      "reach": "all_surfaces",
+      "result": {
+        "$ref": "#/$defs/PluginSearchResult"
+      },
+      "stability": "experimental"
+    },
+    {
+      "arrived_in": "0.1",
+      "cancellable": false,
+      "class": "idempotent_write",
+      "deprecated": null,
       "description": "Starts a Recipe's run, a Run with no handler in the program, and answers once it is started. Its Run ID works as `run.start`'s. With `detached`, the Run outlives the program that started it: closing its value frees only the value, `run.finish` waits for its end and `run.stop` stops it.",
       "events": [],
       "kind": "opener",

@@ -2,7 +2,7 @@
 
 import type { CallOptions, Caller } from "../caller.ts";
 import { type EntryMarkers, warnDeprecated, warnExperimental } from "../markers.ts";
-import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
+import type { Acted, AddInitScriptParams, AuditExportParams, AuditExported, AuditVerified, AuditVerifyParams, BodyHandle, CacheClearParams, CacheCleared, CacheStats, CacheStatsParams, CacheVerified, CacheVerifyParams, CatalogRunStartParams, CertsListParams, CertsListed, Checkpoint, ClickParams, ConfigExplainParams, Counted, DaemonHealth, DaemonParams, DaemonState, DaemonStopping, DialogAcceptParams, DialogAnswered, DialogDismissParams, DialogsEnded, DownloadSaveAsParams, DownloadSaved, EffectCloseParams, EffectClosed, EffectOpenParams, EffectOpened, EngineInfo, EngineInfoParams, EvaluateParams, Evaluated, EventsSubscribeParams, FillParams, FormatsParams, GotoParams, InitScriptEnded, KeyValueStoreBytesValue, KeyValueStoreDeleted, KeyValueStoreKeyParams, KeyValueStoreKeysEnded, KeyValueStoreKeysParams, KeyValueStoreSet, KeyValueStoreSetBytesParams, KeyValueStoreSetParams, KeyValueStoreValue, LimitUsage, LocatorEvaluateAllParams, LocatorWaitForFunctionParams, LocatorWaitForParams, LogLevelSet, Navigated, NeedsYouDismissParams, NeedsYouDismissed, NeedsYouList, NeedsYouListParams, NewPageParams, NewSessionPageParams, NewSessionParams, PageBodyParams, PageBodyRead, PageCloseParams, PageClosed, PageExchange, PageFormats, PageOnDialogParams, PageOnEnded, PageOnParams, PageOpened, PageParams, PageRead, PageReadParams, PageRequest, PageRequestParams, PageResponse, PageRouteParams, PluginSearchParams, PluginSearchResult, PressParams, Reached, RecipeStartParams, ResponseBodyParams, RouteAbortParams, RouteAnswered, RouteEnded, RouteFetched, RouteFulfillParams, RouteOverridesParams, RunAbortParams, RunCheckpointParams, RunDiscarded, RunFinishParams, RunList, RunListParams, RunMigrateParams, RunParams, RunProgress, RunProgressParams, RunReport, RunResumeParams, RunSetProgressMessageParams, RunStartParams, RunStarted, RunStartedAs, RunStopParams, RunUsage, SampleEchoParams, SampleEchoResult, ScheduleCreateParams, ScheduleCreated, ScheduleDeleted, ScheduleGetParams, ScheduleInfo, ScheduleList, ScheduleListParams, ScheduleParams, SessionClosed, SessionOnEnded, SessionOnParams, SessionOpened, SessionPages, SessionParams, SessionRouteParams, SetLogLevelParams, SettingsExplanation, SigningKeyCreateParams, SigningKeyCreated, SigningKeyDirectory, SigningKeyDirectoryParams, SubscriptionEnded, UsageListParams, UsageListResult, UsageSetParams, WaitForCountParams, WaitForExchangeParams, WaitForFunctionParams, WaitForLoadStateParams, WaitForRequestFinishedParams, WaitForUrlParams } from "./types.ts";
 import { warnDeprecatedSettings } from "./settings.ts";
 
 export type { CallOptions, Caller, OperationTypes } from "../caller.ts";
@@ -63,6 +63,7 @@ export interface CollieOperationTypes {
   "page.wait_for_request_finished": { params: WaitForRequestFinishedParams; result: PageExchange };
   "page.wait_for_response": { params: WaitForExchangeParams; result: PageExchange };
   "page.wait_for_url": { params: WaitForUrlParams; result: Reached };
+  "plugin.search": { params: PluginSearchParams; result: PluginSearchResult };
   "recipe.start": { params: RecipeStartParams; result: RunStarted };
   "response.body": { params: ResponseBodyParams; result: BodyHandle };
   "route.abort": { params: RouteAbortParams; result: RouteAnswered };
@@ -160,6 +161,7 @@ export const collieOperations: Readonly<Record<keyof CollieOperationTypes, Entry
   "page.wait_for_request_finished": { experimental: true, deprecated: undefined },
   "page.wait_for_response": { experimental: true, deprecated: undefined },
   "page.wait_for_url": { experimental: true, deprecated: undefined },
+  "plugin.search": { experimental: true, deprecated: undefined },
   "recipe.start": { experimental: true, deprecated: undefined },
   "response.body": { experimental: true, deprecated: undefined },
   "route.abort": { experimental: true, deprecated: undefined },
@@ -257,6 +259,7 @@ export const collieOperationNames: Readonly<Record<keyof CollieOperationTypes, s
   "page.wait_for_request_finished": "page.waitForRequestFinished",
   "page.wait_for_response": "page.waitForResponse",
   "page.wait_for_url": "page.waitForURL",
+  "plugin.search": "plugin.search",
   "recipe.start": "recipe.start",
   "response.body": "response.body",
   "route.abort": "route.abort",
@@ -354,6 +357,7 @@ export const collieOperationClasses: Readonly<Record<keyof CollieOperationTypes,
   "page.wait_for_request_finished": "read",
   "page.wait_for_response": "read",
   "page.wait_for_url": "read",
+  "plugin.search": "read",
   "recipe.start": "idempotent_write",
   "response.body": "read",
   "route.abort": "effect",
@@ -928,6 +932,16 @@ export class CollieOperations {
   pageWaitForURL(params: WaitForUrlParams, options: CallOptions = {}): Promise<Reached> {
     warnExperimental("page.wait_for_url");
     return this.#caller.call("page.wait_for_url", params, options);
+  }
+
+  /**
+   * Searches the local signed Plugin index, returning each matching Plugin's name, OCI reference, pinned digest, kinds, signer identity, origin and conformance results so users choose a Plugin by what it has proved. Available on every surface.
+   *
+   * @experimental
+   */
+  pluginSearch(params: PluginSearchParams): Promise<PluginSearchResult> {
+    warnExperimental("plugin.search");
+    return this.#caller.call("plugin.search", params, {});
   }
 
   /**

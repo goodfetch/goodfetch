@@ -34,6 +34,7 @@ export type CollieWireType =
   | "ClickParams"
   | "Concurrency"
   | "ConfigExplainParams"
+  | "ConformanceResult"
   | "ConsoleLocation"
   | "ConsoleMessage"
   | "CpuReading"
@@ -72,6 +73,7 @@ export type CollieWireType =
   | "HelloResult"
   | "HookFailedDetails"
   | "HumanPause"
+  | "IndexEntry"
   | "KeyValueStoreAttempt"
   | "KeyValueStoreBytes"
   | "KeyValueStoreBytesValue"
@@ -141,8 +143,12 @@ export type CollieWireType =
   | "PlanReport"
   | "PluginAdded"
   | "PluginAttestationInvalidDetails"
+  | "PluginIndex"
+  | "PluginIndexImportParams"
+  | "PluginIndexImported"
   | "PluginIndexStaleDetails"
   | "PluginRun"
+  | "PluginSearchResult"
   | "PressParams"
   | "PrivateEndpoint"
   | "ProtocolVersionUnsupportedDetails"
@@ -156,6 +162,7 @@ export type CollieWireType =
   | "ResponseBodyParams"
   | "ResponseOrigin"
   | "Resync"
+  | "Revocation"
   | "RouteAbortParams"
   | "RouteAlreadyHandledDetails"
   | "RouteFetched"
@@ -210,6 +217,8 @@ export type CollieWireType =
   | "SessionSource"
   | "SetLogLevelParams"
   | "SettingsExplanation"
+  | "SignatureBundle"
+  | "SignedBundle"
   | "SigningKeyCreateParams"
   | "SigningKeyCreated"
   | "SigningKeyDirectory"
@@ -268,6 +277,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ClickParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "Concurrency": { fields: { "browser_page": ["browserPage", { type: "KindConcurrency" }], "http": ["http", { type: "KindConcurrency" }], "model_call": ["modelCall", { type: "KindConcurrency" }] } },
     "ConfigExplainParams": { fields: { "missing_project": "missingProject", "run_id": "runId" } },
+    "ConformanceResult": { fields: { "engine_version": "engineVersion" } },
     "ConsoleLocation": { fields: { "column_number": "columnNumber", "line_number": "lineNumber" } },
     "ConsoleMessage": { fields: { "location": ["location", { type: "ConsoleLocation" }], "page_id": "pageId" } },
     "CpuReading": { fields: { "tokio_busy": "tokioBusy" } },
@@ -306,6 +316,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HookFailedDetails": { fields: { "exception_message": "exceptionMessage", "exception_stack": "exceptionStack", "exception_type": "exceptionType", "wrapped_code": "wrappedCode" } },
     "HumanPause": { fields: { "deadline": ["deadline", "time"], "raised_by": "raisedBy", "since": ["since", "time"] } },
+    "IndexEntry": { fields: { "conformance": ["conformance", { items: { type: "ConformanceResult" } }] } },
     "KeyValueStoreAttempt": { fields: { "crawl_request_id": "crawlRequestId", "lease_epoch": "leaseEpoch" } },
     "KeyValueStoreBytes": { fields: { "content_type": "contentType" } },
     "KeyValueStoreBytesValue": { fields: { "bytes": ["bytes", { type: "KeyValueStoreBytes" }] } },
@@ -375,8 +386,12 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "PlanReport": { fields: { "steps_changed": "stepsChanged" } },
     "PluginAdded": { fields: { "network_level": "networkLevel", "permissions": ["permissions", { items: { type: "StatedPermission" } }] } },
     "PluginAttestationInvalidDetails": { fields: { "expected_signer": "expectedSigner", "found_signer": "foundSigner" } },
+    "PluginIndex": { fields: { "expires_at": "expiresAt", "plugins": ["plugins", { items: { type: "IndexEntry" } }], "revocations": ["revocations", { items: { type: "Revocation" } }], "signed_at": "signedAt" } },
+    "PluginIndexImportParams": { fields: { "bundle": ["bundle", { type: "SignedBundle" }] } },
+    "PluginIndexImported": { fields: { "expires_at": "expiresAt", "signed_at": "signedAt" } },
     "PluginIndexStaleDetails": { fields: { "expires_at": "expiresAt", "last_seen": "lastSeen" } },
     "PluginRun": { fields: { "confinement_missing": "confinementMissing", "network_level": "networkLevel" } },
+    "PluginSearchResult": { fields: { "expires_at": "expiresAt", "index_version": "indexVersion", "plugins": ["plugins", { items: { type: "IndexEntry" } }] } },
     "PressParams": { fields: { "locator": ["locator", { type: "Locator" }] } },
     "PrivateEndpoint": { fields: { "token_file": "tokenFile" } },
     "ProtocolVersionUnsupportedDetails": { fields: { "client_protocol_version": "clientProtocolVersion", "engine_protocol_version": "engineProtocolVersion" } },
@@ -390,6 +405,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "ResponseBodyParams": { fields: { "page_id": "pageId", "request_id": "requestId" } },
     "ResponseOrigin": { fields: { "fetched_at": ["fetchedAt", "time"], "recorded_at": ["recordedAt", "time"] } },
     "Resync": { fields: { "needs_you": ["needsYou", { items: { type: "NeedsYouItem" } }], "runs": ["runs", { items: { type: "RunAxes" } }] } },
+    "Revocation": { fields: { "revoked_at": "revokedAt" } },
     "RouteAbortParams": { fields: { "error_code": "errorCode", "route_id": "routeId" } },
     "RouteAlreadyHandledDetails": { fields: { "route_id": "routeId" } },
     "RouteFetched": { fields: { "status_text": "statusText" } },
@@ -444,6 +460,8 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "SessionSource": { fields: { "chromium_profile": "chromiumProfile" } },
     "SetLogLevelParams": { fields: { "log_level": "logLevel" } },
     "SettingsExplanation": { fields: { "policy_version": "policyVersion", "settings": ["settings", { items: { type: "ExplainedSetting" } }] } },
+    "SignatureBundle": { fields: { "key_id": "keyId" } },
+    "SignedBundle": { fields: { "bundle": ["bundle", { type: "SignatureBundle" }], "payload": ["payload", { type: "PluginIndex" }] } },
     "SigningKeyCreateParams": { fields: { "signing_key": "signingKey" } },
     "SigningKeyCreated": { fields: { "key_id": "keyId", "public_key": "publicKey", "signing_key": "signingKey" } },
     "SigningKeyDirectory": { fields: { "content_type": "contentType", "expires": ["expires", "time"], "key_ids": "keyIds", "signature_input": "signatureInput" } },
@@ -575,6 +593,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "page.wait_for_request": { type: "PageRequest" },
     "page.wait_for_request_finished": { type: "PageExchange" },
     "page.wait_for_response": { type: "PageExchange" },
+    "plugin.search": { type: "PluginSearchResult" },
     "recipe.start": { type: "RunStarted" },
     "response.body": { type: "BodyHandle" },
     "route.fetch": { type: "RouteFetched" },

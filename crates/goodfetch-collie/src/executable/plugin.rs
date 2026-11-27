@@ -12,16 +12,21 @@
 //! `person_required` before any engine call.
 
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::Subcommand;
 use goodfetch_engine::run::local_settings_error;
 use goodfetch_engine::settings::{SettingsError, find_project, project_settings};
-use goodfetch_engine::{Dependencies, Engine};
+use goodfetch_engine::{CallError, Dependencies, Engine};
+use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::plugin::add::{PLUGIN_ADD, PluginAddParams, PluginAdded, PluginApproval};
+use goodfetch_protocol::plugin::index::{
+    PLUGIN_INDEX_IMPORT, PluginIndex, PluginIndexImportParams, PluginIndexImported, SignedBundle,
+};
 use goodfetch_protocol::settings::ProjectSettings;
 
+use super::catalog_commands::{Joined, Joining};
 use super::certs::forked;
 use super::daemon::Machine;
 use super::engine_choice::{EngineChoice, EngineFlags};
@@ -36,10 +41,26 @@ const ADD: Prompt = Prompt {
     elsewhere: None,
 };
 
-// The `plugin` group's commands. No doc comment: clap would make it the
-// group's help.
+/// The prompt that imports a signed Plugin index offline.
+const INDEX_IMPORT: Prompt = Prompt {
+    operation: &PLUGIN_INDEX_IMPORT,
+    elsewhere: None,
+};
+
+// The `plugin` group's commands: the catalog's `plugin` commands (such as
+// `plugin search`), listed first, then its hand-written person-only commands.
+// No doc comment: clap would make it the group's help.
 #[derive(Subcommand)]
 pub(super) enum PluginCommand {
+    #[command(flatten)]
+    Generated(Joining<OwnPluginCommand>),
+    #[command(flatten)]
+    Own(OwnPluginCommand),
+}
+
+// The `plugin` group's hand-written commands; no doc comment either.
+#[derive(Subcommand)]
+pub(super) enum OwnPluginCommand {
     /// Installs a Plugin from its OCI reference,
     /// `<registry>/<repository>@sha256:<hex>`, and pins its digest in the
     /// Plugin lockfile beside the project's configuration: a person's
@@ -54,6 +75,33 @@ pub(super) enum PluginCommand {
         #[command(flatten)]
         engine: EngineFlags,
     },
+    /// Manages the local signed Plugin index (for air-gapped hosts).
+    Index {
+        #[command(subcommand)]
+        command: PluginIndexCommand,
+    },
+}
+
+// The `plugin index` subcommands; no doc comment either.
+#[derive(Subcommand)]
+pub(super) enum PluginIndexCommand {
+    /// Imports a fresh signed Plugin index verified offline against the
+    /// bundled trust root: a person's answer, asked at the terminal, and
+    /// refused with `person_required` under `--json` or when stdin is no
+    /// terminal.
+    Import {
+        /// Path to the signed Plugin index JSON file.
+        file: PathBuf,
+        /// Refused: a person answers at a terminal, never under `--json`.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        engine: EngineFlags,
+    },
+}
+
+impl Joined for OwnPluginCommand {
+    const NAMESPACE: &'static str = "plugin";
 }
 
 /// Runs the `plugin` command `command`.
@@ -65,16 +113,121 @@ pub(super) fn run(
     human: &Human,
 ) -> ExitCode {
     match command {
-        PluginCommand::Add {
+        PluginCommand::Generated(joining) => {
+            joining.call().run(engine, dependencies, machine, human)
+        }
+        PluginCommand::Own(OwnPluginCommand::Add {
             reference,
             json,
             engine: flags,
-        } => {
+        }) => {
             let warn = |text: &str| human.warning(text);
             let reach = EngineChoice::passing(flags.choice(), machine, &warn);
             add(engine, dependencies, &reach, reference, json, human)
         }
+        PluginCommand::Own(OwnPluginCommand::Index {
+            command:
+                PluginIndexCommand::Import {
+                    file,
+                    json,
+                    engine: flags,
+                },
+        }) => {
+            let warn = |text: &str| human.warning(text);
+            let reach = EngineChoice::passing(flags.choice(), machine, &warn);
+            index_import(engine, dependencies, &reach, &file, json, human)
+        }
     }
+}
+
+/// Asks the person at the terminal to import the signed Plugin index at `file`
+/// and calls `plugin.index_import` when they answer yes.
+fn index_import(
+    engine: &Engine,
+    dependencies: Dependencies,
+    reach: &EngineChoice<'_>,
+    file: &Path,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    if let Err(exit) = INDEX_IMPORT.person_present_for("plugin index import", json, human) {
+        return exit;
+    }
+    let bytes = match std::fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            return output::fail(
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!(
+                        "Cannot read Plugin index file `{}`: {error}",
+                        file.display()
+                    ),
+                )
+                .to_error_object(),
+                None,
+                false,
+                human,
+            );
+        }
+    };
+    let bundle: SignedBundle<PluginIndex> = match serde_json::from_slice(&bytes) {
+        Ok(bundle) => bundle,
+        Err(error) => {
+            return output::fail(
+                CallError::protocol(
+                    ProtocolFailure::InvalidParams,
+                    format!(
+                        "Plugin index file `{}` is not a signed Plugin index JSON bundle: {error}",
+                        file.display()
+                    ),
+                )
+                .to_error_object(),
+                None,
+                false,
+                human,
+            );
+        }
+    };
+    let question = format!(
+        "Import signed Plugin index version {} (expires {}, {} Plugins, {} revocations) from {}?",
+        bundle.payload.version,
+        bundle.payload.expires_at,
+        bundle.payload.plugins.len(),
+        bundle.payload.revocations.len(),
+        file.display()
+    );
+    let yes = match INDEX_IMPORT.ask_for("plugin index import", &question, None, human) {
+        Ok(yes) => yes,
+        Err(exit) => return exit,
+    };
+    if !yes {
+        output::line("Nothing was imported.");
+        return ExitCode::from(exit_codes::SUCCESS);
+    }
+    let params = serde_json::to_value(PluginIndexImportParams { bundle })
+        .expect("invariant: plugin.index_import params serialize");
+    let result = match run_operation(
+        engine,
+        dependencies,
+        reach,
+        &PLUGIN_INDEX_IMPORT,
+        params,
+        false,
+        human,
+    ) {
+        Ok(result) => result,
+        Err(exit) => return exit,
+    };
+    let Ok(imported) = serde_json::from_value::<PluginIndexImported>(result) else {
+        tracing::error!("the engine's `plugin.index_import` answer does not read");
+        return ExitCode::FAILURE;
+    };
+    output::line(&format!(
+        "Imported Plugin index version {} (expires {}, {} Plugins, {} revocations).",
+        imported.version, imported.expires_at, imported.plugins, imported.revocations
+    ));
+    ExitCode::from(exit_codes::SUCCESS)
 }
 
 /// Asks the person at the terminal to install the Plugin `reference` names

@@ -15,11 +15,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Authority, Entries, ErrorCodeDefinition, ErrorGroup, ProtocolVersion, Setting, SharedType,
-    SharedTypeValue, ValueKind, ValueShape,
+    Authority, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
+    ProtocolVersion, Reach, Setting, SharedType, SharedTypeValue, Stability, ValueKind, ValueShape,
+    schema_of,
 };
 use crate::plugin::PluginKindName;
-use crate::plugin::approvals::Origin;
+use crate::plugin::approvals::{Origin, is_false};
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
 
@@ -434,10 +435,117 @@ pub const PLUGIN_INDEX_IMPORTED_AUDIT: SharedTypeValue = audit_kind(
     "A person imported a fresh signed Plugin index verified offline against the bundled trust root: its freshness version and expiry.",
 );
 
+/// What `plugin.search` takes (ADR 0033, issue 919).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PluginSearchParams {
+    /// Optional case-insensitive text query matching a Plugin's name, kinds
+    /// or signer identity; omitted lists every Plugin in the index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub query: Option<String>,
+    /// Optional filter restricting results to Plugins implementing this kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub kind: Option<PluginKindName>,
+}
+
+/// What `plugin.search` answers (ADR 0033, issue 919).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginSearchResult {
+    /// Freshness version of the cached Plugin index, when one has been
+    /// loaded or imported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub index_version: Option<u64>,
+    /// RFC 3339 expiry timestamp of the cached Plugin index, when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub expires_at: Option<String>,
+    /// Whether the cached Plugin index is past its expiry at the query
+    /// instant.
+    #[serde(default, skip_serializing_if = "is_false")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub expired: bool,
+    /// Matching Plugins from the index, each carrying its kinds, signer
+    /// identity and conformance results.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugins: Vec<IndexEntry>,
+}
+
+/// `plugin.search` (ADR 0033, issue 919).
+pub const PLUGIN_SEARCH: Operation = Operation {
+    name: "plugin.search",
+    description: "Searches the local signed Plugin index, returning each matching Plugin's name, OCI reference, pinned digest, kinds, signer identity, origin and conformance results so users choose a Plugin by what it has proved. Available on every surface.",
+    class: OperationClass::Read,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::AllSurfaces,
+    params: schema_of::<PluginSearchParams>,
+    result: schema_of::<PluginSearchResult>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// What `plugin.index_import` takes (ADR 0033, issue 919).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PluginIndexImportParams {
+    /// The signed Plugin index bundle to verify offline against the release's
+    /// trust root and persist in the Goodfetch home.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub bundle: SignedBundle<PluginIndex>,
+}
+
+/// What `plugin.index_import` answers once the signed Plugin index is
+/// verified offline, persisted and recorded in the Audit log (ADR 0033,
+/// issue 919).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginIndexImported {
+    /// The accepted index's monotonic freshness version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub version: u64,
+    /// When CI signed the index, in RFC 3339.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub signed_at: String,
+    /// When the index expires, in RFC 3339.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub expires_at: String,
+    /// Number of Plugins listed in the imported index.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugins: u64,
+    /// Number of revocation entries in the imported index.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revocations: u64,
+}
+
+/// `plugin.index_import` (ADR 0033, issue 919).
+pub const PLUGIN_INDEX_IMPORT: Operation = Operation {
+    name: "plugin.index_import",
+    description: "Imports a fresh signed Plugin index verified offline against the trust root the release bundles, for air-gapped hosts so revocation works without network access. Refuses a badly signed, untrusted, stale or expired index with `plugin_index_stale` leaving the cached index untouched, and records accepted imports in the Audit log as `plugin_index_imported`. Person-only (ADR 0099): any non-person surface is refused with `person_required`.",
+    class: OperationClass::IdempotentWrite,
+    kind: OperationKind::RoundTrip,
+    reach: Reach::PersonOnly,
+    params: schema_of::<PluginIndexImportParams>,
+    result: schema_of::<PluginIndexImported>,
+    events: &[],
+    cancellable: false,
+    input: None,
+    bound: None,
+    stability: Stability::Experimental,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
-    operations: &[],
+    operations: &[PLUGIN_SEARCH, PLUGIN_INDEX_IMPORT],
     events: &[],
     handler_requests: &[],
     error_codes: &[PLUGIN_INDEX_STALE, PLUGIN_REVOKED],

@@ -74,6 +74,7 @@ pub mod plugin_bundle;
 pub mod plugin_gate;
 pub mod plugin_host;
 pub mod plugin_index;
+pub mod plugin_index_operations;
 pub mod plugin_install;
 pub mod plugin_kinds;
 pub mod plugin_lockfile;

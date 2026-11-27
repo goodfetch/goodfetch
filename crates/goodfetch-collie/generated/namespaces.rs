@@ -122,6 +122,12 @@
         product: Product::Collie,
     },
     Namespace {
+        name: "plugin",
+        spelled: "plugin",
+        about: "Calls the catalog's `plugin` operations",
+        product: Product::Collie,
+    },
+    Namespace {
         name: "crawl",
         spelled: "crawl",
         about: "Calls the catalog's `crawl` operations",

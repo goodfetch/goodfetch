@@ -1154,6 +1154,47 @@ export type PauseOrigin =
       step: EngineStep;
     };
 /**
+ * A Plugin kind's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
+ *
+ * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
+ *
+ * - `hook`: A Hook, run at a fixed stage of a navigation, a page or a Run.
+ * - `browser`: A Browser backend, which supplies a Session's browser.
+ * - `extract`: An Extractor, which turns a page into its main content.
+ * - `model`: A Model provider, which answers model calls.
+ * - `decision`: A Decision provider, which picks one of several options.
+ * - `secret`: A Secret provider, which resolves the references of its scheme.
+ * - `challenge`: A Challenge solver.
+ * - `proxy`: A Proxy provider.
+ * - `search`: A Search provider.
+ * - `code`: A Code source, which reads a one-time code for a login.
+ * - `notification`: A Notification channel.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginKindName".
+ */
+export type PluginKindName =
+  | "hook"
+  | "browser"
+  | "extract"
+  | "model"
+  | "decision"
+  | "secret"
+  | "challenge"
+  | "proxy"
+  | "search"
+  | "code"
+  | "notification"
+  | (string & {});
+/**
+ * Where a Plugin comes from, which sets whether it loads by default (ADRs
+ * 0033 and 0035).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Origin".
+ */
+export type Origin = "first_party" | "third_party" | "private";
+/**
  * Why a Plugin index was refused or blocked third-party loading.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -1725,39 +1766,6 @@ export type PluginApproval =
       entry: string;
       outcome: "managed";
     };
-/**
- * A Plugin kind's `snake_case` name: one of Collie's, or another Product's or a newer engine's, which a reader keeps as received.
- *
- * A value this package does not know, which a newer engine may send, is kept as received (ADR 0079).
- *
- * - `hook`: A Hook, run at a fixed stage of a navigation, a page or a Run.
- * - `browser`: A Browser backend, which supplies a Session's browser.
- * - `extract`: An Extractor, which turns a page into its main content.
- * - `model`: A Model provider, which answers model calls.
- * - `decision`: A Decision provider, which picks one of several options.
- * - `secret`: A Secret provider, which resolves the references of its scheme.
- * - `challenge`: A Challenge solver.
- * - `proxy`: A Proxy provider.
- * - `search`: A Search provider.
- * - `code`: A Code source, which reads a one-time code for a login.
- * - `notification`: A Notification channel.
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "PluginKindName".
- */
-export type PluginKindName =
-  | "hook"
-  | "browser"
-  | "extract"
-  | "model"
-  | "decision"
-  | "secret"
-  | "challenge"
-  | "proxy"
-  | "search"
-  | "code"
-  | "notification"
-  | (string & {});
 /**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
@@ -3378,6 +3386,26 @@ export interface ConfinementUnavailableDetails {
    * explains the browser's sandbox.
    */
   environment: SandboxEnvironment;
+}
+/**
+ * One conformance suite outcome recorded for a Plugin in the index.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "ConformanceResult".
+ */
+export interface ConformanceResult {
+  /**
+   * The engine version the suite ran against.
+   */
+  engineVersion: string;
+  /**
+   * Whether the Plugin passed the suite.
+   */
+  passed: boolean;
+  /**
+   * The conformance suite name, such as `extract`.
+   */
+  suite: string;
 }
 /**
  * What `connection_overloaded` names: the Connection's own bound the call
@@ -5357,6 +5385,68 @@ export interface Image {
    * does not parse.
    */
   url?: string | null;
+}
+/**
+ * One Plugin listed in the Plugin index (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "IndexEntry".
+ */
+export interface IndexEntry {
+  /**
+   * The conformance suite results CI recorded for this release.
+   */
+  conformance?: ConformanceResult[];
+  /**
+   * The digest of its latest multi-platform OCI image index,
+   * `sha256:<hex>`.
+   */
+  digest: string;
+  /**
+   * The Plugin kinds it implements.
+   */
+  kinds: PluginKindName[];
+  /**
+   * The Plugin's name.
+   */
+  name: string;
+  /**
+   * Whether it is first-party, third-party or a Private component.
+   */
+  origin?: Origin & string;
+  /**
+   * Its OCI reference without digest, such as
+   * `ghcr.io/goodfetch/plugins/kettle`.
+   */
+  reference: string;
+  /**
+   * The repository and CI workflow identity expected to sign its
+   * provenance attestation.
+   */
+  signer: SignerIdentity;
+}
+/**
+ * The repository and workflow identity that signed a Plugin artifact or
+ * index (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignerIdentity".
+ */
+export interface SignerIdentity {
+  /**
+   * The OIDC issuer that minted the signing identity, such as
+   * `https://token.actions.githubusercontent.com`.
+   */
+  issuer: string;
+  /**
+   * The source repository that owns the workflow, such as
+   * `github.com/goodfetch/goodfetch`.
+   */
+  repository: string;
+  /**
+   * The CI workflow reference that signed the artifact or index.
+   */
+  workflow: string;
 }
 /**
  * What an init script's subscription answers when its page closes.
@@ -7789,29 +7879,6 @@ export interface StatedPermission {
   permission: Permission;
 }
 /**
- * The repository and workflow identity that signed a Plugin artifact or
- * index (ADR 0033).
- *
- * This interface was referenced by `CollieTypes`'s JSON-Schema
- * via the `definition` "SignerIdentity".
- */
-export interface SignerIdentity {
-  /**
-   * The OIDC issuer that minted the signing identity, such as
-   * `https://token.actions.githubusercontent.com`.
-   */
-  issuer: string;
-  /**
-   * The source repository that owns the workflow, such as
-   * `github.com/goodfetch/goodfetch`.
-   */
-  repository: string;
-  /**
-   * The CI workflow reference that signed the artifact or index.
-   */
-  workflow: string;
-}
-/**
  * What `plugin_attestation_invalid` details.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -7862,6 +7929,150 @@ export interface PluginDigestMismatchDetails {
    * The Plugin's name.
    */
   name: string;
+}
+/**
+ * The Plugin index document (`plugin-index/index.json`, ADRs 0033, 0052
+ * and 0066): no `major.minor` format version, carrying only its monotonic
+ * freshness `version`, signing and expiry timestamps, listed Plugins and
+ * revocation list.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginIndex".
+ */
+export interface PluginIndex {
+  /**
+   * When this index expires (14 days after signing), in RFC 3339.
+   */
+  expiresAt: string;
+  /**
+   * The Plugins currently listed in the index. Delisting removes an entry
+   * here without adding it to `revocations`.
+   */
+  plugins?: IndexEntry[];
+  /**
+   * Revoked digests and signer identities.
+   */
+  revocations?: Revocation[];
+  /**
+   * When CI signed this index, in RFC 3339.
+   */
+  signedAt: string;
+  /**
+   * Monotonic freshness version: an index with an older version than the
+   * last seen is refused as stale.
+   */
+  version: number;
+}
+/**
+ * One entry of the Plugin index's revocation list (ADR 0033): revokes a
+ * specific artifact digest, a signer identity, or both.
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "Revocation".
+ */
+export interface Revocation {
+  /**
+   * The revoked multi-platform OCI image index digest, `sha256:<hex>`.
+   */
+  digest?: string | null;
+  /**
+   * Why the digest or signer was revoked.
+   */
+  reason: string;
+  /**
+   * When the revocation was issued, in RFC 3339.
+   */
+  revokedAt: string;
+  /**
+   * A revoked signer identity: revokes every Plugin attested by it.
+   */
+  signer?: SignerIdentity | null;
+}
+/**
+ * What `plugin.index_import` takes (ADR 0033, issue 919).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginIndexImportParams".
+ */
+export interface PluginIndexImportParams {
+  /**
+   * The signed Plugin index bundle to verify offline against the release's
+   * trust root and persist in the Goodfetch home.
+   */
+  bundle: SignedBundle;
+}
+/**
+ * A signed, versioned, expiring set together with its [`SignatureBundle`]
+ * (ADRs 0033 and 0047).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignedBundle".
+ */
+export interface SignedBundle {
+  /**
+   * The signature bundle verifying `payload`.
+   */
+  bundle: SignatureBundle;
+  /**
+   * The signed document.
+   */
+  payload: PluginIndex;
+}
+/**
+ * The signature bundle carried alongside a signed set (Plugin index or
+ * Clean-up rules set, ADRs 0033 and 0047).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "SignatureBundle".
+ */
+export interface SignatureBundle {
+  /**
+   * OIDC issuer bound into the signature.
+   */
+  issuer: string;
+  /**
+   * Identifier of the verifying key in the trust root.
+   */
+  keyId: string;
+  /**
+   * Base64-encoded Ed25519 signature over the domain-separated canonical
+   * JSON payload and signer claims.
+   */
+  signature: string;
+  /**
+   * Repository workflow reference bound into the signature.
+   */
+  workflow: string;
+}
+/**
+ * What `plugin.index_import` answers once the signed Plugin index is
+ * verified offline, persisted and recorded in the Audit log (ADR 0033,
+ * issue 919).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginIndexImported".
+ */
+export interface PluginIndexImported {
+  /**
+   * When the index expires, in RFC 3339.
+   */
+  expiresAt: string;
+  /**
+   * Number of Plugins listed in the imported index.
+   */
+  plugins: number;
+  /**
+   * Number of revocation entries in the imported index.
+   */
+  revocations: number;
+  /**
+   * When CI signed the index, in RFC 3339.
+   */
+  signedAt: string;
+  /**
+   * The accepted index's monotonic freshness version.
+   */
+  version: number;
 }
 /**
  * What `plugin_index_stale` details.
@@ -7983,6 +8194,50 @@ export interface PluginRun {
    * The network level it ran at.
    */
   networkLevel: string;
+}
+/**
+ * What `plugin.search` takes (ADR 0033, issue 919).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSearchParams".
+ */
+export interface PluginSearchParams {
+  /**
+   * Optional filter restricting results to Plugins implementing this kind.
+   */
+  kind?: PluginKindName | null;
+  /**
+   * Optional case-insensitive text query matching a Plugin's name, kinds
+   * or signer identity; omitted lists every Plugin in the index.
+   */
+  query?: string | null;
+}
+/**
+ * What `plugin.search` answers (ADR 0033, issue 919).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginSearchResult".
+ */
+export interface PluginSearchResult {
+  /**
+   * Whether the cached Plugin index is past its expiry at the query
+   * instant.
+   */
+  expired?: boolean;
+  /**
+   * RFC 3339 expiry timestamp of the cached Plugin index, when present.
+   */
+  expiresAt?: string | null;
+  /**
+   * Freshness version of the cached Plugin index, when one has been
+   * loaded or imported.
+   */
+  indexVersion?: number | null;
+  /**
+   * Matching Plugins from the index, each carrying its kinds, signer
+   * identity and conformance results.
+   */
+  plugins?: IndexEntry[];
 }
 /**
  * An installed Plugin's settings schema, as `config.explain` answers it:

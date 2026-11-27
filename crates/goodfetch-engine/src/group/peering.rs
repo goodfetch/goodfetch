@@ -312,7 +312,7 @@ impl Peering {
             presenting: Mutex::new(Presenting::of(kept, clock)?),
             store,
             clock,
-            epochs: tokio::sync::Mutex::new(LeadEpochs::new(lead_epoch)),
+            epochs: tokio::sync::Mutex::new(LeadEpochs::for_member(kept.name.clone(), lead_epoch)),
             leadership: Mutex::new(leadership),
             services,
         })

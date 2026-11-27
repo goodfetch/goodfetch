@@ -1746,6 +1746,7 @@ tlc-self-test:
     cargo run --quiet --bin xtask -- tlc run run-fencing --config zombie --expect invariant-violated
     cargo run --quiet --bin xtask -- tlc validate slices --trace test-support/models/slices/slice-past-the-limit.ndjson --expect unmatched
     cargo run --quiet --bin xtask -- tlc validate run-fencing --trace test-support/models/run-fencing/commit-after-expiry.ndjson --expect unmatched
+    cargo run --quiet --bin xtask -- tlc validate lead-epoch --trace test-support/models/lead-epoch/ack-without-raise.ndjson --expect unmatched
 
 # Keeps each archive of test-support/lazyfs/sources.toml in
 # target/lazyfs/sources/, downloading only a file that lacks its pinned

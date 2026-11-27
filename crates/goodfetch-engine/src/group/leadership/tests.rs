@@ -2,6 +2,8 @@
 //! immediate confirmation, strict majority across 2 and 3 members,
 //! `group lead --confirm` override, and fencing on any higher lead epoch.
 
+mod trace;
+
 use goodfetch_protocol::group::{LeadEpoch, LeadEpochStaleDetails};
 
 use super::{ExchangeOutcome, LeadRefusal, LeadSnapshot, Leadership};

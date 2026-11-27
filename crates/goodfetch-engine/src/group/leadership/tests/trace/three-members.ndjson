@@ -1,0 +1,10 @@
+{"lead_epoch":1,"member":"lead","transition":"confirm_majority"}
+{"lead_epoch":1,"member":"lead","target":"worker-a","transition":"add_member"}
+{"lead_epoch":1,"member":"lead","target":"worker-b","transition":"add_member"}
+{"highest_lead_epoch":1,"lead_epoch":2,"member":"worker-b","transition":"raise"}
+{"lead_epoch":2,"member":"worker-a","peer":"worker-b","transition":"ack"}
+{"lead_epoch":2,"member":"worker-a","transition":"confirm_majority"}
+{"highest_lead_epoch":2,"lead_epoch":1,"member":"worker-b","transition":"refuse_stale"}
+{"highest_lead_epoch":2,"lead_epoch":1,"member":"lead","transition":"fence"}
+{"lead_epoch":2,"member":"worker-a","target":"lead","transition":"remove_member"}
+{"lead_epoch":3,"member":"worker-b","transition":"confirm_operator"}

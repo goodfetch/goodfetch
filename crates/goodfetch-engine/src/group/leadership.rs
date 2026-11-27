@@ -98,6 +98,16 @@ impl Leadership {
         }
     }
 
+    /// A Lead Daemon whose durable store already recorded `higher > epoch`
+    /// before this boot: it starts fenced and never acts or confirms at
+    /// `epoch`.
+    pub fn fenced(self_name: impl Into<String>, epoch: LeadEpoch, higher: LeadEpoch) -> Self {
+        Self {
+            self_name: self_name.into(),
+            state: State::Fenced { epoch, higher },
+        }
+    }
+
     /// A Daemon starting as Lead Daemon `self_name` at `epoch` with
     /// `last_known_members` (which always includes `self_name`).
     ///

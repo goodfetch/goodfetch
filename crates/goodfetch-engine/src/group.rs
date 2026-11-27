@@ -75,12 +75,25 @@ pub const TARGET: &str = "goodfetch::group";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeadEpochs {
     highest: LeadEpoch,
+    member: Option<String>,
 }
 
 impl LeadEpochs {
     /// The record of a Group member whose highest lead epoch is `highest`.
     pub fn new(highest: LeadEpoch) -> Self {
-        Self { highest }
+        Self {
+            highest,
+            member: None,
+        }
+    }
+
+    /// The record of the named Group member `member`, included on every
+    /// `goodfetch::group` trace event so TLC matches the exact member.
+    pub fn for_member(member: impl Into<String>, highest: LeadEpoch) -> Self {
+        Self {
+            highest,
+            member: Some(member.into()),
+        }
     }
 
     /// The highest lead epoch recorded.
@@ -92,26 +105,48 @@ impl LeadEpochs {
     /// refuses it when it is lower.
     pub fn admit(&mut self, epoch: LeadEpoch) -> Result<(), LeadEpochStaleDetails> {
         if epoch < self.highest {
-            tracing::debug!(
-                target: TARGET,
-                transition = "refuse_stale",
-                lead_epoch = epoch.get(),
-                highest_lead_epoch = self.highest.get(),
-                "a peer message's lead epoch is lower than the highest recorded"
-            );
+            if let Some(member) = &self.member {
+                tracing::debug!(
+                    target: TARGET,
+                    transition = "refuse_stale",
+                    member = %member,
+                    lead_epoch = epoch.get(),
+                    highest_lead_epoch = self.highest.get(),
+                    "a peer message's lead epoch is lower than the highest recorded"
+                );
+            } else {
+                tracing::debug!(
+                    target: TARGET,
+                    transition = "refuse_stale",
+                    lead_epoch = epoch.get(),
+                    highest_lead_epoch = self.highest.get(),
+                    "a peer message's lead epoch is lower than the highest recorded"
+                );
+            }
             return Err(LeadEpochStaleDetails {
                 lead_epoch: epoch,
                 highest_lead_epoch: self.highest,
             });
         }
         if epoch > self.highest {
-            tracing::debug!(
-                target: TARGET,
-                transition = "raise",
-                lead_epoch = epoch.get(),
-                highest_lead_epoch = self.highest.get(),
-                "a peer message raises the highest lead epoch"
-            );
+            if let Some(member) = &self.member {
+                tracing::debug!(
+                    target: TARGET,
+                    transition = "raise",
+                    member = %member,
+                    lead_epoch = epoch.get(),
+                    highest_lead_epoch = self.highest.get(),
+                    "a peer message raises the highest lead epoch"
+                );
+            } else {
+                tracing::debug!(
+                    target: TARGET,
+                    transition = "raise",
+                    lead_epoch = epoch.get(),
+                    highest_lead_epoch = self.highest.get(),
+                    "a peer message raises the highest lead epoch"
+                );
+            }
             self.highest = epoch;
         }
         Ok(())

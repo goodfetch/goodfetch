@@ -118,6 +118,7 @@ mod register;
 mod register_coverage;
 mod release;
 mod release_assets;
+mod release_build;
 mod release_digests;
 #[cfg(unix)]
 mod release_line;

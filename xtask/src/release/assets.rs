@@ -234,6 +234,23 @@ fn split(folder: &Path, file: &str, part_size: u64) -> Result<Vec<String>> {
     Ok(parts)
 }
 
+/// The SHA-256 of `path`, streamed without reading the whole file into memory.
+pub(super) fn sha256_file(path: &Path) -> Result<String> {
+    let mut file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("reading {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 /// The SHA-256 of `parts` joined in order, and of each.
 fn digests(folder: &Path, parts: &[String]) -> Result<(String, Vec<String>)> {
     let mut whole = Sha256::new();

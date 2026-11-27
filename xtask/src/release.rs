@@ -29,9 +29,11 @@
 
 mod assets;
 mod changelog;
+mod chromium;
 mod digests;
 mod gates;
 mod line;
+mod proving_ground;
 mod pull_request;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -199,6 +201,16 @@ pub(crate) enum Command {
     /// SHA-256 from the digest table `assets` wrote in `assets` (ADRs 0051
     /// and 0094); writes nothing when the table lacks an archive.
     Digests(digests::Arguments),
+    /// Fixes the Proving ground binary's SHA-256 per target before the
+    /// Products' executables build (ADRs 0033 and 0039).
+    ProvingGroundDigests(proving_ground::Arguments),
+    /// Prints the commit's Goodfetch Chromium build-input and test-input
+    /// tree hashes as JSON (ADR 0074).
+    ChromiumTreeHashes,
+    /// Fetches the Goodfetch Chromium bundles and chromedriver from the
+    /// committed manifest after verifying input tree hashes and build and
+    /// verdict attestations; never builds Chromium (ADR 0074).
+    FetchChromium(chromium::FetchArguments),
 }
 
 pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCode> {
@@ -206,6 +218,9 @@ pub(crate) fn run(command: Command, environment: &Environment) -> Result<ExitCod
     match command {
         Command::Assets { folder, part_size } => assets::run(&folder, part_size),
         Command::Digests(arguments) => digests::run(root, &arguments),
+        Command::ProvingGroundDigests(arguments) => proving_ground::run(root, &arguments),
+        Command::ChromiumTreeHashes => chromium::tree_hashes(root),
+        Command::FetchChromium(arguments) => chromium::fetch(root, &arguments),
         Command::Plan(arguments) => publish::run(
             &environment.root,
             &arguments,

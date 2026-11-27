@@ -45,7 +45,7 @@ const HOST: &str = "mail.test";
 const OCCURRED_AT: u64 = 1_764_000_000;
 
 /// The password in the Notification's link, which no email carries.
-const LINK_PASSWORD: &str = "hunter2";
+pub(crate) const LINK_PASSWORD: &str = "hunter2";
 
 /// The password the SMTP channel logs in with.
 const SMTP_PASSWORD: &str = "smtp-password";
@@ -58,7 +58,7 @@ const HANG_UP: &str = "(hangs up)";
 
 /// A runtime of real time: on a paused clock the channel's timeout would
 /// fire before a receiver on the same thread answers (TESTING.md, Time).
-fn runtime() -> tokio::runtime::Runtime {
+pub(crate) fn runtime() -> tokio::runtime::Runtime {
     goodfetch_runtime::current_thread()
         .enable_all()
         .build()
@@ -75,7 +75,7 @@ fn table(value: Value) -> serde_json::Map<String, Value> {
 
 /// The machine's settings: the Operator policy's `policy`, and user
 /// configuration's `configuration`.
-fn settings(policy: Value, configuration: Value) -> Resolved {
+pub(crate) fn settings(policy: Value, configuration: Value) -> Resolved {
     let layers = Layers {
         operator_policy: Policy {
             settings: Values::read(
@@ -99,7 +99,7 @@ fn settings(policy: Value, configuration: Value) -> Resolved {
 
 /// The Notification each test sends, its link carrying a user and a
 /// password.
-fn message() -> Message {
+pub(crate) fn message() -> Message {
     Message {
         event_id: EventId::new("evt_01JDQ8X2Y5").unwrap(),
         event: NotificationEvent::RUN_FAILED,
@@ -119,7 +119,7 @@ fn message() -> Message {
 }
 
 /// The endpoint `settings` let the channel reach, on `clock`.
-fn endpoint(settings: &Resolved, clock: Clock) -> NotificationEndpoint {
+pub(crate) fn endpoint(settings: &Resolved, clock: Clock) -> NotificationEndpoint {
     NotificationEndpoint::of(
         settings,
         clock,
@@ -129,7 +129,7 @@ fn endpoint(settings: &Resolved, clock: Clock) -> NotificationEndpoint {
 
 /// The channel sending from `goodfetch@example.com` to two addresses
 /// through `provider`, on `clock`.
-fn email(provider: Provider, clock: Clock) -> Email {
+pub(crate) fn email(provider: Provider, clock: Clock) -> Email {
     Email::new(
         "ops",
         Address::parse("goodfetch@example.com").unwrap(),
@@ -153,7 +153,7 @@ fn login(password: &str) -> Login {
 
 /// The failure the driver gets: its name, whether it is retried, and the
 /// wait it asks for.
-fn summary(failure: &Failure) -> (&'static str, bool, Option<Duration>) {
+pub(crate) fn summary(failure: &Failure) -> (&'static str, bool, Option<Duration>) {
     (
         failure.name(),
         failure.is_transient(),
@@ -680,9 +680,9 @@ fn a_server_that_never_greets_times_out() {
     assert_eq!(failure, ("timeout", true, None));
 }
 
-/// The access key SES requests are signed with: `access_key_id`, and the
-/// secret `secret_access_key`.
-fn credentials(access_key_id: &str, secret_access_key: &str) -> Credentials {
+/// The access key SES and SNS requests are signed with: `access_key_id`,
+/// and the secret `secret_access_key`.
+pub(crate) fn credentials(access_key_id: &str, secret_access_key: &str) -> Credentials {
     Credentials {
         access_key_id: access_key_id.to_owned(),
         secret_access_key: SecretString::from(secret_access_key.to_owned()),
@@ -690,18 +690,28 @@ fn credentials(access_key_id: &str, secret_access_key: &str) -> Credentials {
     }
 }
 
-/// What SES received.
+/// What a provider's stand-in received.
 #[derive(Clone, Debug)]
-struct Posted {
-    path: String,
-    authorization: Option<String>,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(crate) struct Posted {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
 }
 
-/// An `httpmock` stand-in of SES answering `status`, with `headers` and
-/// `body`, keeping every request it got.
-fn ses_stand_in(
+impl Posted {
+    /// The value of its header `name`, if it has one.
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(header, _)| header.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
+
+/// An `httpmock` stand-in of a provider's API answering `status`, with
+/// `headers` and `body`, keeping every request it got.
+pub(crate) fn stand_in(
     status: u16,
     headers: &[(&str, &str)],
     body: &str,
@@ -711,14 +721,9 @@ fn ses_stand_in(
     let kept = Arc::clone(&posted);
     server.mock(|when, then| {
         when.is_true(move |request| {
-            let authorization = request
-                .headers_vec()
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case("authorization"))
-                .map(|(_, value)| value.clone());
             kept.lock().unwrap().push(Posted {
+                method: request.method_str().to_owned(),
                 path: request.uri().path().to_owned(),
-                authorization,
                 headers: request.headers_vec().clone(),
                 body: request.body_vec(),
             });
@@ -768,7 +773,7 @@ fn ses_at(base: &str, credentials: Credentials, settings: &Resolved, clock: Cloc
 /// Covers: setting:notifications.channels
 #[test]
 fn an_email_through_ses_is_a_signed_raw_message() {
-    let (server, posted) = ses_stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
+    let (server, posted) = stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
     let runtime = runtime();
     let channel = ses(&server, "AKIDEXAMPLE", Clock::system());
 
@@ -788,7 +793,7 @@ fn an_email_through_ses_is_a_signed_raw_message() {
         )
         .unwrap();
     let raw = String::from_utf8(raw).unwrap().to_ascii_lowercase();
-    let authorization = request.authorization.clone().unwrap_or_default();
+    let authorization = request.header("authorization").unwrap_or_default();
     assert_eq!(
         (
             sent.map_err(|failure| channel.map_failure(failure)),
@@ -841,7 +846,7 @@ fn the_ses_secret_key_is_never_sent() {
         .plant(SecretKind::SinkCredential)
         .value()
         .to_owned();
-    let (server, posted) = ses_stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
+    let (server, posted) = stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
     let runtime = runtime();
     let clock = Clock::system();
     let channel = ses_at(
@@ -887,7 +892,7 @@ fn the_ses_secret_key_is_never_sent() {
 /// Covers: setting:notifications.channels
 #[test]
 fn a_hostile_title_stays_one_subject() {
-    let (server, posted) = ses_stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
+    let (server, posted) = stand_in(200, &[], r#"{"MessageId":"0102-abc"}"#);
     let runtime = runtime();
     let channel = ses(&server, "AKIDEXAMPLE", Clock::system());
     let hostile = Message {
@@ -928,7 +933,7 @@ fn an_unreached_ses_maps_to_its_failure(
     #[case] reach: &str,
     #[case] expected: (&str, bool, Option<Duration>),
 ) {
-    let (server, posted) = ses_stand_in(200, &[], "{}");
+    let (server, posted) = stand_in(200, &[], "{}");
     let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let (base, policy) = if reach == "closed" {
         (
@@ -999,7 +1004,7 @@ fn each_ses_answer_maps_to_its_failure(
     #[case] body: &str,
     #[case] expected: (&str, bool, Option<Duration>),
 ) {
-    let (server, _) = ses_stand_in(status, headers, body);
+    let (server, _) = stand_in(status, headers, body);
     let runtime = runtime();
     let channel = ses(&server, "AKIDEXAMPLE", Clock::system());
 
@@ -1013,7 +1018,7 @@ fn each_ses_answer_maps_to_its_failure(
 /// Covers: setting:notifications.channels
 #[test]
 fn an_unsignable_access_key_is_unauthorized() {
-    let (server, posted) = ses_stand_in(200, &[], "{}");
+    let (server, posted) = stand_in(200, &[], "{}");
     let runtime = runtime();
     let channel = ses(&server, "AKID\nEXAMPLE", Clock::system());
 

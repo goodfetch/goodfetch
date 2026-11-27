@@ -56,6 +56,7 @@ pub mod key_value_store;
 pub mod known_certificates;
 pub mod lease;
 pub mod ledger;
+pub mod live_view;
 pub mod local_addresses;
 pub mod log;
 pub mod lowest_minor;

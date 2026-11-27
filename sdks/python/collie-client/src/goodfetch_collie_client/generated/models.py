@@ -16,6 +16,7 @@ from goodfetch_collie_client.generated.open_values import (
     ClosedValue,
     ModelUnavailableReason,
     NotAddedReason,
+    NotificationEvent,
     ReportedHookStage,
     ScheduleState,
     TriggerInvalidReason,
@@ -1896,6 +1897,14 @@ class ListenerEventsLostDetails(BaseModel):
     """The event, such as `session.page`."""
     lost: Annotated[int, Field(ge=0)]
     """How many of its events the listener lost."""
+
+
+class LiveViewViewerLimitDetails(BaseModel):
+    """What `live_view_viewer_limit` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class LoadState(StrEnum):
@@ -5403,6 +5412,28 @@ class TargetNotUniqueDetails(BaseModel):
     """Every element it matched at the last observation."""
 
 
+class ThinNotification(BaseModel):
+    """
+    A thin Notification: its IDs and link only, which an Integration reads
+    the rest from.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    event_id: str
+    """
+    The event's ID, the same on every delivery of it and the
+    `webhook-id` header's value.
+    """
+    link: str | None = None
+    """Where a person acts on it, such as the Run's page, if anywhere."""
+    run_id: RunId | None = None
+    """The Run it concerns, if any."""
+    schedule_id: ScheduleId | None = None
+    """The Schedule it concerns, if any."""
+
+
 class TierChosen(StrEnum):
     """How the tier of a Record's document was chosen (ADRs 0023 and 0093)."""
 
@@ -5953,6 +5984,25 @@ class WebSocketFrame(BaseModel):
     """Its payload: its text, or for a binary frame its bytes in Base64."""
     web_socket_id: str
     """The socket."""
+
+
+class WebhookInvalidReason(StrEnum):
+    """Why a call is no verified delivery."""
+
+    signature = "signature"
+    """No signature of `webhook-signature` matches a secret given."""
+    timestamp = "timestamp"
+    """
+    `webhook-timestamp` is no whole number of seconds, or more than 5
+    minutes from now: a delayed or replayed call.
+    """
+    malformed = "malformed"
+    """The body is no Notification payload of a major the SDK reads."""
+    missing_header = "missing_header"
+    """
+    `webhook-id`, `webhook-timestamp` or `webhook-signature` is
+    missing.
+    """
 
 
 class World(StrEnum):
@@ -6566,6 +6616,11 @@ class DaemonState(BaseModel):
     """
     live_runs: Annotated[int, Field(ge=0)]
     """How many of its Runs are live."""
+    live_view: str | None = None
+    """
+    Where a Live view channel opens, the WebSocket's `host:port`; none
+    where it accepts none, as with `live_view.enabled` off.
+    """
     pid: Annotated[int, Field(ge=0)]
     """Its process ID."""
     product: Product
@@ -6957,6 +7012,34 @@ class FileWriteFailedDetails(BaseModel):
     """
     side: WriteSide
     """Whose storage failed."""
+
+
+class FullNotification(BaseModel):
+    """The whole Notification."""
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    event: NotificationEvent
+    """What happened."""
+    event_id: str
+    """
+    The event's ID, the same on every delivery of it and the
+    `webhook-id` header's value.
+    """
+    link: str | None = None
+    """Where a person acts on it, such as the Run's page, if anywhere."""
+    product: Product
+    """The Product whose engine sent it."""
+    run_id: RunId | None = None
+    """The Run it concerns, if any."""
+    schedule_id: ScheduleId | None = None
+    """The Schedule it concerns, if any."""
+    text: str
+    """Its text."""
+    title: str
+    """Its one-line title."""
 
 
 class GotoParams(BaseModel):
@@ -7701,6 +7784,40 @@ class NothingDone2(BaseModel):
 class NothingDone(RootModel[NothingDone1 | NothingDone2 | NothingDone3]):
     root: NothingDone1 | NothingDone2 | NothingDone3
     """Why a call that ends a Run did nothing (ADR 0102's G1)."""
+
+
+class NotificationData(RootModel[FullNotification | ThinNotification]):
+    root: FullNotification | ThinNotification
+    """What a delivery's `data` holds."""
+
+
+class NotificationPayload(BaseModel):
+    """
+    A `webhook` channel's delivery: the Standard Webhooks envelope around
+    one Notification.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    data: NotificationData
+    """
+    The Notification, whole or thin as the channel's `webhook.payload`
+    says.
+    """
+    format: ProtocolVersion
+    """
+    The body's `major.minor` version: a receiver reads every minor of
+    its major.
+    """
+    timestamp: PointInTime
+    """When the Notification's event happened, in RFC 3339, UTC."""
+    type: str
+    """
+    `notification.` and the Notification's event, such as
+    `notification.run_failed`.
+    """
 
 
 class PageBodyParams(BaseModel):
@@ -9082,6 +9199,16 @@ class WaitForFunctionParams(BaseModel):
     """
     world: World | None = None
     """Where it runs; the main world when absent."""
+
+
+class WebhookInvalidDetails(BaseModel):
+    """What `webhook_invalid` details."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    reason: WebhookInvalidReason
+    """Why the call was refused."""
 
 
 class AppliedLimit(BaseModel):

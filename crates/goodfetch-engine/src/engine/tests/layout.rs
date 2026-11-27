@@ -216,6 +216,7 @@ where
             install: Some(install),
             ops: Ops::default(),
             websocket: None,
+            live_view: None,
             accounts: None,
         };
         let (network, dialer) = transport::in_memory();

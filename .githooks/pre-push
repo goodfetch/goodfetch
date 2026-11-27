@@ -45,13 +45,15 @@
 # batch-check`; TESTING.md, Checks by role, the owner's decision of
 # 2026-11-23). Its commits are judged all the same, and it runs the static
 # steps that take seconds and that a red batch-check, a rerun of the whole
-# batch, would otherwise be the first to name: the floor guard over what each
-# pushed head adds to `origin/main` (`just floor-guard`), and the module check
-# (`xtask modules`), which reads the checkout, so it runs when the checkout's
-# head is among those pushed. A red one refuses the push. Clippy over the
-# touched crates stays in the batch: warm, over one crate, it took 24
-# seconds for xtask and 35 for goodfetch-engine (2026-11-23), against under
-# a second for the floor guard and about 11 for the module check.
+# batch, would otherwise be the first to name: over what each pushed head
+# adds to `origin/main`, the floor guard (`just floor-guard`) and the scan
+# for secrets (`just commit-leaks`, as `just quick` runs it; gate 3983 reached
+# its gate red on it, 2026-11-26); and the module check (`xtask modules`),
+# which reads the checkout, so it runs when the checkout's head is among
+# those pushed. A red one refuses the push. Clippy over the touched crates
+# stays in the batch: warm, over one crate, it took 24 seconds for xtask and
+# 35 for goodfetch-engine (2026-11-23), against under a second for the floor
+# guard, a few for the scan and about 11 for the module check.
 #
 # When that head's change against `origin/main` also reaches a file the
 # drift checks read (`drift_paths` below: the SDKs and the Products' crates
@@ -59,12 +61,18 @@
 # launchers, the client conformance cases, a settings module, a generated
 # folder, a source codegen reads, or a step's own code), the push runs them
 # too: the xtask steps of `just lint-drift` and `just lint`'s containment
-# check, which read the checkout as the module check does. PRs 3891, 3898
-# and 3907 each reached their gate red on one of them on 2026-11-26 (retro
-# of #607). Warm, the installs and the steps take about two minutes;
-# on a cold target, `compat check` alone builds every writer, about 25
-# minutes beside a gate. A change that reaches none of those paths pays one
-# `git diff`.
+# check, which read the checkout as the module check does, then all of
+# xtask's Quick tests, unfiltered (`just test quick xtask`, about 25 seconds
+# of tests warm), since a codegen input lists itself in them. PRs 3891, 3898
+# and 3907 each reached their gate red on a drift step on 2026-11-26 (retro
+# of #607), and 3975 on codegen's emit tests after a filtered run. Warm, the
+# installs and the steps take about two minutes; on a cold target, `compat
+# check` alone builds every writer, about 25 minutes beside a gate. When
+# that head's change reaches the Rust under `crates/` that is not a test,
+# or the copy check's script or list (`copies_paths` below), the push also
+# runs the copy check (`ci/copies.sh`, about 3 seconds, `just lint`'s step),
+# which reads the checkout too: 3975 reached its gate red on it the same
+# day. A change that reaches none of those paths pays two `git diff`s.
 set -euo pipefail
 # git gives this hook the push's GIT_DIR (a linked worktree's), and a build
 # script's `git init` under `just quick` (btls-sys's) would then reinitialize
@@ -158,17 +166,49 @@ drift_paths=(sdks/ tsconfig.base.json crates/goodfetch-protocol/ compat/ conform
   xtask/src/codegen.rs xtask/src/codegen/ xtask/src/clients.rs xtask/src/sdk_manifests.rs
   xtask/src/sdk_manifests/ xtask/src/compat.rs xtask/src/compat/ xtask/src/api_check.rs
   xtask/src/api_check/ xtask/src/sdk_api.rs xtask/src/containment.rs)
+# What the copy check (ci/copies.sh) reads: the Rust under crates/ but its
+# tests, which the script leaves out, and the script and its list. It reads
+# the whole tree, but a change that reaches none of these cannot turn it red.
+copies_paths=(':(glob)crates/**/*.rs' ':(exclude,glob)crates/**/tests/**'
+  ':(exclude,glob)crates/**/tests.rs' ':(exclude,glob)crates/**/benches/**'
+  ':(exclude,glob)crates/**/fixtures/**' ci/copies.sh ci/copies.json)
 drift=0
+copies=0
 for oid in $specs; do
   just floor-guard origin/main "$oid" </dev/null || static=1
-  [[ $oid == "$head" ]] && modules=1
-  git diff --quiet origin/main..."$oid" -- "${drift_paths[@]}" && continue
+  just commit-leaks "" "$oid" </dev/null || static=1
+  reaches_drift=0
+  reaches_copies=0
+  git diff --quiet origin/main..."$oid" -- "${drift_paths[@]}" || reaches_drift=1
+  git diff --quiet origin/main..."$oid" -- "${copies_paths[@]}" || reaches_copies=1
   if [[ $oid == "$head" ]]; then
-    drift=1
-  else
-    echo "pre-push: $oid reaches what the drift steps read, but they read the checkout, whose head it is not: run them in its own worktree (\`just lint-drift\` and \`cargo run --bin xtask -- containment\`)."
+    modules=1
+    drift=$((drift | reaches_drift))
+    copies=$((copies | reaches_copies))
+  elif ((reaches_drift || reaches_copies)); then
+    echo "pre-push: $oid reaches what the drift steps, xtask's tests or the copy check read, but they read the checkout, whose head it is not: run them in its own worktree (\`just lint-drift\`, \`cargo run --bin xtask -- containment\`, \`just test quick xtask\` and \`ci/copies.sh\`)."
   fi
 done
+# pnpm's locked install, run once for the steps that need it: a new worktree
+# has no `node_modules`, through which the SDK steps read the TypeScript
+# packages and the copy check runs jscpd.
+node_installed=""
+node_install() {
+  if [[ -z $node_installed ]]; then
+    node_installed=0
+    pnpm install --frozen-lockfile --reporter=silent </dev/null && node_installed=1
+  fi
+  ((node_installed))
+}
+if ((copies)); then
+  echo "pre-push: the change reaches the Rust that \`ci/copies.sh\` reads, so it runs (PR 3975 reached its gate red on an 18-line copy, 2026-11-26)."
+  if ! node_install; then
+    echo "pre-push: pnpm's locked install failed (above), so the copy check did not run."
+    static=1
+  else
+    ci/copies.sh </dev/null || static=1
+  fi
+fi
 if ((modules)); then
   cargo run --quiet --bin xtask -- modules </dev/null || static=1
 fi
@@ -194,7 +234,7 @@ if ((drift)); then
   if ((${#drift_steps[@]} < 2)); then
     echo "pre-push: the step lists of \`just lint-drift\` and \`just lint\` gave ${#drift_steps[@]} drift steps, so none ran."
     static=1
-  elif ! pnpm install --frozen-lockfile --reporter=silent </dev/null || ! uv sync --frozen --all-extras --quiet </dev/null; then
+  elif ! node_install || ! uv sync --frozen --all-extras --quiet </dev/null; then
     echo "pre-push: the locked installs failed (above), so the drift steps did not run."
     static=1
   elif ! cargo build --quiet --bin xtask </dev/null; then
@@ -206,12 +246,19 @@ if ((drift)); then
       bash -c "$step" </dev/null || static=1
     done
   fi
+  # A codegen input lists itself in xtask's own tests too, the bundle's list
+  # of Formats among them: PR 3975 added a Format, ran xtask's tests filtered
+  # to the compat ones, and reached its gate red on codegen's emit tests
+  # (2026-11-26). So all of xtask's Quick tests run, unfiltered, whatever
+  # the steps above gave.
+  echo "pre-push: just test quick xtask"
+  just test quick xtask </dev/null || static=1
 fi
 if ((commits)); then
   echo "error: pre-push refuses this push: a commit it adds is not signed off, its subject is no Conventional Commit, or, on a tree a green \`just quick\` holds, the floor guard or the scan for secrets is red (above, CONTRIBUTING.md, TESTING.md's Quality register). Rewrite it and push again; \`just quick\` did not run." >&2
 fi
 if ((static)); then
-  echo "error: pre-push refuses this push: the floor guard, the module check or a drift step failed on what it pushes to a \`spec/\` branch (above). Fix it and push again." >&2
+  echo "error: pre-push refuses this push: the floor guard, the scan for secrets, the module check, the copy check, a drift step or xtask's tests failed on what it pushes to a \`spec/\` branch (above). Fix it and push again." >&2
 fi
 if ((commits || static)); then
   exit 1

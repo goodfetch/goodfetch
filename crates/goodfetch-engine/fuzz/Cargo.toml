@@ -7,8 +7,8 @@
 # fuzz/json_rpc_framing/seeds -- -dict=fuzz/json_rpc_framing/dictionary.dict`,
 # and likewise `settings_file`, `checkpoint`, `run_state_import`,
 # `secret_reference`, `address_classification`, `certificate_file`,
-# `robots_txt`, `audit_jsonl`, `session_bundle`, `warc`, `oci_image_index`
-# and `plugin_bundle`.
+# `robots_txt`, `audit_jsonl`, `live_view_viewer_message`,
+# `session_bundle`, `warc`, `oci_image_index` and `plugin_bundle`.
 [package]
 name = "goodfetch-engine-fuzz"
 version = "0.0.0"
@@ -83,6 +83,13 @@ bench = false
 [[bin]]
 name = "audit_jsonl"
 path = "fuzz_targets/audit_jsonl.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_view_viewer_message"
+path = "fuzz_targets/live_view_viewer_message.rs"
 test = false
 doc = false
 bench = false

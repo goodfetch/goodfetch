@@ -1,0 +1,11 @@
+{
+  "type": "notification.run_failed",
+  "timestamp": "2026-01-05T09:00:00Z",
+  "format": "0.1",
+  "data": {
+    "event_id": "evt_01JDQ8X2Y5",
+    "run_id": "nightly-prices",
+    "schedule_id": "prices",
+    "link": "http://127.0.0.1:7777/runs/nightly-prices"
+  }
+}

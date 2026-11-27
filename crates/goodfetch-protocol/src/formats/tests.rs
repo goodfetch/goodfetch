@@ -276,7 +276,8 @@ fn the_registry_lists_every_format_under_its_rule() {
             ("recipe-manifest", Rule::Default),
             ("plugin-protocol", Rule::LowerMinor),
             ("plugin-manifest", Rule::Default),
-            ("plugin-lockfile", Rule::Default)
+            ("plugin-lockfile", Rule::Default),
+            ("notification-payload", Rule::FrozenMajor)
         ]
     );
 }

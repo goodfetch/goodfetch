@@ -1,0 +1,60 @@
+---
+source: crates/goodfetch-notification/tests/it/chat.rs
+expression: "serde_json::to_string_pretty(&body).unwrap()"
+---
+{
+  "attachments": [
+    {
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "actions": [
+          {
+            "title": "Open",
+            "type": "Action.OpenUrl",
+            "url": "http://127.0.0.1:7777/runs/nightly-prices"
+          }
+        ],
+        "body": [
+          {
+            "size": "Medium",
+            "text": "Run failed",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "text": "The Run nightly-prices failed: navigation_failed.",
+            "type": "TextBlock",
+            "wrap": true
+          },
+          {
+            "facts": [
+              {
+                "title": "Event",
+                "value": "run_failed"
+              },
+              {
+                "title": "Product",
+                "value": "Collie"
+              },
+              {
+                "title": "Run",
+                "value": "nightly-prices"
+              },
+              {
+                "title": "Schedule",
+                "value": "prices"
+              }
+            ],
+            "type": "FactSet"
+          }
+        ],
+        "fallbackText": "Collie · run_failed · Run nightly-prices · Schedule prices",
+        "type": "AdaptiveCard",
+        "version": "1.4"
+      },
+      "contentType": "application/vnd.microsoft.card.adaptive"
+    }
+  ],
+  "type": "message"
+}

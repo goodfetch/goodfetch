@@ -507,6 +507,24 @@ impl EndpointSettings {
         }
     }
 
+    /// Judges `url`, an endpoint's absolute URL, before any lookup, as a
+    /// configuration is checked: its scheme, and for a host written as an
+    /// address, that address under `egress.no_private_endpoints`. A host
+    /// written as a name is judged again, with its addresses, at each
+    /// connection.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] for a scheme other than HTTP's or an address the policy
+    /// refuses.
+    pub(crate) fn judge(&self, url: &str) -> Result<(), Refused> {
+        let judged = Gate::Endpoint(self.policy).judge(url)?;
+        if let (Some(address), Some(port)) = (judged.host().parse::<IpAddr>().ok(), judged.port()) {
+            judged.addresses(&[SocketAddr::new(address, port)])?;
+        }
+        Ok(())
+    }
+
     /// The same settings, presenting to each endpoint the client
     /// certificate `certificates` lists for its host.
     pub(crate) fn presenting(self, certificates: ClientCertificates) -> Self {

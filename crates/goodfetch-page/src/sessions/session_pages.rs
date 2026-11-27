@@ -396,7 +396,7 @@ impl Sessions {
             self.page_owners.close(std::slice::from_ref(&page));
             return Err(self.closed_session(session));
         }
-        if !self.index.kept(page.clone(), (session, &open)) {
+        if !self.index.kept(&page, (session, &open)) {
             return Err(self.closed_session(session));
         }
         // Its popups are followed once it is in its Session, so no lock of

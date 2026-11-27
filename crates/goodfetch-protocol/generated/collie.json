@@ -2587,6 +2587,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "live_view": {
+          "arrived_in": "0.1",
+          "description": "Where a Live view channel opens, the WebSocket's `host:port`; none\nwhere it accepts none, as with `live_view.enabled` off.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "pid": {
           "arrived_in": "0.1",
           "description": "Its process ID.",
@@ -5536,6 +5544,20 @@
       "required": [
         "event",
         "lost"
+      ],
+      "type": "object"
+    },
+    "LiveViewViewerLimitDetails": {
+      "description": "What `live_view_viewer_limit` details.",
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/SettingLimit",
+          "arrived_in": "0.1",
+          "description": "`live_view.max_viewers`, its value and its layer."
+        }
+      },
+      "required": [
+        "limit"
       ],
       "type": "object"
     },
@@ -16293,6 +16315,45 @@
       ],
       "type": "object"
     },
+    "WebhookInvalidDetails": {
+      "description": "What `webhook_invalid` details.",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/WebhookInvalidReason",
+          "arrived_in": "0.1",
+          "description": "Why the call was refused."
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "WebhookInvalidReason": {
+      "description": "Why a call is no verified delivery.",
+      "oneOf": [
+        {
+          "const": "signature",
+          "description": "No signature of `webhook-signature` matches a secret given.",
+          "type": "string"
+        },
+        {
+          "const": "timestamp",
+          "description": "`webhook-timestamp` is no whole number of seconds, or more than 5\nminutes from now: a delayed or replayed call.",
+          "type": "string"
+        },
+        {
+          "const": "malformed",
+          "description": "The body is no Notification payload of a major the SDK reads.",
+          "type": "string"
+        },
+        {
+          "const": "missing_header",
+          "description": "`webhook-id`, `webhook-timestamp` or `webhook-signature` is\nmissing.",
+          "type": "string"
+        }
+      ]
+    },
     "World": {
       "description": "Where a page function runs (ADR 0085).",
       "oneOf": [
@@ -17010,6 +17071,19 @@
       "name": "listener_failed",
       "product": "collie",
       "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "As many viewers as `live_view.max_viewers` allows already watch the Session, so the channel opened none. `limit` names the setting, its value and the layer that set it. Open the channel again once a viewer leaves, or raise the setting.",
+      "details": {
+        "$ref": "#/$defs/LiveViewViewerLimitDetails"
+      },
+      "exit_code": null,
+      "group": "refused",
+      "json_rpc_class": -32002,
+      "name": "live_view_viewer_limit",
+      "product": "collie",
+      "retryable": true
     },
     {
       "arrived_in": "0.1",
@@ -18055,6 +18129,19 @@
       "group": "program",
       "json_rpc_class": -32001,
       "name": "value_invalid",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The call is no verified delivery of a `webhook` channel: a Standard Webhooks header is missing, its timestamp is more than 5 minutes from now, no signature matches a secret given, or its body is no Notification payload of a major this SDK reads. Answer the call with an error and keep nothing of it; when every delivery fails, check that the secret given is the channel's `webhook.secret`.",
+      "details": {
+        "$ref": "#/$defs/WebhookInvalidDetails"
+      },
+      "exit_code": null,
+      "group": "program",
+      "json_rpc_class": -32001,
+      "name": "webhook_invalid",
       "product": "collie",
       "retryable": false
     }
@@ -21967,7 +22054,7 @@
       "clearable": false,
       "default": "127.0.0.1:7600",
       "deprecated": null,
-      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Port 0 takes a free port, which its log names. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
+      "description": "Where `daemon run`, the foreground Daemon, listens, as `host:port`: `127.0.0.1` on port 7900 plus the major (7600 plus the minor during `0.y` previews). Any other Daemon listens there for Live view channels alone, while `live_view.enabled` is on. Port 0 takes a free port, which its log and `daemon.status` name. An address other than loopback needs `daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`, so no token crosses a network in clear. Set in user configuration or an Operator policy, or for `daemon run` through `GOODFETCH_DAEMON_ADDRESS`.",
       "fixed_for_run": false,
       "name": "daemon.address",
       "product": "collie",
@@ -23167,6 +23254,27 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": true,
+      "deprecated": null,
+      "description": "Whether a person may watch this machine's Sessions through a Daemon: on by default. A Daemon then accepts Live view channels on the loopback WebSocket of `daemon.address`, which it opens for them where nothing else did. Off, no channel opens, the Daemon listens there for none, and nothing is captured. A running Daemon reads it again for each channel, so turning it off through that Daemon refuses new viewers at once, while a hand edit of the files, or a write through another engine, is seen at the Daemon's next read of them; a listener it did not open at its start opens only at its next start, such as `daemon restart`. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "live_view.enabled",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "type": "boolean"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": "auto",
@@ -23189,6 +23297,52 @@
           "auto",
           "off",
           "always"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": 10,
+      "deprecated": null,
+      "description": "How many viewers may watch one Session at once: 10. The next one's channel is refused with `live_view_viewer_limit`. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "live_view.max_viewers",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "machine",
+      "clearable": false,
+      "default": "auto",
+      "deprecated": null,
+      "description": "How a Live view captures its Session: `auto` (the default) takes the best tier the Session's browser offers, `screencast` for a headless one, and falls back to the next when one fails; `screencast` takes the browser's own screencast of the shown page, JPEG frames sized to the largest screen watching. Set in user configuration or an Operator policy only.",
+      "fixed_for_run": false,
+      "name": "live_view.tier",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "enum": [
+          "auto",
+          "screencast"
         ]
       },
       "weakening": null,
@@ -23494,12 +23648,28 @@
                       ]
                     },
                     "region": {
+                      "anyOf": [
+                        {
+                          "description": "The Mailgun region a sending domain lives in.",
+                          "oneOf": [
+                            {
+                              "const": "us",
+                              "description": "The United States, at `api.mailgun.net`.",
+                              "type": "string"
+                            },
+                            {
+                              "const": "eu",
+                              "description": "The European Union, at `api.eu.mailgun.net`.",
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
                       "arrived_in": "0.1",
-                      "description": "The region, `us` or `eu`.",
-                      "type": [
-                        "string",
-                        "null"
-                      ]
+                      "description": "The region its domain lives in: `us` when left out."
                     }
                   },
                   "type": [

@@ -293,7 +293,10 @@ pub fn check_session_source(
 /// # Errors
 ///
 /// [`SettingsError::NotApplicable`] naming the first such field.
-pub(super) fn check_plugin_entries(value: &Value, layer: SettingsLayer) -> Result<(), SettingsError> {
+pub(super) fn check_plugin_entries(
+    value: &Value,
+    layer: SettingsLayer,
+) -> Result<(), SettingsError> {
     let Some(entries) = value.as_object() else {
         return Ok(());
     };

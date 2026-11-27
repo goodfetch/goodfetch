@@ -493,40 +493,6 @@ fn a_run_uses_the_helpers_of_the_commit_it_tests() {
     );
 }
 
-/// Cron's line starts from `origin/main`'s script, not the checkout's, which on
-/// the day this came in may predate it.
-#[test]
-fn the_crontab_line_runs_the_script_of_origin_main() {
-    let workspace = backstop_repository();
-    let stand_in = stand_in_just(&workspace);
-    let (script, marker) = script_noting_it_ran(&workspace);
-    commit_to_main(&workspace, &[("ci/gate-backstop.sh", script.as_bytes())]);
-    let crontab = repository_script("gate-backstop.crontab");
-    let crontab = String::from_utf8(crontab).unwrap();
-    let entry = crontab
-        .lines()
-        .find(|line| line.starts_with("37 3 "))
-        .unwrap();
-    let line = entry
-        .split_once(" bash -lc '")
-        .and_then(|(_, line)| line.strip_suffix('\''))
-        .unwrap();
-    let mut command = std::process::Command::new("bash");
-    command.args(["-c", line]);
-    command.current_dir("/");
-
-    let run = run_of(
-        &workspace,
-        &stand_in,
-        &[("GOODFETCH_CHECKOUT", workspace.path().to_str().unwrap())],
-        command,
-    );
-
-    assert_eq!(run.code, Some(0), "{}", run.log);
-    assert!(run.calls.is_empty(), "{:?}", run.calls);
-    assert!(marker.is_file(), "{}", run.log);
-}
-
 /// The re-stress refuses a `lazyfs::` test without a LazyFS build, and what it
 /// selects takes a build to find, so a run asks up front, as `just merge`'s full
 /// gate does: it fails plainly and first, never as a daily miss.

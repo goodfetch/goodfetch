@@ -15,10 +15,11 @@ goodfetch-protocol.workspace = true
 hyper.workspace = true
 mail-builder.workspace = true
 mail-send.workspace = true
+quick-xml.workspace = true
 rusqlite.workspace = true
 secrecy.workspace = true
-serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 smtp-proto.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "sync", "time", "io-util"] }
@@ -31,6 +32,7 @@ futures-util.workspace = true
 goodfetch-runtime.workspace = true
 goodfetch-test-support.workspace = true
 httpmock.workspace = true
+insta.workspace = true
 proptest.workspace = true
 proptest-state-machine.workspace = true
 rcgen = { workspace = true, features = ["ring"] }

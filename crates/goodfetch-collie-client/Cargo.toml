@@ -13,6 +13,9 @@ publish.workspace = true
 [dependencies]
 # The Base64 of the `$/chunk` notifications a Daemon streams a file in.
 data-encoding.workspace = true
+# The `v2a` signatures `verify_webhook` checks, Ed25519 over SHA-256
+# (issue 1391).
+ed25519-dalek.workspace = true
 # The encodings a Response's `text()` decodes a body in (ADR 0119).
 encoding_rs.workspace = true
 # The Encoding a body declares in its own bytes, read as Chrome reads it,
@@ -23,6 +26,9 @@ futures-core.workspace = true
 # The sink of an Exposed Daemon's WebSocket messages (ADR 0049).
 futures-util.workspace = true
 goodfetch-protocol.workspace = true
+# The `v1` signatures `verify_webhook` checks, HMAC-SHA256 (issue 1391).
+hmac.workspace = true
+sha2.workspace = true
 # The hidden temporary file of a Saved file and the reason of a failed
 # write, as the engine has them (ADR 0116).
 goodfetch-saved-file.workspace = true
@@ -61,6 +67,8 @@ goodfetch-conformance.workspace = true
 goodfetch-test-support.workspace = true
 proptest.workspace = true
 rstest.workspace = true
+# The secrets the engine's webhook signer signs the test deliveries with.
+secrecy.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 # The `log` bridge and the subscriber of the test that neither end of an

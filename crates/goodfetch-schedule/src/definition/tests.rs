@@ -532,4 +532,9 @@ fn schedule_own_settings_resolve_all_nine_keys() {
         checked.resolved_settings.retention_history,
         Duration::from_hours(24)
     );
+    assert_eq!(checked.resolved_settings.tick, Duration::from_secs(30));
+    assert_eq!(
+        checked.resolved_settings.wake_threshold,
+        Duration::from_secs(90)
+    );
 }

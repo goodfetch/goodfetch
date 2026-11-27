@@ -211,10 +211,10 @@ fn cron_forms_parse_and_describe(
     Some("CRONER_SENTINEL_RS")
 )]
 #[case::component_after_stepping(
-    "0-59/99 * * * *",
+    "10-59/65530 * * * *",
     CronError::ComponentError("Value exceeded max after stepping. CRONER_SENTINEL_MAXS".to_owned()),
     TriggerInvalidReason::BadStep,
-    4,
+    5,
     Some("CRONER_SENTINEL_MAXS")
 )]
 #[case::component_out_of_bounds(

@@ -19,9 +19,10 @@ use goodfetch_protocol::schedule::{
     SCHEDULE_AUTO_PAUSE_FAILURES, SCHEDULE_CATCH_UP, SCHEDULE_JITTER, SCHEDULE_LIMITS_MAX,
     SCHEDULE_MAX_COUNT, SCHEDULE_MIN_INTERVAL, SCHEDULE_OVERLAP, SCHEDULE_PAUSE_TIMEOUT,
     SCHEDULE_RETENTION_CHANGED_WATCHES, SCHEDULE_RETENTION_HISTORY, SCHEDULE_RETENTION_RUNS,
-    SCHEDULE_RETENTION_WATCH_RUNS, ScheduleCapExceededDetails, ScheduleCapKind, ScheduleCatchUp,
-    ScheduleDefinition, ScheduleId, ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits,
-    ScheduleTarget, ScheduleTrigger, ScheduleWarning,
+    SCHEDULE_RETENTION_WATCH_RUNS, SCHEDULE_TICK, SCHEDULE_WAKE_THRESHOLD,
+    ScheduleCapExceededDetails, ScheduleCapKind, ScheduleCatchUp, ScheduleDefinition, ScheduleId,
+    ScheduleOverlap, SchedulePauseTimeout, SchedulePeriodLimits, ScheduleTarget, ScheduleTrigger,
+    ScheduleWarning,
 };
 use goodfetch_protocol::settings::SettingsLayer;
 use jiff::tz::TimeZone;
@@ -64,8 +65,9 @@ pub(crate) fn time_zone(given: Option<&str>, host: &str) -> Result<String, ZoneU
     Ok(zone.iana_name().unwrap_or(given).to_owned())
 }
 
-/// The nine per-Schedule settings resolved across Operator policy, user
-/// configuration and the Schedule's own `settings`.
+/// The resolved `schedule.*` settings for a Schedule across Operator policy,
+/// user configuration and the Schedule's own `settings` (the nine
+/// per-Schedule keys plus the two machine-level scheduler timing keys).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ScheduleSettings {
     pub(crate) overlap: ScheduleOverlap,
@@ -77,10 +79,12 @@ pub(crate) struct ScheduleSettings {
     pub(crate) retention_watch_runs: u64,
     pub(crate) retention_changed_watches: u64,
     pub(crate) retention_history: Duration,
+    pub(crate) tick: Duration,
+    pub(crate) wake_threshold: Duration,
 }
 
 impl ScheduleSettings {
-    /// Reads the nine per-Schedule settings from `resolved`.
+    /// Reads the resolved `schedule.*` settings from `resolved`.
     pub(crate) fn from_resolved(resolved: &Resolved) -> Self {
         let overlap_word: &str = resolved.get(&SCHEDULE_OVERLAP);
         let overlap = ScheduleOverlap::parse(overlap_word)
@@ -103,6 +107,8 @@ impl ScheduleSettings {
         let retention_watch_runs: u64 = resolved.get(&SCHEDULE_RETENTION_WATCH_RUNS);
         let retention_changed_watches: u64 = resolved.get(&SCHEDULE_RETENTION_CHANGED_WATCHES);
         let retention_history: Duration = resolved.get(&SCHEDULE_RETENTION_HISTORY);
+        let tick: Duration = resolved.get(&SCHEDULE_TICK);
+        let wake_threshold: Duration = resolved.get(&SCHEDULE_WAKE_THRESHOLD);
         Self {
             overlap,
             catch_up,
@@ -113,6 +119,8 @@ impl ScheduleSettings {
             retention_watch_runs,
             retention_changed_watches,
             retention_history,
+            tick,
+            wake_threshold,
         }
     }
 }

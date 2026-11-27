@@ -1462,6 +1462,12 @@ number = 11
 kind = "setting"
 prefix = "notifications."
 
+# The Daemon's HTTP listener (ADR 0027; issue 1400).
+[[area]]
+number = 11
+kind = "setting"
+prefix = "http_listener."
+
 # The Error code an SDK's `json()` raises itself for a body that is not
 # the JSON asked for (ADR 0085; issue 2803).
 [[area]]

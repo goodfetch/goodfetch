@@ -4994,6 +4994,14 @@
             "null"
           ]
         },
+        "http_listener": {
+          "arrived_in": "0.1",
+          "description": "Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none\nwhile `http_listener.enabled` is off (ADR 0027).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "idle_timeout": {
           "arrived_in": "0.1",
           "description": "Its `daemon.idle_timeout`, in milliseconds.",
@@ -26813,6 +26821,11 @@
           "const": "worker",
           "description": "A Script sandbox worker.",
           "type": "string"
+        },
+        {
+          "const": "http_listener",
+          "description": "A plain HTTP client calling the Daemon's HTTP JSON-RPC listener\n(`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it\nis never a person surface.",
+          "type": "string"
         }
       ]
     },
@@ -29410,6 +29423,18 @@
                 },
                 "type": "object"
               },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
               "log": {
                 "additionalProperties": false,
                 "properties": {
@@ -31037,6 +31062,26 @@
                         "description": "One thread a core."
                       }
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -35533,6 +35578,26 @@
                         "description": "One thread a core."
                       }
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"
@@ -40045,6 +40110,26 @@
                         "description": "One thread a core."
                       }
                     ]
+                  }
+                },
+                "type": "object"
+              },
+              "http_listener": {
+                "additionalProperties": false,
+                "properties": {
+                  "address": {
+                    "description": "The IP address the Daemon's HTTP listener binds to when `http_listener.enabled` is on: `127.0.0.1` by default. Any address other than loopback requires TLS through the Exposed Daemon's keys (`daemon.tls.cert_file` and `daemon.tls.key_file`, or `daemon.tls.upstream`), so no token crosses a network in clear. Set in user configuration or an Operator policy only.",
+                    "type": "string"
+                  },
+                  "enabled": {
+                    "description": "Whether the Daemon opens its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027). Off (`false`) by default so workflow tools reach a Daemon only when enabled. Set in user configuration or an Operator policy only.",
+                    "type": "boolean"
+                  },
+                  "port": {
+                    "description": "The port the Daemon's HTTP listener binds to when `http_listener.enabled` is on: 7800 plus the major (7700 plus the minor during `0.y` previews), so each major's listener has a port of its own. Port 0 takes a free port, which the Daemon's log and `daemon.status` report. Set in user configuration or an Operator policy only.",
+                    "maximum": 65535,
+                    "minimum": 0,
+                    "type": "integer"
                   }
                 },
                 "type": "object"

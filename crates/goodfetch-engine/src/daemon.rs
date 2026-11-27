@@ -66,6 +66,7 @@ use crate::composition::{Answering, CallContext, Closing, DaemonSide, Handler, H
 use crate::endpoint::{Authorities, Exposure};
 use crate::engine_context::EngineContext;
 use crate::events::Events;
+use crate::http_listener::{self, HttpListenerOptions};
 use crate::live_view::LiveView;
 use crate::metrics::Metrics;
 use crate::ops::{self, Health, Ops};
@@ -73,6 +74,7 @@ use crate::product::{Channel, Identity};
 use crate::rpc::{self, Dispatch};
 use crate::run_state::install::InstallDatabase;
 use crate::runs::{ConnectionId, Draining, Runs};
+use crate::sync::{AtomicU64, Ordering};
 use crate::tasks::{OwnerKind, TaskOwner};
 use crate::transition::engine::{self as table, EngineEvent, EngineState, InvalidEngineTransition};
 use crate::transport::{Connection, DaemonListener, TransportError};
@@ -136,6 +138,9 @@ pub struct DaemonOptions {
     /// Where its Live view channels open (ADR 0031), as `live_view.enabled`
     /// was when it started; none while it is off.
     pub live_view: Option<LiveViewAt>,
+    /// Its HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027), when
+    /// `http_listener.enabled` is on; none while it is off.
+    pub http_listener: Option<HttpListenerOptions>,
 }
 
 /// Where a Daemon's Live view channels open: always a WebSocket on
@@ -339,6 +344,8 @@ struct Shared {
     live_view: LiveView,
     /// Where its Live view channels open, if they do.
     live_view_at: Option<SocketAddr>,
+    /// Where its HTTP JSON-RPC listener listens, if enabled.
+    http_listener_at: Option<SocketAddr>,
     /// What the engine gives every call, its settings among them.
     engine: EngineContext,
     presence: watch::Sender<Presence>,
@@ -361,6 +368,7 @@ impl Shared {
         asks: mpsc::Sender<Ask>,
         state: watch::Receiver<EngineState>,
         live_view: (LiveView, Option<SocketAddr>),
+        http_listener_at: Option<SocketAddr>,
     ) -> Self {
         let health = Health {
             runs: serving.runs.clone(),
@@ -381,6 +389,7 @@ impl Shared {
             accounts: options.accounts.map(Arc::new),
             live_view: live_view.0,
             live_view_at: live_view.1,
+            http_listener_at,
             engine: serving.engine.clone(),
             presence: watch::Sender::new(Presence::default()),
             runs: serving.runs.clone(),
@@ -585,6 +594,7 @@ impl DaemonSide for ConnectionSide {
                 accounts: shared.accounts.is_some(),
                 heap: crate::heap::live(),
                 live_view,
+                http_listener: shared.http_listener_at,
             }
         })
     }
@@ -635,6 +645,63 @@ fn serve_ops(ops: Option<ops::OpsOptions>, serving: &Serving, shared: &Shared, o
     }
 }
 
+/// Serves the HTTP JSON-RPC listener when its starter enabled one (ADR 0027),
+/// a task of `owner`'s.
+fn serve_http_listener(
+    options: Option<HttpListenerOptions>,
+    serving: &Serving,
+    shared: &Arc<Shared>,
+    next_connection_id: &Arc<AtomicU64>,
+    owner: &TaskOwner,
+) {
+    let Some(options) = options else {
+        return;
+    };
+    let daemon: Arc<dyn DaemonSide> = Arc::new(ConnectionSide {
+        shared: Arc::clone(shared),
+        connection: u64::MAX,
+        closing: Closing::default(),
+    });
+    let runs_held = shared.runs_held.clone();
+    let context = http_listener::DaemonContext {
+        dispatch: Arc::clone(&serving.dispatch),
+        runs: serving.runs.clone(),
+        events: serving.events.clone(),
+        engine: serving.engine.clone(),
+        daemon,
+        next_connection_id: Arc::clone(next_connection_id),
+        hold_outliving: Arc::new(move || Box::new(runs_held.hold())),
+    };
+    owner.spawn(http_listener::serve(
+        options,
+        context,
+        owner.part("HTTP listener"),
+    ));
+}
+
+async fn start_auxiliaries(
+    ops: Option<ops::OpsOptions>,
+    http_listener: Option<HttpListenerOptions>,
+    serving: &Serving,
+    shared: &Arc<Shared>,
+    next_connection_id: &Arc<AtomicU64>,
+    owner: &TaskOwner,
+) {
+    serving.metrics.draining(false);
+    record_termination(serving, shared).await;
+    if let Some(http) = &http_listener {
+        http.exposure
+            .record_upstream(
+                serving.engine.audit(),
+                http.bound.to_string(),
+                serving.engine.now(),
+            )
+            .await;
+    }
+    serve_ops(ops, serving, shared, owner);
+    serve_http_listener(http_listener, serving, shared, next_connection_id, owner);
+}
+
 /// Serves every Connection of `listener` until the Daemon stops, its tasks
 /// those of children of `owner`.
 pub(crate) async fn serve(
@@ -644,7 +711,8 @@ pub(crate) async fn serve(
     owner: &TaskOwner,
 ) -> DaemonEnd {
     let Drain { asked, grace } = options.drain.clone();
-    let ops = options.ops.listener.take();
+    let (ops, http_listener) = (options.ops.listener.take(), options.http_listener.take());
+    let http_listener_at = http_listener.as_ref().map(|options| options.bound);
     let asked = drain_asked(asked);
     tokio::pin!(asked);
     let (asks, mut asked_of_the_loop) = mpsc::channel(ASKS);
@@ -661,14 +729,13 @@ pub(crate) async fn serve(
         asks,
         seen,
         (live_view, live_view_at),
+        http_listener_at,
     ));
-    serving.metrics.draining(false);
-    record_termination(&serving, &shared).await;
-    serve_ops(ops, &serving, &shared, owner);
+    let next = Arc::new(AtomicU64::new(0));
+    start_auxiliaries(ops, http_listener, &serving, &shared, &next, owner).await;
     let connections_owner = owner.part("Daemon's listener");
     let (ended, mut endings_of_connections) = mpsc::channel::<ConnectionId>(ENDED_CONNECTIONS);
     let mut open: BTreeMap<ConnectionId, Closing> = BTreeMap::new();
-    let mut next: ConnectionId = 0;
     let idle = idle(&shared, clock);
     tokio::pin!(idle);
     let mut accepts = Accepts::new(listener, clock);
@@ -722,7 +789,7 @@ pub(crate) async fn serve(
                 }
             }
             accepted = accepts.next() => match accepted {
-                Ok(connection) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), Door::Listener)),
+                Ok(connection) => admit(&mut open, &next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), Door::Listener)),
                 // It goes on with its Clients.
                 Err(NoMoreConnections::DialersGone) => {}
                 Err(NoMoreConnections::ListenerClosed(error)) => {
@@ -737,7 +804,7 @@ pub(crate) async fn serve(
                     }
                 }
             },
-            (connection, door) = next_live_view(&mut live_view_accepts) => admit(&mut open, &mut next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), door)),
+            (connection, door) = next_live_view(&mut live_view_accepts) => admit(&mut open, &next, |id| serve_connection(&serving, &shared, &connections_owner, connection, id, ended.clone(), door)),
         }
     };
     decide_no_more(&mut asked_of_the_loop);
@@ -1043,11 +1110,10 @@ enum Door {
 /// closed in `open`.
 fn admit(
     open: &mut BTreeMap<ConnectionId, Closing>,
-    next: &mut ConnectionId,
+    next: &AtomicU64,
     serve: impl FnOnce(ConnectionId) -> Closing,
 ) {
-    let id = *next;
-    *next += 1;
+    let id = next.fetch_add(1, Ordering::Relaxed);
     open.insert(id, serve(id));
 }
 

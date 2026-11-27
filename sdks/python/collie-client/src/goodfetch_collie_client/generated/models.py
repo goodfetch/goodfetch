@@ -5144,6 +5144,12 @@ class Surface(StrEnum):
     """
     worker = "worker"
     """A Script sandbox worker."""
+    http_listener = "http_listener"
+    """
+    A plain HTTP client calling the Daemon's HTTP JSON-RPC listener
+    (`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it
+    is never a person surface.
+    """
 
 
 class Table(BaseModel):
@@ -6387,6 +6393,11 @@ class DaemonState(BaseModel):
     executable's allocator counts them, without the pages that
     allocator keeps once they are freed; none where nothing counts
     them.
+    """
+    http_listener: str | None = None
+    """
+    Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none
+    while `http_listener.enabled` is off (ADR 0027).
     """
     idle_timeout: Annotated[int, Field(ge=0)]
     """Its `daemon.idle_timeout`, in milliseconds."""

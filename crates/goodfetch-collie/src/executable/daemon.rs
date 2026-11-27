@@ -82,6 +82,7 @@ use super::output::{self, Human};
 
 mod for_attached;
 mod foreground;
+mod http_listener;
 mod launched;
 #[cfg(target_os = "linux")]
 mod reaper;

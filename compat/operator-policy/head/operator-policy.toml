@@ -62,6 +62,11 @@ cert_file = "example"
 key_file = "example"
 upstream = true
 
+[settings.http_listener]
+enabled = true
+address = "example"
+port = 4
+
 [settings.accounts]
 enabled = true
 
@@ -506,6 +511,11 @@ cert_file = "example"
 key_file = "example"
 upstream = true
 
+[lock.http_listener]
+enabled = true
+address = "example"
+port = 4
+
 [lock.accounts]
 enabled = true
 
@@ -923,6 +933,9 @@ max_files = 4
 [cap.daemon]
 idle_timeout = 30000
 drain_grace = 30000
+
+[cap.http_listener]
+port = 4
 
 [cap.governor]
 memory_allowance = 4

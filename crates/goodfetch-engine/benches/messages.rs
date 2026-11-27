@@ -26,9 +26,10 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt as _, StreamExt as _};
 use goodfetch_engine::clock::Clock;
 use goodfetch_engine::daemon::{DaemonEnd, DaemonOptions, Drain, Holds, Succession};
-use goodfetch_engine::endpoint::Authorities;
+use goodfetch_engine::endpoint::{Authorities, Exposure, Termination};
 use goodfetch_engine::entropy::Entropy;
 use goodfetch_engine::home::{Home, RunStateLocation};
+use goodfetch_engine::http_listener::HttpListenerOptions;
 use goodfetch_engine::log::LogEvents;
 use goodfetch_engine::metrics::Metrics;
 use goodfetch_engine::ops::Ops;
@@ -49,6 +50,7 @@ use goodfetch_protocol::catalog::{
 use goodfetch_protocol::checkpoint::RUN_CHECKPOINTING;
 use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::daemon::DaemonEndpoint;
+use goodfetch_protocol::http_listener::{HEADER_FORM, HEADER_PRODUCT, HEADER_PROTOCOL, RPC_PATH};
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::route::{ROUTE_FULFILL, RouteAnswered, RouteFulfillParams};
 use goodfetch_protocol::page::{BodyHandle, CHUNK_BYTES};
@@ -76,6 +78,9 @@ pub(crate) const BODY_CHUNKS: usize = BODY_BYTES.div_ceil(CHUNK_BYTES);
 /// The address an Exposed Daemon's listener names, on the in-memory
 /// network.
 const ADDRESS: &str = "127.0.0.1:7900";
+
+/// The address the HTTP listener names, on the in-memory network.
+const HTTP_ADDRESS: &str = "127.0.0.1:7700";
 
 /// The Daemon's per-launch token, which a `hello` over WebSocket carries.
 const TOKEN: &str = "b3-launch-token";
@@ -173,6 +178,9 @@ pub(crate) enum Carriage {
     /// A WebSocket to an Exposed Daemon: one JSON-RPC message a WebSocket
     /// message, its `hello` carrying the Daemon's token.
     WebSocket,
+    /// The Daemon's HTTP JSON-RPC listener (`POST /v1/rpc`, ADR 0027): one
+    /// JSON-RPC request per HTTP request, carrying `hello`'s fields in headers.
+    HttpRpc,
 }
 
 /// Whether the Connection asks for log events, the feature on this path that
@@ -677,7 +685,78 @@ async fn connect(dialer: &InMemoryDialer, carriage: Carriage) -> (Sending, Recei
             let (sink, stream) = socket.split();
             (Sending::Messages(sink), Receiving::Messages(stream))
         }
+        Carriage::HttpRpc => unreachable!("HTTP RPC uses `http_client` directly"),
     }
+}
+
+/// Sends `traffic.small` + `traffic.large` `POST /v1/rpc` requests over one
+/// HTTP/1.1 connection on `dialer` and returns how many answers came back.
+async fn http_client(dialer: InMemoryDialer, traffic: Traffic) -> Sent {
+    let (reader, writer) = dialer
+        .connect()
+        .await
+        .expect("invariant: the HTTP listener accepts")
+        .split();
+    let io = hyper_util::rt::TokioIo::new(tokio::io::join(reader, writer));
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+        .await
+        .expect("invariant: HTTP/1.1 handshake succeeds");
+    let drive = async move {
+        let _ = connection.await;
+    };
+    let send_all = async move {
+        use http_body_util::{BodyExt as _, Full};
+        use hyper::body::Bytes;
+
+        let protocol = PROTOCOL_VERSION.to_string();
+        let auth = format!("Bearer {TOKEN}");
+        let mut outgoing = 0;
+        let large_body = "QUJD".repeat(LARGE_BYTES / 4);
+        let bodies = (1..=traffic.small)
+            .map(|current| {
+                format!(
+                    "{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"engine.info\",\"params\":{{}}}}"
+                )
+            })
+            .chain((traffic.small + 1..=traffic.small + traffic.large).map(|current| {
+                format!(
+                    "{{\"jsonrpc\":\"2.0\",\"id\":{current},\"method\":\"route.fulfill\",\"params\":{{\"route_id\":\"route-1\",\"status\":200,\"body\":\"{large_body}\"}}}}"
+                )
+            }));
+        for body in bodies {
+            let request = hyper::Request::builder()
+                .method(hyper::Method::POST)
+                .uri(RPC_PATH)
+                .header("Host", HTTP_ADDRESS)
+                .header("Authorization", &auth)
+                .header(HEADER_PROTOCOL, &protocol)
+                .header(HEADER_PRODUCT, "collie")
+                .header(HEADER_FORM, "catalog")
+                .body(Full::new(Bytes::from(body)))
+                .expect("invariant: literal HTTP RPC request");
+            let response = sender
+                .send_request(request)
+                .await
+                .expect("invariant: HTTP RPC request succeeds");
+            assert_eq!(response.status(), hyper::StatusCode::OK);
+            let _ = response
+                .into_body()
+                .collect()
+                .await
+                .expect("invariant: HTTP RPC response body reads");
+            outgoing += 1;
+        }
+        drop(sender);
+        Sent {
+            outgoing,
+            event_batches: 0,
+            events: 0,
+            log_lines: 0,
+            handler_requests: 0,
+            chunks: 0,
+        }
+    };
+    tokio::join!(drive, send_all).1
 }
 
 /// The Client: sends `lines` on `carriage`, answers each handler request,
@@ -801,11 +880,24 @@ pub(crate) fn run(
                 run_state: RunStateOptions::default(),
                 politeness: goodfetch_engine::politeness::PolitenessOptions::default(),
             };
-            tokio::join!(
-                serve(&engine, carriage, network, dependencies),
-                client(dialer, carriage, traffic, &lines)
-            )
-            .1
+            if carriage == Carriage::HttpRpc {
+                let (http_network, http_dialer) = transport::in_memory();
+                tokio::join!(
+                    serve_http(&engine, network, http_network, dependencies),
+                    async move {
+                        let sent = http_client(http_dialer, traffic).await;
+                        drop(dialer);
+                        sent
+                    }
+                )
+                .1
+            } else {
+                tokio::join!(
+                    serve(&engine, carriage, network, dependencies),
+                    client(dialer, carriage, traffic, &lines)
+                )
+                .1
+            }
         })
     })
 }
@@ -860,6 +952,7 @@ async fn serve(
                 websocket: Some(Authorities::loopback(address).into()),
                 accounts: None,
                 live_view: None,
+                http_listener: None,
             };
             let end = engine.run_daemon(listener, dependencies, options).await;
             assert!(
@@ -867,5 +960,56 @@ async fn serve(
                 "the Daemon stopped idle, not {end:?}"
             );
         }
+        Carriage::HttpRpc => unreachable!("HTTP RPC uses `serve_http` directly"),
     }
+}
+
+/// Serves a Daemon with `http_listener` enabled on `http_network`, stopping
+/// idle once the HTTP client finishes and closes.
+async fn serve_http(
+    engine: &Engine,
+    network: InMemoryNetwork,
+    http_network: InMemoryNetwork,
+    dependencies: Dependencies,
+) {
+    let address: SocketAddr = ADDRESS.parse().expect("invariant: a literal address");
+    let http_address: SocketAddr = HTTP_ADDRESS.parse().expect("invariant: a literal address");
+    let (listener, _) = Network::InMemory(network)
+        .listen(Path::new("b3.sock"))
+        .expect("invariant: an in-memory listener");
+    let (http_listener, _) = Network::InMemory(http_network)
+        .listen(Path::new("b3-http.sock"))
+        .expect("invariant: an in-memory HTTP listener");
+    let options = DaemonOptions {
+        token: TOKEN.to_owned(),
+        endpoint: DaemonEndpoint::Tcp(address),
+        pid: 1,
+        idle_timeout: Duration::from_secs(1),
+        keep_alive: false,
+        holds: Holds::new(),
+        succession: Arc::new(Pick),
+        drain: Drain {
+            asked: None,
+            grace: Duration::from_secs(1),
+        },
+        install: None,
+        ops: Ops::default(),
+        websocket: None,
+        accounts: None,
+        live_view: None,
+        http_listener: Some(HttpListenerOptions {
+            listener: http_listener,
+            bound: http_address,
+            token: secrecy::SecretString::from(TOKEN.to_owned()),
+            exposure: Exposure {
+                authorities: Authorities::loopback(http_address),
+                termination: Termination::Plain,
+            },
+        }),
+    };
+    let end = engine.run_daemon(listener, dependencies, options).await;
+    assert!(
+        matches!(end, DaemonEnd::Idle),
+        "the Daemon stopped idle, not {end:?}"
+    );
 }

@@ -60,7 +60,16 @@ export type Actor =
  * via the `definition` "Surface".
  */
 export type Surface =
-  "sdk_typescript" | "sdk_python" | "rust" | "cli" | "mcp" | "kennel" | "cloud" | "browser_host" | "worker";
+  | "sdk_typescript"
+  | "sdk_python"
+  | "rust"
+  | "cli"
+  | "mcp"
+  | "kennel"
+  | "cloud"
+  | "browser_host"
+  | "worker"
+  | "http_listener";
 /**
  * A page of a Run, named by the engine when it opens it.
  *
@@ -3536,6 +3545,11 @@ export interface DaemonState {
    * them.
    */
   heap?: number | null;
+  /**
+   * Where the Daemon's HTTP JSON-RPC listener listens (`host:port`); none
+   * while `http_listener.enabled` is off (ADR 0027).
+   */
+  httpListener?: string | null;
   /**
    * Its `daemon.idle_timeout`, in milliseconds.
    */

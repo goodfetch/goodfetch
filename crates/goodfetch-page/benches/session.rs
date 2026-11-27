@@ -1466,6 +1466,7 @@ async fn daemon(
         websocket: None,
         accounts: None,
         live_view: Some(LiveViewAt::Address(live_view, address)),
+        http_listener: None,
     };
     let end = engine.run_daemon(listener, dependencies, options).await;
     assert!(

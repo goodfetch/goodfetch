@@ -80,6 +80,9 @@ const TWO_COPIES_CASES: &str = include_str!("../../../conformance/two-copies/cas
 /// The Schedule store's case list, embedded the same way.
 const SCHEDULE_CASES: &str = include_str!("../../../conformance/schedule/cases.toml");
 
+/// The Daemon's HTTP JSON-RPC listener's case list, embedded the same way.
+const HTTP_LISTENER_CASES: &str = include_str!("../../../conformance/http-listener/cases.toml");
+
 /// A protocol suite: its declared case list, and the Product whose
 /// executable it runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -153,6 +156,12 @@ impl ProtocolSuite {
     /// operations only, on Collie's executable.
     pub fn schedule() -> Self {
         Self::read(SCHEDULE_CASES).expect("invariant: the embedded case list is valid")
+    }
+
+    /// `conformance/http-listener/cases.toml`: the Daemon's HTTP JSON-RPC
+    /// listener (`POST /v1/rpc`, spec 608 / #1400), on Collie's executable.
+    pub fn http_listener() -> Self {
+        Self::read(HTTP_LISTENER_CASES).expect("invariant: the embedded case list is valid")
     }
 
     /// Reads a protocol suite's case list.

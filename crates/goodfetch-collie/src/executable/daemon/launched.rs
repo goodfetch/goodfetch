@@ -222,6 +222,7 @@ pub(in crate::executable) fn launched(
         output::json(&published);
         tracing::info!(%endpoint, pid, "the Daemon serves");
         let live_view = live_view_at(settings).await;
+        let http_listener = super::http_listener::open(machine, settings, &files, None).await?;
         let options = DaemonOptions {
             token,
             endpoint,
@@ -244,6 +245,7 @@ pub(in crate::executable) fn launched(
             websocket: None,
             live_view,
             accounts,
+            http_listener,
         };
         Ok::<_, Failure>((
             engine.run_daemon(listener, dependencies, options).await,

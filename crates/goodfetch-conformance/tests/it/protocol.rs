@@ -732,6 +732,54 @@ fn the_schedule_store_is_proved_against_collies_attached_engine_and_daemon(
     );
 }
 
+#[test]
+fn the_http_listener_suite_is_proved_against_collies_daemon_on_port_0() {
+    let env = TestEnv::new();
+    env.user_configuration("http_listener.enabled = true\nhttp_listener.port = 0\n");
+    let copy = LocalCopy::start(&env, env.seed()).unwrap();
+    let proving_ground = ProvingGround::local(&copy.address().to_string());
+    let target = target(&env, Tool::Collie, EngineMode::Daemon);
+    let _stops = StopsTheDaemon {
+        env: &env,
+        executable: &target.executable,
+    };
+
+    let document =
+        run_protocol_suite(&ProtocolSuite::http_listener(), &target, &proving_ground).unwrap();
+    crate::keep(&document, "http-listener-collie-daemon");
+
+    assert_eq!(
+        (outcomes(&document), case_outcomes(&document)),
+        (
+            vec![("http_listener.rpc", Outcome::Proved)],
+            vec![
+                (
+                    "post-rpc-carries-hello-headers-and-starts-an-outliving-run",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-refuses-bad-hello-headers-with-400-and-json-rpc-error",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-refuses-missing-wrong-or-query-token-with-401",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-refuses-foreign-host-or-origin-with-403",
+                    CaseOutcome::Passed
+                ),
+                (
+                    "post-rpc-drops-malformed-or-over-long-trace-headers-without-refusing",
+                    CaseOutcome::Passed
+                ),
+            ]
+        ),
+        "{}",
+        serde_json::to_string_pretty(&document).unwrap()
+    );
+}
+
 /// The protocol suite's `engine.info` case with Foxhound as its Product, as
 /// a suite whose contract needs Foxhound declares it.
 fn foxhound_suite() -> ProtocolSuite {

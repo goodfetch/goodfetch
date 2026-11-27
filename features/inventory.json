@@ -10332,6 +10332,39 @@
       ]
     },
     {
+      "id": "setting:http_listener.address",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:http_listener.enabled",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:http_listener.port",
+      "kind": "setting",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:identified.signature_agent",
       "kind": "setting",
       "area": 8,

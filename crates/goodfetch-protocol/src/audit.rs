@@ -315,6 +315,8 @@ pub enum Listener {
     LiveView,
     /// The foreground Daemon's ops listener (ADR 0050).
     OpsListener,
+    /// The Daemon's HTTP JSON-RPC listener (ADR 0027).
+    HttpListener,
     /// A Session's egress relay.
     EgressRelay,
     /// A Session's upstream proxy relay.
@@ -323,7 +325,7 @@ pub enum Listener {
 
 impl Listener {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Stdio,
         Self::DaemonSocket,
         Self::ExposedDaemon,
@@ -331,6 +333,7 @@ impl Listener {
         Self::DaemonWebsocket,
         Self::LiveView,
         Self::OpsListener,
+        Self::HttpListener,
         Self::EgressRelay,
         Self::ProxyRelay,
     ];

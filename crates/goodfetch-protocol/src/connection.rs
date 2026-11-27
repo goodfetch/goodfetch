@@ -70,6 +70,10 @@ pub enum Surface {
     BrowserHost,
     /// A Script sandbox worker.
     Worker,
+    /// A plain HTTP client calling the Daemon's HTTP JSON-RPC listener
+    /// (`POST /v1/rpc`, ADR 0027): its Runs outlive the HTTP request, and it
+    /// is never a person surface.
+    HttpListener,
 }
 
 /// The form a Client's user writes names in (ADR 0099), which the engine
@@ -92,9 +96,26 @@ pub enum Form {
     Catalog,
 }
 
+impl Form {
+    /// Every value, in declaration order.
+    pub const ALL: [Self; 6] = [
+        Self::Typescript,
+        Self::Python,
+        Self::Rust,
+        Self::Cli,
+        Self::Tool,
+        Self::Catalog,
+    ];
+
+    /// Its name on the wire.
+    pub fn as_str(self) -> &'static str {
+        crate::wire_name::of(&self)
+    }
+}
+
 impl Surface {
     /// Every value, in declaration order.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::SdkTypescript,
         Self::SdkPython,
         Self::Rust,
@@ -104,6 +125,7 @@ impl Surface {
         Self::Cloud,
         Self::BrowserHost,
         Self::Worker,
+        Self::HttpListener,
     ];
 
     /// Whether a Client of this surface acts for a model, which sets none of
@@ -119,7 +141,8 @@ impl Surface {
             | Self::Cli
             | Self::Kennel
             | Self::Cloud
-            | Self::BrowserHost => false,
+            | Self::BrowserHost
+            | Self::HttpListener => false,
         }
     }
 
@@ -134,7 +157,7 @@ impl Surface {
             Self::Rust => Form::Rust,
             Self::Cli => Form::Cli,
             Self::Mcp => Form::Tool,
-            Self::Kennel | Self::Cloud | Self::BrowserHost => Form::Catalog,
+            Self::Kennel | Self::Cloud | Self::BrowserHost | Self::HttpListener => Form::Catalog,
         }
     }
 
@@ -150,17 +173,19 @@ impl Surface {
             | Self::Mcp
             | Self::Cloud
             | Self::BrowserHost
-            | Self::Worker => false,
+            | Self::Worker
+            | Self::HttpListener => false,
         }
     }
 
     /// Whether the Runs a Connection of this surface starts or resumes on
     /// a Daemon outlive that Connection: each CLI command is a Connection
-    /// of its own (ADRs 0024 and 0088), and so are a person's controls from
-    /// the Kennel (ADR 0141).
+    /// of its own (ADRs 0024 and 0088), each HTTP listener call is a single
+    /// HTTP request (ADR 0027), and so are a person's controls from the
+    /// Kennel (ADR 0141).
     pub fn runs_outlive_connection(self) -> bool {
         match self {
-            Self::Cli | Self::Kennel => true,
+            Self::Cli | Self::Kennel | Self::HttpListener => true,
             Self::SdkTypescript
             | Self::SdkPython
             | Self::Rust

@@ -200,9 +200,16 @@ pub(in crate::executable) fn run(
             }
         };
         let ops = ops_listener(configured.ops, ops_token, &export, &files).await?;
+        let http_listener = super::http_listener::open(
+            machine,
+            &configured.settings,
+            &files,
+            Some(termination.clone()),
+        )
+        .await
+        .map_err(|failure| failure.report())?;
         let asked = CancellationToken::new();
-        let live_view = configured.settings.get::<bool>(&LIVE_VIEW_ENABLED);
-        let live_view = live_view_at(&endpoint, live_view);
+        let live_view = live_view_at(&endpoint, configured.settings.get::<bool>(&LIVE_VIEW_ENABLED));
         let options = DaemonOptions {
             token,
             endpoint: endpoint.clone(),
@@ -223,17 +230,9 @@ pub(in crate::executable) fn run(
             websocket: exposure(&endpoint, termination),
             accounts,
             live_view,
+            http_listener,
         };
-        announce(json, machine, identity, pid, &endpoint);
-        tracing::info!(
-            %endpoint,
-            pid,
-            product = identity.product.as_str(),
-            version = %identity.product_version,
-            token_file = %files.token_file().display(),
-            drain_grace = u64::try_from(configured.drain_grace.as_millis()).unwrap_or(u64::MAX),
-            "the foreground Daemon serves"
-        );
+        announce_serving(json, machine, identity, pid, &endpoint, &files, configured.drain_grace);
         let grace = configured.drain_grace;
         let deadline = async move {
             let signal = signalled.received().await;
@@ -259,6 +258,52 @@ pub(in crate::executable) fn run(
             ExitCode::FAILURE
         }
         Err(exit) => exit,
+    }
+}
+
+fn announce_serving(
+    json: bool,
+    machine: &Machine<'_>,
+    identity: &Identity,
+    pid: u32,
+    endpoint: &DaemonEndpoint,
+    files: &DaemonFiles,
+    drain_grace: Duration,
+) {
+    announce(json, machine, identity, pid, endpoint);
+    tracing::info!(
+        %endpoint,
+        pid,
+        product = identity.product.as_str(),
+        version = %identity.product_version,
+        token_file = %files.token_file().display(),
+        drain_grace = u64::try_from(drain_grace.as_millis()).unwrap_or(u64::MAX),
+        "the foreground Daemon serves"
+    );
+}
+
+/// Reads and opens `daemon.tls.*` from `settings` so a machine's Daemon's HTTP
+/// listener shares the Exposed Daemon's TLS configuration (ADRs 0027 and 0049).
+pub(super) fn open_termination(settings: &Resolved) -> Result<Termination, SettingsError> {
+    let terminating = terminating(
+        tls_files(
+            file_setting(settings, &TLS_CERT_FILE),
+            file_setting(settings, &TLS_KEY_FILE),
+        )
+        .map_err(|Refused(error)| error)?,
+        settings
+            .get::<bool>(&TLS_UPSTREAM)
+            .then(|| Source::setting(settings, &TLS_UPSTREAM)),
+        trusted_proxies(settings).map_err(|Refused(error)| error)?,
+    )
+    .map_err(|Refused(error)| error)?;
+    match terminating {
+        Terminating::Plain => Ok(Termination::Plain),
+        Terminating::Files(files) => files
+            .open()
+            .map(Termination::Tls)
+            .map_err(|Refused(error)| error),
+        Terminating::Upstream(proxies) => Ok(Termination::Upstream(proxies)),
     }
 }
 

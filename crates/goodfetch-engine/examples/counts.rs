@@ -219,7 +219,7 @@ struct Cell {
     removes: &'static [Row],
 }
 
-const CELLS: [Cell; 6] = [
+const CELLS: [Cell; 7] = [
     Cell {
         name: "default",
         carriage: Carriage::Stdio,
@@ -234,6 +234,16 @@ const CELLS: [Cell; 6] = [
         name: "websocket",
         carriage: Carriage::WebSocket,
         logs: Logs::On,
+        limited: true,
+        audit: Audit::Chained,
+        removes: &[],
+    },
+    // `POST /v1/rpc` over the Daemon's HTTP listener (ADR 0027, issue 1400),
+    // held to E1's deep-copy, decode, encode and store-read rows.
+    Cell {
+        name: "http_rpc",
+        carriage: Carriage::HttpRpc,
+        logs: Logs::Off,
         limited: true,
         audit: Audit::Chained,
         removes: &[],
@@ -334,6 +344,14 @@ fn run_messages(
     home: &Path,
 ) -> messages::Sent {
     let sent = messages::run(TRAFFIC, cell.logs, cell.carriage, metrics, plant, home);
+    if cell.carriage == Carriage::HttpRpc {
+        assert_eq!(
+            sent.outgoing,
+            TRAFFIC.small + TRAFFIC.large,
+            "every POST /v1/rpc request answered"
+        );
+        return sent;
+    }
     assert!(sent.event_batches > 0, "the Plugin's events went out");
     assert_eq!(
         sent.handler_requests, TRAFFIC.plugin,
@@ -414,9 +432,15 @@ fn run(cell: &'static Cell, planted: Option<&str>) -> Counted {
             .map(|name| audit_plant(name, &work, vfs.name()))
             .as_ref(),
     );
+    let (incoming_messages, requests) = if cell.carriage == Carriage::HttpRpc {
+        let count_http = count(TRAFFIC.small + TRAFFIC.large);
+        (count_http, count_http)
+    } else {
+        (count(TRAFFIC.incoming()), count(TRAFFIC.requests()))
+    };
     let units = BTreeMap::from([
-        ("incoming_messages", count(TRAFFIC.incoming())),
-        ("requests", count(TRAFFIC.requests())),
+        ("incoming_messages", incoming_messages),
+        ("requests", requests),
         ("answers_and_events", count(sent.answers_and_events())),
         ("covered_charges", charged.covered),
         ("slices", charged.slices),

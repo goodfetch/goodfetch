@@ -474,3 +474,162 @@ fn an_attached_engine_reaches_the_program_over_stdio() {
         connection.close().await.unwrap();
     });
 }
+
+async fn drive_named_sdk_handler_peer(
+    lines: &mut tokio::io::Lines<
+        tokio::io::BufReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>,
+    >,
+    writer: &mut tokio::io::WriteHalf<tokio::io::DuplexStream>,
+    ready_rx: oneshot::Receiver<()>,
+    dropped_rx: oneshot::Receiver<()>,
+) {
+    let hello_line = lines.next_line().await.unwrap().unwrap();
+    writer
+        .write_all(&reply(&hello_line, &said()))
+        .await
+        .unwrap();
+    ready_rx.await.unwrap();
+
+    // 1. Extractor "alpha" answered, "beta" dropped unanswered -> extractor_unavailable (retryable).
+    writer
+        .write_all(&request(
+            &json!(10),
+            "extract.content",
+            &json!({"url": "https://a.test", "html": "<p>a</p>", "handler": "alpha"}),
+        ))
+        .await
+        .unwrap();
+    writer
+        .write_all(&request(
+            &json!(11),
+            "extract.content",
+            &json!({"url": "https://b.test", "html": "<p>b</p>", "handler": "beta"}),
+        ))
+        .await
+        .unwrap();
+    let ans10: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!(ans10["id"], json!(10));
+    assert_eq!(ans10["result"]["text"], json!("from-alpha"));
+
+    let err11 = error_of(&lines.next_line().await.unwrap().unwrap(), &json!(11));
+    assert_eq!(err11["data"]["code"], json!("extractor_unavailable"));
+    assert_eq!(err11["data"]["retryable"], json!(true));
+    assert_eq!(err11["data"]["extractor"], json!("beta"));
+
+    // 2. Notification "pager" dropped unanswered -> notification_channel_unavailable (retryable).
+    writer
+        .write_all(&request(
+            &json!(12),
+            "notification.send",
+            &json!({"event_id": "e1", "event": "run_failed", "text": "hi", "handler": "pager"}),
+        ))
+        .await
+        .unwrap();
+    let err12 = error_of(&lines.next_line().await.unwrap().unwrap(), &json!(12));
+    assert_eq!(
+        err12["data"]["code"],
+        json!("notification_channel_unavailable")
+    );
+    assert_eq!(err12["data"]["retryable"], json!(true));
+    assert_eq!(err12["data"]["channel"], json!("pager"));
+
+    // 3. Secret "vault" dropped unanswered -> secret_unavailable.
+    writer
+        .write_all(&request(
+            &json!(13),
+            "secret.resolve",
+            &json!({"reference": "plugin:vault:k", "handler": "vault"}),
+        ))
+        .await
+        .unwrap();
+    let err13 = error_of(&lines.next_line().await.unwrap().unwrap(), &json!(13));
+    assert_eq!(err13["data"]["code"], json!("secret_unavailable"));
+    assert_eq!(err13["data"]["provider"], json!("vault"));
+
+    // 4. After "alpha" stream is dropped mid-Run, a new call fails immediately with extractor_unavailable.
+    dropped_rx.await.unwrap();
+    writer
+        .write_all(&request(
+            &json!(14),
+            "extract.content",
+            &json!({"url": "https://a.test/2", "html": "<p>2</p>", "handler": "alpha"}),
+        ))
+        .await
+        .unwrap();
+    let err14 = error_of(&lines.next_line().await.unwrap().unwrap(), &json!(14));
+    assert_eq!(err14["data"]["code"], json!("extractor_unavailable"));
+    assert_eq!(err14["data"]["retryable"], json!(true));
+    assert_eq!(err14["data"]["extractor"], json!("alpha"));
+}
+
+/// Named SDK handler EventStreams route by `(kind, name)`, refuse undeclared
+/// names and duplicate streams with `setting_invalid`, fail dropped calls
+/// with each kind's `<kind>_unavailable` code, and drop held calls when the
+/// stream is dropped mid-Run without holding any open.
+///
+/// Covers: story:7-74, error:setting_invalid, error:extractor_unavailable, error:notification_channel_unavailable
+#[test]
+fn named_sdk_handler_streams_route_reject_duplicates_and_fail_unavailable_on_drop() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let (network, mut lines, mut writer) = scripted();
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (dropped_tx, dropped_rx) = oneshot::channel();
+    let runtime = goodfetch_test_support::runtime();
+    runtime.block_on(async {
+        let peer = drive_named_sdk_handler_peer(&mut lines, &mut writer, ready_rx, dropped_rx);
+        let program = async {
+            let mut hello_params = hello();
+            hello_params.handlers = BTreeMap::from([
+                (
+                    "extract".to_owned(),
+                    BTreeSet::from(["alpha".to_owned(), "beta".to_owned()]),
+                ),
+                (
+                    "notification".to_owned(),
+                    BTreeSet::from(["pager".to_owned()]),
+                ),
+                ("secret".to_owned(), BTreeSet::from(["vault".to_owned()])),
+            ]);
+            let (connection, _said) = ClientConnection::open(
+                ConnectionRuntime::driven(tokio::runtime::Handle::current()),
+                &network,
+                &Endpoint::InMemory,
+                hello_params,
+            )
+            .await
+            .unwrap();
+
+            // Undeclared name -> setting_invalid.
+            let undeclared = connection.extractor_requests("unknown").unwrap_err();
+            assert_eq!(undeclared.code(), ErrorCode::SETTING_INVALID);
+
+            let mut alpha = connection.extractor_requests("alpha").unwrap();
+            // Duplicate stream -> setting_invalid.
+            let dup = connection.extractor_requests("alpha").unwrap_err();
+            assert_eq!(dup.code(), ErrorCode::SETTING_INVALID);
+
+            let mut beta = connection.extractor_requests("beta").unwrap();
+            let mut pager = connection.notification_requests("pager").unwrap();
+            let mut vault = connection.secret_requests("vault").unwrap();
+            ready_tx.send(()).unwrap();
+
+            let call10 = alpha.next().await.unwrap().unwrap();
+            call10
+                .answer(json!({"title": null, "text": "from-alpha", "markdown": "from-alpha", "metadata": {}}))
+                .unwrap();
+
+            // Drop calls unanswered -> each kind's unavailable error.
+            drop(beta.next().await.unwrap().unwrap());
+            drop(pager.next().await.unwrap().unwrap());
+            drop(vault.next().await.unwrap().unwrap());
+
+            // Drop stream mid-Run -> next call fails immediately with extractor_unavailable.
+            drop(alpha);
+            dropped_tx.send(()).unwrap();
+            connection
+        };
+        let ((), connection) = tokio::join!(peer, program);
+        connection.close().await.unwrap();
+    });
+}

@@ -207,6 +207,39 @@ impl ConnectOptions {
         self
     }
 
+    /// Declares a Notification channel SDK handler named `name` on this
+    /// connection (ADR 0104): sent in `hello` so Runs started by this
+    /// connection route `notification.send` calls for `name` back to this
+    /// Client.
+    #[must_use]
+    pub fn notification_channel(mut self, name: impl Into<String>) -> Self {
+        self.handlers
+            .entry(
+                goodfetch_protocol::plugin::notification::NOTIFICATION_CHANNEL
+                    .name
+                    .to_owned(),
+            )
+            .or_default()
+            .insert(name.into());
+        self
+    }
+
+    /// Declares a Secret provider SDK handler named `name` on this connection
+    /// (ADR 0104): sent in `hello` so Runs started by this connection route
+    /// `secret.resolve` calls for `name` back to this Client.
+    #[must_use]
+    pub fn secret_provider(mut self, name: impl Into<String>) -> Self {
+        self.handlers
+            .entry(
+                goodfetch_protocol::plugin::secret::SECRET_PROVIDER
+                    .name
+                    .to_owned(),
+            )
+            .or_default()
+            .insert(name.into());
+        self
+    }
+
     /// The environment the connection reads, the one set or the
     /// process's, the connection's Limits, its `timeout` and its listener
     /// queue, once checked, the project file it read, with the `timeout`

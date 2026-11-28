@@ -112,6 +112,36 @@ form = "round_trip"
 [[member]]
 crate = "goodfetch-collie"
 receiver = "Collie"
+member = "extractor_requests"
+entry = "none"
+reason = "Opens the EventStream of `extract.content` calls for a declared Extractor SDK handler by name (ADRs 0081 and 0104)."
+only = "TypeScript and Python pass handler callbacks on connect(); Rust's async API spawns no tasks and reads declared handler calls from an EventStream (ADRs 0081 and 0104)."
+words = ["extractor", "requests"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "notification_requests"
+entry = "none"
+reason = "Opens the EventStream of `notification.send` calls for a declared Notification channel SDK handler by name (ADRs 0081 and 0104)."
+only = "TypeScript and Python pass handler callbacks on connect(); Rust's async API spawns no tasks and reads declared handler calls from an EventStream (ADRs 0081 and 0104)."
+words = ["notification", "requests"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
+member = "secret_requests"
+entry = "none"
+reason = "Opens the EventStream of `secret.resolve` calls for a declared Secret provider SDK handler by name (ADRs 0081 and 0104)."
+only = "TypeScript and Python pass handler callbacks on connect(); Rust's async API spawns no tasks and reads declared handler calls from an EventStream (ADRs 0081 and 0104)."
+words = ["secret", "requests"]
+form = "opener"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "Collie"
 member = "close"
 entry = "none"
 reason = "Closes the connection for every clone: first every Run it started that still runs, then the linked engine, which checkpoints and stops; returns once it has stopped, or once `timeout.close` has run out."
@@ -216,6 +246,24 @@ member = "extractor"
 entry = "none"
 reason = "Declares an Extractor SDK handler by name in `hello` so Runs started by this connection route `extract.content` calls for it back to this Client (ADR 0104)."
 words = ["extractor"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "notification_channel"
+entry = "none"
+reason = "Declares a Notification channel SDK handler by name in `hello` so Runs started by this connection route `notification.send` calls for it back to this Client (ADR 0104)."
+words = ["notification", "channel"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie"
+receiver = "ConnectOptions"
+member = "secret_provider"
+entry = "none"
+reason = "Declares a Secret provider SDK handler by name in `hello` so Runs started by this connection route `secret.resolve` calls for it back to this Client (ADR 0104)."
+words = ["secret", "provider"]
 form = "read"
 
 [[member]]

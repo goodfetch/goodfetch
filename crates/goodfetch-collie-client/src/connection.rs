@@ -42,7 +42,7 @@ use crate::connect_timeout::{self, ConnectTimeout};
 use crate::error::Error;
 use crate::event_stream::EventStream;
 use crate::file_saving::{self, FileSaving};
-use crate::handler::{HandlerRequests, Streams};
+use crate::handler::{HandlerCall, HandlerRequests, Streams};
 use crate::listener_queue::ListenerQueue;
 use crate::logging;
 use crate::published::Published;
@@ -57,6 +57,30 @@ use crate::transport::{self, Endpoint, Network};
 /// written: the credits it grants when its call is sent, then one more for
 /// each chunk written.
 const CHUNKS_AHEAD: u32 = 16;
+
+/// Bounds `future` to `expiry` on `handle`'s timer so it runs on any
+/// executor (ADR 0081).
+fn timeout_on<F: IntoFuture>(
+    handle: &Handle,
+    expiry: tokio::time::Instant,
+    future: F,
+) -> tokio::time::Timeout<F::IntoFuture> {
+    let _entered = handle.enter();
+    tokio::time::timeout_at(expiry, future.into_future())
+}
+
+/// Extension on `tokio::runtime::Handle` to compute a sleep deadline under
+/// `handle`'s reactor from any executor.
+trait HandleTimerExt {
+    fn enter_sleep_deadline(&self, after: Duration) -> tokio::time::Instant;
+}
+
+impl HandleTimerExt for Handle {
+    fn enter_sleep_deadline(&self, after: Duration) -> tokio::time::Instant {
+        let _entered = self.enter();
+        tokio::time::sleep(after).deadline()
+    }
+}
 
 /// The runtime a Connection's tasks run on. Cloning it shares the runtime:
 /// one the Connection owns shuts down once every clone, and every
@@ -237,16 +261,18 @@ impl ClientConnection {
         let deadline = timeout.deadline();
         // One expiry for the transport's opening and `hello`'s answer: an
         // Exposed Daemon's WebSocket handshake can hang as `hello` can.
+        // Enter the Connection's runtime so the timer works on any executor
+        // (ADR 0081).
         let expiry = deadline
             .as_ref()
-            .map(|(after, _)| tokio::time::sleep(*after).deadline());
+            .map(|(after, _)| handle.enter_sleep_deadline(*after));
         let mut opening = tasks.spawn_on(
             async move { transport::open(&opened_network, &opened_endpoint).await },
             &handle,
         );
         let opened = match (expiry, &deadline) {
             (Some(expiry), Some((after, limit))) => {
-                let Ok(opened) = tokio::time::timeout_at(expiry, &mut opening).await else {
+                let Ok(opened) = timeout_on(&handle, expiry, &mut opening).await else {
                     opening.abort();
                     return Err(connect_timeout::exceeded(*after, limit.clone()));
                 };
@@ -258,7 +284,7 @@ impl ClientConnection {
         if let Some(process) = opened.process {
             logging::spawn_under_opener(process.watch(), &handle, &tasks);
         }
-        let streams = Streams::new(trace_context_source.clone());
+        let streams = Streams::new(trace_context_source.clone(), hello.handlers.clone());
         let sender = rpc::start(
             opened.link,
             &handle,
@@ -289,7 +315,7 @@ impl ClientConnection {
         }));
         let said = connection.call::<HelloResult>(HELLO, &hello).no_timeout();
         let said = match expiry {
-            Some(expiry) => tokio::time::timeout_at(expiry, said)
+            Some(expiry) => timeout_on(&connection.0.handle, expiry, said)
                 .await
                 .unwrap_or_else(|_| Err(Error::timed_out())),
             None => said.await,
@@ -644,6 +670,61 @@ impl ClientConnection {
     /// `closed` once the Connection has ended.
     pub fn handler_requests(&self, method: &str) -> Result<HandlerRequests, Error> {
         self.0.streams.open(method)
+    }
+
+    /// Opens the one [`EventStream`] of `extract.content` calls for the
+    /// Extractor SDK handler `name` declared in `ConnectOptions` (ADRs 0081
+    /// and 0104). Spawns no task; dropping a call unanswered fails it with
+    /// `extractor_unavailable` (retryable), and dropping the stream answers
+    /// every held call with `extractor_unavailable` without holding any open.
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when `name` was not declared for the `extract` kind
+    /// or another stream is already open for `name`, and `closed` once the
+    /// Connection has ended.
+    pub fn extractor_requests(&self, name: &str) -> Result<EventStream<HandlerCall>, Error> {
+        let stream = self
+            .0
+            .streams
+            .open_named(goodfetch_protocol::plugin::extractor::EXTRACTOR.name, name)?;
+        Ok(EventStream::from_items(stream))
+    }
+
+    /// Opens the one [`EventStream`] of `notification.send` calls for the
+    /// Notification channel SDK handler `name` declared in `ConnectOptions`
+    /// (ADRs 0081 and 0104). Spawns no task; dropping a call unanswered fails
+    /// it with `notification_channel_unavailable` (retryable).
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when `name` was not declared for the `notification`
+    /// kind or another stream is already open for `name`, and `closed` once
+    /// the Connection has ended.
+    pub fn notification_requests(&self, name: &str) -> Result<EventStream<HandlerCall>, Error> {
+        let stream = self.0.streams.open_named(
+            goodfetch_protocol::plugin::notification::NOTIFICATION_CHANNEL.name,
+            name,
+        )?;
+        Ok(EventStream::from_items(stream))
+    }
+
+    /// Opens the one [`EventStream`] of `secret.resolve` calls for the Secret
+    /// provider SDK handler `name` declared in `ConnectOptions` (ADRs 0081
+    /// and 0104). Spawns no task; dropping a call unanswered fails it with
+    /// `secret_unavailable`.
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when `name` was not declared for the `secret` kind
+    /// or another stream is already open for `name`, and `closed` once the
+    /// Connection has ended.
+    pub fn secret_requests(&self, name: &str) -> Result<EventStream<HandlerCall>, Error> {
+        let stream = self.0.streams.open_named(
+            goodfetch_protocol::plugin::secret::SECRET_PROVIDER.name,
+            name,
+        )?;
+        Ok(EventStream::from_items(stream))
     }
 
     /// Closes the Connection: first every Run it started that is still

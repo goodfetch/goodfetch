@@ -63,9 +63,9 @@ pub use composition::{composition, composition_with};
 pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
     AiWorkResult, Answer, BoxError, Call, Connection, CreatedSchedule, Ended, Error, ErrorCode,
-    ErrorDetails, EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits,
-    Locator, Money, MoneyError, Page, PartialOutput, Query, RawCall, Response, Run, RunView,
-    Schedule, Schedules, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
+    ErrorDetails, EventStream, Exchange, FieldValues, HandlerCall, HandlerlessStart, KeyValueStore,
+    Limits, Locator, Money, MoneyError, Page, PartialOutput, Query, RawCall, Response, Run,
+    RunView, Schedule, Schedules, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
     VerifyWebhookOptions, events, schemars, settings, verify_webhook, verify_webhook_with,
 };
 pub use goodfetch_protocol::notifications::{

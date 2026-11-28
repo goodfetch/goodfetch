@@ -5,8 +5,8 @@
 //! reaches a Daemon ([`crate::EngineChoice`]).
 
 use goodfetch_collie_client::{
-    ClientConnection, Connection, Error, HandlerlessStart, Query, RawCall, RunView, Schedules,
-    Start,
+    ClientConnection, Connection, Error, EventStream, HandlerCall, HandlerlessStart, Query,
+    RawCall, RunView, Schedules, Start,
 };
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
@@ -290,6 +290,50 @@ impl Collie {
     /// closed it fails with `closed`.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
         self.linked.connection().explain_settings()
+    }
+
+    /// Opens the [`EventStream`] of `extract.content` calls for the Extractor
+    /// SDK handler `name` declared in [`ConnectOptions::extractor`] (ADRs
+    /// 0081 and 0104). Spawns no task; a second stream or an undeclared name
+    /// fails with `setting_invalid`; a call dropped unanswered fails with
+    /// `extractor_unavailable` (retryable).
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when `name` was not declared or another stream is
+    /// open for `name`, and `closed` once the connection is closed.
+    pub fn extractor_requests(&self, name: &str) -> Result<EventStream<HandlerCall>, Error> {
+        self.linked.connection().extractor_requests(name)
+    }
+
+    /// Opens the [`EventStream`] of `notification.send` calls for the
+    /// Notification channel SDK handler `name` declared in
+    /// [`ConnectOptions::notification_channel`] (ADRs 0081 and 0104). Spawns
+    /// no task; a second stream or an undeclared name fails with
+    /// `setting_invalid`; a call dropped unanswered fails with
+    /// `notification_channel_unavailable` (retryable).
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when `name` was not declared or another stream is
+    /// open for `name`, and `closed` once the connection is closed.
+    pub fn notification_requests(&self, name: &str) -> Result<EventStream<HandlerCall>, Error> {
+        self.linked.connection().notification_requests(name)
+    }
+
+    /// Opens the [`EventStream`] of `secret.resolve` calls for the Secret
+    /// provider SDK handler `name` declared in
+    /// [`ConnectOptions::secret_provider`] (ADRs 0081 and 0104). Spawns no
+    /// task; a second stream or an undeclared name fails with
+    /// `setting_invalid`; a call dropped unanswered fails with
+    /// `secret_unavailable`.
+    ///
+    /// # Errors
+    ///
+    /// `setting_invalid` when `name` was not declared or another stream is
+    /// open for `name`, and `closed` once the connection is closed.
+    pub fn secret_requests(&self, name: &str) -> Result<EventStream<HandlerCall>, Error> {
+        self.linked.connection().secret_requests(name)
     }
 
     /// Closes the connection for every clone: first every Run it started

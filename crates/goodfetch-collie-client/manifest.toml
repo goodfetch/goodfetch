@@ -261,6 +261,33 @@ form = "runtime"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "ClientConnection"
+member = "extractor_requests"
+entry = "none"
+reason = "Opens the EventStream of `extract.content` calls for a declared Extractor SDK handler by name (ADRs 0081 and 0104)."
+words = ["extractor", "requests"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "notification_requests"
+entry = "none"
+reason = "Opens the EventStream of `notification.send` calls for a declared Notification channel SDK handler by name (ADRs 0081 and 0104)."
+words = ["notification", "requests"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "secret_requests"
+entry = "none"
+reason = "Opens the EventStream of `secret.resolve` calls for a declared Secret provider SDK handler by name (ADRs 0081 and 0104)."
+words = ["secret", "requests"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
 member = "start_with"
 entry = "none"
 reason = "The start of a Run with `opener`, a Product's own call that opens one and answers `RunStarted`, such as Foxhound's `crawl.start` (ADR 0102), sending `params`; the Run is held as a start's is."

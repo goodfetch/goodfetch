@@ -433,3 +433,167 @@ fn sdk_extractor_serves_page_formats_records_unconfined_provenance_handles_error
         "SDK handler child span must inherit the calling program span's trace_id"
     );
 }
+
+/// Minimal executor-free `block_on` backed only by `std::thread::Thread::unpark`
+/// (no Tokio runtime on the calling thread), proving the Rust async API
+/// spawns no task of its own (ADR 0081).
+fn block_on_without_executor<F: std::future::Future>(future: F) -> F::Output {
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+    use std::thread::Thread;
+
+    struct ThreadWaker(Thread);
+    impl Wake for ThreadWaker {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    let waker = Waker::from(Arc::new(ThreadWaker(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        match future.as_mut().poll(&mut cx) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
+/// `Collie::extractor_requests(name)` returns an `EventStream<HandlerCall>`:
+/// - receives calls for the declared name;
+/// - refuses undeclared names and a second stream on the same name with `setting_invalid`;
+/// - a call dropped unanswered fails `page.formats` with `extractor_unavailable` (retryable);
+/// - dropping the stream mid-Run holds no call open (subsequent call fails promptly with `extractor_unavailable`).
+///
+/// Covers: story:7-74, error:setting_invalid, error:extractor_unavailable
+#[test]
+fn rust_extractor_requests_event_stream_and_drop_unavailable() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    env.user_configuration(&proving_ground_toml(&proving_ground));
+    let cache = browser_cache(&env).unwrap();
+    let product_url = proving_ground.url("extraction.test", "/markdown/mixed/product");
+
+    let mut env_map: BTreeMap<OsString, OsString> = env
+        .env()
+        .iter()
+        .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+        .collect();
+    env_map.insert(
+        OsString::from(BROWSERS_PATH_VARIABLE),
+        cache.as_os_str().to_owned(),
+    );
+
+    real_time_runtime().block_on(async {
+        let collie = Collie::connect(
+            ConnectOptions::default()
+                .environment(env_map)
+                .extractor("stream_ext"),
+        )
+        .await
+        .unwrap();
+
+        // Undeclared name -> setting_invalid.
+        let undeclared = collie.extractor_requests("not_declared").unwrap_err();
+        assert_eq!(
+            undeclared.code(),
+            ErrorCode::SETTING_INVALID,
+            "{undeclared}"
+        );
+
+        let mut stream = collie.extractor_requests("stream_ext").unwrap();
+        // Second stream on same name -> setting_invalid.
+        let duplicate = collie.extractor_requests("stream_ext").unwrap_err();
+        assert_eq!(duplicate.code(), ErrorCode::SETTING_INVALID, "{duplicate}");
+
+        let run = collie.start().await.unwrap();
+        let page = run.new_page().await.unwrap();
+        page.goto(&product_url).await.unwrap();
+
+        let text_only = || FormatsRequest {
+            text: Some(Asked),
+            ..Default::default()
+        };
+
+        // 1. Drive call + EventStream concurrently on the same task (no spawn needed).
+        let (formats, ()) = tokio::join!(page.formats(text_only()), async {
+            let call = stream.next().await.unwrap().unwrap();
+            call.answer(json!({
+                "title": "Streamed",
+                "text": "Streamed text",
+                "markdown": "Streamed text",
+                "metadata": {},
+            }))
+            .unwrap();
+        });
+        assert_eq!(formats.unwrap().text.as_deref(), Some("Streamed text"));
+
+        // 2. Call dropped unanswered -> extractor_unavailable (retryable).
+        let (err_dropped, ()) = tokio::join!(page.formats(text_only()), async {
+            let call = stream.next().await.unwrap().unwrap();
+            drop(call);
+        });
+        let err_dropped = err_dropped.unwrap_err();
+        assert_eq!(
+            err_dropped.code(),
+            ErrorCode::EXTRACTOR_UNAVAILABLE,
+            "{err_dropped}"
+        );
+        assert!(
+            err_dropped.retryable(),
+            "extractor_unavailable must be retryable"
+        );
+
+        // 3. Stream dropped mid-Run -> next call fails immediately with extractor_unavailable (none held open).
+        drop(stream);
+        let err_after_drop = page.formats(text_only()).await.unwrap_err();
+        assert_eq!(
+            err_after_drop.code(),
+            ErrorCode::EXTRACTOR_UNAVAILABLE,
+            "{err_after_drop}"
+        );
+        assert!(err_after_drop.retryable());
+
+        run.finish().await.unwrap();
+        collie.close().await.unwrap();
+    });
+}
+
+/// The Rust async handler API spawns no task of its own: connecting, opening
+/// `extractor_requests`, running, and closing all complete on a bare
+/// `std::thread` with no Tokio runtime entered (the executor-free check).
+///
+/// Covers: story:7-74
+#[test]
+fn rust_handler_event_stream_is_executor_free() {
+    let env = TestEnv::new();
+    let options = env_options(&env)
+        .extractor("exec_free_ext")
+        .notification_channel("exec_free_notif")
+        .secret_provider("exec_free_secret");
+
+    let handle = std::thread::spawn(move || {
+        assert!(
+            tokio::runtime::Handle::try_current().is_err(),
+            "test must run outside any Tokio runtime"
+        );
+        block_on_without_executor(async move {
+            let collie = Collie::connect(options).await.unwrap();
+            let mut ext = collie.extractor_requests("exec_free_ext").unwrap();
+            let _notif = collie.notification_requests("exec_free_notif").unwrap();
+            let _secret = collie.secret_requests("exec_free_secret").unwrap();
+            let run = collie.start().await.unwrap();
+            run.finish().await.unwrap();
+            collie.close().await.unwrap();
+            assert!(
+                ext.next().await.is_none(),
+                "closing connection ends the handler EventStream cleanly"
+            );
+        });
+    });
+    handle.join().unwrap();
+}

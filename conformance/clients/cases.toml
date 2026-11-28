@@ -26,7 +26,7 @@
 
 [suite]
 name = "clients"
-version = "68"
+version = "69"
 
 [[capability]]
 name = "lifecycle"
@@ -1005,3 +1005,23 @@ id = "schedules-crud"
 covers = ["story:10-2"]
 surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
 modes = ["attached", "linked"]
+
+# The caller as a Secret provider (ADRs 0067, 0092 and 0104; issue 1281):
+# `connect({ resolveSecret })` (Python `resolve_secret=`, Rust
+# `ConnectOptions::resolve_secret()` + `secret_requests()`) answers
+# `secrets.resolve` for `caller:<name>` references at the moment of use,
+# passing the value on with no copy kept or logged; a throw becomes a
+# redacted `secret_unavailable` with no Secret canary in any `repr`,
+# `toString`, error message, call log or JSON-RPC error; Rust's
+# `secret_requests()` allows one reader and refuses a second stream or an
+# undeclared call with `setting_invalid`. Played by the Scripted engine in
+# TypeScript and Python (asyncio, Trio and the sync API), attached and as a
+# Daemon, and as the Daemon Rust's client crate reaches.
+[[capability]]
+name = "secrets"
+
+[[capability.case]]
+id = "caller-secret-resolution"
+covers = ["story:11-98"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-rust = ["daemon"] }

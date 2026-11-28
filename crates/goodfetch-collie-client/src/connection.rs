@@ -8,6 +8,10 @@
 //! engine the path, or writes the bytes the engine streams. A remote
 //! Daemon's Connection reaches its engine again by itself once the link
 //! drops, within `timeout.connect` (spec 606; see `relink`).
+//!
+//! Size: one concern, the Connection lifecycle (opening, `hello`, relink,
+//! closing, file saving and call/stream dispatch), kept in one module so its
+//! private `Inner` state stays encapsulated behind `ClientConnection`.
 
 use std::fmt::Debug;
 use std::future::{Future, IntoFuture};
@@ -161,6 +165,9 @@ struct Inner {
     /// Whether a close has returned, after which closing again does
     /// nothing, even when that close timed out with a task still running.
     closed: AtomicBool,
+    /// Whether `ConnectOptions::resolve_secret()` declared a caller secret
+    /// resolver on this Connection (ADRs 0092 and 0104).
+    resolve_secret_declared: AtomicBool,
     /// Held only to be dropped with the Connection's last handle.
     _runtime: Option<Arc<Owned>>,
 }
@@ -285,6 +292,7 @@ impl ClientConnection {
             log_level: Arc::clone(&log_level),
             project,
             closed: AtomicBool::new(false),
+            resolve_secret_declared: AtomicBool::new(false),
             _runtime: owned,
         }));
         let said = connection.call::<HelloResult>(HELLO, &hello).no_timeout();
@@ -660,6 +668,16 @@ impl ClientConnection {
     /// `closed` once the Connection has ended.
     pub fn handler_requests(&self, method: &str) -> Result<HandlerRequests, Error> {
         self.0.streams.open(method)
+    }
+
+    pub(crate) fn mark_resolve_secret_declared(&self) {
+        self.0
+            .resolve_secret_declared
+            .store(true, Ordering::Release);
+    }
+
+    pub(crate) fn is_resolve_secret_declared(&self) -> bool {
+        self.0.resolve_secret_declared.load(Ordering::Acquire)
     }
 
     /// Closes the Connection: first every Run it started that is still

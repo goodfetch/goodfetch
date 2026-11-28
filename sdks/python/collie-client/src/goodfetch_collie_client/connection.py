@@ -83,6 +83,7 @@ from goodfetch_collie_client.listeners import MAX_LISTENER_QUEUE, ResumedEvents
 from goodfetch_collie_client.markers import warn_deprecated_settings, warn_entry
 from goodfetch_collie_client.run import AsyncRun, explain_params
 from goodfetch_collie_client.run_view import AsyncRunView
+from goodfetch_collie_client.secrets import SECRETS_RESOLVE, serve_secret_resolver
 from goodfetch_collie_client.settings import settings_on_wire
 
 if TYPE_CHECKING:
@@ -106,6 +107,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.generated.settings import RunSettings
     from goodfetch_collie_client.goodfetch_error import ErrorClass
     from goodfetch_collie_client.handlerless import CatalogTarget
+    from goodfetch_collie_client.secrets import AsyncSecretResolver
 
 __all__ = ["ClientConnection", "EngineFallback", "EngineInfo", "closed_error"]
 
@@ -257,6 +259,7 @@ class ClientConnection:
         *,
         needs: Product,
         worker_target: WorkerTarget | None = None,
+        resolve_secret: AsyncSecretResolver | None = None,
     ) -> None:
         """Takes the transport, its engine when one started, and the code classes.
 
@@ -281,6 +284,8 @@ class ClientConnection:
         self._runs: dict[AsyncRun, None] = {}
         self._served: dict[str, Callable[[ServedRequest], None]] = {}
         """What serves the engine's requests of each method, by `serve`."""
+        if resolve_secret is not None:
+            self._served[SECRETS_RESOLVE] = serve_secret_resolver(resolve_secret)
         self._published = SharedSubscription(self, listener_queue)
         self._info: EngineInfo | None = None
         self._ended = False
@@ -322,6 +327,7 @@ class ClientConnection:
         reconnect: Reconnect | None = None,
         project: ProjectFile | None = None,
         worker_target: WorkerTarget | None = None,
+        resolve_secret: AsyncSecretResolver | None = None,
     ) -> ClientConnection:
         """Opens a Connection over `transport`, finishing `hello` before it returns.
 
@@ -363,6 +369,7 @@ class ClientConnection:
             project,
             needs=needs,
             worker_target=worker_target,
+            resolve_secret=resolve_secret,
         )
         try:
             # The Connection's own, for every caller: no Trace context (ADR 0132).

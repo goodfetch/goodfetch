@@ -55,6 +55,7 @@ import { timeoutOf } from "./handle.ts";
 import { Run, type RunHost } from "./run.ts";
 import { RunView } from "./run-view.ts";
 import { Schedules } from "./schedules.ts";
+import { SECRETS_RESOLVE, serveSecretResolver, type SecretResolver } from "./secrets.ts";
 import { settingsOnWire, warnDeprecatedSettings, type RunSettings } from "./generated/settings.ts";
 import { MAX_LISTENER_QUEUE } from "./listeners.ts";
 import type { SettingsOnWire } from "./settings.ts";
@@ -285,6 +286,8 @@ export interface ClientConnectionOptions {
    * starts.
    */
   readonly logger?: Logger | undefined;
+  /** Answers `caller:<name>` Secret references at the moment of use (ADR 0092). */
+  readonly resolveSecret?: SecretResolver | undefined;
 }
 
 /** What serves one kind of the engine's requests: it answers the result, or throws the error to answer. */
@@ -377,6 +380,9 @@ export class ClientConnection implements AsyncDisposable {
         this.#openOrThrow(operation);
       },
     });
+    if (options.resolveSecret !== undefined) {
+      this.#served.set(SECRETS_RESOLVE, serveSecretResolver(options.resolveSecret));
+    }
     holdInRealm(this);
   }
 

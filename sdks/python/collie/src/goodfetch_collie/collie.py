@@ -43,6 +43,7 @@ from goodfetch_collie_client.raw_call import raw_params
 from goodfetch_collie_client.run import AsyncRun, Run
 from goodfetch_collie_client.run_view import RunView
 from goodfetch_collie_client.schedules import AsyncSchedules, Schedules
+from goodfetch_collie_client.secrets import sync_secret_resolver
 
 if TYPE_CHECKING:
     import os
@@ -60,6 +61,7 @@ if TYPE_CHECKING:
     from goodfetch_collie_client.handlerless import CatalogTarget
     from goodfetch_collie_client.limits import Limits
     from goodfetch_collie_client.run_view import AsyncRunView
+    from goodfetch_collie_client.secrets import AsyncSecretResolver, SecretResolver
     from pydantic import JsonValue
 
 __all__ = ["AsyncCollie", "Collie", "Connecting", "async_connect_over", "connect_over"]
@@ -111,6 +113,7 @@ class AsyncCollie(AsyncConnection):
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
         project: str | os.PathLike[str] | NotGiven | None = not_given,
+        resolve_secret: AsyncSecretResolver | None = None,
     ) -> Connecting:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -183,6 +186,7 @@ class AsyncCollie(AsyncConnection):
                 max_listener_queue=max_listener_queue,
                 settings=settings,
                 project=project,
+                resolve_secret=resolve_secret,
             )
         )
 
@@ -498,6 +502,7 @@ class Collie(Connection):
         max_listener_queue: int = MAX_LISTENER_QUEUE,
         settings: Settings | None = None,
         project: str | os.PathLike[str] | NotGiven | None = not_given,
+        resolve_secret: SecretResolver | None = None,
     ) -> Collie:
         """Reaches Collie's engine and finishes `hello`.
 
@@ -559,6 +564,11 @@ class Collie(Connection):
                 max_listener_queue=max_listener_queue,
                 settings=settings,
                 project=project,
+                resolve_secret=(
+                    None
+                    if resolve_secret is None
+                    else sync_secret_resolver(resolve_secret)
+                ),
             )
         )
 
@@ -811,10 +821,11 @@ def async_connect_over(
     *,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Settings | None = None,
+    resolve_secret: AsyncSecretResolver | None = None,
 ) -> Connecting:
     """Opens an `AsyncCollie` over `transport`, with no process behind it.
 
-    `max_listener_queue` and `settings` are `connect()`'s.
+    `max_listener_queue`, `settings` and `resolve_secret` are `connect()`'s.
     """
     return Connecting(
         functools.partial(
@@ -823,6 +834,7 @@ def async_connect_over(
             transport,
             max_listener_queue=max_listener_queue,
             settings=settings,
+            resolve_secret=resolve_secret,
         )
     )
 
@@ -832,12 +844,13 @@ def connect_over(
     *,
     max_listener_queue: int = MAX_LISTENER_QUEUE,
     settings: Settings | None = None,
+    resolve_secret: SecretResolver | None = None,
 ) -> Collie:
     """Opens a sync `Collie` over `transport`, with no process behind it.
 
     Its private loop drives `transport`, so a transport bound to another
-    event loop does not fit. `max_listener_queue` and `settings` are
-    `connect()`'s.
+    event loop does not fit. `max_listener_queue`, `settings` and
+    `resolve_secret` are `connect()`'s.
     """
     return _open_sync(
         functools.partial(
@@ -846,6 +859,9 @@ def connect_over(
             transport,
             max_listener_queue=max_listener_queue,
             settings=settings,
+            resolve_secret=(
+                None if resolve_secret is None else sync_secret_resolver(resolve_secret)
+            ),
         )
     )
 

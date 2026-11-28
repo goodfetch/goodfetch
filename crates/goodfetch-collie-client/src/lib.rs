@@ -55,6 +55,7 @@ mod run;
 mod run_view;
 mod schedules;
 mod schema;
+mod secrets;
 pub mod settings;
 mod sync;
 pub mod testing;
@@ -90,5 +91,6 @@ pub use schema::{Schema, SchemaError, to_json};
 /// The `schemars` whose `JsonSchema` a [`Schema`] derives from, re-exported
 /// so that a program's derive is the SDK's version (ADR 0082).
 pub use schemars;
+pub use secrets::SecretRequest;
 pub use trace_context::{TraceContext, TraceContextSource};
 pub use webhook::{VerifyWebhookOptions, verify_webhook, verify_webhook_with};

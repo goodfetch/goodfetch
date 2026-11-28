@@ -67,8 +67,9 @@ pub use goodfetch_collie_client::{
     AiWorkResult, Answer, BoxError, Call, Connection, CreatedSchedule, Ended, Error, ErrorCode,
     ErrorDetails, EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore, Limits,
     Locator, Money, MoneyError, Page, PartialOutput, Query, RawCall, Response, Run, RunView,
-    Schedule, Schedules, Schema, SchemaError, Session, Start, StoredBytes, UsageKind,
-    VerifyWebhookOptions, events, schemars, settings, verify_webhook, verify_webhook_with,
+    Schedule, Schedules, Schema, SchemaError, SecretRequest, Session, Start, StoredBytes,
+    UsageKind, VerifyWebhookOptions, events, schemars, settings, verify_webhook,
+    verify_webhook_with,
 };
 pub use goodfetch_protocol::notifications::{
     FullNotification, NotificationData, NotificationEvent, NotificationPayload, ThinNotification,

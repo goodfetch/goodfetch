@@ -241,6 +241,11 @@ from goodfetch_collie_client.schedules import (
     Schedules,
 )
 from goodfetch_collie_client.schema import JSONSchema
+from goodfetch_collie_client.secrets import (
+    AsyncSecretResolver,
+    SecretRequest,
+    SecretResolver,
+)
 from goodfetch_collie_client.sequence import AsyncSequence, Sequence
 from goodfetch_collie_client.webhook import verify_webhook
 
@@ -260,6 +265,7 @@ __all__ = [
     "AsyncRunView",
     "AsyncSchedule",
     "AsyncSchedules",
+    "AsyncSecretResolver",
     "AsyncSequence",
     "BlockedError",
     "BodyNotFoundError",
@@ -426,6 +432,8 @@ __all__ = [
     "SchemaValidatorFailedError",
     "SecretDomainNotAllowedError",
     "SecretInputRefusedError",
+    "SecretRequest",
+    "SecretResolver",
     "SecretUnavailableError",
     "SecretUnboundError",
     "Sequence",

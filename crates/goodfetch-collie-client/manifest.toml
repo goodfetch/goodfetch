@@ -3024,6 +3024,92 @@ form = "read"
 [[member]]
 crate = "goodfetch-collie-client"
 receiver = "(crate)"
+member = "SecretRequest"
+entry = "none"
+reason = "One `secrets.resolve` request from the engine for a `caller:<name>` Secret reference (ADRs 0092 and 0104)."
+words = ["secret", "request"]
+form = "type"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "name"
+entry = "none"
+reason = "The reference's name, what follows `caller:`."
+words = ["name"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "run_id"
+entry = "none"
+reason = "The Run that uses the reference, which this Connection opened."
+words = ["run", "id"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "domain"
+entry = "none"
+reason = "The host the value is sent to, where the use has one."
+words = ["domain"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "answer"
+entry = "none"
+reason = "Answers the engine with the resolved value without keeping or logging a copy (ADRs 0067 and 0092)."
+only = "TypeScript and Python return the value from `resolveSecret` / `resolve_secret`."
+words = ["answer"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "SecretRequest"
+member = "fail"
+entry = "none"
+reason = "Fails the request with a redacted `secret_unavailable` reply so no Secret canary can leak (ADR 0067)."
+only = "TypeScript and Python throw from `resolveSecret` / `resolve_secret`."
+words = ["fail"]
+form = "round_trip"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "declare_resolve_secret"
+entry = "none"
+reason = "Marks this Connection as having declared `ConnectOptions::resolve_secret()` so `secret_requests()` may open the `secrets.resolve` stream."
+only = "Rust client-crate runtime plumbing for `ConnectOptions::resolve_secret()`."
+words = ["declare", "resolve", "secret"]
+form = "runtime"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "ClientConnection"
+member = "secret_requests"
+entry = "none"
+reason = "Opens the `EventStream<SecretRequest>` serving `secrets.resolve` requests on this Connection (ADRs 0092 and 0104)."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()`."
+words = ["secret", "requests"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "blocking::ClientConnection"
+member = "secret_requests"
+entry = "none"
+reason = "Opens the blocking `EventIter<SecretRequest>` serving `secrets.resolve` requests on this Connection."
+only = "TypeScript and Python pass `resolveSecret` / `resolve_secret` to `connect()`."
+words = ["secret", "requests"]
+form = "read"
+
+[[member]]
+crate = "goodfetch-collie-client"
+receiver = "(crate)"
 member = "Feed"
 entry = "none"
 reason = "One bidirectional streaming call in flight on a Connection (such as `run.add_seeds`), which Product crates drive under `$/credit` backpressure (ADR 0024)."

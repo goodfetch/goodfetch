@@ -9,6 +9,7 @@
 #[cfg(unix)]
 mod attached;
 mod call_cancelled;
+mod caller_secret_resolution;
 mod calls_in_flight;
 mod cancellation;
 mod cdp_url_errors;

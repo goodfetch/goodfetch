@@ -3750,6 +3750,25 @@ entry = "run.add_seeds"
 words = ["add", "seeds"]
 form = "round_trip"
 
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SecretRequest"
+entry = "none"
+reason = "What the engine passes to `resolveSecret` for a `caller:<name>` Secret reference (ADR 0092)."
+words = ["secret", "request"]
+form = "type"
+
+[[member]]
+package = "@goodfetch/collie-client"
+receiver = "(module)"
+member = "SecretResolver"
+entry = "none"
+reason = "Answers `caller:<name>` Secret references at the moment of use (ADR 0092)."
+only = "Rust declares `ConnectOptions::resolve_secret()` and reads `secret_requests()` instead of passing a callback."
+words = ["secret", "resolver"]
+form = "type"
+
 [[unreached]]
 entries = ["crawl_request.enqueue_links_by_clicking_elements"]
 reason = "Issue 1087 builds the engine operation; Foxhound's SDK surface adds `enqueueLinksByClickingElements` in area 11."

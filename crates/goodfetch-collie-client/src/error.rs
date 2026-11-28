@@ -265,6 +265,19 @@ impl Error {
         Self::of(&SETTING_INVALID, message).with_details(details)
     }
 
+    /// A protocol-coded error carrying only the given `details` map and
+    /// `message`, used where caller errors must be redacted before crossing
+    /// the wire (ADR 0067).
+    pub(crate) fn of_protocol_details(
+        defined: &ErrorCodeDefinition,
+        message: String,
+        details: Map<String, Value>,
+    ) -> Self {
+        let mut error = Self::of(defined, message);
+        error.0.data.extend(details);
+        error
+    }
+
     /// A name a Product crate's connection reads before it reaches an
     /// engine, such as a `GOODFETCH_` variable off the closed list of
     /// deployment variables, is unknown: `setting_unknown`, with `details`

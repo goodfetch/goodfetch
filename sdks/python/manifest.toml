@@ -1542,6 +1542,36 @@ words = ["verify", "webhook"]
 form = "read"
 
 [[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "SecretRequest"
+entry = "none"
+reason = "What the engine passes to `resolve_secret` for a `caller:<name>` Secret reference (ADR 0092)."
+only = "A re-export, which Python lists where its package's `__all__` names it, and TypeScript and Rust in the package that declares it."
+words = ["secret", "request"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "SecretResolver"
+entry = "none"
+reason = "Answers `caller:<name>` Secret references on the sync client (ADR 0092)."
+only = "A re-export, which Python lists where its package's `__all__` names it; Rust declares `ConnectOptions::resolve_secret()`."
+words = ["secret", "resolver"]
+form = "type"
+
+[[member]]
+package = "goodfetch_collie"
+receiver = "(module)"
+member = "AsyncSecretResolver"
+entry = "none"
+reason = "Answers `caller:<name>` Secret references on the async client (ADR 0092)."
+only = "Python's async twin (ADR 0081): TypeScript is async only, and Rust declares `ConnectOptions::resolve_secret()`."
+words = ["async", "secret", "resolver"]
+form = "type"
+
+[[member]]
 package = "goodfetch_collie.testing"
 receiver = "(module)"
 member = "connect_over"

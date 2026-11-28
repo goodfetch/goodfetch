@@ -4,7 +4,7 @@
 //! waits for its end on a channel. Nothing here enters a runtime, so it
 //! works inside one too, where it blocks only the thread that calls it.
 
-use goodfetch_collie_client::{RunView, blocking};
+use goodfetch_collie_client::{RunView, SecretRequest, blocking};
 use goodfetch_protocol::run::{CatalogTarget, RunId};
 use goodfetch_protocol::settings::{ConfigExplainParams, SettingsExplanation};
 
@@ -143,6 +143,16 @@ impl Collie {
     #[must_use]
     pub fn schedules(&self) -> Schedules {
         self.connection.schedules()
+    }
+
+    /// The engine's `secrets.resolve` requests as a blocking iterator, as
+    /// [`crate::Collie::secret_requests`] reads them.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Collie::secret_requests`].
+    pub fn secret_requests(&self) -> Result<EventIter<SecretRequest>, Error> {
+        self.connection.secret_requests()
     }
 
     /// Shows each setting's effective value, the layer that set it and the

@@ -17,6 +17,7 @@ export type { EngineChoice, RemoteDaemon } from "./engine-choice.ts";
 export type { Limits, Money } from "./limits.ts";
 export type { PageSettings, RunSettings, SessionSettings, Settings } from "./generated/settings.ts";
 export type { Logger } from "./logger.ts";
+export type { SecretRequest, SecretResolver } from "./secrets.ts";
 export { Run } from "./run.ts";
 export { RunView } from "./run-view.ts";
 export {

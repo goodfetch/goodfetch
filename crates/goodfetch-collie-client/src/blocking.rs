@@ -84,6 +84,16 @@ impl ClientConnection {
         RawCall::new(self.0.raw_call(operation), &self.0)
     }
 
+    /// The engine's `secrets.resolve` requests as a blocking iterator, as
+    /// [`crate::ClientConnection::secret_requests`] reads them.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::ClientConnection::secret_requests`].
+    pub fn secret_requests(&self) -> Result<EventIter<crate::secrets::SecretRequest>, Error> {
+        Ok(EventIter::new(self.0.secret_requests()?, &self.0))
+    }
+
     /// Leaving the scope or `close()` stops the Run with a Checkpoint.
     /// `finish()` ends it.
     ///

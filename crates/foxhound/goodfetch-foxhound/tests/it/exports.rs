@@ -1455,7 +1455,7 @@ fn an_export_of_a_logged_in_crawl_carries_no_session_cookie_or_storage() {
 /// Covers: story:4-114, operation:export.save_as, error:path_not_writable
 #[test]
 fn export_save_as_refuses_hostile_names_from_the_path_table_with_path_not_writable() {
-    use goodfetch_engine::run_files::{SaveError, Saving};
+    use goodfetch_engine::hostile_input::{PathShape, check_path};
     use goodfetch_test_support::{HostileTables, PathTarget};
 
     let env = TestEnv::new();
@@ -1480,16 +1480,11 @@ fn export_save_as_refuses_hostile_names_from_the_path_table_with_path_not_writab
     let mut misses = Vec::new();
     for (index, case) in cases.iter().enumerate() {
         let name = &case.input.name;
-        match Saving::create_in_folder(&folder, name) {
-            Err(SaveError::Path { .. }) => {}
-            other => misses.push(format!(
-                "{}: Saving::create_in_folder returned {}",
-                case.name,
-                match other {
-                    Ok(_) => "Ok".to_owned(),
-                    Err(error) => format!("{error:?}"),
-                }
-            )),
+        if check_path(name, PathShape::Name).is_ok() {
+            misses.push(format!(
+                "{}: hostile_input::check_path accepted {name:?}",
+                case.name
+            ));
         }
         let native_absolute = if cfg!(windows) {
             case.name == "drive_path"

@@ -170,10 +170,29 @@ impl ResponseCache {
         if needles.is_empty() {
             return Ok(0);
         }
-        let run_id = run_id.clone();
+        let read_run_id = run_id.clone();
+        let read_needles = needles.clone();
+        let Some((bodies_dir, meta_matched, body_candidates)) = self
+            .store
+            .read(Some(None), move |file, connection| {
+                file.erase_candidates(connection, &read_run_id, &read_needles)
+                    .map(Some)
+            })
+            .await?
+        else {
+            return Ok(0);
+        };
+        let matched = self
+            .owner
+            .blocking(move || select_erased(&bodies_dir, meta_matched, body_candidates, &needles))
+            .await?;
+        if matched.is_empty() {
+            return Ok(0);
+        }
+        let write_run_id = run_id.clone();
         self.store
             .write(Some(0), move |file, connection| {
-                file.erase_matching(connection, &run_id, &needles)
+                file.delete_erased(connection, &write_run_id, &matched)
             })
             .await
     }
@@ -317,39 +336,128 @@ impl CacheFile {
         connection: &Connection,
         clearing: &Clearing,
     ) -> Result<CacheCleared, ResponseCacheError> {
+        self.secure_delete_and_truncate(connection, "cleared", |connection| {
+            let rows = connection
+                .prepare_cached(
+                    "SELECT rowid, url FROM entries WHERE (?1 IS NULL OR person = ?1)
+                     AND (?2 IS NULL OR run_id = ?2) AND (?3 IS NULL OR partition = ?3)
+                     AND (?4 IS NULL OR country = ?4) AND (?5 IS NULL OR language = ?5)
+                     AND (?6 IS NULL OR device = ?6)",
+                )?
+                .query_map(
+                    rusqlite::params![
+                        clearing.person,
+                        clearing.run_id.as_ref().map(RunId::as_str),
+                        clearing.partition,
+                        clearing.country,
+                        clearing.language,
+                        clearing.device,
+                    ],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+                )?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let mut delete = connection.prepare_cached("DELETE FROM entries WHERE rowid = ?1")?;
+            let mut entries = 0;
+            for (rowid, url) in rows {
+                if clearing.keeps_url(&url) {
+                    entries += delete.execute([rowid])?;
+                }
+            }
+            Ok(entries)
+        })
+    }
+
+    /// Lists `run_id`'s entries for `erase_matching` on the reads connection
+    /// without acquiring the writer lock, partitioning those already matched
+    /// by metadata from those whose body files need streaming inspection.
+    #[expect(
+        clippy::type_complexity,
+        reason = "private helper passing candidate `(rowid, sha256)` lists between read and scan phases"
+    )]
+    fn erase_candidates(
+        &self,
+        connection: &Connection,
+        run_id: &RunId,
+        needles: &[String],
+    ) -> Result<(PathBuf, Vec<(i64, String)>, Vec<(i64, String)>), ResponseCacheError> {
+        let rows = connection
+            .prepare_cached(
+                "SELECT rowid, url, request_headers, response_headers, body_sha256
+                 FROM entries WHERE run_id = ?1",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([run_id.as_str()], |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, String>(3)?,
+                            row.get::<_, String>(4)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .map_err(|error| self.failed(&error))?;
+        let mut meta_matched = Vec::new();
+        let mut body_candidates = Vec::new();
+        for (rowid, url, request_headers, response_headers, body_sha256) in rows {
+            let matched_meta = needles.iter().any(|needle| {
+                url.contains(needle)
+                    || request_headers.contains(needle)
+                    || response_headers.contains(needle)
+            });
+            if matched_meta {
+                meta_matched.push((rowid, body_sha256));
+            } else if is_sha256(&body_sha256) {
+                body_candidates.push((rowid, body_sha256));
+            }
+        }
+        Ok((self.folder.join(BODIES), meta_matched, body_candidates))
+    }
+
+    /// Deletes the verified `(rowid, body_sha256)` entries of `run_id` under
+    /// `secure_delete`, re-checking `run_id` and `body_sha256` inside the
+    /// write transaction, then removes unheld bodies and truncates the WAL.
+    fn delete_erased(
+        &self,
+        connection: &Connection,
+        run_id: &RunId,
+        matched: &[(i64, String)],
+    ) -> Result<u64, ResponseCacheError> {
+        let cleared = self.secure_delete_and_truncate(connection, "erased", |connection| {
+            let mut delete = connection.prepare_cached(
+                "DELETE FROM entries WHERE rowid = ?1 AND run_id = ?2 AND body_sha256 = ?3",
+            )?;
+            let mut entries = 0;
+            for (rowid, body_sha256) in matched {
+                entries +=
+                    delete.execute(rusqlite::params![rowid, run_id.as_str(), body_sha256])?;
+            }
+            Ok(entries)
+        })?;
+        Ok(cleared.entries)
+    }
+
+    /// Runs `delete_entries` in one immediate transaction with `secure_delete`
+    /// enabled, removes unheld body files, disables `secure_delete`, and
+    /// truncates the WAL so no deleted entry remains on disk.
+    fn secure_delete_and_truncate<F>(
+        &self,
+        connection: &Connection,
+        label: &str,
+        delete_entries: F,
+    ) -> Result<CacheCleared, ResponseCacheError>
+    where
+        F: FnOnce(&Connection) -> rusqlite::Result<usize>,
+    {
         connection
             .pragma_update(None, "secure_delete", true)
             .map_err(|error| self.failed(&error))?;
         let cleared: rusqlite::Result<(usize, Vec<(String, u64)>)> =
             sqlite_store::immediate(connection, |connection| {
                 self.flush(connection)?;
-                let rows = connection
-                    .prepare_cached(
-                        "SELECT rowid, url FROM entries WHERE (?1 IS NULL OR person = ?1)
-                     AND (?2 IS NULL OR run_id = ?2) AND (?3 IS NULL OR partition = ?3)
-                     AND (?4 IS NULL OR country = ?4) AND (?5 IS NULL OR language = ?5)
-                     AND (?6 IS NULL OR device = ?6)",
-                    )?
-                    .query_map(
-                        rusqlite::params![
-                            clearing.person,
-                            clearing.run_id.as_ref().map(RunId::as_str),
-                            clearing.partition,
-                            clearing.country,
-                            clearing.language,
-                            clearing.device,
-                        ],
-                        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
-                    )?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                let mut delete =
-                    connection.prepare_cached("DELETE FROM entries WHERE rowid = ?1")?;
-                let mut entries = 0;
-                for (rowid, url) in rows {
-                    if clearing.keeps_url(&url) {
-                        entries += delete.execute([rowid])?;
-                    }
-                }
+                let entries = delete_entries(connection)?;
                 Ok((entries, let_go(connection)?))
             });
         // A failed clear lets its connection go, `secure_delete` with it;
@@ -370,7 +478,7 @@ impl CacheFile {
             Ok(0) => {}
             Ok(_) => tracing::warn!(
                 index = %self.index.display(),
-                "a reader held the Response cache's index: its write-ahead log keeps the cleared entries until the next clear"
+                "a reader held the Response cache's index: its write-ahead log keeps the {label} entries until the next clear"
             ),
             Err(error) => return Err(self.failed(&error)),
         }
@@ -379,75 +487,6 @@ impl CacheFile {
             bodies,
             bytes,
         })
-    }
-
-    /// Deletes every entry of `run_id` whose URL, request headers, response
-    /// headers or stored body contains any needle in `needles`, with
-    /// `secure_delete` on, then removes unheld body files and truncates the
-    /// WAL.
-    fn erase_matching(
-        &self,
-        connection: &Connection,
-        run_id: &RunId,
-        needles: &[String],
-    ) -> Result<u64, ResponseCacheError> {
-        connection
-            .pragma_update(None, "secure_delete", true)
-            .map_err(|error| self.failed(&error))?;
-        let bodies_dir = self.folder.join(BODIES);
-        let erased: rusqlite::Result<(usize, Vec<(String, u64)>)> =
-            sqlite_store::immediate(connection, |connection| {
-                self.flush(connection)?;
-                let rows = connection
-                    .prepare_cached(
-                        "SELECT rowid, url, request_headers, response_headers, body_sha256
-                         FROM entries WHERE run_id = ?1",
-                    )?
-                    .query_map([run_id.as_str()], |row| {
-                        Ok((
-                            row.get::<_, i64>(0)?,
-                            row.get::<_, String>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, String>(3)?,
-                            row.get::<_, String>(4)?,
-                        ))
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                let mut delete =
-                    connection.prepare_cached("DELETE FROM entries WHERE rowid = ?1")?;
-                let mut entries = 0;
-                for (rowid, url, request_headers, response_headers, body_sha256) in rows {
-                    let matched_meta = needles.iter().any(|needle| {
-                        url.contains(needle)
-                            || request_headers.contains(needle)
-                            || response_headers.contains(needle)
-                    });
-                    let matched = matched_meta
-                        || (is_sha256(&body_sha256)
-                            && body_contains(&bodies_dir.join(&body_sha256), needles));
-                    if matched {
-                        entries += delete.execute([rowid])?;
-                    }
-                }
-                Ok((entries, let_go(connection)?))
-            });
-        let (entries, let_go) = erased.map_err(|error| self.failed(&error))?;
-        let _ = self.remove_bodies(&let_go);
-        if let Err(error) = connection.pragma_update(None, "secure_delete", false) {
-            tracing::warn!(index = %self.index.display(), %error, "the Response cache's writer keeps zeroing the pages it frees");
-        }
-        let truncated: rusqlite::Result<i64> = connection
-            .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")
-            .and_then(|mut statement| statement.query_row([], |row| row.get(0)));
-        match truncated {
-            Ok(0) => {}
-            Ok(_) => tracing::warn!(
-                index = %self.index.display(),
-                "a reader held the Response cache's index: its write-ahead log keeps the erased entries until the next clear"
-            ),
-            Err(error) => return Err(self.failed(&error)),
-        }
-        Ok(u64::try_from(entries).unwrap_or(u64::MAX))
     }
 
     /// `person`'s entries, as a verify reads them.
@@ -554,19 +593,71 @@ fn hashed(path: &Path) -> Result<Option<(String, u64)>, ResponseCacheError> {
     )))
 }
 
-/// Whether the body file at `path` contains any of `needles`.
-fn body_contains(path: &Path, needles: &[String]) -> bool {
+/// Streams each unique candidate body file in chunks outside the writer lock
+/// and combines body matches with metadata matches.
+fn select_erased(
+    bodies_dir: &Path,
+    mut matched: Vec<(i64, String)>,
+    body_candidates: Vec<(i64, String)>,
+    needles: &[String],
+) -> Result<Vec<(i64, String)>, ResponseCacheError> {
+    let mut scanned: BTreeMap<String, bool> = BTreeMap::new();
+    for (rowid, body_sha256) in body_candidates {
+        let hit = if let Some(&cached) = scanned.get(&body_sha256) {
+            cached
+        } else {
+            let found = body_contains_streaming(&bodies_dir.join(&body_sha256), needles)?;
+            scanned.insert(body_sha256.clone(), found);
+            found
+        };
+        if hit {
+            matched.push((rowid, body_sha256));
+        }
+    }
+    Ok(matched)
+}
+
+/// Whether the body file at `path` contains any of `needles`, streaming in
+/// [`CHUNK`]-sized reads with overlap across chunk boundaries.
+fn body_contains_streaming(path: &Path, needles: &[String]) -> Result<bool, ResponseCacheError> {
     #[expect(
         clippy::disallowed_methods,
-        reason = "erasure runs on the cache writer's thread, outside any Shared path"
+        reason = "erasure body scans run on the cache owner's blocking threads, outside any Shared path"
     )]
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
+    let opened = std::fs::File::open(path);
+    let mut file = match opened {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(super::body_failed(path, &error)),
     };
-    needles.iter().any(|needle| {
-        let needle = needle.as_bytes();
-        !needle.is_empty() && bytes.windows(needle.len()).any(|window| window == needle)
-    })
+    let max_needle = needles.iter().map(String::len).max().unwrap_or(0);
+    if max_needle == 0 {
+        return Ok(false);
+    }
+    let overlap = max_needle - 1;
+    let mut buffer = vec![0_u8; overlap + CHUNK];
+    let mut carry = 0_usize;
+    loop {
+        let read = file
+            .read(&mut buffer[carry..])
+            .map_err(|error| super::body_failed(path, &error))?;
+        if read == 0 {
+            return Ok(false);
+        }
+        let valid = carry + read;
+        let window = &buffer[..valid];
+        if needles.iter().any(|needle| {
+            let bytes = needle.as_bytes();
+            !bytes.is_empty() && window.windows(bytes.len()).any(|slice| slice == bytes)
+        }) {
+            return Ok(true);
+        }
+        if overlap > 0 {
+            let keep = valid.min(overlap);
+            buffer.copy_within(valid - keep..valid, 0);
+            carry = keep;
+        }
+    }
 }
 
 /// A count SQLite answers, which is never negative.

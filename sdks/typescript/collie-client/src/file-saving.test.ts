@@ -450,4 +450,56 @@ describe("saveFile", () => {
     expect(await namesIn(folder)).toEqual(["a-file"]);
     await connection.close();
   });
+
+  test("rejects hostile paths locally before resolving or calling an attached engine", async () => {
+    const engine = playedEngine();
+    const connection = await connected(engine);
+    const hostilePaths = [
+      "../escape.json",
+      `${folder}/../escape.json`,
+      join(folder, "CON"),
+      join(folder, "aux.txt"),
+      join(folder, "trailing."),
+      join(folder, "trailing "),
+      join(folder, "bad\u0000name.json"),
+      join(folder, "bad\u0007name.json"),
+      "\\\\?\\C:\\evil.json",
+      "\\\\.\\pipe\\evil",
+      "\\\\host\\share\\evil.json",
+      join(folder, "file.json:stream"),
+      join(folder, "bad<name>.json"),
+      join(folder, `${"a".repeat(256)}.json`),
+      join(folder, "cafe\u0301.json"),
+      ".",
+      `${folder}/.`,
+    ];
+
+    for (const hostile of hostilePaths) {
+      const error = await failure(
+        saveFile(connection, "export.save_as", { export_id: "e1" }, hostile, saveAs),
+      );
+      expect(error).toBeInstanceOf(PathNotWritableError);
+      expect(error).toMatchObject({
+        code: "path_not_writable",
+        details: { reason: "invalid_filename", path: hostile },
+      });
+    }
+    // None of the hostile paths reached the attached engine (no `resolve(path)` bypass).
+    expect(engine.written).toHaveLength(1);
+    await connection.close();
+  });
+
+  test("allows leading and intermediate current-directory segments in writeFileWhole", async () => {
+    const before = process.cwd();
+    process.chdir(folder);
+    try {
+      await writeFileWhole("./out.json", bytes("{}"), saveAs);
+      await writeFileWhole("dir/./nested.json", bytes("[]"), saveAs);
+    } finally {
+      process.chdir(before);
+    }
+
+    expect(await readFile(join(folder, "out.json"), "utf8")).toBe("{}");
+    expect(await readFile(join(folder, "dir", "nested.json"), "utf8")).toBe("[]");
+  });
 });

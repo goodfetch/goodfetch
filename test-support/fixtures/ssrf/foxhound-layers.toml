@@ -33,7 +33,7 @@ lent_page_client = "A Lent page's client is Collie's layer, checked in `test-sup
 plugin_traffic = "A Plugin's own requests are Collie's layer, checked in `test-support/fixtures/ssrf/layers.toml` (ADR 0094)."
 
 [layers.frontier]
-summary = "Foxhound's Frontier (seeds, enqueues, sitemap entries, Hook rewrites) through Foxhound's executable against the Proving ground, whose connection record is the oracle: each case submitted through crawl admission and before-request Hook rewrites under the case's domain policy and `network.resolve` mapping; positive controls reach the target."
+summary = "Foxhound's Frontier (seed admission across the full table, plus `crawl_request.enqueue` and sitemap admission checks) through Foxhound's executable against the Proving ground, whose connection record is the oracle: each case runs under its domain policy and `network.resolve` mapping with positive controls reaching the target (`before_request` Hooks do not yet rewrite URLs in `CrawlHookHandled`)."
 runners = [
     { test = "crates/foxhound/goodfetch-foxhound/tests/it/addresses.rs::every_case_of_the_ssrf_table_the_frontier_meets_is_refused_before_any_connection", families = [
         "encoding",

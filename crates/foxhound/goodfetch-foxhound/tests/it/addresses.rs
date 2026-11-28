@@ -743,13 +743,12 @@ fn run_frontier_group(
     for (case, (name, url)) in cases.iter().zip(&urls) {
         let refused_reason = seed_reasons.get(url).or_else(|| skip_reasons.get(url));
         let refusal = match refused_reason.map(String::as_str) {
-            Some("domain_policy") => Some(Refusal::EgressRefused {
+            Some("domain_policy" | "invalid_url") => Some(Refusal::EgressRefused {
                 rule: match case.family {
                     Family::DomainPolicy => EgressRule::DomainPolicy,
                     _ => EgressRule::PrivateAddress,
                 },
             }),
-            Some("invalid_url") => Some(case.refusal.clone()),
             _ => None,
         };
         results.insert(
@@ -761,6 +760,125 @@ fn run_frontier_group(
         );
     }
     results
+}
+
+/// Verifies that Frontier `crawl_request.enqueue` and sitemap admission refuse
+/// private, encoded, mixed-answer, and domain-policy SSRF URLs with zero
+/// connections to the Proving ground's watched target.
+fn assert_frontier_enqueue_and_sitemap_refuse_ssrf(
+    engine: &mut goodfetch_test_client::Attached,
+    proving_ground: &ProvingGround,
+    target: std::net::SocketAddr,
+) {
+    let public = target.ip();
+    let port = target.port();
+    let allowed_seed = format!("http://allowed.ssrf.test:{port}/");
+    let enqueue_urls = [
+        format!("http://127.0.0.1:{port}/from-enqueue"),
+        format!("http://2130706433:{port}/from-enqueue"),
+        format!("http://[::1]:{port}/from-enqueue"),
+        format!("http://mixed.ssrf.test:{port}/from-enqueue"),
+        format!("http://elsewhere.test:{port}/from-enqueue"),
+    ];
+    let settings = json!({
+        "fetch": { "tier": "http" },
+        "crawl": { "retry": { "max": 0 }, "scope": { "strategy": "all" } },
+        "network": {
+            "resolve": {
+                "allowed.ssrf.test": [public.to_string()],
+                "mixed.ssrf.test": [public.to_string(), "10.0.0.1"],
+                "elsewhere.test": [public.to_string()],
+            }
+        },
+        "egress": {
+            "allowed_domains": ["allowed.ssrf.test", "mixed.ssrf.test"],
+            "private_ranges": ["allowed.ssrf.test"],
+        },
+        "site_preferences": { "respect_robots_txt": false },
+    });
+    let before = listener_connections(proving_ground, "target");
+    let mut enqueued_reasons = Vec::new();
+    let report = crawl_with(
+        engine,
+        "frontier-enqueue-ssrf",
+        &[json!({ "url": allowed_seed, "label": "page" })],
+        &settings,
+        &mut |inside, handle| {
+            for url in &enqueue_urls {
+                let answer = inside.enqueue(handle, url, "page", None);
+                enqueued_reasons.push((
+                    url.clone(),
+                    answer["kind"].as_str().unwrap_or_default().to_owned(),
+                    answer["reason"].as_str().unwrap_or_default().to_owned(),
+                ));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    let after = listener_connections(proving_ground, "target");
+    // Only the single allowed seed reached the watched target; zero enqueued
+    // SSRF targets opened a connection.
+    assert_eq!(after - before, 1, "enqueued SSRF URLs must not connect");
+    let outcomes = engine.call(
+        "enqueue-outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "frontier-enqueue-ssrf" }),
+        &mut |_| None,
+    );
+    let skipped_urls: BTreeMap<String, String> = outcomes["result"]["outcomes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|outcome| outcome["kind"] == "skipped")
+        .map(|outcome| {
+            (
+                outcome["request"]["url"].as_str().unwrap().to_owned(),
+                outcome["reason"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    for (url, kind, reason) in &enqueued_reasons {
+        let refused_at_enqueue = kind == "not_added" && reason == "domain_policy";
+        let skipped_before_fetch =
+            skipped_urls.get(url).map(String::as_str) == Some("domain_policy");
+        assert!(
+            refused_at_enqueue || skipped_before_fetch,
+            "enqueued SSRF URL {url} was neither refused at enqueue ({kind}/{reason}) nor skipped ({skipped_urls:?})"
+        );
+    }
+
+    // Sitemap admission to a private target is also refused with zero connections.
+    let before_sitemap = listener_connections(proving_ground, "target");
+    let sitemap_report = crawl_with(
+        engine,
+        "frontier-sitemap-ssrf",
+        &[json!({
+            "sitemap": format!("http://127.0.0.1:{port}/sitemap.xml"),
+            "rules": [{ "pattern": "**", "label": "page" }],
+        })],
+        &json!({
+            "fetch": { "tier": "http" },
+            "crawl": { "retry": { "max": 0 }, "scope": { "strategy": "all" } },
+            "site_preferences": { "respect_robots_txt": false },
+        }),
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert_eq!(
+        sitemap_report["result"]["lifecycle"], "finished",
+        "{sitemap_report}"
+    );
+    let after_sitemap = listener_connections(proving_ground, "target");
+    assert_eq!(
+        after_sitemap - before_sitemap,
+        0,
+        "private sitemap must not connect"
+    );
+    assert_eq!(
+        sitemap_report["result"]["sitemaps"][0]["failures"][0]["code"],
+        json!("domain_policy"),
+        "{sitemap_report}"
+    );
 }
 
 /// Every case of the SSRF table Foxhound's Frontier meets (encodings, IPv6
@@ -835,6 +953,7 @@ fn every_case_of_the_ssrf_table_the_frontier_meets_is_refused_before_any_connect
             false,
         ));
     }
+    assert_frontier_enqueue_and_sitemap_refuse_ssrf(&mut engine, &proving_ground, target);
     assert!(engine.finished());
 
     let result = runner.run(&controls.cases, public, |case| {
@@ -950,7 +1069,12 @@ fn run_redirect_case(
         Some("skipped") if outcome["reason"] == "domain_policy" => Some(Refusal::EgressRefused {
             rule: EgressRule::PrivateAddress,
         }),
-        Some("failed") if outcome["error"]["code"] == "response_not_ok" => {
+        Some("failed")
+            if outcome["error"]["code"] == "response_not_ok"
+                && outcome["error"]["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("not an HTTP(S) one")) =>
+        {
             Some(Refusal::EgressRefused {
                 rule: EgressRule::Scheme,
             })

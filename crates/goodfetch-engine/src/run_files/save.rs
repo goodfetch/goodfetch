@@ -144,22 +144,6 @@ impl Saving {
         })
     }
 
-    /// Resolves a file `name` inside `folder` and starts saving there,
-    /// refusing any name that leaves `folder` or is unsafe on any OS.
-    ///
-    /// # Errors
-    ///
-    /// [`SaveError::Path`] (`invalid_filename`) for an unsafe name, or as
-    /// [`Saving::create`].
-    pub fn create_in_folder(folder: &Path, name: &str) -> Result<Self, SaveError> {
-        check_path(Path::new(name), PathShape::Name).map_err(|issue| SaveError::Path {
-            reason: "invalid_filename",
-            os_code: None,
-            message: format!("`{name}` cannot be written: {issue}"),
-        })?;
-        Self::create(&folder.join(name))
-    }
-
     /// Starts the file for `path`: its missing folders made, then its
     /// hidden temporary file created beside it.
     ///

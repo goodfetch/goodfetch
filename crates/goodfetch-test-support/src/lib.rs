@@ -259,7 +259,7 @@ pub use proving_ground_format::{
     Routes, ServeLine, ToolStatus,
 };
 pub use proxy_in_front::proxy_in_front;
-pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty};
+pub use pty::{Pty, PtyError, PtyOutput, PtyRun, pty, run_command_in_pty};
 pub use raw_calls::raw_call_lines;
 pub use recordings::{
     ExchangeName, ModelRecording, Payload, RecordedExchange, RecordedRequest, RecordedResponse,

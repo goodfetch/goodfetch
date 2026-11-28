@@ -138,47 +138,24 @@ async function readOutput(proc: RecordedProcess): Promise<{
   return { code: exit.code, stdout, stderr };
 }
 
-/** Runs `certs accept <host>` in a real PTY and answers `y` to `[y/N]`. */
+/** Runs `certs accept <host>` on a cross-OS PTY (`goodfetch-test-env pty`). */
 async function acceptCertInTerminal(
+  testEnvBin: string,
   executable: string,
   host: string,
   env: Readonly<Record<string, string>>,
   cwd: string,
 ): Promise<{ readonly code: number | null; readonly output: string }> {
-  const script = [
-    "import os, pty, select, subprocess, sys, time",
-    "master, slave = pty.openpty()",
-    "proc = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=slave, stderr=slave, close_fds=True)",
-    "os.close(slave)",
-    "buf = bytearray()",
-    "sent = False",
-    "deadline = time.monotonic() + 30.0",
-    "while time.monotonic() < deadline:",
-    "    r, _, _ = select.select([master], [], [], 0.1)",
-    "    if r:",
-    "        try:",
-    "            chunk = os.read(master, 4096)",
-    "        except OSError:",
-    "            break",
-    "        if not chunk:",
-    "            break",
-    "        buf.extend(chunk)",
-    "        if not sent and b'[y/N]' in buf:",
-    "            os.write(master, b'y\\n')",
-    "            sent = True",
-    "    elif proc.poll() is not None:",
-    "        break",
-    "os.close(master)",
-    "sys.stdout.buffer.write(buf)",
-    "sys.exit(proc.wait(timeout=10))",
-  ].join("\n");
-
-  const child = spawn("python3", ["-c", script, executable, "certs", "accept", host], {
-    env,
-    cwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
+  const child = spawn(
+    testEnvBin,
+    ["pty", "--expect", "[y/N]", "--send-line", "y", "--", executable, "certs", "accept", host],
+    {
+      env,
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    },
+  );
   let output = "";
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
@@ -276,7 +253,12 @@ test(
       );
 
       await run.step("Accept the site's new key in a terminal (`certs accept`)", async () => {
+        const testEnvBin = run.testEnv.tools.test_env;
+        if (testEnvBin === undefined) {
+          throw new TypeError("the test tool manifest names `test_env`");
+        }
         const answered = await acceptCertInTerminal(
+          testEnvBin,
           run.engine,
           HOST,
           run.testEnv.env,

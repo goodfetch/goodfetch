@@ -2321,6 +2321,11 @@ impl FetchTiers {
     /// `response` of the browser page `page_id` itself (ADR 0053): false
     /// when it came from a service worker, went around the proxy via
     /// `proxy.bypass`, went over HTTPS/SOCKS, or had no proxy.
+    ///
+    /// # Cancel safety
+    ///
+    /// Cancel-safe: reads recorded route state without modifying it; dropping
+    /// the future discards only the answer.
     pub async fn browser_forwarded(&self, page_id: &PageId, response: &PageResponse) -> bool {
         if response.from_service_worker {
             return false;

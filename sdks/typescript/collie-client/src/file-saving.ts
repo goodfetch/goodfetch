@@ -116,6 +116,176 @@ function errorOf(failure: Failure, path: string, call: string): Error {
   );
 }
 
+/** The most bytes one path segment may hold: a file system's name limit. */
+const NAME_MAX_BYTES = 255;
+
+/** Windows reserved device names, in upper case (matching `goodfetch-saved-file`). */
+const RESERVED_NAMES: ReadonlySet<string> = new Set([
+  "CON",
+  "PRN",
+  "AUX",
+  "NUL",
+  "COM0",
+  "COM1",
+  "COM2",
+  "COM3",
+  "COM4",
+  "COM5",
+  "COM6",
+  "COM7",
+  "COM8",
+  "COM9",
+  "COM\u00b9",
+  "COM\u00b2",
+  "COM\u00b3",
+  "LPT0",
+  "LPT1",
+  "LPT2",
+  "LPT3",
+  "LPT4",
+  "LPT5",
+  "LPT6",
+  "LPT7",
+  "LPT8",
+  "LPT9",
+  "LPT\u00b9",
+  "LPT\u00b2",
+  "LPT\u00b3",
+  "CONIN$",
+  "CONOUT$",
+]);
+
+/** Whether `text` contains any Unicode control character (C0, DEL, or C1). */
+function hasControlCharacter(text: string): boolean {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Whether `character` is a path separator on POSIX or Windows. */
+function isSeparator(character: string | undefined): boolean {
+  return character === "/" || character === "\\";
+}
+
+/** Whether `part` is a Windows reserved device name, alone or before an extension. */
+function isReservedName(part: string): boolean {
+  const dot = part.indexOf(".");
+  const stem = (dot === -1 ? part : part.slice(0, dot)).replace(/ +$/u, "");
+  return RESERVED_NAMES.has(stem.toUpperCase());
+}
+
+/** Strips a host-native root prefix or reports a hostile root prefix. */
+function stripHostRoot(
+  text: string,
+): { readonly ok: true; readonly tail: string } | { readonly ok: false; readonly issue: string } {
+  const [first, second, third, fourth] = text;
+  if (isSeparator(first) && isSeparator(second)) {
+    if (third === "?" && isSeparator(fourth)) {
+      return { ok: false, issue: "it uses a Windows verbatim path prefix (`\\\\?\\`)" };
+    }
+    if (third === "." && isSeparator(fourth)) {
+      return { ok: false, issue: "it uses a Windows device namespace prefix (`\\\\.\\`)" };
+    }
+    return { ok: false, issue: "it uses a UNC path prefix (`\\\\`)" };
+  }
+  if (isSeparator(first)) {
+    if (first === "\\" && process.platform !== "win32") {
+      return { ok: false, issue: "it contains a disallowed path separator" };
+    }
+    return { ok: true, tail: text.slice(1) };
+  }
+  if (first !== undefined && /^[A-Za-z]$/u.test(first) && second === ":") {
+    if (process.platform === "win32" && isSeparator(third)) {
+      return { ok: true, tail: text.slice(3) };
+    }
+    return { ok: false, issue: "it names a Windows drive path" };
+  }
+  return { ok: true, tail: text };
+}
+
+/** What makes one segment of a save path unsafe across OSes, if anything. */
+function segmentIssue(part: string): string | undefined {
+  if (part === "" || part === ".") {
+    return "it names no file";
+  }
+  if (part === "..") {
+    return "it contains a parent traversal (`..`)";
+  }
+  if (part.includes(":")) {
+    return "it contains a colon (alternate data stream)";
+  }
+  if (/[<>"|?*]/u.test(part)) {
+    return "it contains a character forbidden on Windows";
+  }
+  if (part.endsWith(".") || part.endsWith(" ")) {
+    return "a path segment ends with a dot or space";
+  }
+  if (isReservedName(part)) {
+    return "it uses a Windows reserved device name";
+  }
+  if (Buffer.byteLength(part, "utf8") > NAME_MAX_BYTES) {
+    return "a path segment exceeds 255 bytes";
+  }
+  if (part.normalize("NFC") !== part) {
+    return "it is not in Unicode composed form (NFC)";
+  }
+  return undefined;
+}
+
+/**
+ * Checks `path` against the portable save-path rules (ADRs 0067 and 0116,
+ * matching `goodfetch-saved-file`'s `PathShape::SavePath`).
+ */
+function checkSavePath(path: string): string | undefined {
+  if (path.length === 0) {
+    return "it names no file";
+  }
+  if (hasControlCharacter(path)) {
+    return "it contains a control character";
+  }
+  if (path.endsWith("/") || path.endsWith("\\")) {
+    return "it names no file";
+  }
+  const stripped = stripHostRoot(path);
+  if (!stripped.ok) {
+    return stripped.issue;
+  }
+  if (stripped.tail.length === 0) {
+    return "it names no file";
+  }
+  const parts = stripped.tail.split(/[\\/]/u);
+  const lastIndex = parts.length - 1;
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part === undefined) {
+      continue;
+    }
+    if (part === "." && index < lastIndex) {
+      continue;
+    }
+    const issue = segmentIssue(part);
+    if (issue !== undefined) {
+      return issue;
+    }
+  }
+  if (process.platform !== "win32" && stripped.tail.includes("\\")) {
+    return "it contains a disallowed path separator";
+  }
+  return undefined;
+}
+
+/** Throws `PathNotWritableError` when `path` fails portable save-path validation. */
+function assertSavePath(path: string, call: string): void {
+  const issue = checkSavePath(path);
+  if (issue !== undefined) {
+    throw errorOf(found("invalid_filename", null, issue), path, call);
+  }
+}
+
 /** A failure the write found itself, before the OS gave one. */
 function found(reason: string, osCode: string | null, message: string): Failure {
   return { reason, osCode, message, cause: undefined };
@@ -191,6 +361,7 @@ export class FileSaving {
    * @throws {FileWriteFailedError} when its storage fails.
    */
   static async create(path: string, options: FileWriteOptions): Promise<FileSaving> {
+    assertSavePath(path, options.call);
     const target = resolve(path);
     const name = basename(target);
     const folder = dirname(target);
@@ -366,6 +537,7 @@ export async function saveFile<Result extends Saved>(
   options: FileWriteOptions,
 ): Promise<Result> {
   throwIfAborted(options.signal);
+  assertSavePath(path, options.call);
   const local = connection.engine().kind !== "remote";
   const parts: Uint8Array[] = [];
   let failed: unknown;

@@ -13,10 +13,7 @@ from __future__ import annotations
 
 import datetime
 import os
-import pty
-import select
 import subprocess
-import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -34,6 +31,7 @@ from goodfetch_foxhound import (
 from goodfetch_foxhound.generated.models import CertificateExceptionKind
 from goodfetch_test_support import JourneyRun, journey
 from goodfetch_test_support.environment import TestEnv
+from goodfetch_test_support.tools import Tool
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -130,46 +128,37 @@ async def _run_crawl(
 
 
 def _accept_cert_in_terminal(
+    test_env_bin: Path,
     executable: Path,
     host: str,
     env: Mapping[str, str],
     cwd: Path,
 ) -> tuple[int, str]:
-    """Runs `certs accept <host>` in a real PTY and answers `y` to `[y/N]`."""
-    master, slave = pty.openpty()
-    proc = subprocess.Popen(
-        [str(executable), "certs", "accept", host],
-        stdin=slave,
-        stdout=slave,
-        stderr=slave,
+    """Runs `certs accept <host>` on a cross-OS PTY (`goodfetch-test-env pty`)."""
+    completed = subprocess.run(
+        [
+            str(test_env_bin),
+            "pty",
+            "--expect",
+            "[y/N]",
+            "--send-line",
+            "y",
+            "--",
+            str(executable),
+            "certs",
+            "accept",
+            host,
+        ],
         env=dict(env),
         cwd=cwd,
-        close_fds=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+        check=False,
     )
-    os.close(slave)
-    buf = bytearray()
-    sent = False
-    deadline = time.monotonic() + 30.0
-    try:
-        while time.monotonic() < deadline:
-            ready, _, _ = select.select([master], [], [], 0.1)
-            if ready:
-                try:
-                    chunk = os.read(master, 4096)
-                except OSError:
-                    break
-                if not chunk:
-                    break
-                buf.extend(chunk)
-                if not sent and b"[y/N]" in buf:
-                    os.write(master, b"y\n")
-                    sent = True
-            elif proc.poll() is not None:
-                break
-    finally:
-        os.close(master)
-    exit_code = proc.wait(timeout=10)
-    return exit_code, buf.decode("utf-8", errors="replace")
+    return completed.returncode, completed.stdout + completed.stderr
 
 
 @pytest.mark.covers("story:4-35", "story:4-36", "story:4-104", "row:SC-06")
@@ -260,6 +249,7 @@ async def test_j032(run: JourneyRun) -> None:
         async def step_accept() -> None:
             exit_code, output = await anyio.to_thread.run_sync(
                 _accept_cert_in_terminal,
+                run.test_env.tools.path(Tool.TEST_ENV),
                 run.engine,
                 HOST,
                 run.test_env.env,

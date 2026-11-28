@@ -5,10 +5,17 @@
 //! `run_data_erased` Audit log entry without repeating any erased personal
 //! value.
 
+use std::collections::BTreeSet;
+use std::io;
+use std::path::Path;
+
 use goodfetch_engine::audit::Origin;
-use goodfetch_engine::run::run_error;
+use goodfetch_engine::durable;
+use goodfetch_engine::response_cache::ResponseCacheError;
+use goodfetch_engine::run::{format_refusal, run_error};
 use goodfetch_engine::{CallContext, CallError, Handler};
 use goodfetch_protocol::audit::Actor;
+use goodfetch_protocol::formats::RESPONSE_CACHE;
 use goodfetch_protocol::foxhound::erase::{
     DATASET_ERASE, DatasetEraseParams, DatasetErased, RUN_DATA_ERASED, RUN_ERASE, RunEraseParams,
     RunErased,
@@ -90,28 +97,33 @@ impl MatchCriteria {
         Ok(Self { value, key })
     }
 
-    /// Plain-text needles to match against raw text columns, Checkpoint fields
-    /// and Response cache entries.
-    fn text_needles(&self) -> Vec<String> {
-        match (&self.value, &self.key) {
-            (Some(value), _) => vec![value.clone()],
-            (None, Some(key)) => vec![key.clone()],
-            (None, None) => Vec::new(),
+    /// Initial plain-text value needles from `value` alone (never the field
+    /// name `key`, so `key`-only erasure never rewrites JSON property names or
+    /// over-deletes unrelated rows).
+    fn initial_value_needles(&self) -> BTreeSet<String> {
+        let mut needles = BTreeSet::new();
+        if let Some(value) = &self.value {
+            needles.insert(value.clone());
         }
+        needles
     }
 
-    /// Whether a JSON Record (`data`), its optional `url` or extra JSON text
-    /// matches these criteria.
-    fn matches_record(&self, data: &str, extra: &[&str]) -> bool {
+    /// Whether a JSON Record (`data`) or its extra text matches these criteria.
+    /// For `key`-only erasure, collects the actual erased personal scalar
+    /// values found at `key` into `collected` so subsequent text/cache/file
+    /// passes scrub those personal values rather than the field name itself.
+    fn matches_record(&self, data: &str, extra: &[&str], collected: &mut BTreeSet<String>) -> bool {
         match (&self.key, &self.value) {
             (Some(key), Some(value)) => serde_json::from_str::<Value>(data).is_ok_and(|parsed| {
                 value_at_path(&parsed, key).is_some_and(|v| json_contains(v, value))
             }),
-            (Some(key), None) => {
-                serde_json::from_str::<Value>(data).is_ok_and(|parsed| {
-                    value_at_path(&parsed, key).is_some() || json_contains(&parsed, key)
-                }) || extra.iter().any(|text| text.contains(key.as_str()))
-            }
+            (Some(key), None) => serde_json::from_str::<Value>(data).is_ok_and(|parsed| {
+                let Some(found) = value_at_path(&parsed, key) else {
+                    return false;
+                };
+                collect_json_scalars(found, collected);
+                true
+            }),
             (None, Some(value)) => {
                 data.contains(value.as_str())
                     || extra.iter().any(|text| text.contains(value.as_str()))
@@ -119,13 +131,44 @@ impl MatchCriteria {
             (None, None) => false,
         }
     }
+}
 
-    /// Whether raw text matches these criteria (for URLs, headers, payloads,
-    /// Checkpoint columns and Baseline rows).
-    fn matches_text(&self, text: &str) -> bool {
-        self.text_needles()
-            .iter()
-            .any(|needle| text.contains(needle.as_str()))
+/// Whether `text` contains any needle in `needles`.
+fn matches_any_needle(text: &str, needles: &BTreeSet<String>) -> bool {
+    needles
+        .iter()
+        .any(|needle| !needle.is_empty() && text.contains(needle.as_str()))
+}
+
+/// Whether raw `bytes` contain any needle in `needles`.
+fn bytes_contain_any_needle(bytes: &[u8], needles: &BTreeSet<String>) -> bool {
+    needles.iter().any(|needle| {
+        let nb = needle.as_bytes();
+        !nb.is_empty() && bytes.windows(nb.len()).any(|window| window == nb)
+    })
+}
+
+/// Collects non-empty string and numeric scalar values inside `value` as
+/// personal value needles for `key`-only erasure.
+fn collect_json_scalars(value: &Value, out: &mut BTreeSet<String>) {
+    match value {
+        Value::String(text) if !text.is_empty() => {
+            out.insert(text.clone());
+        }
+        Value::Number(number) => {
+            out.insert(number.to_string());
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_json_scalars(item, out);
+            }
+        }
+        Value::Object(map) => {
+            for entry in map.values() {
+                collect_json_scalars(entry, out);
+            }
+        }
+        Value::String(_) | Value::Bool(_) | Value::Null => {}
     }
 }
 
@@ -150,12 +193,14 @@ fn json_contains(value: &Value, needle: &str) -> bool {
     }
 }
 
-/// Counts from erasing one SQLite database (`run.sqlite` or `checkpoint.sqlite`).
+/// Counts and collected personal values from erasing one SQLite database
+/// (`run.sqlite` or `checkpoint.sqlite`).
 struct DbErased {
     records: u64,
     rejected_records: u64,
     baseline_rows: u64,
     other_entries: u64,
+    value_needles: BTreeSet<String>,
 }
 
 impl DbErased {
@@ -164,46 +209,49 @@ impl DbErased {
     }
 }
 
+fn response_cache_error(error: ResponseCacheError) -> CallError {
+    match error {
+        ResponseCacheError::Format {
+            found,
+            compatibility,
+        } => format_refusal(&RESPONSE_CACHE, &found, compatibility),
+        other => CallError::protocol(
+            ProtocolFailure::InternalError,
+            format!("the Response cache could not be erased: {other}"),
+        ),
+    }
+}
+
 async fn erase_run(params: RunEraseParams, context: CallContext) -> Result<RunErased, CallError> {
     let criteria = MatchCriteria::from_params(&params)?;
     let run_criteria = criteria.clone();
     let checkpoint_criteria = criteria.clone();
+    let folder_criteria = criteria.clone();
     let (db_erased, checkpoint_entries) = context
         .runs()
         .edit_with_checkpoint(
             params.run_id.clone(),
-            move |connection| erase_database(connection, &run_criteria),
             move |connection| {
-                erase_database(connection, &checkpoint_criteria).map(|erased| erased.total())
+                let mut needles = run_criteria.initial_value_needles();
+                erase_database(connection, &run_criteria, &mut needles)
+            },
+            move |connection, erased| {
+                erase_database(connection, &checkpoint_criteria, &mut erased.value_needles)
+                    .map(|ckpt| ckpt.total())
+            },
+            move |folder, erased| {
+                scrub_run_folder_files(folder, &folder_criteria, &mut erased.value_needles)
             },
         )
         .await
         .map_err(|error| run_error(error, &context))?;
-    let needles = criteria.text_needles();
-    if let Ok(folder) = context.runs().folder(params.run_id.clone()).await {
-        let needles_for_files = needles.clone();
-        context
-            .engine()
-            .owner()
-            .blocking(move || scrub_run_folder_files(&folder, &needles_for_files))
-            .await;
-    }
-    let response_cache_entries = match context
+    let needles: Vec<String> = db_erased.value_needles.into_iter().collect();
+    let response_cache_entries = context
         .engine()
         .response_cache()
         .erase_matching(&params.run_id, &needles)
         .await
-    {
-        Ok(entries) => entries,
-        Err(error) => {
-            tracing::warn!(
-                run_id = %params.run_id,
-                %error,
-                "could not erase matching entries from the Response cache"
-            );
-            0
-        }
-    };
+        .map_err(response_cache_error)?;
     record_audit(
         &context,
         &params.run_id,
@@ -266,8 +314,13 @@ fn has_table(connection: &Connection, table: &str) -> rusqlite::Result<bool> {
 }
 
 /// Erases every matching Record, rejected Record, Baseline row and run-state
-/// field from `connection` (`run.sqlite` or `checkpoint.sqlite`).
-fn erase_database(connection: &Connection, criteria: &MatchCriteria) -> rusqlite::Result<DbErased> {
+/// field from `connection` (`run.sqlite` or `checkpoint.sqlite`), updating
+/// `value_needles` with any erased personal values collected under `key`.
+fn erase_database(
+    connection: &Connection,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> rusqlite::Result<DbErased> {
     let has_search = has_table(connection, "record_search")?;
     let mut secured_search = false;
     let mut records = 0_u64;
@@ -287,7 +340,7 @@ fn erase_database(connection: &Connection, criteria: &MatchCriteria) -> rusqlite
             let mut matched = Vec::new();
             for row in rows {
                 let (dataset, number, url, data, provenance) = row?;
-                if criteria.matches_record(&data, &[&url, &provenance]) {
+                if criteria.matches_record(&data, &[&url, &provenance], value_needles) {
                     matched.push((dataset, number));
                 }
             }
@@ -337,7 +390,7 @@ fn erase_database(connection: &Connection, criteria: &MatchCriteria) -> rusqlite
             let mut matched = Vec::new();
             for row in rows {
                 let (dataset, number, data, rejection) = row?;
-                if criteria.matches_record(&data, &[&rejection]) {
+                if criteria.matches_record(&data, &[&rejection], value_needles) {
                     matched.push((dataset, number));
                 }
             }
@@ -353,18 +406,23 @@ fn erase_database(connection: &Connection, criteria: &MatchCriteria) -> rusqlite
         }
     }
 
-    let baseline_rows = erase_baselines(connection, criteria)?;
-    let other_entries = scrub_run_tables(connection, criteria)?;
+    let baseline_rows = erase_baselines(connection, criteria, value_needles)?;
+    let other_entries = scrub_run_tables(connection, criteria, value_needles)?;
     Ok(DbErased {
         records,
         rejected_records,
         baseline_rows,
         other_entries,
+        value_needles: value_needles.clone(),
     })
 }
 
 /// Erases matching rows from any `baselines` table if present.
-fn erase_baselines(connection: &Connection, criteria: &MatchCriteria) -> rusqlite::Result<u64> {
+fn erase_baselines(
+    connection: &Connection,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> rusqlite::Result<u64> {
     if !has_table(connection, "baselines")? {
         return Ok(0);
     }
@@ -391,7 +449,8 @@ fn erase_baselines(connection: &Connection, criteria: &MatchCriteria) -> rusqlit
             let mut hit = false;
             for idx in 1..=columns.len() {
                 if let Ok(Some(text)) = row.get::<_, Option<String>>(idx)
-                    && (criteria.matches_record(&text, &[]) || criteria.matches_text(&text))
+                    && (criteria.matches_record(&text, &[], value_needles)
+                        || matches_any_needle(&text, value_needles))
                 {
                     hit = true;
                     break;
@@ -417,10 +476,13 @@ fn erase_baselines(connection: &Connection, criteria: &MatchCriteria) -> rusqlit
 /// tables (`key_values`, `run_file_chunks`, `run`, `work_items`, `outcomes`,
 /// `seeds`, `visited`, `warnings`, etc.) so no copy of an erased value remains
 /// in `run.sqlite` or `checkpoint.sqlite`.
-fn scrub_run_tables(connection: &Connection, criteria: &MatchCriteria) -> rusqlite::Result<u64> {
+fn scrub_run_tables(
+    connection: &Connection,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> rusqlite::Result<u64> {
     let mut scrubbed = 0_u64;
-    let needles = criteria.text_needles();
-    if needles.is_empty() {
+    if value_needles.is_empty() && criteria.key.is_none() {
         return Ok(0);
     }
     if has_table(connection, "key_values")? {
@@ -436,17 +498,27 @@ fn scrub_run_tables(connection: &Connection, criteria: &MatchCriteria) -> rusqli
             let mut keys = Vec::new();
             for row in rows {
                 let (key, value, content) = row?;
-                let hit = criteria.key.as_deref() == Some(key.as_str())
-                    || criteria.matches_text(&key)
+                let exact_key = criteria.key.as_deref() == Some(key.as_str());
+                if exact_key
+                    && criteria.value.is_none()
+                    && let Some(val_text) = value.as_deref()
+                    && !val_text.is_empty()
+                {
+                    if let Ok(parsed) = serde_json::from_str::<Value>(val_text) {
+                        collect_json_scalars(&parsed, value_needles);
+                    } else {
+                        value_needles.insert(val_text.to_owned());
+                    }
+                }
+                let hit = exact_key
+                    || matches_any_needle(&key, value_needles)
                     || value.as_deref().is_some_and(|t| {
-                        criteria.matches_record(t, &[]) || criteria.matches_text(t)
+                        criteria.matches_record(t, &[], value_needles)
+                            || matches_any_needle(t, value_needles)
                     })
-                    || content.as_deref().is_some_and(|bytes| {
-                        needles.iter().any(|needle| {
-                            let nb = needle.as_bytes();
-                            !nb.is_empty() && bytes.windows(nb.len()).any(|w| w == nb)
-                        })
-                    });
+                    || content
+                        .as_deref()
+                        .is_some_and(|bytes| bytes_contain_any_needle(bytes, value_needles));
                 if hit {
                     keys.push(key);
                 }
@@ -460,7 +532,7 @@ fn scrub_run_tables(connection: &Connection, criteria: &MatchCriteria) -> rusqli
             }
         }
     }
-    if has_table(connection, "run_file_chunks")? {
+    if !value_needles.is_empty() && has_table(connection, "run_file_chunks")? {
         let matched: Vec<(String, i64)> = {
             let mut stmt =
                 connection.prepare_cached("SELECT sha256, offset, data FROM run_file_chunks")?;
@@ -468,10 +540,7 @@ fn scrub_run_tables(connection: &Connection, criteria: &MatchCriteria) -> rusqli
                 let sha256: String = row.get(0)?;
                 let offset: i64 = row.get(1)?;
                 let data: Vec<u8> = row.get(2)?;
-                let hit = needles.iter().any(|needle| {
-                    let bytes = needle.as_bytes();
-                    !bytes.is_empty() && data.windows(bytes.len()).any(|w| w == bytes)
-                });
+                let hit = bytes_contain_any_needle(&data, value_needles);
                 Ok(hit.then_some((sha256, offset)))
             })?;
             let mut hits = Vec::new();
@@ -514,7 +583,7 @@ fn scrub_run_tables(connection: &Connection, criteria: &MatchCriteria) -> rusqli
         {
             continue;
         }
-        scrubbed += scrub_generic_table(connection, &table, criteria, &needles)?;
+        scrubbed += scrub_generic_table(connection, &table, criteria, value_needles)?;
     }
     Ok(scrubbed)
 }
@@ -546,12 +615,12 @@ fn load_table_cols(connection: &Connection, table: &str) -> rusqlite::Result<Vec
 }
 
 /// Scrubs matching text columns in `table` (updating non-PK text columns in
-/// place, or deleting rows whose primary key itself matches).
+/// place, or deleting rows whose primary key itself matches a value needle).
 fn scrub_generic_table(
     connection: &Connection,
     table: &str,
     criteria: &MatchCriteria,
-    needles: &[String],
+    value_needles: &mut BTreeSet<String>,
 ) -> rusqlite::Result<u64> {
     let cols = load_table_cols(connection, table)?;
     let text_cols: Vec<&TableCol> = cols.iter().filter(|c| c.is_text).collect();
@@ -603,7 +672,7 @@ fn scrub_generic_table(
             for i in 0..pk_len {
                 let val: rusqlite::types::Value = row.get(i)?;
                 if let rusqlite::types::Value::Text(ref text) = val
-                    && criteria.matches_text(text)
+                    && matches_any_needle(text, value_needles)
                 {
                     pk_matched = true;
                 }
@@ -616,13 +685,10 @@ fn scrub_generic_table(
             let mut updates = Vec::new();
             for (offset, _) in non_pk_text.iter().enumerate() {
                 if let Ok(Some(text)) = row.get::<_, Option<String>>(pk_len + offset)
-                    && (criteria.matches_record(&text, &[]) || criteria.matches_text(&text))
+                    && let Some(scrubbed) = scrub_text_cell(&text, criteria, value_needles)
+                    && scrubbed != text
                 {
-                    let scrubbed = scrub_json_text(&text, criteria)
-                        .unwrap_or_else(|| scrub_plain_text(&text, needles));
-                    if scrubbed != text {
-                        updates.push((offset, scrubbed));
-                    }
+                    updates.push((offset, scrubbed));
                 }
             }
             if !updates.is_empty() {
@@ -680,82 +746,168 @@ fn apply_generic_scrub(
     Ok(changed)
 }
 
-/// Scrubs any erased needles from auxiliary files inside the Run's folder
-/// (such as Run trace JSONL files under `trace/` or kept files under `files/`).
-fn scrub_run_folder_files(folder: &std::path::Path, needles: &[String]) {
-    if needles.is_empty() {
-        return;
+/// Scrubs any erased values or fields from auxiliary files inside the Run's
+/// folder (`trace/`, `files/`, and `bodies/`), using atomic replacement while
+/// the Run's writer lock is held and propagating any I/O failure.
+fn scrub_run_folder_files(
+    folder: &Path,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> io::Result<()> {
+    if value_needles.is_empty() && criteria.key.is_none() {
+        return Ok(());
     }
-    for sub in ["trace", "files"] {
-        scrub_dir_recursive(&folder.join(sub), needles);
+    for sub in ["trace", "files", "bodies"] {
+        scrub_dir_recursive(&folder.join(sub), criteria, value_needles)?;
     }
+    Ok(())
 }
 
 #[expect(
     clippy::disallowed_methods,
-    reason = "runs under the engine owner's blocking policy, outside any Shared path"
+    reason = "runs under the Run writer lock on the engine owner's blocking policy, outside any Shared path"
 )]
-fn scrub_dir_recursive(dir: &std::path::Path, needles: &[String]) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+fn scrub_dir_recursive(
+    dir: &Path,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry?;
         let path = entry.path();
-        if path.is_dir() {
-            scrub_dir_recursive(&path, needles);
-        } else if path.is_file()
-            && let Ok(bytes) = std::fs::read(&path)
-        {
-            let hit = needles.iter().any(|needle| {
-                let nb = needle.as_bytes();
-                !nb.is_empty() && bytes.windows(nb.len()).any(|w| w == nb)
-            });
-            if hit {
-                if let Ok(text) = String::from_utf8(bytes) {
-                    let scrubbed = scrub_plain_text(&text, needles);
-                    let _ = std::fs::write(&path, scrubbed.as_bytes());
-                } else {
-                    let _ = std::fs::remove_file(&path);
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            scrub_dir_recursive(&path, criteria, value_needles)?;
+        } else if file_type.is_file() {
+            let bytes = std::fs::read(&path)?;
+            if let Ok(text) = std::str::from_utf8(&bytes) {
+                if let Some(scrubbed) = scrub_utf8_document(text, criteria, value_needles)
+                    && scrubbed != text
+                {
+                    durable::replace(&path, scrubbed.as_bytes())?;
                 }
+            } else if !value_needles.is_empty() && bytes_contain_any_needle(&bytes, value_needles) {
+                std::fs::remove_file(&path)?;
             }
         }
     }
+    Ok(())
 }
 
-/// Replaces matching fields/values inside a JSON text string; returns `None`
-/// if nothing changed.
-fn scrub_json_text(text: &str, criteria: &MatchCriteria) -> Option<String> {
-    let needles = criteria.text_needles();
-    if !criteria.matches_record(text, &[]) && !criteria.matches_text(text) {
-        return None;
+/// Scrubs a UTF-8 file (whole JSON document, JSONL lines, or plain text),
+/// returning `Some(updated)` only when content changed. Never rewrites JSON
+/// property names.
+fn scrub_utf8_document(
+    text: &str,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> Option<String> {
+    if let Ok(mut parsed) = serde_json::from_str::<Value>(text) {
+        return scrub_json_value(&mut parsed, criteria, value_needles)
+            .then(|| serde_json::to_string(&parsed).ok())
+            .flatten();
     }
-    if let Ok(mut parsed) = serde_json::from_str::<Value>(text)
-        && scrub_json_value(&mut parsed, criteria, &needles)
-    {
-        return serde_json::to_string(&parsed).ok();
+    let mut changed = false;
+    let mut out = String::with_capacity(text.len());
+    for chunk in text.split_inclusive('\n') {
+        let (line, ending) = if let Some(stripped) = chunk.strip_suffix("\r\n") {
+            (stripped, "\r\n")
+        } else if let Some(stripped) = chunk.strip_suffix('\n') {
+            (stripped, "\n")
+        } else {
+            (chunk, "")
+        };
+        if let Some(scrubbed) = scrub_text_cell(line, criteria, value_needles) {
+            if scrubbed != line {
+                changed = true;
+            }
+            out.push_str(&scrubbed);
+        } else {
+            out.push_str(line);
+        }
+        out.push_str(ending);
     }
-    Some(scrub_plain_text(text, &needles))
+    changed.then_some(out)
 }
 
-fn scrub_json_value(value: &mut Value, criteria: &MatchCriteria, needles: &[String]) -> bool {
+/// Scrubs one text cell or JSONL line: parses JSON structurally (removing
+/// matching dotted `key` paths and scrubbing `value_needles` inside string
+/// values without touching property names), or scrubs `value_needles` in
+/// plain text when the cell is not JSON.
+fn scrub_text_cell(
+    text: &str,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> Option<String> {
+    if let Ok(mut parsed) = serde_json::from_str::<Value>(text) {
+        return scrub_json_value(&mut parsed, criteria, value_needles)
+            .then(|| serde_json::to_string(&parsed).ok())
+            .flatten();
+    }
+    if matches_any_needle(text, value_needles) {
+        Some(scrub_plain_text(text, value_needles))
+    } else {
+        None
+    }
+}
+
+/// Removes the field at dotted `segments` inside `value` when it matches
+/// `filter_value` (or unconditionally when `filter_value` is `None`,
+/// collecting any scalar values removed into `value_needles`).
+fn remove_at_path(
+    value: &mut Value,
+    segments: &[&str],
+    filter_value: Option<&str>,
+    value_needles: &mut BTreeSet<String>,
+) -> bool {
+    let Some((first, rest)) = segments.split_first() else {
+        return false;
+    };
+    let Some(map) = value.as_object_mut() else {
+        return false;
+    };
+    if rest.is_empty() {
+        let should_remove = map
+            .get(*first)
+            .is_some_and(|existing| filter_value.is_none_or(|val| json_contains(existing, val)));
+        if should_remove && let Some(removed) = map.remove(*first) {
+            if filter_value.is_none() {
+                collect_json_scalars(&removed, value_needles);
+            }
+            return true;
+        }
+        return false;
+    }
+    let Some(child) = map.get_mut(*first) else {
+        return false;
+    };
+    remove_at_path(child, rest, filter_value, value_needles)
+}
+
+fn scrub_json_value(
+    value: &mut Value,
+    criteria: &MatchCriteria,
+    value_needles: &mut BTreeSet<String>,
+) -> bool {
     match value {
-        Value::Object(map) => {
+        Value::Object(_) => {
             let mut changed = false;
-            if let Some(key) = &criteria.key
-                && let Some(removed) = map.get(key)
-            {
-                let should_remove = criteria
-                    .value
-                    .as_deref()
-                    .is_none_or(|val| json_contains(removed, val));
-                if should_remove {
-                    map.remove(key);
+            if let Some(key) = &criteria.key {
+                let segments: Vec<&str> = key.split('.').collect();
+                if remove_at_path(value, &segments, criteria.value.as_deref(), value_needles) {
                     changed = true;
                 }
             }
-            for entry in map.values_mut() {
-                if scrub_json_value(entry, criteria, needles) {
-                    changed = true;
+            if let Value::Object(map) = value {
+                for entry in map.values_mut() {
+                    if scrub_json_value(entry, criteria, value_needles) {
+                        changed = true;
+                    }
                 }
             }
             changed
@@ -763,21 +915,21 @@ fn scrub_json_value(value: &mut Value, criteria: &MatchCriteria, needles: &[Stri
         Value::Array(items) => {
             let mut changed = false;
             for item in items.iter_mut() {
-                if scrub_json_value(item, criteria, needles) {
+                if scrub_json_value(item, criteria, value_needles) {
                     changed = true;
                 }
             }
             changed
         }
-        Value::String(text) if needles.iter().any(|needle| text.contains(needle.as_str())) => {
-            *text = scrub_plain_text(text, needles);
+        Value::String(text) if matches_any_needle(text, value_needles) => {
+            *text = scrub_plain_text(text, value_needles);
             true
         }
         _ => false,
     }
 }
 
-fn scrub_plain_text(text: &str, needles: &[String]) -> String {
+fn scrub_plain_text(text: &str, needles: &BTreeSet<String>) -> String {
     let mut out = text.to_owned();
     for needle in needles {
         if !needle.is_empty() {

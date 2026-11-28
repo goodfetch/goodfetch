@@ -16,7 +16,7 @@ use std::path::Path;
 /// # Errors
 ///
 /// When the file cannot be written or renamed into place.
-pub(crate) fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let folder = path
         .parent()
         .filter(|folder| !folder.as_os_str().is_empty())

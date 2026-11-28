@@ -18,8 +18,10 @@ import base64
 import errno
 import math
 import os
+import re
 import secrets
 import sys
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, BinaryIO, NoReturn, cast
@@ -91,6 +93,126 @@ _WINDOWS_NAMES: dict[int, str] = {
 
 _FILE_ATTRIBUTE_HIDDEN = 0x2
 _FILE_ATTRIBUTE_NORMAL = 0x80
+
+_NAME_MAX_BYTES = 255
+_FORBIDDEN_CHARS = frozenset('<>"|?*')
+_RESERVED_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "COM0",
+        "COM1",
+        "COM2",
+        "COM3",
+        "COM4",
+        "COM5",
+        "COM6",
+        "COM7",
+        "COM8",
+        "COM9",
+        "COM\u00b9",
+        "COM\u00b2",
+        "COM\u00b3",
+        "LPT0",
+        "LPT1",
+        "LPT2",
+        "LPT3",
+        "LPT4",
+        "LPT5",
+        "LPT6",
+        "LPT7",
+        "LPT8",
+        "LPT9",
+        "LPT\u00b9",
+        "LPT\u00b2",
+        "LPT\u00b3",
+        "CONIN$",
+        "CONOUT$",
+    }
+)
+_SEGMENT_SPLIT = re.compile(r"[\\/]")
+
+
+def _is_separator(character: str) -> bool:
+    return character in {"/", "\\"}
+
+
+def _is_reserved_name(part: str) -> bool:
+    stem = part.split(".", 1)[0].rstrip(" ")
+    return stem.upper() in _RESERVED_NAMES
+
+
+def _strip_host_root(text: str) -> tuple[str | None, str | None]:
+    """Strips a host-native root prefix or returns `(None, issue)`."""
+    if len(text) >= 2 and _is_separator(text[0]) and _is_separator(text[1]):
+        if len(text) >= 4 and text[2] == "?" and _is_separator(text[3]):
+            return None, "it uses a Windows verbatim path prefix (`\\\\?\\`)"
+        if len(text) >= 4 and text[2] == "." and _is_separator(text[3]):
+            return None, "it uses a Windows device namespace prefix (`\\\\.\\`)"
+        return None, "it uses a UNC path prefix (`\\\\`)"
+    if _is_separator(text[0]):
+        if text[0] == "\\" and sys.platform != "win32":
+            return None, "it contains a disallowed path separator"
+        return text[1:], None
+    if len(text) >= 2 and text[0].isascii() and text[0].isalpha() and text[1] == ":":
+        if sys.platform == "win32" and len(text) >= 3 and _is_separator(text[2]):
+            return text[3:], None
+        return None, "it names a Windows drive path"
+    return text, None
+
+
+def _segment_issue(part: str) -> str | None:
+    if part in {"", "."}:
+        return "it names no file"
+    if part == "..":
+        return "it contains a parent traversal (`..`)"
+    if ":" in part:
+        return "it contains a colon (alternate data stream)"
+    if any(ch in _FORBIDDEN_CHARS for ch in part):
+        return "it contains a character forbidden on Windows"
+    if part.endswith((".", " ")):
+        return "a path segment ends with a dot or space"
+    if _is_reserved_name(part):
+        return "it uses a Windows reserved device name"
+    if len(part.encode("utf-8")) > _NAME_MAX_BYTES:
+        return "a path segment exceeds 255 bytes"
+    if not unicodedata.is_normalized("NFC", part):
+        return "it is not in Unicode composed form (NFC)"
+    return None
+
+
+def _check_save_path(text: str) -> str | None:
+    """Checks `text` against portable save-path rules (ADRs 0067 and 0116)."""
+    if not text:
+        return "it names no file"
+    if any(unicodedata.category(ch) == "Cc" for ch in text):
+        return "it contains a control character"
+    if text.endswith(("/", "\\")):
+        return "it names no file"
+    tail, root_error = _strip_host_root(text)
+    if root_error is not None:
+        return root_error
+    if not tail:
+        return "it names no file"
+    parts = _SEGMENT_SPLIT.split(tail)
+    last_index = len(parts) - 1
+    for index, part in enumerate(parts):
+        if part == "." and index < last_index:
+            continue
+        issue = _segment_issue(part)
+        if issue is not None:
+            return issue
+    if sys.platform != "win32" and "\\" in tail:
+        return "it contains a disallowed path separator"
+    return None
+
+
+def _assert_save_path(given: str, call: str) -> None:
+    issue = _check_save_path(given)
+    if issue is not None:
+        _raise(_Failure("invalid_filename", None, issue, None), given, call)
 
 
 @dataclass(frozen=True)
@@ -233,6 +355,7 @@ class FileSaving:
 
     @classmethod
     def _create(cls, given: str, call: str) -> FileSaving:
+        _assert_save_path(given, call)
         target = Path(given).absolute()
         if not target.name or given.endswith(("/", os.sep)):
             _raise(
@@ -425,10 +548,12 @@ async def save_file(
         PathNotWritableError: From the engine's write or this one's.
         FileWriteFailedError: From the engine's write or this one's.
     """
+    given = os.fspath(path)
+    _assert_save_path(given, call)
     local = connection.engine.kind != "remote"
     sent_params: dict[str, object] = dict(params)
     if local:
-        sent_params["path"] = str(await anyio.Path(os.fspath(path)).absolute())
+        sent_params["path"] = str(await anyio.Path(given).absolute())
     # Credits bound what the engine sends: CHUNKS_AHEAD past those written.
     send, receive = anyio.create_memory_object_stream[bytes](max_buffer_size=math.inf)
     call_id: list[int] = []

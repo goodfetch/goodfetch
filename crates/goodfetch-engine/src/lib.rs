@@ -31,7 +31,7 @@ pub mod crash_report;
 pub mod daemon;
 pub mod deadline;
 pub mod dns;
-mod durable;
+pub mod durable;
 pub mod effect;
 pub mod egress;
 pub mod endpoint;

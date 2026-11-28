@@ -107,6 +107,40 @@ impl<'env> Pty<'env> {
     }
 }
 
+/// Runs `command` directly on a pseudo-terminal (`ConPTY` on Windows),
+/// optionally waiting for `expect` and typing `send_line`, and returns its
+/// transcript and exit code (used by `goodfetch-test-env pty` for cross-OS
+/// TypeScript and Python interactive CLI tests).
+pub fn run_command_in_pty(
+    command: std::process::Command,
+    expect: Option<&str>,
+    send_line: Option<&str>,
+) -> Result<PtyOutput, PtyError> {
+    let mut session = Session::spawn(command).map_err(PtyError::Start)?;
+    session.set_expect_timeout(Some(DEADLINE));
+    let mut transcript = Vec::new();
+    if let Some(prompt) = expect {
+        match session.expect(prompt) {
+            Ok(found) => transcript.extend_from_slice(found.as_bytes()),
+            Err(error) => {
+                return Err(PtyError::NotShown {
+                    text: prompt.to_owned(),
+                    reason: error.to_string(),
+                });
+            }
+        }
+    }
+    if let Some(line) = send_line {
+        session
+            .send_line(line)
+            .map_err(|error| PtyError::Io(error.to_string()))?;
+    }
+    let (rest, exit) = end(session)?;
+    transcript.extend_from_slice(&rest);
+    let text = String::from_utf8(transcript).map_err(|_| PtyError::NotUtf8)?;
+    Ok(PtyOutput { exit, text })
+}
+
 /// A running executable on its pseudo-terminal.
 pub struct PtyRun<'env> {
     env: &'env TestEnv,

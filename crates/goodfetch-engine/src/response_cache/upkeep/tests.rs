@@ -534,3 +534,44 @@ async fn a_cleared_runs_canaries_stay_nowhere_in_the_cache() {
         "{found:?}"
     );
 }
+
+/// `erase_matching` streams body files in chunks outside the writer lock and
+/// detects needles spanning a 64 KiB chunk boundary, deleting matching entries
+/// and their unheld bodies while keeping unrelated entries intact.
+#[tokio::test]
+async fn erase_matching_streams_bodies_across_chunk_boundaries() {
+    let env = TestEnv::new();
+    let cache = cache(&env);
+    let needle = "boundary-canary-4120@example.test";
+    // Place the needle so it straddles the 64 KiB chunk boundary.
+    let mut big_body = "x".repeat(super::CHUNK - 10);
+    big_body.push_str(needle);
+    big_body.push_str(&"y".repeat(1024));
+
+    kept(
+        &cache,
+        &ada(),
+        "https://cache.test/big",
+        &big_body,
+        "erase-stream",
+    )
+    .await;
+    kept(
+        &cache,
+        &ada(),
+        "https://cache.test/other",
+        "unrelated body content",
+        "erase-stream",
+    )
+    .await;
+
+    let removed = cache
+        .erase_matching(&run("erase-stream"), &[needle.to_owned()])
+        .await
+        .unwrap();
+
+    assert_eq!(removed, 1);
+    assert!(!served(&cache, &ada(), "https://cache.test/big").await);
+    assert!(served(&cache, &ada(), "https://cache.test/other").await);
+    assert_eq!(body_files(&env), [sha256("unrelated body content")]);
+}

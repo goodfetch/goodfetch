@@ -45,26 +45,35 @@ impl Editing {
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
     {
-        self.run(true, work, None::<fn(&Connection) -> rusqlite::Result<u64>>)
-            .await
-            .map(|(value, _)| value)
+        self.run(
+            true,
+            work,
+            None::<fn(&Connection, &mut T) -> rusqlite::Result<u64>>,
+            None::<fn(&std::path::Path, &mut T) -> std::io::Result<()>>,
+        )
+        .await
+        .map(|(value, _)| value)
     }
 
-    /// Runs `work` on the Run's state and `checkpoint_work` on its kept
-    /// Checkpoint (`checkpoint.sqlite`, if present), both under the Run's
-    /// writer lock with `secure_delete` on and `VACUUM`, forgetting kept
-    /// Exports, and answers both results (ADR 0016).
-    pub(super) async fn edit_with_checkpoint<T, F, C>(
+    /// Runs `work` on the Run's state, `checkpoint_work` on its kept
+    /// Checkpoint (`checkpoint.sqlite`, if present), and `folder_work` on its
+    /// run folder, all under the Run's writer lock with `secure_delete` on,
+    /// `VACUUM`, and verified WAL truncation, forgetting kept Exports, and
+    /// answers both results (ADR 0016).
+    pub(super) async fn edit_with_checkpoint<T, F, C, D>(
         self,
         work: F,
         checkpoint_work: C,
+        folder_work: D,
     ) -> Result<(T, u64), RunError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
-        C: FnOnce(&Connection) -> rusqlite::Result<u64> + Send + 'static,
+        C: FnOnce(&Connection, &mut T) -> rusqlite::Result<u64> + Send + 'static,
+        D: FnOnce(&std::path::Path, &mut T) -> std::io::Result<()> + Send + 'static,
     {
-        self.run(true, work, Some(checkpoint_work)).await
+        self.run(true, work, Some(checkpoint_work), Some(folder_work))
+            .await
     }
 
     /// Runs `work` in one transaction of the Run's state, under its writer
@@ -79,22 +88,25 @@ impl Editing {
         self.run(
             false,
             work,
-            None::<fn(&Connection) -> rusqlite::Result<u64>>,
+            None::<fn(&Connection, &mut T) -> rusqlite::Result<u64>>,
+            None::<fn(&std::path::Path, &mut T) -> std::io::Result<()>>,
         )
         .await
         .map(|(value, _)| value)
     }
 
-    async fn run<T, F, C>(
+    async fn run<T, F, C, D>(
         mut self,
         forget_exports: bool,
         work: F,
         checkpoint_work: Option<C>,
+        folder_work: Option<D>,
     ) -> Result<(T, u64), RunError>
     where
         T: Send + 'static,
         F: FnOnce(&Connection) -> rusqlite::Result<T> + Send + 'static,
-        C: FnOnce(&Connection) -> rusqlite::Result<u64> + Send + 'static,
+        C: FnOnce(&Connection, &mut T) -> rusqlite::Result<u64> + Send + 'static,
+        D: FnOnce(&std::path::Path, &mut T) -> std::io::Result<()> + Send + 'static,
     {
         let file = self.folder.join(RUN_FILE);
         let (at, vfs) = (file.clone(), self.run_state.vfs.clone());
@@ -146,9 +158,70 @@ impl Editing {
             .await;
         drop(state);
         writer.wait().await;
-        let written = written.map_err(|error| self.of_state(error))?;
-        let truncate = || {
+        let mut written = written.map_err(|error| self.of_state(error))?;
+        self.truncate_with_retry(&file, self.run_state.vfs.clone())
+            .await?;
+        if forget_exports {
             let (at, vfs) = (file.clone(), self.run_state.vfs.clone());
+            let truncated = self
+                .owner
+                .blocking(move || vacuum_file(&at, vfs.as_deref()))
+                .await
+                .map_err(|error| self.unavailable(&error))?;
+            if !truncated {
+                self.truncate_with_retry(&file, self.run_state.vfs.clone())
+                    .await?;
+            }
+        }
+        let checkpoint_count = if let Some(checkpoint_work) = checkpoint_work {
+            let checkpoint = self.folder.join(CHECKPOINT_FILE);
+            let checkpoint_at = checkpoint.clone();
+            let (updated, count, truncated) = self
+                .owner
+                .blocking(move || {
+                    let (count, truncated) = edit_checkpoint_file(&checkpoint_at, |connection| {
+                        checkpoint_work(connection, &mut written)
+                    })?;
+                    Ok::<_, rusqlite::Error>((written, count, truncated))
+                })
+                .await
+                .map_err(|error| self.unavailable(&error))?;
+            written = updated;
+            if !truncated {
+                self.truncate_with_retry(&checkpoint, None).await?;
+            }
+            count
+        } else {
+            0
+        };
+        let at = self.folder.clone();
+        let written = self
+            .owner
+            .blocking(move || {
+                let outcome = (|| -> std::io::Result<T> {
+                    if let Some(folder_work) = folder_work {
+                        folder_work(&at, &mut written)?;
+                    }
+                    if forget_exports {
+                        run_files::forget_exports(&at)?;
+                    }
+                    Ok(written)
+                })();
+                drop(lock);
+                outcome
+            })
+            .await
+            .map_err(|error| self.unavailable(&error))?;
+        Ok((written, checkpoint_count))
+    }
+
+    async fn truncate_with_retry(
+        &mut self,
+        file: &std::path::Path,
+        vfs: Option<String>,
+    ) -> Result<(), RunError> {
+        let truncate = || {
+            let (at, vfs) = (file.to_path_buf(), vfs.clone());
             self.owner
                 .blocking(move || truncate_wal(&at, vfs.as_deref()))
         };
@@ -161,36 +234,7 @@ impl Editing {
         if truncated.is_none() {
             return Err(self.in_use());
         }
-        if forget_exports {
-            let (at, vfs) = (file.clone(), self.run_state.vfs.clone());
-            self.owner
-                .blocking(move || vacuum_file(&at, vfs.as_deref()))
-                .await
-                .map_err(|error| self.unavailable(&error))?;
-        }
-        let checkpoint_count = if let Some(checkpoint_work) = checkpoint_work {
-            let checkpoint = self.folder.join(CHECKPOINT_FILE);
-            self.owner
-                .blocking(move || edit_checkpoint_file(&checkpoint, checkpoint_work))
-                .await
-                .map_err(|error| self.unavailable(&error))?
-        } else {
-            0
-        };
-        let at = self.folder.clone();
-        self.owner
-            .blocking(move || {
-                let forgotten = if forget_exports {
-                    run_files::forget_exports(&at)
-                } else {
-                    Ok(())
-                };
-                drop(lock);
-                forgotten
-            })
-            .await
-            .map_err(|error| self.unavailable(&error))?;
-        Ok((written, checkpoint_count))
+        Ok(())
     }
 
     fn unavailable(&self, error: &impl ToString) -> RunError {
@@ -213,38 +257,44 @@ impl Editing {
     }
 }
 
+/// Runs `PRAGMA wal_checkpoint(TRUNCATE)` without waiting and answers whether
+/// the checkpoint completed with `busy == 0` (matching `discard::truncate_wal`).
+fn checkpoint_truncate(connection: &Connection) -> rusqlite::Result<bool> {
+    connection.busy_timeout(std::time::Duration::ZERO)?;
+    let busy: i64 = connection
+        .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")?
+        .query_row([], |row| row.get(0))?;
+    Ok(busy == 0)
+}
+
 /// Vacuums `file` with `secure_delete` on and truncates its WAL, so no
 /// residual deleted bytes stay in free pages or WAL frames (ADR 0016).
-fn vacuum_file(file: &std::path::Path, vfs: Option<&str>) -> rusqlite::Result<()> {
+/// Answers whether the WAL truncation completed with `busy == 0`.
+fn vacuum_file(file: &std::path::Path, vfs: Option<&str>) -> rusqlite::Result<bool> {
     let Some(connection) = File::new(file, vfs).connect_existing(Access::ReadWrite)? else {
-        return Ok(());
+        return Ok(true);
     };
     connection.pragma_update(None, "secure_delete", "ON")?;
     connection.execute_batch("VACUUM")?;
-    let _ = connection
-        .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")
-        .and_then(|mut statement| statement.query_row([], |row| row.get::<_, i64>(0)));
-    Ok(())
+    checkpoint_truncate(&connection)
 }
 
 /// Runs `work` on the kept Checkpoint SQLite file at `checkpoint`, if it
 /// exists, with `secure_delete` on and `VACUUM` so no residual deleted bytes
-/// stay in the file.
-fn edit_checkpoint_file<C>(checkpoint: &std::path::Path, work: C) -> rusqlite::Result<u64>
+/// stay in the file. Answers `(count, wal_truncated)`.
+fn edit_checkpoint_file<C>(checkpoint: &std::path::Path, work: C) -> rusqlite::Result<(u64, bool)>
 where
     C: FnOnce(&Connection) -> rusqlite::Result<u64>,
 {
     if !checkpoint.is_file() {
-        return Ok(0);
+        return Ok((0, true));
     }
     let Some(connection) = File::new(checkpoint, None).connect_existing(Access::ReadWrite)? else {
-        return Ok(0);
+        return Ok((0, true));
     };
     connection.pragma_update(None, "secure_delete", "ON")?;
     let count = sqlite_store::immediate(&connection, work)?;
     connection.execute_batch("VACUUM")?;
-    let _ = connection
-        .prepare_cached("PRAGMA wal_checkpoint(TRUNCATE)")
-        .and_then(|mut statement| statement.query_row([], |row| row.get::<_, i64>(0)));
-    Ok(count)
+    let truncated = checkpoint_truncate(&connection)?;
+    Ok((count, truncated))
 }

@@ -2793,9 +2793,10 @@ impl Runs {
         editing.edit(work).await
     }
 
-    /// Runs `work` on the state of the Run `run_id` and `checkpoint_work` on
-    /// its kept Checkpoint (`checkpoint.sqlite`, if present), under the Run's
-    /// writer lock with `secure_delete` on and `VACUUM`, deleting kept Exports
+    /// Runs `work` on the state of the Run `run_id`, `checkpoint_work` on its
+    /// kept Checkpoint (`checkpoint.sqlite`, if present), and `folder_work` on
+    /// the Run's folder, all under the Run's writer lock with `secure_delete`
+    /// on, `VACUUM`, and verified WAL truncation, deleting kept Exports
     /// (ADR 0016).
     ///
     /// # Errors
@@ -2805,16 +2806,18 @@ impl Runs {
     /// # Cancel safety
     ///
     /// As [`Runs::edit`].
-    pub async fn edit_with_checkpoint<T, F, C>(
+    pub async fn edit_with_checkpoint<T, F, C, D>(
         &self,
         run_id: RunId,
         work: F,
         checkpoint_work: C,
+        folder_work: D,
     ) -> Result<(T, u64), RunError>
     where
         T: Send + 'static,
         F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
-        C: FnOnce(&rusqlite::Connection) -> rusqlite::Result<u64> + Send + 'static,
+        C: FnOnce(&rusqlite::Connection, &mut T) -> rusqlite::Result<u64> + Send + 'static,
+        D: FnOnce(&std::path::Path, &mut T) -> std::io::Result<()> + Send + 'static,
     {
         let (answer, answered) = oneshot::channel();
         self.commands
@@ -2822,7 +2825,9 @@ impl Runs {
             .await
             .map_err(|_| RunError::Stopped)?;
         let editing = answered.await.map_err(|_| RunError::Stopped)??;
-        editing.edit_with_checkpoint(work, checkpoint_work).await
+        editing
+            .edit_with_checkpoint(work, checkpoint_work, folder_work)
+            .await
     }
 
     /// Runs `work` in one transaction of the ended Run `run_id`'s state,

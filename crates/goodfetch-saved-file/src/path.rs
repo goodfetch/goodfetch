@@ -5,16 +5,16 @@
 //! hostile names alike.
 
 use std::fmt;
-use std::path::{Component, Path};
+use std::path::Path;
 
 use icu_normalizer::ComposingNormalizerBorrowed;
 
 /// The most bytes one part of a path holds: a file system's name.
 const NAME_MAX_BYTES: usize = 255;
 
-/// The characters Windows forbids in a name, beside the separators and the
+/// The ASCII bytes Windows forbids in a name, beside the separators and the
 /// colon, which the checks name on their own.
-const FORBIDDEN: [char; 6] = ['<', '>', '"', '|', '?', '*'];
+const FORBIDDEN_BYTES: [u8; 6] = [b'<', b'>', b'"', b'|', b'?', b'*'];
 
 /// The device names Windows reserves, in upper case, alone or before an
 /// extension: the console's, the ports, with their superscript digits, and
@@ -133,32 +133,59 @@ impl fmt::Display for PathIssue {
 ///
 /// [`PathIssue`] naming the first hazard found.
 pub fn check_path(path: &Path, shape: PathShape) -> Result<(), PathIssue> {
-    match shape {
-        PathShape::SavePath => check_save(path),
-        PathShape::Name | PathShape::RelativePath => {
-            let Some(name) = path.to_str() else {
-                return check_non_utf8(path);
-            };
-            check_relative(name, shape)
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt as _;
+        let bytes = path.as_os_str().as_bytes();
+        match shape {
+            PathShape::SavePath => check_save_bytes(bytes),
+            PathShape::Name | PathShape::RelativePath => check_relative_bytes(bytes, shape),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let Some(text) = path.to_str() else {
+            return reject_non_utf8(path);
+        };
+        match shape {
+            PathShape::SavePath => check_save_bytes(text.as_bytes()),
+            PathShape::Name | PathShape::RelativePath => {
+                check_relative_bytes(text.as_bytes(), shape)
+            }
         }
     }
 }
 
-fn check_relative(name: &str, shape: PathShape) -> Result<(), PathIssue> {
-    if name.is_empty() {
+#[cfg(not(unix))]
+fn reject_non_utf8(path: &Path) -> Result<(), PathIssue> {
+    use std::path::Component;
+
+    for component in path.components() {
+        match component {
+            Component::ParentDir => return Err(PathIssue::ParentTraversal),
+            Component::Prefix(_) => return Err(PathIssue::Drive),
+            Component::RootDir => return Err(PathIssue::Absolute),
+            Component::CurDir | Component::Normal(_) => {}
+        }
+    }
+    Err(PathIssue::Normalisation)
+}
+
+fn check_relative_bytes(bytes: &[u8], shape: PathShape) -> Result<(), PathIssue> {
+    if bytes.is_empty() {
         return Err(PathIssue::DotName);
     }
-    if name.chars().any(char::is_control) {
+    if has_control_bytes(bytes) {
         return Err(PathIssue::ControlCharacter);
     }
-    if let Some(issue) = root_issue(name) {
+    if let Some(issue) = root_issue_bytes(bytes) {
         return Err(issue);
     }
-    if !ComposingNormalizerBorrowed::new_nfc().is_normalized(name) {
+    if !is_nfc_normalized(bytes) {
         return Err(PathIssue::Normalisation);
     }
-    let parts: Vec<&str> = name.split(['/', '\\']).collect();
-    if let Some(issue) = parts.iter().find_map(|part| part_issue(part)) {
+    let parts: Vec<&[u8]> = bytes.split(|&byte| byte == b'/' || byte == b'\\').collect();
+    if let Some(issue) = parts.iter().find_map(|part| part_issue_bytes(part)) {
         // An empty last part is a trailing separator, which a name never
         // takes and a path does not need.
         let trailing = parts.last().is_some_and(|last| last.is_empty())
@@ -166,7 +193,7 @@ fn check_relative(name: &str, shape: PathShape) -> Result<(), PathIssue> {
                 .iter()
                 .rev()
                 .skip(1)
-                .all(|part| part_issue(part).is_none());
+                .all(|part| part_issue_bytes(part).is_none());
         if !(trailing && shape == PathShape::Name) {
             return Err(issue);
         }
@@ -177,119 +204,117 @@ fn check_relative(name: &str, shape: PathShape) -> Result<(), PathIssue> {
     Ok(())
 }
 
-fn check_non_utf8(path: &Path) -> Result<(), PathIssue> {
-    for component in path.components() {
-        match component {
-            Component::ParentDir => return Err(PathIssue::ParentTraversal),
-            Component::CurDir => return Err(PathIssue::DotName),
-            _ => {}
-        }
-    }
-    path.file_name().map(|_| ()).ok_or(PathIssue::DotName)
-}
-
-fn check_save(path: &Path) -> Result<(), PathIssue> {
-    if path.as_os_str().is_empty() {
+fn check_save_bytes(bytes: &[u8]) -> Result<(), PathIssue> {
+    if bytes.is_empty() {
         return Err(PathIssue::DotName);
     }
-    let Some(text) = path.to_str() else {
-        return check_non_utf8(path);
-    };
-    if text.chars().any(char::is_control) {
+    if has_control_bytes(bytes) {
         return Err(PathIssue::ControlCharacter);
     }
-    if text.ends_with('/') || text.ends_with('\\') {
+    if bytes.ends_with(b"/") || bytes.ends_with(b"\\") {
         return Err(PathIssue::DotName);
     }
-    let tail = strip_host_root(text)?;
+    let tail = strip_host_root_bytes(bytes)?;
     if tail.is_empty() {
         return Err(PathIssue::DotName);
     }
-    let nfc = ComposingNormalizerBorrowed::new_nfc();
-    for part in tail.split(['/', '\\']) {
-        if let Some(issue) = part_issue(part) {
+    let parts: Vec<&[u8]> = tail.split(|&byte| byte == b'/' || byte == b'\\').collect();
+    let last_index = parts.len() - 1;
+    for (index, part) in parts.iter().enumerate() {
+        // Leading and intermediate `.` segments (such as `./out.json` or
+        // `dir/./out.json`) name the current folder safely on every OS; bare
+        // `.` and trailing `/.` name no file and remain refused (ADR 0116).
+        if *part == b"." && index < last_index {
+            continue;
+        }
+        if let Some(issue) = part_issue_bytes(part) {
             return Err(issue);
         }
-        if !nfc.is_normalized(part) {
+        if !is_nfc_normalized(part) {
             return Err(PathIssue::Normalisation);
         }
     }
-    if !cfg!(windows) && tail.contains('\\') {
+    if !cfg!(windows) && tail.contains(&b'\\') {
         return Err(PathIssue::Separator);
     }
     Ok(())
 }
 
-fn strip_host_root(text: &str) -> Result<&str, PathIssue> {
-    match root_issue(text) {
+fn has_control_bytes(bytes: &[u8]) -> bool {
+    bytes
+        .utf8_chunks()
+        .any(|chunk| chunk.valid().chars().any(char::is_control))
+}
+
+fn is_nfc_normalized(bytes: &[u8]) -> bool {
+    let nfc = ComposingNormalizerBorrowed::new_nfc();
+    bytes
+        .utf8_chunks()
+        .all(|chunk| nfc.is_normalized(chunk.valid()))
+}
+
+fn strip_host_root_bytes(bytes: &[u8]) -> Result<&[u8], PathIssue> {
+    match root_issue_bytes(bytes) {
         Some(PathIssue::Verbatim) => Err(PathIssue::Verbatim),
         Some(PathIssue::DeviceNamespace) => Err(PathIssue::DeviceNamespace),
         Some(PathIssue::Unc) => Err(PathIssue::Unc),
         Some(PathIssue::Drive) => {
             if cfg!(windows)
-                && text
-                    .as_bytes()
+                && bytes
                     .get(2)
-                    .is_some_and(|byte| *byte == b'/' || *byte == b'\\')
+                    .is_some_and(|&byte| byte == b'/' || byte == b'\\')
             {
-                Ok(&text[3..])
+                Ok(&bytes[3..])
             } else {
                 Err(PathIssue::Drive)
             }
         }
         Some(PathIssue::Absolute) => {
-            if text.starts_with('\\') && !cfg!(windows) {
+            if bytes.first() == Some(&b'\\') && !cfg!(windows) {
                 return Err(PathIssue::Separator);
             }
-            Ok(&text[1..])
+            Ok(&bytes[1..])
         }
-        _ => Ok(text),
+        _ => Ok(bytes),
     }
 }
 
-/// What makes `name`, as a whole, start outside its folder: a verbatim,
+/// What makes `bytes`, as a whole, start outside its folder: a verbatim,
 /// device or UNC path, a path from the root, or a drive.
-fn root_issue(name: &str) -> Option<PathIssue> {
-    let separator = |character: char| character == '/' || character == '\\';
-    let mut characters = name.chars();
-    let (first, second, third, fourth) = (
-        characters.next(),
-        characters.next(),
-        characters.next(),
-        characters.next(),
-    );
-    match (first, second, third, fourth) {
-        (Some(a), Some(b), Some('?'), Some(d)) if separator(a) && separator(b) && separator(d) => {
+fn root_issue_bytes(bytes: &[u8]) -> Option<PathIssue> {
+    let separator = |byte: u8| byte == b'/' || byte == b'\\';
+    match bytes {
+        [a, b, b'?', d, ..] if separator(*a) && separator(*b) && separator(*d) => {
             Some(PathIssue::Verbatim)
         }
-        (Some(a), Some(b), Some('.'), Some(d)) if separator(a) && separator(b) && separator(d) => {
+        [a, b, b'.', d, ..] if separator(*a) && separator(*b) && separator(*d) => {
             Some(PathIssue::DeviceNamespace)
         }
-        (Some(a), Some(b), ..) if separator(a) && separator(b) => Some(PathIssue::Unc),
-        (Some(a), ..) if separator(a) => Some(PathIssue::Absolute),
-        (Some(letter), Some(':'), ..) if letter.is_ascii_alphabetic() => Some(PathIssue::Drive),
+        [a, b, ..] if separator(*a) && separator(*b) => Some(PathIssue::Unc),
+        [a, ..] if separator(*a) => Some(PathIssue::Absolute),
+        [letter, b':', ..] if letter.is_ascii_alphabetic() => Some(PathIssue::Drive),
         _ => None,
     }
 }
 
 /// What makes one part of a path unsafe, if anything.
-fn part_issue(part: &str) -> Option<PathIssue> {
-    if part.is_empty() || part == "." {
+fn part_issue_bytes(part: &[u8]) -> Option<PathIssue> {
+    if part.is_empty() || part == b"." {
         return Some(PathIssue::DotName);
     }
-    if part == ".." {
+    if part == b".." {
         return Some(PathIssue::ParentTraversal);
     }
-    if part.contains(':') {
+    if part.contains(&b':') {
         return Some(PathIssue::AlternateDataStream);
     }
-    if part.contains(FORBIDDEN) {
+    if part.iter().any(|byte| FORBIDDEN_BYTES.contains(byte)) {
         return Some(PathIssue::ForbiddenCharacter);
     }
-    if part.ends_with('.') || part.ends_with(' ') {
+    if part.ends_with(b".") || part.ends_with(b" ") {
         return Some(PathIssue::TrailingDotOrSpace);
     }
-    if is_reserved(part) {
+    if is_reserved_bytes(part) {
         return Some(PathIssue::ReservedName);
     }
     (part.len() > NAME_MAX_BYTES).then_some(PathIssue::Overlong)
@@ -298,8 +323,210 @@ fn part_issue(part: &str) -> Option<PathIssue> {
 /// Whether `part` is a device name Windows reserves: alone, or before an
 /// extension, in any case, spaces before the extension dropped as Windows
 /// drops them.
-fn is_reserved(part: &str) -> bool {
-    let stem = part.split('.').next().unwrap_or(part).trim_end_matches(' ');
-    let upper = stem.to_uppercase();
-    RESERVED.contains(&upper.as_str())
+fn is_reserved_bytes(part: &[u8]) -> bool {
+    let stem = part.split(|&byte| byte == b'.').next().unwrap_or(part);
+    let end = stem
+        .iter()
+        .rposition(|&byte| byte != b' ')
+        .map_or(0, |index| index + 1);
+    std::str::from_utf8(&stem[..end]).is_ok_and(|text| {
+        let upper = text.to_uppercase();
+        RESERVED.contains(&upper.as_str())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{PathIssue, PathShape, check_path};
+
+    #[test]
+    fn save_path_allows_leading_and_intermediate_current_dir_and_refuses_bare_or_trailing_dot() {
+        for ok in [
+            "./out.json",
+            "dir/./out.json",
+            "./a/./b.json",
+            "/./out.json",
+            "./.hidden",
+        ] {
+            assert_eq!(
+                check_path(Path::new(ok), PathShape::SavePath),
+                Ok(()),
+                "{ok}"
+            );
+        }
+        for bad in [".", "./", "dir/.", "./.", "/.", "dir/./"] {
+            assert_eq!(
+                check_path(Path::new(bad), PathShape::SavePath),
+                Err(PathIssue::DotName),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            check_path(Path::new("./../out.json"), PathShape::SavePath),
+            Err(PathIssue::ParentTraversal)
+        );
+        assert_eq!(
+            check_path(Path::new("./out.json"), PathShape::RelativePath),
+            Err(PathIssue::DotName)
+        );
+        assert_eq!(
+            check_path(Path::new("./out.json"), PathShape::Name),
+            Err(PathIssue::DotName)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_hostile_and_escape_paths_are_refused_for_every_shape() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt as _;
+
+        let overlong = vec![b'\xff'; 256];
+        let cases: &[(&[u8], PathShape, PathIssue)] = &[
+            (b"/\xff", PathShape::Name, PathIssue::Absolute),
+            (b"../\xff", PathShape::Name, PathIssue::ParentTraversal),
+            (b"sub/\xff", PathShape::Name, PathIssue::Separator),
+            (b"sub\\\xff", PathShape::Name, PathIssue::Separator),
+            (b"CON.\xff", PathShape::Name, PathIssue::ReservedName),
+            (
+                b"\xff\x00name",
+                PathShape::Name,
+                PathIssue::ControlCharacter,
+            ),
+            (
+                b"\xff:stream",
+                PathShape::Name,
+                PathIssue::AlternateDataStream,
+            ),
+            (b"\xff<bad", PathShape::Name, PathIssue::ForbiddenCharacter),
+            (b"\xff.", PathShape::Name, PathIssue::TrailingDotOrSpace),
+            (b"\xff ", PathShape::Name, PathIssue::TrailingDotOrSpace),
+            (overlong.as_slice(), PathShape::Name, PathIssue::Overlong),
+            (b"/\xff", PathShape::RelativePath, PathIssue::Absolute),
+            (
+                b"../\xff",
+                PathShape::RelativePath,
+                PathIssue::ParentTraversal,
+            ),
+            (
+                b"a/../\xff",
+                PathShape::RelativePath,
+                PathIssue::ParentTraversal,
+            ),
+            (b"C:\\\xff", PathShape::RelativePath, PathIssue::Drive),
+            (
+                b"\\\\?\\foo\\\xff",
+                PathShape::RelativePath,
+                PathIssue::Verbatim,
+            ),
+            (
+                b"\\\\host\\share\\\xff",
+                PathShape::RelativePath,
+                PathIssue::Unc,
+            ),
+            (
+                b"dir/CON.\xff",
+                PathShape::RelativePath,
+                PathIssue::ReservedName,
+            ),
+            (
+                b"dir/\xff:ads",
+                PathShape::RelativePath,
+                PathIssue::AlternateDataStream,
+            ),
+            (
+                b"dir/\xff?",
+                PathShape::RelativePath,
+                PathIssue::ForbiddenCharacter,
+            ),
+            (
+                b"dir/\xff.",
+                PathShape::RelativePath,
+                PathIssue::TrailingDotOrSpace,
+            ),
+            (b"../\xff", PathShape::SavePath, PathIssue::ParentTraversal),
+            (
+                b"dir/../\xff",
+                PathShape::SavePath,
+                PathIssue::ParentTraversal,
+            ),
+            (b"C:\\\xff", PathShape::SavePath, PathIssue::Drive),
+            (
+                b"\\\\?\\foo\\\xff",
+                PathShape::SavePath,
+                PathIssue::Verbatim,
+            ),
+            (
+                b"\\\\.\\pipe\\\xff",
+                PathShape::SavePath,
+                PathIssue::DeviceNamespace,
+            ),
+            (
+                b"\\\\host\\share\\\xff",
+                PathShape::SavePath,
+                PathIssue::Unc,
+            ),
+            (b"dir\\\xff", PathShape::SavePath, PathIssue::Separator),
+            (
+                b"dir/CON.\xff",
+                PathShape::SavePath,
+                PathIssue::ReservedName,
+            ),
+            (
+                b"dir/\xff\x07",
+                PathShape::SavePath,
+                PathIssue::ControlCharacter,
+            ),
+            (
+                b"dir/\xff:ads",
+                PathShape::SavePath,
+                PathIssue::AlternateDataStream,
+            ),
+            (
+                b"dir/\xff*",
+                PathShape::SavePath,
+                PathIssue::ForbiddenCharacter,
+            ),
+            (
+                b"dir/\xff.",
+                PathShape::SavePath,
+                PathIssue::TrailingDotOrSpace,
+            ),
+            (
+                b"dir/\xff ",
+                PathShape::SavePath,
+                PathIssue::TrailingDotOrSpace,
+            ),
+            (
+                overlong.as_slice(),
+                PathShape::SavePath,
+                PathIssue::Overlong,
+            ),
+            (b"\xff/.", PathShape::SavePath, PathIssue::DotName),
+        ];
+
+        for &(bytes, shape, expected) in cases {
+            let path = Path::new(OsStr::from_bytes(bytes));
+            assert_eq!(
+                check_path(path, shape),
+                Err(expected),
+                "{bytes:?} {shape:?}"
+            );
+        }
+
+        // Benign non-UTF-8 file names with no hostile bytes or escape components stay accepted.
+        assert_eq!(
+            check_path(Path::new(OsStr::from_bytes(b"\xff.json")), PathShape::Name),
+            Ok(())
+        );
+        assert_eq!(
+            check_path(
+                Path::new(OsStr::from_bytes(b"./\xff.json")),
+                PathShape::SavePath
+            ),
+            Ok(())
+        );
+    }
 }

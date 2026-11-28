@@ -29,7 +29,7 @@
     reason = "the served pages' table is read and written in one step, before any `.await` and never under another lock, so there is no lock order to test under loom (ADR 0060)"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
@@ -88,7 +88,6 @@ use goodfetch_protocol::foxhound::provenance::{
     EncodingProvenance, EncodingSource, ForcedBy, TierChosen, TierProvenance,
 };
 use goodfetch_protocol::foxhound::report::BROWSER_VERSION_UNREAD;
-use goodfetch_protocol::foxhound::session_pool::SESSION_POOL_MAX_SIZE;
 use goodfetch_protocol::foxhound::settings::FETCH_BLOCK_CLASSIFICATION;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::page::proxy::{PROXY_COUNTRY, PROXY_KIND, PROXY_PROVIDER, PROXY_SERVER};
@@ -1203,11 +1202,7 @@ impl FetchTiers {
             bounds: FetchBounds::of(settings),
             redundant: Arc::new(Redundant::of(settings)),
             following: Following::of(settings),
-            sessions: Arc::new(SessionTransports::new(
-                config,
-                presents,
-                usize::try_from(settings.get::<u64>(&SESSION_POOL_MAX_SIZE)).unwrap_or(usize::MAX),
-            )),
+            sessions: Arc::new(SessionTransports::new(config, presents)),
             jars: Arc::default(),
         })
     }
@@ -2679,59 +2674,81 @@ pub struct HttpTier {
     jar: Option<Arc<crate::cookies::Jar>>,
 }
 
-/// The reqwest transport of each local source a Session of the Run sends
-/// from (ADR 0044), built on its first use, so the hops of Sessions that
-/// share one share its connections. It keeps those of the sources used
-/// last, as many as the pool keeps Sessions open (`session.pool.max_size`),
-/// so a Run whose Sessions each take their own address, as a prefix's
-/// positions give them, holds no transport of a Session long closed
-/// (STYLE.md, bounded memory); a source used again past them is built
-/// again.
+/// The reqwest transport of each local source an open Session of the Run sends
+/// from (ADR 0044), built on its first use, so the hops of Sessions that share
+/// one share its connections. Each source stays kept only while at least one
+/// open Session holds it: when the last Session holding a source closes
+/// ([`SessionTransports::forget`]), the source's transport is dropped so a
+/// closed source keeps neither its connection pool nor its resolver
+/// (STYLE.md, bounded memory; #2369).
 struct SessionTransports {
     /// The Run's transport configuration, its `local` replaced for each.
     config: TransportConfig,
     /// The document request each presents: its Sessions' browser's.
     presents: Option<DocumentRequest>,
-    /// The most transports kept.
-    most: usize,
     built: Mutex<Built>,
 }
 
-/// The transports a Run's sources built, each with when it was last used.
+/// One kept local source: its shared transport and the open Sessions that
+/// currently hold it.
+struct KeptSource {
+    transport: (Arc<Reqwest>, AddressCheck),
+    holders: BTreeSet<SessionId>,
+}
+
+/// The transports a Run's open Sessions hold, indexed by local source and by
+/// open Session so closing a Session drops its source once no open Session
+/// holds it.
 #[derive(Default)]
 struct Built {
-    transports: BTreeMap<LocalSource, ((Arc<Reqwest>, AddressCheck), u64)>,
-    /// How many times a transport was taken, which orders them by use.
-    uses: u64,
+    transports: BTreeMap<LocalSource, KeptSource>,
+    sessions: BTreeMap<SessionId, LocalSource>,
 }
 
 impl SessionTransports {
-    fn new(config: TransportConfig, presents: Option<DocumentRequest>, most: usize) -> Self {
+    fn new(config: TransportConfig, presents: Option<DocumentRequest>) -> Self {
         Self {
             config,
             presents,
-            most: most.max(1),
             built: Mutex::new(Built::default()),
         }
     }
 
-    /// The transport of `local`, built when no transport of it is kept,
-    /// the one used longest ago dropped when the kept ones are as many as
-    /// the pool's Sessions.
+    /// The transport of `local` held for `session`, built when no open Session
+    /// holds `local` yet.
     ///
     /// # Errors
     ///
     /// A message when its transport cannot be built.
-    fn of(&self, local: &LocalSource) -> Result<(Arc<Reqwest>, AddressCheck), String> {
+    fn of(
+        &self,
+        session: &SessionId,
+        local: &LocalSource,
+    ) -> Result<(Arc<Reqwest>, AddressCheck), String> {
         let mut built = self
             .built
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        built.uses += 1;
-        let now = built.uses;
-        if let Some((transport, used)) = built.transports.get_mut(local) {
-            *used = now;
-            return Ok(transport.clone());
+        if built.sessions.get(session) == Some(local)
+            && let Some(kept) = built.transports.get(local)
+        {
+            return Ok(kept.transport.clone());
+        }
+        if let Some(previous) = built.sessions.remove(session) {
+            Self::detach(&mut built.transports, &previous, session);
+        }
+        if let Some(kept) = built.transports.get_mut(local) {
+            kept.holders.insert(session.clone());
+            let transport = kept.transport.clone();
+            built.sessions.insert(session.clone(), local.clone());
+            tracing::trace!(
+                target: "goodfetch::session_transports",
+                action = "attached",
+                kept = built.transports.len(),
+                open_sessions = built.sessions.len(),
+                "a Session shared a kept local source transport"
+            );
+            return Ok(transport);
         }
         let transport = Reqwest::new(TransportConfig {
             local: Some(local.clone()),
@@ -2741,19 +2758,59 @@ impl SessionTransports {
         .presenting(self.presents.clone());
         let addresses = transport.address_check();
         let transport = (Arc::new(transport), addresses);
-        if built.transports.len() >= self.most
-            && let Some(oldest) = built
-                .transports
-                .iter()
-                .min_by_key(|(_, (_, used))| *used)
-                .map(|(source, _)| source.clone())
-        {
-            built.transports.remove(&oldest);
-        }
-        built
-            .transports
-            .insert(local.clone(), (transport.clone(), now));
+        built.transports.insert(
+            local.clone(),
+            KeptSource {
+                transport: transport.clone(),
+                holders: BTreeSet::from([session.clone()]),
+            },
+        );
+        built.sessions.insert(session.clone(), local.clone());
+        tracing::trace!(
+            target: "goodfetch::session_transports",
+            action = "built",
+            kept = built.transports.len(),
+            open_sessions = built.sessions.len(),
+            "built a local source transport for a Session"
+        );
         Ok(transport)
+    }
+
+    /// Detaches `session` from its local source, dropping that source's
+    /// transport once no open Session holds it.
+    fn forget(&self, session: &SessionId) {
+        let mut built = self
+            .built
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(local) = built.sessions.remove(session) else {
+            return;
+        };
+        let dropped = Self::detach(&mut built.transports, &local, session);
+        tracing::trace!(
+            target: "goodfetch::session_transports",
+            action = if dropped { "dropped" } else { "detached" },
+            kept = built.transports.len(),
+            open_sessions = built.sessions.len(),
+            "forgot a closed Session's local source"
+        );
+    }
+
+    /// Removes `session` from `local`'s holders, removing `local` from
+    /// `transports` and answering `true` when it was the last holder.
+    fn detach(
+        transports: &mut BTreeMap<LocalSource, KeptSource>,
+        local: &LocalSource,
+        session: &SessionId,
+    ) -> bool {
+        let remove = transports.get_mut(local).is_some_and(|kept| {
+            kept.holders.remove(session);
+            kept.holders.is_empty()
+        });
+        if remove {
+            transports.remove(local);
+        }
+        remove
     }
 }
 
@@ -2788,7 +2845,7 @@ impl HttpTier {
         let own = local.filter(|local| self.sessions.config.local.as_ref() != Some(*local));
         let (direct, addresses) = match own {
             Some(local) => {
-                let (transport, addresses) = self.sessions.of(local)?;
+                let (transport, addresses) = self.sessions.of(session, local)?;
                 (Some(transport as Arc<dyn Transport>), addresses)
             }
             None => (None, self.addresses.clone()),
@@ -2877,17 +2934,19 @@ impl HttpTier {
     }
 
     /// Forgets the pool Session `session`, retired: its cookie jar, its
-    /// proxy and its own partition of the Response cache end with it (ADR
+    /// local-source transport (once no open Session holds that source, #2369),
+    /// its proxy and its own partition of the Response cache end with it (ADR
     /// 0046), the Run warned when it outlived its provider's sticky
     /// lifetime (#1640).
     ///
     /// # Cancel safety
     ///
     /// Dropping the future may leave the partition undeleted, which the
-    /// Run's discard deletes, or the warning unwritten; the jar and the
-    /// proxy are forgotten before its first `.await`.
+    /// Run's discard deletes, or the warning unwritten; the jar, the local
+    /// source and the proxy are forgotten before its first `.await`.
     pub async fn forget_session(&self, session: &SessionId) {
         self.jars.forget(session);
+        self.sessions.forget(session);
         let proxy = self
             .proxies
             .as_ref()

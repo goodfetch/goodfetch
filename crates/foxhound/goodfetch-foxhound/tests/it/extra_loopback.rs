@@ -364,3 +364,90 @@ fn a_replacement_on_the_browser_tier_reaches_the_site_from_the_pools_unblocked_a
         "{report}"
     );
 }
+
+/// Over a crawl whose blocks retire several Sessions across distinct local
+/// sources, the HTTP tier drops each closed Session's local-source transport
+/// and never holds more transports than open Sessions (#2369).
+///
+/// Covers: story:4-108, story:4-109
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "sync test reads the engine's trace log after the crawl ended"
+)]
+fn a_crawl_whose_blocks_retire_sessions_drops_closed_local_transports_and_bounds_kept_count() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let mut engine = crate::site::engine_on(&env, &proving_ground);
+    let pages = [
+        "/consistency/1",
+        "/consistency/2",
+        "/version",
+        "/probe",
+        "/cdp-probe",
+    ];
+    let seeds: Vec<Value> = pages
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
+        .collect();
+    let mut settings = settings(&proving_ground, &["127.0.0.2", "127.0.0.4", "127.0.0.8"]);
+    settings["session"] = json!({ "pool": { "max_size": 1 } });
+
+    let report = crawl_with(
+        &mut engine,
+        "retire-transports",
+        &seeds,
+        &settings,
+        &mut |_, handle| {
+            answer(
+                handle,
+                &["/consistency/1", "/consistency/2", "/version", "/probe"],
+            )
+        },
+    );
+    assert!(engine.finished());
+
+    let events: Vec<(String, u64, u64)> = std::fs::read_dir(env.home().join("logs"))
+        .unwrap()
+        .flat_map(|file| {
+            std::fs::read_to_string(file.unwrap().path())
+                .unwrap()
+                .lines()
+                .filter_map(|line| {
+                    let parsed: Value = serde_json::from_str(line).ok()?;
+                    if parsed["target"].as_str()? != "goodfetch::session_transports" {
+                        return None;
+                    }
+                    let fields = &parsed["fields"];
+                    Some((
+                        fields["action"].as_str()?.to_owned(),
+                        fields["kept"].as_u64()?,
+                        fields["open_sessions"].as_u64()?,
+                    ))
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    let built = events
+        .iter()
+        .filter(|(action, _, _)| action == "built")
+        .count();
+    let dropped = events
+        .iter()
+        .filter(|(action, _, _)| action == "dropped")
+        .count();
+    let bounded = events
+        .iter()
+        .all(|(_, kept, open)| kept <= open && *kept <= 1);
+    assert_eq!(
+        (
+            &report["result"]["lifecycle"],
+            built >= 3,
+            dropped >= 2,
+            bounded
+        ),
+        (&json!("finished"), true, true, true),
+        "events={events:?}\nreport={report}"
+    );
+}

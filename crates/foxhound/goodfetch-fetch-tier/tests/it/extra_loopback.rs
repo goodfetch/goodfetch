@@ -304,3 +304,102 @@ fn an_interface_binds_its_device(#[values(Stack::Reqwest, Stack::Wreq)] stack: S
         (Ok(200), vec![IpAddr::V4(address)], true, Vec::new())
     );
 }
+
+/// An interface name binds the socket to its device index on macOS
+/// (`IP_BOUND_IF`): `lo0`'s address bound to `lo0` reaches the site from that
+/// address, and a missing interface fails before connecting.
+///
+/// Covers: story:4-108, row:SA-25
+#[cfg(target_os = "macos")]
+#[rstest]
+fn an_interface_binds_its_device_on_macos(#[values(Stack::Reqwest, Stack::Wreq)] stack: Stack) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let address = Ipv4Addr::new(127, 0, 0, 4);
+    let on = |interface: String, path: &str| {
+        let transport = bound(
+            stack,
+            &proving_ground,
+            LocalSource {
+                ipv4: Some(address),
+                ipv6: None,
+                interface: Some(interface),
+            },
+            vec![(
+                "catalog.test".to_owned(),
+                vec![proving_ground.address().ip()],
+            )],
+        );
+        let hop = Hop::get(
+            Url::parse(&format!(
+                "http://catalog.test:{}{path}",
+                proving_ground.address().port()
+            ))
+            .unwrap(),
+        );
+        running_clock_runtime().block_on(async {
+            transport
+                .send(&hop, Reuse::Never)
+                .await
+                .map(|sent| sent.status)
+        })
+    };
+
+    let on_loopback = on("lo0".to_owned(), "/catalog/3");
+    let elsewhere = on("goodfetch-no-such-if0".to_owned(), "/catalog/4");
+    let observations = proving_ground.observations().unwrap();
+
+    assert_eq!(
+        (
+            on_loopback,
+            sources_of(&observations, "/catalog/3"),
+            elsewhere.is_err(),
+            sources_of(&observations, "/catalog/4"),
+        ),
+        (Ok(200), vec![IpAddr::V4(address)], true, Vec::new())
+    );
+}
+
+/// An interface name binds the socket by its local address on Windows
+/// (strong host model, ADR 0044), reaching the site from that address.
+///
+/// Covers: story:4-108, row:SA-25
+#[cfg(windows)]
+#[rstest]
+fn an_interface_binds_its_address_on_windows(#[values(Stack::Reqwest, Stack::Wreq)] stack: Stack) {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let address = Ipv4Addr::new(127, 0, 0, 4);
+    let transport = bound(
+        stack,
+        &proving_ground,
+        LocalSource {
+            ipv4: Some(address),
+            ipv6: None,
+            interface: Some("Loopback Pseudo-Interface 1".to_owned()),
+        },
+        vec![(
+            "catalog.test".to_owned(),
+            vec![proving_ground.address().ip()],
+        )],
+    );
+    let hop = Hop::get(
+        Url::parse(&format!(
+            "http://catalog.test:{}/catalog/3",
+            proving_ground.address().port()
+        ))
+        .unwrap(),
+    );
+    let status = running_clock_runtime().block_on(async {
+        transport
+            .send(&hop, Reuse::Never)
+            .await
+            .map(|sent| sent.status)
+    });
+    let observations = proving_ground.observations().unwrap();
+
+    assert_eq!(
+        (status, sources_of(&observations, "/catalog/3")),
+        (Ok(200), vec![IpAddr::V4(address)])
+    );
+}

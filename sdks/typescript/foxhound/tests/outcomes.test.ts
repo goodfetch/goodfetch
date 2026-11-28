@@ -86,9 +86,10 @@ describe("Crawl outcomes, failedRequests and retryFailed (Attached engine)", () 
         await ctx.push(notes, { url: blockUrl });
       });
 
+      const retry = { max: 0 };
       const crawlSettings: CrawlSettings = {
         ...siteSettings(provingGround),
-        crawl: { handler: { concurrency: 1 }, retry: { max: 0 } },
+        crawl: { handler: { concurrency: 1 }, retry },
       };
 
       // oxlint-disable-next-line no-restricted-properties -- Foxhound.connect is the SDK entry point.

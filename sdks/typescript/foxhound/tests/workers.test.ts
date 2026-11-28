@@ -134,6 +134,7 @@ describe("workers: one crawl across Node processes", () => {
         // 3. Killing one worker mid-attempt leaves its leased attempt `client_gone`,
         //    retried on a surviving process, and the crawl completes with no duplicate Record.
         const killMarker = join(markerDir, "killed-once");
+        const retry = { max: 2 };
         const recoveryRun = await foxhound.startCrawl(namedCatalogCrawl, {
           seeds: [
             seed(catalogStart, listingLabel, {
@@ -142,7 +143,7 @@ describe("workers: one crawl across Node processes", () => {
               delayMs: 80,
             }),
           ],
-          settings: { crawl: { handler: { concurrency: 1 }, retry: { max: 2 } } },
+          settings: { crawl: { handler: { concurrency: 1 }, retry } },
           workers: { count: 3, module: FIXTURE_MODULE, export: "namedCatalogCrawl" },
         });
         try {

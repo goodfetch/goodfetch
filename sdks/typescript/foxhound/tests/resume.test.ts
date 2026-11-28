@@ -66,6 +66,11 @@ async function restoreRunFile(src: string, dst: string): Promise<void> {
   await copyFile(src, dst);
 }
 
+function crawlWithRetry(max: number): NonNullable<CrawlSettings["crawl"]> {
+  const retry = { max };
+  return { handler: { concurrency: 1 }, retry };
+}
+
 describe("Crawl Run ID resume, ended, crash recovery and conflicts (Attached engine)", () => {
   test.override("product", "foxhound");
   test.override("provingGroundSeed", 1493);
@@ -96,7 +101,7 @@ describe("Crawl Run ID resume, ended, crash recovery and conflicts (Attached eng
       const baseSettings: CrawlSettings = {
         ...siteSettings(provingGround),
         runState: { durability: "full" },
-        crawl: { handler: { concurrency: 1 }, retry: { max: 1 } },
+        crawl: crawlWithRetry(1),
       };
 
       try {
@@ -151,6 +156,7 @@ describe("Crawl Run ID resume, ended, crash recovery and conflicts (Attached eng
           await ctx.push(items2, { id: "two", title: "Second" });
         });
 
+        const retry = { max: 0 };
         // oxlint-disable-next-line no-restricted-properties -- Foxhound.connect is the SDK entry point.
         const fh2 = await Foxhound.connect({
           env,
@@ -158,7 +164,7 @@ describe("Crawl Run ID resume, ended, crash recovery and conflicts (Attached eng
           settings: {
             ...siteSettings(provingGround),
             runState: { durability: "full" },
-            crawl: { handler: { concurrency: 1 }, retry: { max: 0 } },
+            crawl: { handler: { concurrency: 1 }, retry },
           },
         });
         try {
@@ -306,7 +312,7 @@ describe("Crawl Run ID resume, ended, crash recovery and conflicts (Attached eng
           settings: {
             ...siteSettings(provingGround),
             runState: { durability: "full" },
-            crawl: { handler: { concurrency: 1 }, retry: { max: 0 } },
+            crawl: { handler: { concurrency: 1 }, retry },
           },
         });
         try {

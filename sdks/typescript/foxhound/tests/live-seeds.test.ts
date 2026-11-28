@@ -244,9 +244,10 @@ describe("Seeds of a running crawl (Attached engine)", () => {
           handledChildren.push(ctx.request.url);
         });
 
+        const retry = { max: 2, handlerFailed: true };
         const stageRun = await foxhound.startCrawl(stageCrawl, {
           seeds: [seed(rootUrl, root)],
-          settings: { crawl: { retry: { max: 2, handlerFailed: true } } },
+          settings: { crawl: { retry } },
         });
         const stageReport = await stageRun.finish();
         expect(stageReport.lifecycle).toBe("finished");

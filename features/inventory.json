@@ -1500,7 +1500,7 @@
     {
       "id": "error:crawl_not_importable",
       "kind": "error",
-      "area": null,
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [
@@ -1801,7 +1801,7 @@
     {
       "id": "error:header_forbidden",
       "kind": "error",
-      "area": null,
+      "area": 4,
       "milestone": null,
       "status": "active",
       "products": [

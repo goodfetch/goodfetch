@@ -3,6 +3,8 @@
 // Connection, and serves the engine's `crawl_request.handle` requests on
 // the event loop. The script fails the test on a message it does not
 // expect and on a step left unused.
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { playScript, protocolCounts, test } from "@goodfetch/test-support";
 import { describe, expect, vi } from "vitest";
 import { z } from "zod";
@@ -855,9 +857,12 @@ describe("a Crawl's wiring mistakes", () => {
           yield seed(`https://shop.test/${String(i)}`, pageMillion);
         }
       }
+      // Expose V8's GC so we measure true live retained heap rather than V8's
+      // lazy pre-sweep allocation sawtooth on large-RAM hosts.
+      setFlagsFromString("--expose_gc");
       let count = 0;
       let heapAfterWarmup = 0;
-      let peakHeapDelta = 0;
+      let peakRetainedDelta = 0;
       let firstAnswer: unknown;
       let lastAnswer: unknown;
       for await (const ans of runMillion.addSeeds(genMillion())) {
@@ -865,10 +870,12 @@ describe("a Crawl's wiring mistakes", () => {
         if (count === 1) firstAnswer = ans;
         if (count === 1_000_000) lastAnswer = ans;
         if (count === 50_000) {
+          runInNewContext("gc()");
           heapAfterWarmup = process.memoryUsage().heapUsed;
-        } else if (count > 50_000 && count % 100_000 === 0) {
+        } else if (count === 500_000 || count === 1_000_000) {
+          runInNewContext("gc()");
           const delta = process.memoryUsage().heapUsed - heapAfterWarmup;
-          if (delta > peakHeapDelta) peakHeapDelta = delta;
+          if (delta > peakRetainedDelta) peakRetainedDelta = delta;
         }
       }
       await foxhoundMillion.close();
@@ -876,8 +883,8 @@ describe("a Crawl's wiring mistakes", () => {
       expect(firstAnswer).toMatchObject({ kind: "added", url: "https://shop.test/1" });
       expect(lastAnswer).toMatchObject({ kind: "added", url: "https://shop.test/1000000" });
       expect(large.getMaxInFlight()).toBeLessThanOrEqual(256);
-      // 1M seeds buffered in memory would require >200 MB; bounded streaming stays flat (< 64 MB delta).
-      expect(peakHeapDelta).toBeLessThan(64 * 1024 * 1024);
+      // 1M seeds buffered in memory would retain >200 MB; bounded streaming stays flat (< 32 MB retained).
+      expect(peakRetainedDelta).toBeLessThan(32 * 1024 * 1024);
     },
   );
 

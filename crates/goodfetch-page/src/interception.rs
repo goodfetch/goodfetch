@@ -531,6 +531,9 @@ pub(crate) struct EngineRequests {
     signing: Option<Arc<RequestSigner>>,
     /// The Session's Response cache and recording source, consulted at step 5.
     caching: Option<Arc<Caching>>,
+    /// The Run's trace, where Provenance marks for replayed/cached responses
+    /// are recorded when `provenance.log` is on (ADR 0105, issue 802).
+    trace: Option<RunTrace>,
 }
 
 /// A request the engine sent itself, paused at `id`, as the browser sent
@@ -546,6 +549,11 @@ impl EngineRequests {
     /// The Session's Response cache and recording source, if enabled.
     pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
         self.caching.as_ref()
+    }
+
+    /// The Run's trace for recording Provenance entries.
+    pub(crate) fn trace(&self) -> Option<&RunTrace> {
+        self.trace.as_ref()
     }
 
     /// Whether `url` is answered from the Run's Response recording rather than
@@ -892,6 +900,7 @@ impl Interception {
                 blocking: blocking.clone(),
                 signing: session.signing.clone(),
                 caching: session.caching.clone(),
+                trace: Some(run.lists.trace.clone()),
             },
             on_document,
             caching: session.caching.clone(),
@@ -1041,6 +1050,7 @@ impl Interception {
                             blocking: blocking.clone(),
                             signing: session.signing.clone(),
                             caching: session.caching.clone(),
+                            trace: Some(run.lists.trace.clone()),
                         },
                         on_document: None,
                         caching: session.caching.clone(),
@@ -1212,6 +1222,7 @@ impl Interception {
             blocking,
             signing: session.signing.clone(),
             caching: session.caching.clone(),
+            trace: Some(run.lists.trace.clone()),
         })
     }
 }

@@ -81,8 +81,14 @@ pub enum RecordingInvalid {
 /// What a Response recording answers a request with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Answer {
-    /// The recorded response, shared with the index rather than copied.
-    Answered(Arc<Served>),
+    /// The recorded response, shared with the index rather than copied, along
+    /// with when it was recorded.
+    Answered {
+        /// The recorded head and body.
+        served: Arc<Served>,
+        /// When the response was recorded (`WARC-Date` or HTTP `Date`).
+        recorded_at: Option<SystemTime>,
+    },
     /// The recorded response, which broke off: it replays as
     /// `response_truncated`.
     Cut(Arc<Served>),
@@ -315,7 +321,10 @@ impl Replay {
         if entry.cut {
             Answer::Cut(Arc::clone(&entry.served))
         } else {
-            Answer::Answered(Arc::clone(&entry.served))
+            Answer::Answered {
+                served: Arc::clone(&entry.served),
+                recorded_at: entry.recorded_at,
+            }
         }
     }
 
@@ -469,7 +478,13 @@ impl Replayed {
 impl Recording for Replayed {
     fn recorded<'a>(&'a self, request: &'a CacheRequest) -> Replaying<'a> {
         let answer = match self.replay.answer(request) {
-            Answer::Answered(served) => Recorded::Answered(served),
+            Answer::Answered {
+                served,
+                recorded_at,
+            } => Recorded::Answered {
+                served,
+                recorded_at,
+            },
             Answer::Cut(served) => Recorded::Cut(served),
             Answer::Missed(miss) => Recorded::Missed(NotRecorded {
                 method: miss.method,

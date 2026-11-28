@@ -307,6 +307,9 @@ struct ServedPage {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     certificate_exception: Option<CertificateExceptionMark>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network (ADRs 0046 and 0105, issue 802).
+    origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// What the attempt it belongs to handed over: the navigation gate and
     /// the lease its navigations and `page.request`s go through.
     hand_over: Arc<HandOver>,
@@ -350,6 +353,9 @@ pub struct PageFacts {
     /// through, as Provenance marks it (ADR 0042, pitfall H03); `None`
     /// when its certificate verified.
     pub certificate_exception: Option<CertificateExceptionMark>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network, as Provenance marks it (ADRs 0046 and 0105, issue 802).
+    pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// The AI-use signals its response carried.
     pub use_signals: UseSignals,
     /// The call that escalated it to the browser, the first its tier could
@@ -1403,6 +1409,7 @@ impl FetchTiers {
             fetched.body.clone(),
         );
         let certificate_exception = fetched.certificate_exception.as_ref().map(mark);
+        let origin = fetched.origin.clone();
         // The document is decoded and streamed on the page's own task, and
         // parsed and read on the CPU pool, in one hand-off, never on an
         // async worker (STYLE.md; ADR 0138; issue 2189).
@@ -1476,6 +1483,7 @@ impl FetchTiers {
                 classified: opened.classified.clone(),
                 own: Some((response, body)),
                 certificate_exception,
+                origin,
                 hand_over: Arc::clone(hand_over),
                 redirects: redirects.into(),
             }),
@@ -1583,6 +1591,7 @@ impl FetchTiers {
             // which relays them unread: no `tls.accept_invalid_certs`
             // exception is taken on this tier.
             certificate_exception: None,
+            origin: None,
             text: None,
             pass: None,
         };
@@ -1615,6 +1624,7 @@ impl FetchTiers {
             not_document: page.not_document.clone(),
             encoding: page.encoding(),
             certificate_exception: page.certificate_exception.clone(),
+            origin: page.origin.clone(),
             use_signals: pages.use_signals.get(page_id).cloned().unwrap_or_default(),
             escalated: page.escalated,
         })
@@ -2090,6 +2100,7 @@ impl FetchTiers {
             response: page.own.map(|(response, _)| response),
             not_document: page.not_document,
             certificate_exception: page.certificate_exception,
+            origin: page.origin,
             use_signals,
             escalated: page.escalated,
         })
@@ -2877,6 +2888,7 @@ pub async fn record_tier(
     label: &str,
     tier: &TierProvenance,
     encoding: Option<EncodingProvenance>,
+    origin: Option<&goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
 ) -> Option<EncodingProvenance> {
     // The browser reads a document only a guess decodes with its own
     // detector (ADR 0119).
@@ -2888,6 +2900,9 @@ pub async fn record_tier(
     } else {
         encoding
     };
+    if !trace.logs_provenance() {
+        return encoding;
+    }
     let mut entry = serde_json::json!({
         "action": FETCH_TIER_ACTION,
         "crawl_request_id": request_id,
@@ -2912,6 +2927,9 @@ pub async fn record_tier(
     }
     if let Some(calls_sent_on) = tier.calls_sent_on {
         entry["calls_sent_on"] = serde_json::json!(calls_sent_on);
+    }
+    if let Some(origin) = origin {
+        entry["origin"] = serde_json::json!(origin);
     }
     provenance(trace, entry).await;
     encoding

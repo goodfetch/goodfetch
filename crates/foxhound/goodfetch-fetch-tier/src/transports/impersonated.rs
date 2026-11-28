@@ -556,6 +556,7 @@ impl Wreq {
                 reused,
                 decoded: false,
                 certificate_exception: None,
+                origin: None,
             })
         }
     }

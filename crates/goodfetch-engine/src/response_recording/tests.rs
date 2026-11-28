@@ -100,7 +100,7 @@ fn request(method: &str, url: &str, headers: &[(&str, &str)], body: &str) -> Cac
 /// The body an answer serves, or what it missed.
 fn body(answer: Answer) -> Result<String, Miss> {
     match answer {
-        Answer::Answered(served) => Ok(String::from_utf8_lossy(&served.body).into_owned()),
+        Answer::Answered { served, .. } => Ok(String::from_utf8_lossy(&served.body).into_owned()),
         Answer::Cut(served) => panic!("a cut response: {served:?}"),
         Answer::Missed(miss) => Err(miss),
     }
@@ -115,18 +115,22 @@ fn answers_a_request_of_the_recorded_method_and_url_whatever_its_fragment() {
 
     let answer = replay.answer(&request("GET", "https://example.test/a?x=1#top", &[], ""));
 
+    let expected_at = SystemTime::from(DATE.parse::<jiff::Timestamp>().expect("a date"));
     assert_eq!(
         answer,
-        Answer::Answered(Arc::new(Served {
-            head: ResponseHead {
-                status: 200,
-                headers: vec![
-                    ("content-type".to_owned(), "text/plain".to_owned()),
-                    ("content-length".to_owned(), "5".to_owned()),
-                ],
-            },
-            body: Bytes::from_static(b"hello"),
-        }))
+        Answer::Answered {
+            served: Arc::new(Served {
+                head: ResponseHead {
+                    status: 200,
+                    headers: vec![
+                        ("content-type".to_owned(), "text/plain".to_owned()),
+                        ("content-length".to_owned(), "5".to_owned()),
+                    ],
+                },
+                body: Bytes::from_static(b"hello"),
+            }),
+            recorded_at: Some(expected_at),
+        }
     );
     assert!(body(replay.answer(&request("HEAD", A, &[], ""))).is_err());
     assert!(
@@ -309,17 +313,20 @@ fn answers_a_server_not_modified_revisit_with_the_originals_payload_and_updated_
 
     assert_eq!(
         revisited,
-        Answer::Answered(Arc::new(Served {
-            head: ResponseHead {
-                status: 200,
-                headers: vec![
-                    ("content-type".to_owned(), "text/plain".to_owned()),
-                    ("content-length".to_owned(), "5".to_owned()),
-                    ("etag".to_owned(), "\"2\"".to_owned()),
-                ],
-            },
-            body: Bytes::from_static(b"hello"),
-        }))
+        Answer::Answered {
+            served: Arc::new(Served {
+                head: ResponseHead {
+                    status: 200,
+                    headers: vec![
+                        ("content-type".to_owned(), "text/plain".to_owned()),
+                        ("content-length".to_owned(), "5".to_owned()),
+                        ("etag".to_owned(), "\"2\"".to_owned()),
+                    ],
+                },
+                body: Bytes::from_static(b"hello"),
+            }),
+            recorded_at: None,
+        }
     );
 }
 
@@ -347,13 +354,16 @@ fn answers_an_identical_payload_revisit_with_its_own_head_and_the_originals_body
 
     assert_eq!(
         answer,
-        Answer::Answered(Arc::new(Served {
-            head: ResponseHead {
-                status: 200,
-                headers: vec![("x-copy".to_owned(), "yes".to_owned())],
-            },
-            body: Bytes::from_static(b"hello"),
-        }))
+        Answer::Answered {
+            served: Arc::new(Served {
+                head: ResponseHead {
+                    status: 200,
+                    headers: vec![("x-copy".to_owned(), "yes".to_owned())],
+                },
+                body: Bytes::from_static(b"hello"),
+            }),
+            recorded_at: None,
+        }
     );
 }
 
@@ -597,7 +607,7 @@ fn assert_recorded_warc_redacted_and_replays(
         &format!(r#"{{"token":"{secret}"}}"#),
     ));
     assert!(
-        matches!(answered, Answer::Answered(served) if served.body.as_ref() == b"hello %api_key%")
+        matches!(answered, Answer::Answered { served, .. } if served.body.as_ref() == b"hello %api_key%")
     );
     let cut_answer = replayed.answer(&request("GET", "https://example.test/cut", &[], ""));
     assert!(matches!(cut_answer, Answer::Cut(_)));

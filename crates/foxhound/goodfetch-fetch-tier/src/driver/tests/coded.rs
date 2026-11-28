@@ -78,6 +78,7 @@ impl Transport for Coded {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                origin: None,
             })
         })
     }

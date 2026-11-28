@@ -113,7 +113,12 @@ impl Recording for Recorded {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.url.clone());
-        Box::pin(async { RecordingAnswer::Answered(Arc::new(served("recording"))) })
+        Box::pin(async {
+            RecordingAnswer::Answered {
+                served: Arc::new(served("recording")),
+                recorded_at: None,
+            }
+        })
     }
 }
 
@@ -136,7 +141,7 @@ impl Recording for Missing {
 fn body(source: &Source) -> Option<&[u8]> {
     match source {
         Source::Routed(served) => Some(&served.body),
-        Source::Recorded(served) | Source::RecordedCut(served) => Some(&served.body),
+        Source::Recorded { served, .. } | Source::RecordedCut(served) => Some(&served.body),
         Source::Fresh(hit) => Some(&hit.body),
         Source::NotRecorded(_) | Source::Stale(_) | Source::Network => None,
     }
@@ -176,7 +181,7 @@ async fn a_route_then_the_recording_then_the_cache_then_the_network_answers() {
 
     assert_eq!(body(&routed), Some(&b"<p>route</p>"[..]));
     assert_eq!((asked_after_route, lookups_after_route), (0, 0));
-    assert!(matches!(replayed, Source::Recorded(_)));
+    assert!(matches!(replayed, Source::Recorded { .. }));
     assert_eq!(body(&replayed), Some(&b"<p>recording</p>"[..]));
     assert_eq!(lookups_after_recording, 0);
     assert!(matches!(from_cache, Source::Fresh(_)));

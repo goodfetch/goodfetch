@@ -86,6 +86,7 @@ impl Transport for Untyped {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                origin: None,
             })
         })
     }

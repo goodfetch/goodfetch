@@ -12,6 +12,7 @@
 
 mod determinism;
 mod record;
+mod report_provenance;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -52,6 +53,7 @@ pub(crate) enum Case {
     RecordCacheAndKillResume,
     ReplayClockAndRandomness,
     LoopbackResolveBypassDuringReplay,
+    ReportAndProvenanceOfOldRecording,
 }
 
 impl Case {
@@ -87,6 +89,9 @@ impl Case {
             }
             "a-host-mapped-by-resolve-to-loopback-is-reached-live-during-replay-while-other-hosts-replay" => {
                 Self::LoopbackResolveBypassDuringReplay
+            }
+            "a-recording-shows-its-fields-in-the-run-report-marks-provenance-and-replays-old-recordings-without-warning" => {
+                Self::ReportAndProvenanceOfOldRecording
             }
             _ => return None,
         })
@@ -128,6 +133,11 @@ impl Case {
             }
             Self::LoopbackResolveBypassDuringReplay => {
                 determinism::loopback_resolve_bypass_during_replay(connection, target, site, checks)
+            }
+            Self::ReportAndProvenanceOfOldRecording => {
+                report_provenance::report_and_provenance_of_old_recording(
+                    connection, target, site, checks,
+                )
             }
         }
     }

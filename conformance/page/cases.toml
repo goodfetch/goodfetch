@@ -857,3 +857,7 @@ covers = ["story:6-58", "operation:run.start", "operation:page.goto", "operation
 [[capability.case]]
 id = "a-host-mapped-by-resolve-to-loopback-is-reached-live-during-replay-while-other-hosts-replay"
 covers = ["story:6-59", "setting:network.resolve", "operation:run.start", "operation:page.goto", "operation:page.evaluate", "operation:run.finish"]
+
+[[capability.case]]
+id = "a-recording-shows-its-fields-in-the-run-report-marks-provenance-and-replays-old-recordings-without-warning"
+covers = ["story:6-60", "setting:provenance.log", "operation:run.start", "operation:page.goto", "operation:page.request", "operation:run.finish"]

@@ -140,6 +140,9 @@ pub struct Sent {
     /// host was reached through (ADR 0042); none when its certificate
     /// verified, or it came over plain HTTP.
     pub certificate_exception: Option<ExceptionUsed>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network (ADRs 0046 and 0105, issue 802).
+    pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
 }
 
 impl std::fmt::Debug for Sent {
@@ -507,6 +510,10 @@ pub struct Fetched {
     /// The invalid-certificate exception its host was reached through (ADR
     /// 0042, pitfall H03), which the Provenance of its Records marks.
     pub certificate_exception: Option<ExceptionUsed>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network, which the Provenance of its Records marks (ADRs 0046 and
+    /// 0105, issue 802).
+    pub origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// What was read of the text of a crawl request's own document, which
     /// its `Content-Type` typed as one, as its bytes arrived (issue 2187):
     /// none for any other body, or when its encoding was still to find.
@@ -746,6 +753,7 @@ async fn fetch_on(
                 body: Bytes::new(),
                 unaccepted: Some(refused),
                 certificate_exception: sent.certificate_exception,
+                origin: sent.origin,
                 text: None,
                 pass: None,
             });
@@ -780,6 +788,7 @@ async fn fetch_on(
                     body: Bytes::new(),
                     unaccepted: Some(refused),
                     certificate_exception: sent.certificate_exception,
+                    origin: sent.origin,
                     text: None,
                     pass: None,
                 });
@@ -807,6 +816,7 @@ async fn fetch_on(
             },
             unaccepted,
             certificate_exception: sent.certificate_exception,
+            origin: sent.origin,
             text,
             pass,
         })

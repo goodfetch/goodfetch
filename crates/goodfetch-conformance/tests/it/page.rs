@@ -370,7 +370,7 @@ fn the_page_suite_proves_the_response_cache_against_collies_attached_engine() {
     prove(RESPONSE_CACHE);
 }
 
-/// Covers: story:6-52, story:6-53, story:6-54, story:6-55, story:6-56, story:6-57, story:6-58, story:6-59, story:6-61, error:response_not_recorded, error:recording_invalid, error:response_truncated, setting:site_preferences.read_robots_txt_for_navigation, setting:network.resolve, setting:cache.mode, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:run.finish
+/// Covers: story:6-52, story:6-53, story:6-54, story:6-55, story:6-56, story:6-57, story:6-58, story:6-59, story:6-60, story:6-61, error:response_not_recorded, error:recording_invalid, error:response_truncated, setting:site_preferences.read_robots_txt_for_navigation, setting:network.resolve, setting:cache.mode, setting:provenance.log, operation:run.start, operation:page.goto, operation:page.request, operation:page.evaluate, operation:run.finish
 #[test]
 fn the_page_suite_proves_response_recordings_against_collies_attached_engine() {
     prove(RESPONSE_RECORDING);

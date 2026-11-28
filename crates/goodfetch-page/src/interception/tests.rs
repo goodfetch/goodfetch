@@ -51,6 +51,7 @@ fn state_of(session: &SessionInterception, failure: Option<LeftFailure>) -> Page
             },
             signing: None,
             caching: None,
+            trace: None,
         },
         pending: Arc::clone(&session.pending),
         navigation: PendingNavigation::default(),

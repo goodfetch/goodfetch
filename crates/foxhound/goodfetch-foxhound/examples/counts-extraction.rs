@@ -209,6 +209,7 @@ impl Transport for Site {
             reused: false,
             decoded: false,
             certificate_exception: None,
+            origin: None,
         })))
     }
 }

@@ -551,8 +551,30 @@ impl<'a> Load<'a> {
                     self.fail(paused.id(), AbortReason::Aborted).await;
                     return Ok(cut(response, &served.body));
                 }
-                Source::Recorded(served) => {
+                Source::Recorded {
+                    served,
+                    recorded_at,
+                } => {
                     let response = self.recorded_response(current_url.as_str(), &served.head);
+                    if let Some(trace) = self.sender.trace().filter(|t| t.logs_provenance()) {
+                        let mut origin = serde_json::json!({ "kind": "response_recording" });
+                        if let Some(at) = recorded_at
+                            && let Ok(ts) = goodfetch_protocol::point_in_time::to_rfc3339(at)
+                        {
+                            origin["recorded_at"] = serde_json::json!(ts);
+                        }
+                        crate::trace::provenance(
+                            trace,
+                            serde_json::json!({
+                                "action": "response_recording",
+                                "method": &method,
+                                "url": current_url.as_str(),
+                                "status": served.head.status,
+                                "origin": origin,
+                            }),
+                        )
+                        .await;
+                    }
                     if let Some(next_url) = self
                         .replay_redirect(
                             paused.id(),

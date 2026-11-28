@@ -1371,6 +1371,9 @@ pub(crate) struct Fetched {
     /// The invalid-certificate exception its document's host was reached
     /// through (ADR 0042).
     pub(crate) certificate_exception: Option<CertificateExceptionMark>,
+    /// The Response recording or Response cache that answered in place of
+    /// the network (ADRs 0046 and 0105, issue 802).
+    pub(crate) origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
     /// `ignored` when its request's URL is one its origin's robots.txt
     /// disallows, fetched while `site_preferences.respect_robots_txt` was
     /// off (ADR 0086).
@@ -1518,7 +1521,7 @@ fn commit_records(
         request_id: id.to_owned(),
         tier: fetched.tier.clone(),
         encoding: fetched.encoding.clone(),
-        origin: None,
+        origin: fetched.origin.clone(),
         clean_up_rules,
         wall: None,
         payment: None,

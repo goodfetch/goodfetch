@@ -105,6 +105,7 @@ impl Transport for Site {
                 reused: false,
                 decoded: false,
                 certificate_exception: None,
+                origin: None,
             })
         })
     }
@@ -391,6 +392,33 @@ async fn a_run_with_the_cache_off_gets_no_cached_transport() {
 /// `response_not_recorded` (not retryable), and fails a truncated recorded
 /// response with `response_truncated` (ADR 0105).
 ///
+const REPLAY_WARC: &str = concat!(
+    "WARC/1.1\r\n",
+    "WARC-Type: warcinfo\r\n",
+    "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\n",
+    "WARC-Date: 2026-01-05T09:00:00Z\r\n",
+    "Content-Type: application/warc-fields\r\n",
+    "Content-Length: 23\r\n\r\n",
+    "software: goodfetch/0.1\r\n\r\n",
+    "WARC/1.1\r\n",
+    "WARC-Type: response\r\n",
+    "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000002>\r\n",
+    "WARC-Date: 2026-01-05T09:00:01Z\r\n",
+    "WARC-Target-URI: https://cache.test/page\r\n",
+    "Content-Type: application/http; msgtype=response\r\n",
+    "Content-Length: 55\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>warc</p>\r\n\r\n",
+    "WARC/1.1\r\n",
+    "WARC-Type: response\r\n",
+    "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000003>\r\n",
+    "WARC-Date: 2026-01-05T09:00:02Z\r\n",
+    "WARC-Target-URI: https://cache.test/cut\r\n",
+    "WARC-Truncated: disconnect\r\n",
+    "Content-Type: application/http; msgtype=response\r\n",
+    "Content-Length: 50\r\n\r\n",
+    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>cut\r\n\r\n",
+);
+
 /// Covers: story:6-52, story:6-53
 #[tokio::test(start_paused = true)]
 async fn a_replaying_http_tier_answers_recorded_fails_missing_and_truncates_cut() {
@@ -398,35 +426,9 @@ async fn a_replaying_http_tier_answers_recorded_fails_missing_and_truncates_cut(
     use goodfetch_engine::response_recording::Recordings;
     use goodfetch_protocol::response_limits::DEFAULT_MAX_DECOMPRESSION_RATIO;
 
-    let warc = concat!(
-        "WARC/1.1\r\n",
-        "WARC-Type: warcinfo\r\n",
-        "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\n",
-        "WARC-Date: 2026-01-05T09:00:00Z\r\n",
-        "Content-Type: application/warc-fields\r\n",
-        "Content-Length: 23\r\n\r\n",
-        "software: goodfetch/0.1\r\n\r\n",
-        "WARC/1.1\r\n",
-        "WARC-Type: response\r\n",
-        "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000002>\r\n",
-        "WARC-Date: 2026-01-05T09:00:01Z\r\n",
-        "WARC-Target-URI: https://cache.test/page\r\n",
-        "Content-Type: application/http; msgtype=response\r\n",
-        "Content-Length: 55\r\n\r\n",
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>warc</p>\r\n\r\n",
-        "WARC/1.1\r\n",
-        "WARC-Type: response\r\n",
-        "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000003>\r\n",
-        "WARC-Date: 2026-01-05T09:00:02Z\r\n",
-        "WARC-Target-URI: https://cache.test/cut\r\n",
-        "WARC-Truncated: disconnect\r\n",
-        "Content-Type: application/http; msgtype=response\r\n",
-        "Content-Length: 50\r\n\r\n",
-        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>cut\r\n\r\n",
-    );
     let env = TestEnv::new();
     let warc_file = env.folder().join("site.warc");
-    std::fs::write(&warc_file, warc.as_bytes()).unwrap();
+    std::fs::write(&warc_file, REPLAY_WARC.as_bytes()).unwrap();
     let warc_path = warc_file.to_string_lossy().into_owned();
     let owner = TaskOwner::root(BlockingPolicy::Inline);
     let recordings = Recordings::default();
@@ -467,6 +469,10 @@ async fn a_replaying_http_tier_answers_recorded_fails_missing_and_truncates_cut(
     .await
     .unwrap();
     assert_eq!(&hit.body[..], b"<p>warc</p>");
+    assert!(matches!(
+        hit.origin,
+        Some(goodfetch_protocol::foxhound::provenance::ResponseOrigin::ResponseRecording { .. })
+    ));
 
     let missing = crate::driver::fetch(
         transport.as_ref(),

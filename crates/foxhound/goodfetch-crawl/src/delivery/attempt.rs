@@ -1504,13 +1504,31 @@ impl On<'_> {
         match self.found(tiering, page_id, facts, (choice, how)).await {
             Found::Unreadable(call) => {
                 tiers.close(page_id);
-                record_tier(&run.trace, leased, lease, recorded.clone(), None, None).await;
+                record_tier(
+                    &run.trace,
+                    leased,
+                    lease,
+                    recorded.clone(),
+                    None,
+                    None,
+                    facts.origin.clone(),
+                )
+                .await;
                 let message = "The document declares no encoding and is not UTF-8: only the browser reads it.";
                 return Some(Ok(escalated_unhandled(ATTEMPT_ENDED.name, message, call)));
             }
             Found::Blocked(cause, error) => {
                 tiers.close(page_id);
-                record_tier(&run.trace, leased, lease, recorded.clone(), None, None).await;
+                record_tier(
+                    &run.trace,
+                    leased,
+                    lease,
+                    recorded.clone(),
+                    None,
+                    None,
+                    facts.origin.clone(),
+                )
+                .await;
                 return Some(match self.on_block(&cause, choice, how) {
                     Action::MoveToBrowser => Ok(escalated_unhandled(
                         BLOCKED,
@@ -1529,6 +1547,7 @@ impl On<'_> {
             recorded.clone(),
             facts.encoding.clone(),
             facts.certificate_exception.clone(),
+            facts.origin.clone(),
         )
         .await;
         match judged(&run.identity, tiering, page_id).await {
@@ -1790,6 +1809,7 @@ impl On<'_> {
             tier_provenance(&browser, how),
             encoding.clone(),
             certificate_exception,
+            None,
         )
         .await;
         self.in_flight
@@ -2019,6 +2039,7 @@ async fn record_tier(
     tier: TierProvenance,
     encoding: Option<EncodingProvenance>,
     certificate_exception: Option<CertificateExceptionMark>,
+    origin: Option<goodfetch_protocol::foxhound::provenance::ResponseOrigin>,
 ) {
     let encoding = goodfetch_fetch_tier::record_tier(
         trace,
@@ -2026,12 +2047,14 @@ async fn record_tier(
         &leased.crawl_request.label,
         &tier,
         encoding,
+        origin.as_ref(),
     )
     .await;
     lease.fetched(Fetched {
         tier: Some(tier),
         encoding,
         certificate_exception,
+        origin,
         robots_txt: None,
     });
 }

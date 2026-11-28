@@ -26,6 +26,7 @@ use bytes::{Bytes, BytesMut};
 use goodfetch_engine::response_cache::{CacheRequest, Caching, KeptOut, ResponseHead, Source};
 use goodfetch_engine::response_recording::not_recorded_error;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
+use goodfetch_protocol::foxhound::provenance::ResponseOrigin;
 use url::Url;
 
 use crate::driver::{Body, CallFailure, Hop, Reuse, Sending, Sent, Transport, TransportFailure};
@@ -100,10 +101,15 @@ impl Transport for Cached {
             );
             let stale = match caching.source(&request, None).await {
                 Source::Routed(served) => {
-                    return Ok(whole(served.head, served.body));
+                    return Ok(whole(served.head, served.body, None));
                 }
-                Source::Recorded(served) => {
-                    return Ok(whole(served.head.clone(), served.body.clone()));
+                Source::Recorded {
+                    served,
+                    recorded_at,
+                } => {
+                    let origin = recorded_at
+                        .map(|recorded_at| ResponseOrigin::ResponseRecording { recorded_at });
+                    return Ok(whole(served.head.clone(), served.body.clone(), origin));
                 }
                 Source::RecordedCut(served) => {
                     return Ok(cut_body(served.head.clone(), served.body.clone()));
@@ -113,7 +119,7 @@ impl Transport for Cached {
                         &miss,
                     ))));
                 }
-                Source::Fresh(hit) => return Ok(whole(hit.head, hit.body)),
+                Source::Fresh(hit) => return Ok(whole(hit.head, hit.body, None)),
                 Source::Network => {
                     let sent = self.transport.send(hop, reuse).await?;
                     return Ok(kept(caching, request, sent));
@@ -139,7 +145,7 @@ impl Transport for Cached {
             if let Some(hit) = caching.revalidated(stale, &request, &head).await {
                 return Ok(Sent {
                     reused: sent.reused,
-                    ..whole(hit.head, hit.body)
+                    ..whole(hit.head, hit.body, None)
                 });
             }
             // The entry or its body is gone: the request is sent again
@@ -152,7 +158,7 @@ impl Transport for Cached {
 }
 
 /// `head` and `body` as a hop's answer, its body whole.
-fn whole(head: ResponseHead, body: Bytes) -> Sent {
+fn whole(head: ResponseHead, body: Bytes, origin: Option<ResponseOrigin>) -> Sent {
     Sent {
         status: head.status,
         headers: head.headers,
@@ -160,6 +166,7 @@ fn whole(head: ResponseHead, body: Bytes) -> Sent {
         reused: false,
         decoded: false,
         certificate_exception: None,
+        origin,
     }
 }
 
@@ -174,6 +181,7 @@ fn cut_body(head: ResponseHead, body: Bytes) -> Sent {
         reused: false,
         decoded: false,
         certificate_exception: None,
+        origin: None,
     }
 }
 

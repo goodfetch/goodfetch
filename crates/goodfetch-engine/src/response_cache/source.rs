@@ -50,8 +50,14 @@ pub struct NotRecorded {
 /// What a replaying Run's Response recording answers a request with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Recorded {
-    /// A recorded response, shared with the index.
-    Answered(Arc<Served>),
+    /// A recorded response, shared with the index, and when it was originally
+    /// recorded (ADR 0105, issue 802).
+    Answered {
+        /// The recorded head and body.
+        served: Arc<Served>,
+        /// When the response was recorded (`WARC-Date` or HTTP `Date`).
+        recorded_at: Option<SystemTime>,
+    },
     /// A recorded response whose body broke off: replays as
     /// `response_truncated`.
     Cut(Arc<Served>),
@@ -97,8 +103,14 @@ pub trait Capture: Send + Sync + std::fmt::Debug {
 pub enum Source {
     /// A route fulfilled it.
     Routed(Served),
-    /// The Run's Response recording holds it.
-    Recorded(Arc<Served>),
+    /// The Run's Response recording holds it, along with when it was
+    /// originally recorded (ADR 0105, issue 802).
+    Recorded {
+        /// The recorded head and body.
+        served: Arc<Served>,
+        /// When the response was recorded (`WARC-Date` or HTTP `Date`).
+        recorded_at: Option<SystemTime>,
+    },
     /// The Run's Response recording holds it, marked cut (`WARC-Truncated`):
     /// replays as `response_truncated`.
     RecordedCut(Arc<Served>),
@@ -323,7 +335,13 @@ impl ResponseSource {
             && self.replays_url(&request.url)
         {
             return match recording.recorded(request).await {
-                Recorded::Answered(served) => Source::Recorded(served),
+                Recorded::Answered {
+                    served,
+                    recorded_at,
+                } => Source::Recorded {
+                    served,
+                    recorded_at,
+                },
                 Recorded::Cut(served) => Source::RecordedCut(served),
                 Recorded::Missed(miss) => Source::NotRecorded(miss),
             };

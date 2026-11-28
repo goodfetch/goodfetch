@@ -85,6 +85,37 @@ impl PageContext {
             .is_some_and(|caching| caching.replays_url(url))
     }
 
+    /// Marks a response answered from the Run's Response recording in the
+    /// Run trace's Provenance log when `provenance.log` is on, allocating
+    /// nothing when off (`E5.formatting_off`, ADRs 0105 and 0140, issue 802).
+    async fn record_recording_provenance(
+        &self,
+        held: &Held,
+        status: u16,
+        recorded_at: Option<std::time::SystemTime>,
+    ) {
+        if !self.run.lists.trace.logs_provenance() {
+            return;
+        }
+        let mut origin = serde_json::json!({ "kind": "response_recording" });
+        if let Some(at) = recorded_at
+            && let Ok(ts) = goodfetch_protocol::point_in_time::to_rfc3339(at)
+        {
+            origin["recorded_at"] = serde_json::json!(ts);
+        }
+        let mut entry = serde_json::json!({
+            "action": "response_recording",
+            "method": held.method(),
+            "url": held.url(),
+            "status": status,
+            "origin": origin,
+        });
+        if let Some(page_id) = self.sender.page_id() {
+            entry["page_id"] = serde_json::json!(page_id);
+        }
+        crate::trace::provenance(&self.run.lists.trace, entry).await;
+    }
+
     /// When a fulfilling route answers a main-frame navigation on a replaying
     /// Run with an HTTP `Date` header, registers that timestamp so the
     /// document's `Date` starts from it (ADR 0105, issue 801).
@@ -154,8 +185,13 @@ impl PageContext {
             Source::Routed(served) => {
                 return Ok(self.serve(held, served.head, &served.body).await);
             }
-            Source::Recorded(served) => {
+            Source::Recorded {
+                served,
+                recorded_at,
+            } => {
                 if self.serve(held, served.head.clone(), &served.body).await {
+                    self.record_recording_provenance(held, served.head.status, recorded_at)
+                        .await;
                     return Ok(true);
                 }
                 let error = network_error(held.url(), "net::ERR_CONTENT_DECODING_FAILED");
@@ -231,7 +267,12 @@ impl PageContext {
             );
         };
         match caching.source(&asked.request, asked.kept_out).await {
-            Source::Recorded(served) => {
+            Source::Recorded {
+                served,
+                recorded_at,
+            } => {
+                self.record_recording_provenance(held, served.head.status, recorded_at)
+                    .await;
                 let Some((status, headers, decoded)) =
                     self.decoded(held.url(), served.head.clone(), &served.body)
                 else {

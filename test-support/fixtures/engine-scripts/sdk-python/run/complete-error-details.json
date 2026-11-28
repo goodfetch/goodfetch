@@ -142,6 +142,121 @@
         }
       }
     },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": { "locator": { "page_id": "page-1", "selector": "#summarize" } }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32006,
+          "message": "the Model provider rate-limited calls and asked to wait 1500 ms",
+          "data": {
+            "code": "model_unavailable",
+            "retryable": true,
+            "operation": "locator.click",
+            "call_id": "call-5",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#summarize",
+            "url": "https://shop.test/item",
+            "reason": "rate_limited",
+            "retry_after": 1500
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "locator.click",
+        "params": { "locator": { "page_id": "page-1", "selector": "#pay" } }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "the Effect charge-order-42 was left uncertain when the browser closed",
+          "data": {
+            "code": "effect_uncertain",
+            "retryable": false,
+            "operation": "locator.click",
+            "call_id": "call-6",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "target": "#pay",
+            "url": "https://shop.test/checkout",
+            "entry": "effect-1",
+            "key": "charge-order-42",
+            "request": null,
+            "reason": "browser closed before confirmation",
+            "first_command": "locator.click",
+            "since": "2026-11-21T08:00:00Z"
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/offline" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32002,
+          "message": "the offline setting refused downloading chrome-for-testing",
+          "data": {
+            "code": "artifact_unavailable_offline",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-7",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "artifact": {
+              "kind": "browser",
+              "name": "chrome-for-testing",
+              "build": "141.0.7390.54-linux64"
+            },
+            "pinned_by": [
+              { "kind": "product", "name": "collie", "version": "0.0.0" },
+              { "kind": "plugin", "name": "demo-plugin", "version": "1.2.0" }
+            ],
+            "cache": "/var/cache/goodfetch/browsers",
+            "limit": {
+              "key": "offline",
+              "value": true,
+              "layer": "run"
+            },
+            "fix": "Run `collie browser install` where the cache is writable."
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "page.goto",
+        "params": { "page_id": "page-1", "url": "https://shop.test/bounce" }
+      }
+    },
+    {
+      "reply": {
+        "error": {
+          "code": -32003,
+          "message": "navigation to https://shop.test/bounce exceeded the browser's 20-request redirect limit",
+          "data": {
+            "code": "too_many_redirects",
+            "retryable": false,
+            "operation": "page.goto",
+            "call_id": "call-8",
+            "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc",
+            "url": "https://shop.test/bounce",
+            "hops": ["https://shop.test/bounce/1", "https://shop.test/bounce/2"],
+            "limit": { "kind": "browser", "count": 20 }
+          }
+        }
+      }
+    },
     { "expect": { "method": "run.finish", "params": { "run_id": "01ke6p4ym0j8x3v5wq2rtbn7hc" } } },
     {
       "reply": {

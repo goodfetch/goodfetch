@@ -26,6 +26,7 @@ from goodfetch_collie_client.generated.models import (
     PageResponse,
     PlanReport,
     PluginRun,
+    Product,
     ProgressMessage,
     ProjectSettings,
     RecordingReport,
@@ -40,6 +41,8 @@ from goodfetch_collie_client.generated.models import (
     SampleEchoed,
     SessionId,
     SettingLimit,
+    SettingsLayer,
+    StartedAs,
     StopReason,
     Tags,
     UncertainEffect,
@@ -139,6 +142,8 @@ class CrawlConcurrency(BaseModel):
     """The Resource governor's level, once it sampled."""
     handler_concurrency: Annotated[int, Field(ge=0)]
     """`crawl.handler.concurrency`, per serving Connection."""
+    handler_concurrency_layer: SettingsLayer | None = None
+    """The settings layer that set `crawl.handler.concurrency` (ADR 0102)."""
     handlers: Annotated[int, Field(ge=0)]
     """How many handlers run."""
     open_pages: Annotated[int | None, Field(ge=0)] = None
@@ -180,6 +185,21 @@ class CrawlHookHandled(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+
+
+class CrawlNotImportableDetails(BaseModel):
+    """What `crawl_not_importable` details (ADR 0024)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    export: str | None = None
+    """The export or attribute name looked up on `module`, if any."""
+    module: str | None = None
+    """
+    The module named for workers to import, or the module where the crawl
+    was created when none was named.
+    """
 
 
 class CrawlRequestEnqueueLinksParams(BaseModel):
@@ -1533,6 +1553,12 @@ class RequestSeed(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first; `false` by default.
     """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
+    """
     key: str | None = None
     """
     Its identity in the Frontier, declared by the program in place of
@@ -1634,20 +1660,6 @@ class RobotsTxtMark(StrEnum):
     `site_preferences.respect_robots_txt` was off; marked only while
     `site_preferences.mark_robots_txt_ignored` is on.
     """
-
-
-class RunAddSeedsParams(BaseModel):
-    """
-    What `run.add_seeds` takes: the running crawl its Client streams seeds
-    to.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        arbitrary_types_allowed=True,
-    )
-    run_id: RunId
-    """The crawl's Run."""
 
 
 class RunExportParams(BaseModel):
@@ -2297,6 +2309,8 @@ class CrawlRequest(BaseModel):
     )
     body: HttpBody | None = None
     """The body it is sent with, if any."""
+    headers: dict[str, str] | None = None
+    """Extra request headers carried from its seed or enqueue, if any."""
     id: str
     """Its ID within the Run."""
     label: str
@@ -2329,6 +2343,12 @@ class CrawlRequestEnqueueParams(BaseModel):
     whatever their priority, as Crawlee's `forefront` (ADR 0005): of two
     such requests, the later goes first. A priority or `forefront` never
     orders requests of different domains (ADR 0004); `false` by default.
+    """
+    headers: dict[str, str] | None = None
+    """
+    Extra request headers sent with the request (ADR 0093). Forbidden
+    headers (`Host`, `Cookie`, `Authorization`, `Proxy-*`, method
+    overrides; ADR 0033) are refused with `header_forbidden`.
     """
     key: str | None = None
     """
@@ -2673,6 +2693,32 @@ class CrawlRunProgress(RunProgress):
     """Whether an engine works it."""
 
 
+class CrawlStarted(BaseModel):
+    """
+    What `crawl.start` answers: the Run it started or reopened, and each
+    seed's original answer in order, so `run.seeds()` answers with no round
+    trip, including after a resume (ADR 0102).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    lifecycle: Lifecycle
+    """Where it is now."""
+    needs: Product
+    """
+    The Product it needs (ADR 0098): Collie until it uses an entry the
+    catalog marks Foxhound's, Foxhound from then on.
+    """
+    run_id: RunId
+    """The Run's ID."""
+    seeds: list[Enqueued] | None = None
+    """Each seed's original answer in order, as `run.seeds` answers."""
+    started_as: StartedAs
+    """Whether the start began it."""
+
+
 class DatasetList(BaseModel):
     """What `dataset.list` answers."""
 
@@ -2926,6 +2972,26 @@ class RecordSort(BaseModel):
     """Its direction."""
     field: str
     """The field's name."""
+
+
+class RunAddSeedsParams(BaseModel):
+    """
+    What `run.add_seeds` takes: the running crawl its Client streams seeds
+    to.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+    attempt: SeedAttempt | None = None
+    """
+    The attempt that adds them, when a handler streams seeds through its
+    context's `run`; absent, the program streams them from outside any
+    attempt.
+    """
+    run_id: RunId
+    """The crawl's Run."""
 
 
 class Seed(RootModel[RequestSeed | SitemapSeed]):

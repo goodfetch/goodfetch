@@ -97,6 +97,25 @@ pub const POLITENESS_PROXY_RATE: Setting = Setting {
     arrived_in: ARRIVED_IN,
 };
 
+fn ten_minutes() -> Value {
+    serde_json::json!(600_000)
+}
+
+/// `politeness.degraded_max` (ADRs 0053 and 0086).
+pub const POLITENESS_DEGRADED_MAX: Setting = Setting {
+    name: "politeness.degraded_max",
+    description: "The longest an engine cut off from its Politeness store stays in degraded mode, admitting one request at a time per domain, before it stops admitting new requests until the store answers again: 10 minutes. Set in user configuration or an Operator policy only; a program's `settings` refuses it with `setting_not_applicable`, and `explainSettings` still shows it.",
+    kind: ValueKind::Duration,
+    default: ten_minutes,
+    clearable: false,
+    authority: Authority::Machine,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: Some("politeness_store"),
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// One Permit in the per-user Politeness file (ADR 0053): a request in
 /// flight under one key, such as a domain key, with the Run and run epoch
 /// that hold it, so an engine reclaims the Permits of a Run whose writer
@@ -140,6 +159,7 @@ pub const ENTRIES: Entries = Entries {
         POLITENESS_DELEGATION,
         POLITENESS_PROXY_CONCURRENCY,
         POLITENESS_PROXY_RATE,
+        POLITENESS_DEGRADED_MAX,
         store::POLITENESS_STORE,
     ],
     hook_stages: &[],

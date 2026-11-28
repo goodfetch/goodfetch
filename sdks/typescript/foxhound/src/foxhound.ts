@@ -38,7 +38,8 @@ import {
   warnEntry,
 } from "@goodfetch/collie-client/runtime";
 import { checkCrawlStartable, checkSeedPayloads, Crawl, crawlDeclaration } from "./crawl.ts";
-import { CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
+import { attachWorkers, CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
+import { CrawlNotImportableError } from "./generated/errors.ts";
 import {
   FoxhoundOperations,
   foxhoundOperations,
@@ -54,6 +55,7 @@ import { settingsOnWire, type CrawlSettings, type FoxhoundSettings } from "./gen
 import { foxhoundWire, type FoxhoundWireType } from "./generated/wire.ts";
 import type { FetchBackendHandler, SinkHandler } from "./handlers.ts";
 import { foxhound } from "./product.ts";
+import { prepareWorkers, spawnWorkers, type CrawlWorkers } from "./workers.ts";
 
 /**
  * Foxhound's Limits (ADR 0080): Collie's, and Paid fetches, which only
@@ -105,7 +107,7 @@ export interface FoxhoundHandlerlessStartOptions extends HandlerlessStartOptions
 export interface StartCrawlOptions {
   /** What the crawl starts from, at least one: `seed` requests and `sitemap` seeds. */
   readonly seeds: readonly [Seed, ...Seed[]];
-  /** The Run's ID; the engine generates one when it is left out. An interrupted Run's ID resumes it; a finished one's returns it as it ended. */
+  /** Names the Run for good: a start with an existing Run ID resumes the Run if it was interrupted, or returns it as it ended (`startedAs()` says which); the engine generates one when it is left out (ADR 0102). */
   readonly runId?: string | undefined;
   /** Its tags: at most 16, each at most 64 characters (ADR 0036). */
   readonly tags?: readonly string[] | undefined;
@@ -117,6 +119,15 @@ export interface StartCrawlOptions {
    * 0093).
    */
   readonly settings?: CrawlSettings | undefined;
+  /**
+   * Spreads the crawl's handlers across `count` Node processes (default 1,
+   * ADR 0024): `{ count, module, export? }` forks `count - 1` extra Node
+   * processes that import `module` and read the `Crawl` from `export` (the
+   * default export if omitted), each joining the Run via `crawl.serve`.
+   * Starting more than 1 worker for a `Crawl` that cannot be imported fails
+   * with `crawl_not_importable`.
+   */
+  readonly workers?: number | CrawlWorkers | undefined;
 }
 
 /**
@@ -130,8 +141,8 @@ export type CodeFreeCrawl =
   | (CrawlDeclaration & { readonly extraction?: never })
   | { readonly extraction: CrawlExtraction; readonly labels?: never };
 
-/** What starting a code-free crawl takes: a crawl's options, and whether its Run outlives its program (ADR 0102). */
-export interface StartCodeFreeCrawlOptions extends StartCrawlOptions {
+/** What starting a code-free crawl takes: a crawl's options (without `workers`), and whether its Run outlives its program (ADR 0102). */
+export interface StartCodeFreeCrawlOptions extends Omit<StartCrawlOptions, "workers"> {
   /**
    * Whether the Run outlives its program, on a Daemon: closing its value
    * then frees only the value, `finish()` waits for its end and `stop()`
@@ -283,6 +294,17 @@ export class Foxhound implements Connection {
    * work item is done, or, with `crawl.keep_alive`, once `run.finish` lets
    * it and every work item is done. A Run ID works as `run.start`'s.
    *
+   * With nothing set, a crawl obeys `robots.txt`, keeps one request in flight
+   * per domain (`politeness.domain.concurrency: 1`) and waits at least one
+   * second between starts (`politeness.domain.delay: 1000`); pressing harder
+   * is set explicitly and recorded in the Run report's `weakened` and a
+   * warning (ADR 0086).
+   *
+   * In a service, close the Run on `SIGINT` and `SIGTERM`: the SDK installs
+   * no signal handler, and a signal that ends the process at once leaves
+   * in-flight attempts counted as `handler_lost` against `crawl.retry.max`
+   * on resume, whereas `close()` returns them uncounted (ADRs 0078, 0093).
+   *
    * Each work item goes to the handler of its Label, on this process's
    * event loop (ADR 0093). Before anything is sent, a Label without a
    * handler fails with `label_unhandled`, and a seed, or a sitemap seed's
@@ -310,10 +332,30 @@ export class Foxhound implements Connection {
   startCrawl(crawl: CodeFreeCrawl, options: StartCodeFreeCrawlOptions): Promise<CrawlRun>;
   async startCrawl(
     target: Crawl | CodeFreeCrawl,
-    options: StartCodeFreeCrawlOptions,
+    options: StartCrawlOptions & StartCodeFreeCrawlOptions,
   ): Promise<CrawlRun> {
     warnEntry(foxhoundOperations, "crawl.start");
     const crawl = target instanceof Crawl ? target : undefined;
+    const workerPlan = await prepareWorkers(options.workers);
+    if (crawl === undefined && workerPlan !== undefined) {
+      throw new CrawlNotImportableError(
+        "a code-free crawl runs inside the engine and cannot be spread across worker processes",
+        {
+          fix: "Omit `workers` (or set `workers: 1`) when starting a CrawlDeclaration or CrawlExtraction.",
+          details: { module: workerPlan.module, export: workerPlan.exportName },
+        },
+      );
+    }
+    const workerTarget = workerPlan === undefined ? undefined : this.#connection.workerTarget();
+    if (workerPlan !== undefined && workerTarget === undefined) {
+      throw new CrawlNotImportableError(
+        "this Connection has no private endpoint or Daemon address for extra worker processes",
+        {
+          fix: "Connect to an Attached engine or a Daemon before starting a crawl with workers > 1.",
+          details: { module: workerPlan.module, export: workerPlan.exportName },
+        },
+      );
+    }
     if (crawl !== undefined) {
       refuseHandlersOnEdge({
         operation: "crawl.start",
@@ -338,6 +380,10 @@ export class Foxhound implements Connection {
       ...(project === undefined ? {} : { project }),
       ...(detached ? { detached } : {}),
     };
+    const pool =
+      workerPlan !== undefined && workerTarget !== undefined
+        ? await spawnWorkers(workerPlan, workerTarget)
+        : undefined;
     const starting = this.#connection.startRun(
       "crawl.start",
       () => this.#operations.crawlStart(params),
@@ -348,11 +394,30 @@ export class Foxhound implements Connection {
       },
     );
     this.#starting.add(starting);
+    let run: CrawlRun;
     try {
-      return await starting;
+      run = await starting;
+    } catch (error) {
+      await pool?.stop();
+      throw error;
     } finally {
       this.#starting.delete(starting);
     }
+    if (pool !== undefined) {
+      if (run.startedAs() === "ended") {
+        await pool.stop();
+      } else {
+        try {
+          await pool.join(run.id());
+          attachWorkers(run, () => pool.stop());
+        } catch (error) {
+          await pool.stop();
+          await run.close();
+          throw error;
+        }
+      }
+    }
+    return run;
   }
 
   /**

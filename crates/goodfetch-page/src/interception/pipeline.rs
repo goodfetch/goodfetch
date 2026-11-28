@@ -584,7 +584,7 @@ impl PageContext {
         // request it is (issue 2471).
         if held.navigation
             && !held.paused.redirected()
-            && let Some(own) = self.state.own(held.paused.url())
+            && let Some(own) = self.state.own(held.paused.url(), held.paused.headers())
         {
             held.apply(own);
         }

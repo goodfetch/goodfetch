@@ -44,8 +44,21 @@ from goodfetch_foxhound.crawl import (
     sitemap,
 )
 from goodfetch_foxhound.crawl_run import AsyncCrawlRun, CodeFreeCrawl, CrawlRun
+from goodfetch_foxhound.export import AsyncExport, Export
 from goodfetch_foxhound.foxhound import AsyncFoxhound, Connecting, Foxhound
-from goodfetch_foxhound.generated.models import CrawlDeclaration, CrawlExtraction
+from goodfetch_foxhound.generated.models import (
+    AttemptError,
+    CrawlDeclaration,
+    CrawlExtraction,
+    CrawlRequestOutcome,
+    ExportCompression,
+    ExportFormat,
+    ExportId,
+    ExportSaved,
+    NothingCommitted,
+    OutcomeRequest,
+)
+from goodfetch_foxhound.generated.open_values import OutcomeKind, SkipReason
 from goodfetch_foxhound.handlers import (
     AsyncFetchBackendHandler,
     AsyncSinkHandler,
@@ -61,9 +74,11 @@ __all__ = [
     "AsyncCrawl",
     "AsyncCrawlContext",
     "AsyncCrawlRun",
+    "AsyncExport",
     "AsyncFetchBackendHandler",
     "AsyncFoxhound",
     "AsyncSinkHandler",
+    "AttemptError",
     "AttemptRun",
     "BackendRequest",
     "BackendResponse",
@@ -74,15 +89,25 @@ __all__ = [
     "CrawlDeclaration",
     "CrawlExtraction",
     "CrawlRequest",
+    "CrawlRequestOutcome",
     "CrawlRun",
     "Dataset",
     "DatasetRecord",
     "ExperimentalWarning",
+    "Export",
+    "ExportCompression",
+    "ExportFormat",
+    "ExportId",
+    "ExportSaved",
     "FetchBackendHandler",
     "Foxhound",
     "Label",
+    "NothingCommitted",
+    "OutcomeKind",
+    "OutcomeRequest",
     "SinkDelivery",
     "SinkHandler",
+    "SkipReason",
     "seed",
     "sitemap",
 ]

@@ -109,6 +109,7 @@ impl Enqueue {
                 priority: 0,
                 forefront: false,
                 method: HttpMethod::default(),
+                headers: std::collections::BTreeMap::new(),
                 body: None,
                 key: None,
                 page_id: attempt.params.page_id.clone(),
@@ -124,6 +125,17 @@ impl Enqueue {
     /// read (ADR 0079).
     pub fn method(self, method: HttpMethod) -> Self {
         self.with(|params| params.method = method)
+    }
+
+    /// The request, sent with the extra request header `name: value` (ADR
+    /// 0093). Forbidden headers (`Host`, `Cookie`, `Authorization`,
+    /// `Proxy-*`, method overrides; ADR 0033) fail with `header_forbidden`.
+    pub fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        let name = name.into();
+        let value = value.into();
+        self.with(|params| {
+            params.headers.insert(name, value);
+        })
     }
 
     /// The request, sent with `body`.

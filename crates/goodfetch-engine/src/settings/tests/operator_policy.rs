@@ -261,6 +261,14 @@ fn an_operator_policy_caps_every_crawl_count_and_duration_against_every_higher_l
         }
         for value in past {
             for (from, layer, mut layers) in above_the_policy(name, &value) {
+                // A layer the key's authority keeps it out of, such as a
+                // machine's key in the project file, refuses it with no policy.
+                if matches!(
+                    refused(&layers, name),
+                    Ok(SettingsError::NotApplicable { .. })
+                ) {
+                    continue;
+                }
                 layers.operator_policy = cap.clone();
                 if let Err(why) =
                     refused_by_the_policy(refused(&layers, name), name, layer, &json!(CAP))
@@ -270,6 +278,12 @@ fn an_operator_policy_caps_every_crawl_count_and_duration_against_every_higher_l
             }
         }
         for (from, _, mut layers) in above_the_policy(name, &json!(CAP)) {
+            if matches!(
+                refused(&layers, name),
+                Ok(SettingsError::NotApplicable { .. })
+            ) {
+                continue;
+            }
             layers.operator_policy = cap.clone();
             if let Ok(error) = refused(&layers, name) {
                 failures.push(format!("{name} = {CAP} from {from} refused: {error:?}"));

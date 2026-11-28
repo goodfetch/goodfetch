@@ -12,7 +12,7 @@ from typing import Final, Unpack
 from goodfetch_collie_client.generated.errors import PageError, ProgramError, RefusedError, UnavailableError
 from goodfetch_collie_client.goodfetch_error import BaseGoodfetchError, ErrorClass, ErrorFields, retry_after_of
 from goodfetch_collie_client.caller import details_of
-from .models import BrowserRequiredDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
+from .models import BrowserRequiredDetails, CrawlNotImportableDetails, DatasetDuplicateDetails, DatasetKeyInvalidDetails, DatasetUnknownDetails, HandlerFailedDetails, HookDuplicateDetails, HookIneffectiveDetails, HookUndeclaredDetails, HookUnknownDetails, LabelUnknownDetails, PayloadInvalidDetails, PayloadSchemaChangedDetails, QueryInvalidDetails, QueryMemoryExceededDetails, RecordInvalidDetails, ResponseNotDocumentDetails, ResponseUnavailableDetails, SheetCapacityExceededDetails, StagingFullDetails
 
 
 class AttemptEndedError(BaseGoodfetchError):
@@ -44,6 +44,18 @@ class ClientGoneError(UnavailableError):
     def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
         """Takes the message the engine rendered, and what it carries."""
         super().__init__(message, code="client_gone", group="unavailable", retryable=True, **fields)
+
+
+class CrawlNotImportableError(ProgramError):
+    """A crawl started with `workers > 1` cannot be imported by an extra worker process: it was defined inside a function rather than at module level, no module was named, or the named module or export does not yield a `Crawl`. Nothing was started. Define the `Crawl` at module level or name `module`."""
+
+    typed_details: CrawlNotImportableDetails | None
+    """The code's details, typed; `None` when they lack a field the model requires, as those of an error a program builds without details do."""
+
+    def __init__(self, message: str, **fields: Unpack[ErrorFields]) -> None:
+        """Takes the message the engine rendered, and what it carries."""
+        super().__init__(message, code="crawl_not_importable", group="program", retryable=False, **fields)
+        self.typed_details = details_of(CrawlNotImportableDetails, self.details)
 
 
 class DatasetDuplicateError(ProgramError):
@@ -342,6 +354,7 @@ ERROR_CLASSES: Final[Mapping[str, ErrorClass]] = {
     "attempt_ended": AttemptEndedError,
     "browser_required": BrowserRequiredError,
     "client_gone": ClientGoneError,
+    "crawl_not_importable": CrawlNotImportableError,
     "dataset_duplicate": DatasetDuplicateError,
     "dataset_key_invalid": DatasetKeyInvalidError,
     "dataset_unknown": DatasetUnknownError,

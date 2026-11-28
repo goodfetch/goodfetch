@@ -1,6 +1,10 @@
 //! Which pool each Label draws from (spec #579's `session_pools`, in
 //! process): each case declares Labels as `crawl.start` does and reads the
 //! pool of each and the source its Sessions open from.
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
 
 use std::collections::BTreeMap;
 
@@ -79,6 +83,77 @@ fn a_labels_session_source_that_is_no_source_is_invalid() {
     assert_eq!(
         refused.map(drop).map_err(|error| error.code().to_owned()),
         Err(SETTING_INVALID.name.to_owned())
+    );
+}
+
+/// A Label's `session.source` meets the registrable-domain check (ADRs 0056
+/// and 0117): a domain below its registrable domain is refused with
+/// `setting_invalid` at layer `run`, naming the Label in the message and the
+/// registrable domain in `fix`.
+///
+/// Covers: story:5-136, setting:session.source, error:setting_invalid
+#[test]
+fn a_labels_session_source_below_its_registrable_domain_is_refused() {
+    let error = LabelPools::of(&declared(&json!({
+        "session": {
+            "source": {
+                "kind": "state_file",
+                "path": "/tmp/state.json",
+                "domains": ["www.example.com"],
+            }
+        }
+    })))
+    .expect_err("subdomain in Label session.source.domains must be refused");
+
+    let data = error.details().unwrap();
+    assert_eq!(
+        (
+            error.code(),
+            error.message().contains("account"),
+            data["key"].clone(),
+            data["layer"].clone(),
+            data["fix"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("example.com"),
+        ),
+        (
+            SETTING_INVALID.name,
+            true,
+            json!("session.source"),
+            json!("run"),
+            true,
+        ),
+        "{}\n{data:?}",
+        error.message()
+    );
+}
+
+/// A Label's `session.source` whose `domains` are registrable domains, IP
+/// addresses, or hosts the Public Suffix List gives none opens its pool.
+///
+/// Covers: story:5-136, setting:session.source
+#[rstest]
+#[case::registrable_domain("example.com")]
+#[case::ip_address("127.0.0.1")]
+#[case::no_psl_registrable_domain("localhost")]
+fn a_labels_session_source_with_allowed_domains_opens_its_pool(#[case] domain: &str) {
+    let pools = LabelPools::of(&declared(&json!({
+        "session": {
+            "source": {
+                "kind": "state_file",
+                "path": "/tmp/state.json",
+                "domains": [domain],
+            }
+        }
+    })))
+    .unwrap();
+
+    assert!(
+        pools
+            .source(&PoolKey::Label("account".to_owned()))
+            .flatten()
+            .is_some()
     );
 }
 

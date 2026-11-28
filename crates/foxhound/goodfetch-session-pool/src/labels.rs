@@ -18,6 +18,8 @@
 use std::collections::BTreeMap;
 
 use goodfetch_engine::CallError;
+use goodfetch_engine::run::below_registrable;
+use goodfetch_engine::settings::{SettingsError, check_session_source};
 use goodfetch_protocol::foxhound::crawl::LabelDeclaration;
 use goodfetch_protocol::settings::session_source::SessionSource;
 use goodfetch_protocol::settings::{
@@ -67,7 +69,8 @@ impl LabelPools {
     /// # Errors
     ///
     /// `setting_invalid` for a Label's `session.source` that is neither
-    /// `null` nor a Session source.
+    /// `null` nor a valid Session source, or lists a domain below its
+    /// registrable domain in `domains`.
     pub fn of(labels: &BTreeMap<String, LabelDeclaration>) -> Result<Self, CallError> {
         let mut pools = BTreeMap::new();
         for (name, declaration) in labels {
@@ -80,23 +83,47 @@ impl LabelPools {
             let set = at(&declaration.settings, &["session", "source"]);
             let source = match set {
                 None | Some(Value::Null) => None,
-                Some(value) => Some(
-                    serde_json::from_value::<SessionSource>(value.clone()).map_err(|error| {
-                        CallError::new(
-                            &SETTING_INVALID,
-                            format!(
-                                "The Label `{name}` sets `session.source` to {value}, which is no Session source: {error}."
+                Some(value) => {
+                    let source =
+                        serde_json::from_value::<SessionSource>(value.clone()).map_err(|error| {
+                            CallError::new(
+                                &SETTING_INVALID,
+                                format!(
+                                    "The Label `{name}` sets `session.source` to {value}, which is no Session source: {error}."
+                                ),
+                                &SettingInvalidDetails {
+                                    key: SESSION_SOURCE.name.to_owned(),
+                                    layer: Some(SettingsLayer::Run),
+                                    reason: error.to_string(),
+                                    limit: None,
+                                    fix: None,
+                                },
+                            )
+                        })?;
+                    check_session_source(&source, Some(SettingsLayer::Run)).map_err(|error| {
+                        let message = format!("The Label `{name}`: {error}");
+                        match error {
+                            SettingsError::NotRegistrable {
+                                key,
+                                layer,
+                                domain,
+                                registrable,
+                            } => below_registrable(message, (&key, layer), &domain, &registrable),
+                            other => CallError::new(
+                                &SETTING_INVALID,
+                                message,
+                                &SettingInvalidDetails {
+                                    key: SESSION_SOURCE.name.to_owned(),
+                                    layer: Some(SettingsLayer::Run),
+                                    reason: other.to_string(),
+                                    limit: None,
+                                    fix: None,
+                                },
                             ),
-                            &SettingInvalidDetails {
-                                key: SESSION_SOURCE.name.to_owned(),
-                                layer: Some(SettingsLayer::Run),
-                                reason: error.to_string(),
-                                limit: None,
-                                fix: None,
-                            },
-                        )
-                    })?,
-                ),
+                        }
+                    })?;
+                    Some(source)
+                }
             };
             let login = match (set, at(&declaration.settings, &[LOGIN])) {
                 (Some(value), _) if source.is_some() => Some((SESSION_SOURCE.name, value)),

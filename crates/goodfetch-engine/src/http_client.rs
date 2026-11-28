@@ -663,6 +663,35 @@ impl EndpointSettings {
             .await
     }
 
+    /// Judges `host`, resolves its addresses through `self.resolve` / DNS, and
+    /// judges every resolved address under `gate` without opening any socket
+    /// (ADR 0017; used before starting a `direct` Plugin, ADR 0033).
+    ///
+    /// # Errors
+    ///
+    /// [`WholeFailure::Refused`] when `gate` refuses the host or any resolved
+    /// address; [`WholeFailure::Network`] when resolution fails.
+    pub(crate) async fn check_host(
+        &self,
+        gate: Gate<'_>,
+        named: &str,
+        host: &str,
+        port: u16,
+    ) -> Result<(), WholeFailure> {
+        let judged = gate
+            .judge_host(host, named)
+            .map_err(WholeFailure::Refused)?;
+        let server = Server {
+            host: judged.lookup_name(),
+            port,
+            plain: true,
+        };
+        let found = addresses(&server, &self.resolve)
+            .await
+            .map_err(WholeFailure::of)?;
+        judged.addresses(&found).map_err(WholeFailure::Refused)
+    }
+
     /// Resolves `host` and checks every resolved address through `gate`; when
     /// `dial` is true, connects via Happy Eyeballs to the validated addresses.
     /// When `dial` is false, stops after validation and returns

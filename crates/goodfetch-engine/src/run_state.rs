@@ -170,6 +170,13 @@ const SCHEMA: &[&str] = &[
         sessions TEXT NOT NULL,
         folder TEXT
     ) STRICT",
+    // Each Plugin that ran in the Run, with its network level and any
+    // confinement parts the host lacked (ADRs 0016 and 0033).
+    "CREATE TABLE IF NOT EXISTS run_plugins (
+        name TEXT NOT NULL PRIMARY KEY,
+        network_level TEXT NOT NULL,
+        confinement_missing TEXT NOT NULL DEFAULT '[]'
+    ) STRICT",
 ];
 
 /// The statement that sets the "unclean" mark of a run file at `off` (ADR

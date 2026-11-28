@@ -20,26 +20,31 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures_util::future::BoxFuture;
 use goodfetch_confinement::deny_list::Places;
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::connection::{NOT_IN_PRODUCT, NotInProductDetails, ProductVersion};
 use goodfetch_protocol::egress::EGRESS_OFFLINE;
 use goodfetch_protocol::plugin::approvals::{
-    Origin, PLUGIN_NOT_ALLOWED, PluginNotAllowedDetails, PluginRefusal, admit, fix,
+    Origin, PLUGIN_DIRECT_STARTED, PLUGIN_NOT_ALLOWED, Permission, PluginNotAllowedDetails,
+    PluginRefusal, admit, fix,
 };
 use goodfetch_protocol::plugin::index::{PluginIndex, SignerIdentity};
 use goodfetch_protocol::plugin::settings::{PLUGINS, PluginEntry};
-use goodfetch_protocol::plugin::{HookStageName, PluginKindName, PluginManifest, Runtime};
-use goodfetch_protocol::run::RunId;
-use serde_json::Value;
+use goodfetch_protocol::plugin::{
+    HookStageName, NetworkLevel, PluginKindName, PluginManifest, Runtime,
+};
+use goodfetch_protocol::run::{PluginRun, RunId};
+use serde_json::{Value, json};
 
 use super::extractor::{ProcessExtractor, unavailable};
 use super::hook::{ProcessHook, hook_failed};
 use super::notification::{ProcessNotificationChannel, unavailable as notification_unavailable};
 use super::secret::ProcessSecretProvider;
-use crate::audit::AuditLog;
+use crate::audit::{AuditLog, Origin as AuditOrigin};
 use crate::browser_cache::{BrowserCache, CacheLocation, HeldArtifact};
 use crate::call_error::CallError;
 use crate::clock::Clock;
@@ -68,11 +73,19 @@ struct RunningInstance {
     instance: PluginInstance,
 }
 
+/// Persists each started Plugin into the Run's state so `RunReport::plugins`
+/// lists it when the Run ends (ADRs 0016 and 0033).
+pub trait PluginRunRecorder: Send + Sync {
+    /// Records `plugin` in the Run's state.
+    fn record(&self, plugin: PluginRun) -> BoxFuture<'_, ()>;
+}
+
 /// One Run's process Plugins, started as its calls name them.
 pub struct RunPlugins {
     store: PluginStore,
     index_store: PluginIndexStore,
     audit: Option<AuditLog>,
+    run_recorder: Option<Arc<dyn PluginRunRecorder>>,
     quarantine_notifier: Option<Arc<dyn QuarantineNotifier>>,
     spend: Option<Arc<dyn SpendAccountant>>,
     streams: Option<Arc<dyn StreamAccountant>>,
@@ -135,6 +148,7 @@ impl RunPlugins {
             store: PluginStore::new(home.plugins()),
             index_store: PluginIndexStore::new(home.plugin_index()),
             audit: None,
+            run_recorder: None,
             quarantine_notifier: None,
             spend: None,
             streams: None,
@@ -160,6 +174,14 @@ impl RunPlugins {
     #[must_use]
     pub fn with_audit(mut self, audit: AuditLog) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    /// Attaches a [`PluginRunRecorder`] so every started Plugin is recorded in
+    /// the run file and listed in `RunReport::plugins` (ADRs 0016 and 0033).
+    #[must_use]
+    pub fn with_run_recorder(mut self, recorder: Arc<dyn PluginRunRecorder>) -> Self {
+        self.run_recorder = Some(recorder);
         self
     }
 
@@ -720,37 +742,31 @@ impl RunPlugins {
         };
         let origin = self.check_index(&name, installed.digest.as_deref()).await?;
         let entry = admitted(origin, resolved, &name, &installed, &unavailable_error)?;
+        let network_level = installed.manifest.network_level;
+        if network_level == NetworkLevel::Direct
+            && origin != Origin::FirstParty
+            && !entry.approved.covers(&Permission::Direct)
+        {
+            return Err(StartError::Refused(permission_denied(
+                &name,
+                Permission::Direct,
+            )));
+        }
         let probe = probe.clone();
         if let Some(refusal) = self.owner.blocking(move || probe.plugin_refusal()).await {
             tracing::warn!(plugin = %name, %refusal, "this host cannot confine a Plugin");
             return Err(StartError::Refused(refusal));
         }
         let (given, layer) = plugin_settings::given(settings, &name);
-        let environment = PluginSettings::checked(&name, &installed.manifest, given, layer)
-            .map_err(|invalid| StartError::Refused(invalid.into()))?
-            .environment(
+        let (fetch, effects, environment) = self
+            .prepare_gate_and_environment(
                 &name,
-                (&installed.manifest, &entry.approved),
+                (&installed.manifest, &entry.approved, origin),
+                (given, layer, resolved),
                 secrets,
-                (&self.run_id, layer),
+                &cannot_start,
             )
-            .await
-            .map_err(|error| match error {
-                EnvironmentError::Secret(error) => StartError::Secret(error),
-                EnvironmentError::Denied(permission) => {
-                    StartError::Refused(permission_denied(&name, permission))
-                }
-                ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
-            })?;
-        let (fetch, effects) = self
-            .build_fetch(
-                &name,
-                &installed.manifest,
-                &entry.approved,
-                resolved,
-                secrets,
-            )
-            .map_err(|invalid| cannot_start(&invalid))?;
+            .await?;
         let resolved_runtime = self
             .resolve_runtime(
                 &name,
@@ -797,9 +813,124 @@ impl RunPlugins {
                 ..InstanceHooks::default()
             },
         );
-        self.track_instance(name, digest, None, instance.clone())
+        self.record_started(name, network_level, origin, digest, layer, instance.clone())
             .await;
         Ok((instance, effects))
+    }
+
+    /// Audits a `direct` Plugin start, records the started Plugin for the Run
+    /// report, and tracks the running instance for revocation enforcement.
+    async fn record_started(
+        &self,
+        name: String,
+        network_level: NetworkLevel,
+        origin: Origin,
+        digest: Option<String>,
+        layer: Option<goodfetch_protocol::settings::SettingsLayer>,
+        instance: PluginInstance,
+    ) {
+        if network_level == NetworkLevel::Direct {
+            self.audit_direct_start(&name, origin, digest.as_deref(), layer)
+                .await;
+        }
+        if let Some(recorder) = &self.run_recorder {
+            recorder
+                .record(PluginRun {
+                    name: name.clone(),
+                    network_level: network_level.as_str().to_owned(),
+                    confinement_missing: Vec::new(),
+                })
+                .await;
+        }
+        self.track_instance(name, digest, None, instance).await;
+    }
+
+    /// Validates the Plugin's settings, builds its [`PluginFetch`] gate,
+    /// verifies configured destinations under ADR 0017 when `direct`, and
+    /// resolves its environment variables (including Secrets).
+    async fn prepare_gate_and_environment(
+        &self,
+        name: &str,
+        (manifest, approved, origin): (
+            &PluginManifest,
+            &goodfetch_protocol::plugin::approvals::Approvals,
+            Origin,
+        ),
+        (given, layer, resolved): (
+            serde_json::Map<String, Value>,
+            Option<goodfetch_protocol::settings::SettingsLayer>,
+            &Resolved,
+        ),
+        secrets: &RunSecrets,
+        cannot_start: &impl Fn(&dyn std::fmt::Display) -> StartError,
+    ) -> Result<(PluginFetch, Option<EffectsGate>, BTreeMap<String, String>), StartError> {
+        let checked_settings = PluginSettings::checked(name, manifest, given, layer)
+            .map_err(|invalid| StartError::Refused(invalid.into()))?;
+        let (fetch, effects) = self
+            .build_fetch(name, manifest, approved, resolved, secrets)
+            .map_err(|invalid| cannot_start(&invalid))?;
+        if manifest.network_level == NetworkLevel::Direct {
+            fetch
+                .check_direct_destinations(
+                    checked_settings.values(),
+                    checked_settings.secret_paths(),
+                    origin,
+                )
+                .await
+                .map_err(StartError::Refused)?;
+        }
+        let environment = checked_settings
+            .environment(
+                name,
+                (manifest, approved, origin),
+                secrets,
+                (&self.run_id, layer),
+            )
+            .await
+            .map_err(|error| match error {
+                EnvironmentError::Secret(error) => StartError::Secret(error),
+                EnvironmentError::Denied(permission) => {
+                    StartError::Refused(permission_denied(name, permission))
+                }
+                ungranted @ EnvironmentError::Ungranted { .. } => cannot_start(&ungranted),
+            })?;
+        Ok((fetch, effects, environment))
+    }
+
+    /// Records `plugin_direct_started` in the Audit log when a Plugin starts
+    /// at network level `direct` (ADR 0033, issue 855).
+    async fn audit_direct_start(
+        &self,
+        name: &str,
+        origin: Origin,
+        digest: Option<&str>,
+        layer: Option<goodfetch_protocol::settings::SettingsLayer>,
+    ) {
+        let Some(audit) = &self.audit else {
+            return;
+        };
+        let mut details = json!({
+            "plugin": name,
+            "origin": origin,
+            "network_level": NetworkLevel::Direct.as_str(),
+        });
+        if let Some(digest) = digest {
+            details["digest"] = json!(digest);
+        }
+        let audit_origin = AuditOrigin {
+            actor: Actor::Engine,
+            surface: None,
+            layer,
+            run_id: Some(self.run_id.clone()),
+        };
+        let _ = audit
+            .record(
+                &audit_origin,
+                &PLUGIN_DIRECT_STARTED,
+                details,
+                self.clock.timestamp(),
+            )
+            .await;
     }
 
     /// Builds a Plugin's [`PluginFetch`] wired with Secret insertion and the

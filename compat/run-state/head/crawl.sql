@@ -493,6 +493,11 @@ CREATE TABLE run_key (
     wrapped BLOB NOT NULL,
     key_reference TEXT NOT NULL
 ) STRICT;
+CREATE TABLE run_plugins (
+        name TEXT NOT NULL PRIMARY KEY,
+        network_level TEXT NOT NULL,
+        confinement_missing TEXT NOT NULL DEFAULT '[]'
+    ) STRICT;
 CREATE TABLE scope (
             id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
             strategy TEXT NOT NULL,

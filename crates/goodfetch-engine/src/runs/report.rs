@@ -14,12 +14,13 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use futures_util::future::BoxFuture;
 use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginStreamUsage, PluginUnitUsage, PluginUsage, ProxyKindBytes, RunId, RunReport,
-    RunUsage, RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginRun, PluginStreamUsage, PluginUnitUsage, PluginUsage, ProxyKindBytes, RunId,
+    RunReport, RunUsage, RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -86,6 +87,7 @@ pub(super) fn assemble(
     report.usage = usage;
     report.warnings = warnings(connection)?;
     report.nothing_done = nothing_done(connection)?;
+    report.plugins = run_plugins(connection)?;
     for part in parts {
         if let Err(error) = part.fill(connection, &mut report) {
             tracing::warn!(%error, run_id = %report.run_id, "a part of the Run's report could not be read; the report goes without it");
@@ -694,4 +696,100 @@ fn nothing_done(connection: &Connection) -> rusqlite::Result<Option<NothingDone>
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
     })
     .transpose()
+}
+
+/// Records a Plugin that ran in the Run's `run_plugins` table (ADRs 0016 and
+/// 0033).
+fn record_plugin(connection: &Connection, plugin: &PluginRun) -> rusqlite::Result<()> {
+    let missing = serde_json::to_string(&plugin.confinement_missing)
+        .expect("invariant: confinement_missing encodes");
+    connection
+        .prepare_cached(
+            "INSERT OR REPLACE INTO run_plugins (name, network_level, confinement_missing) \
+             VALUES (?1, ?2, ?3)",
+        )
+        .and_then(|mut cached| cached.execute((&plugin.name, &plugin.network_level, missing)))?;
+    Ok(())
+}
+
+/// Every Plugin recorded in the Run's `run_plugins` table, in name order;
+/// `None` when none ran.
+fn run_plugins(connection: &Connection) -> rusqlite::Result<Option<Vec<PluginRun>>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT name, network_level, confinement_missing FROM run_plugins ORDER BY name",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            let missing: String = row.get(2)?;
+            Ok(PluginRun {
+                name: row.get(0)?,
+                network_level: row.get(1)?,
+                confinement_missing: serde_json::from_str(&missing)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok((!rows.is_empty()).then_some(rows))
+}
+
+/// Persists started Plugins into a live Run's [`RunState`] so
+/// `RunReport::plugins` lists them when the Run ends (ADRs 0016 and 0033).
+pub(super) struct RunPluginRecorder {
+    state: RunState,
+}
+
+impl RunPluginRecorder {
+    /// A recorder writing to `state`.
+    pub(super) fn new(state: RunState) -> Arc<Self> {
+        Arc::new(Self { state })
+    }
+}
+
+impl crate::plugin_kinds::run_plugins::PluginRunRecorder for RunPluginRecorder {
+    fn record(&self, plugin: PluginRun) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            if let Err(error) = self
+                .state
+                .write(move |connection| record_plugin(connection, &plugin))
+                .await
+            {
+                tracing::warn!(%error, "could not record started Plugin in run state");
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use goodfetch_protocol::run::PluginRun;
+
+    use super::{record_plugin, run_plugins};
+
+    /// Recording a Plugin at `direct` in `run_plugins` populates
+    /// `RunReport::plugins` in name order when the Run report is assembled.
+    ///
+    /// Covers: story:7-56
+    #[test]
+    fn recorded_direct_plugin_appears_in_run_report_plugins() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE run_plugins (
+                    name TEXT NOT NULL PRIMARY KEY,
+                    network_level TEXT NOT NULL,
+                    confinement_missing TEXT NOT NULL DEFAULT '[]'
+                ) STRICT",
+            )
+            .unwrap();
+        assert_eq!(run_plugins(&connection).unwrap(), None);
+
+        let direct = PluginRun {
+            name: "pager".to_owned(),
+            network_level: "direct".to_owned(),
+            confinement_missing: Vec::new(),
+        };
+        record_plugin(&connection, &direct).unwrap();
+
+        assert_eq!(run_plugins(&connection).unwrap(), Some(vec![direct]));
+    }
 }

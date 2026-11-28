@@ -28,6 +28,7 @@ pub fn committed(host: Host, level: NetworkLevel) -> Option<&'static str> {
         (Host::Linux, NetworkLevel::ProxyTcp) => {
             Some(include_str!("../probes/linux/proxy_tcp.toml"))
         }
+        (Host::Linux, NetworkLevel::Direct) => Some(include_str!("../probes/linux/direct.toml")),
         _ => None,
     }
 }

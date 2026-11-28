@@ -6,8 +6,8 @@
 //!
 //! Some refusals are rules too, though the default refuses them already:
 //! ADR 0033 names them, and a rule of their own gives each its probe, so a
-//! later allow rule that lets one through fails that probe. `none` (#813) and
-//! `proxy_tcp` (#833) are built; `direct` comes with #855.
+//! later allow rule that lets one through fails that probe. `none` (#813),
+//! `proxy_tcp` (#833) and `direct` (#855) are built.
 
 use goodfetch_protocol::plugin::NetworkLevel;
 use serde::{Deserialize, Serialize};
@@ -443,11 +443,12 @@ const NONE: &[Rule] = &[
     refuse("socket", Call::Socket),
 ];
 
-/// At `proxy_tcp`, the Plugin runs inside a network namespace holding only
-/// loopback (`lo`) with the `plugin-shim` relay: IP sockets (`AF_INET`,
-/// `AF_INET6`) and `connect` are allowed, while Unix-domain and netlink
-/// sockets (and any other non-IP family by default) are refused.
-const PROXY_TCP: &[Rule] = &[
+/// At `proxy_tcp` (inside a loopback-only network namespace with `plugin-shim`)
+/// and `direct` (directly on the host network), outgoing IP sockets (`AF_INET`,
+/// `AF_INET6`) and `connect` are allowed, while Unix-domain and netlink sockets
+/// (plus `bind`/`listen`/`accept` in [`REFUSED`]) are refused (ADR 0033,
+/// issues 833 and 855).
+const OUTGOING_IP: &[Rule] = &[
     allow("connect", Call::Connect),
     allow_when(
         "socket.inet",
@@ -483,13 +484,11 @@ const PROXY_TCP: &[Rule] = &[
     ),
 ];
 
-/// The rules of the seccomp list at `level`; none for a level not built
-/// yet, which the applier refuses.
+/// The rules of the seccomp list at `level`.
 pub fn rules(level: NetworkLevel) -> Vec<Rule> {
     let extra = match level {
         NetworkLevel::None => NONE,
-        NetworkLevel::ProxyTcp => PROXY_TCP,
-        NetworkLevel::Direct => return Vec::new(),
+        NetworkLevel::ProxyTcp | NetworkLevel::Direct => OUTGOING_IP,
     };
     let ioctls = IOCTLS.iter().map(|&(name, request)| {
         allow_when(

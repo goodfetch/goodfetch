@@ -205,6 +205,7 @@ fn only_linux_at_none_has_a_table_so_far() {
         vec![
             (Host::Linux, NetworkLevel::None),
             (Host::Linux, NetworkLevel::ProxyTcp),
+            (Host::Linux, NetworkLevel::Direct),
         ]
     );
 }
@@ -213,6 +214,15 @@ fn only_linux_at_none_has_a_table_so_far() {
 fn every_rule_entry_and_file_rule_at_proxy_tcp_on_linux_has_its_probe_and_no_probe_lacks_a_rule() {
     let table = ProbeTable::read(committed(Host::Linux, NetworkLevel::ProxyTcp).unwrap()).unwrap();
     let rules = crate::seccomp::rules(NetworkLevel::ProxyTcp);
+    let denied: Vec<_> = crate::deny_list::on(Host::Linux).collect();
+
+    assert_eq!(check(&table, &rules, &denied), Vec::new());
+}
+
+#[test]
+fn every_rule_entry_and_file_rule_at_direct_on_linux_has_its_probe_and_no_probe_lacks_a_rule() {
+    let table = ProbeTable::read(committed(Host::Linux, NetworkLevel::Direct).unwrap()).unwrap();
+    let rules = crate::seccomp::rules(NetworkLevel::Direct);
     let denied: Vec<_> = crate::deny_list::on(Host::Linux).collect();
 
     assert_eq!(check(&table, &rules, &denied), Vec::new());

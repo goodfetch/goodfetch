@@ -279,3 +279,414 @@ fn an_approved_secret_value_released_is_audited() {
     );
     assert!(!format!("{entries:?}").contains(TOKEN));
 }
+
+/// Installs a `notification` Plugin named `name` at `network_level: "direct"`,
+/// with an `endpoint` setting and a secret field `aws_secret_access_key`
+/// mapped to `AWS_SECRET_ACCESS_KEY`.
+fn install_direct_plugin(home: &Home, name: &str) {
+    let plugin_dir = home.plugins().join(name);
+    let bundle = plugin_dir.join("1.0.0");
+    std::fs::create_dir_all(&bundle).unwrap();
+    let manifest = json!({
+        "manifest_version": "0.1",
+        "name": name,
+        "version": "1.0.0",
+        "kinds": ["notification"],
+        "protocol": { "min": "0.1", "max": "0.1" },
+        "entrypoint": "plugin",
+        "network_level": "direct",
+        "settings_schema": {
+            "type": "object",
+            "properties": {
+                "endpoint": { "type": "string" },
+                "aws_secret_access_key": { "type": "string", "secret": true },
+            },
+        },
+        "env": { "AWS_SECRET_ACCESS_KEY": "aws_secret_access_key" },
+        "permissions": { "grants": ["secret_value"] },
+    });
+    std::fs::write(bundle.join("goodfetch-plugin.json"), manifest.to_string()).unwrap();
+    std::fs::write(plugin_dir.join("1.0.0.digest"), DIGEST).unwrap();
+}
+
+/// Persists a signed Plugin index in `home` registering `name` at [`DIGEST`]
+/// with `origin`.
+fn write_index_with_origin(
+    home: &Home,
+    name: &str,
+    origin: goodfetch_protocol::plugin::approvals::Origin,
+    now: jiff::Timestamp,
+) {
+    use goodfetch_protocol::plugin::PluginKindName;
+    use goodfetch_protocol::plugin::index::{IndexEntry, PluginIndex, SignerIdentity};
+
+    let (signer, trust) = crate::signed_set::SignedSetSigner::for_root(
+        "direct-test-key",
+        "https://token.actions.githubusercontent.com",
+        "https://github.com/goodfetch/goodfetch/.github/workflows/plugin-index.yml@refs/heads/main",
+        [0x42; 32],
+    );
+    let expires_at = now
+        .checked_add(jiff::Span::new().hours(24))
+        .expect("invariant: valid test expiry");
+    let index = PluginIndex {
+        version: 1,
+        signed_at: now.to_string(),
+        expires_at: expires_at.to_string(),
+        plugins: vec![IndexEntry {
+            name: name.to_owned(),
+            reference: format!("ghcr.io/goodfetch/goodfetch-plugin-{name}"),
+            digest: DIGEST.to_owned(),
+            kinds: vec![PluginKindName::NOTIFICATION],
+            signer: SignerIdentity {
+                issuer: "https://token.actions.githubusercontent.com".to_owned(),
+                workflow:
+                    "https://github.com/goodfetch/goodfetch/.github/workflows/release.yml@refs/tags/v1.0.0"
+                        .to_owned(),
+                repository: "github.com/goodfetch/goodfetch".to_owned(),
+            },
+            origin,
+            conformance: Vec::new(),
+        }],
+        revocations: Vec::new(),
+    };
+    let bundle = signer.sign(index).unwrap();
+    crate::plugin_index::PluginIndexStore::new(home.plugin_index())
+        .apply(bundle, &trust, now)
+        .unwrap();
+}
+
+/// Starts a `direct` notification Plugin `name` through [`RunPlugins`] with
+/// real [`AuditLog`], [`PluginRunRecorder`], and [`Places`].
+fn start_direct(
+    env: &TestEnv,
+    home: &Home,
+    name: &str,
+    operator_policy: Value,
+    user_config: Value,
+    run_settings: Value,
+    env_vars: BTreeMap<OsString, OsString>,
+) -> (
+    Result<(), StartError>,
+    Vec<AuditEntry>,
+    Option<Vec<goodfetch_protocol::run::PluginRun>>,
+) {
+    use goodfetch_confinement::deny_list::Places;
+    use goodfetch_protocol::run::PluginRun;
+
+    struct RecordingPlugins(tokio::sync::Mutex<Vec<PluginRun>>);
+
+    impl super::PluginRunRecorder for RecordingPlugins {
+        fn record(&self, plugin: PluginRun) -> futures_util::future::BoxFuture<'_, ()> {
+            Box::pin(async move {
+                self.0.lock().await.push(plugin);
+            })
+        }
+    }
+
+    let owner = Arc::new(TaskOwner::root(BlockingPolicy::Inline));
+    let layers = Layers {
+        operator_policy: Policy {
+            settings: Values::read(
+                SettingsLayer::OperatorPolicy,
+                &object(operator_policy),
+                Product::Collie,
+            )
+            .unwrap(),
+            ..Policy::default()
+        },
+        user_configuration: Values::read(
+            SettingsLayer::UserConfiguration,
+            &object(user_config),
+            Product::Collie,
+        )
+        .unwrap(),
+        run: Values::read(SettingsLayer::Run, &object(run_settings), Product::Collie).unwrap(),
+        ..Layers::default()
+    };
+    let resolved = resolve(&layers, Product::Collie, Product::Collie).unwrap();
+    let probe = SandboxProbe::of(confining_host, BTreeMap::new());
+    let audit = Arc::new(AuditLog::of(home, None, Arc::clone(&owner)));
+    let places = Arc::new(Places {
+        home: env.folder().to_path_buf(),
+        goodfetch_home: home.root().to_path_buf(),
+        app_data: None,
+        local_app_data: None,
+    });
+    let run_id = RunId::parse("direct-run").unwrap();
+    let recorder = Arc::new(RecordingPlugins(tokio::sync::Mutex::new(Vec::new())));
+
+    let (started, report_plugins) = goodfetch_test_support::runtime().block_on(async {
+        let secrets = Secrets::new(
+            Carried {
+                environment: env_vars,
+                keychain: Keychain::absent(),
+                home: home.clone(),
+                entropy: Entropy::seeded(env.seed()),
+            },
+            Arc::clone(&audit),
+            Arc::clone(&owner),
+            Clock::paused(env.start_time()),
+        )
+        .for_run_under(&resolved, Duration::from_secs(30), Redaction::On);
+        let plugins = RunPlugins::new(
+            home,
+            Some(places),
+            Product::Collie,
+            run_id,
+            (Arc::clone(&owner), Clock::paused(env.start_time())),
+        )
+        .with_audit((*audit).clone())
+        .with_run_recorder(Arc::clone(&recorder) as Arc<dyn super::PluginRunRecorder>);
+        let started = plugins
+            .notification_channel(name, "alerts", Some(&resolved), &secrets, &probe)
+            .await
+            .map(drop);
+        let plugins_list = recorder.0.lock().await.clone();
+        let report_plugins = (!plugins_list.is_empty()).then_some(plugins_list);
+        (started, report_plugins)
+    });
+    let entries = audit
+        .export()
+        .unwrap()
+        .into_iter()
+        .map(|exported| exported.entry)
+        .collect();
+    (started, entries, report_plugins)
+}
+
+/// A third-party Plugin declaring `network_level = "direct"` is refused with
+/// `plugin_permission_denied` naming `Permission::Direct` unless Operator
+/// policy explicitly approves `direct`.
+///
+/// Covers: story:7-56, error:plugin_permission_denied
+#[test]
+fn a_third_party_direct_plugin_is_refused_unless_operator_policy_approves_direct() {
+    let env = TestEnv::new();
+    let home = Home::new(env.home().to_path_buf());
+    install_direct_plugin(&home, "pager");
+
+    let (started, entries, report_plugins) = start_direct(
+        &env,
+        &home,
+        "pager",
+        json!({ "plugins": { "pager": { "allow": true } } }),
+        json!({}),
+        json!({}),
+        BTreeMap::new(),
+    );
+
+    let (code, details) = refusal(started);
+    assert_eq!(code, "plugin_permission_denied", "{details:?}");
+    assert_eq!(details["permission"], json!({ "permission": "direct" }));
+    assert!(entries.is_empty(), "{entries:?}");
+    assert_eq!(report_plugins, None);
+}
+
+/// Every configured destination on a `direct` Plugin is checked under ADR 0017
+/// before starting (and before resolving any Secrets): cloud metadata,
+/// hostnames resolving to metadata, private addresses under
+/// `egress.no_private_endpoints`, and unconfigured Run-layer private hosts for
+/// a third-party Plugin all stop the start with `egress_refused`.
+///
+/// Covers: story:7-111, error:egress_refused
+#[rstest]
+#[case::cloud_metadata_literal(
+    json!({ "plugins": { "pager": { "allow": true, "approved": { "direct": true } } } }),
+    json!({ "plugins": { "pager": { "settings": { "endpoint": "http://169.254.169.254/latest/meta-data", "aws_secret_access_key": "env:AWS_KEY" } } } }),
+    json!({}),
+)]
+#[case::cloud_metadata_postgres(
+    json!({ "plugins": { "pager": { "allow": true, "approved": { "direct": true } } } }),
+    json!({ "plugins": { "pager": { "settings": { "endpoint": "postgres://user:pass@169.254.169.254:5432/db", "aws_secret_access_key": "env:AWS_KEY" } } } }),
+    json!({}),
+)]
+#[case::resolved_to_cloud_metadata(
+    json!({ "plugins": { "pager": { "allow": true, "approved": { "direct": true } } } }),
+    json!({
+        "network": { "resolve": { "meta.example": ["169.254.169.254"] } },
+        "plugins": { "pager": { "settings": { "endpoint": "https://meta.example/hook", "aws_secret_access_key": "env:AWS_KEY" } } },
+    }),
+    json!({}),
+)]
+#[case::private_endpoint_under_no_private_endpoints(
+    json!({
+        "egress": { "no_private_endpoints": true },
+        "plugins": { "pager": { "allow": true, "approved": { "direct": true } } },
+    }),
+    json!({ "plugins": { "pager": { "settings": { "endpoint": "postgres://user:pass@127.0.0.1:5432/db", "aws_secret_access_key": "env:AWS_KEY" } } } }),
+    json!({}),
+)]
+#[case::third_party_run_layer_loopback(
+    json!({ "plugins": { "pager": { "allow": true, "approved": { "direct": true } } } }),
+    json!({}),
+    json!({ "plugins": { "pager": { "settings": { "endpoint": "http://127.0.0.1:8080/hook", "aws_secret_access_key": "env:AWS_KEY" } } } }),
+)]
+fn a_direct_plugin_with_a_disallowed_destination_stops_the_start_before_secrets(
+    #[case] operator_policy: Value,
+    #[case] user_config: Value,
+    #[case] run_settings: Value,
+) {
+    let env = TestEnv::new();
+    let home = Home::new(env.home().to_path_buf());
+    install_direct_plugin(&home, "pager");
+
+    let (started, entries, report_plugins) = start_direct(
+        &env,
+        &home,
+        "pager",
+        operator_policy,
+        user_config,
+        run_settings,
+        BTreeMap::from([(OsString::from("AWS_KEY"), OsString::from("fake-aws-secret"))]),
+    );
+
+    let (code, details) = refusal(started);
+    assert_eq!(code, "egress_refused", "{details:?}");
+    assert!(entries.is_empty(), "{entries:?}");
+    assert_eq!(report_plugins, None);
+}
+
+/// A first-party Plugin declaring `direct` runs by default without Operator
+/// policy naming it, receives cloud credentials from the engine as Secrets
+/// (audited and masked), and is marked at `direct` in both the Audit log and
+/// the Run report.
+///
+/// Covers: story:7-56, story:7-111
+#[test]
+fn a_first_party_direct_plugin_runs_by_default_receives_cloud_credentials_as_secrets_and_is_marked()
+{
+    use goodfetch_protocol::plugin::approvals::{Origin, PLUGIN_DIRECT_STARTED};
+    use goodfetch_protocol::run::PluginRun;
+
+    let env = TestEnv::new();
+    let home = Home::new(env.home().to_path_buf());
+    install_direct_plugin(&home, "cloud-notify");
+    write_index_with_origin(
+        &home,
+        "cloud-notify",
+        Origin::FirstParty,
+        jiff::Timestamp::try_from(env.start_time()).unwrap(),
+    );
+
+    let cloud_secret = "fake-cloud-credential-value";
+    let (started, entries, report_plugins) = start_direct(
+        &env,
+        &home,
+        "cloud-notify",
+        json!({}),
+        json!({
+            "network": { "resolve": { "notify.example": ["93.184.216.34"] } },
+            "plugins": {
+                "cloud-notify": {
+                    "settings": {
+                        "endpoint": "https://notify.example/send",
+                        "aws_secret_access_key": "env:AWS_SECRET_ACCESS_KEY",
+                    }
+                }
+            }
+        }),
+        json!({}),
+        BTreeMap::from([(
+            OsString::from("AWS_SECRET_ACCESS_KEY"),
+            OsString::from(cloud_secret),
+        )]),
+    );
+
+    assert!(started.is_ok(), "{started:?}");
+    let released: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.kind == PLUGIN_SECRET_VALUE_RELEASED.name)
+        .collect();
+    assert_eq!(released.len(), 1, "{entries:?}");
+    assert_eq!(
+        released[0].details,
+        json!({ "plugin": "cloud-notify", "reference": "env:AWS_SECRET_ACCESS_KEY" })
+    );
+    assert!(!format!("{entries:?}").contains(cloud_secret));
+
+    let direct_entries: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.kind == PLUGIN_DIRECT_STARTED.name)
+        .collect();
+    assert_eq!(direct_entries.len(), 1, "{entries:?}");
+    assert_eq!(
+        direct_entries[0].details,
+        json!({
+            "plugin": "cloud-notify",
+            "origin": "first_party",
+            "network_level": "direct",
+            "digest": DIGEST,
+        })
+    );
+    assert_eq!(
+        report_plugins,
+        Some(vec![PluginRun {
+            name: "cloud-notify".to_owned(),
+            network_level: "direct".to_owned(),
+            confinement_missing: Vec::new(),
+        }])
+    );
+}
+
+/// An Operator-approved third-party Plugin at `direct` starts and is marked at
+/// `direct` in both the Audit log and the Run report.
+///
+/// Covers: story:7-56
+#[test]
+fn an_approved_third_party_direct_plugin_is_marked_in_audit_and_run_report() {
+    use goodfetch_protocol::plugin::approvals::PLUGIN_DIRECT_STARTED;
+    use goodfetch_protocol::run::PluginRun;
+
+    let env = TestEnv::new();
+    let home = Home::new(env.home().to_path_buf());
+    install_direct_plugin(&home, "pager");
+
+    let (started, entries, report_plugins) = start_direct(
+        &env,
+        &home,
+        "pager",
+        json!({
+            "plugins": {
+                "pager": {
+                    "allow": true,
+                    "approved": { "direct": true }
+                }
+            }
+        }),
+        json!({
+            "network": { "resolve": { "pager.example": ["93.184.216.34"] } },
+            "plugins": {
+                "pager": {
+                    "settings": { "endpoint": "https://pager.example/events" }
+                }
+            }
+        }),
+        json!({}),
+        BTreeMap::new(),
+    );
+
+    assert!(started.is_ok(), "{started:?}");
+    let direct_entries: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.kind == PLUGIN_DIRECT_STARTED.name)
+        .collect();
+    assert_eq!(direct_entries.len(), 1, "{entries:?}");
+    assert_eq!(
+        direct_entries[0].details,
+        json!({
+            "plugin": "pager",
+            "origin": "third_party",
+            "network_level": "direct",
+            "digest": DIGEST,
+        })
+    );
+    assert_eq!(
+        report_plugins,
+        Some(vec![PluginRun {
+            name: "pager".to_owned(),
+            network_level: "direct".to_owned(),
+            confinement_missing: Vec::new(),
+        }])
+    );
+}

@@ -129,7 +129,7 @@ pub(super) struct PathCase {
 pub(super) fn read_workspace_confinement(root: &Path) -> Result<PolicySpec> {
     let seccomp_path = root.join(SECCOMP_SOURCE);
     let none = read_seccomp_level(&seccomp_path, "NONE")?;
-    let proxy_tcp = read_seccomp_level(&seccomp_path, "PROXY_TCP")?;
+    let outgoing_ip = read_seccomp_level(&seccomp_path, "OUTGOING_IP")?;
     let deny_list = read_linux_deny_list(&root.join(DENY_LIST_SOURCE))?;
     let (signal_rule, file_rules) = read_policy_rules(&root.join(POLICY_SOURCE))?;
     Ok(PolicySpec {
@@ -147,7 +147,11 @@ pub(super) fn read_workspace_confinement(root: &Path) -> Result<PolicySpec> {
             },
             LevelSpec {
                 name: "proxy_tcp".to_owned(),
-                seccomp: proxy_tcp,
+                seccomp: outgoing_ip.clone(),
+            },
+            LevelSpec {
+                name: "direct".to_owned(),
+                seccomp: outgoing_ip,
             },
         ],
         deny_list,

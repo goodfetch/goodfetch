@@ -249,8 +249,13 @@ how = "holds no value: the Run's data key, wrapped"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/run_state.rs"
-count = 7
-how = "masked: warnings, the progress message and the Run report, its error included, are masked as `Scope::Kept` in `runs` before they are written; settings are kept by reference; the \"unclean\" mark at `off` is a constant row with no value of the Run's"
+count = 8
+how = "masked: warnings, the progress message and the Run report, its error included, are masked as `Scope::Kept` in `runs` before they are written; settings are kept by reference; `run_plugins` holds Plugin names, network levels and missing confinement part names; the \"unclean\" mark at `off` is a constant row with no value of the Run's"
+
+[[writer]]
+path = "crates/goodfetch-engine/src/runs/report.rs"
+count = 1
+how = "holds no value: each started Plugin's name, network level and missing confinement parts"
 
 [[writer]]
 path = "crates/goodfetch-engine/src/run_state/install.rs"

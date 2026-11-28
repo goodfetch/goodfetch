@@ -202,7 +202,7 @@ pub fn stated(permission: Permission) -> StatedPermission {
         ),
         Permission::Direct => (
             "reach the network directly rather than through the engine".to_owned(),
-            "its writes: the engine cannot hold what it sends directly to the Effects rule or the egress policy".to_owned(),
+            "connections beyond its configured destinations, including addresses learned during the run, DNS rebinding, loopback, the local network and the cloud-metadata address (on Linux and macOS), nor its writes, which are not held to the Effects rule or the egress policy".to_owned(),
         ),
     };
     StatedPermission {
@@ -489,6 +489,12 @@ pub const PLUGIN_PERMISSION_USED: SharedTypeValue = kind(
     "A Plugin performed an action under an Operator-approved permission (`effects`, `page_script` or `session_credentials`) on a domain: the Plugin, the permission, the domain, the method and the Run.",
 );
 
+/// A Plugin started at network level `direct` (ADR 0033, issue 855).
+pub const PLUGIN_DIRECT_STARTED: SharedTypeValue = kind(
+    "plugin_direct_started",
+    "A Plugin started at network level `direct`: its name, origin (`first_party`, `third_party` or `private`), digest when known, and Run.",
+);
+
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -504,6 +510,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_APPROVED,
         PLUGIN_SECRET_VALUE_RELEASED,
         PLUGIN_PERMISSION_USED,
+        PLUGIN_DIRECT_STARTED,
     ],
 };
 

@@ -4624,6 +4624,7 @@ impl Registry {
                 (Arc::clone(owner), clock),
             )
             .with_audit(self.setup.engine.audit().clone())
+            .with_run_recorder(report::RunPluginRecorder::new(state.clone()))
             .with_spend(RunSpendAccountant::new(charging.clone(), warnings.clone()))
             .with_streams(RunStreamAccountant::new(charging.clone(), trace.clone()))
             .with_effects_journal(RunEffectJournal::new(state.clone(), clock)),

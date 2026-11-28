@@ -18,7 +18,9 @@ use std::collections::BTreeMap;
 
 use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::ValueKind;
-use goodfetch_protocol::plugin::approvals::{Approvals, PLUGIN_SECRET_VALUE_RELEASED, Permission};
+use goodfetch_protocol::plugin::approvals::{
+    Approvals, Origin as PluginOrigin, PLUGIN_SECRET_VALUE_RELEASED, Permission,
+};
 use goodfetch_protocol::plugin::settings::{PLUGINS, SECRET_KEYWORD};
 use goodfetch_protocol::plugin::{Grant, PluginManifest};
 use goodfetch_protocol::run::RunId;
@@ -145,12 +147,26 @@ impl PluginSettings {
         Ok(Self { values, secret })
     }
 
+    /// The validated settings map, with schema defaults applied.
+    #[must_use]
+    pub fn values(&self) -> &Map<String, Value> {
+        &self.values
+    }
+
+    /// The paths of fields the schema marks `"secret": true`.
+    #[must_use]
+    pub fn secret_paths(&self) -> &[Vec<String>] {
+        &self.secret
+    }
+
     /// The variables of the Plugin's environment `manifest`'s `env`
     /// declares, each valued from the field it names: a string as it is,
     /// another value as its JSON text, and none for a field left out or
     /// `null`. A secret field's reference is resolved by `secrets` for the
-    /// Run `run_id`, under its key, from `layer`, only when the Operator
-    /// policy's `approved` covers its value, and each release is recorded
+    /// Run `run_id`, under its key, from `layer`, for a first-party Plugin by
+    /// default (so it receives cloud credentials as Secrets from the engine,
+    /// ADR 0033) and for a third-party or Private Plugin only when the
+    /// Operator policy's `approved` covers its value; each release is recorded
     /// in the Audit log as `plugin_secret_value_released`.
     ///
     /// # Errors
@@ -159,7 +175,7 @@ impl PluginSettings {
     pub async fn environment(
         &self,
         name: &str,
-        (manifest, approved): (&PluginManifest, &Approvals),
+        (manifest, approved, plugin_origin): (&PluginManifest, &Approvals, PluginOrigin),
         secrets: &RunSecrets,
         (run_id, layer): (&RunId, Option<SettingsLayer>),
     ) -> Result<BTreeMap<String, String>, EnvironmentError> {
@@ -183,7 +199,7 @@ impl PluginSettings {
                 let released = Permission::SecretValue {
                     reference: reference.as_str().to_owned(),
                 };
-                if !approved.covers(&released) {
+                if plugin_origin != PluginOrigin::FirstParty && !approved.covers(&released) {
                     return Err(EnvironmentError::Denied(released));
                 }
                 let placeholder = key(name, &path);

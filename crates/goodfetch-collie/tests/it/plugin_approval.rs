@@ -613,3 +613,55 @@ fn plugin_update_refuses_json_and_piped_stdin_with_person_required() {
         "{pipe_out:?}"
     );
 }
+
+/// Approving a Plugin declaring `network_level = "direct"` prints what the
+/// engine cannot check at `direct` (destinations beyond configured ones, DNS
+/// rebinding, loopback, local network, cloud-metadata address, and writes) and
+/// writes `direct = true` under `approved` in the Operator policy.
+///
+/// Covers: story:7-56, command:plugin.add
+#[test]
+fn plugin_add_for_direct_prints_what_is_not_checked_and_approves_direct() {
+    let env = TestEnv::new();
+    place(
+        &env,
+        &json!({
+            "manifest_version": "0.1",
+            "name": "kettle",
+            "version": "1.0.0",
+            "kinds": ["notification"],
+            "protocol": { "min": "0.1", "max": "0.1" },
+            "entrypoint": "kettle",
+            "network_level": "direct",
+        }),
+    );
+    let policy = HomeLayout::of(env.home()).operator_policy();
+
+    let mut added = pty(&env, COLLIE)
+        .args(["plugin", "add", &reference()])
+        .spawn()
+        .unwrap();
+    added.expect("[y/N]").unwrap();
+    added.send_line("y").unwrap();
+    added.expect("in the Operator policy? [y/N]").unwrap();
+    added.send_line("y").unwrap();
+    let output = added.finish().unwrap();
+
+    let shown = output.stripped();
+    assert_eq!(output.exit, Some(0), "{shown}");
+    for phrase in [
+        "reach the network directly",
+        "The engine cannot check",
+        "configured destinations",
+        "DNS rebinding",
+        "cloud-metadata",
+        "Effects rule",
+    ] {
+        assert!(shown.contains(phrase), "missing `{phrase}` in:\n{shown}");
+    }
+    let written = std::fs::read_to_string(&policy).unwrap_or_default();
+    assert!(
+        written.contains("direct = true"),
+        "expected `direct = true` in policy:\n{written}"
+    );
+}

@@ -89,7 +89,7 @@ impl Plugin {
             "manifest_version": "0.1",
             "name": "probe",
             "version": "1.0.0",
-            "kinds": ["proxy"],
+            "kinds": ["notification"],
             "protocol": { "min": "0.1", "max": "0.1" },
             "runtime": { "kind": "node", "version": "22.11.0" },
             "entrypoint": "index.js",
@@ -145,6 +145,18 @@ fn every_probe_at_the_none_level_gives_its_refusal_under_the_mount_namespace_mec
 fn every_probe_at_the_proxy_tcp_level_gives_its_outcome_unconfined_then_exactly_its_refusal_confined()
  {
     assert_every_probe_at(NetworkLevel::ProxyTcp, None);
+}
+
+/// Every probe at the `direct` network level (ADR 0033, issue 855): outgoing IP
+/// sockets and `connect` are allowed on the host network, while `bind`
+/// (including UDP bind), `listen`, `accept`, Unix-domain and netlink sockets,
+/// signals outside, and deny-list paths are refused.
+///
+/// Covers: story:7-56
+#[test]
+fn every_probe_at_the_direct_level_gives_its_outcome_unconfined_then_exactly_its_refusal_confined()
+{
+    assert_every_probe_at(NetworkLevel::Direct, None);
 }
 
 /// The engine's startup probe reads this host as the launcher finds it: it

@@ -394,6 +394,11 @@ async fn effects(params: Value, context: CallContext) -> Result<Value, CallError
                  VALUES ('', 'payment', 0, 'reconciled', 'failed_after_send', 'Input.dispatchKeyEvent', '2026-01-05T09:00:02Z', 'ada', '2026-01-05T09:00:03Z')",
                 [],
             )?;
+            connection.execute(
+                "INSERT OR REPLACE INTO run_plugins (name, network_level, confinement_missing) \
+                 VALUES ('pager', 'direct', '[]')",
+                [],
+            )?;
             Ok(())
         })
         .await

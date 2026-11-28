@@ -64,7 +64,7 @@ fn a_limit_the_manifest_sets_replaces_only_that_default() {
     );
 }
 
-/// Covers: story:7-100
+/// Covers: story:7-56, story:7-100
 #[rstest]
 #[case::a_hook_at_none(&["hook"], "none", true)]
 #[case::a_hook_at_proxy_tcp(&["hook"], "proxy_tcp", false)]

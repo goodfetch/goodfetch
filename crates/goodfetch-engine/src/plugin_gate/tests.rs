@@ -1,3 +1,8 @@
+#![expect(
+    clippy::doc_markdown,
+    reason = "`Covers:` lines name Feature IDs, which are no prose (ADR 0072)"
+)]
+
 use std::collections::BTreeMap;
 
 use goodfetch_protocol::catalog::Product;
@@ -9,6 +14,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use url::Url;
 
+use super::direct::{DirectDestination, extract_direct_destinations};
 use super::{CALL_BACKS, PluginFetch, SettingsSource, admit_call_back};
 use crate::clock::Clock;
 use crate::egress::EgressClass;
@@ -252,4 +258,86 @@ fn a_call_back_is_admitted_inside_the_call_it_names(
     );
 
     assert_eq!(decision.is_ok(), admitted, "{decision:?}");
+}
+
+/// Covers: story:7-111
+#[test]
+fn direct_destination_extraction_finds_urls_and_broker_hosts_and_skips_secret_fields() {
+    let values = serde_json::from_value(json!({
+        "dsn": "postgres://user:pass@db.example.com:5432/app",
+        "brokers": "b1.example.com:9092, [2001:db8::1]:9092",
+        "webhook": "https://hooks.example.com/notify",
+        "token": "file:/etc/secret-should-be-skipped",
+        "nested": {
+            "endpoint": "169.254.169.254",
+            "format": "json",
+            "api_key": "env:API_KEY",
+        }
+    }))
+    .unwrap();
+    let secret_paths = vec![
+        vec!["token".to_owned()],
+        vec!["nested".to_owned(), "api_key".to_owned()],
+    ];
+
+    let found = extract_direct_destinations(&values, &secret_paths);
+
+    assert_eq!(
+        found,
+        vec![
+            DirectDestination::Host {
+                named: "b1.example.com:9092".to_owned(),
+                host: "b1.example.com".to_owned(),
+                port: 9092,
+            },
+            DirectDestination::Host {
+                named: "[2001:db8::1]:9092".to_owned(),
+                host: "2001:db8::1".to_owned(),
+                port: 9092,
+            },
+            DirectDestination::Host {
+                named: "postgres://user:pass@db.example.com:5432/app".to_owned(),
+                host: "db.example.com".to_owned(),
+                port: 5432,
+            },
+            DirectDestination::Host {
+                named: "169.254.169.254".to_owned(),
+                host: "169.254.169.254".to_owned(),
+                port: 1,
+            },
+            DirectDestination::Host {
+                named: "https://hooks.example.com/notify".to_owned(),
+                host: "hooks.example.com".to_owned(),
+                port: 443,
+            },
+        ]
+    );
+}
+
+/// Covers: story:7-111, error:egress_refused
+#[rstest]
+#[case::cloud_metadata_http("http://169.254.169.254/latest/meta-data")]
+#[case::cloud_metadata_postgres("postgres://user:pass@169.254.169.254:5432/db")]
+#[case::link_local_v6("http://[fe80::1]/")]
+#[case::zone_id_url("postgres://[fe80::1%25eth0]:5432/db")]
+#[case::forbidden_file_scheme("file:///etc/passwd")]
+#[case::forbidden_gopher_scheme("gopher://example.com:70/")]
+fn direct_destination_check_refuses_metadata_link_local_and_forbidden_schemes(
+    #[case] destination: &str,
+) {
+    let settings = resolved(
+        json!({ "plugins": { "kettle": { "settings": { "endpoint": destination } } } }),
+        json!({}),
+    );
+    let fetch = fetch_of(&settings);
+    let values: serde_json::Map<String, Value> =
+        serde_json::from_value(json!({ "endpoint": destination })).unwrap();
+
+    let result = goodfetch_test_support::runtime().block_on(fetch.check_direct_destinations(
+        &values,
+        &[],
+        goodfetch_protocol::plugin::approvals::Origin::ThirdParty,
+    ));
+    let err = result.unwrap_err();
+    assert_eq!(err.code(), "egress_refused", "for {destination}: {err:?}");
 }

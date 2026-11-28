@@ -35,6 +35,7 @@
 //! awaits the answer to, and while fewer than [`CALL_BACKS`] run; the
 //! credits and leases that will bound it come with issue 827.
 
+mod direct;
 pub mod effects;
 mod inserting;
 pub mod policy;
@@ -47,7 +48,8 @@ use bytes::Bytes;
 use goodfetch_protocol::egress::EgressRule;
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::plugin::approvals::{
-    PLUGIN_PERMISSION_DENIED, Permission, PluginPermissionDeniedDetails, fix,
+    Origin as PluginOrigin, PLUGIN_PERMISSION_DENIED, Permission, PluginPermissionDeniedDetails,
+    fix,
 };
 use goodfetch_protocol::plugin::net::{
     NetFetchBody, NetFetchHeader, NetFetchParams, NetFetchResult, NetFetchSecret,
@@ -134,6 +136,8 @@ impl SettingsSource {
 pub struct PluginFetch {
     /// The origins of its Operator-configured endpoints.
     endpoints: Vec<Origin>,
+    /// The egress class of the layer that configured this Plugin's settings.
+    settings_class: EgressClass,
     /// The run's domain policy, as a Plugin's request checked as a page's
     /// meets it.
     page: Policy,
@@ -170,7 +174,8 @@ impl PluginFetch {
         clock: Clock,
         blocking: BlockingThreads,
     ) -> Result<Self, InvalidEntry> {
-        let endpoints = match SettingsSource::of(settings, plugin).class() {
+        let settings_class = SettingsSource::of(settings, plugin).class();
+        let endpoints = match settings_class {
             EgressClass::OperatorConfigured => {
                 let mut origins = Vec::new();
                 origins_in(&settings.value(&PLUGINS)[plugin]["settings"], &mut origins);
@@ -180,6 +185,7 @@ impl PluginFetch {
         };
         Ok(Self {
             endpoints,
+            settings_class,
             page: Policy::of(settings)?.for_plugin(),
             settings: EndpointSettings::of(settings, clock, blocking),
             max_body_size: Limits::of(settings).max_body_size,
@@ -243,6 +249,33 @@ impl PluginFetch {
     #[must_use]
     pub fn clock(&self) -> Clock {
         self.settings.clock()
+    }
+
+    /// Checks every destination configured in `values` (skipping fields in
+    /// `secret_paths`) for a `direct` Plugin under ADR 0017 before the Plugin
+    /// starts (ADR 0033, issue 855).
+    ///
+    /// # Errors
+    ///
+    /// `egress_refused` when any configured destination fails ADR 0017's
+    /// scheme, domain-policy, or resolved-address check, or
+    /// `plugin_fetch_failed` when a destination host cannot be resolved.
+    pub async fn check_direct_destinations(
+        &self,
+        values: &serde_json::Map<String, Value>,
+        secret_paths: &[Vec<String>],
+        origin: PluginOrigin,
+    ) -> Result<(), CallError> {
+        direct::check_direct_destinations(
+            self.settings_class,
+            &self.settings,
+            &self.page,
+            values,
+            secret_paths,
+            origin,
+            |named, class, failure| self.failed(named, class, failure),
+        )
+        .await
     }
 
     /// Opens an opaque TCP stream for `net.connect` or `proxy_tcp` (ADR 0033,

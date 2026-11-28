@@ -42041,6 +42041,13 @@
       },
       {
         "arrived_in": "0.1",
+        "description": "A Plugin started at network level `direct`: its name, origin (`first_party`, `third_party` or `private`), digest when known, and Run.",
+        "name": "plugin_direct_started",
+        "product": "collie",
+        "type": "audit_kind"
+      },
+      {
+        "arrived_in": "0.1",
         "description": "Usage figures come from a Plugin.",
         "name": "plugin_figures",
         "product": "collie",

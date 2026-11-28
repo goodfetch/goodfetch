@@ -116,6 +116,25 @@ fn every_permission_states_what_it_lets_and_what_the_engine_cannot_check() {
     }
 }
 
+/// Covers: story:7-56
+#[test]
+fn direct_approval_states_what_the_engine_cannot_check() {
+    let statement = stated(Permission::Direct);
+    for phrase in [
+        "configured destinations",
+        "DNS rebinding",
+        "loopback",
+        "cloud-metadata",
+        "Effects rule",
+    ] {
+        assert!(
+            statement.cannot_check.contains(phrase),
+            "expected `{phrase}` in: {}",
+            statement.cannot_check
+        );
+    }
+}
+
 fn any_permission() -> impl Strategy<Value = Permission> {
     let word = "[a-z]{1,6}";
     prop_oneof![

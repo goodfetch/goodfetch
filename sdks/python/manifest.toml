@@ -4275,6 +4275,155 @@ member = "trace"
 entry = "run.trace"
 words = ["trace"]
 form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncFoxhound"
+member = "open_crawl_run"
+entry = "none"
+reason = "Opens a read-only `AsyncCrawlRunView` of a crawl Run another program started, by its Run ID, with no round trip and no writer lock (ADRs 0102 and 0103)."
+words = ["open", "crawl", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "Foxhound"
+member = "open_crawl_run"
+entry = "none"
+reason = "Opens a read-only `CrawlRunView` of a crawl Run another program started, by its Run ID, with no round trip and no writer lock (ADRs 0102 and 0103)."
+words = ["open", "crawl", "run"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "AsyncCrawlRunView"
+entry = "none"
+reason = "Read-only view of a crawl Run opened by `AsyncFoxhound.open_crawl_run()` (ADRs 0102 and 0103)."
+only = "TypeScript and Rust have a single async `CrawlRunView`."
+words = ["async", "crawl", "run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "(module)"
+member = "CrawlRunView"
+entry = "none"
+reason = "Sync read-only view of a crawl Run opened by `Foxhound.open_crawl_run()` (ADRs 0102 and 0103)."
+words = ["crawl", "run", "view"]
+form = "type"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "AsyncCrawlRunView"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "progress"
+entry = "run.progress"
+words = ["progress"]
+form = "read"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "report"
+entry = "run.report"
+words = ["report"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "records"
+entry = "run.records"
+words = ["records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "rejected_records"
+entry = "run.rejected_records"
+words = ["rejected", "records"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "export"
+entry = "run.export"
+words = ["export"]
+form = "round_trip"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "outcomes"
+entry = "run.outcomes"
+words = ["outcomes"]
+form = "opener"
+
+[[member]]
+package = "goodfetch_foxhound"
+receiver = "CrawlRunView"
+member = "failed_requests"
+entry = "run.failed_requests"
+words = ["failed", "requests"]
+form = "round_trip"
 [[logger]]
 package = "goodfetch-collie-client"
 name = "goodfetch"

@@ -29,6 +29,7 @@ mod headers;
 mod label_declaration;
 mod limits;
 mod live_seeds;
+mod open_crawl_run;
 mod outcomes;
 mod politeness;
 mod progress;

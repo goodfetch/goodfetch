@@ -27,6 +27,7 @@ pub use goodfetch_collie_client::blocking::{
 };
 pub use outcomes::{ReadFailedRequests, ReadOutcomes, RetryFailed};
 pub use seeds::{AddSeed, AddSeeds};
+pub use view::CrawlRunView;
 
 use crate::crawl_requests::CrawlRequests;
 use crate::foxhound::{ConnectOptions, ENGINE};
@@ -35,6 +36,7 @@ mod crawl;
 mod export;
 mod outcomes;
 mod seeds;
+mod view;
 
 /// A connection to Foxhound whose calls block: `foxhound.start().send()`
 /// starts a Run. Cloning it is cheap and every clone is the same
@@ -160,6 +162,20 @@ impl Foxhound {
     /// As [`crate::Foxhound::open_run`].
     pub fn open_run(&self, run_id: &RunId) -> Result<RunView, Error> {
         self.connection.open_run(run_id)
+    }
+
+    /// Opens a read-only view of the crawl Run `run_id` names, as
+    /// [`crate::Foxhound::open_crawl_run`] does, with no round trip, so
+    /// nothing blocks.
+    ///
+    /// # Errors
+    ///
+    /// As [`crate::Foxhound::open_crawl_run`].
+    pub fn open_crawl_run(&self, run_id: &RunId) -> Result<CrawlRunView, Error> {
+        let view = self.connection.open_run(run_id)?;
+        let async_view = self.linked.connection().open_run(run_id)?;
+        let inner = crate::CrawlRunView::new(async_view, self.linked.connection().clone());
+        Ok(CrawlRunView::new(inner, view, self.connection.clone()))
     }
 
     /// The connection's Schedules, as [`crate::Foxhound::schedules`]'s,

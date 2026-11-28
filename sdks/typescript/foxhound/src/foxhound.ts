@@ -39,6 +39,7 @@ import {
 } from "@goodfetch/collie-client/runtime";
 import { checkCrawlStartable, checkSeedPayloads, Crawl, crawlDeclaration } from "./crawl.ts";
 import { attachWorkers, CrawlRun, handleRequest, type CrawlHost } from "./crawl-run.ts";
+import { CrawlRunView } from "./crawl-run-view.ts";
 import { CrawlNotImportableError } from "./generated/errors.ts";
 import {
   FoxhoundOperations,
@@ -285,6 +286,19 @@ export class Foxhound implements Connection {
    */
   openRun(runId: string): Promise<RunView> {
     return this.#connection.openRun(runId);
+  }
+
+  /**
+   * Opens a read-only view of the crawl Run `runId` names, one another
+   * program started, with no round trip (ADRs 0102 and 0103). The view takes
+   * no writer lock and never resumes the Run; closing it frees only the view.
+   * Fails with `closed` once the Connection is closed.
+   */
+  openCrawlRun(runId: string): Promise<CrawlRunView> {
+    return this.#connection.openRunWith(
+      "openCrawlRun",
+      (host) => new CrawlRunView(host, runId, this.#crawlHost),
+    );
   }
 
   /**

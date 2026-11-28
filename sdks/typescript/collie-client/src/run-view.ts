@@ -21,8 +21,16 @@ import { RunTrace } from "./run-copies.ts";
 import type { RunHost } from "./run.ts";
 import { Sequence } from "./sequence.ts";
 
+let ensureOpen: (view: RunView, operation: string) => void;
+
 /** A Run named by its Run ID, opened as a view: its close never stops it. */
 export class RunView implements AsyncDisposable {
+  static {
+    ensureOpen = (view, operation) => {
+      view.#ensureOpen(operation);
+    };
+  }
+
   readonly #host: RunHost;
   readonly #id: string;
   #closed = false;
@@ -190,4 +198,9 @@ export class RunView implements AsyncDisposable {
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
   }
+}
+
+/** @internal Fails with `closed` if `view` is closed; for Product subclasses such as `CrawlRunView`. */
+export function ensureRunViewOpen(view: RunView, operation: string): void {
+  ensureOpen(view, operation);
 }

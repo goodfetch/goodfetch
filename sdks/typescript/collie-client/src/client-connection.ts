@@ -619,6 +619,18 @@ export class ClientConnection implements AsyncDisposable {
   }
 
   /**
+   * Opens a view of a Product's own RunView subclass (such as `CrawlRunView`)
+   * with no round trip, failing with `closed` once the Connection is closed.
+   */
+  async openRunWith<View extends RunView>(
+    operation: string,
+    make: (host: RunHost) => View,
+  ): Promise<View> {
+    this.#openOrThrow(operation);
+    return make(this.#runHost);
+  }
+
+  /**
    * Starts a Run of a Product's own type with `start`, such as a crawl's,
    * and holds the Run `make` builds on the engine's answer, so the
    * Connection's close closes it.

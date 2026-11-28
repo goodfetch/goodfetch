@@ -49,6 +49,7 @@ from goodfetch_collie_client.run_view import RunView
 from goodfetch_collie_client.schedules import AsyncSchedules, Schedules
 
 from goodfetch_foxhound.crawl_run import CrawlRuns
+from goodfetch_foxhound.crawl_run_view import AsyncCrawlRunView, CrawlRunView
 from goodfetch_foxhound.generated.connection import (
     FOXHOUND_ENGINE_PATH_VARIABLE,
     FOXHOUND_EXECUTABLE,
@@ -452,6 +453,18 @@ class AsyncFoxhound(AsyncConnection):
     async def open_run(self, run_id: str) -> AsyncRunView:
         """Opens a view of a Run by its ID, as `AsyncCollie.open_run`."""
         return await self._connection.open_run(run_id)
+
+    async def open_crawl_run(self, run_id: str) -> AsyncCrawlRunView:
+        """Opens a read-only view of a crawl Run by its ID, with no round trip.
+
+        Takes no writer lock and never resumes the Run; closing it frees only
+        the view (ADRs 0102 and 0103).
+
+        Raises:
+            ClosedError: The Connection is closed.
+        """
+        self._connection.ensure_open("open_crawl_run")
+        return AsyncCrawlRunView(self._connection, run_id)
 
     async def call(
         self,
@@ -861,6 +874,23 @@ class Foxhound(Connection):
         except LoopStopped:
             raise closed_error("open_run") from None
         return RunView(self._loop, view)
+
+    def open_crawl_run(self, run_id: str) -> CrawlRunView:
+        """Opens a read-only view of a crawl Run by its ID, with no round trip.
+
+        Takes no writer lock and never resumes the Run; closing it frees only
+        the view (ADRs 0102 and 0103).
+        """
+
+        async def opening() -> AsyncCrawlRunView:
+            self._connection.ensure_open("open_crawl_run")
+            return AsyncCrawlRunView(self._connection, run_id)
+
+        try:
+            view = self._loop.call(opening)
+        except LoopStopped:
+            raise closed_error("open_crawl_run") from None
+        return CrawlRunView(self._loop, view)
 
     def call(
         self,

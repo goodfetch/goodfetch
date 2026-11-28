@@ -6860,6 +6860,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "personal_columns": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's fields marked with `\"x-goodfetch-personal\": true` in its\nJSON Schema, sorted (ADR 0016); empty when none are marked.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "records": {
           "arrived_in": "0.1",
           "description": "How many Records it holds.",
@@ -16474,6 +16482,95 @@
       },
       "required": [
         "run_id"
+      ],
+      "type": "object"
+    },
+    "RunEraseParams": {
+      "additionalProperties": false,
+      "description": "What `run.erase` takes: a Run no engine runs, and a value or key (or both)\nwhose matching data is erased across the Run's stored Records, Baseline\nrows, Checkpoint fields and Response cache entries (ADR 0016).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A field name or dotted path (or key value) to erase across the Run's\nstored data.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run, which no engine runs."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "A value to erase wherever it appears across the Run's stored data.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunErased": {
+      "description": "What `run.erase` answers once the matching data is erased across the Run.",
+      "properties": {
+        "baseline_rows": {
+          "arrived_in": "0.1",
+          "description": "How many Baseline rows it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "checkpoint_entries": {
+          "arrived_in": "0.1",
+          "description": "How many Checkpoint entries or fields it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many committed Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejected_records": {
+          "arrived_in": "0.1",
+          "description": "How many rejected Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "response_cache_entries": {
+          "arrived_in": "0.1",
+          "description": "How many Response cache entries it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "records",
+        "rejected_records",
+        "baseline_rows",
+        "checkpoint_entries",
+        "response_cache_entries"
       ],
       "type": "object"
     },
@@ -27409,7 +27506,7 @@
         "cancellable": false,
         "class": "idempotent_write",
         "deprecated": null,
-        "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
+        "description": "Erases every Record of one Dataset of a run that no engine runs, a person's answer that applies at once: its committed and rejected Records and their full-text index rows are deleted from the run file, their pages overwritten, and the run's kept Exports, written before, are deleted too, while the crawl still declares the Dataset, which reads empty from then on. Each erase writes an Audit log entry. It cannot be undone. It is offered to a person only, never to an agent or a program (ADR 0031): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, a Dataset the crawl does not declare with `dataset_unknown`, and a run that does not exist with `run_not_found`.",
         "events": [],
         "kind": "round_trip",
         "name": "dataset.erase",
@@ -28689,6 +28786,25 @@
         "reach": "sdk_only",
         "result": {
           "$ref": "#/$defs/RunDiscarded"
+        },
+        "stability": "experimental"
+      },
+      {
+        "arrived_in": "0.1",
+        "cancellable": false,
+        "class": "idempotent_write",
+        "deprecated": null,
+        "description": "Erases every matching Record, Baseline row, Checkpoint field and Response cache entry of one run that no engine runs, matching by `value`, `key` or both (at least one must be non-empty): its matching committed and rejected Records and full-text index rows are deleted with secure deletion, matching Checkpoint fields and kept Exports are scrubbed or deleted, matching Response cache entries and unheld bodies are purged, and an Audit log entry is written without repeating the erased personal value. It cannot be undone. It is offered to a person only, in an interactive CLI prompt, the Kennel or a person-attended Client, never under `--json`, a Recipe, an agent or a program (ADR 0016): any other surface is refused with `person_required`. A run this engine runs fails with `run_live`, one another engine writes with `run_in_use`, and a run that does not exist with `run_not_found`.",
+        "events": [],
+        "kind": "round_trip",
+        "name": "run.erase",
+        "params": {
+          "$ref": "#/$defs/RunEraseParams"
+        },
+        "product": "foxhound",
+        "reach": "person_only",
+        "result": {
+          "$ref": "#/$defs/RunErased"
         },
         "stability": "experimental"
       },
@@ -31607,6 +31723,46 @@
         ],
         "value": {
           "type": "boolean"
+        },
+        "weakening": null,
+        "weakens": false
+      },
+      {
+        "arrived_in": "0.1",
+        "authority": "every",
+        "clearable": false,
+        "default": {},
+        "deprecated": null,
+        "description": "Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.",
+        "fixed_for_run": false,
+        "name": "datasets",
+        "product": "foxhound",
+        "products": [
+          "foxhound"
+        ],
+        "scopes": [
+          "connection",
+          "run"
+        ],
+        "value": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "description": "Per-Dataset settings, as `datasets.<name>.*` (ADR 0016).",
+            "properties": {
+              "retention": {
+                "arrived_in": "0.1",
+                "description": "How long, in milliseconds, the engine keeps committed Records of this\nDataset before deleting them; none by default (nothing is deleted).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "type": "object"
         },
         "weakening": null,
         "weakens": false
@@ -40218,6 +40374,13 @@
         "name": "run",
         "product": "collie",
         "type": "limit_scope"
+      },
+      {
+        "arrived_in": "0.1",
+        "description": "A person erased data from a Run's stored Records, Baseline rows, Checkpoint or Response cache entries (`dataset.erase` or `run.erase`, ADR 0016), recording the operation and counts without repeating any erased personal value.",
+        "name": "run_data_erased",
+        "product": "foxhound",
+        "type": "audit_kind"
       },
       {
         "arrived_in": "0.1",

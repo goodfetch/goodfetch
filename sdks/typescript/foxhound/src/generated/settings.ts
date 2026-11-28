@@ -404,6 +404,12 @@ export interface FoxhoundSettings {
       readonly index?: boolean;
     };
   };
+  /**
+   * Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.
+   *
+   * `datasets`.
+   */
+  readonly datasets?: { readonly [key: string]: { readonly retention?: number | null } };
   readonly effect?: {
     readonly output?: {
       /**
@@ -1836,6 +1842,12 @@ export interface CrawlSettings {
       readonly index?: boolean;
     };
   };
+  /**
+   * Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.
+   *
+   * `datasets`.
+   */
+  readonly datasets?: { readonly [key: string]: { readonly retention?: number | null } };
   readonly effect?: {
     readonly output?: {
       /**
@@ -3099,6 +3111,7 @@ const SPELLING: Spelling = {
       index: "index",
     }],
   }],
+  datasets: "datasets",
   delivery: ["delivery", {
     reportGuaranteeClass: "report_guarantee_class",
     writeIdsAndEpochs: "write_ids_and_epochs",

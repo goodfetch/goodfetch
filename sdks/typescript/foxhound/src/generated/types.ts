@@ -3037,6 +3037,11 @@ export interface Export {
    */
   lastNumber: number;
   /**
+   * The Dataset's fields marked with `"x-goodfetch-personal": true` in its
+   * JSON Schema, sorted (ADR 0016); empty when none are marked.
+   */
+  personalColumns?: string[];
+  /**
    * How many Records it holds.
    */
   records: number;

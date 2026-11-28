@@ -371,9 +371,9 @@ impl EngineContext {
     }
 
     /// The user's Response cache of the engine's major (ADR 0046), under
-    /// the catalog's bounds: what the `cache.*` operations and a Run's
-    /// discard count, clear and verify.
-    pub(crate) fn response_cache(&self) -> &ResponseCache {
+    /// the catalog's bounds: what the `cache.*` operations, a Run's
+    /// discard and `run.erase` count, clear, purge and verify.
+    pub fn response_cache(&self) -> &ResponseCache {
         &self.stores.response_cache
     }
 

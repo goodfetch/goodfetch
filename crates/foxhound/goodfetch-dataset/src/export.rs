@@ -37,6 +37,7 @@ use goodfetch_protocol::settings::{
 };
 use tokio::sync::mpsc;
 
+use crate::declaration::Declarations;
 use crate::encoding::{
     ExportOptions, Nested, ParquetCodec, csv_delimiter, feed_field, json_indent, sheet_name,
     xml_name,
@@ -107,12 +108,14 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
     let failed = |error: RunError| run_error(error, &context);
     let mut reader = open_dataset(&context, params.run_id.clone(), &params.dataset).await?;
     let dataset = params.dataset.clone();
-    let (through, run_epoch) = reader
+    let (through, run_epoch, personal_columns) = reader
         .read(move |connection| {
             let read = connection.unchecked_transaction()?;
+            let personal = Declarations::read(&read)?.personal_fields(&dataset);
             Ok((
                 records::last_number(&read, &dataset)?,
                 run_row::epoch(&read)?,
+                personal,
             ))
         })
         .await
@@ -165,6 +168,7 @@ async fn export(params: RunExportParams, context: CallContext) -> Result<Export,
         size: kept.size,
         sha256: kept.sha256,
         run_epoch,
+        personal_columns,
     })
 }
 

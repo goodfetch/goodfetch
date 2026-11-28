@@ -7998,6 +7998,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "personal_columns": {
+          "arrived_in": "0.1",
+          "description": "The Dataset's fields marked with `\"x-goodfetch-personal\": true` in its\nJSON Schema, sorted (ADR 0016); empty when none are marked.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "records": {
           "arrived_in": "0.1",
           "description": "How many Records it holds.",
@@ -21780,6 +21788,95 @@
       ],
       "type": "object"
     },
+    "RunEraseParams": {
+      "additionalProperties": false,
+      "description": "What `run.erase` takes: a Run no engine runs, and a value or key (or both)\nwhose matching data is erased across the Run's stored Records, Baseline\nrows, Checkpoint fields and Response cache entries (ADR 0016).",
+      "properties": {
+        "_meta": {
+          "$ref": "#/$defs/RequestMeta",
+          "arrived_in": "0.1"
+        },
+        "key": {
+          "arrived_in": "0.1",
+          "description": "A field name or dotted path (or key value) to erase across the Run's\nstored data.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run, which no engine runs."
+        },
+        "value": {
+          "arrived_in": "0.1",
+          "description": "A value to erase wherever it appears across the Run's stored data.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunErased": {
+      "description": "What `run.erase` answers once the matching data is erased across the Run.",
+      "properties": {
+        "baseline_rows": {
+          "arrived_in": "0.1",
+          "description": "How many Baseline rows it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "checkpoint_entries": {
+          "arrived_in": "0.1",
+          "description": "How many Checkpoint entries or fields it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "records": {
+          "arrived_in": "0.1",
+          "description": "How many committed Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rejected_records": {
+          "arrived_in": "0.1",
+          "description": "How many rejected Records it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "response_cache_entries": {
+          "arrived_in": "0.1",
+          "description": "How many Response cache entries it erased.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "$ref": "#/$defs/RunId",
+          "arrived_in": "0.1",
+          "description": "The crawl's Run."
+        }
+      },
+      "required": [
+        "run_id",
+        "records",
+        "rejected_records",
+        "baseline_rows",
+        "checkpoint_entries",
+        "response_cache_entries"
+      ],
+      "type": "object"
+    },
     "RunExportParams": {
       "additionalProperties": false,
       "description": "What `run.export` takes.",
@@ -32035,6 +32132,27 @@
                 },
                 "type": "object"
               },
+              "datasets": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "description": "Per-Dataset settings, as `datasets.<name>.*` (ADR 0016).",
+                  "properties": {
+                    "retention": {
+                      "arrived_in": "0.1",
+                      "description": "How long, in milliseconds, the engine keeps committed Records of this\nDataset before deleting them; none by default (nothing is deleted).",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "description": "Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.",
+                "type": "object"
+              },
               "delivery": {
                 "additionalProperties": false,
                 "properties": {
@@ -37061,6 +37179,27 @@
                     "type": "object"
                   }
                 },
+                "type": "object"
+              },
+              "datasets": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "description": "Per-Dataset settings, as `datasets.<name>.*` (ADR 0016).",
+                  "properties": {
+                    "retention": {
+                      "arrived_in": "0.1",
+                      "description": "How long, in milliseconds, the engine keeps committed Records of this\nDataset before deleting them; none by default (nothing is deleted).",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "description": "Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.",
                 "type": "object"
               },
               "delivery": {
@@ -42105,6 +42244,27 @@
                     "type": "object"
                   }
                 },
+                "type": "object"
+              },
+              "datasets": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "description": "Per-Dataset settings, as `datasets.<name>.*` (ADR 0016).",
+                  "properties": {
+                    "retention": {
+                      "arrived_in": "0.1",
+                      "description": "How long, in milliseconds, the engine keeps committed Records of this\nDataset before deleting them; none by default (nothing is deleted).",
+                      "format": "uint64",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "description": "Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.",
                 "type": "object"
               },
               "delivery": {

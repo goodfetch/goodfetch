@@ -430,3 +430,88 @@ fn dataset_erase_is_refused_to_every_surface_but_a_persons() {
         )
     );
 }
+
+/// `run erase` is offered only as an interactive terminal prompt: refused with
+/// `person_required` (exit 4) under `--json`, from a pipe or from a script
+/// before any engine call, and when confirmed at a pseudo-terminal erases
+/// matching Records, deletes kept Exports and records a `run_data_erased`
+/// Audit log entry (ADR 0016; ticket 694).
+///
+/// Covers: story:4-120, command:run.erase, exit:refused
+#[test]
+fn run_erase_cli_prompt_applies_at_terminal_and_refuses_non_person_calls() {
+    let env = TestEnv::new();
+    short_idle(&env);
+    let _daemon = start_home_daemon(&env);
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    crawled_index(&env, &proving_ground, "run-erased");
+    let kept = env.folder().join("kept-run.jsonl");
+    let export = cli(&env, FOXHOUND)
+        .args(["run", "export", "run-erased", "pages", "--format", "jsonl"])
+        .args(["--out", kept.to_str().unwrap()])
+        .run()
+        .unwrap();
+    assert_eq!(export.exit, Some(0), "{export}");
+
+    let ways: [(bool, Option<&str>); 3] =
+        [(true, Some("y\n")), (false, Some("y\n")), (false, None)];
+    let refused: Vec<(Option<i32>, Value, Value, bool)> = ways
+        .iter()
+        .map(|&(json, stdin)| {
+            let mut erase =
+                cli(&env, FOXHOUND).args(["run", "erase", "run-erased", "--value", WORD]);
+            if json {
+                erase = erase.arg("--json");
+            }
+            if let Some(stdin) = stdin {
+                erase = erase.stdin(stdin);
+            }
+            let output = erase.run().unwrap();
+            let (code, retryable, fix) = refusal(&output, json);
+            (output.exit, code, retryable, fix.contains("`run erase`"))
+        })
+        .collect();
+    assert_eq!(
+        (refused, records_read(&env, "run-erased")),
+        (
+            vec![(Some(4), json!("person_required"), json!(false), true); 3],
+            [1, 1, 1]
+        )
+    );
+
+    let mut erase = pty(&env, FOXHOUND)
+        .args(["run", "erase", "run-erased", "--value", WORD])
+        .spawn()
+        .unwrap();
+    erase
+        .expect("Erase matching data from the run `run-erased`? [y/N]")
+        .unwrap();
+    erase.send_line("y").unwrap();
+    let erased = erase.finish().unwrap();
+
+    let audit_out = cli(&env, FOXHOUND)
+        .args(["audit", "export"])
+        .run()
+        .unwrap()
+        .stdout;
+    let has_audit = audit_out
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .any(|entry| {
+            entry["kind"] == json!("run_data_erased")
+                && entry["details"]["operation"] == json!("run.erase")
+        });
+
+    assert_eq!(
+        (
+            erased.exit,
+            erased.stripped().contains("cannot be undone"),
+            records_read(&env, "run-erased"),
+            exports_kept(&env, "run-erased"),
+            has_audit,
+        ),
+        (Some(0), true, [0, 0, 0], false, true),
+        "{}",
+        erased.stripped()
+    );
+}

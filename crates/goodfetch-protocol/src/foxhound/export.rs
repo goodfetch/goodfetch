@@ -221,6 +221,11 @@ pub struct Export {
     /// (ADR 0003).
     #[schemars(extend("arrived_in" = "0.1"))]
     pub run_epoch: u64,
+    /// The Dataset's fields marked with `"x-goodfetch-personal": true` in its
+    /// JSON Schema, sorted (ADR 0016); empty when none are marked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub personal_columns: Vec<String>,
 }
 
 /// What a sheet holds at most, as Excel's specifications and limits give

@@ -771,6 +771,10 @@
           {
             "commands": [],
             "name": "rejected-records"
+          },
+          {
+            "commands": [],
+            "name": "erase"
           }
         ],
         "name": "run"

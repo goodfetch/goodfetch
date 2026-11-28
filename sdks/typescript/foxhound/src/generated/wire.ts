@@ -110,7 +110,7 @@ export const foxhoundWire: Wire<keyof FoxhoundOperationTypes & string, keyof Fox
     "DatasetSearchParams": { fields: { "run_id": "runId" } },
     "DeclaredExtract": { fields: { "fields": ["fields", { values: { type: "PageField" } }] } },
     "DeclaredLabel": { fields: { "extract": ["extract", { items: { type: "DeclaredExtract" } }], "payload_schema": "payloadSchema" } },
-    "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "run_epoch": "runEpoch" } },
+    "Export": { fields: { "export_id": "exportId", "last_number": "lastNumber", "personal_columns": "personalColumns", "run_epoch": "runEpoch" } },
     "ExportSaveAsParams": { fields: { "export_id": "exportId" } },
     "ExportSaved": { fields: { "run_epoch": "runEpoch" } },
     "ExportStreamParams": { fields: { "export_id": "exportId" } },

@@ -80,10 +80,11 @@ impl CrawlRun {
     pub(crate) async fn started(
         parts: &RunParts,
         context: &CallContext,
-        sinks: (Sinks, &Resolved),
+        (sinks, settings): (Sinks, &Resolved),
     ) -> Result<Arc<Self>, CallError> {
-        let run = Self::of(parts, context, sinks);
+        let run = Self::of(parts, context, (sinks, settings));
         let Err(error) = run.sinks.start().await else {
+            goodfetch_dataset::start_retention_pruning(settings, run.state.clone(), &run.identity);
             return Ok(run);
         };
         run.end(Ending::Failed(EndingError {

@@ -2793,6 +2793,38 @@ impl Runs {
         editing.edit(work).await
     }
 
+    /// Runs `work` on the state of the Run `run_id` and `checkpoint_work` on
+    /// its kept Checkpoint (`checkpoint.sqlite`, if present), under the Run's
+    /// writer lock with `secure_delete` on and `VACUUM`, deleting kept Exports
+    /// (ADR 0016).
+    ///
+    /// # Errors
+    ///
+    /// As [`Runs::edit`].
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Runs::edit`].
+    pub async fn edit_with_checkpoint<T, F, C>(
+        &self,
+        run_id: RunId,
+        work: F,
+        checkpoint_work: C,
+    ) -> Result<(T, u64), RunError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&rusqlite::Connection) -> rusqlite::Result<T> + Send + 'static,
+        C: FnOnce(&rusqlite::Connection) -> rusqlite::Result<u64> + Send + 'static,
+    {
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Edit(run_id, answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let editing = answered.await.map_err(|_| RunError::Stopped)??;
+        editing.edit_with_checkpoint(work, checkpoint_work).await
+    }
+
     /// Runs `work` in one transaction of the ended Run `run_id`'s state,
     /// under its writer lock and a new run epoch, keeping its kept Exports
     /// intact: for post-Run delivery bookkeeping such as removing retried

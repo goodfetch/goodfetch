@@ -480,6 +480,15 @@ class ConnectionDatasetSettings(TypedDict):
     search: NotRequired[ConnectionDatasetSearchSettings]
 
 
+class DatasetsEntry(TypedDict):
+    """Per-Dataset settings, as `datasets.<name>.*` (ADR 0016)."""
+
+    retention: NotRequired[int | None]
+    """How long, in milliseconds, the engine keeps committed Records of this
+    Dataset before deleting them; none by default (nothing is deleted).
+    """
+
+
 class ConnectionEffectOutputSettings(TypedDict):
     """The `effect.output` settings of `FoxhoundSettings`."""
 
@@ -2088,6 +2097,12 @@ class FoxhoundSettings(TypedDict):
     crawl: NotRequired[ConnectionCrawlSettings]
 
     dataset: NotRequired[ConnectionDatasetSettings]
+
+    datasets: NotRequired[Mapping[str, DatasetsEntry]]
+    """Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.
+
+    `datasets`.
+    """
 
     effect: NotRequired[ConnectionEffectSettings]
 
@@ -3784,6 +3799,12 @@ class CrawlSettings(TypedDict):
     crawl: NotRequired[RunCrawlSettings]
 
     dataset: NotRequired[RunDatasetSettings]
+
+    datasets: NotRequired[Mapping[str, DatasetsEntry]]
+    """Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.
+
+    `datasets`.
+    """
 
     effect: NotRequired[RunEffectSettings]
 

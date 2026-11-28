@@ -19,6 +19,7 @@ use goodfetch_protocol::deploy::DeployTarget;
 
 mod crawl_start;
 mod dataset_erase;
+mod run_erase;
 mod run_export;
 
 /// Foxhound's executable's own commands, which its `main` passes to
@@ -48,6 +49,7 @@ const OWN: &[OwnCommand] = &[
     crawl_start::COMMAND,
     run_export::COMMAND,
     dataset_erase::COMMAND,
+    run_erase::COMMAND,
 ];
 
 /// The commands of the generated group `group` of Foxhound's executable.

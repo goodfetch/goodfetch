@@ -11,14 +11,15 @@ use crate::point_in_time::PointInTime;
 use std::borrow::Cow;
 use std::time::SystemTime;
 
+use schemars::generate::SchemaSettings;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 
 use crate::catalog::{
-    Bound, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass, OperationKind,
-    ProtocolVersion, Reach, Stability, schema_of,
+    Authority, Bound, Entries, ErrorCodeDefinition, ErrorGroup, Operation, OperationClass,
+    OperationKind, ProtocolVersion, Reach, Setting, Stability, ValueKind, ValueShape, schema_of,
 };
 use crate::foxhound::dataset_view::DATASET_PAGE;
 use crate::foxhound::provenance::RecordProvenance;
@@ -414,6 +415,71 @@ pub struct InvalidRecord {
     pub issues: Vec<RecordIssue>,
 }
 
+/// Per-Dataset settings, as `datasets.<name>.*` (ADR 0016).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatasetSettings {
+    /// How long, in milliseconds, the engine keeps committed Records of this
+    /// Dataset before deleting them; none by default (nothing is deleted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub retention: Option<u64>,
+}
+
+/// Reads `value` as one Dataset's settings entry (`datasets.<name>`).
+///
+/// # Errors
+///
+/// What is wrong with the entry, for `setting_invalid`.
+pub fn read_dataset_settings(value: &Value) -> Result<DatasetSettings, String> {
+    serde_json::from_value(value.clone())
+        .map_err(|error| format!("expected a Dataset's settings entry (`retention`): {error}"))
+}
+
+impl crate::catalog::SettingJson for DatasetSettings {
+    fn into_setting_json(self) -> Value {
+        crate::catalog::shape_json(self)
+    }
+}
+
+/// A value of `datasets`: one Dataset's settings entry.
+pub const DATASET_SETTINGS_SHAPE: ValueShape = ValueShape {
+    name: "DatasetSettings",
+    check: |value| read_dataset_settings(value).map(drop),
+    schema: || {
+        let schema = SchemaSettings::draft2020_12()
+            .with(|settings| settings.inline_subschemas = true)
+            .into_generator()
+            .into_root_schema_for::<DatasetSettings>();
+        let mut schema = serde_json::to_value(schema).expect("invariant: a JSON Schema is JSON");
+        if let Some(object) = schema.as_object_mut() {
+            object.remove("$schema");
+            object.remove("title");
+        }
+        schema
+    },
+    examples: || vec![json!({ "retention": 86_400_000 })],
+};
+
+fn no_datasets() -> Value {
+    json!({})
+}
+
+/// `datasets` (`datasets.<name>.retention`, ADR 0016).
+pub const DATASETS: Setting = Setting {
+    name: "datasets",
+    description: "Per-Dataset settings, each by its Dataset's name, as `datasets.<name>.*`: `retention`, how long in milliseconds the engine keeps committed Records of that Dataset before deleting them (none by default: nothing is deleted). Applied when the Run starts and then on a timer task of the Run's tasks, never on a Record's commit or an attempt (ADRs 0016 and 0140). Empty by default. Set on a connection or a crawl's Run; a Label refuses it with `setting_not_applicable`.",
+    kind: ValueKind::Map(&ValueKind::Shape(&DATASET_SETTINGS_SHAPE)),
+    default: no_datasets,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
 /// The module's entries.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -428,7 +494,7 @@ pub const ENTRIES: Entries = Entries {
     ],
     plugin_kinds: &[],
     metrics: &[],
-    settings: &[],
+    settings: &[DATASETS],
     hook_stages: &[],
     shared_type_values: &[],
 };

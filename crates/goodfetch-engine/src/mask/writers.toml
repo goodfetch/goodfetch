@@ -33,6 +33,11 @@ count = 6
 how = "masked: a handler's failure is masked as `Scope::Kept` where the delivery receives it, a refused Record's `record_invalid` too; work items and outcomes hold URLs and the program's own data, and the reserved positions only a number; the request and Record counts hold an outcome's kind, its skip reason, Error code or Block cause (a code, never its message) and numbers"
 
 [[writer]]
+path = "crates/foxhound/goodfetch-dataset/src/erase.rs"
+count = 1
+how = "masked: `run.erase` rewrites existing masked trace or run files in place only to replace erased personal needles with `[erased]`, writing no new value"
+
+[[writer]]
 path = "crates/foxhound/goodfetch-dataset/src/lib.rs"
 count = 3
 how = "masked: the Records a crawl commits, their Provenance and the rejection table's rejected Records with the check's reason and issues are written with every value the Run resolved as its `%name%` (`Scope::Kept`, in `records.rs`, #972); the Datasets a crawl declares (names, schemas, keys) are the program's own declarations"

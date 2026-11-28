@@ -29,6 +29,20 @@ pub const EXECUTABLE_BLOCKED_BY_SMART_APP_CONTROL: ErrorCodeDefinition = ErrorCo
     arrived_in: ARRIVED_IN,
 };
 
+/// The `WinError.h` codes with which Windows' code integrity refuses to start
+/// a file: `ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION` (4551) and the reputation
+/// refusals Smart App Control gives (4556 to 4559, 4580 to 4582). The codes
+/// that report a broken or unsigned policy (4550, 4552 to 4555) refuse no
+/// file. No other OS's `errno` reaches these values (ADR 0039).
+pub const CODE_INTEGRITY_REFUSALS: [i32; 8] = [4551, 4556, 4557, 4558, 4559, 4580, 4581, 4582];
+
+/// Whether `os_error` is one of Windows' code-integrity / Smart App Control
+/// refusal codes (`CODE_INTEGRITY_REFUSALS`, ADR 0039).
+#[must_use]
+pub const fn is_smart_app_control_os_error(os_error: i32) -> bool {
+    matches!(os_error, 4551 | 4556..=4559 | 4580..=4582)
+}
+
 /// What `executable_blocked_by_smart_app_control` details.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ExecutableBlockedBySmartAppControlDetails {

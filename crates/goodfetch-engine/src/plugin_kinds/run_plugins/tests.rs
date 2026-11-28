@@ -708,6 +708,8 @@ fn unconfining_host() -> goodfetch_confinement::host::HostFacts {
         wsl1: false,
         sandbox_helper: false,
         seatbelt_refused: false,
+        windows_appcontainer_refused: false,
+        windows_filter_broker: None,
     }
 }
 

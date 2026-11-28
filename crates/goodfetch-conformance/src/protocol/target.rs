@@ -49,6 +49,7 @@ use tungstenite::client::IntoClientRequest as _;
 use tungstenite::{Message, WebSocket};
 
 use goodfetch_protocol::daemon::{DaemonEndpoint, DaemonRuntimeFile};
+use goodfetch_protocol::executables::is_smart_app_control_os_error;
 use goodfetch_protocol::plugin;
 
 use super::gateway::GatewayTarget;
@@ -146,6 +147,19 @@ pub enum StartError {
         /// The executable.
         executable: PathBuf,
         /// Why.
+        source: io::Error,
+    },
+    /// Windows' Smart App Control or another App Control policy blocked the
+    /// executable from starting (`executable_blocked_by_smart_app_control`,
+    /// ADR 0039, issue 873).
+    #[error(
+        "Windows refused to start {}: Smart App Control blocked it (`executable_blocked_by_smart_app_control`)",
+        executable.display()
+    )]
+    BlockedBySmartAppControl {
+        /// The blocked executable.
+        executable: PathBuf,
+        /// The underlying Windows code-integrity OS error.
         source: io::Error,
     },
     /// The Daemon printed no runtime file before it exited or the deadline.
@@ -268,9 +282,21 @@ impl Started {
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|source| StartError::Spawn {
-                executable: target.executable.clone(),
-                source,
+            .map_err(|source| {
+                if source
+                    .raw_os_error()
+                    .is_some_and(is_smart_app_control_os_error)
+                {
+                    StartError::BlockedBySmartAppControl {
+                        executable: target.executable.clone(),
+                        source,
+                    }
+                } else {
+                    StartError::Spawn {
+                        executable: target.executable.clone(),
+                        source,
+                    }
+                }
             })?;
         let stdout = child
             .stdout

@@ -11,3 +11,7 @@ mod macos_launch;
 mod macos_probes;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod probes;
+#[cfg(windows)]
+mod windows_launch;
+#[cfg(windows)]
+mod windows_probes;

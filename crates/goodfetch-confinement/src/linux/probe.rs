@@ -96,7 +96,10 @@ pub enum Fault {
 const ERRNO_BASE: u8 = 100;
 const MECHANISM_BASE: u8 = 200;
 const KERNEL_ABI_BASE: u8 = 216;
-const FAULT_BASE: u8 = 240;
+/// Upper exclusive bound of `KernelAbi` statuses (ABIs 0..16), leaving
+/// 232..240 disjoint for launcher limit-exceeded and Smart App Control exit
+/// codes (`launch::LaunchError::status`).
+const KERNEL_ABI_END: u8 = 232;
 const FAULTS: &[(Fault, u8)] = &[
     (Fault::Request, 240),
     (Fault::LevelNotBuilt, 241),
@@ -163,7 +166,7 @@ impl Report {
                 abi @ 1..SIGNAL_SCOPE_ABI => Mechanism::PidNamespace { abi },
                 abi => Mechanism::Landlock { abi },
             }),
-            KERNEL_ABI_BASE..FAULT_BASE => Self::KernelAbi(status - KERNEL_ABI_BASE),
+            KERNEL_ABI_BASE..KERNEL_ABI_END => Self::KernelAbi(status - KERNEL_ABI_BASE),
             _ => return None,
         })
     }

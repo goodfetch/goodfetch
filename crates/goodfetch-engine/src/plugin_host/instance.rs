@@ -96,6 +96,7 @@ use crate::audit::{self, AuditLog};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::deadline::{Deadline, Enclosing};
+use crate::executables;
 use crate::framing::{self, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use crate::governor::{GovernedPlugin, Governor};
 use crate::lease::LeaseCheck;
@@ -906,6 +907,15 @@ impl Backend {
     fn is_in_memory(&self) -> bool {
         matches!(self, Self::InMemory)
     }
+
+    /// The Plugin executable or interpreter path when backed by a real OS
+    /// process.
+    fn program(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Process(process) => Some(process.program()),
+            Self::InMemory => None,
+        }
+    }
 }
 
 /// How each generation of a [`PluginInstance`] obtains its transport pipes.
@@ -1188,12 +1198,21 @@ impl Running {
             .unwrap_or_else(cancelled)
     }
 
-    fn exit_from_ended(&self, ended: std::io::Result<Ended>) -> Exit {
+    fn exit_from_ended(
+        &self,
+        ended: std::io::Result<Ended>,
+        program: Option<&std::path::Path>,
+    ) -> Exit {
         match ended {
             Ok(Ended::ConfinementUnavailable) => Exit::Failed(code(
                 &CONFINEMENT_UNAVAILABLE,
                 "the host cannot confine the Plugin as its manifest declares",
             )),
+            Ok(Ended::BlockedBySmartAppControl) => {
+                let file = program
+                    .unwrap_or_else(|| std::path::Path::new(&self.config.manifest.entrypoint));
+                Exit::Failed(executables::smart_app_control_refusal(file))
+            }
             Ok(Ended::LimitExceeded(resource)) => Exit::Crashed {
                 ping_missed: false,
                 reason: limit_exceeded_error(
@@ -1499,6 +1518,11 @@ impl Running {
         let (process, Pipes { mut stdin, stdout }) = match started {
             Ok(started) => started,
             Err(error) => {
+                if let Some(refusal) =
+                    executables::blocked_by_smart_app_control(&start.launcher, &error)
+                {
+                    return Exit::Failed(refusal);
+                }
                 return Exit::Failed(internal(&format!(
                     "the Plugin's launcher did not start: {error}"
                 )));
@@ -1777,7 +1801,7 @@ impl Running {
                     }
                 }
                 ended = backend.ended() => {
-                    return self.exit_from_ended(ended);
+                    return self.exit_from_ended(ended, backend.program());
                 }
                 () = clock.sleep_until(ping_at), if next_ping.is_some() => {
                     if let Some(exit) = self.on_ping_tick(instance, stdin).await {

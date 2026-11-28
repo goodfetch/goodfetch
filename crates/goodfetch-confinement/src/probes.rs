@@ -192,6 +192,8 @@ pub enum Access {
 pub enum Placeholder {
     Home,
     GoodfetchHome,
+    AppData,
+    LocalAppData,
     Bundle,
     Runtime,
     Instance,
@@ -200,6 +202,8 @@ pub enum Placeholder {
 const PLACEHOLDERS: &[(Placeholder, &str)] = &[
     (Placeholder::Home, "home"),
     (Placeholder::GoodfetchHome, "goodfetch_home"),
+    (Placeholder::AppData, "app_data"),
+    (Placeholder::LocalAppData, "local_app_data"),
     (Placeholder::Bundle, "bundle"),
     (Placeholder::Runtime, "runtime"),
     (Placeholder::Instance, "instance"),
@@ -288,8 +292,8 @@ impl Layout {
             places: Places {
                 home,
                 goodfetch_home,
-                app_data: None,
-                local_app_data: None,
+                app_data: Some(root.join("app_data")),
+                local_app_data: Some(root.join("local_app_data")),
             },
         }
     }
@@ -299,6 +303,16 @@ impl Layout {
             None => return placed.rest.clone(),
             Some(Placeholder::Home) => &self.places.home,
             Some(Placeholder::GoodfetchHome) => &self.places.goodfetch_home,
+            Some(Placeholder::AppData) => self
+                .places
+                .app_data
+                .as_deref()
+                .expect("invariant: Layout::under populates app_data"),
+            Some(Placeholder::LocalAppData) => self
+                .places
+                .local_app_data
+                .as_deref()
+                .expect("invariant: Layout::under populates local_app_data"),
             Some(Placeholder::Bundle) => &self.bundle,
             Some(Placeholder::Runtime) => &self.runtime,
             Some(Placeholder::Instance) => &self.instance,
@@ -528,6 +542,132 @@ pub fn check(table: &ProbeTable, rules: &[Rule], denied: &[&Denied]) -> Vec<Mism
     let named = rules
         .iter()
         .map(|rule| rule.name)
+        .chain(denied.iter().map(|entry| entry.rule))
+        .chain(FILE_RULES.iter().copied())
+        .chain([SIGNAL_RULE]);
+    for name in named {
+        if !probed.contains(name) {
+            mismatches.push(Mismatch::RuleWithoutProbe(name.to_owned()));
+        }
+    }
+    mismatches
+}
+
+/// A single OS-specific operation rule checked by [`check_os_table`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OsOpRule<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) verdict: Verdict,
+}
+
+/// A single OS-specific operation probe case checked by [`check_os_table`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OsOpCase<'a> {
+    pub(crate) rule: &'a str,
+    pub(crate) is_signal_op: bool,
+    pub(crate) unconfined: Outcome,
+    pub(crate) confined: Outcome,
+}
+
+/// A single OS-specific path probe case checked by [`check_os_table`].
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct OsPathCase<'a> {
+    pub(crate) rule: &'a str,
+    pub(crate) path: &'a Placed,
+    pub(crate) unconfined: Outcome,
+    pub(crate) confined: Outcome,
+}
+
+/// Checks an OS probe table (macOS Seatbelt or Windows `AppContainer`) against
+/// its declarative operation rules, `denied` entries, `FILE_RULES`, and
+/// `SIGNAL_RULE` using `refusal_errno` (`EPERM` on macOS, `EACCES` on Windows).
+#[must_use]
+pub(crate) fn check_os_table(
+    op_cases: &[OsOpCase<'_>],
+    path_cases: &[OsPathCase<'_>],
+    op_rules: &[OsOpRule<'_>],
+    denied: &[&Denied],
+    refusal_errno: Errno,
+) -> Vec<Mismatch> {
+    let mut mismatches = Vec::new();
+    let layout = Layout::under(Path::new("/probe"));
+    let refused = Outcome::Errno(refusal_errno);
+    for case in op_cases {
+        if case.rule == SIGNAL_RULE {
+            if !case.is_signal_op {
+                mismatches.push(Mismatch::ProbeWithoutRule(case.rule.to_owned()));
+            }
+            if case.confined != refused {
+                mismatches.push(Mismatch::WrongOutcome {
+                    rule: case.rule.to_owned(),
+                    expected: refused,
+                    found: case.confined,
+                });
+            }
+            if case.unconfined == refused {
+                mismatches.push(Mismatch::NoPositiveControl {
+                    rule: case.rule.to_owned(),
+                });
+            }
+            continue;
+        }
+        let Some(rule) = op_rules.iter().find(|r| r.name == case.rule) else {
+            mismatches.push(Mismatch::ProbeWithoutRule(case.rule.to_owned()));
+            continue;
+        };
+        let expected = match rule.verdict {
+            Verdict::Allow => case.unconfined,
+            Verdict::Refuse => refused,
+            Verdict::NotImplemented => Outcome::Errno(Errno::Enosys),
+        };
+        if case.confined != expected {
+            mismatches.push(Mismatch::WrongOutcome {
+                rule: case.rule.to_owned(),
+                expected,
+                found: case.confined,
+            });
+        }
+        if rule.verdict != Verdict::Allow && case.unconfined == expected {
+            mismatches.push(Mismatch::NoPositiveControl {
+                rule: case.rule.to_owned(),
+            });
+        }
+    }
+    for case in path_cases {
+        if let Some(entry) = denied.iter().find(|entry| entry.rule == case.rule) {
+            let path = layout.resolve(case.path);
+            if !entry.covers(&path, &layout.places) {
+                mismatches.push(Mismatch::OutsideEntry {
+                    rule: case.rule.to_owned(),
+                    path,
+                });
+            }
+            if case.unconfined != Outcome::Ok {
+                mismatches.push(Mismatch::WrongOutcome {
+                    rule: case.rule.to_owned(),
+                    expected: Outcome::Ok,
+                    found: case.unconfined,
+                });
+            }
+            if case.confined != refused {
+                mismatches.push(Mismatch::WrongOutcome {
+                    rule: case.rule.to_owned(),
+                    expected: refused,
+                    found: case.confined,
+                });
+            }
+        } else if !FILE_RULES.contains(&case.rule) {
+            mismatches.push(Mismatch::ProbeWithoutRule(case.rule.to_owned()));
+        }
+    }
+    let probed: BTreeSet<&str> = op_cases
+        .iter()
+        .map(|case| case.rule)
+        .chain(path_cases.iter().map(|case| case.rule))
+        .collect();
+    let named = op_rules
+        .iter()
+        .map(|r| r.name)
         .chain(denied.iter().map(|entry| entry.rule))
         .chain(FILE_RULES.iter().copied())
         .chain([SIGNAL_RULE]);

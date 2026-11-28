@@ -175,3 +175,66 @@ fn macos_host_that_refuses_seatbelt_refuses_plugins_with_confinement_unavailable
         "expected fix to mention Seatbelt: {data:?}"
     );
 }
+
+/// On Windows, `none` is confined by AppContainer without the filter broker,
+/// while `proxy_tcp` and `direct` wait for the filter broker (`plugin setup`)
+/// and refuse with `confinement_unavailable` until it is installed; if
+/// AppContainer itself is unavailable, every level is refused (ADR 0033,
+/// issue 873).
+/// Covers: story:7-105, error:confinement_unavailable
+#[test]
+fn windows_none_confines_without_broker_and_proxy_tcp_direct_wait_for_filter_broker() {
+    let windows_without_broker = facts(HostFacts {
+        windows_filter_broker: Some(false),
+        ..HostFacts::NO_NAMESPACE_NEEDED
+    });
+    assert!(
+        windows_without_broker
+            .plugin_confinement(goodfetch_protocol::plugin::NetworkLevel::None)
+            .is_ok(),
+        "Windows `none` must confine with AppContainer without the filter broker"
+    );
+    for level in [
+        goodfetch_protocol::plugin::NetworkLevel::ProxyTcp,
+        goodfetch_protocol::plugin::NetworkLevel::Direct,
+    ] {
+        let (missing, refusal) = windows_without_broker
+            .plugin_confinement(level)
+            .expect_err("Windows proxy_tcp/direct must wait for the filter broker");
+        assert_eq!(missing, vec!["filter_broker".to_owned()]);
+        assert_eq!(refusal.code(), "confinement_unavailable");
+        assert!(!refusal.retryable());
+        let fix = refusal.details().unwrap()["fix"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            fix.contains("plugins setup"),
+            "expected fix to name `plugins setup`, got: {fix}"
+        );
+    }
+
+    let windows_with_broker = facts(HostFacts {
+        windows_filter_broker: Some(true),
+        ..HostFacts::NO_NAMESPACE_NEEDED
+    });
+    for level in [
+        goodfetch_protocol::plugin::NetworkLevel::None,
+        goodfetch_protocol::plugin::NetworkLevel::ProxyTcp,
+        goodfetch_protocol::plugin::NetworkLevel::Direct,
+    ] {
+        assert!(windows_with_broker.plugin_confinement(level).is_ok());
+    }
+
+    let windows_no_appcontainer = facts(HostFacts {
+        windows_appcontainer_refused: true,
+        windows_filter_broker: Some(false),
+        ..HostFacts::NO_NAMESPACE_NEEDED
+    });
+    let (missing, refusal) = windows_no_appcontainer
+        .plugin_confinement(goodfetch_protocol::plugin::NetworkLevel::None)
+        .expect_err("Windows host refusing AppContainer must refuse `none`");
+    assert_eq!(missing, vec!["appcontainer".to_owned()]);
+    assert_eq!(refusal.code(), "confinement_unavailable");
+    assert!(!refusal.retryable());
+}

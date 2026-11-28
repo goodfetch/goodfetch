@@ -11,7 +11,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 
-use goodfetch_confinement::launch::{LAUNCH_VARIABLE, Launch, SHIM_COMMAND, UNAVAILABLE_STATUSES};
+use goodfetch_confinement::launch::{
+    BLOCKED_BY_SMART_APP_CONTROL_STATUS, LAUNCH_VARIABLE, Launch, SHIM_COMMAND,
+    UNAVAILABLE_STATUSES, limit_exceeded_of_status,
+};
 use goodfetch_protocol::plugin::PluginResourceLimit;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
@@ -24,6 +27,7 @@ pub struct PluginProcess {
     child: Child,
     group: Children,
     folder: PathBuf,
+    program: PathBuf,
 }
 
 /// The plugin protocol's pipes to a started instance: what the engine
@@ -76,6 +80,7 @@ impl PluginProcess {
             child,
             group,
             folder: launch.folder.clone(),
+            program: launch.program.clone(),
         };
         Ok((process, Pipes { stdin, stdout }))
     }
@@ -122,6 +127,7 @@ impl PluginProcess {
             child,
             group,
             folder: launch.folder.clone(),
+            program: launch.program.clone(),
         };
         Ok((process, Pipes { stdin, stdout }))
     }
@@ -130,6 +136,14 @@ impl PluginProcess {
     #[must_use]
     pub fn pid(&self) -> Option<u32> {
         self.child.id()
+    }
+
+    /// The Plugin executable or cached interpreter path started by this
+    /// instance's launcher (used to name the blocked file when Smart App
+    /// Control refuses it, ADR 0039).
+    #[must_use]
+    pub fn program(&self) -> &Path {
+        &self.program
     }
 
     /// Waits for the instance to end by itself.
@@ -185,8 +199,13 @@ pub enum Ended {
     /// Its launcher found that this host cannot confine it, so it never
     /// started: `confinement_unavailable`.
     ConfinementUnavailable,
+    /// Windows' Smart App Control or another App Control policy blocked its
+    /// executable or cached interpreter from starting:
+    /// `executable_blocked_by_smart_app_control` (ADR 0039, issue 873).
+    BlockedBySmartAppControl,
     /// The OS killed it for exceeding a declared resource limit (such as
-    /// `SIGXCPU` for `RLIMIT_CPU` or `SIGABRT` on `RLIMIT_DATA` exhaustion).
+    /// `SIGXCPU` for `RLIMIT_CPU`, `SIGABRT` on `RLIMIT_DATA` exhaustion, or a
+    /// Windows Job Object limit).
     LimitExceeded(PluginResourceLimit),
     /// It exited with this status, its launcher's when it never started.
     Exited(Option<i32>),
@@ -209,7 +228,20 @@ impl Ended {
             {
                 Self::ConfinementUnavailable
             }
-            code => Self::Exited(code),
+            Some(code)
+                if u8::try_from(code)
+                    .is_ok_and(|code| code == BLOCKED_BY_SMART_APP_CONTROL_STATUS) =>
+            {
+                Self::BlockedBySmartAppControl
+            }
+            Some(code) => {
+                if let Some(limit) = u8::try_from(code).ok().and_then(limit_exceeded_of_status) {
+                    Self::LimitExceeded(limit)
+                } else {
+                    Self::Exited(Some(code))
+                }
+            }
+            None => Self::Exited(None),
         }
     }
 }

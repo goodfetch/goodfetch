@@ -70,6 +70,8 @@ pub fn read_with_helper(helper_path: &Path) -> HostFacts {
         wsl1,
         sandbox_helper,
         seatbelt_refused: false,
+        windows_appcontainer_refused: false,
+        windows_filter_broker: None,
     }
 }
 

@@ -43,6 +43,14 @@ fn host(user_namespace: UserNamespace, landlock_abi: u8) -> HostFacts {
     HostFacts { seatbelt_refused: true, ..HostFacts::NO_NAMESPACE_NEEDED },
     false
 )]
+#[case::windows_appcontainer_refused(
+    HostFacts { windows_appcontainer_refused: true, ..HostFacts::NO_NAMESPACE_NEEDED },
+    false
+)]
+#[case::windows_appcontainer_available(
+    HostFacts { windows_filter_broker: Some(false), ..HostFacts::NO_NAMESPACE_NEEDED },
+    true
+)]
 fn a_plugin_is_confined_by_landlock_6_or_a_user_namespace(
     #[case] facts: HostFacts,
     #[case] confines: bool,

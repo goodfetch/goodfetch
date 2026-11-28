@@ -52,6 +52,14 @@ pub struct HostFacts {
     /// Whether macOS Seatbelt (`sandbox_init`) refused to confine a probe
     /// child on this host (ADR 0033, issue 867).
     pub seatbelt_refused: bool,
+    /// Whether Windows `AppContainer` profile creation/derivation failed on
+    /// this host (ADR 0033, issue 873).
+    pub windows_appcontainer_refused: bool,
+    /// On Windows, whether the filter broker service (`goodfetch-filter-broker`)
+    /// is installed and reachable (`Some(true)`), not yet installed
+    /// (`Some(false)`), or `None` on non-Windows hosts (ADR 0033, issues 873
+    /// and 879).
+    pub windows_filter_broker: Option<bool>,
 }
 
 impl HostFacts {
@@ -65,16 +73,20 @@ impl HostFacts {
         wsl1: false,
         sandbox_helper: false,
         seatbelt_refused: false,
+        windows_appcontainer_refused: false,
+        windows_filter_broker: None,
     };
 
     /// Whether a Plugin can be confined here, by Landlock from ABI 6, by a
     /// user namespace of its own, through the installed `goodfetch-sandbox`
-    /// helper, or by Seatbelt on macOS: never on WSL1, never when macOS
-    /// refuses Seatbelt, nor where none is given (ADR 0033's hosts that
-    /// cannot confine).
+    /// helper, by Seatbelt on macOS, or by `AppContainer` on Windows: never on
+    /// WSL1, never when macOS refuses Seatbelt or Windows refuses
+    /// `AppContainer`, nor where none is given (ADR 0033's hosts that cannot
+    /// confine).
     pub fn confines(&self) -> bool {
         !self.wsl1
             && !self.seatbelt_refused
+            && !self.windows_appcontainer_refused
             && (self.landlock_abi >= SIGNAL_SCOPE_ABI
                 || self.user_namespace == UserNamespace::Created
                 || self.sandbox_helper)
@@ -90,6 +102,7 @@ impl HostFacts {
         self.sandbox_helper
             && !self.wsl1
             && !self.seatbelt_refused
+            && !self.windows_appcontainer_refused
             && self.user_namespace != UserNamespace::Created
             && (network_level == NetworkLevel::ProxyTcp || self.landlock_abi < SIGNAL_SCOPE_ABI)
     }
@@ -101,6 +114,14 @@ impl HostFacts {
     pub fn missing_confinement(&self, network_level: NetworkLevel) -> Vec<&'static str> {
         if self.seatbelt_refused {
             return vec!["seatbelt"];
+        }
+        if self.windows_appcontainer_refused {
+            return vec!["appcontainer"];
+        }
+        if self.windows_filter_broker == Some(false)
+            && matches!(network_level, NetworkLevel::ProxyTcp | NetworkLevel::Direct)
+        {
+            return vec!["filter_broker"];
         }
         if self.wsl1 {
             let mut missing = vec!["seccomp", "filesystem", "signal_scope", "user_namespace"];

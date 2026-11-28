@@ -63,6 +63,11 @@ fn no_launcher_status_is_one_the_probe_reports() {
     use crate::linux::probe::Report;
 
     let errors = [
+        LaunchError::LimitExceeded(goodfetch_protocol::plugin::PluginResourceLimit::Memory),
+        LaunchError::LimitExceeded(goodfetch_protocol::plugin::PluginResourceLimit::CpuTime),
+        LaunchError::LimitExceeded(goodfetch_protocol::plugin::PluginResourceLimit::Processes),
+        LaunchError::LimitExceeded(goodfetch_protocol::plugin::PluginResourceLimit::OpenFiles),
+        LaunchError::BlockedBySmartAppControl(PathBuf::from("plugin.exe")),
         LaunchError::Request,
         LaunchError::Unsupported,
         LaunchError::Unavailable(String::new()),
@@ -71,6 +76,7 @@ fn no_launcher_status_is_one_the_probe_reports() {
         LaunchError::Handles(std::io::Error::other("")),
         LaunchError::Start(std::io::Error::other("")),
         LaunchError::Limits(std::io::Error::other("")),
+        LaunchError::DisallowedProgram(PathBuf::from("/tmp/other")),
     ];
 
     let reported: Vec<_> = errors

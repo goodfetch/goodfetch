@@ -25,6 +25,7 @@ mod protocol;
 mod read_command;
 mod refusals;
 mod self_test;
+mod smart_app_control;
 mod write_command;
 
 use std::path::{Path, PathBuf};

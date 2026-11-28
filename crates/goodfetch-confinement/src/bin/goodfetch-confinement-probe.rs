@@ -29,7 +29,9 @@ fn main() -> ExitCode {
     let status = linux::run();
     #[cfg(target_os = "macos")]
     let status = macos::run();
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
+    let status = windows::run();
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     let status = u8::MAX;
     ExitCode::from(status)
 }
@@ -511,5 +513,192 @@ mod macos {
         std::io::Error::last_os_error()
             .raw_os_error()
             .map_or(Report::Fault(Fault::ErrnoOutOfRange), Report::errno)
+    }
+}
+
+#[cfg(windows)]
+#[expect(
+    unsafe_code,
+    reason = "Windows confinement probe invokes Win32 OpenProcess and OpenDesktopW to verify exact AppContainer/desktop access-denied outcomes"
+)]
+mod windows {
+    use std::ffi::OsStr;
+    use std::fs::OpenOptions;
+    use std::net::{TcpListener, TcpStream};
+    use std::os::windows::ffi::OsStrExt as _;
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+
+    use goodfetch_confinement::probes::{Access, Outcome};
+    use goodfetch_confinement::windows::probe::{Fault, Probe, Report, Request};
+    use goodfetch_confinement::windows::{Mechanism, WindowsOperation, is_appcontainer};
+    use windows_sys::Win32::Foundation::{CloseHandle, FALSE};
+    use windows_sys::Win32::System::StationsAndDesktops::{
+        CloseDesktop, DESKTOP_READOBJECTS, OpenDesktopW,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE};
+
+    pub(super) fn run() -> u8 {
+        report().status()
+    }
+
+    fn report() -> Report {
+        let Some(text) = std::env::args().nth(1) else {
+            return Report::Fault(Fault::Request);
+        };
+        let Ok(request) = serde_json::from_str::<Request>(&text) else {
+            return Report::Fault(Fault::Request);
+        };
+        match request.probe {
+            Probe::Operation { operation, port } => {
+                run_operation(operation, port, request.parent_pid)
+            }
+            Probe::Path { access, path } => opened(access, &path),
+            Probe::Mechanism => {
+                if is_appcontainer() {
+                    Report::Mechanism(Mechanism::AppContainer)
+                } else {
+                    Report::Fault(Fault::NotConfined)
+                }
+            }
+            Probe::AllocateMemory { bytes } => {
+                let mut chunks: Vec<Vec<u8>> = Vec::new();
+                let mut remaining = bytes;
+                while remaining > 0 {
+                    let step = remaining.min(4 * 1024 * 1024);
+                    let mut buf = Vec::new();
+                    if buf.try_reserve_exact(step).is_err() {
+                        return Report::Outcome(Outcome::Exit(2));
+                    }
+                    buf.resize(step, 0xA5);
+                    std::hint::black_box(&buf);
+                    chunks.push(buf);
+                    remaining -= step;
+                }
+                std::hint::black_box(&chunks);
+                Report::Outcome(Outcome::Ok)
+            }
+            Probe::BurnCpu => {
+                let mut acc = 0_u64;
+                loop {
+                    acc = acc.wrapping_add(1);
+                    std::hint::black_box(acc);
+                }
+            }
+            Probe::SpawnChild => {
+                let Ok(exe) = std::env::current_exe() else {
+                    return Report::Fault(Fault::Request);
+                };
+                match Command::new(exe)
+                    .arg(r#"{"probe":{"kind":"mechanism"}}"#)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status()
+                {
+                    Ok(_) => Report::Outcome(Outcome::Ok),
+                    Err(error) => io_report(error),
+                }
+            }
+            Probe::HoldHandles { dir, count } => {
+                let mut files = Vec::new();
+                for i in 0..count {
+                    let path = dir.join(format!("h-{i}.tmp"));
+                    match OpenOptions::new().create(true).write(true).open(&path) {
+                        Ok(file) => files.push(file),
+                        Err(error) => return io_report(error),
+                    }
+                }
+                // Hold briefly so the launcher's Job Object handle monitor
+                // observes the count.
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                std::hint::black_box(&files);
+                Report::Outcome(Outcome::Ok)
+            }
+        }
+    }
+
+    fn run_operation(
+        operation: WindowsOperation,
+        port: Option<u16>,
+        parent_pid: Option<u32>,
+    ) -> Report {
+        match operation {
+            WindowsOperation::NetworkOutboundIp => {
+                let Some(port) = port else {
+                    return Report::Fault(Fault::Request);
+                };
+                match TcpStream::connect(("127.0.0.1", port)) {
+                    Ok(_) => Report::Outcome(Outcome::Ok),
+                    Err(error) => io_report(error),
+                }
+            }
+            WindowsOperation::NetworkInbound => match TcpListener::bind(("127.0.0.1", 0)) {
+                Ok(listener) => {
+                    let _ = listener.set_nonblocking(true);
+                    Report::Outcome(Outcome::Ok)
+                }
+                Err(error) => io_report(error),
+            },
+            WindowsOperation::NetworkBind => match TcpListener::bind(("127.0.0.1", 0)) {
+                Ok(_) => Report::Outcome(Outcome::Ok),
+                Err(error) => io_report(error),
+            },
+            WindowsOperation::DesktopEscape => {
+                let wide: Vec<u16> = OsStr::new("Default")
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+                // SAFETY: `wide` is a NUL-terminated UTF-16 string.
+                let desk = unsafe { OpenDesktopW(wide.as_ptr(), 0, FALSE, DESKTOP_READOBJECTS) };
+                if desk.is_null() {
+                    io_report(std::io::Error::last_os_error())
+                } else {
+                    // SAFETY: closes the desktop handle just opened.
+                    unsafe {
+                        CloseDesktop(desk);
+                    }
+                    Report::Outcome(Outcome::Ok)
+                }
+            }
+            WindowsOperation::ProcessOpenParent => {
+                let Some(pid) = parent_pid else {
+                    return Report::Fault(Fault::Request);
+                };
+                // SAFETY: checks whether we can open the unconfined parent for
+                // termination (Windows equivalent of `kill(parent, 0)`).
+                let handle = unsafe { OpenProcess(PROCESS_TERMINATE, FALSE, pid) };
+                if handle.is_null() {
+                    io_report(std::io::Error::last_os_error())
+                } else {
+                    // SAFETY: closes the process handle just opened.
+                    unsafe {
+                        CloseHandle(handle);
+                    }
+                    Report::Outcome(Outcome::Ok)
+                }
+            }
+        }
+    }
+
+    fn opened(access: Access, path: &Path) -> Report {
+        let result = match access {
+            Access::Read => OpenOptions::new().read(true).open(path),
+            Access::Write => OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path),
+        };
+        match result {
+            Ok(_) => Report::Outcome(Outcome::Ok),
+            Err(error) => io_report(error),
+        }
+    }
+
+    fn io_report(error: std::io::Error) -> Report {
+        error
+            .raw_os_error()
+            .map_or(Report::Fault(Fault::ErrorOutOfRange), Report::win32_error)
     }
 }

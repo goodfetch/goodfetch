@@ -28,6 +28,23 @@ seccompiler.workspace = true
 # Raw system calls on Linux and macOS (rlimits, fd closing, probe calls).
 libc.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# Windows confinement (ADR 0033, issue 873): AppContainer, restricted token,
+# Job Object, alternate desktop, ACL grants, and I/O completion port monitoring.
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_StationsAndDesktops",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
 [dev-dependencies]
 rstest.workspace = true
 tempfile.workspace = true

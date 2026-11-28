@@ -1344,3 +1344,106 @@ async fn governor_footprint_sampling_enforces_memory_limit_and_leaves_under_limi
     inst.stop().await;
     root.stop().await;
 }
+
+/// When a confined launcher reports `BLOCKED_BY_SMART_APP_CONTROL_STATUS`
+/// (Windows Smart App Control blocking a Plugin executable or cached
+/// interpreter), `PluginInstance` fails immediately without crash-retrying,
+/// returning non-retryable `executable_blocked_by_smart_app_control` naming
+/// the blocked file path (ADR 0039, issue 873).
+///
+/// Covers: story:7-105, error:executable_blocked_by_smart_app_control
+#[cfg(unix)]
+#[tokio::test]
+async fn smart_app_control_block_from_launcher_fails_with_named_file_and_is_not_retryable() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use goodfetch_confinement::launch::BLOCKED_BY_SMART_APP_CONTROL_STATUS;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let stub_launcher = scratch.path().join("sac-launcher.sh");
+    fs::write(
+        &stub_launcher,
+        format!("#!/bin/sh\nexit {BLOCKED_BY_SMART_APP_CONTROL_STATUS}\n"),
+    )
+    .unwrap();
+    fs::set_permissions(&stub_launcher, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let plugin = Plugin::approved();
+    let mut start = plugin.instance();
+    start.launcher = stub_launcher;
+    let expected_file = start.launch.program.to_string_lossy().into_owned();
+
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let inst = PluginInstance::start(&root, start, Scope::Task(None));
+    let CallFailure::Unavailable(error) = inst.call("work.ping", &json!({})).await.unwrap_err()
+    else {
+        panic!("expected Unavailable(executable_blocked_by_smart_app_control)");
+    };
+    assert_eq!(error.code(), "executable_blocked_by_smart_app_control");
+    assert!(!error.retryable());
+    assert_eq!(
+        error.details().map(|d| d["file"].clone()),
+        Some(json!(expected_file))
+    );
+
+    inst.stop().await;
+    root.stop().await;
+}
+
+/// When a confined launcher exits with any Windows Job Object limit status
+/// (`memory`, `cpu_time`, `processes`, `open_files`), `PluginInstance` fails
+/// with non-retryable `plugin_limit_exceeded` naming that resource (ADR 0033,
+/// issue 873).
+///
+/// Covers: story:7-105, error:plugin_limit_exceeded
+#[cfg(unix)]
+#[tokio::test]
+async fn job_object_limit_exit_statuses_end_in_plugin_limit_exceeded() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use goodfetch_confinement::launch::LaunchError;
+    use goodfetch_protocol::plugin::PluginResourceLimit;
+
+    let scratch = tempfile::tempdir().unwrap();
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    for (limit, expected_name) in [
+        (PluginResourceLimit::Memory, "memory"),
+        (PluginResourceLimit::CpuTime, "cpu_time"),
+        (PluginResourceLimit::Processes, "processes"),
+        (PluginResourceLimit::OpenFiles, "open_files"),
+    ] {
+        let code = LaunchError::LimitExceeded(limit).status();
+        let hello_reply = json!({
+            "jsonrpc": "2.0",
+            "id": 0,
+            "result": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+        });
+        let stub = scratch.path().join(format!("limit-{expected_name}.sh"));
+        fs::write(
+            &stub,
+            format!(
+                "#!/bin/sh\nread -r _hello\nprintf '%s\\n' '{hello_reply}'\nread -r _call\nexit {code}\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let plugin = Plugin::approved();
+        let mut start = plugin.instance();
+        start.launcher = stub;
+        let inst = PluginInstance::start(&root, start, Scope::Task(None));
+        let CallFailure::Unavailable(error) = inst.call("work.ping", &json!({})).await.unwrap_err()
+        else {
+            panic!("expected Unavailable(plugin_limit_exceeded) for {expected_name}");
+        };
+        assert_eq!(error.code(), "plugin_limit_exceeded", "{expected_name}");
+        assert!(!error.retryable(), "{expected_name}");
+        assert_eq!(
+            error.details().map(|d| d["resource"].clone()),
+            Some(json!(expected_name)),
+            "{expected_name}"
+        );
+        inst.stop().await;
+    }
+    root.stop().await;
+}

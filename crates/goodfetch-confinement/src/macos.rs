@@ -40,8 +40,10 @@ use goodfetch_protocol::plugin::NetworkLevel;
 use serde::{Deserialize, Serialize};
 
 use crate::deny_list::Denied;
-use crate::policy::{FILE_RULES, Policy, SIGNAL_RULE};
-use crate::probes::{Access, Errno, Layout, Mismatch, Outcome, Placed};
+use crate::policy::Policy;
+use crate::probes::{
+    Access, Errno, Mismatch, OsOpCase, OsOpRule, OsPathCase, Outcome, Placed, check_os_table,
+};
 use crate::seccomp::Verdict;
 
 /// Mach services macOS name resolution uses: excluded at `none` and
@@ -509,95 +511,34 @@ pub fn check_probes(
     level_rules: &[SeatbeltRule],
     denied: &[&Denied],
 ) -> Vec<Mismatch> {
-    let mut mismatches = Vec::new();
-    let layout = Layout::under(Path::new("/probe"));
-    for case in &table.operation {
-        if case.rule == SIGNAL_RULE {
-            let expected = Outcome::Errno(Errno::Eperm);
-            if case.operation != SeatbeltOperation::SignalOutside {
-                mismatches.push(Mismatch::ProbeWithoutRule(case.rule.clone()));
-            }
-            if case.confined != expected {
-                mismatches.push(Mismatch::WrongOutcome {
-                    rule: case.rule.clone(),
-                    expected,
-                    found: case.confined,
-                });
-            }
-            if case.unconfined == expected {
-                mismatches.push(Mismatch::NoPositiveControl {
-                    rule: case.rule.clone(),
-                });
-            }
-            continue;
-        }
-        let Some(rule) = level_rules.iter().find(|r| r.name == case.rule) else {
-            mismatches.push(Mismatch::ProbeWithoutRule(case.rule.clone()));
-            continue;
-        };
-        let expected = match rule.verdict {
-            Verdict::Allow => case.unconfined,
-            Verdict::Refuse => Outcome::Errno(Errno::Eperm),
-            Verdict::NotImplemented => Outcome::Errno(Errno::Enosys),
-        };
-        if case.confined != expected {
-            mismatches.push(Mismatch::WrongOutcome {
-                rule: case.rule.clone(),
-                expected,
-                found: case.confined,
-            });
-        }
-        if rule.verdict != Verdict::Allow && case.unconfined == expected {
-            mismatches.push(Mismatch::NoPositiveControl {
-                rule: case.rule.clone(),
-            });
-        }
-    }
-    for case in &table.path {
-        if let Some(entry) = denied.iter().find(|entry| entry.rule == case.rule) {
-            let path = layout.resolve(&case.path);
-            if !entry.covers(&path, &layout.places) {
-                mismatches.push(Mismatch::OutsideEntry {
-                    rule: case.rule.clone(),
-                    path,
-                });
-            }
-            if case.unconfined != Outcome::Ok {
-                mismatches.push(Mismatch::WrongOutcome {
-                    rule: case.rule.clone(),
-                    expected: Outcome::Ok,
-                    found: case.unconfined,
-                });
-            }
-            if case.seatbelt != Outcome::Errno(Errno::Eperm) {
-                mismatches.push(Mismatch::WrongOutcome {
-                    rule: case.rule.clone(),
-                    expected: Outcome::Errno(Errno::Eperm),
-                    found: case.seatbelt,
-                });
-            }
-        } else if !FILE_RULES.contains(&case.rule.as_str()) {
-            mismatches.push(Mismatch::ProbeWithoutRule(case.rule.clone()));
-        }
-    }
-    let probed: BTreeSet<&str> = table
+    let op_cases: Vec<OsOpCase<'_>> = table
         .operation
         .iter()
-        .map(|case| case.rule.as_str())
-        .chain(table.path.iter().map(|case| case.rule.as_str()))
+        .map(|case| OsOpCase {
+            rule: &case.rule,
+            is_signal_op: case.operation == SeatbeltOperation::SignalOutside,
+            unconfined: case.unconfined,
+            confined: case.confined,
+        })
         .collect();
-    let named = level_rules
+    let path_cases: Vec<OsPathCase<'_>> = table
+        .path
         .iter()
-        .map(|r| r.name)
-        .chain(denied.iter().map(|entry| entry.rule))
-        .chain(FILE_RULES.iter().copied())
-        .chain([SIGNAL_RULE]);
-    for name in named {
-        if !probed.contains(name) {
-            mismatches.push(Mismatch::RuleWithoutProbe(name.to_owned()));
-        }
-    }
-    mismatches
+        .map(|case| OsPathCase {
+            rule: &case.rule,
+            path: &case.path,
+            unconfined: case.unconfined,
+            confined: case.seatbelt,
+        })
+        .collect();
+    let op_rules: Vec<OsOpRule<'_>> = level_rules
+        .iter()
+        .map(|rule| OsOpRule {
+            name: rule.name,
+            verdict: rule.verdict,
+        })
+        .collect();
+    check_os_table(&op_cases, &path_cases, &op_rules, denied, Errno::Eperm)
 }
 
 #[cfg(test)]

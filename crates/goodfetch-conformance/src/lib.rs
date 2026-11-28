@@ -23,6 +23,7 @@ mod host;
 mod protocol;
 mod proving_ground;
 mod self_test;
+mod smart_app_control;
 mod writer;
 
 pub use case_list::{CaseList, DeclaredCapability, DeclaredCase};
@@ -38,4 +39,8 @@ pub use proving_ground::{
     ProvingGround, ProvingGroundError, ProxyCredentials, Submission, Task, TaskAccount, TaskList,
 };
 pub use self_test::{Record, References, SelfTestError, run_self_test};
+pub use smart_app_control::{
+    ExecutableAdmission, SmartAppControlObservations, probe_executable,
+    smart_app_control_case_list, write_smart_app_control_report,
+};
 pub use writer::{CaseLogError, WriteError, read_case_log, write_document};

@@ -1,0 +1,32 @@
+# Windows Smart App Control executable admission suite (ADR 0039, issue 873):
+# reports whether Smart App Control admits each executable Goodfetch starts
+# but did not build — a toy Plugin, a cached interpreter, the pinned Chrome
+# for Testing, and Lightpanda — recording any Smart App Control block as the
+# named outcome `executable_blocked_by_smart_app_control` naming the file
+# rather than assuming admission.
+
+[suite]
+name = "smart-app-control"
+version = "1"
+
+[[capability]]
+name = "plugins.executables"
+
+[[capability.case]]
+id = "toy-plugin-executable-admission"
+covers = ["story:7-105", "error:executable_blocked_by_smart_app_control"]
+
+[[capability.case]]
+id = "cached-interpreter-admission"
+covers = ["story:7-105", "error:executable_blocked_by_smart_app_control"]
+
+[[capability]]
+name = "browsers.executables"
+
+[[capability.case]]
+id = "chrome-for-testing-admission"
+covers = ["story:7-105", "error:executable_blocked_by_smart_app_control"]
+
+[[capability.case]]
+id = "lightpanda-admission"
+covers = ["story:7-105", "error:executable_blocked_by_smart_app_control"]

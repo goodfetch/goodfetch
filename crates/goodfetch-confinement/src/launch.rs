@@ -17,7 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use goodfetch_protocol::home::PLUGINS;
-use goodfetch_protocol::plugin::{COOKIE, COOKIE_VARIABLE};
+use goodfetch_protocol::plugin::{COOKIE, COOKIE_VARIABLE, PluginResourceLimit};
 use serde::{Deserialize, Serialize};
 
 use crate::policy::Policy;
@@ -124,18 +124,52 @@ pub enum LaunchError {
     /// runtime cache (ADR 0033, issue 884).
     #[error("`{}` is outside the Plugin store and runtime cache", .0.display())]
     DisallowedProgram(PathBuf),
+    /// A confined Plugin exceeded one of its manifest's resource limits (such
+    /// as a Windows Job Object limit, ADR 0033, issue 873).
+    #[error("the confined Plugin exceeded its `{0:?}` resource limit")]
+    LimitExceeded(PluginResourceLimit),
+    /// Windows' Smart App Control or another App Control policy blocked the
+    /// Plugin executable or cached interpreter from starting (ADR 0039,
+    /// issue 873).
+    #[error("Smart App Control blocked `{}` from starting", .0.display())]
+    BlockedBySmartAppControl(PathBuf),
 }
 
 /// The launcher's exit statuses that tell the host cannot confine a Plugin,
 /// which the engine refuses with `confinement_unavailable`.
 pub const UNAVAILABLE_STATUSES: [u8; 2] = [247, 248];
 
+/// Exit status reported by the launcher when Windows' Smart App Control or
+/// another App Control policy refused to start the Plugin executable or
+/// interpreter (ADR 0039, issue 873).
+pub const BLOCKED_BY_SMART_APP_CONTROL_STATUS: u8 = 236;
+
+/// Maps a launcher exit status in `232..=235` back to the exceeded
+/// [`PluginResourceLimit`], for engines reading a confined launcher's exit
+/// status (ADR 0033, issue 873).
+#[must_use]
+pub const fn limit_exceeded_of_status(status: u8) -> Option<PluginResourceLimit> {
+    match status {
+        232 => Some(PluginResourceLimit::Memory),
+        233 => Some(PluginResourceLimit::CpuTime),
+        234 => Some(PluginResourceLimit::Processes),
+        235 => Some(PluginResourceLimit::OpenFiles),
+        _ => None,
+    }
+}
+
 impl LaunchError {
-    /// The launcher's exit status for it, from 246 to 254: past every
-    /// status the confinement probe reports (`linux::probe`), so a runner
-    /// that starts the probe through its launcher tells one from the other.
+    /// The launcher's exit status for it, disjoint from every status a
+    /// confinement probe reports (`linux::probe`, `macos::probe`,
+    /// `windows::probe`), so a runner that starts a probe through its launcher
+    /// tells one from the other.
     pub fn status(&self) -> u8 {
         match self {
+            Self::LimitExceeded(PluginResourceLimit::Memory) => 232,
+            Self::LimitExceeded(PluginResourceLimit::CpuTime) => 233,
+            Self::LimitExceeded(PluginResourceLimit::Processes) => 234,
+            Self::LimitExceeded(PluginResourceLimit::OpenFiles) => 235,
+            Self::BlockedBySmartAppControl(_) => BLOCKED_BY_SMART_APP_CONTROL_STATUS,
             Self::Request => 246,
             Self::Unsupported => 247,
             Self::Unavailable(_) => 248,
@@ -383,7 +417,39 @@ fn push_proxy_env(env: &mut Vec<(String, String)>, username: &str, password: &st
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+impl From<crate::windows::ConfineError> for LaunchError {
+    fn from(error: crate::windows::ConfineError) -> Self {
+        use crate::windows::ConfineError;
+        match error {
+            ConfineError::Unavailable(reason) => Self::Unavailable(reason),
+            ConfineError::Confine(reason) => Self::Confine(reason),
+            ConfineError::Folder(error) => Self::Folder(error),
+            ConfineError::Limits(error) => Self::Limits(error),
+            ConfineError::Start(error) => Self::Start(error),
+            ConfineError::LimitExceeded(limit) => Self::LimitExceeded(limit),
+            ConfineError::BlockedBySmartAppControl(path) => Self::BlockedBySmartAppControl(path),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn start(launch: &Launch) -> LaunchError {
+    let env: Vec<(&str, &str)> = launch.env().collect();
+    let spec = crate::windows::ProcessSpec {
+        policy: &launch.policy,
+        program: &launch.program,
+        args: &launch.args,
+        folder: &launch.folder,
+        env: &env,
+        broker_grant: None,
+    };
+    match crate::windows::run_confined(&spec) {
+        Ok(exit_code) => std::process::exit(exit_code),
+        Err(error) => error.into(),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn start(_launch: &Launch) -> LaunchError {
     LaunchError::Unsupported
 }

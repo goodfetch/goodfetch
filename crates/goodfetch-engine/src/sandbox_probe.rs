@@ -178,6 +178,16 @@ impl Facts {
                 },
             ));
         }
+        if self.host.windows_appcontainer_refused {
+            return Some(CallError::new(
+                &CONFINEMENT_UNAVAILABLE,
+                "this host cannot confine a process Plugin (unknown): Windows AppContainer confinement is unavailable",
+                &ConfinementUnavailableDetails {
+                    environment: SandboxEnvironment::Unknown,
+                    fix: "Run Goodfetch in a Windows user session that allows AppContainer profiles; Plugins are never started unconfined.".to_owned(),
+                },
+            ));
+        }
         let (environment, failure) = match judge(&Self {
             platform: None,
             ..*self
@@ -232,6 +242,20 @@ impl Facts {
         }
         let missing: Vec<String> = missing.into_iter().map(str::to_owned).collect();
         if let Some(refusal) = self.plugin_refusal() {
+            return Err((missing, refusal));
+        }
+        if missing.iter().any(|part| part == "filter_broker") {
+            let refusal = CallError::new(
+                &CONFINEMENT_UNAVAILABLE,
+                format!(
+                    "this host cannot confine a process Plugin at `{}` on Windows without the filter broker",
+                    network_level.as_str(),
+                ),
+                &ConfinementUnavailableDetails {
+                    environment: SandboxEnvironment::Unknown,
+                    fix: "Install the Windows filter broker with `goodfetch plugins setup` (elevated) before running a Plugin at `proxy_tcp` or `direct`.".to_owned(),
+                },
+            );
             return Err((missing, refusal));
         }
         let (environment, failure) = match judge(&Self {
@@ -389,9 +413,14 @@ fn read_host() -> HostFacts {
     goodfetch_confinement::macos::host::read()
 }
 
-/// Outside Linux and macOS, Chromium's sandboxes and a Plugin's confinement
-/// need no user namespace or Seatbelt probe.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+fn read_host() -> HostFacts {
+    goodfetch_confinement::windows::host::read()
+}
+
+/// Outside Linux, macOS and Windows, Chromium's sandboxes and a Plugin's
+/// confinement need no user namespace, Seatbelt or `AppContainer` probe.
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn read_host() -> HostFacts {
     HostFacts::NO_NAMESPACE_NEEDED
 }

@@ -1,0 +1,31 @@
+{
+  "id": "D-extraction-latency",
+  "title": "Extraction verified latency and field-level quality (Collie vs competitors)",
+  "question": "Does Collie deliver lower verified extraction latency and equal-or-higher field-level quality?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    {
+      "id": "collie-default",
+      "description": "Collie with all controls on",
+      "adapter": "collie-default"
+    },
+    { "id": "crawlee-js", "description": "Crawlee JS", "adapter": "crawlee-js" },
+    { "id": "scrapling", "description": "Scrapling", "adapter": "scrapling" },
+    {
+      "id": "firecrawl-self-hosted",
+      "description": "Firecrawl self-hosted",
+      "adapter": "firecrawl-self-hosted"
+    }
+  ],
+  "baseline": "crawlee-js",
+  "primary_metric": "task_p50_ms_verified",
+  "secondary_metrics": ["task_p95_ms_verified", "failure_rate"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Declared before measuring (ADR 0025, issue 185)."
+}

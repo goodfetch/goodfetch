@@ -1,0 +1,32 @@
+{
+  "id": "D-http-crawl-throughput",
+  "title": "HTTP crawl verified throughput (Foxhound vs competitors)",
+  "question": "Does Foxhound match or beat HTTP crawl competitors on verified tasks/s at equal guarantees?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    {
+      "id": "foxhound-default",
+      "description": "Foxhound with all controls on",
+      "adapter": "foxhound-default"
+    },
+    {
+      "id": "foxhound-matched-spider",
+      "description": "Foxhound matched to Spider",
+      "adapter": "foxhound-matched-spider"
+    },
+    { "id": "spider", "description": "Spider (Rust)", "adapter": "spider" },
+    { "id": "crawlee-js", "description": "Crawlee JS", "adapter": "crawlee-js" },
+    { "id": "scrapy", "description": "Scrapy", "adapter": "scrapy" }
+  ],
+  "baseline": "spider",
+  "primary_metric": "verified_tasks_per_second",
+  "secondary_metrics": ["cpu_ms_per_verified_task", "pss_peak_bytes", "failure_rate"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Declared before measuring (ADR 0025, issue 185)."
+}

@@ -27,7 +27,9 @@ use goodfetch_protocol::hostile_input::{
     HEADER_VALUE_INVALID, HeaderCharacter, HeaderValueInvalidDetails, PATH_UNSAFE, PathHazard,
     PathUnsafeDetails,
 };
-use goodfetch_saved_file::{PathIssue, PathShape as SavedPathShape, check_relative_path};
+use goodfetch_saved_file::{
+    PathIssue, PathShape as SavedPathShape, check_path as check_saved_path,
+};
 
 use crate::call_error::CallError;
 
@@ -147,7 +149,7 @@ pub fn check_path(name: &str, shape: PathShape) -> Result<(), PathUnsafe> {
         PathShape::Name => SavedPathShape::Name,
         PathShape::RelativePath => SavedPathShape::RelativePath,
     };
-    check_relative_path(name, saved_shape).map_err(|issue| PathUnsafe {
+    check_saved_path(std::path::Path::new(name), saved_shape).map_err(|issue| PathUnsafe {
         name: name.to_owned(),
         hazard: hazard_of(issue),
     })

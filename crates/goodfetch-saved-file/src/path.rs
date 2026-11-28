@@ -4,7 +4,8 @@
 //! (`file_saving::FileSaving`), so Linux, macOS and Windows refuse the same
 //! hostile names alike.
 
-use std::path::{Component, Path, PathBuf};
+use std::fmt;
+use std::path::{Component, Path};
 
 use icu_normalizer::ComposingNormalizerBorrowed;
 
@@ -53,7 +54,7 @@ const RESERVED: [&str; 32] = [
     "CONOUT$",
 ];
 
-/// What a name from outside input names.
+/// What kind of path or name from outside input is being checked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PathShape {
     /// One file name, such as an Export name, a Plan's or a Key-value store key.
@@ -61,6 +62,9 @@ pub enum PathShape {
     /// A path under the folder it is written in, to a subfolder or not,
     /// such as a screenshot's or a Run trace's.
     RelativePath,
+    /// A program-supplied save path (`export.save_as`, `download.save_as`,
+    /// `run export --out`), relative or rooted on the host OS.
+    SavePath,
 }
 
 /// What makes a file name or save path unsafe on Linux, macOS or Windows.
@@ -99,11 +103,9 @@ pub enum PathIssue {
     Separator,
 }
 
-impl PathIssue {
-    /// A concise human-readable reason for `path_not_writable` error messages.
-    #[must_use]
-    pub const fn describe(self) -> &'static str {
-        match self {
+impl fmt::Display for PathIssue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let description = match self {
             Self::ParentTraversal => "it contains a parent traversal (`..`)",
             Self::Absolute => "it is an absolute path outside its folder",
             Self::Drive => "it names a Windows drive path",
@@ -119,18 +121,30 @@ impl PathIssue {
             Self::Overlong => "a path segment exceeds 255 bytes",
             Self::DotName => "it names no file",
             Self::Separator => "it contains a disallowed path separator",
+        };
+        f.write_str(description)
+    }
+}
+
+/// Judges `path`, from outside input, against the cross-OS safety rules for
+/// `shape` (ADRs 0067 and 0116) before any folder or file is created.
+///
+/// # Errors
+///
+/// [`PathIssue`] naming the first hazard found.
+pub fn check_path(path: &Path, shape: PathShape) -> Result<(), PathIssue> {
+    match shape {
+        PathShape::SavePath => check_save(path),
+        PathShape::Name | PathShape::RelativePath => {
+            let Some(name) = path.to_str() else {
+                return check_non_utf8(path);
+            };
+            check_relative(name, shape)
         }
     }
 }
 
-/// Judges `name`, from outside input, as a [`PathShape`] the engine would
-/// write a file under.
-///
-/// # Errors
-///
-/// [`PathIssue`] with the first hazard found: the whole path's, then each
-/// part's, then a separator where one name is taken.
-pub fn check_relative_path(name: &str, shape: PathShape) -> Result<(), PathIssue> {
+fn check_relative(name: &str, shape: PathShape) -> Result<(), PathIssue> {
     if name.is_empty() {
         return Err(PathIssue::DotName);
     }
@@ -163,46 +177,23 @@ pub fn check_relative_path(name: &str, shape: PathShape) -> Result<(), PathIssue
     Ok(())
 }
 
-/// Resolves an Export file `name` inside `folder`, refusing every hostile name
-/// (traversal, absolute path, drive, UNC, verbatim, device namespace,
-/// reserved name, trailing dot/space, ADS, forbidden/control chars, >255 bytes,
-/// decomposed Unicode, or separators) on every OS alike.
-///
-/// # Errors
-///
-/// [`PathIssue`] naming why `name` cannot be resolved inside `folder`.
-pub fn resolve_in_folder(folder: &Path, name: &str) -> Result<PathBuf, PathIssue> {
-    check_relative_path(name, PathShape::Name)?;
-    Ok(folder.join(name))
+fn check_non_utf8(path: &Path) -> Result<(), PathIssue> {
+    for component in path.components() {
+        match component {
+            Component::ParentDir => return Err(PathIssue::ParentTraversal),
+            Component::CurDir => return Err(PathIssue::DotName),
+            _ => {}
+        }
+    }
+    path.file_name().map(|_| ()).ok_or(PathIssue::DotName)
 }
 
-/// Judges a program-supplied save path (`export.save_as`, `download.save_as`,
-/// `run export --out`), whether relative or rooted on the host OS, before any
-/// folder or temporary file is created (ADRs 0067 and 0116).
-///
-/// Allows legitimate relative paths (`out/books.csv`) and host-native absolute
-/// paths (`/tmp/out/books.csv` on Unix, `C:\Users\alice\books.csv` on Windows)
-/// while refusing `..`, verbatim/device/UNC prefixes, drive-relative paths,
-/// backslashes on Unix, and any segment with a Windows reserved name, trailing
-/// dot/space, alternate data stream colon, Windows-forbidden or control
-/// character, >255-byte length, or non-NFC Unicode decomposition.
-///
-/// # Errors
-///
-/// [`PathIssue`] naming why `path` cannot be written safely across OSes.
-pub fn check_save_path(path: &Path) -> Result<(), PathIssue> {
+fn check_save(path: &Path) -> Result<(), PathIssue> {
     if path.as_os_str().is_empty() {
         return Err(PathIssue::DotName);
     }
     let Some(text) = path.to_str() else {
-        for component in path.components() {
-            match component {
-                Component::ParentDir => return Err(PathIssue::ParentTraversal),
-                Component::CurDir => return Err(PathIssue::DotName),
-                _ => {}
-            }
-        }
-        return path.file_name().map(|_| ()).ok_or(PathIssue::DotName);
+        return check_non_utf8(path);
     };
     if text.chars().any(char::is_control) {
         return Err(PathIssue::ControlCharacter);
@@ -210,30 +201,7 @@ pub fn check_save_path(path: &Path) -> Result<(), PathIssue> {
     if text.ends_with('/') || text.ends_with('\\') {
         return Err(PathIssue::DotName);
     }
-    let tail = match root_issue(text) {
-        Some(PathIssue::Verbatim) => return Err(PathIssue::Verbatim),
-        Some(PathIssue::DeviceNamespace) => return Err(PathIssue::DeviceNamespace),
-        Some(PathIssue::Unc) => return Err(PathIssue::Unc),
-        Some(PathIssue::Drive) => {
-            if cfg!(windows)
-                && text
-                    .as_bytes()
-                    .get(2)
-                    .is_some_and(|byte| *byte == b'/' || *byte == b'\\')
-            {
-                &text[3..]
-            } else {
-                return Err(PathIssue::Drive);
-            }
-        }
-        Some(PathIssue::Absolute) => {
-            if text.starts_with('\\') && !cfg!(windows) {
-                return Err(PathIssue::Separator);
-            }
-            &text[1..]
-        }
-        _ => text,
-    };
+    let tail = strip_host_root(text)?;
     if tail.is_empty() {
         return Err(PathIssue::DotName);
     }
@@ -250,6 +218,33 @@ pub fn check_save_path(path: &Path) -> Result<(), PathIssue> {
         return Err(PathIssue::Separator);
     }
     Ok(())
+}
+
+fn strip_host_root(text: &str) -> Result<&str, PathIssue> {
+    match root_issue(text) {
+        Some(PathIssue::Verbatim) => Err(PathIssue::Verbatim),
+        Some(PathIssue::DeviceNamespace) => Err(PathIssue::DeviceNamespace),
+        Some(PathIssue::Unc) => Err(PathIssue::Unc),
+        Some(PathIssue::Drive) => {
+            if cfg!(windows)
+                && text
+                    .as_bytes()
+                    .get(2)
+                    .is_some_and(|byte| *byte == b'/' || *byte == b'\\')
+            {
+                Ok(&text[3..])
+            } else {
+                Err(PathIssue::Drive)
+            }
+        }
+        Some(PathIssue::Absolute) => {
+            if text.starts_with('\\') && !cfg!(windows) {
+                return Err(PathIssue::Separator);
+            }
+            Ok(&text[1..])
+        }
+        _ => Ok(text),
+    }
 }
 
 /// What makes `name`, as a whole, start outside its folder: a verbatim,

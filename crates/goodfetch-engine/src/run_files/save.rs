@@ -17,8 +17,7 @@ use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 
 use goodfetch_saved_file::{
-    blames_path, check_save_path, create_hidden, os_code, reason_of, resolve_in_folder, unhide,
-    unix_code,
+    PathShape, blames_path, check_path, create_hidden, os_code, reason_of, unhide, unix_code,
 };
 
 use crate::durable::sync_folder;
@@ -138,14 +137,10 @@ impl Saving {
     /// [`SaveError::Path`] with `reason: "invalid_filename"` when `path`
     /// contains a traversal, reserved name or other unsafe segment.
     pub fn check_path(path: &Path) -> Result<(), SaveError> {
-        check_save_path(path).map_err(|issue| SaveError::Path {
+        check_path(path, PathShape::SavePath).map_err(|issue| SaveError::Path {
             reason: "invalid_filename",
             os_code: None,
-            message: format!(
-                "`{}` cannot be written: {}",
-                path.display(),
-                issue.describe()
-            ),
+            message: format!("`{}` cannot be written: {issue}", path.display()),
         })
     }
 
@@ -157,12 +152,12 @@ impl Saving {
     /// [`SaveError::Path`] (`invalid_filename`) for an unsafe name, or as
     /// [`Saving::create`].
     pub fn create_in_folder(folder: &Path, name: &str) -> Result<Self, SaveError> {
-        let resolved = resolve_in_folder(folder, name).map_err(|issue| SaveError::Path {
+        check_path(Path::new(name), PathShape::Name).map_err(|issue| SaveError::Path {
             reason: "invalid_filename",
             os_code: None,
-            message: format!("`{name}` cannot be written: {}", issue.describe()),
+            message: format!("`{name}` cannot be written: {issue}"),
         })?;
-        Self::create(&resolved)
+        Self::create(&folder.join(name))
     }
 
     /// Starts the file for `path`: its missing folders made, then its

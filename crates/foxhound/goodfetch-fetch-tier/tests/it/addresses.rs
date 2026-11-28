@@ -405,9 +405,9 @@ refusal = { code = "egress_refused", rule = "private_address" }
 "#;
 
 /// Asserts that a `Runner::run` result passed every control and every
-/// parseable case, leaving only the two WHATWG-unparseable cases (`zone_id`
+/// parseable case, leaving only the two WHATWG-unparsable cases (`zone_id`
 /// and `url_that_does_not_parse`) unsent with zero connections.
-fn assert_only_unparseable_unsent(result: Result<(), goodfetch_test_support::RunFailed>) {
+fn assert_only_unparsable_unsent(result: Result<(), goodfetch_test_support::RunFailed>) {
     let unsent = |case: &str| (case.to_owned(), None, false);
     assert_eq!(
         result.map_err(|failed| {
@@ -470,7 +470,7 @@ fn every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connec
         outcome
     });
 
-    assert_only_unparseable_unsent(result);
+    assert_only_unparsable_unsent(result);
     assert_eq!(proxied, 0, "the proxy saw a request of a refused case");
 }
 
@@ -517,7 +517,7 @@ fn every_case_of_the_ssrf_table_the_discovered_api_tier_meets_is_refused_before_
         outcome
     });
 
-    assert_only_unparseable_unsent(result);
+    assert_only_unparsable_unsent(result);
     assert_eq!(proxied, 0, "the proxy saw a request of a refused case");
 }
 

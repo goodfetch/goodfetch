@@ -696,11 +696,10 @@ fn every_hostile_export_name_in_the_path_table_is_refused_with_path_not_writable
     let mut misses = Vec::new();
     for case in &cases {
         let name = &case.input.name;
-        if goodfetch_saved_file::resolve_in_folder(folder.path(), name).is_ok() {
-            misses.push(format!(
-                "{}: resolve_in_folder accepted {name:?}",
-                case.name
-            ));
+        if goodfetch_saved_file::check_path(Path::new(name), goodfetch_saved_file::PathShape::Name)
+            .is_ok()
+        {
+            misses.push(format!("{}: check_path accepted {name:?}", case.name));
         }
         let native_absolute = if cfg!(windows) {
             case.name == "drive_path"
@@ -727,7 +726,12 @@ fn every_hostile_export_name_in_the_path_table_is_refused_with_path_not_writable
     assert_eq!(names(folder.path()), Vec::<String>::new());
 
     // Positive control: an ordinary name inside the folder works.
-    let safe = goodfetch_saved_file::resolve_in_folder(folder.path(), "report.csv").unwrap();
+    goodfetch_saved_file::check_path(
+        Path::new("report.csv"),
+        goodfetch_saved_file::PathShape::Name,
+    )
+    .unwrap();
+    let safe = folder.path().join("report.csv");
     let mut saving = FileSaving::create(&safe, "export.saveAs").unwrap();
     saving.write(b"a,b\n1,2\n").unwrap();
     saving.finish().unwrap();

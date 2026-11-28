@@ -150,7 +150,7 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
             Err(error) if error.code() == EGRESS_REFUSED.name => {
                 // An egress refusal ends the replay without answering any
                 // wait or escalating past the policy.
-                tell_all(tiers, page_id, &Replayed::Refused(error));
+                tell(tiers, page_id, None, &Replayed::Refused(error));
                 break;
             }
             Err(_) => break,
@@ -160,7 +160,12 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
             match parse_json(call.as_str(), &fetched.body, &limits) {
                 Ok(json) => Some(json),
                 Err(JsonFailure::Limit(limit)) => {
-                    tell(tiers, page_id, call.as_str(), &Replayed::PastALimit(limit));
+                    tell(
+                        tiers,
+                        page_id,
+                        Some(call.as_str()),
+                        &Replayed::PastALimit(limit),
+                    );
                     break;
                 }
                 Err(JsonFailure::Malformed(_)) => None,
@@ -197,17 +202,13 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
         tell(
             tiers,
             page_id,
-            &url,
+            Some(&url),
             &Replayed::Answered(Box::new(exchange)),
         );
         replay.answered(&json);
     }
     // The waits left: told none came, so they escalate.
-    if let Some(replaying) = lock(&tiers.served.pages).replays.get_mut(page_id) {
-        for waiter in replaying.waiters.drain(..) {
-            let _ = waiter.answer.send(Replayed::NoneCame);
-        }
-    }
+    tell(tiers, page_id, None, &Replayed::NoneCame);
 }
 
 /// Whether a wait is armed on the served page `page_id`.
@@ -223,29 +224,22 @@ fn armed(tiers: &FetchTiers, page_id: &PageId) -> bool {
         })
 }
 
-/// Tells every wait armed on the served page `page_id` whose pattern matches
-/// the replayed call to `url` what came of it.
-fn tell(tiers: &FetchTiers, page_id: &PageId, url: &str, replayed: &Replayed) {
+/// Tells every wait armed on the served page `page_id` matching `url` (or all
+/// armed waits when `url` is `None`) what came of the replay.
+fn tell(tiers: &FetchTiers, page_id: &PageId, url: Option<&str>, replayed: &Replayed) {
     let mut pages = lock(&tiers.served.pages);
     let Some(replaying) = pages.replays.get_mut(page_id) else {
         return;
     };
-    let (matched, waiting): (Vec<Waiter>, Vec<Waiter>) = replaying
-        .waiters
-        .drain(..)
-        .partition(|waiter| waiter.pattern.matches(url));
+    let (matched, waiting): (Vec<Waiter>, Vec<Waiter>) = match url {
+        Some(url) => replaying
+            .waiters
+            .drain(..)
+            .partition(|waiter| waiter.pattern.matches(url)),
+        None => (std::mem::take(&mut replaying.waiters), Vec::new()),
+    };
     replaying.waiters = waiting;
     for waiter in matched {
         let _ = waiter.answer.send(replayed.clone());
-    }
-}
-
-/// Tells every wait armed on the served page `page_id` what ended the
-/// replay, so none is left to escalate past an egress refusal.
-fn tell_all(tiers: &FetchTiers, page_id: &PageId, replayed: &Replayed) {
-    if let Some(replaying) = lock(&tiers.served.pages).replays.get_mut(page_id) {
-        for waiter in replaying.waiters.drain(..) {
-            let _ = waiter.answer.send(replayed.clone());
-        }
     }
 }

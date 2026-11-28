@@ -474,6 +474,18 @@ pub mod escalation {
             ],
         );
 
+    /// How often an escalated domain sends one trial request through a Session at the proxy kind below, stepping back down when it succeeds and keeping the costlier kind when it is blocked: 600 s (10 minutes). Unset (`null`), no periodic trial runs.
+    ///
+    /// `escalation.trial_interval`. `None` clears it.
+    pub const TRIAL_INTERVAL: crate::settings::Setting<Option<::std::time::Duration>> =
+        crate::settings::Setting::new(
+            "escalation.trial_interval",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+            ],
+        );
+
     /// A word a setting of this module takes, as the catalog spells it.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub enum ProxyKindsItem {

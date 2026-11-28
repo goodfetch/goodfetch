@@ -467,6 +467,12 @@ export interface FoxhoundSettings {
      * `escalation.proxy_kinds`.
      */
     readonly proxyKinds?: readonly ("datacenter" | "isp" | "residential" | "mobile")[] | null;
+    /**
+     * How often an escalated domain sends one trial request through a Session at the proxy kind below, stepping back down when it succeeds and keeping the costlier kind when it is blocked: 600 s (10 minutes). Unset (`null`), no periodic trial runs.
+     *
+     * `escalation.trial_interval`.
+     */
+    readonly trialInterval?: number | null;
   };
   readonly export?: {
     readonly csv?: {
@@ -1907,6 +1913,12 @@ export interface CrawlSettings {
      * `escalation.proxy_kinds`.
      */
     readonly proxyKinds?: readonly ("datacenter" | "isp" | "residential" | "mobile")[] | null;
+    /**
+     * How often an escalated domain sends one trial request through a Session at the proxy kind below, stepping back down when it succeeds and keeping the costlier kind when it is blocked: 600 s (10 minutes). Unset (`null`), no periodic trial runs.
+     *
+     * `escalation.trial_interval`.
+     */
+    readonly trialInterval?: number | null;
   };
   readonly export?: {
     readonly csv?: {
@@ -3139,6 +3151,7 @@ const SPELLING: Spelling = {
   }],
   escalation: ["escalation", {
     proxyKinds: "proxy_kinds",
+    trialInterval: "trial_interval",
   }],
   export: ["export", {
     csv: ["csv", {

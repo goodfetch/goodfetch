@@ -467,6 +467,7 @@ summary = "example"
 
 [settings.escalation]
 proxy_kinds = ["datacenter"]
+trial_interval = 30000
 
 [settings.paid_fetch]
 domains = ["example"]

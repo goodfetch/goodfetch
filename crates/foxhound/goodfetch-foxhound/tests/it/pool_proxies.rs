@@ -26,6 +26,8 @@ use crate::attached_with;
 use crate::fetch_tiers::settings;
 use crate::frontier::crawl_declaring;
 use crate::url_fragments::refused_start;
+#[cfg(unix)]
+use goodfetch_test_client::Attached;
 use url::Url;
 
 /// The Proving ground's seed.
@@ -635,6 +637,280 @@ fn a_403_escalates_within_escalation_proxy_kinds_and_survives_resume() {
         ),
         (
             BTreeSet::from(["datacenter".to_owned(), "isp".to_owned()]),
+            isp.clone(),
+            isp,
+        )
+    );
+}
+
+/// The distinct sticky exits the Proving ground's relays used for targets
+/// holding `marker`, in order of observation.
+#[cfg(unix)]
+fn exits_to(proving_ground: &ProvingGround, marker: &str) -> Vec<String> {
+    proving_ground.observations().unwrap()["relays"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|relay| {
+            relay["outcome"] == json!("relayed")
+                && relay["target"]
+                    .as_str()
+                    .is_some_and(|target| target.contains(marker))
+        })
+        .filter_map(|relay| relay["exit"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// With a hosted provider (`oxylabs`) narrowed to a single kind (`residential`),
+/// a 403 retires the Session and opens the replacement with a fresh sticky
+/// exit (never reusing the retired exit at once): against `/limits/2`, the
+/// rotated exit succeeds; against `/corpus/ip-block`, once the escalation
+/// budget (1 retirement per kind) is spent, the request ends `blocked` (#1141).
+///
+/// Covers: story:8-220
+#[cfg(unix)]
+#[test]
+fn rotation_within_a_provider_uses_fresh_sticky_exits_and_ends_blocked_when_budget_is_spent() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let fixtures = &proving_ground.description().fixtures;
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.oxylabs]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nendpoint = \"http://{}\"\n",
+        fixtures.proxy_credentials.username,
+        fixtures.proxies["residential"],
+    ));
+    let password = fixtures.proxy_credentials.password.clone();
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    });
+    let run_settings = settings(
+        &proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+            "session": { "pool": { "max_size": 1 } },
+            "proxy": { "provider": "oxylabs" },
+            "escalation": { "proxy_kinds": ["residential"] },
+            "crawl": { "retry": { "max": 0 } },
+        }),
+    );
+
+    // 1) `limits/2` lets each address fetch 10 pages and flags the 11th with
+    // 403; rotation gives a fresh sticky exit so all 11 requests succeed.
+    let mut handled_limits = 0usize;
+    let limit_seeds: Vec<Value> = (1..=11)
+        .map(|n| {
+            json!({
+                "url": proving_ground.url("2.limits.test", &format!("/items/L-{n:04}")),
+                "label": "page"
+            })
+        })
+        .collect();
+    let finished_limits = crawl_declaring(
+        &mut engine,
+        "rotate-limits",
+        &limit_seeds,
+        &json!({ "page": {} }),
+        &run_settings,
+        &mut |_, _| {
+            handled_limits += 1;
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(finished_limits["result"]["lifecycle"], "finished");
+    assert_eq!(handled_limits, 11);
+    let rotated = (1..=11).find_map(|n| {
+        let exits = exits_to(&proving_ground, &format!("/items/L-{n:04}"));
+        (exits.len() == 2).then_some((n, exits))
+    });
+    let (_, rotated_exits) = rotated.expect(
+        "one request past the 10-page per-IP quota should hit 403 on exit 1 then succeed on a fresh exit",
+    );
+    assert_ne!(
+        rotated_exits[0], rotated_exits[1],
+        "replacement Session must leave from a fresh sticky exit: {rotated_exits:?}"
+    );
+
+    // 2) `/corpus/ip-block` always 403s: with budget = 1 (1 kind in
+    // `escalation.proxy_kinds`), it rotates once to a fresh sticky exit, then
+    // ends `blocked`.
+    let finished_blocked = crawl_declaring(
+        &mut engine,
+        "rotate-budget",
+        &[json!({
+            "url": proving_ground.url("access.test", "/corpus/ip-block"),
+            "label": "page"
+        })],
+        &json!({ "page": {} }),
+        &run_settings,
+        &mut |_, _| json!({ "result": { "records": [] } }),
+    );
+    assert_eq!(finished_blocked["result"]["lifecycle"], "finished");
+    let outcomes = engine.call(
+        "outcomes",
+        "run.outcomes",
+        &json!({ "run_id": "rotate-budget" }),
+        &mut |_| None,
+    );
+    assert!(engine.finished());
+
+    let block_exits = exits_to(&proving_ground, "/corpus/ip-block");
+    assert_eq!(
+        block_exits.len(),
+        2,
+        "initial attempt + 1 rotation (budget = 1): {block_exits:?}"
+    );
+    assert_ne!(
+        block_exits[0], block_exits[1],
+        "rotated Session must use a fresh sticky exit"
+    );
+    assert_eq!(
+        outcomes["result"]["outcomes"][0]["kind"],
+        json!("blocked"),
+        "{outcomes}"
+    );
+}
+
+/// Runs one periodic-trial crawl case, pausing past the 150 ms
+/// `trial_interval` while handling the URL containing `pause_on`.
+#[cfg(unix)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "synchronous integration test handler waiting past the 150 ms trial_interval"
+)]
+fn run_trial_case(
+    engine: &mut Attached,
+    proving_ground: &ProvingGround,
+    run_id: &str,
+    paths: &[&str],
+    pause_on: &str,
+    trial_interval: &Value,
+) {
+    let run_settings = settings(
+        proving_ground,
+        &json!({
+            "fetch": { "tier": "http" },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+            "session": { "pool": { "max_size": 1 } },
+            "proxy": { "provider": "list" },
+            "escalation": { "proxy_kinds": ["datacenter", "isp"], "trial_interval": trial_interval },
+            "crawl": { "retry": { "max": 0 } },
+        }),
+    );
+    let seeds: Vec<Value> = paths
+        .iter()
+        .map(|path| json!({ "url": proving_ground.url("access.test", path), "label": "page" }))
+        .collect();
+    let finished = crawl_declaring(
+        engine,
+        run_id,
+        &seeds,
+        &json!({ "page": {} }),
+        &run_settings,
+        &mut |_, handle| {
+            if handle["crawl_request"]["url"]
+                .as_str()
+                .is_some_and(|u| u.contains(pause_on))
+            {
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            json!({ "result": { "records": [] } })
+        },
+    );
+    assert_eq!(finished["result"]["lifecycle"], "finished");
+}
+
+/// With `escalation.trial_interval` set short (150 ms), a periodic trial on
+/// the cheaper kind brings the domain back down after it succeeds and leaves
+/// it up after it is blocked again; `escalation.trial_interval: null` runs no
+/// trial (#1141).
+///
+/// Covers: story:8-222, setting:escalation.trial_interval
+#[cfg(unix)]
+#[test]
+fn periodic_trial_steps_down_on_success_stays_up_on_block_and_null_runs_no_trial() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let fixtures = &proving_ground.description().fixtures;
+    let server = |name: &str, kind: &str| {
+        format!(
+            "{{ server = \"http://{}\", kind = \"{kind}\" }}",
+            fixtures.proxies[name]
+        )
+    };
+    env.user_configuration(&format!(
+        "[settings.proxy.providers.list]\nusername = \"{}\"\npassword = \"env:{PASSWORD_VARIABLE}\"\nservers = [{}, {}]\n",
+        fixtures.proxy_credentials.username,
+        server("datacenter", "datacenter"),
+        server("isp", "isp"),
+    ));
+    let password = fixtures.proxy_credentials.password.clone();
+    let mut engine = attached_with(&env, Some(Duration::from_secs(60)), |command| {
+        command.env(PASSWORD_VARIABLE, &password);
+    });
+    let dc = BTreeSet::from(["datacenter".to_owned()]);
+    let isp = BTreeSet::from(["isp".to_owned()]);
+    let both = BTreeSet::from(["datacenter".to_owned(), "isp".to_owned()]);
+
+    // 1) Short trial_interval + trial succeeds -> domain steps back down to datacenter.
+    run_trial_case(
+        &mut engine,
+        &proving_ground,
+        "trial-down",
+        &[
+            "/corpus/ip-block?case=down",
+            "/corpus/article?case=down&n=1",
+            "/corpus/article?case=down&n=2",
+            "/corpus/article?case=down&n=3",
+        ],
+        "n=1",
+        &json!(150),
+    );
+    // 2) Short trial_interval + trial blocked -> domain stays on isp.
+    run_trial_case(
+        &mut engine,
+        &proving_ground,
+        "trial-up",
+        &[
+            "/corpus/ip-block?case=up1",
+            "/corpus/article?case=up&n=1",
+            "/corpus/ip-block?case=up2",
+            "/corpus/article?case=up&n=2",
+        ],
+        "case=up&n=1",
+        &json!(150),
+    );
+    // 3) trial_interval: null -> no trial runs even after waiting past 200ms.
+    run_trial_case(
+        &mut engine,
+        &proving_ground,
+        "trial-null",
+        &[
+            "/corpus/ip-block?case=null",
+            "/corpus/article?case=null&n=1",
+            "/corpus/article?case=null&n=2",
+        ],
+        "case=null&n=1",
+        &Value::Null,
+    );
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            proxies_to(&proving_ground, "case=down&n=1"),
+            proxies_to(&proving_ground, "case=down&n=2"),
+            proxies_to(&proving_ground, "case=down&n=3"),
+            proxies_to(&proving_ground, "case=up2"),
+            proxies_to(&proving_ground, "case=up&n=2"),
+            proxies_to(&proving_ground, "case=null&n=1"),
+            proxies_to(&proving_ground, "case=null&n=2"),
+        ),
+        (
+            isp.clone(),
+            dc.clone(),
+            dc,
+            both,
+            isp.clone(),
             isp.clone(),
             isp,
         )

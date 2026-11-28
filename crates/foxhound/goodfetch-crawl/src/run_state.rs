@@ -551,6 +551,7 @@ impl RunState {
                         &escalated.domain_key,
                         Effect::Neutral,
                         &escalated.settings,
+                        escalated.now,
                     );
                 }
                 return None;

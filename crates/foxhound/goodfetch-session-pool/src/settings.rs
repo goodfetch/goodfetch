@@ -6,8 +6,9 @@ use std::time::Duration;
 
 use goodfetch_engine::settings::Resolved;
 use goodfetch_protocol::foxhound::session_pool::{
-    SESSION_POOL_AFFINITY, SESSION_POOL_GROWTH, SESSION_POOL_MAX_AGE, SESSION_POOL_MAX_ERROR_SCORE,
-    SESSION_POOL_MAX_SIZE, SESSION_POOL_MAX_USES, SESSION_POOL_SESSION_CONCURRENCY,
+    ESCALATION_TRIAL_INTERVAL, SESSION_POOL_AFFINITY, SESSION_POOL_GROWTH, SESSION_POOL_MAX_AGE,
+    SESSION_POOL_MAX_ERROR_SCORE, SESSION_POOL_MAX_SIZE, SESSION_POOL_MAX_USES,
+    SESSION_POOL_SESSION_CONCURRENCY,
 };
 
 /// How many Sessions a pool keeps, how long each serves, and when it opens
@@ -31,6 +32,10 @@ pub struct PoolSettings {
     /// `session.pool.affinity`: which open Session with room a request
     /// prefers on demand.
     pub affinity: Affinity,
+    /// `escalation.trial_interval`: how often an escalated domain runs a
+    /// trial request on the proxy kind below; `None` (`null`) turns trials
+    /// off.
+    pub trial_interval: Option<Duration>,
 }
 
 /// When a pool opens a new Session (`session.pool.growth`).
@@ -76,6 +81,7 @@ impl PoolSettings {
                 "none" => Affinity::None,
                 _ => Affinity::Host,
             },
+            trial_interval: resolved.get::<Option<Duration>>(&ESCALATION_TRIAL_INTERVAL),
         }
     }
 }

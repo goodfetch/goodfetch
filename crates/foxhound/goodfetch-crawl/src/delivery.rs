@@ -1612,8 +1612,9 @@ fn scored(
         // Session of its own, whose attempt's answer is its browser run's,
         // or a race's first request sent from one, unless its answer is
         // the attempt's (#2421).
+        let now = run.identity.clock().wall();
         let (changes, escalate_retry) =
-            settle_sessions(state, &attempt, &waiting, effect, &read.pool);
+            settle_sessions(state, &attempt, &waiting, effect, &read.pool, now);
         let held = if replaying {
             None
         } else {
@@ -1650,27 +1651,34 @@ fn settle_sessions(
     waiting: &Waiting,
     effect: Effect,
     pool_settings: &PoolSettings,
+    now: SystemTime,
 ) -> (Changes, bool) {
     let pool = state.pool();
     let (on_session, on_transport) = match &attempt.escalated {
         Some(escalated) => {
-            let _ = pool.settle(escalated, &waiting.key, effect, pool_settings);
+            let _ = pool.settle(escalated, &waiting.key, effect, pool_settings, now);
             (Effect::Neutral, Effect::Neutral)
         }
         None if attempt.transport_answered => (Effect::Neutral, effect),
         None => (effect, Effect::Neutral),
     };
-    let session_outcome = pool.settle(&attempt.session, &waiting.key, on_session, pool_settings);
+    let session_outcome = pool.settle(
+        &attempt.session,
+        &waiting.key,
+        on_session,
+        pool_settings,
+        now,
+    );
     let transport_outcome = attempt
         .transport
         .as_ref()
         .map_or(SettleOutcome::Unchanged, |transport| {
-            pool.settle(transport, &waiting.key, on_transport, pool_settings)
+            pool.settle(transport, &waiting.key, on_transport, pool_settings, now)
         });
     // The Session drawn only to read the attempt's site files: what they
     // answer says nothing of how its client fares (#2422).
     if let Some(reader) = &attempt.site_files {
-        let _ = pool.settle(reader, &waiting.key, Effect::Neutral, pool_settings);
+        let _ = pool.settle(reader, &waiting.key, Effect::Neutral, pool_settings, now);
     }
     let changes = pool.changes();
     let settle_outcome = if session_outcome == SettleOutcome::Unchanged {

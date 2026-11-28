@@ -467,6 +467,7 @@ summary = "example"
 
 [settings.escalation]
 proxy_kinds = ["datacenter"]
+trial_interval = 30000
 
 [settings.paid_fetch]
 domains = ["example"]
@@ -957,6 +958,7 @@ summary = "example"
 
 [lock.escalation]
 proxy_kinds = ["datacenter"]
+trial_interval = 30000
 
 [lock.paid_fetch]
 domains = ["example"]
@@ -1174,6 +1176,9 @@ max_uses = 4
 max_age = 30000
 max_error_score = 4
 session_concurrency = 4
+
+[cap.escalation]
+trial_interval = 30000
 
 [cap.site_preferences]
 max_crawl_delay = 30000

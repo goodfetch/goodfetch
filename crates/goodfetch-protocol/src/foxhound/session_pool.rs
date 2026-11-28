@@ -253,6 +253,10 @@ fn null() -> Value {
     Value::Null
 }
 
+fn ten_minutes() -> Value {
+    Value::from(600_000_u64)
+}
+
 /// `escalation.proxy_kinds` (ADR 0021; spec #600).
 pub const ESCALATION_PROXY_KINDS: Setting = Setting {
     name: "escalation.proxy_kinds",
@@ -261,6 +265,21 @@ pub const ESCALATION_PROXY_KINDS: Setting = Setting {
     default: null,
     clearable: true,
     authority: Authority::NotByModel,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `escalation.trial_interval` (ADR 0021; spec #600).
+pub const ESCALATION_TRIAL_INTERVAL: Setting = Setting {
+    name: "escalation.trial_interval",
+    description: "How often an escalated domain sends one trial request through a Session at the proxy kind below, stepping back down when it succeeds and keeping the costlier kind when it is blocked: 600 s (10 minutes). Unset (`null`), no periodic trial runs.",
+    kind: ValueKind::Duration,
+    default: ten_minutes,
+    clearable: true,
+    authority: Authority::Every,
     weakens: None,
     fixed_for_run: false,
     unbuilt: None,
@@ -286,6 +305,7 @@ pub const ENTRIES: Entries = Entries {
         SESSION_POOL_SESSION_CONCURRENCY,
         SESSION_POOL_AFFINITY,
         ESCALATION_PROXY_KINDS,
+        ESCALATION_TRIAL_INTERVAL,
     ],
     hook_stages: &[],
     shared_type_values: &[],

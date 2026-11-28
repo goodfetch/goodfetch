@@ -1,18 +1,22 @@
 //! `escalation`'s decisions (spec #600's seam: a pure function of the
 //! cause and where its Session met it).
 
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use goodfetch_engine::transition::Refusal;
 use goodfetch_protocol::connection::INTERNAL;
 use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::session_pool::ProxyTier;
 use goodfetch_protocol::page::proxy::ProxyKind;
+use proptest::prelude::*;
 use rstest::rstest;
 use serde_json::json;
 
 use super::{
-    Action, Event, Ladder, LadderRung, Met, OBJECT, State, TierPosition, Transition,
-    TransitionEffect, apply, on_block, refusal_error,
+    Action, DomainEscalation, Event, Ladder, LadderRung, Met, OBJECT, SettleCause, SettleOutcome,
+    State, TierPosition, Transition, TransitionEffect, apply, decide_draw, decide_settle, on_block,
+    refusal_error,
 };
 
 const fn on(tier: FetchTier, forced: bool) -> Met {
@@ -485,4 +489,193 @@ fn escalation_decides_from_typed_variants_never_failure_text() {
         on_block(&BlockCause::RateLimit, on(FetchTier::Http, false)),
         Action::Blocked
     );
+}
+
+fn arb_proxy_tier() -> impl Strategy<Value = ProxyTier> {
+    prop_oneof![
+        Just(ProxyTier::None),
+        Just(ProxyTier::Datacenter),
+        Just(ProxyTier::Isp),
+        Just(ProxyTier::Residential),
+        Just(ProxyTier::Mobile),
+    ]
+}
+
+fn arb_state() -> impl Strategy<Value = State> {
+    prop_oneof![
+        Just(State::Base),
+        Just(State::Escalated),
+        Just(State::Trialing),
+    ]
+}
+
+fn arb_ladder() -> impl Strategy<Value = Ladder> {
+    prop::collection::vec((0..4usize, any::<bool>()), 0..=4).prop_map(|entries| {
+        let mut seen = [false; 4];
+        let mut rungs = Vec::new();
+        for (idx, rotatable) in entries {
+            if !seen[idx] {
+                seen[idx] = true;
+                rungs.push(LadderRung {
+                    kind: ProxyKind::ALL[idx],
+                    rotatable,
+                });
+            }
+        }
+        Ladder::build(&rungs, None, None)
+    })
+}
+
+fn arb_time() -> impl Strategy<Value = SystemTime> {
+    (0u64..10_000_000).prop_map(|ms| UNIX_EPOCH + Duration::from_millis(ms))
+}
+
+fn arb_trial_interval() -> impl Strategy<Value = Option<Duration>> {
+    prop_oneof![
+        Just(None),
+        (1u64..1_000_000).prop_map(|ms| Some(Duration::from_millis(ms))),
+    ]
+}
+
+fn arb_settle_cause() -> impl Strategy<Value = SettleCause> {
+    prop_oneof![
+        Just(SettleCause::Success),
+        (arb_proxy_tier(), any::<bool>()).prop_map(|(session_tier, retired_by_block)| {
+            SettleCause::BlockWithoutChallenge {
+                session_tier,
+                retired_by_block,
+            }
+        }),
+        Just(SettleCause::StoppingCause),
+        Just(SettleCause::Challenge),
+        Just(SettleCause::Other),
+    ]
+}
+
+proptest! {
+    /// Escalation draw and settle decisions are pure functions of the
+    /// per-domain state, the cause and the `Clock` reading: identical inputs
+    /// produce identical outputs, `trial_interval: None` never starts or
+    /// schedules a trial, a due trial always uses the cheaper kind below,
+    /// `TrialPassed` steps down, `TrialBlocked` stays at the same tier and
+    /// reschedules, and stopping causes never escalate or retire (#1141).
+    ///
+    /// Covers: story:8-220, story:8-222
+    #[test]
+    fn escalation_decisions_are_pure_functions_of_state_cause_and_clock(
+        tier in arb_proxy_tier(),
+        state in arb_state(),
+        next_trial_at in prop::option::of(arb_time()),
+        ladder in arb_ladder(),
+        trial_interval in arb_trial_interval(),
+        now in arb_time(),
+        cause in arb_settle_cause(),
+        was_trial in any::<bool>(),
+    ) {
+        let record = DomainEscalation {
+            tier,
+            state,
+            next_trial_at,
+        };
+
+        // Purity: identical inputs yield identical outputs.
+        let draw1 = decide_draw(record, &ladder, trial_interval, now);
+        let draw2 = decide_draw(record, &ladder, trial_interval, now);
+        prop_assert_eq!(draw1, draw2);
+
+        let settle1 = decide_settle(record, cause, was_trial, &ladder, trial_interval, now);
+        let settle2 = decide_settle(record, cause, was_trial, &ladder, trial_interval, now);
+        prop_assert_eq!(settle1, settle2);
+
+        // With `trial_interval: None`, no trial ever starts or is scheduled.
+        if trial_interval.is_none() {
+            prop_assert!(!draw1.started_trial);
+            prop_assert_eq!(draw1.next.next_trial_at, None);
+            prop_assert_eq!(settle1.next.next_trial_at, None);
+        }
+
+        // Empty ladder spends nothing and stays at ProxyTier::None / State::Base.
+        if ladder.is_empty() {
+            prop_assert_eq!(draw1.tier, ProxyTier::None);
+            prop_assert!(!draw1.started_trial);
+            prop_assert_eq!(settle1.outcome, SettleOutcome::Unchanged);
+            prop_assert_eq!(settle1.next.tier, ProxyTier::None);
+            prop_assert_eq!(settle1.next.state, State::Base);
+        } else {
+            let clamped = ladder.clamp(tier);
+
+            // Trial starts iff Escalated, trial_interval is Some, lower_tier exists, and now >= due.
+            if state == State::Escalated
+                && let Some(interval) = trial_interval
+                && let Some(lower) = ladder.lower_tier(clamped)
+            {
+                match next_trial_at {
+                    Some(due) if now >= due => {
+                        prop_assert!(draw1.started_trial);
+                        prop_assert_eq!(draw1.tier, lower);
+                        prop_assert!(draw1.tier < clamped);
+                        prop_assert_eq!(draw1.next.state, State::Trialing);
+                        prop_assert_eq!(draw1.next.next_trial_at, None);
+                    }
+                    Some(due) => {
+                        prop_assert!(!draw1.started_trial);
+                        prop_assert_eq!(draw1.tier, clamped);
+                        prop_assert_eq!(draw1.next.next_trial_at, Some(due));
+                    }
+                    None => {
+                        prop_assert!(!draw1.started_trial);
+                        prop_assert_eq!(draw1.tier, clamped);
+                        prop_assert_eq!(draw1.next.next_trial_at, Some(now + interval));
+                    }
+                }
+            } else {
+                prop_assert!(!draw1.started_trial);
+            }
+
+            // Stopping causes never escalate, rotate or retire.
+            if cause == SettleCause::StoppingCause {
+                prop_assert_eq!(settle1.outcome, SettleOutcome::Unchanged);
+                prop_assert!(!settle1.retire_session);
+                prop_assert_eq!(settle1.next.tier, clamped);
+            }
+
+            // Trial outcomes: pass steps down; block keeps current tier and reschedules.
+            if was_trial && state == State::Trialing {
+                match cause {
+                    SettleCause::Success => {
+                        let expected_tier = ladder.lower_tier(clamped).unwrap_or(clamped);
+                        prop_assert_eq!(settle1.next.tier, expected_tier);
+                        prop_assert_eq!(settle1.outcome, SettleOutcome::Unchanged);
+                        prop_assert!(!settle1.retire_session);
+                        if ladder.position(clamped).below_is_lowest {
+                            prop_assert_eq!(settle1.next.state, State::Base);
+                            prop_assert_eq!(settle1.next.next_trial_at, None);
+                        } else {
+                            prop_assert_eq!(settle1.next.state, State::Escalated);
+                            prop_assert_eq!(
+                                settle1.next.next_trial_at,
+                                trial_interval.map(|d| now + d)
+                            );
+                        }
+                    }
+                    SettleCause::BlockWithoutChallenge { .. } => {
+                        prop_assert_eq!(settle1.next.tier, clamped);
+                        prop_assert_eq!(settle1.next.state, State::Escalated);
+                        prop_assert_eq!(
+                            settle1.next.next_trial_at,
+                            trial_interval.map(|d| now + d)
+                        );
+                        prop_assert!(settle1.retire_session);
+                        prop_assert_eq!(
+                            settle1.outcome,
+                            SettleOutcome::Escalated {
+                                budget: ladder.budget_per_request()
+                            }
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }

@@ -48,6 +48,7 @@ tokio-rustls = { workspace = true, features = ["ring"] }
 ureq.workspace = true
 # A Client's WebSocket in its tests (tests/it/gateway.rs).
 tungstenite.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 [lints]
 workspace = true

@@ -169,6 +169,7 @@ zip = { workspace = true, features = ["deflate-flate2"] }
 # engine's own keychain, whose values are `SecretString`s.
 age = { workspace = true, features = ["armor"] }
 secrecy.workspace = true
+goodfetch-dev-workspace-hack.workspace = true
 
 # Its own executable, for the integration tests and the startup benchmarks
 # (CARGO_BIN_EXE_goodfetch-collie, ADRs 0059 and 0062), and the Trace

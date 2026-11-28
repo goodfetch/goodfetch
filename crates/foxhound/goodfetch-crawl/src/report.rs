@@ -77,6 +77,13 @@ impl ReportPart for CrawlParts {
                 serde_json::to_value(sources).expect("invariant: source counts encode"),
             );
         }
+        let revisits_at_min = goodfetch_frontier::revisit::at_min_floor(connection)?;
+        if !revisits_at_min.is_empty() {
+            report.kind_parts.insert(
+                "revisits_at_min".to_owned(),
+                serde_json::to_value(revisits_at_min).expect("invariant: revisits_at_min encodes"),
+            );
+        }
         let handled: bool = connection
             .prepare_cached("SELECT EXISTS (SELECT 1 FROM work_items WHERE attempts > 0)")
             .and_then(|mut cached| cached.query_row([], |row| row.get(0)))?;

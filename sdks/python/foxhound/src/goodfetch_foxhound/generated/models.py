@@ -3320,6 +3320,11 @@ class CrawlRunReport(RunReport):
     """Its Records, per Dataset (ADR 0103)."""
     requests: RequestCounts | None = None
     """How its requests ended."""
+    revisits_at_min: list[str] | None = None
+    """
+    URLs in a Continuous crawl changing faster than their Revisit policy's
+    `min` interval allows, each clamped to `min` (ADR 0139).
+    """
     run_id: RunId
     """The Run's ID."""
     settings: list[ExplainedSetting] | None = None

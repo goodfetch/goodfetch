@@ -470,7 +470,7 @@ impl Read {
             continuous,
             follow_latest,
             run_revisit_policy: RevisitPolicy::read(resolved.value(&REVISIT_POLICY))
-                .unwrap_or(RevisitPolicy::Never),
+                .unwrap_or_else(|_| RevisitPolicy::default_adaptive()),
             run_revisit_on_error: resolved
                 .value(&REVISIT_ON_ERROR)
                 .as_u64()
@@ -1832,6 +1832,7 @@ fn preserved_revisit_row(
     next_visit_at: Option<u64>,
     last_fetched_at: Option<u64>,
     consecutive_gone: u32,
+    at_min_floor: bool,
 ) -> RevisitRow {
     let request = &attempt.leased.crawl_request;
     let meta = attempt.revisit_meta.as_ref();
@@ -1854,6 +1855,7 @@ fn preserved_revisit_row(
         last_tier: meta
             .and_then(|m| m.tier.map(|t| t.as_str().to_owned()))
             .or_else(|| prev_row.and_then(|r| r.last_tier.clone())),
+        at_min_floor,
     }
 }
 
@@ -1884,6 +1886,7 @@ fn planned_unsuccessful_revisit(
                 None,
                 Some(now_ms),
                 consecutive_gone,
+                false,
             ))
         }
         Answer::Failed(failed) if is_revisit => {
@@ -1906,6 +1909,7 @@ fn planned_unsuccessful_revisit(
                 next_visit_at,
                 prev_row.and_then(|r| r.last_fetched_at),
                 consecutive_gone,
+                prev_row.is_some_and(|r| r.at_min_floor),
             ))
         }
         _ => None,
@@ -2005,6 +2009,7 @@ fn planned_revisit(
         },
         consecutive_gone: 0,
         last_tier,
+        at_min_floor: scheduled.is_some_and(|s| s.clamped_at_min),
     })
 }
 

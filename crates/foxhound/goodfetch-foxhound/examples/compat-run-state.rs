@@ -957,6 +957,7 @@ fn sample_revisit() -> goodfetch_frontier::revisit::RevisitRow {
         changes: 1,
         consecutive_gone: 0,
         last_tier: Some("http".to_owned()),
+        at_min_floor: false,
     }
 }
 

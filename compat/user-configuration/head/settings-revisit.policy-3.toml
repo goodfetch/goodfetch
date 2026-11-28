@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[settings.revisit]
+policy = { initial = 86400000, kind = "adaptive", max = 2592000000, min = 3600000, rate_changed = 0.5, rate_unchanged = 0.5 }

@@ -39,7 +39,8 @@ pub const TABLES: RunStateTables = RunStateTables {
             visits INTEGER NOT NULL,
             changes INTEGER NOT NULL,
             consecutive_gone INTEGER NOT NULL DEFAULT 0,
-            last_tier TEXT
+            last_tier TEXT,
+            at_min_floor INTEGER NOT NULL DEFAULT 0
         ) STRICT",
         "CREATE INDEX IF NOT EXISTS revisits_due
             ON revisits (domain_key, next_visit_at, work_item)
@@ -82,6 +83,9 @@ pub struct RevisitRow {
     pub consecutive_gone: u32,
     /// Fetch tier that last served the URL.
     pub last_tier: Option<String>,
+    /// Whether the URL is changing faster than its policy's `min` interval allows
+    /// and was clamped to `min` (ADR 0139).
+    pub at_min_floor: bool,
 }
 
 /// Previous schedule-relevant state of a URL before computing its next due date.
@@ -119,6 +123,9 @@ pub struct Scheduled {
     pub interval_ms: u64,
     /// Wall-clock timestamp (ms since Unix epoch) when the URL is next due.
     pub next_visit_at: u64,
+    /// Whether the policy wanted an interval below `min` because the URL is
+    /// changing faster than `min` allows (ADR 0139).
+    pub clamped_at_min: bool,
 }
 
 /// Pure function computing when a URL is next due for a revisit (ADR 0139).
@@ -129,25 +136,165 @@ pub struct Scheduled {
 #[must_use]
 pub fn next_visit(
     policy: &RevisitPolicy,
-    _previous: PreviousState,
-    _result: VisitResult,
+    previous: PreviousState,
+    result: VisitResult,
     hints: SiteHints,
     now_ms: u64,
 ) -> Option<Scheduled> {
-    match policy {
-        RevisitPolicy::Never => None,
-        RevisitPolicy::Every { interval } => {
-            let interval_ms = (*interval).max(1);
-            let policy_due = now_ms.saturating_add(interval_ms);
-            let next_visit_at = hints
-                .floor_at_ms
-                .map_or(policy_due, |floor| policy_due.max(floor));
-            Some(Scheduled {
-                interval_ms,
-                next_visit_at,
-            })
+    let (interval_ms, clamped_at_min) = match *policy {
+        RevisitPolicy::Never => return None,
+        RevisitPolicy::Every { interval } => (interval.max(1), false),
+        RevisitPolicy::Adaptive {
+            initial,
+            min,
+            max,
+            rate_changed,
+            rate_unchanged,
+        } => adaptive_interval(
+            initial,
+            min,
+            max,
+            rate_changed,
+            rate_unchanged,
+            previous,
+            result,
+        ),
+        RevisitPolicy::Estimated {
+            initial,
+            min,
+            max,
+            target_freshness,
+        } => estimated_interval(initial, min, max, target_freshness, previous, result),
+    };
+    let policy_due = now_ms.saturating_add(interval_ms);
+    let next_visit_at = hints
+        .floor_at_ms
+        .map_or(policy_due, |floor| policy_due.max(floor));
+    Some(Scheduled {
+        interval_ms,
+        next_visit_at,
+        clamped_at_min,
+    })
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "revisit intervals and visit counts fit well within f64 precision for schedule arithmetic"
+)]
+const fn to_f64(value: u64) -> f64 {
+    value as f64
+}
+
+/// Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139).
+fn adaptive_interval(
+    initial: u64,
+    min: u64,
+    max: u64,
+    rate_changed: f64,
+    rate_unchanged: f64,
+    previous: PreviousState,
+    result: VisitResult,
+) -> (u64, bool) {
+    let min = min.max(1);
+    let max = max.max(min);
+    let Some(prev_ms) = previous.interval_ms.filter(|_| previous.visits > 0) else {
+        return (initial.clamp(min, max), false);
+    };
+    let raw = match result {
+        VisitResult::Changed => to_f64(prev_ms) * (1.0 - rate_changed),
+        VisitResult::Unchanged => to_f64(prev_ms) * (1.0 + rate_unchanged),
+    };
+    if !raw.is_finite() {
+        return (max, false);
+    }
+    if result == VisitResult::Changed && raw < to_f64(min) {
+        return (min, true);
+    }
+    if raw >= to_f64(max) {
+        return (max, false);
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "raw is finite and bounded within [0.0, max as f64]"
+    )]
+    let rounded = raw.round().max(0.0) as u64;
+    (rounded.clamp(min, max), false)
+}
+
+/// Cho and Garcia-Molina's estimator `r̂ = -ln((n - X + 0.5)/(n + 0.5))`
+/// with a prior of two intervals of `initial` (1 change in 2 intervals),
+/// scheduled to reach expected freshness `(1 - e^{-λT}) / (λT) = target_freshness`
+/// (ADR 0139).
+fn estimated_interval(
+    initial: u64,
+    min: u64,
+    max: u64,
+    target_freshness: f64,
+    previous: PreviousState,
+    result: VisitResult,
+) -> (u64, bool) {
+    let min = min.max(1);
+    let max = max.max(min);
+    if previous.visits == 0 || previous.interval_ms.is_none() {
+        return (initial.clamp(min, max), false);
+    }
+    let n_obs = previous.visits;
+    let x_obs = previous
+        .changes
+        .saturating_sub(1)
+        .saturating_add(u64::from(result == VisitResult::Changed))
+        .min(n_obs);
+    // Prior of two intervals of `initial` (neutral 1 change in 2 intervals).
+    let n = to_f64(n_obs) + 2.0;
+    let x = to_f64(x_obs) + 1.0;
+    let r_hat = -((n - x + 0.5) / (n + 0.5)).ln();
+    if !r_hat.is_finite() || r_hat <= 0.0 {
+        return (max, false);
+    }
+    let prev_ms = to_f64(previous.interval_ms.unwrap_or(initial).max(1));
+    let i_ref = (2.0 * to_f64(initial.max(1)) + to_f64(n_obs) * prev_ms) / n;
+    let lambda_hat = r_hat / i_ref;
+    let u = freshness_rate_product(target_freshness);
+    let raw = u / lambda_hat;
+    if !raw.is_finite() {
+        return (max, false);
+    }
+    if raw < to_f64(min) {
+        return (min, true);
+    }
+    if raw >= to_f64(max) {
+        return (max, false);
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "raw is finite and strictly between min and max"
+    )]
+    let rounded = raw.round() as u64;
+    (rounded.clamp(min, max), false)
+}
+
+/// Solves `(1 - e^{-u}) / u = target_freshness` for `u > 0` by bisection.
+fn freshness_rate_product(target_freshness: f64) -> f64 {
+    let target = target_freshness.clamp(1e-9, 1.0 - 1e-9);
+    let mut lo = 0.0_f64;
+    let mut hi = 1.0_f64;
+    while (1.0 - (-hi).exp()) / hi > target {
+        hi *= 2.0;
+    }
+    for _ in 0..64 {
+        let mid = f64::midpoint(lo, hi);
+        if mid == 0.0 {
+            break;
+        }
+        if (1.0 - (-mid).exp()) / mid > target {
+            lo = mid;
+        } else {
+            hi = mid;
         }
     }
+    f64::midpoint(lo, hi)
 }
 
 /// A due revisit entry read from the `revisits` table's covering index.
@@ -172,8 +319,8 @@ pub fn upsert(connection: &Connection, row: &RevisitRow) -> rusqlite::Result<()>
         "INSERT INTO revisits (
              work_item, identity, domain_key, next_visit_at, interval_ms,
              last_fetched_at, last_changed_at, signature, etag, last_modified,
-             visits, changes, consecutive_gone, last_tier
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             visits, changes, consecutive_gone, last_tier, at_min_floor
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
          ON CONFLICT (work_item) DO UPDATE SET
              identity = excluded.identity,
              domain_key = excluded.domain_key,
@@ -187,7 +334,8 @@ pub fn upsert(connection: &Connection, row: &RevisitRow) -> rusqlite::Result<()>
              visits = excluded.visits,
              changes = excluded.changes,
              consecutive_gone = excluded.consecutive_gone,
-             last_tier = excluded.last_tier",
+             last_tier = excluded.last_tier,
+             at_min_floor = excluded.at_min_floor",
     )?;
     statement.execute(params![
         row.work_item,
@@ -204,6 +352,7 @@ pub fn upsert(connection: &Connection, row: &RevisitRow) -> rusqlite::Result<()>
         u64_to_i64(row.changes),
         i64::from(row.consecutive_gone),
         row.last_tier,
+        i64::from(row.at_min_floor),
     ])?;
     Ok(())
 }
@@ -217,7 +366,7 @@ pub fn get(connection: &Connection, work_item: &str) -> rusqlite::Result<Option<
     let mut statement = connection.prepare_cached(
         "SELECT work_item, identity, domain_key, next_visit_at, interval_ms,
                 last_fetched_at, last_changed_at, signature, etag, last_modified,
-                visits, changes, consecutive_gone, last_tier
+                visits, changes, consecutive_gone, last_tier, at_min_floor
          FROM revisits WHERE work_item = ?1",
     )?;
     statement.query_row([work_item], decode_row).optional()
@@ -233,10 +382,26 @@ pub fn read_all(connection: &Connection) -> rusqlite::Result<Vec<RevisitRow>> {
     let mut statement = connection.prepare_cached(
         "SELECT work_item, identity, domain_key, next_visit_at, interval_ms,
                 last_fetched_at, last_changed_at, signature, etag, last_modified,
-                visits, changes, consecutive_gone, last_tier
+                visits, changes, consecutive_gone, last_tier, at_min_floor
          FROM revisits ORDER BY work_item",
     )?;
     let rows = statement.query_map([], decode_row)?;
+    rows.collect()
+}
+
+/// Returns the sorted identities of URLs currently changing faster than their
+/// Revisit policy's `min` interval allows (ADR 0139).
+///
+/// # Errors
+///
+/// Returns SQLite errors from reading the table.
+pub fn at_min_floor(connection: &Connection) -> rusqlite::Result<Vec<String>> {
+    let mut statement = connection.prepare_cached(
+        "SELECT identity FROM revisits
+         WHERE at_min_floor = 1
+         ORDER BY identity ASC",
+    )?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
     rows.collect()
 }
 
@@ -362,6 +527,7 @@ fn decode_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RevisitRow> {
         changes: i64_to_u64(row.get::<_, i64>(11)?),
         consecutive_gone: u32::try_from(row.get::<_, i64>(12)?).unwrap_or(u32::MAX),
         last_tier: row.get(13)?,
+        at_min_floor: row.get::<_, i64>(14)? != 0,
     })
 }
 

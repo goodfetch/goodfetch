@@ -1,0 +1,5 @@
+version = "0.1"
+lowest_minor = 0
+
+[lock.revisit]
+policy = { initial = 86400000, kind = "estimated", max = 2592000000, min = 3600000, target_freshness = 0.9 }

@@ -58,7 +58,7 @@ const PROXY_KEYS: &str = "proxy.";
 /// requests may run (`timeout.hook`) and whether a failed handler or Hook
 /// call is tried again (`crawl.retry.handler_failed`, ADR 0104). Its
 /// `session.source` is the Session pool's to read.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct LabelSettings {
     tiers: BTreeMap<String, SetTier>,
     http_from: BTreeMap<String, HttpFrom>,

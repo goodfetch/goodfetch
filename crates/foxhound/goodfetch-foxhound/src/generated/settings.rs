@@ -1116,7 +1116,7 @@ pub mod revisit {
         ],
     );
 
-    /// How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+    /// How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
     ///
     /// `revisit.policy`.
     pub const POLICY: crate::settings::Setting<

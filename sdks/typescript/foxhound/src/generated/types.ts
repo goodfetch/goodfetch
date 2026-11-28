@@ -2098,6 +2098,11 @@ export interface CrawlRunReport {
    */
   requests?: RequestCounts | null;
   /**
+   * URLs in a Continuous crawl changing faster than their Revisit policy's
+   * `min` interval allows, each clamped to `min` (ADR 0139).
+   */
+  revisitsAtMin?: string[] | null;
+  /**
    * The Run's ID.
    */
   runId: RunId;

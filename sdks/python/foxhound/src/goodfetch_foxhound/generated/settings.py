@@ -1229,6 +1229,52 @@ class RevisitPolicyEvery(TypedDict):
     kind: Literal["every"]
 
 
+class RevisitPolicyAdaptive(TypedDict):
+    """Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):
+    shrinks by `rate_changed` after a change and grows by `rate_unchanged`
+    after none, clamped to `[min, max]`. Default for pages.
+    """
+
+    initial: NotRequired[int]
+    """Initial revisit interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["adaptive"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    rate_changed: NotRequired[float]
+    """Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5)."""
+
+    rate_unchanged: NotRequired[float]
+    """Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5)."""
+
+
+class RevisitPolicyEstimated(TypedDict):
+    """Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):
+    estimates change rate from visits and changes starting from a prior of
+    two intervals of `initial`, and schedules to reach `target_freshness`,
+    clamped to `[min, max]`.
+    """
+
+    initial: NotRequired[int]
+    """Prior interval in milliseconds (default: 1 day)."""
+
+    kind: Literal["estimated"]
+
+    max: NotRequired[int]
+    """Maximum revisit interval in milliseconds (default: 30 days)."""
+
+    min: NotRequired[int]
+    """Minimum revisit interval in milliseconds (default: 1 hour)."""
+
+    target_freshness: NotRequired[float]
+    """Target expected freshness, strictly in `(0, 1)` (default: 0.9)."""
+
+
 class ConnectionRevisitSettings(TypedDict):
     """The `revisit` settings of `FoxhoundSettings`."""
 
@@ -1256,8 +1302,8 @@ class ConnectionRevisitSettings(TypedDict):
     `revisit.on_unchanged`.
     """
 
-    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery]
-    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated]
+    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
 
     `revisit.policy`.
     """
@@ -3364,8 +3410,8 @@ class RunRevisitSettings(TypedDict):
     `revisit.on_unchanged`.
     """
 
-    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery]
-    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated]
+    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
 
     `revisit.policy`.
     """
@@ -4068,8 +4114,8 @@ class LabelRevisitSettings(TypedDict):
     `revisit.on_unchanged`.
     """
 
-    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery]
-    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+    policy: NotRequired[RevisitPolicyNever | RevisitPolicyEvery | RevisitPolicyAdaptive | RevisitPolicyEstimated]
+    """How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
 
     `revisit.policy`.
     """

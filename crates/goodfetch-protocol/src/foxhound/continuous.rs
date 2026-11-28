@@ -20,8 +20,52 @@ fn no() -> Value {
     Value::Bool(false)
 }
 
-fn never_policy() -> Value {
-    json!({ "kind": "never" })
+/// Default initial interval for `revisit.policy: adaptive` and `estimated`: 1 day (ADR 0139).
+pub const REVISIT_DEFAULT_INITIAL_MS: u64 = 86_400_000;
+/// Default minimum interval for `revisit.policy: adaptive` and `estimated`: 1 hour (ADR 0139).
+pub const REVISIT_DEFAULT_MIN_MS: u64 = 3_600_000;
+/// Default maximum interval for `revisit.policy: adaptive` and `estimated`: 30 days (ADR 0139).
+pub const REVISIT_DEFAULT_MAX_MS: u64 = 2_592_000_000;
+/// Default shrink rate on change for `revisit.policy: adaptive` (ADR 0139).
+pub const REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED: f64 = 0.5;
+/// Default growth rate on unchanged for `revisit.policy: adaptive` (ADR 0139).
+pub const REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED: f64 = 0.5;
+/// Default target freshness for `revisit.policy: estimated` (ADR 0139).
+pub const REVISIT_ESTIMATED_DEFAULT_TARGET_FRESHNESS: f64 = 0.9;
+
+const fn default_revisit_initial() -> u64 {
+    REVISIT_DEFAULT_INITIAL_MS
+}
+
+const fn default_revisit_min() -> u64 {
+    REVISIT_DEFAULT_MIN_MS
+}
+
+const fn default_revisit_max() -> u64 {
+    REVISIT_DEFAULT_MAX_MS
+}
+
+const fn default_rate_changed() -> f64 {
+    REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED
+}
+
+const fn default_rate_unchanged() -> f64 {
+    REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED
+}
+
+const fn default_target_freshness() -> f64 {
+    REVISIT_ESTIMATED_DEFAULT_TARGET_FRESHNESS
+}
+
+fn adaptive_default_policy() -> Value {
+    json!({
+        "kind": "adaptive",
+        "initial": REVISIT_DEFAULT_INITIAL_MS,
+        "min": REVISIT_DEFAULT_MIN_MS,
+        "max": REVISIT_DEFAULT_MAX_MS,
+        "rate_changed": REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+        "rate_unchanged": REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
+    })
 }
 
 fn conditional_signature() -> Value {
@@ -380,7 +424,7 @@ impl RevisitOnUnchanged {
 }
 
 /// How a Continuous crawl schedules revisits of a URL (`revisit.policy`, ADR 0139).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum RevisitPolicy {
     /// Never revisit the URL after its first visit, such as articles.
@@ -391,6 +435,53 @@ pub enum RevisitPolicy {
         #[schemars(extend("arrived_in" = "0.1"))]
         interval: u64,
     },
+    /// Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):
+    /// shrinks by `rate_changed` after a change and grows by `rate_unchanged`
+    /// after none, clamped to `[min, max]`. Default for pages.
+    Adaptive {
+        /// Initial revisit interval in milliseconds (default: 1 day).
+        #[serde(default = "default_revisit_initial")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        initial: u64,
+        /// Minimum revisit interval in milliseconds (default: 1 hour).
+        #[serde(default = "default_revisit_min")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        min: u64,
+        /// Maximum revisit interval in milliseconds (default: 30 days).
+        #[serde(default = "default_revisit_max")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        max: u64,
+        /// Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).
+        #[serde(default = "default_rate_changed")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        rate_changed: f64,
+        /// Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).
+        #[serde(default = "default_rate_unchanged")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        rate_unchanged: f64,
+    },
+    /// Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):
+    /// estimates change rate from visits and changes starting from a prior of
+    /// two intervals of `initial`, and schedules to reach `target_freshness`,
+    /// clamped to `[min, max]`.
+    Estimated {
+        /// Prior interval in milliseconds (default: 1 day).
+        #[serde(default = "default_revisit_initial")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        initial: u64,
+        /// Minimum revisit interval in milliseconds (default: 1 hour).
+        #[serde(default = "default_revisit_min")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        min: u64,
+        /// Maximum revisit interval in milliseconds (default: 30 days).
+        #[serde(default = "default_revisit_max")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        max: u64,
+        /// Target expected freshness, strictly in `(0, 1)` (default: 0.9).
+        #[serde(default = "default_target_freshness")]
+        #[schemars(extend("arrived_in" = "0.1"))]
+        target_freshness: f64,
+    },
 }
 
 impl SettingJson for RevisitPolicy {
@@ -400,15 +491,30 @@ impl SettingJson for RevisitPolicy {
 }
 
 impl RevisitPolicy {
+    /// Default Revisit policy for pages: `adaptive` with 1 day initial, 1 hour
+    /// min, 30 days max, and both rates 0.5 (ADR 0139).
+    #[must_use]
+    pub const fn default_adaptive() -> Self {
+        Self::Adaptive {
+            initial: REVISIT_DEFAULT_INITIAL_MS,
+            min: REVISIT_DEFAULT_MIN_MS,
+            max: REVISIT_DEFAULT_MAX_MS,
+            rate_changed: REVISIT_ADAPTIVE_DEFAULT_RATE_CHANGED,
+            rate_unchanged: REVISIT_ADAPTIVE_DEFAULT_RATE_UNCHANGED,
+        }
+    }
+
     /// Parses a [`RevisitPolicy`] from a JSON setting value.
     ///
     /// # Errors
     ///
-    /// Returns a reason string when `value` is not a valid policy or has a zero interval.
+    /// Returns a reason string when `value` is not a valid policy, has a zero
+    /// duration, has `min > max`, has a rate outside `(0, 1]`, or has a
+    /// `target_freshness` outside `(0, 1)`.
     pub fn read(value: &Value) -> Result<Self, String> {
         let policy: Self = serde_json::from_value(value.clone()).map_err(|error| {
             format!(
-                "`revisit.policy` must be `{{ \"kind\": \"never\" }}` or `{{ \"kind\": \"every\", \"interval\": <ms> }}`: {error}"
+                "`revisit.policy` must be `never`, `every`, `adaptive`, or `estimated`: {error}"
             )
         })?;
         match policy {
@@ -417,8 +523,60 @@ impl RevisitPolicy {
             Self::Every { .. } => {
                 Err("`revisit.policy` `every` interval must be at least 1 ms".to_owned())
             }
+            Self::Adaptive {
+                initial,
+                min,
+                max,
+                rate_changed,
+                rate_unchanged,
+            } => {
+                validate_bounds("adaptive", initial, min, max)?;
+                if !rate_changed.is_finite() || rate_changed <= 0.0 || rate_changed > 1.0 {
+                    return Err(
+                        "`revisit.policy` `adaptive.rate_changed` must be in (0, 1]".to_owned()
+                    );
+                }
+                if !rate_unchanged.is_finite() || rate_unchanged <= 0.0 || rate_unchanged > 1.0 {
+                    return Err(
+                        "`revisit.policy` `adaptive.rate_unchanged` must be in (0, 1]".to_owned(),
+                    );
+                }
+                Ok(policy)
+            }
+            Self::Estimated {
+                initial,
+                min,
+                max,
+                target_freshness,
+            } => {
+                validate_bounds("estimated", initial, min, max)?;
+                if !target_freshness.is_finite()
+                    || target_freshness <= 0.0
+                    || target_freshness >= 1.0
+                {
+                    return Err(
+                        "`revisit.policy` `estimated.target_freshness` must be in (0, 1)"
+                            .to_owned(),
+                    );
+                }
+                Ok(policy)
+            }
         }
     }
+}
+
+fn validate_bounds(kind: &str, initial: u64, min: u64, max: u64) -> Result<(), String> {
+    if initial == 0 || min == 0 || max == 0 {
+        return Err(format!(
+            "`revisit.policy` `{kind}` durations (`initial`, `min`, `max`) must be at least 1 ms"
+        ));
+    }
+    if min > max {
+        return Err(format!(
+            "`revisit.policy` `{kind}` `min` ({min}) must not exceed `max` ({max})"
+        ));
+    }
+    Ok(())
 }
 
 /// `revisit.policy`'s values: a [`RevisitPolicy`].
@@ -441,6 +599,14 @@ pub const REVISIT_POLICY_SHAPE: ValueShape = ValueShape {
         vec![
             json!({ "kind": "never" }),
             json!({ "kind": "every", "interval": 3_600_000 }),
+            adaptive_default_policy(),
+            json!({
+                "kind": "estimated",
+                "initial": REVISIT_DEFAULT_INITIAL_MS,
+                "min": REVISIT_DEFAULT_MIN_MS,
+                "max": REVISIT_DEFAULT_MAX_MS,
+                "target_freshness": REVISIT_ESTIMATED_DEFAULT_TARGET_FRESHNESS,
+            }),
         ]
     },
 };
@@ -463,9 +629,9 @@ pub const CRAWL_CONTINUOUS: Setting = Setting {
 /// `revisit.policy` (ADR 0139).
 pub const REVISIT_POLICY: Setting = Setting {
     name: "revisit.policy",
-    description: "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ \"kind\": \"never\" }` for pages read once, or `{ \"kind\": \"every\", \"interval\": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
+    description: "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
     kind: ValueKind::Shape(&REVISIT_POLICY_SHAPE),
-    default: never_policy,
+    default: adaptive_default_policy,
     clearable: false,
     authority: Authority::Every,
     weakens: None,

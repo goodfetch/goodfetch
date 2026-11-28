@@ -11693,10 +11693,15 @@
       "authority": "every",
       "clearable": false,
       "default": {
-        "kind": "never"
+        "initial": 86400000,
+        "kind": "adaptive",
+        "max": 2592000000,
+        "min": 3600000,
+        "rate_changed": 0.5,
+        "rate_unchanged": 0.5
       },
       "deprecated": null,
-      "description": "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ \"kind\": \"never\" }` for pages read once, or `{ \"kind\": \"every\", \"interval\": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
+      "description": "How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).",
       "fixed_for_run": false,
       "name": "revisit.policy",
       "product": "foxhound",
@@ -11744,6 +11749,103 @@
             "required": [
               "kind",
               "interval"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Multiplicative adaptive schedule (Nutch / `StormCrawler`, ADR 0139):\nshrinks by `rate_changed` after a change and grows by `rate_unchanged`\nafter none, clamped to `[min, max]`. Default for pages.",
+            "properties": {
+              "initial": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Initial revisit interval in milliseconds (default: 1 day).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "adaptive",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 2592000000,
+                "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 3600000,
+                "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rate_changed": {
+                "arrived_in": "0.1",
+                "default": 0.5,
+                "description": "Fractional shrink applied after a changed visit, in `(0, 1]` (default: 0.5).",
+                "format": "double",
+                "type": "number"
+              },
+              "rate_unchanged": {
+                "arrived_in": "0.1",
+                "default": 0.5,
+                "description": "Fractional growth applied after an unchanged visit, in `(0, 1]` (default: 0.5).",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Change-rate estimator schedule (Cho and Garcia-Molina, ADR 0139):\nestimates change rate from visits and changes starting from a prior of\ntwo intervals of `initial`, and schedules to reach `target_freshness`,\nclamped to `[min, max]`.",
+            "properties": {
+              "initial": {
+                "arrived_in": "0.1",
+                "default": 86400000,
+                "description": "Prior interval in milliseconds (default: 1 day).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kind": {
+                "const": "estimated",
+                "type": "string"
+              },
+              "max": {
+                "arrived_in": "0.1",
+                "default": 2592000000,
+                "description": "Maximum revisit interval in milliseconds (default: 30 days).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "min": {
+                "arrived_in": "0.1",
+                "default": 3600000,
+                "description": "Minimum revisit interval in milliseconds (default: 1 hour).",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "target_freshness": {
+                "arrived_in": "0.1",
+                "default": 0.9,
+                "description": "Target expected freshness, strictly in `(0, 1)` (default: 0.9).",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "kind"
             ],
             "type": "object"
           }

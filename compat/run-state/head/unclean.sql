@@ -204,7 +204,8 @@ CREATE TABLE revisits (
             visits INTEGER NOT NULL,
             changes INTEGER NOT NULL,
             consecutive_gone INTEGER NOT NULL DEFAULT 0,
-            last_tier TEXT
+            last_tier TEXT,
+            at_min_floor INTEGER NOT NULL DEFAULT 0
         ) STRICT;
 CREATE TABLE robots_txt_copies (location TEXT NOT NULL PRIMARY KEY, status INTEGER, body BLOB, unreachable TEXT, CHECK ((status IS NULL) = (body IS NULL)), CHECK ((status IS NULL) <> (unreachable IS NULL))) STRICT;
 CREATE TABLE rules_canonicals (

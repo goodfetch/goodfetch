@@ -115,6 +115,11 @@ pub struct CrawlRunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub sources: Option<Vec<SourceReport>>,
+    /// URLs in a Continuous crawl changing faster than their Revisit policy's
+    /// `min` interval allows, each clamped to `min` (ADR 0139).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub revisits_at_min: Option<Vec<String>>,
     /// What every Run's report holds.
     #[serde(flatten)]
     pub report: RunReport,

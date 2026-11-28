@@ -2037,3 +2037,221 @@ fn revisit_gone_after_ends_dead_url_gone_and_stops_revisiting() {
     assert_eq!(once_hits.load(std::sync::atomic::Ordering::SeqCst), 2);
     assert_eq!(twice_hits.load(std::sync::atomic::Ordering::SeqCst), 5);
 }
+
+/// `revisit.policy` defaults to `adaptive` (initial 1 day, min 1 hour, max
+/// 30 days, both rates 0.5) and rejects invalid `min > max`, rates outside
+/// `(0, 1]`, and `target_freshness` outside `(0, 1)` with `setting_invalid`
+/// (ADR 0139; issue 1845).
+///
+/// Covers: setting:revisit.policy, setting:crawl.continuous
+#[test]
+fn revisit_policy_defaults_to_adaptive_and_rejects_invalid_settings() {
+    let env = TestEnv::new();
+    let (explained, bad_min_max, bad_rate, bad_target) = crawl_connected(
+        &json!({}),
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let explained = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "keys": ["revisit.policy"],
+                        "settings": { "crawl": { "continuous": true } },
+                    }),
+                    &mut answer_all,
+                )
+                .await;
+            let start_with = |run_id: &str, policy: Value| {
+                json!({
+                    "run_id": run_id,
+                    "seeds": [seed("https://example.test/fast")],
+                    "settings": { "crawl": { "continuous": true } },
+                    "labels": { "page": { "settings": { "revisit": { "policy": policy } } } }
+                })
+            };
+            let bad_min_max = client
+                .call(
+                    "crawl.start",
+                    start_with(
+                        "bad-min-max",
+                        json!({ "kind": "adaptive", "min": 5_000, "max": 4_000 }),
+                    ),
+                    &mut answer_all,
+                )
+                .await;
+            let bad_rate = client
+                .call(
+                    "crawl.start",
+                    start_with(
+                        "bad-rate",
+                        json!({ "kind": "adaptive", "rate_changed": 0.0 }),
+                    ),
+                    &mut answer_all,
+                )
+                .await;
+            let bad_target = client
+                .call(
+                    "crawl.start",
+                    start_with(
+                        "bad-target",
+                        json!({ "kind": "estimated", "target_freshness": 1.0 }),
+                    ),
+                    &mut answer_all,
+                )
+                .await;
+            (explained, bad_min_max, bad_rate, bad_target)
+        },
+    );
+
+    assert_eq!(
+        explained["result"]["settings"][0]["value"],
+        json!({
+            "kind": "adaptive",
+            "initial": 86_400_000,
+            "min": 3_600_000,
+            "max": 2_592_000_000_u64,
+            "rate_changed": 0.5,
+            "rate_unchanged": 0.5,
+        }),
+        "expected default revisit.policy to be adaptive: {explained}"
+    );
+    assert_eq!(
+        bad_min_max["error"]["data"]["code"], "setting_invalid",
+        "{bad_min_max}"
+    );
+    assert_eq!(
+        bad_rate["error"]["data"]["code"], "setting_invalid",
+        "{bad_rate}"
+    );
+    assert_eq!(
+        bad_target["error"]["data"]["code"], "setting_invalid",
+        "{bad_target}"
+    );
+}
+
+/// `adaptive` and `estimated` policies clamp URLs changing faster than `min`
+/// to `min` and list them in the Run report's `revisits_at_min` (ADR 0139;
+/// issue 1845).
+///
+/// Covers: setting:revisit.policy, setting:crawl.continuous
+#[test]
+fn adaptive_and_estimated_policies_list_fast_urls_in_run_report() {
+    let env = TestEnv::new();
+    let fast_hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let est_hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let fast_c = std::sync::Arc::clone(&fast_hits);
+    let est_c = std::sync::Arc::clone(&est_hits);
+
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            let html_headers = vec![("content-type".to_owned(), "text/html".to_owned())];
+            match hop.url.path() {
+                "/fast" => {
+                    let n = fast_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    (
+                        200,
+                        html_headers,
+                        format!("<html><body>fast v{n}</body></html>"),
+                    )
+                }
+                "/estimated" => {
+                    let n = est_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    (
+                        200,
+                        html_headers,
+                        format!("<html><body>est v{n}</body></html>"),
+                    )
+                }
+                _ => (
+                    200,
+                    html_headers,
+                    "<html><body>default</body></html>".to_owned(),
+                ),
+            }
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let mut handler = |_: &Value| Reply::Records(Vec::new());
+
+    let report = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "adaptive-est-run",
+                        "seeds": [
+                            { "url": "https://example.test/fast", "label": "fast" },
+                            { "url": "https://example.test/estimated", "label": "est" },
+                        ],
+                        "settings": { "crawl": { "continuous": true } },
+                        "labels": {
+                            "fast": {
+                                "settings": {
+                                    "revisit": { "policy": {
+                                        "kind": "adaptive", "initial": 10_000, "min": 5_000,
+                                        "max": 60_000, "rate_changed": 0.5, "rate_unchanged": 0.5
+                                    } }
+                                }
+                            },
+                            "est": {
+                                "settings": {
+                                    "revisit": { "policy": {
+                                        "kind": "estimated", "initial": 10_000, "min": 5_000,
+                                        "max": 60_000, "target_freshness": 0.9
+                                    } }
+                                }
+                            }
+                        }
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["result"].is_object(), "start failed: {started}");
+
+            for _ in 0..5 {
+                let _ = progress_matching(
+                    client,
+                    "adaptive-est-run",
+                    |p| p["idle"] == json!(true),
+                    &mut handler,
+                )
+                .await;
+                advance(Duration::from_secs(12)).await;
+            }
+            let _ = progress_matching(
+                client,
+                "adaptive-est-run",
+                |p| p["idle"] == json!(true),
+                &mut handler,
+            )
+            .await;
+
+            client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "adaptive-est-run" }),
+                    &mut handler,
+                )
+                .await
+        },
+    )
+    .0;
+
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    let at_min = report["result"]["revisits_at_min"]
+        .as_array()
+        .expect("revisits_at_min must be listed in Run report");
+    let urls: Vec<&str> = at_min.iter().filter_map(Value::as_str).collect();
+    assert_eq!(
+        urls,
+        vec![
+            "https://example.test/estimated",
+            "https://example.test/fast",
+        ],
+        "expected both fast-changing URLs listed in Run report: {report}"
+    );
+}

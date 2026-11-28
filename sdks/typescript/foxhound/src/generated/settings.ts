@@ -1024,11 +1024,11 @@ export interface FoxhoundSettings {
      */
     readonly onUnchanged?: "skip" | "handler";
     /**
-     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
      *
      * `revisit.policy`.
      */
-    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" };
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
   };
   readonly runState?: {
     readonly batch?: {
@@ -2502,11 +2502,11 @@ export interface CrawlSettings {
      */
     readonly onUnchanged?: "skip" | "handler";
     /**
-     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
      *
      * `revisit.policy`.
      */
-    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" };
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
   };
   readonly runState?: {
     readonly batch?: {
@@ -3070,11 +3070,11 @@ export interface LabelSettings {
      */
     readonly onUnchanged?: "skip" | "handler";
     /**
-     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `{ "kind": "never" }` for pages read once, or `{ "kind": "every", "interval": <ms> }` for a fixed interval in milliseconds. Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
+     * How a Continuous crawl schedules revisits of each URL, set for the Run or for one of its Labels: `never` for pages read once, `every` for a fixed interval, `adaptive` (the default for pages: initial 1 day, min 1 hour, max 30 days, both rates 0.5) for multiplicative adjustment, or `estimated` (Cho and Garcia-Molina's estimator targeting `target_freshness`). Accepted on a batch crawl, where `config explain` marks it inactive (`yields_to` `crawl.continuous`).
      *
      * `revisit.policy`.
      */
-    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" };
+    readonly policy?: { readonly kind: "never" } | { readonly interval: number; readonly kind: "every" } | { readonly initial?: number; readonly kind: "adaptive"; readonly max?: number; readonly min?: number; readonly rateChanged?: number; readonly rateUnchanged?: number } | { readonly initial?: number; readonly kind: "estimated"; readonly max?: number; readonly min?: number; readonly targetFreshness?: number };
   };
   readonly session?: {
     /**
@@ -3449,7 +3449,7 @@ const SPELLING: Spelling = {
     goneAfter: "gone_after",
     onError: "on_error",
     onUnchanged: "on_unchanged",
-    policy: "policy",
+    policy: { setting: "policy", value: { fields: { "rate_changed": "rateChanged", "rate_unchanged": "rateUnchanged", "target_freshness": "targetFreshness" } } },
   }],
   runState: ["run_state", {
     batch: ["batch", {

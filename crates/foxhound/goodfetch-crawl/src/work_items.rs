@@ -1549,7 +1549,7 @@ pub(crate) fn leasable_revisits(
     )?;
     let mut prev_stmt = connection.prepare_cached(
         "SELECT interval_ms, last_fetched_at, last_changed_at, signature, etag, last_modified,
-                visits, changes, consecutive_gone, last_tier
+                visits, changes, consecutive_gone, last_tier, at_min_floor
          FROM revisits WHERE work_item = ?1",
     )?;
     let mut rows = leased_rows(connection, &mut statement, ids)?;
@@ -1576,6 +1576,7 @@ pub(crate) fn leasable_revisits(
                     changes: u64::try_from(r.get::<_, i64>(7)?).unwrap_or(0),
                     consecutive_gone: u32::try_from(r.get::<_, i64>(8)?).unwrap_or(0),
                     last_tier: r.get(9)?,
+                    at_min_floor: r.get::<_, i64>(10)? != 0,
                 })
             })
             .optional()?

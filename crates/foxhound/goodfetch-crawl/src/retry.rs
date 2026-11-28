@@ -144,7 +144,11 @@ async fn reopened(
         })
         .await
         .map_err(|error| settings_error(&error, &context))?;
-    let resumed = context
+    // Atomically claim any declarations kept by a prior `crawl.start` so at
+    // most one concurrent reopen can authorize them (#3542). If reopening
+    // fails before a driver starts, restore the claim for a subsequent retry.
+    let claim = redeclared.claim(&run_id).await;
+    let resumed = match context
         .runs()
         .resume(Resume {
             run_id: run_id.clone(),
@@ -153,16 +157,29 @@ async fn reopened(
             timeout: settings.resolved().get(&TIMEOUT_RUN),
             settings: Some(settings.clone()),
             retry_failed: true,
-            redeclared: redeclared.holds(&run_id).await,
+            redeclared: claim.is_some(),
         })
         .await
-        .map_err(|error| run_error(error, &context))?;
+    {
+        Ok(resumed) => resumed,
+        Err(error) => {
+            if let Some(claim) = claim {
+                claim.restore().await;
+            }
+            return Err(run_error(error, &context));
+        }
+    };
     match resumed {
         Resumed::New { run, kind, .. } => {
             let identity = &run.identity;
             let readmitted = readmit(identity, &run.state, blocked).await;
             if let Some(driver) = context.driver(kind) {
+                if let Some(claim) = claim {
+                    claim.deliver().await;
+                }
                 identity.spawn(driver(*run.clone(), context.clone(), settings));
+            } else if let Some(claim) = claim {
+                claim.restore().await;
             }
             readmitted.map(|readmitted| RetriedFailed { readmitted })
         }
@@ -170,10 +187,20 @@ async fn reopened(
         | Resumed::Unchanged {
             lifecycle: Lifecycle::Running,
             ..
-        } => Err(interrupted(&run_id)),
+        } => {
+            if let Some(claim) = claim {
+                claim.restore().await;
+            }
+            Err(interrupted(&run_id))
+        }
         // Never, as the Run's table reopens every ended Run: nothing to
         // retry in a Run that stays as it is.
-        Resumed::Unchanged { .. } => Ok(RetriedFailed { readmitted: 0 }),
+        Resumed::Unchanged { .. } => {
+            if let Some(claim) = claim {
+                claim.restore().await;
+            }
+            Ok(RetriedFailed { readmitted: 0 })
+        }
     }
 }
 

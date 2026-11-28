@@ -63,6 +63,8 @@ export interface Campaign {
   readonly iterations: number;
   /** Measured attempts in flight at once on one adapter. */
   readonly concurrency: number;
+  /** Optional concurrency sweep levels for load runs (ADR 0025, e.g. [1, 8, 64, 256]). */
+  readonly concurrency_levels?: readonly number[];
   /** How long one call to an adapter may take. */
   readonly timeout_ms: number;
   /** How long a cell's measured window may last; later attempts are rejected. */
@@ -115,6 +117,7 @@ const campaignFile = parserOf<Campaign>({
     warmup: count,
     iterations: positive,
     concurrency: positive,
+    concurrency_levels: { type: "array", minItems: 1, items: positive },
     timeout_ms: positive,
     max_duration_ms: positive,
     max_restarts: count,

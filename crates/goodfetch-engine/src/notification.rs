@@ -4,9 +4,11 @@
 //! the ledger once delivered.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use goodfetch_protocol::catalog::Product;
 use goodfetch_protocol::notifications::NotificationEvent;
+use goodfetch_protocol::run::RunId;
 
 use crate::engine_context::EngineContext;
 pub use crate::engine_context::{EngineNotification, NotificationDispatcher};
@@ -125,5 +127,54 @@ pub(crate) async fn dispatch_threshold_crossings(
                 "a delivered Limit threshold Notification could not be marked sent in the Usage ledger"
             );
         }
+    }
+}
+
+/// Builds ADR 0027's `run_incomplete` [`EngineNotification`] for a Run stopped
+/// at the `critical` storage level or by a failed essential write (ADR 0122).
+#[must_use]
+pub fn storage_critical_stop_notification(
+    run_id: &RunId,
+    epoch: u64,
+    product: Product,
+    folder: Option<&str>,
+    occurred_at: SystemTime,
+) -> EngineNotification {
+    let sanitized_run_id: String = run_id
+        .as_str()
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let raw_id = format!("run_incomplete_storage_{sanitized_run_id}_{epoch}");
+    let event_id = if raw_id.len() <= 128 {
+        raw_id
+    } else {
+        raw_id[..128].to_owned()
+    };
+    let title = format!("Run `{run_id}` stopped: storage critical");
+    let text = match folder {
+        Some(folder) => format!(
+            "Run `{run_id}` stopped resumably because storage on `{folder}` reached the critical level or failed a write. Free space and start with Run ID `{run_id}` to resume."
+        ),
+        None => format!(
+            "Run `{run_id}` stopped resumably because storage reached the critical level or failed a write. Free space and start with Run ID `{run_id}` to resume."
+        ),
+    };
+    EngineNotification {
+        event_id,
+        event: NotificationEvent::RUN_INCOMPLETE,
+        run_id: Some(run_id.clone()),
+        schedule_id: None,
+        product,
+        title,
+        text,
+        link: None,
+        occurred_at,
     }
 }

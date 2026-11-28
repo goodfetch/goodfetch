@@ -3806,6 +3806,18 @@
             "null"
           ]
         },
+        "redone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RedoneReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How much work a resumed Run redid after its prior epoch stopped with\nuncommitted Run-state batch writes or in-flight attempts (ADRs 0122\nand 0142). Absent when nothing was redone."
+        },
         "requests": {
           "anyOf": [
             {
@@ -14939,6 +14951,30 @@
         }
       ]
     },
+    "RedoneReport": {
+      "description": "How much work a resumed Run redid after its prior run epoch stopped on a\nfailed write or crash (ADRs 0122 and 0142).",
+      "properties": {
+        "attempts": {
+          "arrived_in": "0.1",
+          "description": "In-flight attempts recovered and redone on resume.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "batch_writes": {
+          "arrived_in": "0.1",
+          "description": "Uncommitted writes from a rolled-back Run-state batch that had to be\nredone on resume (`0` at `full` or after a clean stop).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attempts",
+        "batch_writes"
+      ],
+      "type": "object"
+    },
     "RefetchDomainRemoved": {
       "description": "What `needs_you.remove_refetch_domain` answers.",
       "properties": {
@@ -17484,6 +17520,18 @@
           ],
           "arrived_in": "0.1",
           "description": "What it did with the Response recording its start named (ADR 0105)."
+        },
+        "redone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RedoneReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "arrived_in": "0.1",
+          "description": "How much work a resumed Run redid after its prior epoch stopped with\nuncommitted Run-state batch writes or in-flight attempts (ADRs 0122\nand 0142). Absent when nothing was redone."
         },
         "run_id": {
           "$ref": "#/$defs/RunId",
@@ -39771,6 +39819,13 @@
       "name": "model_tokens",
       "product": "collie",
       "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The Run trace stopped at the `critical` storage level or on a failed write (\"no trace\" mark).",
+      "name": "no_trace",
+      "product": "collie",
+      "type": "run_warning_code"
     },
     {
       "arrived_in": "0.1",

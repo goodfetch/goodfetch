@@ -15,10 +15,11 @@ use std::time::{Duration, SystemTime};
 
 use goodfetch_protocol::page::proxy::ProxyKind;
 use goodfetch_protocol::run::completeness::{FAILED, STOPPED};
+use goodfetch_protocol::run::warning::NO_TRACE;
 use goodfetch_protocol::run::{
     AppliedLimit, AxisReason, Checkpoint, Completeness, EndingError, KindUsage, Lifecycle,
-    NothingDone, PluginUsage, ProxyKindBytes, RunId, RunKind, RunReport, RunUsage, RunWarning,
-    StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
+    NothingDone, PluginUsage, ProxyKindBytes, RedoneReport, RunId, RunKind, RunReport, RunUsage,
+    RunWarning, StopReason, UNCERTAIN_EFFECTS, UsageAmount, Verdict,
 };
 use goodfetch_protocol::settings::{ExplainedSetting, WeakenedSetting};
 use goodfetch_protocol::usage::{
@@ -78,6 +79,10 @@ pub(super) struct EndFacts {
     /// Why a `finished` Run's driver found its results short of its scope,
     /// if it did (ADRs 0093, 0118 and 0120).
     pub(super) finished: Vec<CompletenessReason>,
+    /// The trace folder if the Run's trace stopped for `critical` storage
+    /// (ADRs 0031 and 0122), guaranteeing the `"no_trace"` warning is present
+    /// even if the background warning task raced with the Run's end.
+    pub(super) no_trace_folder: Option<String>,
 }
 
 /// The report answered when a Run's end could not be written to its run state
@@ -115,7 +120,22 @@ pub(super) fn assemble(
     let mut report = facts.bare();
     report.usage = usage;
     report.warnings = warnings(connection)?;
+    if let Some(folder) = &facts.no_trace_folder
+        && !report.warnings.iter().any(|warning| {
+            warning.code == NO_TRACE && warning.folder.as_deref() == Some(folder.as_str())
+        })
+    {
+        report.warnings.push(RunWarning {
+            code: NO_TRACE.to_owned(),
+            message: format!(
+                "The Run trace in `{folder}` stopped at the `critical` storage level (no trace)."
+            ),
+            sessions: Vec::new(),
+            folder: Some(folder.clone()),
+        });
+    }
     report.nothing_done = nothing_done(connection)?;
+    report.redone = redone(connection)?;
     for part in parts {
         if let Err(error) = part.fill(connection, &mut report) {
             tracing::warn!(%error, run_id = %report.run_id, "a part of the Run's report could not be read; the report goes without it");
@@ -166,6 +186,7 @@ impl EndFacts {
             nothing_done: None,
             uncertain_effects: None,
             error: self.error.clone(),
+            redone: None,
             kind_parts: serde_json::Map::new(),
         }
     }
@@ -565,6 +586,25 @@ impl ReportWarnings {
             .write(move |connection| record_nothing_done(connection, &nothing_done))
             .await
     }
+
+    /// Adds `more` to how much work this resumed Run redid (ADRs 0122 and
+    /// 0142), persisted in run state so its final report states the total.
+    ///
+    /// # Errors
+    ///
+    /// When its run state cannot be written.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future after the write was queued still writes it.
+    pub async fn record_redone(&self, more: RedoneReport) -> Result<(), RunStateError> {
+        if more.is_empty() {
+            return Ok(());
+        }
+        self.state
+            .write(move |connection| add_redone(connection, more))
+            .await
+    }
 }
 
 /// Records `warning` among the Run's warnings, in the order handed over.
@@ -637,4 +677,34 @@ fn nothing_done(connection: &Connection) -> rusqlite::Result<Option<NothingDone>
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
     })
     .transpose()
+}
+
+pub(super) fn add_redone(connection: &Connection, more: RedoneReport) -> rusqlite::Result<()> {
+    if more.is_empty() {
+        return Ok(());
+    }
+    let existing = redone(connection)?.unwrap_or_default();
+    let combined = RedoneReport {
+        attempts: existing.attempts.saturating_add(more.attempts),
+        batch_writes: existing.batch_writes.saturating_add(more.batch_writes),
+    };
+    let text = serde_json::to_string(&combined).expect("invariant: `redone` encodes");
+    connection
+        .prepare_cached("UPDATE run SET redone = ?1")
+        .and_then(|mut cached| cached.execute([text]))?;
+    Ok(())
+}
+
+fn redone(connection: &Connection) -> rusqlite::Result<Option<RedoneReport>> {
+    let text: Option<String> = connection
+        .prepare_cached("SELECT redone FROM run")
+        .and_then(|mut cached| cached.query_row([], |row| row.get(0)))
+        .optional()?
+        .flatten();
+    text.map(|text| {
+        serde_json::from_str::<RedoneReport>(&text)
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+    })
+    .transpose()
+    .map(|opt| opt.filter(|r| !r.is_empty()))
 }

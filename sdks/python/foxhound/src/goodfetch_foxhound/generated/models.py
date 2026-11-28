@@ -30,6 +30,7 @@ from goodfetch_collie_client.generated.models import (
     ProgressMessage,
     ProjectSettings,
     RecordingReport,
+    RedoneReport,
     RunId,
     RunLimit,
     RunProgress,
@@ -3103,6 +3104,12 @@ class CrawlRunReport(RunReport):
     """What it did with the Response recording its start named (ADR 0105)."""
     records: list[DatasetRecords] | None = None
     """Its Records, per Dataset (ADR 0103)."""
+    redone: RedoneReport | None = None
+    """
+    How much work a resumed Run redid after its prior epoch stopped with
+    uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+    and 0142). Absent when nothing was redone.
+    """
     requests: RequestCounts | None = None
     """How its requests ended."""
     run_id: RunId

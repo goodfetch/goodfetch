@@ -36,6 +36,9 @@ pub const FILTER_VENDOR_FLAGGED: &str = "filter_vendor_flagged";
 pub const CPU_THROTTLED: &str = "cpu_throttled";
 /// The Run met the `low` storage level (ADR 0122).
 pub const STORAGE_LOW: &str = "storage_low";
+/// The Run trace stopped at `critical` storage or on a failed write, carrying
+/// ADR 0031's "no trace" mark (ADRs 0031 and 0122).
+pub const NO_TRACE: &str = "no_trace";
 /// The Politeness store was degraded (ADR 0053).
 pub const POLITENESS_STORE_DEGRADED: &str = "politeness_store_degraded";
 /// The Run's Clean-up rules are older than 14 days (ADR 0047).
@@ -71,7 +74,7 @@ const fn warning(name: &'static str, description: &'static str) -> SharedTypeVal
 
 /// The warning codes both Products hand over to a Run's report (ADR
 /// 0102); Foxhound adds its own.
-pub const WARNING_CODES: [SharedTypeValue; 24] = [
+pub const WARNING_CODES: [SharedTypeValue; 25] = [
     warning(FINGERPRINT_NONE, "A Session ran with no fingerprint."),
     warning(
         FINGERPRINT_JS_INJECTION,
@@ -115,6 +118,10 @@ pub const WARNING_CODES: [SharedTypeValue; 24] = [
     warning(
         STORAGE_LOW,
         "The Run met the `low` storage level: the folder, its free space and what was shed.",
+    ),
+    warning(
+        NO_TRACE,
+        "The Run trace stopped at the `critical` storage level or on a failed write (\"no trace\" mark).",
     ),
     warning(
         POLITENESS_STORE_DEGRADED,

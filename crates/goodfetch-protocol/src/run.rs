@@ -63,7 +63,8 @@ pub use self::progress::{
 pub use self::report::{
     AppliedLimit, AxisReason, EndingError, KindUsage, LimitSetter, ModelAllowance, ModelCounts,
     ModelUsage, NothingDone, PlanReport, PlanStatus, PluginRun, PluginUsage, ProxyKindBytes,
-    RecordingReport, RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect, UsageAmount,
+    RecordingReport, RedoneReport, RunReport, RunUsage, RunWarning, SeedsKept, UncertainEffect,
+    UsageAmount,
 };
 pub use self::starts::{
     CATALOG_RUN_START, CatalogRunStartParams, CatalogTarget, DETACH_UNSUPPORTED,

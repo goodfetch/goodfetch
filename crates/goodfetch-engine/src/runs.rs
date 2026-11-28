@@ -778,6 +778,18 @@ fn storage_low(storage: &RunStorage) -> RunWarning {
     }
 }
 
+fn no_trace_warning(folder: &Path) -> RunWarning {
+    let folder = folder.display().to_string();
+    RunWarning {
+        code: goodfetch_protocol::run::warning::NO_TRACE.to_owned(),
+        message: format!(
+            "The Run trace in `{folder}` stopped at the `critical` storage level (no trace)."
+        ),
+        sessions: Vec::new(),
+        folder: Some(folder),
+    }
+}
+
 /// What a live Run resolves its Secret references through, its data key
 /// once unwrapped, and whether a field stored unsealed opens in it.
 struct Keys {
@@ -959,6 +971,21 @@ pub enum RunError {
         /// The Run ID.
         run_id: RunId,
         /// The Run's folder.
+        folder: PathBuf,
+        /// Why, as `io::ErrorKind`'s name in `snake_case`.
+        reason: &'static str,
+        /// The OS's own name for it, when known.
+        os_code: Option<&'static str>,
+        /// What failed.
+        message: String,
+    },
+    /// A Run trace copy could not be written (ADRs 0116 and 0122); no file is
+    /// left.
+    #[error("a Run trace copy of `{run_id}` could not be written: {message}")]
+    TraceWriteFailed {
+        /// The Run ID.
+        run_id: RunId,
+        /// The destination folder on the failing or `critical` filesystem.
         folder: PathBuf,
         /// Why, as `io::ErrorKind`'s name in `snake_case`.
         reason: &'static str,
@@ -1806,6 +1833,7 @@ impl Runs {
             sampled: Vec::new(),
             discarding: std::collections::BTreeSet::new(),
             unrecorded: BTreeMap::new(),
+            unrecorded_redone: BTreeMap::new(),
             memory_stop: MemoryStop::Idle,
         };
         runs.registry.spawn(registry.run(mailbox, startup));
@@ -2558,6 +2586,67 @@ impl Runs {
         Ok(KeptExport { sha256, size })
     }
 
+    /// Copies the Run trace of `run_id` whole-or-nothing to `destination`
+    /// (ADRs 0102, 0116 and 0122). While the destination filesystem is at the
+    /// `critical` storage level, as read afresh now, it fails at once with
+    /// [`RunError::TraceWriteFailed`] (`reason: "storage_full"`, naming the
+    /// destination folder) and writes nothing.
+    ///
+    /// # Errors
+    ///
+    /// `TraceWriteFailed` when the destination filesystem is at `critical` or
+    /// the write fails; `Stopped` when the registry has stopped.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future never leaves a partial file at `destination`.
+    pub async fn copy_trace(
+        &self,
+        run_id: RunId,
+        destination: PathBuf,
+    ) -> Result<run_trace::TraceCopy, RunError> {
+        let folder = self.folder(run_id.clone()).await?;
+        let (answer, answered) = oneshot::channel();
+        self.commands
+            .send(Command::Governor(answer))
+            .await
+            .map_err(|_| RunError::Stopped)?;
+        let governor = answered.await.map_err(|_| RunError::Stopped)?;
+        let dest_folder = destination
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(destination.as_path())
+            .to_owned();
+        let owner = Arc::clone(&self.limits.owner);
+        let probed = dest_folder.clone();
+        let critical = owner
+            .blocking(move || governor.storage_at(&probed))
+            .await
+            .is_some_and(|filesystem| filesystem.is_critical());
+        if critical {
+            return Err(RunError::TraceWriteFailed {
+                run_id,
+                folder: dest_folder.clone(),
+                reason: "storage_full",
+                os_code: None,
+                message: format!(
+                    "the filesystem of `{}` is at the critical storage level",
+                    dest_folder.display()
+                ),
+            });
+        }
+        owner
+            .blocking(move || run_trace::copy_trace_folder(&folder, &destination))
+            .await
+            .map_err(|error| RunError::TraceWriteFailed {
+                run_id,
+                folder: dest_folder,
+                reason: run_files::reason_of(error.kind()),
+                os_code: error.raw_os_error().and_then(run_files::os_code),
+                message: error.to_string(),
+            })
+    }
+
     /// A reader of the committed state of the Run `run_id`, which never
     /// takes its writer lock: it follows the Run while this engine's writer
     /// works it, and reads what is committed otherwise.
@@ -3114,7 +3203,7 @@ async fn wait_for(mut report: watch::Receiver<Option<Ended>>) -> Result<RunRepor
         .map_err(|_| RunError::Stopped)?;
     match ended.clone().expect("invariant: the wait ends on an end") {
         Ended::Report(report) | Ended::Unwritten(report) => Ok(*report),
-        Ended::Unrecorded(exhausted) => Err(RunError::ResourcesExhausted(exhausted)),
+        Ended::Unrecorded(exhausted, _) => Err(RunError::ResourcesExhausted(exhausted)),
     }
 }
 
@@ -3128,8 +3217,10 @@ enum Ended {
     /// than its storage: this report, with nothing read from its state, is
     /// the only one there is.
     Unwritten(Box<RunReport>),
-    /// The commit recording its stop met a full disk or an I/O error.
-    Unrecorded(Box<StorageExhausted>),
+    /// The commit recording its stop met a full disk or an I/O error,
+    /// carrying how much uncommitted work was rolled back so a later resume's
+    /// report states it (ADRs 0122 and 0142).
+    Unrecorded(Box<StorageExhausted>, goodfetch_protocol::run::RedoneReport),
 }
 
 impl Ended {
@@ -3137,7 +3228,7 @@ impl Ended {
     fn report(&self) -> Option<&RunReport> {
         match self {
             Self::Report(report) | Self::Unwritten(report) => Some(report),
-            Self::Unrecorded(_) => None,
+            Self::Unrecorded(..) => None,
         }
     }
 }
@@ -3189,6 +3280,9 @@ struct Live {
     /// each written, if its call has not written it, once its end is
     /// decided, before that end closes its Run trace (ADR 0099).
     raw_endings: Vec<Arc<RawCallLine>>,
+    /// Keeps the Run's `trace/` folder sampled by the governor while the Run
+    /// lives (ADR 0122), deduplicated when on the same filesystem as `folder`.
+    _trace_sampled: Held,
 }
 
 /// What a discard, which runs beside the registry, needs of it.
@@ -3378,6 +3472,9 @@ struct Registry {
     /// The Runs whose stop their run file could not record, left
     /// interrupted until a start with their ID resumes them (ADR 0122).
     unrecorded: BTreeMap<RunId, Box<StorageExhausted>>,
+    /// Rolled-back work from unrecorded storage stops, carried into the
+    /// resumed Run's report once space is freed (ADRs 0122 and 0142).
+    unrecorded_redone: BTreeMap<RunId, goodfetch_protocol::run::RedoneReport>,
     /// Where the governor's last resort stands: it stops one Run at a time.
     memory_stop: MemoryStop,
     /// The Runs being discarded, beside the registry: no start, resume or
@@ -3798,6 +3895,26 @@ impl Registry {
                 continue;
             }
             let run_state = install.as_ref().unwrap_or(&live.folder);
+            let trace_folder = live.folder.join("trace");
+            if sample
+                .of(&trace_folder)
+                .or_else(|| sample.of(&live.folder))
+                .is_some_and(Filesystem::is_critical)
+                && !run.shared.trace.is_stopped()
+            {
+                let trace = run.shared.trace.clone();
+                let warnings = run.shared.warnings.clone();
+                let run_id = run.identity.id().clone();
+                let stopped_at = self.setup.engine.clock().point_in_time();
+                let folder = trace_folder.clone();
+                run.identity.spawn(async move {
+                    trace.stop_for_storage(folder.clone(), stopped_at).await;
+                    let warning = no_trace_warning(&folder);
+                    if let Err(error) = warnings.warn_once(warning).await {
+                        tracing::warn!(%error, %run_id, "the Run's `no_trace` warning was not kept");
+                    }
+                });
+            }
             let essential = [run_state, home];
             if let Some(folder) = essential
                 .into_iter()
@@ -3811,9 +3928,10 @@ impl Registry {
                     },
                 );
             }
-            let Some((folder, filesystem)) =
-                worst(sample, &[&live.folder, run_state, home, temporary])
-            else {
+            let Some((folder, filesystem)) = worst(
+                sample,
+                &[&live.folder, &trace_folder, run_state, home, temporary],
+            ) else {
                 continue;
             };
             let storage = RunStorage {
@@ -4040,7 +4158,10 @@ impl Registry {
         match ended {
             Ended::Report(report) => self.ended.in_run_file(run_id, report.checkpoint),
             Ended::Unwritten(report) => self.ended.unwritten(run_id, report),
-            Ended::Unrecorded(exhausted) => {
+            Ended::Unrecorded(exhausted, rolled_back) => {
+                if !rolled_back.is_empty() {
+                    self.unrecorded_redone.insert(run_id.clone(), rolled_back);
+                }
                 self.unrecorded.insert(run_id, exhausted);
             }
         }
@@ -4771,6 +4892,7 @@ impl Registry {
             events: events.clone(),
             governor: self.setup.governor.clone(),
         });
+        let epoch = run.state.epoch();
         let closing = Closing {
             run,
             kind: live.kind,
@@ -4792,6 +4914,10 @@ impl Registry {
             row,
             events,
             registry: self.runs.clone(),
+            engine: self.setup.engine.clone(),
+            product: self.setup.product,
+            epoch,
+            clock,
         };
         self.ending_owner.spawn(recording.end(closing));
         Reply::Now(Ok(receiver))
@@ -4814,7 +4940,13 @@ impl Registry {
             None => None,
         };
         if let Some(exhausted) = self.unrecorded.get(run_id) {
-            let ended = Some(Ended::Unrecorded(exhausted.clone()));
+            let ended = Some(Ended::Unrecorded(
+                exhausted.clone(),
+                self.unrecorded_redone
+                    .get(run_id)
+                    .copied()
+                    .unwrap_or_default(),
+            ));
             return Reply::Now(Ok(watch::Sender::new(ended).subscribe()));
         }
         let file = self.folder(run_id).join(RUN_FILE);
@@ -5459,21 +5591,63 @@ async fn unrecorded(
 }
 
 /// Where a Run's end is recorded beside its run file: its Run index row,
-/// its axes on the event stream, and the registry.
+/// its axes on the event stream, its Notification (ADR 0027 and 0122), and
+/// the registry.
 struct Recording {
     index: RunIndex,
     row: RunIndexRow,
     events: Events,
     registry: mpsc::WeakSender<Command>,
+    engine: EngineContext,
+    product: Product,
+    epoch: u64,
+    clock: Clock,
 }
 
 impl Recording {
     /// Ends `closing`'s Run, then records its end; a stop its run file could
     /// not record goes to the registry alone, its Run index row left as it
-    /// was, as after a crash (ADR 0122).
+    /// was, as after a crash (ADR 0122). A critical storage stop raises ADR
+    /// 0027's `run_incomplete` Notification once per stop.
     async fn end(self, closing: Closing) {
         let run_id = closing.run.identity.id().clone();
         let ended = closing.end().await;
+        match &ended {
+            Ended::Report(report)
+                if matches!(
+                    &report.stop_reason,
+                    Some(StopReason::Resources {
+                        resource: goodfetch_protocol::run::Resource::Storage,
+                        ..
+                    })
+                ) =>
+            {
+                let folder = match &report.stop_reason {
+                    Some(StopReason::Resources { folder, .. }) => folder.as_deref(),
+                    _ => None,
+                };
+                let notification = crate::notification::storage_critical_stop_notification(
+                    &run_id,
+                    self.epoch,
+                    self.product,
+                    folder,
+                    report.ended_at,
+                );
+                self.engine.dispatch_notification(notification).await;
+            }
+            Ended::Unrecorded(exhausted, _) => {
+                let folder = exhausted.folder.display().to_string();
+                let notification = crate::notification::storage_critical_stop_notification(
+                    &run_id,
+                    self.epoch,
+                    self.product,
+                    Some(folder.as_str()),
+                    self.clock.point_in_time(),
+                );
+                self.engine.dispatch_notification(notification).await;
+            }
+            _ => {}
+        }
         let Some(report) = ended.report() else {
             if let Some(registry) = self.registry.upgrade() {
                 let _ = registry.send(Command::Ended(run_id, Box::new(ended))).await;
@@ -5601,6 +5775,11 @@ impl Closing {
         let limits = run.shared.charging.give_back(&writer).await;
         exceptions_used(&run, clock).await;
         let (run_id, folder) = (run.identity.id().clone(), run.identity.folder().to_owned());
+        let no_trace_folder = run
+            .shared
+            .trace
+            .is_stopped()
+            .then(|| folder.join("trace").display().to_string());
         let facts = EndFacts {
             run_id: run_id.clone(),
             kind,
@@ -5615,18 +5794,20 @@ impl Closing {
             limits,
             error,
             finished,
+            no_trace_folder,
         };
         let (state, mask) = (run.state.clone(), run.shared.keys.secrets().mask().clone());
+        let rolled_back = state.rolled_back();
         drop(run);
         let unwritten = report::masked(report::unwritten(&facts, &parts), mask.masks());
-        let ended = state
-            .write_last(move |connection| {
-                let report =
-                    report::masked(report::assemble(connection, &facts, &parts)?, mask.masks());
-                write_end(connection, &report)?;
-                Ok(report)
-            })
-            .await;
+        let ended = write_last_report(
+            &state,
+            facts,
+            parts,
+            mask,
+            (!rolled_back.is_empty()).then_some(rolled_back),
+        )
+        .await;
         let written = ended.is_ok();
         // A report its run file holds, or the unwritten one, never claiming verified beyond its facts.
         let (mut report, kept): (_, fn(Box<RunReport>) -> Ended) = match ended {
@@ -5637,7 +5818,7 @@ impl Closing {
                 let exhausted = unrecorded(run_id, folder, &governor, &writer).await;
                 writer.wait().await;
                 drop(lock);
-                return Ended::Unrecorded(exhausted);
+                return Ended::Unrecorded(exhausted, rolled_back);
             }
             Err(error) => {
                 tracing::warn!(%error, "the Run's end was not written to its run state");
@@ -5647,30 +5828,71 @@ impl Closing {
         report.checkpoint = last_checkpoint;
         if let Some(to) = checkpoint_to
             && written
-        {
-            let taking = Taking {
+            && let Some(checkpoint) = take_closing_checkpoint(
                 run_id,
-                destination: to.destination,
-                vfs: to.vfs,
-                nonce: to.nonce,
-                clock,
-                events: to.events,
-                tasks: Arc::clone(&writer),
                 folder,
-                governor: to.governor,
-                sealing: None,
-            };
-            match taking.take(Some(state.epoch())).await {
-                Ok(checkpoint) => report.checkpoint = Some(checkpoint),
-                Err(error) => {
-                    tracing::warn!(%error, "the stopping Run's Checkpoint was not written; its run file resumes it");
-                }
-            }
+                to,
+                clock,
+                Arc::clone(&writer),
+                state.epoch(),
+            )
+            .await
+        {
+            report.checkpoint = Some(checkpoint);
         }
         drop(state);
         writer.wait().await;
         drop(lock);
         kept(Box::new(report))
+    }
+}
+
+async fn write_last_report(
+    state: &RunState,
+    facts: EndFacts,
+    parts: Vec<Arc<dyn ReportPart>>,
+    mask: crate::mask::Mask,
+    pending_redone: Option<goodfetch_protocol::run::RedoneReport>,
+) -> Result<RunReport, RunStateError> {
+    state
+        .write_last(move |connection| {
+            let report =
+                report::masked(report::assemble(connection, &facts, &parts)?, mask.masks());
+            write_end(connection, &report)?;
+            if let Some(pending) = pending_redone {
+                report::add_redone(connection, pending)?;
+            }
+            Ok(report)
+        })
+        .await
+}
+
+async fn take_closing_checkpoint(
+    run_id: RunId,
+    folder: PathBuf,
+    to: CheckpointTo,
+    clock: Clock,
+    tasks: Arc<TaskOwner>,
+    epoch: u64,
+) -> Option<Checkpoint> {
+    let taking = Taking {
+        run_id,
+        destination: to.destination,
+        vfs: to.vfs,
+        nonce: to.nonce,
+        clock,
+        events: to.events,
+        tasks,
+        folder,
+        governor: to.governor,
+        sealing: None,
+    };
+    match taking.take(Some(epoch)).await {
+        Ok(checkpoint) => Some(checkpoint),
+        Err(error) => {
+            tracing::warn!(%error, "the stopping Run's Checkpoint was not written; its run file resumes it");
+            None
+        }
     }
 }
 

@@ -8497,6 +8497,24 @@ export interface RecordingReport {
   writtenBy?: string | null;
 }
 /**
+ * How much work a resumed Run redid after its prior run epoch stopped on a
+ * failed write or crash (ADRs 0122 and 0142).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "RedoneReport".
+ */
+export interface RedoneReport {
+  /**
+   * In-flight attempts recovered and redone on resume.
+   */
+  attempts: number;
+  /**
+   * Uncommitted writes from a rolled-back Run-state batch that had to be
+   * redone on resume (`0` at `full` or after a clean stop).
+   */
+  batchWrites: number;
+}
+/**
  * What `needs_you.remove_refetch_domain` answers.
  *
  * This interface was referenced by `CollieTypes`'s JSON-Schema
@@ -9468,6 +9486,12 @@ export interface RunReport {
    * What it did with the Response recording its start named (ADR 0105).
    */
   recording?: RecordingReport | null;
+  /**
+   * How much work a resumed Run redid after its prior epoch stopped with
+   * uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+   * and 0142). Absent when nothing was redone.
+   */
+  redone?: RedoneReport | null;
   /**
    * The Run's ID.
    */

@@ -327,6 +327,16 @@ pub fn aggregate_reports(crawl_id: &RunId, reports: &[RunReport]) -> RunReport {
         nothing_done: None,
         uncertain_effects: None,
         error,
+        redone: {
+            let mut total = goodfetch_protocol::run::RedoneReport::default();
+            for r in reports {
+                if let Some(redone) = r.redone {
+                    total.attempts = total.attempts.saturating_add(redone.attempts);
+                    total.batch_writes = total.batch_writes.saturating_add(redone.batch_writes);
+                }
+            }
+            (!total.is_empty()).then_some(total)
+        },
         kind_parts,
     }
 }
@@ -437,6 +447,7 @@ pub fn running_placeholder(run_id: &RunId, started_at: SystemTime, usage: RunUsa
         nothing_done: None,
         uncertain_effects: None,
         error: None,
+        redone: None,
         kind_parts: Map::new(),
     }
 }

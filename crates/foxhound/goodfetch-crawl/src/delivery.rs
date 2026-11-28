@@ -924,11 +924,13 @@ pub(crate) async fn resume(
             // The crawl's Run state opens after this job, and counts its
             // requests on from what the run file then holds.
             let recovered = &mut Changed::default();
-            work_items::recover_leases(connection, &lost, retry_max, resumed_at, recovered)?;
+            let recovered_leases =
+                work_items::recover_leases(connection, &lost, retry_max, resumed_at, recovered)?;
             let fragments = labels::Fragments::read(connection)?;
             let invariants = Invariants::read(connection, fragments.clone())?;
             Ok((
                 work_items::left(connection)?,
+                recovered_leases,
                 labels::read(connection)?,
                 fragments,
                 tier_choice::read(connection)?,
@@ -940,12 +942,12 @@ pub(crate) async fn resume(
             ))
         })
         .await;
-    let left = left.map(|(left, declared, fragments, choices, declarations)| {
+    let left = left.map(|(left, recovered_leases, declared, fragments, choices, declarations)| {
         let labels = labels::Declared::of(&declared, fragments, settings.resolved()).unwrap_or_else(|error| {
             tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's Labels no longer read; its requests take the Run's tier and pool");
             labels::Declared::none(settings.resolved())
         });
-        (left, (labels, choices, declarations))
+        (left, recovered_leases, (labels, choices, declarations))
     });
     let (labels, choices, (code_free, datasets, invariants)) = match left {
         Err(error) => {
@@ -953,13 +955,25 @@ pub(crate) async fn resume(
             run.end.end(failed(&run.identity, &error)).await;
             return;
         }
-        Ok((0, labels)) => {
-            if let Err(error) = run.warnings.nothing_done(NothingDone::NothingPending).await {
+        Ok((left, recovered_leases, parts)) => {
+            if recovered_leases > 0
+                && let Err(error) = run
+                    .warnings
+                    .record_redone(goodfetch_protocol::run::RedoneReport {
+                        attempts: recovered_leases,
+                        batch_writes: 0,
+                    })
+                    .await
+            {
+                tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's redone count was not kept");
+            }
+            if left == 0
+                && let Err(error) = run.warnings.nothing_done(NothingDone::NothingPending).await
+            {
                 tracing::warn!(%error, run_id = %run.identity.id(), "the resumed crawl's `nothingDone` was not kept");
             }
-            labels
+            parts
         }
-        Ok((_, labels)) => labels,
     };
     let egress = resumed_domain_policy(settings.resolved(), run.identity.id());
     let invariants = invariants.with_partition_router(crawls.router(run.identity.id()));

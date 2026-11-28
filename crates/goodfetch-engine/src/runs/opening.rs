@@ -1007,6 +1007,7 @@ impl Opening {
                     &extra_limit_scopes,
                 );
                 run.shared.charging.hold(charging);
+                let trace_sampled = registry.setup.governor.sample(folder.join("trace"));
                 Live {
                     id: run_id,
                     progress: run.shared.progress.clone(),
@@ -1035,6 +1036,7 @@ impl Opening {
                     warned_low: std::collections::BTreeSet::new(),
                     sampled_after: registry.setup.governor.storage_samples_begun(),
                     raw_endings: Vec::new(),
+                    _trace_sampled: trace_sampled,
                 }
             })
             .await?;
@@ -1265,13 +1267,13 @@ impl Opening {
         };
         let (lock, state) = self.reopen(&held, checkpoint, redeclared).await?;
         let recorded = self.disk.recorded().await?;
-        self.forget_ended(&run_id).await?;
+        let folder = self.disk.folder.clone();
+        self.record_prior_redone(&state, &run_id, &folder).await?;
         let progress_message = recorded
             .progress_message
             .as_deref()
             .and_then(ProgressMessage::parse);
         let listed = recorded.weakened.clone();
-        let folder = self.disk.folder.clone();
         let (weakened, changed) = applied(&recorded, settings.as_ref(), &state)
             .await
             .map_err(|error| RunError::of_state(&run_id, &folder, error))?;
@@ -1304,6 +1306,7 @@ impl Opening {
         let (writer, needs) = (Arc::clone(&self.writer), recorded.needs);
         let run = self
             .go_live(lifecycle, (timeout, checkpoint_interval), move |registry| {
+                let trace_sampled = registry.setup.governor.sample(folder.join("trace"));
                 Live {
                     id: run_id,
                     progress: run.shared.progress.clone(),
@@ -1330,6 +1333,7 @@ impl Opening {
                     warned_low: std::collections::BTreeSet::new(),
                     sampled_after: registry.setup.governor.storage_samples_begun(),
                     raw_endings: Vec::new(),
+                    _trace_sampled: trace_sampled,
                 }
             })
             .await?;
@@ -1339,6 +1343,21 @@ impl Opening {
             needs,
             listed,
         })
+    }
+
+    async fn record_prior_redone(
+        &self,
+        state: &RunState,
+        run_id: &RunId,
+        folder: &Path,
+    ) -> Result<(), RunError> {
+        if let Some(redone) = self.forget_ended(run_id).await? {
+            state
+                .write(move |connection| super::report::add_redone(connection, redone))
+                .await
+                .map_err(|error| RunError::of_state(run_id, folder, error))?;
+        }
+        Ok(())
     }
 
     async fn write_initial_rows(
@@ -1367,15 +1386,20 @@ impl Opening {
             .map_err(|error| self.disk.unavailable(error.to_string()))
     }
 
-    async fn forget_ended(&self, run_id: &RunId) -> Result<(), RunError> {
+    async fn forget_ended(
+        &self,
+        run_id: &RunId,
+    ) -> Result<Option<goodfetch_protocol::run::RedoneReport>, RunError> {
         let id = run_id.clone();
-        self.decisions
+        let redone = self
+            .decisions
             .decide(move |registry| {
                 registry.ended.forget(&id);
                 registry.unrecorded.remove(&id);
+                registry.unrecorded_redone.remove(&id)
             })
             .await?;
-        Ok(())
+        Ok(redone)
     }
 
     async fn read_extra_limit_scopes(

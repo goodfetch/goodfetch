@@ -3545,6 +3545,24 @@ class RedirectLimit(RootModel[RedirectLimit1 | RedirectLimit2 | RedirectLimit3])
     """
 
 
+class RedoneReport(BaseModel):
+    """
+    How much work a resumed Run redid after its prior run epoch stopped on a
+    failed write or crash (ADRs 0122 and 0142).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """In-flight attempts recovered and redone on resume."""
+    batch_writes: Annotated[int, Field(ge=0)]
+    """
+    Uncommitted writes from a rolled-back Run-state batch that had to be
+    redone on resume (`0` at `full` or after a clean stop).
+    """
+
+
 class Refused(StrEnum):
     """
     What a `value_invalid` refused: the key itself, or the value given for
@@ -10709,6 +10727,12 @@ class RunReport(BaseModel):
     """
     recording: RecordingReport | None = None
     """What it did with the Response recording its start named (ADR 0105)."""
+    redone: RedoneReport | None = None
+    """
+    How much work a resumed Run redid after its prior epoch stopped with
+    uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+    and 0142). Absent when nothing was redone.
+    """
     run_id: RunId
     """The Run's ID."""
     settings: list[ExplainedSetting] | None = None

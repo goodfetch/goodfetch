@@ -111,11 +111,38 @@ pub struct RunReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub error: Option<EndingError>,
+    /// How much work a resumed Run redid after its prior epoch stopped with
+    /// uncommitted Run-state batch writes or in-flight attempts (ADRs 0122
+    /// and 0142). Absent when nothing was redone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub redone: Option<RedoneReport>,
     /// What its kind adds, such as a crawl's `requests`, `records`,
     /// `sinks`, `learned_rules` and `sitemaps` (Foxhound's
     /// `CrawlRunReport`), kept as the engine sent them.
     #[serde(flatten)]
     pub kind_parts: Map<String, Value>,
+}
+
+/// How much work a resumed Run redid after its prior run epoch stopped on a
+/// failed write or crash (ADRs 0122 and 0142).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RedoneReport {
+    /// In-flight attempts recovered and redone on resume.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub attempts: u64,
+    /// Uncommitted writes from a rolled-back Run-state batch that had to be
+    /// redone on resume (`0` at `full` or after a clean stop).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub batch_writes: u64,
+}
+
+impl RedoneReport {
+    /// Whether any work was redone.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.attempts == 0 && self.batch_writes == 0
+    }
 }
 
 impl RunReport {

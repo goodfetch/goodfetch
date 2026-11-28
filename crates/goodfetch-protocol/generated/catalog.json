@@ -16477,6 +16477,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The Run trace stopped at the `critical` storage level or on a failed write (\"no trace\" mark).",
+      "name": "no_trace",
+      "product": "collie",
+      "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "Listings were paged only by an offset parameter, counted: `unverified`.",
       "name": "offset_pagination",
       "product": "foxhound",

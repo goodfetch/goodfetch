@@ -2222,7 +2222,7 @@ pub(crate) fn recover_leases(
     retry_max: u32,
     ended_at: SystemTime,
     changed: &mut Changed,
-) -> rusqlite::Result<()> {
+) -> rusqlite::Result<u64> {
     let lost = connection
         .prepare_cached(
             "SELECT id, lease_epoch, attempts - retried_from <= ?1 FROM work_items
@@ -2236,6 +2236,7 @@ pub(crate) fn recover_leases(
             ))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
+    let recovered = u64::try_from(lost.len()).unwrap_or(u64::MAX);
     for (id, lease_epoch, retried) in lost {
         let unsuccessful = if retried {
             Unsuccessful::Retried(failure.clone())
@@ -2251,7 +2252,7 @@ pub(crate) fn recover_leases(
             changed,
         )?;
     }
-    Ok(())
+    Ok(recovered)
 }
 
 /// Whether any work item is still pending or leased: what a crawl's

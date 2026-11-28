@@ -814,17 +814,7 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             compatibility,
             install,
             ..
-        } => {
-            let format = goodfetch_protocol::formats::FORMATS
-                .iter()
-                .find(|known| known.name == format)
-                .copied()
-                .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
-            match install {
-                Some(install) => store_refusal(format, &found, &install),
-                None => format_refusal(format, &found, compatibility),
-            }
-        }
+        } => run_format_error(format, &found, compatibility, install.as_deref()),
         RunError::ReopenRefused(refused) => *refused,
         RunError::BoundToMachine(run_id) => bound_to_machine(run_id),
         RunError::Behind(behind) => checkpoint_behind(behind),
@@ -834,17 +824,27 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
             reason,
             os_code,
             message,
-        } => CallError::new(
-            &FILE_WRITE_FAILED,
+        } => file_write_failed(
             format!(
                 "A Checkpoint of the Run `{run_id}` could not be written ({message}); free space where the engine keeps its Runs, or ask the Daemon's operator, then checkpoint again."
             ),
-            &FileWriteFailedDetails {
-                reason: reason.to_owned(),
-                os_code: os_code.map(str::to_owned),
-                path: Some(folder.display().to_string()),
-                side: WriteSide::Engine,
-            },
+            &folder,
+            reason,
+            os_code,
+        ),
+        RunError::TraceWriteFailed {
+            run_id,
+            folder,
+            reason,
+            os_code,
+            message,
+        } => file_write_failed(
+            format!(
+                "A Run trace copy of the Run `{run_id}` could not be written ({message}); free space where the engine keeps its Runs, or ask the Daemon's operator, then copy the trace again."
+            ),
+            &folder,
+            reason,
+            os_code,
         ),
         RunError::FilesystemUnsupported(run_id, refused) => {
             filesystem_unsupported(run_id, &refused)
@@ -870,6 +870,43 @@ pub fn run_error(error: RunError, context: &CallContext) -> CallError {
         RunError::FixedSetting(changed) => changed.into(),
         RunError::Stopped => stopped(),
     }
+}
+
+/// Refusal for a run-file or install-store format mismatch.
+fn run_format_error(
+    format: &str,
+    found: &str,
+    compatibility: Compatibility,
+    install: Option<&str>,
+) -> CallError {
+    let format = goodfetch_protocol::formats::FORMATS
+        .iter()
+        .find(|known| known.name == format)
+        .copied()
+        .unwrap_or(&goodfetch_protocol::formats::RUN_STATE);
+    match install {
+        Some(install) => store_refusal(format, found, install),
+        None => format_refusal(format, found, compatibility),
+    }
+}
+
+/// `file_write_failed` on the engine side for `folder`.
+fn file_write_failed(
+    message: String,
+    folder: &std::path::Path,
+    reason: &str,
+    os_code: Option<&str>,
+) -> CallError {
+    CallError::new(
+        &FILE_WRITE_FAILED,
+        message,
+        &FileWriteFailedDetails {
+            reason: reason.to_owned(),
+            os_code: os_code.map(str::to_owned),
+            path: Some(folder.display().to_string()),
+            side: WriteSide::Engine,
+        },
+    )
 }
 
 /// `run_state_unavailable`: the state of `run_id` in `folder` failed with

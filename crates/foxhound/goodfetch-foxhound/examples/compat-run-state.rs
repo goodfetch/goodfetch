@@ -95,7 +95,7 @@ use goodfetch_protocol::connection::ProductVersion;
 use goodfetch_protocol::connection::Surface;
 use goodfetch_protocol::foxhound::frontier::HttpMethod;
 use goodfetch_protocol::home::{OPERATOR_POLICY_FILE, RUN_FILE, RUNS, per_major};
-use goodfetch_protocol::run::{NothingDone, RunId, RunKind, RunWarning, Tags};
+use goodfetch_protocol::run::{NothingDone, RedoneReport, RunId, RunKind, RunWarning, Tags};
 use goodfetch_test_client::Hello;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
@@ -767,6 +767,13 @@ async fn bind(_: Value, context: CallContext) -> Result<Value, CallError> {
             .nothing_done(NothingDone::NothingPending)
             .await
             .expect("`nothingDone` is kept");
+        warnings
+            .record_redone(RedoneReport {
+                attempts: 1,
+                batch_writes: 2,
+            })
+            .await
+            .expect("`redone` is kept");
         run.charging
             .charge_part("proxy_bytes", "datacenter", 4_096, None)
             .await

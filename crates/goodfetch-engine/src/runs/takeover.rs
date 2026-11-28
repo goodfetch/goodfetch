@@ -247,6 +247,7 @@ impl TakeOver {
             limits: Vec::new(),
             error: None,
             finished: Vec::new(),
+            no_trace_folder: None,
         };
         let parts = self.parts.clone();
         let ended = state

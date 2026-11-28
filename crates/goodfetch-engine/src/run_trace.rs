@@ -1,6 +1,11 @@
 //! The Run trace (ADRs 0047, 0085 and 0093): what a Run records beside its
 //! outcomes, written by one writer per Run (ADR 0140's E5), [`RunTrace`],
-//! into the Run's `trace/` folder. Its kinds of entry:
+//! into the Run's `trace/` folder.
+//!
+//! Size: one concern, the per-Run trace writer actor, its log entry types,
+//! critical-storage stopping, and atomic trace-folder copying.
+//!
+//! Its kinds of entry:
 //!
 //! - **The Provenance log** (ADR 0047), `trace/provenance.jsonl`: one entry
 //!   per action a page or a fetch tier took for the Run, written only when
@@ -57,26 +62,30 @@
     reason = "`tried` is a flag set and read only inside `get_or_try_init`'s one start at a time, never across an `.await` or a lock, so there is no interleaving for loom to test (ADR 0060)"
 )]
 
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::SystemTime;
 
 use goodfetch_counted_work::{CountedWork, Row};
 use goodfetch_protocol::catalog::Event;
 use goodfetch_protocol::home::{
     RUN_TRACE_CALLS, RUN_TRACE_CDP_COMMANDS, RUN_TRACE_PLUGIN_CALLS, RUN_TRACE_PROVENANCE,
-    RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS,
+    RUN_TRACE_REQUESTS, RUN_TRACE_SETTINGS, RUN_TRACE_STOPPED,
 };
 use goodfetch_protocol::page::events::PAGE_REQUEST_FAILED;
 use goodfetch_protocol::page::{RequestFailed, SERVICE_WORKER_REQUEST, ServiceWorkerRequest};
 use goodfetch_protocol::run::RunId;
 use jiff::Timestamp;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{OnceCell, mpsc, oneshot};
 
+use crate::durable;
 use crate::mask::{Mask, Scope};
 use crate::tasks::TaskOwner;
 
@@ -91,6 +100,36 @@ const BUFFER: usize = 64 * 1024;
 /// records an entry of the Run.
 #[derive(Clone, Debug)]
 pub struct RunTrace(Arc<Trace>);
+
+/// What a stopped Run trace records in `trace/stopped.json` (and as a final
+/// line in each already-opened trace log file) when its filesystem reaches the
+/// `critical` storage level (ADRs 0031 and 0122).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceStopped {
+    /// ADR 0031's "no trace" mark (`"no_trace"`).
+    pub mark: String,
+    /// Why the trace stopped (`"storage_critical"`).
+    pub reason: String,
+    /// The trace folder whose filesystem reached `critical`.
+    pub folder: String,
+    /// When the trace stopped, as RFC 3339 UTC.
+    pub stopped_at: String,
+    /// Lines written to each trace file before stopping, keyed by relative
+    /// trace path (e.g. `trace/requests.jsonl`).
+    pub files: BTreeMap<String, u64>,
+}
+
+/// The result of copying a Run's trace whole-or-nothing to a destination file
+/// (ADRs 0102, 0116 and 0122).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraceCopy {
+    /// Where the copy was written.
+    pub location: PathBuf,
+    /// Its size, in bytes.
+    pub size: u64,
+    /// Its SHA-256 hex digest.
+    pub sha256: String,
+}
 
 /// What every handle of a Run's Run trace shares.
 #[derive(Debug)]
@@ -110,14 +149,28 @@ struct Trace {
     /// Whether an entry tried to start the writer: the first try is the
     /// Run's, and one after it failed is the entry's that tries again.
     tried: AtomicBool,
+    /// Whether the trace has stopped for `critical` storage (ADR 0122).
+    stopped: AtomicBool,
+    /// Details of why and where the trace stopped, once stopped.
+    stop_info: OnceLock<TraceStopped>,
 }
 
-/// One line the writer appends to `log`, and who waits for it, if anyone.
+/// One message to the Run trace's writer actor.
 #[derive(Debug)]
-struct Entry {
-    log: Log,
-    line: Vec<u8>,
-    written: Option<oneshot::Sender<io::Result<()>>>,
+enum Entry {
+    /// Append `line` to `log`, optionally notifying `written`.
+    Append {
+        log: Log,
+        line: Vec<u8>,
+        written: Option<oneshot::Sender<io::Result<()>>>,
+    },
+    /// Stop tracing at `critical` storage, write the stop mark into every open
+    /// log file and `trace/stopped.json`, and close all handles (ADR 0122).
+    Stop {
+        folder: PathBuf,
+        stopped_at: String,
+        done: oneshot::Sender<TraceStopped>,
+    },
 }
 
 /// One of the Run trace's files.
@@ -198,7 +251,72 @@ impl RunTrace {
             logs_provenance,
             writer: OnceCell::new(),
             tried: AtomicBool::new(false),
+            stopped: AtomicBool::new(false),
+            stop_info: OnceLock::new(),
         }))
+    }
+
+    /// Whether the Run trace has stopped at the `critical` storage level
+    /// (ADRs 0031 and 0122).
+    #[must_use]
+    pub fn is_stopped(&self) -> bool {
+        self.0.stopped.load(Ordering::Acquire)
+    }
+
+    /// Details of where the Run trace stopped, once stopped for storage.
+    #[must_use]
+    pub fn stopped_info(&self) -> Option<&TraceStopped> {
+        self.0.stop_info.get()
+    }
+
+    /// Stops this Run's trace at the `critical` storage level (ADRs 0031 and
+    /// 0122): records the `"no_trace"` stop mark into every open trace file
+    /// and `trace/stopped.json`, closes open handles, and ignores all later
+    /// entries. Idempotent: calling more than once is a no-op.
+    ///
+    /// # Cancel safety
+    ///
+    /// Once the stop flag is set, no later entry is written even if this
+    /// future is dropped before the stop marker finishes flushing.
+    pub async fn stop_for_storage(&self, folder: PathBuf, at: SystemTime) {
+        if self.0.stopped.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let stopped_at = Timestamp::try_from(at)
+            .map_or_else(|_| "1970-01-01T00:00:00Z".to_owned(), |ts| ts.to_string());
+        if let Some(writer) = self.0.writer.get() {
+            let (done, rx) = oneshot::channel();
+            if writer
+                .send(Entry::Stop {
+                    folder: folder.clone(),
+                    stopped_at: stopped_at.clone(),
+                    done,
+                })
+                .await
+                .is_ok()
+                && let Ok(info) = rx.await
+            {
+                let _ = self.0.stop_info.set(info);
+                return;
+            }
+        }
+        // Writer was never started (no trace file opened yet) or already closed:
+        // still write `trace/stopped.json` so a later read of the trace sees
+        // where it stopped.
+        let info = TraceStopped {
+            mark: "no_trace".to_owned(),
+            reason: "storage_critical".to_owned(),
+            folder: folder.display().to_string(),
+            stopped_at,
+            files: BTreeMap::new(),
+        };
+        let run_folder = self.0.folder.clone();
+        let written = info.clone();
+        self.0
+            .owner
+            .blocking(move || write_stopped_marker(&run_folder, &written))
+            .await;
+        let _ = self.0.stop_info.set(info);
     }
 
     /// Starts the writer, unless an entry already did: the Run's work, once,
@@ -292,6 +410,9 @@ impl RunTrace {
     /// Writes `entry`, masked by the Run's `Mask` as a kept output, as one
     /// line of `log`.
     async fn written_masked(&self, log: Log, entry: &mut serde_json::Value) -> io::Result<()> {
+        if self.is_stopped() {
+            return Ok(());
+        }
         self.0.mask.masks().apply_value(entry, Scope::KeptOutput);
         let mut line = serde_json::to_vec(entry)?;
         line.push(b'\n');
@@ -311,6 +432,9 @@ impl RunTrace {
         struct Command {
             method: &'static str,
         }
+        if self.is_stopped() {
+            return;
+        }
         let mut line = Vec::with_capacity(method.len() + 14);
         if let Err(error) = serde_json::to_writer(&mut line, &Command { method }) {
             tracing::warn!(%error, "a CDP command line of the Run trace cannot be encoded");
@@ -320,7 +444,7 @@ impl RunTrace {
         match self.writer().await {
             Ok(writer) => {
                 let _ = writer
-                    .send(Entry {
+                    .send(Entry::Append {
                         log: Log::CdpCommands,
                         line,
                         written: None,
@@ -350,15 +474,21 @@ impl RunTrace {
     /// Sends `entry` to the writer, starting it first unless an entry did,
     /// and waiting for its place in the mailbox.
     async fn sent(&self, entry: Entry) -> io::Result<()> {
+        if self.is_stopped() {
+            return Ok(());
+        }
         self.writer().await?.send(entry).await.map_err(|_| ended())
     }
 
     /// Sends `line` to the writer for `log` and waits until it is written.
     async fn written(&self, log: Log, line: Vec<u8>) -> io::Result<()> {
+        if self.is_stopped() {
+            return Ok(());
+        }
         let writer = self.writer().await?;
         let (written, wrote) = oneshot::channel();
         writer
-            .send(Entry {
+            .send(Entry::Append {
                 log,
                 line,
                 written: Some(written),
@@ -411,7 +541,7 @@ impl CallLog {
             }
         };
         line.push(b'\n');
-        let sent = self.0.try_send(Entry {
+        let sent = self.0.try_send(Entry::Append {
             log: Log::Calls,
             line,
             written: None,
@@ -519,6 +649,9 @@ impl RequestLog {
     /// Records the line `name` with its `data` as [`Self::record_now`]
     /// says.
     fn line_now(&self, name: &str, data: &impl Serialize) {
+        if self.trace.is_stopped() {
+            return;
+        }
         let line = match self.line(name, data) {
             Ok(line) => line,
             Err(error) => {
@@ -526,7 +659,7 @@ impl RequestLog {
                 return;
             }
         };
-        let entry = Entry {
+        let entry = Entry::Append {
             log: Log::Requests,
             line,
             written: None,
@@ -623,6 +756,10 @@ struct Files {
     /// Whether each file's open was tried.
     file_tried: [bool; Log::COUNT],
     held: [Option<BufWriter<File>>; Log::COUNT],
+    /// How many lines were written to each log file.
+    lines: [u64; Log::COUNT],
+    /// Whether tracing stopped for `critical` storage (ADR 0122).
+    stopped: bool,
 }
 
 impl Files {
@@ -634,6 +771,8 @@ impl Files {
             folder_tried: false,
             file_tried: [false; Log::COUNT],
             held: [const { None }; Log::COUNT],
+            lines: [0; Log::COUNT],
+            stopped: false,
         }
     }
 
@@ -645,29 +784,43 @@ impl Files {
         let mut failed: [Option<io::ErrorKind>; Log::COUNT] = [None; Log::COUNT];
         let mut touched = [false; Log::COUNT];
         let mut waiting = Vec::new();
-        for Entry { log, line, written } in group {
-            let at = log.at();
-            touched[at] = true;
-            if let Err(error) = self.append(log, &line) {
-                tracing::warn!(%error, file = log.file(), "the Run trace cannot be written");
-                failed[at].get_or_insert(error.kind());
-            }
-            if let Some(written) = written {
-                waiting.push((at, written));
+        for entry in group {
+            match entry {
+                Entry::Append { log, line, written } => {
+                    if self.stopped {
+                        if let Some(written) = written {
+                            let _ = written.send(Ok(()));
+                        }
+                        continue;
+                    }
+                    let at = log.at();
+                    touched[at] = true;
+                    match self.append(log, &line) {
+                        Ok(()) => {
+                            self.lines[at] = self.lines[at].saturating_add(1);
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, file = log.file(), "the Run trace cannot be written");
+                            failed[at].get_or_insert(error.kind());
+                        }
+                    }
+                    if let Some(written) = written {
+                        waiting.push((at, written));
+                    }
+                }
+                Entry::Stop {
+                    folder,
+                    stopped_at,
+                    done,
+                } => {
+                    self.flush_touched(touched, &mut failed);
+                    touched = [false; Log::COUNT];
+                    let info = self.stop_now(&folder, stopped_at);
+                    let _ = done.send(info);
+                }
             }
         }
-        for log in Log::ALL {
-            let at = log.at();
-            if !touched[at] {
-                continue;
-            }
-            if let Some(file) = &mut self.held[at]
-                && let Err(error) = file.flush()
-            {
-                tracing::warn!(%error, file = log.file(), "the Run trace cannot be written");
-                failed[at].get_or_insert(error.kind());
-            }
-        }
+        self.flush_touched(touched, &mut failed);
         for (at, kind) in failed.iter().enumerate() {
             if kind.is_some()
                 && let Some(file) = self.held[at].take()
@@ -683,6 +836,69 @@ impl Files {
                 Err(io::Error::new(kind, "the Run trace cannot be written"))
             }));
         }
+    }
+
+    fn flush_touched(
+        &mut self,
+        touched: [bool; Log::COUNT],
+        failed: &mut [Option<io::ErrorKind>; Log::COUNT],
+    ) {
+        for log in Log::ALL {
+            let at = log.at();
+            if !touched[at] {
+                continue;
+            }
+            if let Some(file) = &mut self.held[at]
+                && let Err(error) = file.flush()
+            {
+                tracing::warn!(%error, file = log.file(), "the Run trace cannot be written");
+                failed[at].get_or_insert(error.kind());
+            }
+        }
+    }
+
+    /// Marks the trace stopped at `critical` storage, appends a final stop-mark
+    /// line to each open log file, writes `trace/stopped.json`, and closes all
+    /// file handles so no later entry is written (ADRs 0031 and 0122).
+    fn stop_now(&mut self, folder: &Path, stopped_at: String) -> TraceStopped {
+        self.stopped = true;
+        let mut files = BTreeMap::new();
+        for log in Log::ALL {
+            let at = log.at();
+            if self.lines[at] > 0 {
+                files.insert(log.file().to_owned(), self.lines[at]);
+            }
+        }
+        let info = TraceStopped {
+            mark: "no_trace".to_owned(),
+            reason: "storage_critical".to_owned(),
+            folder: folder.display().to_string(),
+            stopped_at,
+            files,
+        };
+        let marker_line = serde_json::json!({
+            "event": "run_trace.stopped",
+            "mark": &info.mark,
+            "reason": &info.reason,
+            "folder": &info.folder,
+            "stopped_at": &info.stopped_at,
+        });
+        if let Ok(mut bytes) = serde_json::to_vec(&marker_line) {
+            bytes.push(b'\n');
+            for log in Log::ALL {
+                let at = log.at();
+                if let Some(mut file) = self.held[at].take() {
+                    let _ = file.write_all(&bytes);
+                    let _ = file.flush();
+                }
+            }
+        } else {
+            for slot in &mut self.held {
+                *slot = None;
+            }
+        }
+        write_stopped_marker(&self.folder, &info);
+        info
     }
 
     /// Appends `line` to `log`'s buffer, opening its file and creating the
@@ -723,6 +939,73 @@ fn opening(tried: &mut bool) -> Row {
     } else {
         Row::RunTraceRunFileOpens
     }
+}
+
+/// Writes `trace/stopped.json` atomically inside `run_folder` (best effort:
+/// if the filesystem is already out of bytes, the failure is logged without
+/// stopping the Run).
+fn write_stopped_marker(run_folder: &Path, info: &TraceStopped) {
+    let path = run_folder.join(RUN_TRACE_STOPPED);
+    if let Some(parent) = path.parent()
+        && let Err(error) = durable::create_folder(parent)
+    {
+        tracing::warn!(%error, path = %path.display(), "the Run trace stop mark folder could not be created");
+        return;
+    }
+    let Ok(bytes) = serde_json::to_vec_pretty(info) else {
+        return;
+    };
+    if let Err(error) = durable::replace(&path, &bytes) {
+        tracing::warn!(%error, path = %path.display(), "the Run trace stop mark could not be written");
+    }
+}
+
+/// Copies the Run trace in `run_folder/trace/` whole-or-nothing to
+/// `destination` (ADRs 0102, 0116 and 0122), writing through a synced
+/// temporary file renamed into place. Blocking; call under the tasks module's
+/// blocking policy.
+///
+/// # Errors
+///
+/// When reading the trace files or writing `destination` fails.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "blocking trace copy runs under the tasks module's blocking policy"
+)]
+pub(crate) fn copy_trace_folder(run_folder: &Path, destination: &Path) -> io::Result<TraceCopy> {
+    let trace_dir = run_folder.join("trace");
+    let mut entries: BTreeMap<String, String> = BTreeMap::new();
+    if trace_dir.is_dir() {
+        for entry in std::fs::read_dir(&trace_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let content = std::fs::read_to_string(&path)?;
+                entries.insert(name, content);
+            }
+        }
+    }
+    let payload =
+        serde_json::to_vec(&serde_json::json!({ "files": entries })).map_err(io::Error::other)?;
+    if let Some(parent) = destination.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        durable::create_folder(parent)?;
+    }
+    durable::replace(destination, &payload)?;
+    let size = u64::try_from(payload.len()).unwrap_or(u64::MAX);
+    let digest = Sha256::digest(&payload);
+    let mut sha256 = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(&mut sha256, "{byte:02x}");
+    }
+    Ok(TraceCopy {
+        location: destination.to_owned(),
+        size,
+        sha256,
+    })
 }
 
 #[cfg(test)]

@@ -121,7 +121,7 @@ received (ADR 0079).
 - `verdict_rejected`: A Run's success check rejected its result.
 """
 
-RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "stealth_runtime_allowed", "storage_low"] | str
+RunWarningCode: TypeAlias = Literal["baseline_unavailable", "block_resources_visible", "browser_build_firefox", "browser_build_outdated", "browser_build_plugin", "browser_build_third_party", "clean_up_rules_fallback", "clean_up_rules_stale", "cpu_throttled", "engine_panicked", "file_write_failed", "filter_vendor_flagged", "fingerprint_basic", "fingerprint_basic_fallback", "fingerprint_js_injection", "fingerprint_none", "human_input_fallback", "no_trace", "path_not_writable", "plugin_figures", "plugin_quantity_above_maximum", "politeness_store_degraded", "proxy_exit_may_change", "stealth_runtime_allowed", "storage_low"] | str
 """A `run_warning_code`, a type both Products share (ADR 0095).
 
 Collie's values below; a value this package does not know is kept as
@@ -144,6 +144,7 @@ received (ADR 0079).
 - `fingerprint_js_injection`: A Session's fingerprint was injected by JavaScript, which a site can detect.
 - `fingerprint_none`: A Session ran with no fingerprint.
 - `human_input_fallback`: A Session's human input fell back to plain input.
+- `no_trace`: The Run trace stopped at the `critical` storage level or on a failed write ("no trace" mark).
 - `path_not_writable`: A file the Run writes at its end could not be written at its path.
 - `plugin_figures`: Usage figures come from a Plugin.
 - `plugin_quantity_above_maximum`: A Plugin reported a quantity above its declared maximum, recorded in full.

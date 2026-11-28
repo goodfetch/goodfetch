@@ -24,7 +24,9 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion};
+use crate::catalog::{
+    Entries, ErrorCodeDefinition, ErrorGroup, Product, ProtocolVersion, SharedType, SharedTypeValue,
+};
 use crate::error_code::ErrorCode;
 use crate::jsonrpc::RequestId;
 use crate::run::RunId;
@@ -344,6 +346,67 @@ pub const PLUGIN_QUARANTINED: ErrorCodeDefinition = ErrorCodeDefinition {
     arrived_in: ARRIVED_IN,
 };
 
+/// A process Plugin killed for exceeding a declared resource limit (ADR 0033).
+pub const PLUGIN_LIMIT_EXCEEDED: ErrorCodeDefinition = ErrorCodeDefinition {
+    name: "plugin_limit_exceeded",
+    description: "The process Plugin exceeded its memory, CPU time, process count or open-file limit and was killed under the crash rules. Not retryable; raise the Plugin's limit in its manifest and Operator policy, or fix the Plugin.",
+    group: ErrorGroup::Unavailable,
+    retryable: false,
+    exit_code: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// Which resource limit a process Plugin exceeded (ADR 0033).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginResourceLimit {
+    /// Its memory limit, in bytes.
+    Memory,
+    /// Its CPU time limit, in seconds.
+    CpuTime,
+    /// Its process count limit.
+    Processes,
+    /// Its open-file limit.
+    OpenFiles,
+}
+
+impl PluginResourceLimit {
+    /// Its `snake_case` name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::CpuTime => "cpu_time",
+            Self::Processes => "processes",
+            Self::OpenFiles => "open_files",
+        }
+    }
+}
+
+/// What `plugin_limit_exceeded` details (ADR 0033).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PluginLimitExceededDetails {
+    /// The Plugin's name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub plugin: String,
+    /// Which resource limit was exceeded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub resource: PluginResourceLimit,
+    /// The enforced limit value (bytes for `memory`, seconds for `cpu_time`,
+    /// count for `processes` and `open_files`).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub limit: u64,
+}
+
+/// A process Plugin quarantined for the rest of its run in the Audit log
+/// (ADR 0033).
+pub const PLUGIN_QUARANTINED_AUDIT: SharedTypeValue = SharedTypeValue {
+    shared_type: SharedType::AuditKind,
+    name: "plugin_quarantined",
+    description: "A process Plugin crashed three times within 10 minutes of a Run and was quarantined for the rest of the Run: the Plugin, the Run and the crash count.",
+    arrived_in: ARRIVED_IN,
+};
+
 /// A Plugin whose confinement the host cannot provide (ADR 0033).
 pub const CONFINEMENT_UNAVAILABLE: ErrorCodeDefinition = ErrorCodeDefinition {
     name: "confinement_unavailable",
@@ -377,6 +440,7 @@ pub const ENTRIES: Entries = Entries {
         PLUGIN_MANIFEST_MISMATCH,
         PLUGIN_PROTOCOL_UNSUPPORTED,
         PLUGIN_CRASHED,
+        PLUGIN_LIMIT_EXCEEDED,
         PLUGIN_QUARANTINED,
         CONFINEMENT_UNAVAILABLE,
     ],
@@ -384,7 +448,7 @@ pub const ENTRIES: Entries = Entries {
     metrics: &[],
     settings: &[settings::PLUGINS],
     hook_stages: &[],
-    shared_type_values: &[],
+    shared_type_values: &[PLUGIN_QUARANTINED_AUDIT],
 };
 
 #[cfg(test)]

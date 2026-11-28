@@ -25,18 +25,26 @@ use std::sync::{Arc, Mutex};
 use goodfetch_confinement::launch::Launch;
 use goodfetch_confinement::policy::{Instance, Policy};
 use goodfetch_confinement::probes::Layout;
+use goodfetch_engine::audit::AuditLog;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::deadline::Deadline;
+use goodfetch_engine::deadline::{Deadline, Enclosing};
+use goodfetch_engine::home::Home;
+use goodfetch_engine::lease::{LeaseCheck, LeaseEnded};
 use goodfetch_engine::plugin_gate::PluginFetch;
 use goodfetch_engine::plugin_host::instance::{
-    self, CallFailure, CallOptions, PluginInstance, Scope, UncertainCall, UncertainReporter,
+    self, CallFailure, CallOptions, InstanceHooks, PluginInstance, QuarantineEvent,
+    QuarantineNotifier, Scope, UncertainCall, UncertainReporter,
 };
 use goodfetch_engine::plugin_host::process::{Pipes, PluginProcess};
 use goodfetch_engine::settings::{Layers, Values, resolve};
 use goodfetch_engine::tasks::{BlockingPolicy, OwnerKind, TaskOwner};
 use goodfetch_protocol::catalog::Product;
+use goodfetch_protocol::connection::{CALL_CANCELLED, EnclosingCall};
 use goodfetch_protocol::effect::UncertainReason;
-use goodfetch_protocol::plugin::{COOKIE, COOKIE_VARIABLE, PluginManifest};
+use goodfetch_protocol::jsonrpc::RequestId;
+use goodfetch_protocol::plugin::{
+    COOKIE, COOKIE_VARIABLE, PLUGIN_QUARANTINED_AUDIT, PluginManifest,
+};
 use goodfetch_protocol::run::RunId;
 use goodfetch_protocol::settings::{SettingsLayer, TIMEOUT_PLUGIN};
 use goodfetch_test_support::{Tool, capturing, tools};
@@ -893,4 +901,254 @@ async fn a_confined_proxy_tcp_plugin_reaches_allowed_destination_through_shim_re
     inst2.stop().await;
     root.stop().await;
     let _ = echo_thread.join();
+}
+
+#[derive(Debug, Default)]
+struct RecordedQuarantines(Mutex<Vec<QuarantineEvent>>);
+
+impl QuarantineNotifier for RecordedQuarantines {
+    fn notify(
+        &self,
+        event: QuarantineEvent,
+    ) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        self.0.lock().unwrap().push(event);
+        Box::pin(async {})
+    }
+}
+
+#[derive(Debug)]
+struct ActiveLease(Enclosing);
+
+impl LeaseCheck for ActiveLease {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        Ok(())
+    }
+
+    fn withheld(&self, ended: LeaseEnded, method: &str) -> goodfetch_engine::CallError {
+        goodfetch_engine::CallError::new(
+            &CALL_CANCELLED,
+            format!("lease {ended}: `{method}` withheld"),
+            &(),
+        )
+    }
+
+    fn enclosing(&self) -> Option<Enclosing> {
+        Some(self.0.clone())
+    }
+}
+
+fn plugin_with_limits(limits: &Value, script: &Value) -> Plugin {
+    let root = tempfile::tempdir().unwrap();
+    let layout = Layout::under(&fs::canonicalize(root.path()).unwrap());
+    for folder in [&layout.bundle, &layout.instance] {
+        fs::create_dir_all(folder).unwrap();
+    }
+    let scripted = tools()
+        .unwrap()
+        .path(Tool::ScriptedPlugin)
+        .unwrap()
+        .to_owned();
+    fs::copy(scripted, layout.bundle.join("plugin")).unwrap();
+    let played = layout.bundle.join("script.json");
+    fs::write(&played, script.to_string()).unwrap();
+    let manifest = json!({
+        "manifest_version": "0.1",
+        "name": "scripted",
+        "version": "1.0.0",
+        "kinds": ["proxy"],
+        "protocol": { "min": "0.1", "max": "0.1" },
+        "entrypoint": "plugin",
+        "network_level": "none",
+        "limits": limits,
+    });
+    let manifest = PluginManifest::read(manifest.to_string().as_bytes()).unwrap();
+    let instance = Instance {
+        bundle: layout.bundle.clone(),
+        runtime: None,
+        folders: vec![layout.instance.clone()],
+        env: BTreeMap::new(),
+    };
+    let policy = Policy::of(&manifest, &instance, &layout.places).unwrap();
+    let launch = Launch {
+        policy,
+        program: layout.bundle.join("plugin"),
+        args: vec![played.to_string_lossy().into_owned()],
+        folder: layout.instance.clone(),
+        proxy_relay: None,
+    };
+    Plugin {
+        _root: root,
+        layout,
+        manifest,
+        launch,
+    }
+}
+
+/// Over Collie's executable with a confined scripted Plugin on Linux:
+/// - a crash fails an in-flight read with retryable `plugin_crashed`, retries
+///   reads under their lease after backoff + `hello_ok`, and leaves an
+///   unchecked Effect uncertain;
+/// - three crashes within 10 minutes quarantine the Plugin, record
+///   `plugin_quarantined` in the Audit log, fail later calls with
+///   `plugin_quarantined`, and send one Notification.
+///
+/// Covers: story:7-34, story:7-35
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn confined_crashing_plugin_retries_under_lease_and_quarantines_with_audit_and_notification()
+{
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let clock = Clock::system();
+    let home_dir = tempfile::tempdir().unwrap();
+    let home = Home::new(home_dir.path().to_path_buf());
+    let audit = AuditLog::of(&home, None, Arc::new(root.child()));
+    let notifications = Arc::new(RecordedQuarantines::default());
+    let run_id = RunId::parse("quarantine-collie-test").unwrap();
+
+    // 1. Crash once, retry read under lease -> succeeds on restarted process.
+    let retry_plugin = plugin_with_limits(
+        &json!({ "concurrency": 2 }),
+        &json!({
+            "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+            "answers": {
+                "work.flaky": {
+                    "crash_count_file": "flaky.count",
+                    "fail_times": 1,
+                    "then": { "result": { "recovered": true } },
+                },
+                "work.crash_effect": { "crash": true },
+            },
+        }),
+    );
+    let inst = PluginInstance::start(&root, retry_plugin.instance(), Scope::Run(run_id.clone()));
+    let lease_end = clock.now() + std::time::Duration::from_secs(20);
+    let lease: Arc<dyn LeaseCheck> = Arc::new(ActiveLease(Enclosing::new(
+        &Deadline::given(&TIMEOUT_PLUGIN, 20_000, SettingsLayer::Default),
+        EnclosingCall {
+            operation: "work.item".to_owned(),
+            call_id: RequestId::Number(1),
+        },
+        move || lease_end,
+    )));
+    let recovered: Value = inst
+        .call_retrying(
+            "work.flaky",
+            &json!({}),
+            CallOptions::read(Deadline::declared(&TIMEOUT_PLUGIN)).with_lease(lease),
+        )
+        .await
+        .unwrap()
+        .read()
+        .unwrap();
+    assert_eq!(recovered, json!({ "recovered": true }));
+
+    // An unchecked Effect on crash is reported uncertain and not retried blindly.
+    let reporter = Arc::new(RecordedUncertain::default());
+    let effect_err = inst
+        .call_retrying(
+            "work.crash_effect",
+            &json!({}),
+            CallOptions::effect(
+                Deadline::declared(&TIMEOUT_PLUGIN),
+                Arc::clone(&reporter) as _,
+            ),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(effect_err, CallFailure::Unavailable(ref e) if e.code() == "plugin_crashed"));
+    assert_eq!(reporter.0.lock().unwrap().len(), 1);
+    inst.stop().await;
+
+    // 2. Three crashes -> quarantine, Audit log entry, and exactly 1 Notification.
+    let crash_plugin = plugin_with_limits(
+        &json!({ "concurrency": 2 }),
+        &json!({
+            "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+            "answers": { "work.boom": { "crash": true } },
+        }),
+    );
+    let q_inst = PluginInstance::start_with(
+        &root,
+        crash_plugin.instance(),
+        Scope::Run(run_id.clone()),
+        InstanceHooks {
+            audit: Some(audit.clone()),
+            quarantine_notifier: Some(Arc::clone(&notifications) as _),
+            ..InstanceHooks::default()
+        },
+    );
+    for _ in 0..3 {
+        let err = q_inst.call("work.boom", &json!({})).await.unwrap_err();
+        assert!(matches!(err, CallFailure::Unavailable(ref e) if e.code() == "plugin_crashed"));
+    }
+    let after = q_inst.call("work.boom", &json!({})).await.unwrap_err();
+    assert!(matches!(after, CallFailure::Unavailable(ref e) if e.code() == "plugin_quarantined"));
+    assert_eq!(notifications.0.lock().unwrap().len(), 1);
+
+    let exported = audit.export().unwrap();
+    assert!(
+        exported
+            .iter()
+            .any(|e| e.entry.kind == PLUGIN_QUARANTINED_AUDIT.name
+                && e.entry.details["plugin"] == json!("scripted")),
+        "missing `plugin_quarantined` Audit log entry: {exported:?}"
+    );
+    q_inst.stop().await;
+    root.stop().await;
+}
+
+/// Real Linux confined Plugins exceeding `memory`, `cpu_time` and `open_files`
+/// are killed with non-retryable `plugin_limit_exceeded` under the crash rules.
+///
+/// Covers: story:7-37, error:plugin_limit_exceeded
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn confined_linux_plugin_resource_limits_kill_with_plugin_limit_exceeded() {
+    let root = TaskOwner::root(BlockingPolicy::Threads);
+    let cases = [
+        (
+            "memory",
+            json!({ "memory": 32 * 1024 * 1024_u64, "cpu_time": 30, "open_files": 64 }),
+        ),
+        (
+            "cpu_time",
+            json!({ "memory": 128 * 1024 * 1024_u64, "cpu_time": 1, "open_files": 64 }),
+        ),
+        (
+            "open_files",
+            json!({ "memory": 128 * 1024 * 1024_u64, "cpu_time": 30, "open_files": 16 }),
+        ),
+    ];
+
+    for (resource, limits) in cases {
+        let plugin = plugin_with_limits(
+            &limits,
+            &json!({
+                "hello": hello(&json!([{ "kind": "proxy", "capabilities": [] }])),
+                "answers": { "work.exceed": { "exceed": resource } },
+            }),
+        );
+        let inst = PluginInstance::start(&root, plugin.instance(), Scope::Task(None));
+        let failure = inst.call("work.exceed", &json!({})).await.unwrap_err();
+        let CallFailure::Unavailable(error) = failure else {
+            panic!("expected Unavailable(plugin_limit_exceeded) for `{resource}`, got {failure:?}");
+        };
+        assert_eq!(
+            error.code(),
+            "plugin_limit_exceeded",
+            "resource={resource}: {error:?}"
+        );
+        assert!(
+            !error.retryable(),
+            "resource={resource} must not be retryable"
+        );
+        assert_eq!(
+            error.details().map(|d| d["resource"].clone()),
+            Some(json!(resource)),
+            "resource={resource}: {error:?}"
+        );
+        inst.stop().await;
+    }
+
+    root.stop().await;
 }

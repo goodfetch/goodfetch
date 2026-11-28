@@ -1299,6 +1299,19 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "The process Plugin exceeded its memory, CPU time, process count or open-file limit and was killed under the crash rules. Not retryable; raise the Plugin's limit in its manifest and Operator policy, or fix the Plugin.",
+      "details": {
+        "$ref": "#/$defs/PluginLimitExceededDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_limit_exceeded",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
       "description": "The Plugin lockfile, `goodfetch-plugins.lock`, is not TOML, holds a field a lockfile has not, or pins one Plugin name twice, so the engine leaves it as it is and installs nothing. The message names the fault; correct the file, or restore it from version control. A lockfile of a version this engine does not read fails with `format_version_unsupported` instead.",
       "exit_code": null,
       "group": "refused",
@@ -16775,6 +16788,13 @@
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A process Plugin crashed three times within 10 minutes of a Run and was quarantined for the rest of the Run: the Plugin, the Run and the crash count.",
+      "name": "plugin_quarantined",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

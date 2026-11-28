@@ -53,9 +53,11 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::time::{Duration, SystemTime};
 
 use futures_util::future::BoxFuture;
 use goodfetch_confinement::launch::Launch;
+use goodfetch_protocol::audit::Actor;
 use goodfetch_protocol::catalog::{ErrorCodeDefinition, OperationClass, Product};
 use goodfetch_protocol::connection::{CALL_CANCELLED, INTERNAL, WaitedFor};
 use goodfetch_protocol::effect::UncertainReason;
@@ -68,32 +70,42 @@ use goodfetch_protocol::plugin::net::{
 };
 use goodfetch_protocol::plugin::spend::{USAGE_REPORT, UsageReportParams, UsageReportResult};
 use goodfetch_protocol::plugin::{
-    CANCEL, CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, PLUGIN_CRASHED, PLUGIN_MANIFEST_MISMATCH,
-    PLUGIN_PROTOCOL, PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PluginCancelParams,
-    PluginHelloParams, PluginHelloResult, PluginKindName, PluginManifest, check_hello,
+    CANCEL, CONFINEMENT_UNAVAILABLE, HELLO, HelloRefusal, MISSED_PINGS, PING, PING_INTERVAL,
+    PLUGIN_CRASHED, PLUGIN_LIMIT_EXCEEDED, PLUGIN_MANIFEST_MISMATCH, PLUGIN_PROTOCOL,
+    PLUGIN_PROTOCOL_UNSUPPORTED, PLUGIN_QUARANTINED, PLUGIN_QUARANTINED_AUDIT, PluginCancelParams,
+    PluginHelloParams, PluginHelloResult, PluginKindName, PluginLimitExceededDetails,
+    PluginManifest, PluginPingParams, PluginResourceLimit, check_hello,
 };
 use goodfetch_protocol::run::RunId;
 use serde::Serialize;
+use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _, DuplexStream};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
 use super::lifecycle::{
-    self, InstanceEffect, InstanceEvent, InstanceState, InvalidInstanceTransition, RecentCrashes,
+    self, CrashDecision, CrashTracker, InstanceEffect, InstanceEvent, InstanceState,
+    InvalidInstanceTransition, RecentCrashes,
 };
+use super::limits::{self, ResourceMonitor};
 use super::process::{Ended, Pipes, PluginProcess};
 use super::spend::{DeclaredSpend, PluginSpend, ReportedSpend};
 use super::streams::{INITIAL_CREDITS, STREAM_EVENTS, StreamEvent, StreamRegistry};
+use crate::audit::{self, AuditLog};
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::deadline::{Deadline, Enclosing};
 use crate::framing::{self, Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use crate::lease::LeaseCheck;
-use crate::plugin_gate::{CALL_BACKS, PluginFetch, admit_call_back};
+use crate::plugin_gate::{CALL_BACKS, OpenStreams, PluginFetch, admit_call_back};
 use crate::tasks::TaskOwner;
 use crate::transition::Refusal;
 use crate::wire::{self, Received};
+
+/// How often an active Plugin instance samples its resource monitor when one
+/// is attached.
+const RESOURCE_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// The id of the engine's `hello`: each call's id is one of the next.
 const HELLO_ID: i64 = 0;
@@ -178,6 +190,45 @@ pub trait UncertainReporter: fmt::Debug + Send + Sync {
     /// Reports that the Effect-class call `call` was abandoned in flight
     /// and is now uncertain.
     fn report(&self, call: UncertainCall);
+}
+
+/// Emitted once when a Plugin instance is quarantined for the rest of its run
+/// after three crashes within 10 minutes (ADRs 0027 and 0033, issue 837).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuarantineEvent {
+    /// The quarantined Plugin's name.
+    pub plugin: String,
+    /// The Run it belonged to, if any.
+    pub run_id: Option<RunId>,
+    /// The Product whose engine ran it.
+    pub product: Product,
+    /// Total crashes recorded by this instance, the quarantining one included.
+    pub crashes: u32,
+    /// Error code of the final crash (`plugin_crashed` or `plugin_limit_exceeded`).
+    pub reason: String,
+    /// Wall-clock timestamp of the quarantine.
+    pub occurred_at: SystemTime,
+}
+
+/// Delivers the "a Plugin quarantined" Notification once per Run and Plugin
+/// through ADR 0027's delivery ledger (issue 837).
+pub trait QuarantineNotifier: fmt::Debug + Send + Sync {
+    /// Delivers the Notification for `event`.
+    fn notify(&self, event: QuarantineEvent) -> BoxFuture<'static, ()>;
+}
+
+/// Optional host observers and limit monitors attached when starting a
+/// [`PluginInstance`] (ADR 0033, issue 837).
+#[derive(Clone, Debug, Default)]
+pub struct InstanceHooks {
+    /// Audit log that records `plugin_quarantined` entries.
+    pub audit: Option<AuditLog>,
+    /// Notification sink invoked once when the instance is quarantined.
+    pub quarantine_notifier: Option<Arc<dyn QuarantineNotifier>>,
+    /// Explicit resource monitor overriding the default OS `/proc` sampler.
+    pub resource_monitor: Option<Arc<dyn ResourceMonitor>>,
+    /// Active `proxy_tcp` open stream counter for abandoned-call restart checks.
+    pub proxied_streams: Option<OpenStreams>,
 }
 
 /// Executes a `page.*` or `locator.*` call back made by a process-Plugin Hook
@@ -431,6 +482,18 @@ impl PluginInstance {
     /// wait for it.
     #[must_use]
     pub fn start(owner: &TaskOwner, plugin: Plugin, scope: Scope) -> Self {
+        Self::start_with(owner, plugin, scope, InstanceHooks::default())
+    }
+
+    /// Starts the instance of `plugin` for `scope` with `hooks` (audit log,
+    /// quarantine notifier, resource monitor, proxied stream counter).
+    #[must_use]
+    pub fn start_with(
+        owner: &TaskOwner,
+        plugin: Plugin,
+        scope: Scope,
+        hooks: InstanceHooks,
+    ) -> Self {
         let start_process = ProcessStart {
             launcher: plugin.launcher,
             launch: plugin.launch,
@@ -441,13 +504,17 @@ impl PluginInstance {
             fetch: plugin.fetch,
         };
         let (handle, running, span) =
-            Self::prepare(owner, config, scope, plugin.clock, plugin.spend);
-        owner.spawn(running.run_process(start_process).instrument(span));
+            Self::prepare(owner, config, scope, plugin.clock, plugin.spend, hooks);
+        owner.spawn(
+            running
+                .run_lifecycle(TransportFactory::Process(Box::new(start_process)))
+                .instrument(span),
+        );
         handle
     }
 
-    /// Starts an in-memory instance of `plugin` for `scope` as a task of
-    /// `owner`, speaking the plugin protocol over duplex streams rather
+    /// Starts a single-peer in-memory instance of `plugin` for `scope` as a
+    /// task of `owner`, speaking the plugin protocol over duplex streams rather
     /// than a child process, so the host's rules can run on `Clock::paused`.
     #[must_use]
     pub fn start_in_memory(
@@ -462,11 +529,20 @@ impl PluginInstance {
             product: plugin.product,
             fetch: plugin.fetch,
         };
-        let (handle, running, span) =
-            Self::prepare(owner, config, scope, plugin.clock, plugin.spend);
+        let (handle, running, span) = Self::prepare(
+            owner,
+            config,
+            scope,
+            plugin.clock,
+            plugin.spend,
+            InstanceHooks::default(),
+        );
         owner.spawn(
             running
-                .run_pipes(Backend::InMemory, engine_write, engine_read)
+                .run_lifecycle(TransportFactory::InMemorySingle(Some((
+                    engine_write,
+                    engine_read,
+                ))))
                 .instrument(span),
         );
         (
@@ -478,6 +554,32 @@ impl PluginInstance {
         )
     }
 
+    /// Starts a restartable in-memory instance of `plugin` for `scope` with
+    /// `hooks`, yielding a fresh [`InMemoryPeer`] on the returned receiver for
+    /// the initial start and every restart after backoff (ADR 0033, issue 837).
+    #[must_use]
+    pub fn start_in_memory_restarting(
+        owner: &TaskOwner,
+        plugin: InMemoryPlugin,
+        scope: Scope,
+        hooks: InstanceHooks,
+    ) -> (Self, mpsc::UnboundedReceiver<InMemoryPeer>) {
+        let (peers_tx, peers_rx) = mpsc::unbounded_channel();
+        let config = Config {
+            manifest: plugin.manifest,
+            product: plugin.product,
+            fetch: plugin.fetch,
+        };
+        let (handle, running, span) =
+            Self::prepare(owner, config, scope, plugin.clock, plugin.spend, hooks);
+        owner.spawn(
+            running
+                .run_lifecycle(TransportFactory::InMemoryRestarting(peers_tx))
+                .instrument(span),
+        );
+        (handle, peers_rx)
+    }
+
     /// Builds the shared handle, actor task and tracing span for both
     /// process and in-memory instances.
     fn prepare(
@@ -486,6 +588,7 @@ impl PluginInstance {
         scope: Scope,
         clock: Clock,
         spend: Option<PluginSpend>,
+        hooks: InstanceHooks,
     ) -> (Self, Running, tracing::Span) {
         let (calls, mailbox) = mpsc::channel(MAILBOX);
         let (cancels, cancelled_calls) = mpsc::unbounded_channel();
@@ -506,6 +609,11 @@ impl PluginInstance {
             stop_reason: Arc::clone(&stop_reason),
             config,
             scope,
+            clock,
+            hooks,
+            crash_tracker: CrashTracker::new(),
+            quarantine_notified: false,
+            next_ping_id: -1,
             mailbox,
             cancels: cancelled_calls,
             ending,
@@ -657,6 +765,39 @@ impl PluginInstance {
         outcome
     }
 
+    /// Calls `method` with `params` under `options`, retrying on retryable
+    /// crashes (`plugin_crashed`) while `options.class` is `Read` or
+    /// `IdempotentWrite` and the call's lease and deadline still hold (ADRs
+    /// 0010, 0029 and 0033).
+    ///
+    /// An `Effect`-class call is never retried blindly, and a non-retryable
+    /// failure (`plugin_limit_exceeded`, `plugin_quarantined`, etc.) is
+    /// returned immediately.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::call_under`].
+    pub async fn call_retrying(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        options: CallOptions,
+    ) -> Result<Received, CallFailure> {
+        if options.class == OperationClass::Effect {
+            return self.call_under(method, params, options).await;
+        }
+        loop {
+            match self.call_under(method, params, options.clone()).await {
+                Err(CallFailure::Unavailable(ref error)) if error.retryable() => {
+                    if self.ended().is_some() {
+                        return Err(CallFailure::Unavailable(error.clone()));
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+
     /// Stops the instance and waits until its process is gone and its
     /// private temporary folder deleted.
     ///
@@ -753,6 +894,26 @@ impl Backend {
     }
 }
 
+/// How each generation of a [`PluginInstance`] obtains its transport pipes.
+enum TransportFactory {
+    Process(Box<ProcessStart>),
+    InMemorySingle(Option<(DuplexStream, DuplexStream)>),
+    InMemoryRestarting(mpsc::UnboundedSender<InMemoryPeer>),
+}
+
+impl TransportFactory {
+    fn can_restart(&self) -> bool {
+        !matches!(self, Self::InMemorySingle(_))
+    }
+
+    fn folder(&self) -> Option<PathBuf> {
+        match self {
+            Self::Process(start) => Some(start.launch.folder.clone()),
+            Self::InMemorySingle(_) | Self::InMemoryRestarting(_) => None,
+        }
+    }
+}
+
 /// The instance's task.
 struct Running {
     /// The instance's own owner, under the one it started on.
@@ -764,6 +925,11 @@ struct Running {
     stop_reason: Arc<std::sync::Mutex<Option<CallError>>>,
     config: Config,
     scope: Scope,
+    clock: Clock,
+    hooks: InstanceHooks,
+    crash_tracker: CrashTracker,
+    quarantine_notified: bool,
+    next_ping_id: i64,
     mailbox: mpsc::Receiver<Call>,
     cancels: mpsc::UnboundedReceiver<Cancel>,
     ending: watch::Sender<Option<CallError>>,
@@ -785,6 +951,10 @@ struct Instance {
     abandoned_order: VecDeque<RequestId>,
     /// Whether its `hello` awaits its answer.
     hello_awaited: bool,
+    /// Unanswered `$/ping` request ids sent to the current process generation.
+    pending_pings: BTreeSet<RequestId>,
+    /// Consecutive ping intervals elapsed without any `$/ping` answer.
+    missed_pings: u32,
     /// The Plugin's call backs that run.
     call_backs: CallBacks,
     /// Open `net.connect` streams carried as `net.stream.*` frames.
@@ -810,6 +980,14 @@ impl CallBacks {
             serving.cancel();
         }
     }
+
+    /// Cancels every active call back across all calls (on crash or restart).
+    fn cancel_all(&mut self) {
+        for (_, serving) in std::mem::take(&mut self.serving) {
+            serving.cancel();
+        }
+        self.running = 0;
+    }
 }
 
 impl Instance {
@@ -830,6 +1008,8 @@ impl Instance {
             abandoned_set: BTreeSet::new(),
             abandoned_order: VecDeque::new(),
             hello_awaited: true,
+            pending_pings: BTreeSet::new(),
+            missed_pings: 0,
             call_backs: CallBacks {
                 serving: BTreeMap::new(),
                 running: 0,
@@ -839,9 +1019,30 @@ impl Instance {
         }
     }
 
-    /// Whether an answer with `id` is awaited: its `hello`'s or a call's.
+    /// Resets per-process-generation state when starting a replacement process
+    /// while keeping `state` and `queued` calls intact.
+    fn reset_generation(
+        &mut self,
+        answers: mpsc::Sender<Vec<u8>>,
+        stream_events: mpsc::Sender<StreamEvent>,
+    ) {
+        self.abandoned_set.clear();
+        self.abandoned_order.clear();
+        self.hello_awaited = true;
+        self.pending_pings.clear();
+        self.missed_pings = 0;
+        self.call_backs.cancel_all();
+        self.call_backs.answers = answers;
+        self.streams.close_all();
+        self.streams = StreamRegistry::new(stream_events);
+    }
+
+    /// Whether an answer with `id` is awaited: its `hello`'s, a `$/ping`'s,
+    /// or a call's.
     fn awaits(&self, id: &RequestId) -> bool {
-        (self.hello_awaited && *id == RequestId::Number(HELLO_ID)) || self.waiting.contains_key(id)
+        (self.hello_awaited && *id == RequestId::Number(HELLO_ID))
+            || self.pending_pings.contains(id)
+            || self.waiting.contains_key(id)
     }
 
     /// Records `id` as an abandoned in-flight call so its late result is
@@ -877,21 +1078,273 @@ impl Instance {
     }
 }
 
-/// What ends an instance's loop.
+/// Why a single process/peer generation exited.
 enum Exit {
     /// Its owner was stopped, [`PluginInstance::stop`] called or every
     /// handle dropped: the event it was.
     Stopped(InstanceEvent),
-    /// It ends with this reason, which its calls fail with.
+    /// A fatal refusal (`hello` mismatch, `confinement_unavailable`, encoding
+    /// error) that stops the instance without restarting.
     Failed(CallError),
+    /// The process crashed, hit a resource limit, or violated an abandoned-call
+    /// rule: handled under the crash/backoff/quarantine rules.
+    Crashed {
+        /// Whether this was a missed heartbeat (`PingMissed`) rather than a
+        /// process exit or kill (`Crash`).
+        ping_missed: bool,
+        /// Failure error delivered to in-flight calls.
+        reason: CallError,
+    },
+}
+
+/// Active per-generation runtime handles dropped when a generation ends.
+struct GenerationGuards {
+    #[cfg(target_os = "linux")]
+    _proxy: Option<crate::plugin_gate::PluginProxy>,
+    proxied_streams: Option<OpenStreams>,
+    monitor: Option<Arc<dyn ResourceMonitor>>,
 }
 
 impl Running {
-    async fn run_process(self, mut start: ProcessStart) {
+    /// Handles a crash, resource-limit kill, or missed heartbeat under the
+    /// crash/backoff/quarantine rules, returning `Some(final_reason)` when the
+    /// instance ends or `None` to launch a replacement generation.
+    async fn handle_crash(
+        &mut self,
+        instance: &mut Instance,
+        can_restart: bool,
+        ping_missed: bool,
+        reason: CallError,
+    ) -> Option<CallError> {
+        let waiting = std::mem::take(&mut instance.waiting);
+        for call in waiting.into_values() {
+            self.report_if_effect(&call);
+            let _ = call
+                .answer
+                .send(Err(CallFailure::Unavailable(reason.clone())));
+        }
+        if !can_restart {
+            let _ = instance.apply(InstanceEvent::Crash(RecentCrashes::Fewer));
+            return Some(reason);
+        }
+        let decision = self.crash_tracker.record(self.clock.now());
+        let event = if ping_missed {
+            InstanceEvent::PingMissed(decision.recent())
+        } else {
+            InstanceEvent::Crash(decision.recent())
+        };
+        match instance.apply(event) {
+            Ok(InstanceEffect::Restart) => {
+                let CrashDecision::Restart { wait } = decision else {
+                    return Some(internal("restart effect without restart decision"));
+                };
+                if let Some(stop_exit) = self.wait_backoff(instance, wait).await {
+                    return Some(match stop_exit {
+                        Exit::Stopped(ev) => {
+                            let _ = instance.apply(ev);
+                            self.take_stop_reason()
+                        }
+                        Exit::Failed(err) | Exit::Crashed { reason: err, .. } => err,
+                    });
+                }
+                None
+            }
+            Ok(InstanceEffect::Quarantine) => {
+                let crashes = match decision {
+                    CrashDecision::Quarantine { crashes } => crashes,
+                    CrashDecision::Restart { .. } => self.crash_tracker.total_crashes(),
+                };
+                self.enter_quarantine(instance, crashes, &reason).await;
+                let stop_event = self.serve_quarantined(instance).await;
+                let _ = instance.apply(stop_event);
+                Some(self.take_stop_reason())
+            }
+            Ok(InstanceEffect::Nothing) => None,
+            Ok(other) => Some(internal(&format!("crash event led to {other:?}"))),
+            Err(refused) => Some(internal(&refused.to_string())),
+        }
+    }
+
+    fn take_stop_reason(&self) -> CallError {
+        self.stop_reason
+            .lock()
+            .ok()
+            .and_then(|mut slot| slot.take())
+            .unwrap_or_else(cancelled)
+    }
+
+    fn exit_from_ended(&self, ended: std::io::Result<Ended>) -> Exit {
+        match ended {
+            Ok(Ended::ConfinementUnavailable) => Exit::Failed(code(
+                &CONFINEMENT_UNAVAILABLE,
+                "the host cannot confine the Plugin as its manifest declares",
+            )),
+            Ok(Ended::LimitExceeded(resource)) => Exit::Crashed {
+                ping_missed: false,
+                reason: limit_exceeded_error(
+                    &self.config.manifest.name,
+                    resource,
+                    limits::limit_value(&self.config.manifest.limits, resource),
+                ),
+            },
+            Ok(Ended::Exited(status)) => Exit::Crashed {
+                ping_missed: false,
+                reason: code(
+                    &PLUGIN_CRASHED,
+                    &format!("the Plugin exited with the status {status:?}"),
+                ),
+            },
+            Err(error) => Exit::Crashed {
+                ping_missed: false,
+                reason: code(
+                    &PLUGIN_CRASHED,
+                    &format!("the Plugin's end cannot be told: {error}"),
+                ),
+            },
+        }
+    }
+
+    /// Drives the full lifecycle of a Plugin instance across crashes, backoff
+    /// waits, restarts, and quarantine until `run_ended`, `stop`, a fatal
+    /// `hello`/confinement refusal, or all handles being dropped (ADR 0033).
+    async fn run_lifecycle(mut self, mut factory: TransportFactory) {
+        let (dummy_answers, _) = mpsc::channel(CALL_BACKS);
+        let (dummy_streams, _) = mpsc::channel(STREAM_EVENTS);
+        let mut instance = Instance::new(
+            self.config.manifest.limits.concurrency,
+            dummy_answers,
+            dummy_streams,
+        );
+        let folder = factory.folder();
+        let final_reason: CallError = loop {
+            let (answers, call_backs_answered) = mpsc::channel(CALL_BACKS);
+            let (stream_tx, stream_rx) = mpsc::channel(STREAM_EVENTS);
+            instance.reset_generation(answers, stream_tx);
+
+            let exit = match &mut factory {
+                TransportFactory::Process(start) => {
+                    self.run_process_generation(
+                        &mut instance,
+                        start,
+                        call_backs_answered,
+                        stream_rx,
+                    )
+                    .await
+                }
+                TransportFactory::InMemorySingle(pipes) => {
+                    let Some((stdin, stdout)) = pipes.take() else {
+                        break code(&PLUGIN_CRASHED, "the in-memory Plugin ended");
+                    };
+                    self.run_in_memory_generation(
+                        &mut instance,
+                        stdin,
+                        stdout,
+                        call_backs_answered,
+                        stream_rx,
+                    )
+                    .await
+                }
+                TransportFactory::InMemoryRestarting(peers_tx) => {
+                    let (engine_write, from_engine) = tokio::io::duplex(READ_BYTES);
+                    let (to_engine, engine_read) = tokio::io::duplex(READ_BYTES);
+                    if peers_tx
+                        .send(InMemoryPeer {
+                            from_engine,
+                            to_engine,
+                        })
+                        .is_err()
+                    {
+                        break cancelled();
+                    }
+                    self.run_in_memory_generation(
+                        &mut instance,
+                        engine_write,
+                        engine_read,
+                        call_backs_answered,
+                        stream_rx,
+                    )
+                    .await
+                }
+            };
+
+            instance.streams.close_all();
+            instance.call_backs.cancel_all();
+
+            match exit {
+                Exit::Stopped(event) => {
+                    let _ = instance.apply(event);
+                    break self.take_stop_reason();
+                }
+                Exit::Failed(reason) => break reason,
+                Exit::Crashed {
+                    ping_missed,
+                    reason,
+                } => {
+                    if let Some(done) = self
+                        .handle_crash(&mut instance, factory.can_restart(), ping_missed, reason)
+                        .await
+                    {
+                        break done;
+                    }
+                }
+            }
+        };
+
+        if let Some(folder) = folder {
+            self.forget_folder(folder).await;
+        }
+        self.end(&final_reason, instance.queued, instance.waiting);
+    }
+
+    async fn run_in_memory_generation(
+        &mut self,
+        instance: &mut Instance,
+        mut stdin: DuplexStream,
+        stdout: DuplexStream,
+        call_backs_answered: mpsc::Receiver<Vec<u8>>,
+        stream_rx: mpsc::Receiver<StreamEvent>,
+    ) -> Exit {
+        let guards = GenerationGuards {
+            #[cfg(target_os = "linux")]
+            _proxy: None,
+            proxied_streams: self.hooks.proxied_streams.clone(),
+            monitor: self.hooks.resource_monitor.clone(),
+        };
+        let mut backend = Backend::InMemory;
+        self.run_generation_pipes(
+            instance,
+            &mut backend,
+            &guards,
+            (&mut stdin, stdout, call_backs_answered, stream_rx),
+        )
+        .await
+    }
+
+    async fn run_process_generation(
+        &mut self,
+        instance: &mut Instance,
+        start: &ProcessStart,
+        call_backs_answered: mpsc::Receiver<Vec<u8>>,
+        stream_rx: mpsc::Receiver<StreamEvent>,
+    ) -> Exit {
+        // Ensure the instance's private temporary folder exists before every start.
+        let folder = start.launch.folder.clone();
+        let _ = self
+            .owner
+            .blocking(move || {
+                #[expect(
+                    clippy::disallowed_methods,
+                    reason = "runs on the tasks module's blocking policy before launching"
+                )]
+                std::fs::create_dir_all(&folder)
+            })
+            .await;
+
+        let mut launch = start.launch.clone();
         #[cfg(target_os = "linux")]
-        let (_proxy_guard, started) = if self.config.manifest.network_level
+        let (proxy_guard, proxied_streams, started) = if self.config.manifest.network_level
             == goodfetch_protocol::plugin::NetworkLevel::ProxyTcp
-            && start.launch.proxy_relay.is_none()
+            && launch.proxy_relay.is_none()
         {
             match crate::plugin_gate::PluginProxy::start_linux_relay(
                 &self.owner,
@@ -901,77 +1354,247 @@ impl Running {
             ) {
                 Ok((proxy, control_fd)) => {
                     let creds = proxy.credentials();
-                    start.launch.proxy_relay = Some(goodfetch_confinement::launch::ProxyRelay {
+                    let counter = proxy.open_streams_counter();
+                    launch.proxy_relay = Some(goodfetch_confinement::launch::ProxyRelay {
                         control_fd: goodfetch_confinement::linux::relay::CONTROL_FD,
                         username: creds.username.clone(),
                         password: creds.password.clone(),
                     });
                     let started = PluginProcess::start_with_fd(
                         &start.launcher,
-                        &start.launch,
+                        &launch,
                         control_fd,
                         goodfetch_confinement::linux::relay::CONTROL_FD,
                     );
-                    (Some(proxy), started)
+                    (Some(proxy), Some(counter), started)
                 }
-                Err(error) => (None, Err(error)),
+                Err(error) => (None, None, Err(error)),
             }
         } else {
-            (None, PluginProcess::start(&start.launcher, &start.launch))
+            (
+                None,
+                self.hooks.proxied_streams.clone(),
+                PluginProcess::start(&start.launcher, &launch),
+            )
         };
         #[cfg(not(target_os = "linux"))]
-        let started = PluginProcess::start(&start.launcher, &start.launch);
-        let (process, Pipes { stdin, stdout }) = match started {
+        let (proxied_streams, started) = (
+            self.hooks.proxied_streams.clone(),
+            PluginProcess::start(&start.launcher, &launch),
+        );
+
+        let (process, Pipes { mut stdin, stdout }) = match started {
             Ok(started) => started,
             Err(error) => {
-                let reason = internal(&format!("the Plugin's launcher did not start: {error}"));
-                self.forget_folder(start.launch.folder).await;
-                self.end(&reason, VecDeque::new(), BTreeMap::new());
-                return;
+                return Exit::Failed(internal(&format!(
+                    "the Plugin's launcher did not start: {error}"
+                )));
             }
         };
-        self.run_pipes(Backend::Process(Box::new(process)), stdin, stdout)
+
+        let monitor: Option<Arc<dyn ResourceMonitor>> =
+            if let Some(custom) = &self.hooks.resource_monitor {
+                Some(Arc::clone(custom))
+            } else {
+                #[cfg(target_os = "linux")]
+                {
+                    process
+                        .pid()
+                        .and_then(limits::ProcGroupMonitor::for_pid)
+                        .map(|m| Arc::new(m) as Arc<dyn ResourceMonitor>)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    None
+                }
+            };
+
+        let guards = GenerationGuards {
+            #[cfg(target_os = "linux")]
+            _proxy: proxy_guard,
+            proxied_streams,
+            monitor,
+        };
+        let mut backend = Backend::Process(Box::new(process));
+        let exit = self
+            .run_generation_pipes(
+                instance,
+                &mut backend,
+                &guards,
+                (&mut stdin, stdout, call_backs_answered, stream_rx),
+            )
             .await;
+        drop(stdin);
+        drop(guards);
+        if let Backend::Process(process) = backend {
+            process.kill_group().await;
+        }
+        exit
     }
 
-    async fn run_pipes<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
-        mut self,
-        mut backend: Backend,
-        mut stdin: W,
-        stdout: R,
-    ) {
-        let (answers, call_backs_answered) = mpsc::channel(CALL_BACKS);
-        let (stream_tx, stream_rx) = mpsc::channel(STREAM_EVENTS);
-        let mut instance =
-            Instance::new(self.config.manifest.limits.concurrency, answers, stream_tx);
-        let exit = match self.hello_line() {
+    async fn run_generation_pipes<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
+        &mut self,
+        instance: &mut Instance,
+        backend: &mut Backend,
+        guards: &GenerationGuards,
+        (stdin, stdout, call_backs_answered, stream_rx): (
+            &mut W,
+            R,
+            mpsc::Receiver<Vec<u8>>,
+            mpsc::Receiver<StreamEvent>,
+        ),
+    ) -> Exit {
+        match self.hello_line() {
             Ok(line) => {
-                write(&self.stopping, &mut stdin, &line).await;
-                let pipes = (&mut stdin, stdout, call_backs_answered, stream_rx);
-                self.serve(&mut instance, &mut backend, pipes).await
+                write(&self.stopping, stdin, &line).await;
+                self.serve(
+                    instance,
+                    backend,
+                    guards,
+                    (stdin, stdout, call_backs_answered, stream_rx),
+                )
+                .await
             }
             Err(reason) => Exit::Failed(reason),
-        };
-        instance.streams.close_all();
-        let reason = match exit {
-            Exit::Stopped(event) => {
-                // `run_ended` and `stop` stop the instance in every state.
-                let _ = instance.apply(event);
-                self.stop_reason
-                    .lock()
-                    .ok()
-                    .and_then(|mut slot| slot.take())
-                    .unwrap_or_else(cancelled)
-            }
-            Exit::Failed(reason) => reason,
-        };
-        drop(stdin);
-        if let Backend::Process(process) = backend
-            && let Err(error) = process.stop(&self.owner).await
-        {
-            tracing::warn!(%error, "the instance's private temporary folder was not deleted");
         }
-        self.end(&reason, instance.queued, instance.waiting);
+    }
+
+    /// Waits for `wait` backoff before starting the replacement process while
+    /// still accepting incoming calls into `instance.queued`, honouring
+    /// cancellations, and stopping immediately on `run_ended` or `stop`.
+    async fn wait_backoff(&mut self, instance: &mut Instance, wait: Duration) -> Option<Exit> {
+        let sleep = self.clock.sleep(wait);
+        tokio::pin!(sleep);
+        loop {
+            tokio::select! {
+                biased;
+                () = self.stopping.cancelled() => {
+                    let event = if self.owner.token().is_cancelled() {
+                        self.scope.ended()
+                    } else {
+                        InstanceEvent::Stop
+                    };
+                    return Some(Exit::Stopped(event));
+                }
+                Some(cancel) = self.cancels.recv() => {
+                    if let Some(pos) = instance.queued.iter().position(|call| call.id == cancel.id) {
+                        instance.queued.remove(pos);
+                    }
+                    if let Some(ack) = cancel.ack {
+                        let _ = ack.send(());
+                    }
+                }
+                () = &mut sleep => return None,
+                call = self.mailbox.recv() => {
+                    let Some(call) = call else {
+                        return Some(Exit::Stopped(InstanceEvent::Stop));
+                    };
+                    if call.answer.is_closed() {
+                        continue;
+                    }
+                    match instance.apply(InstanceEvent::Call) {
+                        Ok(InstanceEffect::Queue) => instance.queued.push_back(call),
+                        Ok(effect) => answer_internal(call, effect),
+                        Err(refused) => {
+                            let _ = call.answer.send(Err(CallFailure::Unavailable(internal(
+                                &refused.to_string(),
+                            ))));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fails all queued calls with `plugin_quarantined`, appends the Audit log
+    /// record, and fires the "a Plugin quarantined" Notification at most once.
+    async fn enter_quarantine(
+        &mut self,
+        instance: &mut Instance,
+        crashes: u32,
+        reason: &CallError,
+    ) {
+        let quarantined = quarantined_error(&self.config.manifest.name);
+        for call in instance.queued.drain(..) {
+            let _ = call
+                .answer
+                .send(Err(CallFailure::Unavailable(quarantined.clone())));
+        }
+        let now = self.clock.timestamp();
+        let occurred_at = self.clock.wall();
+        if let Some(audit) = &self.hooks.audit {
+            let origin = audit::Origin {
+                actor: Actor::Engine,
+                surface: None,
+                layer: None,
+                run_id: self.scope.run_id().cloned(),
+            };
+            let details = json!({
+                "plugin": self.config.manifest.name,
+                "crashes": crashes,
+                "reason": reason.code(),
+            });
+            if let Err(error) = audit
+                .record(&origin, &PLUGIN_QUARANTINED_AUDIT, details, now)
+                .await
+            {
+                tracing::warn!(
+                    plugin = %self.config.manifest.name,
+                    %error,
+                    "could not record `plugin_quarantined` in the Audit log"
+                );
+            }
+        }
+        if !self.quarantine_notified {
+            self.quarantine_notified = true;
+            if let Some(notifier) = &self.hooks.quarantine_notifier {
+                notifier
+                    .notify(QuarantineEvent {
+                        plugin: self.config.manifest.name.clone(),
+                        run_id: self.scope.run_id().cloned(),
+                        product: self.config.product,
+                        crashes,
+                        reason: reason.code().to_owned(),
+                        occurred_at,
+                    })
+                    .await;
+            }
+        }
+    }
+
+    /// Serves a quarantined instance until its Run or task stops, failing
+    /// every incoming call immediately with `plugin_quarantined`.
+    async fn serve_quarantined(&mut self, instance: &mut Instance) -> InstanceEvent {
+        let quarantined = quarantined_error(&self.config.manifest.name);
+        loop {
+            tokio::select! {
+                biased;
+                () = self.stopping.cancelled() => {
+                    return if self.owner.token().is_cancelled() {
+                        self.scope.ended()
+                    } else {
+                        InstanceEvent::Stop
+                    };
+                }
+                Some(cancel) = self.cancels.recv() => {
+                    if let Some(ack) = cancel.ack {
+                        let _ = ack.send(());
+                    }
+                }
+                call = self.mailbox.recv() => {
+                    let Some(call) = call else {
+                        return InstanceEvent::Stop;
+                    };
+                    if call.answer.is_closed() {
+                        continue;
+                    }
+                    let _ = instance.apply(InstanceEvent::Call);
+                    let _ = call
+                        .answer
+                        .send(Err(CallFailure::Unavailable(quarantined.clone())));
+                }
+            }
+        }
     }
 
     /// The line of its `hello`.
@@ -986,13 +1609,13 @@ impl Running {
             .map_err(|error| internal(&format!("`hello` encodes: {error}")))
     }
 
-    /// Serves the instance until it ends: what the Plugin writes on
-    /// `stdout`, what its callers call or cancel, and the answers to its
-    /// call backs, from `call_backs_answered`, written on `stdin`.
+    /// Serves one generation of the instance until it stops, crashes, misses
+    /// its heartbeat, exceeds a resource limit, or fails `hello`.
     async fn serve<W: AsyncWrite + Unpin, R: AsyncRead + Unpin>(
         &mut self,
         instance: &mut Instance,
         backend: &mut Backend,
+        guards: &GenerationGuards,
         (stdin, mut stdout, mut call_backs_answered, mut stream_events): (
             &mut W,
             R,
@@ -1003,7 +1626,18 @@ impl Running {
         let mut framer = Framer::new(MAX_MESSAGE_BYTES);
         let (mut buffer, mut parsed) = (vec![0; READ_BYTES], Vec::new());
         let mut reading = true;
+        let mut next_ping: Option<tokio::time::Instant> = None;
+        let mut next_sample = guards
+            .monitor
+            .is_some()
+            .then(|| self.clock.now() + RESOURCE_POLL_INTERVAL);
+        let clock = self.clock;
         loop {
+            if instance.state == InstanceState::Ready && next_ping.is_none() {
+                next_ping = Some(clock.now() + PING_INTERVAL);
+            }
+            let ping_at = next_ping.unwrap_or_else(|| clock.now() + PING_INTERVAL);
+            let sample_at = next_sample.unwrap_or_else(|| clock.now() + RESOURCE_POLL_INTERVAL);
             tokio::select! {
                 biased;
                 () = self.stopping.cancelled() => {
@@ -1018,7 +1652,12 @@ impl Running {
                 // timed-out call is marked abandoned before any late result
                 // is delivered.
                 Some(cancel) = self.cancels.recv() => {
-                    self.cancel_call(instance, stdin, cancel).await;
+                    if let Some(exit) = self
+                        .cancel_call(instance, stdin, cancel, guards.proxied_streams.as_ref())
+                        .await
+                    {
+                        return exit;
+                    }
                 }
                 // Before its end, so that what it said last is read.
                 read = stdout.read(&mut buffer), if reading => {
@@ -1036,32 +1675,29 @@ impl Running {
                         }
                     }
                     if !reading && backend.is_in_memory() {
-                        let _ = instance.apply(InstanceEvent::Crash(RecentCrashes::Fewer));
-                        return Exit::Failed(code(
-                            &PLUGIN_CRASHED,
-                            "the Plugin closed its stdout",
-                        ));
+                        return Exit::Crashed {
+                            ping_missed: false,
+                            reason: code(
+                                &PLUGIN_CRASHED,
+                                "the Plugin closed its stdout",
+                            ),
+                        };
                     }
                 }
                 ended = backend.ended() => {
-                    let reason = match ended {
-                        Ok(Ended::ConfinementUnavailable) => code(
-                            &CONFINEMENT_UNAVAILABLE,
-                            "the host cannot confine the Plugin as its manifest declares",
-                        ),
-                        Ok(Ended::Exited(status)) => code(
-                            &PLUGIN_CRASHED,
-                            &format!("the Plugin exited with the status {status:?}"),
-                        ),
-                        Err(error) => code(
-                            &PLUGIN_CRASHED,
-                            &format!("the Plugin's end cannot be told: {error}"),
-                        ),
-                    };
-                    // #837 counts the crashes and restarts the instance:
-                    // until then it ends.
-                    let _ = instance.apply(InstanceEvent::Crash(RecentCrashes::Fewer));
-                    return Exit::Failed(reason);
+                    return self.exit_from_ended(ended);
+                }
+                () = clock.sleep_until(ping_at), if next_ping.is_some() => {
+                    if let Some(exit) = self.on_ping_tick(instance, stdin).await {
+                        return exit;
+                    }
+                    next_ping = Some(clock.now() + PING_INTERVAL);
+                }
+                () = clock.sleep_until(sample_at), if next_sample.is_some() => {
+                    if let Some(exit) = self.check_resource_limits(guards) {
+                        return exit;
+                    }
+                    next_sample = Some(clock.now() + RESOURCE_POLL_INTERVAL);
                 }
                 // The instance holds a sender, so this never ends.
                 Some(line) = call_backs_answered.recv() => {
@@ -1081,16 +1717,60 @@ impl Running {
         }
     }
 
+    /// Handles one `PING_INTERVAL` tick on a ready instance: counts missed
+    /// heartbeats and sends the next `$/ping`.
+    async fn on_ping_tick<W: AsyncWrite + Unpin>(
+        &mut self,
+        instance: &mut Instance,
+        stdin: &mut W,
+    ) -> Option<Exit> {
+        if !instance.pending_pings.is_empty() {
+            instance.missed_pings = instance.missed_pings.saturating_add(1);
+            if instance.missed_pings >= MISSED_PINGS {
+                return Some(Exit::Crashed {
+                    ping_missed: true,
+                    reason: code(
+                        &PLUGIN_CRASHED,
+                        "the Plugin missed three consecutive `$/ping` heartbeats",
+                    ),
+                });
+            }
+        }
+        let ping_id = RequestId::Number(self.next_ping_id);
+        self.next_ping_id = self.next_ping_id.saturating_sub(1);
+        if let Ok(line) = wire::request_line(&ping_id, PING, &PluginPingParams {}) {
+            instance.pending_pings.insert(ping_id);
+            write(&self.stopping, stdin, &line).await;
+        }
+        None
+    }
+
+    /// Samples the attached resource monitor and returns a `plugin_limit_exceeded`
+    /// crash exit if any manifest limit is exceeded.
+    fn check_resource_limits(&self, guards: &GenerationGuards) -> Option<Exit> {
+        let monitor = guards.monitor.as_ref()?;
+        let sample = monitor.sample()?;
+        let (resource, limit) = limits::exceeded(&self.config.manifest.limits, &sample)?;
+        Some(Exit::Crashed {
+            ping_missed: false,
+            reason: limit_exceeded_error(&self.config.manifest.name, resource, limit),
+        })
+    }
+
     /// Cancels a call whose deadline passed or whose caller dropped it:
     /// removes it from the credit queue if unsent, or abandons it in flight
     /// with `$/cancel`, cancels its call backs, reports an Effect-class
-    /// call uncertain at once, and releases its credit to the next waiter.
+    /// call uncertain at once, and releases its credit to the next waiter — or
+    /// restarts the instance under the crash rules when abandoned calls exceed
+    /// concurrency or a proxied stream is open.
     async fn cancel_call<W: AsyncWrite + Unpin>(
         &self,
         instance: &mut Instance,
         stdin: &mut W,
         cancel: Cancel,
-    ) {
+        proxied_streams: Option<&OpenStreams>,
+    ) -> Option<Exit> {
+        let mut restart_reason = None;
         if let Some(position) = instance.queued.iter().position(|call| call.id == cancel.id) {
             instance.queued.remove(position);
         } else if let Some(call) = instance.waiting.remove(&cancel.id) {
@@ -1105,11 +1785,23 @@ impl Running {
             );
             write(&self.stopping, stdin, &line).await;
             self.report_if_effect(&call);
-            self.drain_queued(instance, stdin).await;
+            if proxied_streams.is_some_and(|streams| streams.count() > 0) {
+                restart_reason =
+                    Some("a call was abandoned while the Plugin held an open proxied stream");
+            } else if instance.abandoned_set.len() > instance.max_concurrency {
+                restart_reason =
+                    Some("the Plugin holds more abandoned calls than its concurrency limit");
+            } else {
+                self.drain_queued(instance, stdin).await;
+            }
         }
         if let Some(ack) = cancel.ack {
             let _ = ack.send(());
         }
+        restart_reason.map(|msg| Exit::Crashed {
+            ping_missed: false,
+            reason: code(&PLUGIN_CRASHED, msg),
+        })
     }
 
     /// Reports `call` uncertain at once when its class is `Effect`.
@@ -1572,6 +2264,13 @@ impl Running {
             instance.hello_awaited = false;
             return self.hello_answered(instance, stdin, answer).await;
         }
+        if instance.pending_pings.remove(&id) {
+            if answer.is_ok() {
+                instance.pending_pings.clear();
+                instance.missed_pings = 0;
+            }
+            return None;
+        }
         let Some(call) = instance.waiting.remove(&id) else {
             if instance.take_abandoned(&id) {
                 let _ = instance.apply(InstanceEvent::LateResult);
@@ -1861,6 +2560,31 @@ fn refused(refusal: &HelloRefusal) -> CallError {
 /// A failure with `definition`'s code and `message`.
 fn code(definition: &'static ErrorCodeDefinition, message: &str) -> CallError {
     CallError::new(definition, message, &())
+}
+
+/// The `plugin_quarantined` refusal for `plugin`.
+fn quarantined_error(plugin: &str) -> CallError {
+    code(
+        &PLUGIN_QUARANTINED,
+        &format!("the Plugin `{plugin}` is quarantined for the rest of its run"),
+    )
+}
+
+/// The non-retryable `plugin_limit_exceeded` error for `plugin` exceeding
+/// `resource` at `limit`.
+fn limit_exceeded_error(plugin: &str, resource: PluginResourceLimit, limit: u64) -> CallError {
+    CallError::new(
+        &PLUGIN_LIMIT_EXCEEDED,
+        format!(
+            "the Plugin `{plugin}` exceeded its `{}` resource limit ({limit}) and was killed",
+            resource.as_str()
+        ),
+        &PluginLimitExceededDetails {
+            plugin: plugin.to_owned(),
+            resource,
+            limit,
+        },
+    )
 }
 
 /// A failure only a bug in Goodfetch can cause.

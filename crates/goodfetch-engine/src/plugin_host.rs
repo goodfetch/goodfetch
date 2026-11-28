@@ -8,6 +8,7 @@
 
 pub mod instance;
 pub mod lifecycle;
+pub mod limits;
 pub mod process;
 pub mod settings;
 pub mod spend;

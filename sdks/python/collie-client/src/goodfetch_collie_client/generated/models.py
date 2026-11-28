@@ -3382,6 +3382,19 @@ class PluginRemoved(BaseModel):
     """Whether an unpacked bundle was deleted from the Plugin store."""
 
 
+class PluginResourceLimit(StrEnum):
+    """Which resource limit a process Plugin exceeded (ADR 0033)."""
+
+    memory = "memory"
+    """Its memory limit, in bytes."""
+    cpu_time = "cpu_time"
+    """Its CPU time limit, in seconds."""
+    processes = "processes"
+    """Its process count limit."""
+    open_files = "open_files"
+    """Its open-file limit."""
+
+
 class PluginRevokedDetails(BaseModel):
     """What `plugin_revoked` details."""
 
@@ -8969,6 +8982,23 @@ class PluginAttestationInvalidDetails(BaseModel):
     """The Plugin's name."""
     reason: AttestationFailureReason
     """Why verification failed."""
+
+
+class PluginLimitExceededDetails(BaseModel):
+    """What `plugin_limit_exceeded` details (ADR 0033)."""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    limit: Annotated[int, Field(ge=0)]
+    """
+    The enforced limit value (bytes for `memory`, seconds for `cpu_time`,
+    count for `processes` and `open_files`).
+    """
+    plugin: str
+    """The Plugin's name."""
+    resource: PluginResourceLimit
+    """Which resource limit was exceeded."""
 
 
 class PluginListParams(BaseModel):

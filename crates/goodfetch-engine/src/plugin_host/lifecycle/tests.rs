@@ -1,8 +1,14 @@
+use std::time::Duration;
+
 use rstest::rstest;
 
 use super::InstanceState::{Quarantined, Ready, Restarting, Starting, Stopped};
 use super::RecentCrashes::{Fewer, Third};
-use super::{InstanceEffect, InstanceEvent, InstanceState, apply};
+use super::{
+    CrashDecision, CrashTracker, InstanceEffect, InstanceEvent, InstanceState, QUARANTINE_WINDOW,
+    apply,
+};
+use crate::clock::Clock;
 use crate::transition::Refusal;
 
 type Outcome = Result<(InstanceState, InstanceEffect), Refusal>;
@@ -93,4 +99,71 @@ fn the_third_crash_within_ten_minutes_quarantines_the_instance(
     #[case] expected: Outcome,
 ) {
     assert_eq!(outcome(state, event), expected);
+}
+
+#[test]
+fn backoff_doubles_from_one_second_and_caps_at_thirty() {
+    let waits: Vec<Duration> = (1..=8).map(CrashTracker::backoff).collect();
+    assert_eq!(
+        waits,
+        vec![
+            Duration::from_secs(1),
+            Duration::from_secs(2),
+            Duration::from_secs(4),
+            Duration::from_secs(8),
+            Duration::from_secs(16),
+            Duration::from_secs(30),
+            Duration::from_secs(30),
+            Duration::from_secs(30),
+        ]
+    );
+}
+
+#[test]
+fn crash_tracker_quarantines_on_third_crash_within_ten_minutes() {
+    let start = Clock::system().now();
+    let mut tracker = CrashTracker::new();
+
+    assert_eq!(
+        tracker.record(start),
+        CrashDecision::Restart {
+            wait: Duration::from_secs(1)
+        }
+    );
+    assert_eq!(
+        tracker.record(start + Duration::from_mins(5)),
+        CrashDecision::Restart {
+            wait: Duration::from_secs(2)
+        }
+    );
+    assert_eq!(
+        tracker.record(start + QUARANTINE_WINDOW),
+        CrashDecision::Quarantine { crashes: 3 }
+    );
+}
+
+#[test]
+fn crash_tracker_prunes_crashes_older_than_ten_minutes_while_doubling_backoff() {
+    let start = Clock::system().now();
+    let mut tracker = CrashTracker::new();
+    let step = QUARANTINE_WINDOW + Duration::from_secs(1);
+
+    let waits: Vec<Duration> = (0..7)
+        .map(|i| match tracker.record(start + step * i) {
+            CrashDecision::Restart { wait } => wait,
+            CrashDecision::Quarantine { .. } => panic!("spaced crashes must not quarantine"),
+        })
+        .collect();
+    assert_eq!(
+        waits,
+        vec![
+            Duration::from_secs(1),
+            Duration::from_secs(2),
+            Duration::from_secs(4),
+            Duration::from_secs(8),
+            Duration::from_secs(16),
+            Duration::from_secs(30),
+            Duration::from_secs(30),
+        ]
+    );
 }

@@ -1819,6 +1819,13 @@ export type PluginApprovalsRemoval =
       outcome: "managed";
     };
 /**
+ * Which resource limit a process Plugin exceeded (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginResourceLimit".
+ */
+export type PluginResourceLimit = "memory" | "cpu_time" | "processes" | "open_files";
+/**
  * Whether the state a Run index row points at is there (ADRs 0031 and
  * 0036).
  *
@@ -8507,6 +8514,27 @@ export interface PluginIndexStaleDetails {
    * The index's `version`, when known.
    */
   version?: number | null;
+}
+/**
+ * What `plugin_limit_exceeded` details (ADR 0033).
+ *
+ * This interface was referenced by `CollieTypes`'s JSON-Schema
+ * via the `definition` "PluginLimitExceededDetails".
+ */
+export interface PluginLimitExceededDetails {
+  /**
+   * The enforced limit value (bytes for `memory`, seconds for `cpu_time`,
+   * count for `processes` and `open_files`).
+   */
+  limit: number;
+  /**
+   * The Plugin's name.
+   */
+  plugin: string;
+  /**
+   * Which resource limit was exceeded.
+   */
+  resource: PluginResourceLimit;
 }
 /**
  * What `plugin.list` takes (ADR 0098, issue 928).

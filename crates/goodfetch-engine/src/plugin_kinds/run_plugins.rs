@@ -46,7 +46,9 @@ use crate::home::Home;
 use crate::plugin_gate::{
     EffectsGate, Inserting, PluginEffectJournal, PluginFetch, StreamAccountant, permission_denied,
 };
-use crate::plugin_host::instance::{self, PluginInstance, Scope};
+use crate::plugin_host::instance::{
+    self, InstanceHooks, PluginInstance, QuarantineNotifier, Scope,
+};
 use crate::plugin_host::settings::{self as plugin_settings, EnvironmentError, PluginSettings};
 use crate::plugin_host::spend::{PluginSpend, SpendAccountant};
 use crate::plugin_index::{self, LoadRefusal, PluginIndexStore};
@@ -70,6 +72,7 @@ pub struct RunPlugins {
     store: PluginStore,
     index_store: PluginIndexStore,
     audit: Option<AuditLog>,
+    quarantine_notifier: Option<Arc<dyn QuarantineNotifier>>,
     spend: Option<Arc<dyn SpendAccountant>>,
     streams: Option<Arc<dyn StreamAccountant>>,
     effects_journal: Option<Arc<dyn PluginEffectJournal>>,
@@ -126,6 +129,7 @@ impl RunPlugins {
             store: PluginStore::new(home.plugins()),
             index_store: PluginIndexStore::new(home.plugin_index()),
             audit: None,
+            quarantine_notifier: None,
             spend: None,
             streams: None,
             effects_journal: None,
@@ -149,6 +153,15 @@ impl RunPlugins {
     #[must_use]
     pub fn with_audit(mut self, audit: AuditLog) -> Self {
         self.audit = Some(audit);
+        self
+    }
+
+    /// Attaches a [`QuarantineNotifier`] so quarantining a Plugin sends one
+    /// "a Plugin quarantined" Notification per Run and Plugin (ADRs 0027 and
+    /// 0033, issue 837).
+    #[must_use]
+    pub fn with_quarantine_notifier(mut self, notifier: Arc<dyn QuarantineNotifier>) -> Self {
+        self.quarantine_notifier = Some(notifier);
         self
     }
 
@@ -680,7 +693,7 @@ impl RunPlugins {
             .spend
             .clone()
             .map(|accountant| PluginSpend::new(accountant).with_overrides(entry.spend));
-        let instance = PluginInstance::start(
+        let instance = PluginInstance::start_with(
             &self.owner,
             instance::Plugin {
                 launcher: plugin.launcher,
@@ -692,6 +705,11 @@ impl RunPlugins {
                 spend,
             },
             Scope::Run(self.run_id.clone()),
+            InstanceHooks {
+                audit: self.audit.clone(),
+                quarantine_notifier: self.quarantine_notifier.clone(),
+                ..InstanceHooks::default()
+            },
         );
         self.track_instance(name, digest, None, instance.clone())
             .await;

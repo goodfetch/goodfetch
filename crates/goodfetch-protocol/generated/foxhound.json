@@ -14216,6 +14216,34 @@
       ],
       "open": true
     },
+    "PluginLimitExceededDetails": {
+      "description": "What `plugin_limit_exceeded` details (ADR 0033).",
+      "properties": {
+        "limit": {
+          "arrived_in": "0.1",
+          "description": "The enforced limit value (bytes for `memory`, seconds for `cpu_time`,\ncount for `processes` and `open_files`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "plugin": {
+          "arrived_in": "0.1",
+          "description": "The Plugin's name.",
+          "type": "string"
+        },
+        "resource": {
+          "$ref": "#/$defs/PluginResourceLimit",
+          "arrived_in": "0.1",
+          "description": "Which resource limit was exceeded."
+        }
+      },
+      "required": [
+        "plugin",
+        "resource",
+        "limit"
+      ],
+      "type": "object"
+    },
     "PluginListParams": {
       "additionalProperties": false,
       "description": "What `plugin.list` takes (ADR 0098, issue 928).",
@@ -14441,6 +14469,31 @@
         "approvals"
       ],
       "type": "object"
+    },
+    "PluginResourceLimit": {
+      "description": "Which resource limit a process Plugin exceeded (ADR 0033).",
+      "oneOf": [
+        {
+          "const": "memory",
+          "description": "Its memory limit, in bytes.",
+          "type": "string"
+        },
+        {
+          "const": "cpu_time",
+          "description": "Its CPU time limit, in seconds.",
+          "type": "string"
+        },
+        {
+          "const": "processes",
+          "description": "Its process count limit.",
+          "type": "string"
+        },
+        {
+          "const": "open_files",
+          "description": "Its open-file limit.",
+          "type": "string"
+        }
+      ]
     },
     "PluginRevokedDetails": {
       "description": "What `plugin_revoked` details.",
@@ -26086,6 +26139,19 @@
       "group": "refused",
       "json_rpc_class": -32002,
       "name": "plugin_installed",
+      "product": "collie",
+      "retryable": false
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "The process Plugin exceeded its memory, CPU time, process count or open-file limit and was killed under the crash rules. Not retryable; raise the Plugin's limit in its manifest and Operator policy, or fix the Plugin.",
+      "details": {
+        "$ref": "#/$defs/PluginLimitExceededDetails"
+      },
+      "exit_code": null,
+      "group": "unavailable",
+      "json_rpc_class": -32006,
+      "name": "plugin_limit_exceeded",
       "product": "collie",
       "retryable": false
     },
@@ -41567,6 +41633,13 @@
       "name": "plugin_quantity_above_maximum",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "A process Plugin crashed three times within 10 minutes of a Run and was quarantined for the rest of the Run: the Plugin, the Run and the crash count.",
+      "name": "plugin_quarantined",
+      "product": "collie",
+      "type": "audit_kind"
     },
     {
       "arrived_in": "0.1",

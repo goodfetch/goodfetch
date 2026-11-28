@@ -149,6 +149,31 @@ struct Shared {
     stopping: CancellationToken,
 }
 
+/// Shared handle to a [`PluginProxy`]'s active open proxied stream count,
+/// read by `PluginInstance` to detect calls abandoned while a proxied stream
+/// is open (ADR 0033, issue 837).
+#[derive(Clone, Debug)]
+pub struct OpenStreams(Arc<AtomicUsize>);
+
+impl OpenStreams {
+    /// Creates an explicit counter (used by tests without a live socket).
+    #[must_use]
+    pub fn new(initial: usize) -> Self {
+        Self(Arc::new(AtomicUsize::new(initial)))
+    }
+
+    /// Current number of open proxied streams.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.0.load(Ordering::Relaxed)
+    }
+
+    /// Sets the open stream count (for tests controlling stream state directly).
+    pub fn set(&self, count: usize) {
+        self.0.store(count, Ordering::Relaxed);
+    }
+}
+
 /// Per-instance `proxy_tcp` proxy running on the engine side (ADR 0033).
 #[derive(Debug)]
 pub struct PluginProxy {
@@ -313,6 +338,12 @@ impl PluginProxy {
     #[must_use]
     pub fn open_streams(&self) -> usize {
         self.shared.open_streams.load(Ordering::Relaxed)
+    }
+
+    /// Cloneable handle to this proxy's active open proxied stream count.
+    #[must_use]
+    pub fn open_streams_counter(&self) -> OpenStreams {
+        OpenStreams(Arc::clone(&self.shared.open_streams))
     }
 
     /// Stops accepting new connections and closes active proxied streams.

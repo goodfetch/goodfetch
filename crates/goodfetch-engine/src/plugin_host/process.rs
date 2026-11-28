@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 
 use goodfetch_confinement::launch::{LAUNCH_VARIABLE, Launch, SHIM_COMMAND, UNAVAILABLE_STATUSES};
+use goodfetch_protocol::plugin::PluginResourceLimit;
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 use crate::children::Children;
@@ -91,6 +92,12 @@ impl PluginProcess {
         Ok((process, Pipes { stdin, stdout }))
     }
 
+    /// The OS process ID of the started child while it is still alive.
+    #[must_use]
+    pub fn pid(&self) -> Option<u32> {
+        self.child.id()
+    }
+
     /// Waits for the instance to end by itself.
     ///
     /// # Errors
@@ -102,6 +109,13 @@ impl PluginProcess {
     /// Cancel-safe: dropping the future leaves the instance running.
     pub async fn ended(&mut self) -> io::Result<Ended> {
         self.child.wait().await.map(Ended::of)
+    }
+
+    /// Kills the instance with every process of its group and waits for it,
+    /// leaving its private temporary folder intact for a restart.
+    pub async fn kill_group(mut self) {
+        self.group.kill_all();
+        let _ = self.child.wait().await;
     }
 
     /// Kills the instance with every process of its group, waits for it,
@@ -137,12 +151,24 @@ pub enum Ended {
     /// Its launcher found that this host cannot confine it, so it never
     /// started: `confinement_unavailable`.
     ConfinementUnavailable,
+    /// The OS killed it for exceeding a declared resource limit (such as
+    /// `SIGXCPU` for `RLIMIT_CPU` or `SIGABRT` on `RLIMIT_DATA` exhaustion).
+    LimitExceeded(PluginResourceLimit),
     /// It exited with this status, its launcher's when it never started.
     Exited(Option<i32>),
 }
 
 impl Ended {
     fn of(status: ExitStatus) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt as _;
+            match status.signal() {
+                Some(libc::SIGXCPU) => return Self::LimitExceeded(PluginResourceLimit::CpuTime),
+                Some(libc::SIGABRT) => return Self::LimitExceeded(PluginResourceLimit::Memory),
+                _ => {}
+            }
+        }
         match status.code() {
             Some(code)
                 if u8::try_from(code).is_ok_and(|code| UNAVAILABLE_STATUSES.contains(&code)) =>

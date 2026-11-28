@@ -29,9 +29,113 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use std::collections::VecDeque;
+use std::time::Duration;
+
 use goodfetch_protocol::plugin::PLUGIN_QUARANTINED;
+use tokio::time::Instant;
 
 use crate::transition::{InvalidTransition, Refusal};
+
+/// Initial restart backoff after the first crash (ADR 0033).
+pub const BACKOFF_INITIAL: Duration = Duration::from_secs(1);
+
+/// Maximum restart backoff cap (ADR 0033): 1 s doubling to 30 s.
+pub const BACKOFF_MAX: Duration = Duration::from_secs(30);
+
+/// Sliding window for counting crashes toward quarantine (ADR 0033): 10 minutes.
+pub const QUARANTINE_WINDOW: Duration = Duration::from_mins(10);
+
+/// Number of crashes within [`QUARANTINE_WINDOW`] that quarantines the Plugin
+/// for the rest of its run (ADR 0033).
+pub const QUARANTINE_CRASHES: usize = 3;
+
+/// Decision returned by [`CrashTracker::record`] when a process Plugin crashes
+/// or misses its heartbeat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrashDecision {
+    /// Fewer than [`QUARANTINE_CRASHES`] crashes in the last 10 minutes:
+    /// restart after waiting `wait`.
+    Restart {
+        /// Backoff wait before starting the replacement process.
+        wait: Duration,
+    },
+    /// The third crash within 10 minutes: quarantine for the rest of the run.
+    Quarantine {
+        /// Total crashes recorded by this instance, this one included.
+        crashes: u32,
+    },
+}
+
+impl CrashDecision {
+    /// Translates this decision into the [`RecentCrashes`] tag consumed by
+    /// [`apply`].
+    #[must_use]
+    pub const fn recent(self) -> RecentCrashes {
+        match self {
+            Self::Restart { .. } => RecentCrashes::Fewer,
+            Self::Quarantine { .. } => RecentCrashes::Third,
+        }
+    }
+}
+
+/// Pure crash backoff and 10-minute quarantine tracker for one Plugin
+/// instance (ADR 0033, issue 837).
+#[derive(Clone, Debug, Default)]
+pub struct CrashTracker {
+    recent: VecDeque<Instant>,
+    total_crashes: u32,
+}
+
+impl CrashTracker {
+    /// Starts with no crashes recorded.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Computes the restart backoff for the `crash_number`-th crash (1-based):
+    /// 1 s, 2 s, 4 s, 8 s, 16 s, 30 s, 30 s, …
+    #[must_use]
+    pub fn backoff(crash_number: u32) -> Duration {
+        let shift = crash_number.saturating_sub(1).min(5);
+        let secs = BACKOFF_INITIAL
+            .as_secs()
+            .saturating_mul(1_u64 << shift)
+            .min(BACKOFF_MAX.as_secs());
+        Duration::from_secs(secs)
+    }
+
+    /// Records a crash at `now`, prunes crashes older than
+    /// [`QUARANTINE_WINDOW`], and decides whether to restart with backoff or
+    /// quarantine.
+    pub fn record(&mut self, now: Instant) -> CrashDecision {
+        while let Some(&oldest) = self.recent.front() {
+            if now.saturating_duration_since(oldest) > QUARANTINE_WINDOW {
+                self.recent.pop_front();
+            } else {
+                break;
+            }
+        }
+        self.recent.push_back(now);
+        self.total_crashes = self.total_crashes.saturating_add(1);
+        if self.recent.len() >= QUARANTINE_CRASHES {
+            CrashDecision::Quarantine {
+                crashes: self.total_crashes,
+            }
+        } else {
+            CrashDecision::Restart {
+                wait: Self::backoff(self.total_crashes),
+            }
+        }
+    }
+
+    /// Total crashes recorded by this instance so far.
+    #[must_use]
+    pub const fn total_crashes(&self) -> u32 {
+        self.total_crashes
+    }
+}
 
 /// Where a process Plugin instance is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

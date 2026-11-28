@@ -22,6 +22,7 @@ pub mod failure;
 pub mod ledger;
 pub mod message;
 pub mod plugin_channel;
+pub mod plugin_quarantine;
 pub mod rate_limit;
 pub mod sns;
 pub mod webhook;

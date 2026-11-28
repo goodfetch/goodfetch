@@ -147,7 +147,9 @@ fn play() -> Result<(), String> {
         }
         if let (Some(id), Some(method)) = (message.get("id"), message["method"].as_str()) {
             let answer = answer(&script, method, &message["params"], &calls);
-            if let Some(call_back) = answer.get("call_back") {
+            if let Some(handled) = maybe_crash_or_exceed(&answer, id)? {
+                sent.extend(handled);
+            } else if let Some(call_back) = answer.get("call_back") {
                 let call_back_id = format!("call-back-{}", calls.len());
                 let mut params = call_back["params"].clone();
                 if params.get("call_id").is_none() {
@@ -219,6 +221,10 @@ fn answer(script: &Value, method: &str, params: &Value, calls: &[Value]) -> Valu
         "scripted.proxy_connect" => match proxy_connect(params) {
             Ok(result) => json!({ "result": result }),
             Err(reason) => error(INTERNAL_ERROR, &reason),
+        },
+        "$/ping" => match script["answers"].get("$/ping").cloned() {
+            Some(scripted) => scripted,
+            None => json!({ "result": {} }),
         },
         _ => match script["answers"].get(method).cloned() {
             Some(Value::Object(mut scripted)) => {
@@ -303,6 +309,75 @@ fn expanded_text(text: &str) -> String {
 
 fn error(code: i64, message: &str) -> Value {
     json!({ "error": { "code": code, "message": message } })
+}
+
+/// Handles scripted crash, counted-crash, and resource-limit triggers,
+/// returning `Ok(Some(replies))` when handled, `Ok(None)` for normal answers,
+/// or `Err` to terminate with a non-zero exit status.
+fn maybe_crash_or_exceed(answer: &Value, id: &Value) -> Result<Option<Vec<Value>>, String> {
+    if answer["crash"] == json!(true) {
+        return Err("scripted crash".to_owned());
+    }
+    if let Some(counter_path) = answer["crash_count_file"].as_str() {
+        let fail_times = answer["fail_times"].as_u64().unwrap_or(1);
+        let seen: u64 = fs::read_to_string(counter_path)
+            .ok()
+            .and_then(|s| s.trim().parse().ok())
+            .unwrap_or(0);
+        let next = seen + 1;
+        let _ = fs::write(counter_path, next.to_string());
+        if next <= fail_times {
+            return Err(format!("scripted crash {next}/{fail_times}"));
+        }
+        let then = answer["then"].clone();
+        let replies = if then["silent"] == json!(true) {
+            Vec::new()
+        } else {
+            vec![with_id(then, id)]
+        };
+        return Ok(Some(replies));
+    }
+    if let Some(resource) = answer["exceed"].as_str() {
+        exceed_resource(resource)?;
+        return Ok(Some(Vec::new()));
+    }
+    Ok(None)
+}
+
+/// Deliberately exceeds a declared resource limit (`memory`, `cpu_time`, or
+/// `open_files`) so Plugin host tests can prove `plugin_limit_exceeded`.
+fn exceed_resource(resource: &str) -> Result<(), String> {
+    match resource {
+        "memory" => {
+            let mut chunks: Vec<Vec<u8>> = Vec::new();
+            loop {
+                let mut block = vec![1_u8; 1024 * 1024];
+                block[0] = u8::try_from(chunks.len() & 0xff).unwrap_or(1);
+                chunks.push(block);
+            }
+        }
+        "cpu_time" => {
+            let mut acc: u64 = 1;
+            loop {
+                acc = acc.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                std::hint::black_box(acc);
+            }
+        }
+        "open_files" => {
+            let mut held: Vec<fs::File> = Vec::new();
+            for index in 0..4096_u32 {
+                match fs::File::create(format!("fd-{index}.tmp")) {
+                    Ok(file) => held.push(file),
+                    Err(_) => break,
+                }
+            }
+            loop {
+                std::thread::sleep(std::time::Duration::from_mins(1));
+                std::hint::black_box(&held);
+            }
+        }
+        other => Err(format!("unknown exceed resource `{other}`")),
+    }
 }
 
 /// Opens an HTTP `CONNECT` tunnel through `HTTP_PROXY` (using the embedded

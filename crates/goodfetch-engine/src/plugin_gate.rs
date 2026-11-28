@@ -66,7 +66,7 @@ use url::{Origin, Url};
 pub use self::effects::{EffectsGate, PluginEffectEntry, PluginEffectJournal};
 pub use self::inserting::Inserting;
 pub use self::proxy::{
-    PluginProxy, ProxyCredentials, StreamAccountant, StreamRecord, StreamTransport,
+    OpenStreams, PluginProxy, ProxyCredentials, StreamAccountant, StreamRecord, StreamTransport,
 };
 use crate::call_error::{CallError, named};
 use crate::clock::Clock;

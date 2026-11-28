@@ -2385,6 +2385,17 @@
       ]
     },
     {
+      "id": "error:plugin_limit_exceeded",
+      "kind": "error",
+      "area": 7,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "error:plugin_lockfile_invalid",
       "kind": "error",
       "area": 7,

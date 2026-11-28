@@ -78,11 +78,11 @@ fn a_run_whose_settings_an_operator_policy_locked_is_refused_before_it_begins() 
 ///
 /// Covers: story:3-88, error:capability_unavailable
 #[rstest]
-/// Covers: setting:wall.domains
-#[case::wall_domains_in_configuration(
-    "wall.domains = [\"paper.example\"]\n",
+/// Covers: setting:timeout.agent
+#[case::timeout_agent_in_configuration(
+    "timeout.agent = 300000\n",
     json!({}),
-    "wall.domains",
+    "timeout.agent",
     "user_configuration"
 )]
 /// Covers: setting:sample.echo_repeats

@@ -334,7 +334,10 @@ impl AccountsStore {
     /// # Errors
     ///
     /// `Sqlite` when it cannot be read.
-    pub fn named_token_by_hash(&self, sha256: &str) -> Result<Option<String>, AccountsStoreError> {
+    pub(crate) fn named_token_by_hash(
+        &self,
+        sha256: &str,
+    ) -> Result<Option<String>, AccountsStoreError> {
         self.on(|connection| {
             connection
                 .prepare_cached(NAMED_TOKEN)?

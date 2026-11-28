@@ -198,6 +198,11 @@ count = 1
 how = "masked: a copy of the run file, whose texts were masked as `Scope::Kept` when written"
 
 [[writer]]
+path = "crates/goodfetch-engine/src/checkpoint_storage.rs"
+count = 1
+how = "masked: stages a downloaded copy of the Checkpoint run file, whose texts were masked as `Scope::Kept` when written; no object-storage credential is written to disk"
+
+[[writer]]
 path = "crates/goodfetch-engine/src/crash_report.rs"
 count = 1
 how = "masked: each report is masked as `Scope::Kept`"

@@ -28,22 +28,25 @@ const CONFIRM_RETRY: Duration = Duration::from_millis(200);
 /// Dropping the future stops further rounds; each exchange that finished has
 /// already updated durable state.
 pub(super) async fn confirm_majority(peering: Arc<Peering>, owner: TaskOwner) {
-    while peering.is_unconfirmed() {
-        tokio::select! {
-            () = owner.token().cancelled() => return,
-            () = peering.confirm_round() => {}
-        }
-        if !peering.is_unconfirmed() {
-            return;
-        }
-        tokio::select! {
-            () = owner.token().cancelled() => return,
-            () = peering.clock.sleep(CONFIRM_RETRY) => {}
-        }
-    }
+    peering.run_confirm_majority(owner).await;
 }
 
 impl Peering {
+    async fn run_confirm_majority(self: Arc<Self>, owner: TaskOwner) {
+        while self.is_unconfirmed() {
+            tokio::select! {
+                () = owner.token().cancelled() => return,
+                () = self.confirm_round() => {}
+            }
+            if !self.is_unconfirmed() {
+                return;
+            }
+            tokio::select! {
+                () = owner.token().cancelled() => return,
+                () = self.clock.sleep(CONFIRM_RETRY) => {}
+            }
+        }
+    }
     /// One round of exchanging our lead epoch with every unconfirmed
     /// last-known Group member.
     pub(super) async fn confirm_round(&self) {

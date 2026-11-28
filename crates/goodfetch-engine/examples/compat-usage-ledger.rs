@@ -202,12 +202,14 @@ fn seed_threshold_crossings(
         },
         SliceSizing::default(),
     );
-    crossed_run.charge("requests", 1, start)?;
-    for crossing in crossed_run.take_pending_crossings() {
+    let (first, first_crossings) = crossed_run.charge_with_crossings("requests", 1, start);
+    first?;
+    for crossing in first_crossings {
         ledger.mark_threshold_sent(&crossing, start)?;
     }
-    crossed_run.charge("requests", 1, start)?;
-    let _unsent = (small_id, crossed_run.take_pending_crossings());
+    let (second, second_crossings) = crossed_run.charge_with_crossings("requests", 1, start);
+    second?;
+    let _unsent = (small_id, second_crossings);
     crossed_run.give_back()?;
     Ok(())
 }

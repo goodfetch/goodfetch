@@ -1311,8 +1311,9 @@ fn reclaiming_a_dead_engines_slices_sends_unsent_threshold_notifications_once() 
         crate::ledger::SliceSizing::default(),
     );
     // Cross 50 % (1 of 2), leave the crossing unsent as if the engine crashed.
-    dead.charge("requests", 1, at).unwrap();
-    assert_eq!(dead.take_pending_crossings().len(), 1);
+    let (charged, crossings) = dead.charge_with_crossings("requests", 1, at);
+    charged.unwrap();
+    assert_eq!(crossings.len(), 1);
     drop(dead);
 
     let first_notifier = RecordingNotifier::default();

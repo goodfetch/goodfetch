@@ -133,6 +133,7 @@ pub struct Change<'a> {
     charging: &'a mut Charging,
     now: Timestamp,
     reach: Reach,
+    crossings: Option<&'a mut Vec<ThresholdCrossing>>,
 }
 
 impl Change<'_> {
@@ -148,7 +149,15 @@ impl Change<'_> {
                 .charging
                 .charge_held(usage_kind, amount, self.now)
                 .ok_or(Unmade::NeedsLedger),
-            Reach::Ledger => Ok(self.charging.charge(usage_kind, amount, self.now)?),
+            Reach::Ledger => {
+                let (result, crossed) = self
+                    .charging
+                    .charge_with_crossings(usage_kind, amount, self.now);
+                if let Some(out) = self.crossings.as_deref_mut() {
+                    out.extend(crossed);
+                }
+                Ok(result?)
+            }
         }
     }
 
@@ -168,9 +177,16 @@ impl Change<'_> {
                 .charging
                 .reserve_held(usage_kind, currency, worst, self.now)
                 .ok_or(Unmade::NeedsLedger),
-            Reach::Ledger => Ok(self
-                .charging
-                .reserve(usage_kind, currency, worst, self.now)?),
+            Reach::Ledger => {
+                let mut crossed = Vec::new();
+                let result =
+                    self.charging
+                        .reserve_into(usage_kind, currency, worst, self.now, &mut crossed);
+                if let Some(out) = self.crossings.as_deref_mut() {
+                    out.extend(crossed);
+                }
+                Ok(result?)
+            }
         }
     }
 
@@ -362,9 +378,6 @@ pub struct Charging {
     /// Configured `usage.thresholds` percentages checked in memory when taking
     /// a Slice (ADR 0041).
     thresholds: Vec<u64>,
-    /// Newly recorded threshold crossings from the latest `take_slice` calls,
-    /// drained and dispatched after the blocking call commits.
-    pending_crossings: Vec<ThresholdCrossing>,
 }
 
 impl Charging {
@@ -387,7 +400,6 @@ impl Charging {
             connection: None,
             resolved_authority: None,
             thresholds: THRESHOLDS_DEFAULT.to_vec(),
-            pending_crossings: Vec::new(),
         }
     }
 
@@ -397,12 +409,6 @@ impl Charging {
     pub fn with_thresholds(mut self, thresholds: Vec<u64>) -> Self {
         self.thresholds = thresholds;
         self
-    }
-
-    /// Drains threshold crossings recorded by this run's latest Slice takes
-    /// that this engine owns and must send and mark sent (ADR 0041).
-    pub fn take_pending_crossings(&mut self) -> Vec<ThresholdCrossing> {
-        std::mem::take(&mut self.pending_crossings)
     }
 
     /// The same charging, reading its Limits again for another process's
@@ -548,8 +554,22 @@ impl Charging {
         amount: u64,
         now: Timestamp,
     ) -> Result<Charged, Refusal> {
-        let (_, charged) = self.take(usage_kind, None, amount, now)?;
-        Ok(self.charged(usage_kind, amount, charged))
+        self.charge_with_crossings(usage_kind, amount, now).0
+    }
+
+    /// Same as [`Charging::charge`], also returning any newly recorded
+    /// threshold crossings from Slices taken during this call (ADR 0041).
+    pub fn charge_with_crossings(
+        &mut self,
+        usage_kind: &str,
+        amount: u64,
+        now: Timestamp,
+    ) -> (Result<Charged, Refusal>, Vec<ThresholdCrossing>) {
+        let mut crossings = Vec::new();
+        let result = self
+            .take(usage_kind, None, amount, now, &mut crossings)
+            .map(|(_, charged)| self.charged(usage_kind, amount, charged));
+        (result, crossings)
     }
 
     /// Whether a charge or a reservation of `amount` of `usage_kind` in
@@ -617,7 +637,19 @@ impl Charging {
         worst: u64,
         now: Timestamp,
     ) -> Result<(Reservation, Charged), Refusal> {
-        let (taken, charged) = self.take(usage_kind, currency, worst, now)?;
+        let mut crossings = Vec::new();
+        self.reserve_into(usage_kind, currency, worst, now, &mut crossings)
+    }
+
+    fn reserve_into(
+        &mut self,
+        usage_kind: &str,
+        currency: Option<&str>,
+        worst: u64,
+        now: Timestamp,
+        crossings: &mut Vec<ThresholdCrossing>,
+    ) -> Result<(Reservation, Charged), Refusal> {
+        let (taken, charged) = self.take(usage_kind, currency, worst, now, crossings)?;
         Ok(self.reserved(usage_kind, currency, worst, taken, charged))
     }
 
@@ -833,6 +865,7 @@ impl Charging {
             charging: self,
             now,
             reach: Reach::Held,
+            crossings: None,
         })
         .ok();
         if made.is_none() {
@@ -857,16 +890,29 @@ impl Charging {
         now: Timestamp,
         change: impl FnOnce(&mut Change<'_>) -> Result<T, Unmade>,
     ) -> Result<T, Refusal> {
-        change(&mut Change {
+        self.change_with_crossings(now, change).0
+    }
+
+    /// Same as [`Charging::change`], also returning any newly recorded
+    /// threshold crossings from Slices taken during the change (ADR 0041).
+    pub fn change_with_crossings<T>(
+        &mut self,
+        now: Timestamp,
+        change: impl FnOnce(&mut Change<'_>) -> Result<T, Unmade>,
+    ) -> (Result<T, Refusal>, Vec<ThresholdCrossing>) {
+        let mut crossings = Vec::new();
+        let result = change(&mut Change {
             charging: self,
             now,
             reach: Reach::Ledger,
+            crossings: Some(&mut crossings),
         })
         .map_err(|unmade| {
             unmade
                 .refusal()
                 .expect("invariant: a change that reaches the ledger is made or refused")
-        })
+        });
+        (result, crossings)
     }
 
     /// Takes `amount` from the run's Slices of every Limit on `usage_kind`
@@ -882,6 +928,7 @@ impl Charging {
         currency: Option<&str>,
         amount: u64,
         now: Timestamp,
+        crossings: &mut Vec<ThresholdCrossing>,
     ) -> Result<(Vec<(SliceId, u64)>, Charged), Refusal> {
         let read = !self.current(now);
         if read {
@@ -891,7 +938,7 @@ impl Charging {
             if !read {
                 self.read(now, Reading::Charge)?;
             }
-            self.take_slices(usage_kind, currency, amount, now)?;
+            self.take_slices(usage_kind, currency, amount, now, crossings)?;
         }
         self.draw(usage_kind, currency, amount)
     }
@@ -936,6 +983,7 @@ impl Charging {
         currency: Option<&str>,
         amount: u64,
         now: Timestamp,
+        crossings: &mut Vec<ThresholdCrossing>,
     ) -> Result<(), Refusal> {
         let Self {
             ledger,
@@ -946,7 +994,6 @@ impl Charging {
             connection,
             resolved_authority,
             thresholds,
-            pending_crossings,
             ..
         } = self;
         for holding in limits.capping(usage_kind, currency, now)? {
@@ -966,7 +1013,7 @@ impl Charging {
                     amount - room,
                     thresholds,
                 )?;
-                pending_crossings.extend(crossed);
+                crossings.extend(crossed);
                 slice
             };
             let Some(slice) = taken else {

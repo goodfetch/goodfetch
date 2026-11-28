@@ -259,59 +259,63 @@ impl Peering {
 /// Retries pending erasures on the Lead Daemon until every target Group member
 /// acknowledges (or is removed from the group).
 pub(super) async fn retry_pending_erasures(peering: Arc<Peering>, owner: TaskOwner) {
-    loop {
-        tokio::select! {
-            () = owner.token().cancelled() => return,
-            () = peering.clock.sleep(ERASURE_RETRY_INTERVAL) => {}
-        }
-        let pending = peering.pending_erasures.snapshot().await;
-        if pending.is_empty() {
-            continue;
-        }
-        let Ok(Some((kept, _))) = store::identity(&peering.store).await else {
-            continue;
-        };
-        if !kept.is_lead() || peering.require_confirmed_lead().is_err() {
-            continue;
-        }
-        let Ok(members) = store::members(&peering.store).await else {
-            continue;
-        };
-        let lead_epoch = peering.highest_epoch().await;
-        for item in pending {
-            let Some(member) = members.iter().find(|m| m.name == item.member) else {
-                peering
-                    .pending_erasures
-                    .mark_acknowledged(&item.member, &item.target)
-                    .await;
+    peering.run_retry_pending_erasures(owner).await;
+}
+
+impl Peering {
+    async fn run_retry_pending_erasures(self: Arc<Self>, owner: TaskOwner) {
+        loop {
+            tokio::select! {
+                () = owner.token().cancelled() => return,
+                () = self.clock.sleep(ERASURE_RETRY_INTERVAL) => {}
+            }
+            let pending = self.pending_erasures.snapshot().await;
+            if pending.is_empty() {
+                continue;
+            }
+            let Ok(Some((kept, _))) = store::identity(&self.store).await else {
                 continue;
             };
-            let params = PeerErasureParams {
-                protocol_version: PEER_PROTOCOL_VERSION,
-                product: peering.identity.product,
-                product_version: peering.identity.product_version.clone(),
-                lead_epoch,
-                member: peering.name.clone(),
-                broadcast: false,
-                target: item.target.clone(),
+            if !kept.is_lead() || self.require_confirmed_lead().is_err() {
+                continue;
+            }
+            let Ok(members) = store::members(&self.store).await else {
+                continue;
             };
-            if let Ok(answered) = ask_peer::<PeerErasureResult>(
-                &kept,
-                &member.name,
-                &member.peer_address,
-                peering.clock,
-                GROUP_ERASURE,
-                &params,
-            )
-            .await
-            {
-                if answered.lead_epoch > lead_epoch {
-                    let _ = peering.admit_epoch(answered.lead_epoch).await;
+            let lead_epoch = self.highest_epoch().await;
+            for item in pending {
+                let Some(member) = members.iter().find(|m| m.name == item.member) else {
+                    self.pending_erasures
+                        .mark_acknowledged(&item.member, &item.target)
+                        .await;
+                    continue;
+                };
+                let params = PeerErasureParams {
+                    protocol_version: PEER_PROTOCOL_VERSION,
+                    product: self.identity.product,
+                    product_version: self.identity.product_version.clone(),
+                    lead_epoch,
+                    member: self.name.clone(),
+                    broadcast: false,
+                    target: item.target.clone(),
+                };
+                if let Ok(answered) = ask_peer::<PeerErasureResult>(
+                    &kept,
+                    &member.name,
+                    &member.peer_address,
+                    self.clock,
+                    GROUP_ERASURE,
+                    &params,
+                )
+                .await
+                {
+                    if answered.lead_epoch > lead_epoch {
+                        let _ = self.admit_epoch(answered.lead_epoch).await;
+                    }
+                    self.pending_erasures
+                        .mark_acknowledged(&item.member, &item.target)
+                        .await;
                 }
-                peering
-                    .pending_erasures
-                    .mark_acknowledged(&item.member, &item.target)
-                    .await;
             }
         }
     }

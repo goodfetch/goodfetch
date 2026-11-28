@@ -57,69 +57,7 @@ const SETTINGS_STORES: [(&str, SettingsLayer); 2] = [
 /// Dropping the future stops further pushes; each snapshot already persisted
 /// and acknowledged stays durable.
 pub(super) async fn replicate_control_state(peering: Arc<Peering>, owner: TaskOwner) {
-    let mut changes = peering
-        .services
-        .settings
-        .as_ref()
-        .map(crate::settings::Settings::subscribe_changes);
-    let mut ledger_changes = peering
-        .services
-        .ledger
-        .as_ref()
-        .map(crate::ledger::Ledger::subscribe_changes);
-    let mut acked: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
-    loop {
-        if owner.token().is_cancelled() {
-            return;
-        }
-        peering.sync_settings_from_disk().await;
-        peering.sync_usage_limits().await;
-        let pending = peering.push_round(&mut acked).await;
-        wait_next(&peering, &owner, &mut changes, &mut ledger_changes, pending).await;
-    }
-}
-
-/// Waits for a settings write, a ledger Limit write, a newly admitted member
-/// wake, a retry timer (when `pending`), or cancellation.
-async fn wait_next(
-    peering: &Peering,
-    owner: &TaskOwner,
-    changes: &mut Option<tokio::sync::broadcast::Receiver<()>>,
-    ledger_changes: &mut Option<tokio::sync::broadcast::Receiver<()>>,
-    pending: bool,
-) {
-    let recv_change = async {
-        match changes.as_mut() {
-            Some(rx) => match rx.recv().await {
-                Ok(()) | Err(RecvError::Lagged(_)) => {}
-                Err(RecvError::Closed) => std::future::pending::<()>().await,
-            },
-            None => std::future::pending::<()>().await,
-        }
-    };
-    let recv_ledger = async {
-        match ledger_changes.as_mut() {
-            Some(rx) => match rx.recv().await {
-                Ok(()) | Err(RecvError::Lagged(_)) => {}
-                Err(RecvError::Closed) => std::future::pending::<()>().await,
-            },
-            None => std::future::pending::<()>().await,
-        }
-    };
-    let retry = async {
-        if pending {
-            peering.clock.sleep(RETRY_INTERVAL).await;
-        } else {
-            std::future::pending::<()>().await;
-        }
-    };
-    tokio::select! {
-        () = owner.token().cancelled() => {}
-        () = peering.control_wake.notified() => {}
-        () = recv_change => {}
-        () = recv_ledger => {}
-        () = retry => {}
-    }
+    peering.run_replicate_control_state(owner).await;
 }
 
 /// Runs on a non-lead Group member at join or startup: asks the Lead Daemon
@@ -131,65 +69,133 @@ async fn wait_next(
 /// Dropping the future stops retrying; any snapshot already applied stays
 /// durable.
 pub(super) async fn sync_control_state(peering: Arc<Peering>, owner: TaskOwner) {
-    loop {
-        if owner.token().is_cancelled() {
-            return;
-        }
-        let Ok(Some((kept, _))) = store::identity(&peering.store).await else {
-            return;
-        };
-        if kept.is_lead() {
-            return;
-        }
-        let lead_epoch = peering.highest_epoch().await;
-        let versions = peering.control_state.lock().await.versions();
-        let params = PeerControlStateSyncParams {
-            protocol_version: PEER_PROTOCOL_VERSION,
-            product: peering.identity.product,
-            product_version: peering.identity.product_version.clone(),
-            lead_epoch,
-            versions,
-        };
-        match ask_lead::<PeerControlStateSyncResult>(
-            &kept,
-            peering.clock,
-            CONTROL_STATE_SYNC,
-            &params,
-        )
-        .await
-        {
-            Ok(answered) => {
-                if answered.lead_epoch > lead_epoch {
-                    let _ = peering.admit_epoch(answered.lead_epoch).await;
-                }
-                peering.report_lead_reachable(true, None).await;
-                if let Err(error) = peering.apply_snapshots(answered.snapshots).await {
-                    tracing::warn!(%error, "failed to apply synced control-state snapshots");
-                    tokio::select! {
-                        () = owner.token().cancelled() => return,
-                        () = peering.clock.sleep(RETRY_INTERVAL) => continue,
-                    }
-                }
+    peering.run_sync_control_state(owner).await;
+}
+
+impl Peering {
+    async fn run_replicate_control_state(self: Arc<Self>, owner: TaskOwner) {
+        let mut changes = self
+            .services
+            .settings
+            .as_ref()
+            .map(crate::settings::Settings::subscribe_changes);
+        let mut ledger_changes = self
+            .services
+            .ledger
+            .as_ref()
+            .map(crate::ledger::Ledger::subscribe_changes);
+        let mut acked: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+        loop {
+            if owner.token().is_cancelled() {
                 return;
             }
-            Err(error) => {
-                peering
-                    .report_lead_reachable(false, Some(error.to_string()))
-                    .await;
-                tracing::debug!(
-                    %error,
-                    "failed to sync control-state stores from Lead Daemon; retrying"
-                );
-                tokio::select! {
-                    () = owner.token().cancelled() => return,
-                    () = peering.clock.sleep(RETRY_INTERVAL) => {}
+            self.sync_settings_from_disk().await;
+            self.sync_usage_limits().await;
+            let pending = self.push_round(&mut acked).await;
+            self.wait_next_control_change(&owner, &mut changes, &mut ledger_changes, pending)
+                .await;
+        }
+    }
+
+    async fn wait_next_control_change(
+        &self,
+        owner: &TaskOwner,
+        changes: &mut Option<tokio::sync::broadcast::Receiver<()>>,
+        ledger_changes: &mut Option<tokio::sync::broadcast::Receiver<()>>,
+        pending: bool,
+    ) {
+        let recv_change = async {
+            match changes.as_mut() {
+                Some(rx) => match rx.recv().await {
+                    Ok(()) | Err(RecvError::Lagged(_)) => {}
+                    Err(RecvError::Closed) => std::future::pending::<()>().await,
+                },
+                None => std::future::pending::<()>().await,
+            }
+        };
+        let recv_ledger = async {
+            match ledger_changes.as_mut() {
+                Some(rx) => match rx.recv().await {
+                    Ok(()) | Err(RecvError::Lagged(_)) => {}
+                    Err(RecvError::Closed) => std::future::pending::<()>().await,
+                },
+                None => std::future::pending::<()>().await,
+            }
+        };
+        let retry = async {
+            if pending {
+                self.clock.sleep(RETRY_INTERVAL).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::select! {
+            () = owner.token().cancelled() => {}
+            () = self.control_wake.notified() => {}
+            () = recv_change => {}
+            () = recv_ledger => {}
+            () = retry => {}
+        }
+    }
+
+    async fn run_sync_control_state(self: Arc<Self>, owner: TaskOwner) {
+        loop {
+            if owner.token().is_cancelled() {
+                return;
+            }
+            let Ok(Some((kept, _))) = store::identity(&self.store).await else {
+                return;
+            };
+            if kept.is_lead() {
+                return;
+            }
+            let lead_epoch = self.highest_epoch().await;
+            let versions = self.control_state.lock().await.versions();
+            let params = PeerControlStateSyncParams {
+                protocol_version: PEER_PROTOCOL_VERSION,
+                product: self.identity.product,
+                product_version: self.identity.product_version.clone(),
+                lead_epoch,
+                versions,
+            };
+            match ask_lead::<PeerControlStateSyncResult>(
+                &kept,
+                self.clock,
+                CONTROL_STATE_SYNC,
+                &params,
+            )
+            .await
+            {
+                Ok(answered) => {
+                    if answered.lead_epoch > lead_epoch {
+                        let _ = self.admit_epoch(answered.lead_epoch).await;
+                    }
+                    self.report_lead_reachable(true, None).await;
+                    if let Err(error) = self.apply_snapshots(answered.snapshots).await {
+                        tracing::warn!(%error, "failed to apply synced control-state snapshots");
+                        tokio::select! {
+                            () = owner.token().cancelled() => return,
+                            () = self.clock.sleep(RETRY_INTERVAL) => continue,
+                        }
+                    }
+                    return;
+                }
+                Err(error) => {
+                    self.report_lead_reachable(false, Some(error.to_string()))
+                        .await;
+                    tracing::debug!(
+                        %error,
+                        "failed to sync control-state stores from Lead Daemon; retrying"
+                    );
+                    tokio::select! {
+                        () = owner.token().cancelled() => return,
+                        () = self.clock.sleep(RETRY_INTERVAL) => {}
+                    }
                 }
             }
         }
     }
-}
 
-impl Peering {
     /// Loads persisted read-mostly control-state snapshots from the group
     /// store into memory before the peer listener accepts links.
     pub(super) async fn hydrate_control_state(&self) {
@@ -207,31 +213,6 @@ impl Peering {
     /// new Group member joins or a store updates).
     pub(super) fn notify_control_state(&self) {
         self.control_wake.notify_one();
-    }
-
-    /// Publishes a new version of a registered read-mostly control-state store
-    /// on the Lead Daemon, persists it durably, and wakes the push loop.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the store is unregistered, declared single-writer,
-    /// or cannot be persisted to the group store.
-    pub(super) async fn publish_control_store(
-        &self,
-        store_name: &str,
-        content: Option<String>,
-    ) -> Result<Option<ControlStateSnapshot>, CallError> {
-        let mut state = self.control_state.lock().await;
-        let snapshot = state.publish(store_name, content).map_err(|error| {
-            CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
-        })?;
-        if let Some(ref published) = snapshot {
-            store::save_replicated_store(&self.store, published.clone())
-                .await
-                .map_err(|error| store_failed(&error))?;
-            self.control_wake.notify_one();
-        }
-        Ok(snapshot)
     }
 
     /// Reads Operator policy and user configuration from disk on the Lead

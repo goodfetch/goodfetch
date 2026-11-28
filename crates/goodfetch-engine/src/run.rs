@@ -1147,27 +1147,36 @@ fn key_mismatch(run_id: RunId, reference: &SecretReference, wrapped_by: String) 
     )
 }
 
-async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
-    if let Some(partitions) = params.partitions {
-        if !context.identity().product.contains(Product::Foxhound) {
-            let (message, details) = context.identity().not_in_product(
-                crate::product::Requested::Name("partitions"),
-                Product::Foxhound,
-                context.behind_gateway(),
-            );
-            return Err(CallError::new(
-                &goodfetch_protocol::connection::NOT_IN_PRODUCT,
-                message,
-                &details,
-            ));
-        }
-        if partitions.is_multi() {
-            return Err(CallError::protocol(
-                ProtocolFailure::InvalidParams,
-                "Multi-partition runs require `crawl.start` rather than `run.start`.",
-            ));
-        }
+fn check_run_start_partitions(
+    partitions: Option<goodfetch_protocol::run::Partitions>,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let Some(partitions) = partitions else {
+        return Ok(());
+    };
+    if !context.identity().product.contains(Product::Foxhound) {
+        let (message, details) = context.identity().not_in_product(
+            crate::product::Requested::Name("partitions"),
+            Product::Foxhound,
+            context.behind_gateway(),
+        );
+        return Err(CallError::new(
+            &goodfetch_protocol::connection::NOT_IN_PRODUCT,
+            message,
+            &details,
+        ));
     }
+    if partitions.is_multi() {
+        return Err(CallError::protocol(
+            ProtocolFailure::InvalidParams,
+            "Multi-partition runs require `crawl.start` rather than `run.start`.",
+        ));
+    }
+    Ok(())
+}
+
+async fn start(params: RunStartParams, context: CallContext) -> Result<RunStarted, CallError> {
+    check_run_start_partitions(params.partitions, &context)?;
     let run_id = run_id(params.run_id.as_deref())?;
     client_tags(&params.tags)?;
     // A `timeout` of 0 is refused before any Run starts; one given is the

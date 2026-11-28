@@ -141,43 +141,26 @@ impl Default for PeerServices {
     }
 }
 
-impl PeerServices {
-    fn from_engine(engine: &EngineContext) -> Self {
-        Self {
-            settings: Some(engine.settings().clone()),
-            run_index: Some(engine.run_index().clone()),
-            refusals: Some(engine.refusals().clone()),
-            control_stores: Arc::clone(engine.control_stores()),
-            ledger: Some(engine.ledger().clone()),
-            response_cache: Some(engine.response_cache().clone()),
-            events: Some(engine.events().clone()),
-            metrics: Some(engine.metrics().clone()),
-            home: Some(engine.home().clone()),
-            owner: Some(Arc::clone(engine.owner())),
-            governor: Some(engine.governor().clone()),
-            runs: routing::runs_from_engine(engine),
-            live_view: routing::live_view_from_engine(engine),
-            live_view_slot: Some(engine.live_view_slot()),
-            local_dispatcher: engine.local_dispatcher(),
-            sigterm_is_removal: engine.sigterm_is_removal(),
-            peer_extensions: Arc::clone(engine.peer_extensions()),
-            group_membership_hooks: Arc::clone(engine.group_membership_hooks()),
-        }
-    }
-
-    pub(super) fn current_live_view(&self) -> Option<LiveView> {
-        if let Some(lv) = &self.live_view {
-            return Some(lv.clone());
-        }
-        self.live_view_slot
-            .as_ref()
-            .and_then(|slot| {
-                slot.lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .as_ref()
-                    .and_then(|held| Arc::clone(held).downcast::<LiveView>().ok())
-            })
-            .map(|lv| (*lv).clone())
+fn peer_services_from_engine(engine: &EngineContext) -> PeerServices {
+    PeerServices {
+        settings: Some(engine.settings().clone()),
+        run_index: Some(engine.run_index().clone()),
+        refusals: Some(engine.refusals().clone()),
+        control_stores: Arc::clone(engine.control_stores()),
+        ledger: Some(engine.ledger().clone()),
+        response_cache: Some(engine.response_cache().clone()),
+        events: Some(engine.events().clone()),
+        metrics: Some(engine.metrics().clone()),
+        home: Some(engine.home().clone()),
+        owner: Some(Arc::clone(engine.owner())),
+        governor: Some(engine.governor().clone()),
+        runs: routing::runs_from_engine(engine),
+        live_view: routing::live_view_from_engine(engine),
+        live_view_slot: Some(engine.live_view_slot()),
+        local_dispatcher: engine.local_dispatcher(),
+        sigterm_is_removal: engine.sigterm_is_removal(),
+        peer_extensions: Arc::clone(engine.peer_extensions()),
+        group_membership_hooks: Arc::clone(engine.group_membership_hooks()),
     }
 }
 
@@ -280,9 +263,9 @@ pub(super) async fn start(
         lead_epoch,
         members,
         engine.clock(),
-        PeerServices::from_engine(engine),
+        peer_services_from_engine(engine),
     )?);
-    let _ = peering.self_peer.set(Arc::downgrade(&peering));
+    peering.set_self_peer(Arc::downgrade(&peering));
     peering.hydrate_control_state().await;
     engine.settings().set_group_member(Some(kept.name.clone()));
     engine
@@ -299,19 +282,11 @@ pub(super) async fn start(
     engine.set_erasure_broadcaster(Some(Arc::new(erasure::GroupErasureBroadcaster::new(
         Arc::clone(&peering),
     ))));
-    engine.set_group_router(Some(Arc::new(routing::GroupRouterImpl::new(Arc::clone(
-        &peering,
-    )))));
-    engine.set_group_peer(Some(Arc::new(routing::GroupPeerImpl::new(Arc::clone(
-        &peering,
-    )))));
+    engine.set_group_router(Some(Arc::new(GroupRouterImpl::new(Arc::clone(&peering)))));
+    engine.set_group_peer(Some(Arc::new(GroupPeerImpl::new(Arc::clone(&peering)))));
     let local_redirect = limits::start_local_redirect(&peering).await;
     let group = engine.owner().part("daemon group");
-    group.spawn(serve(
-        listener,
-        Arc::clone(&peering),
-        group.part("peer link"),
-    ));
+    group.spawn(Arc::clone(&peering).serve(listener, group.part("peer link")));
     if let Some(redirect) = local_redirect {
         group.spawn(limits::serve_local_redirect(
             Arc::clone(&peering),
@@ -453,43 +428,341 @@ pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
 ///
 /// Dropping the future stops accepting; the links are `owner`'s, which its
 /// stop ends.
+/// Engine hook bridging `EngineContext::group_router()` into the running
+/// Daemon group [`Peering`].
+pub(super) struct GroupRouterImpl {
+    peering: Arc<Peering>,
+}
+
+impl GroupRouterImpl {
+    pub(super) fn new(peering: Arc<Peering>) -> Self {
+        Self { peering }
+    }
+}
+
+impl crate::engine_context::GroupRouter for GroupRouterImpl {
+    fn route_unary(
+        &self,
+        call: crate::engine_context::ForwardedCall,
+        run_id: Option<goodfetch_protocol::run::RunId>,
+        placement: Option<goodfetch_protocol::group::PlacementRequest>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<crate::engine_context::RoutedCall, CallError>>
+                + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.route_unary_call(call, run_id, placement).await })
+    }
+
+    fn route_events(
+        &self,
+        run_id: goodfetch_protocol::run::RunId,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<crate::engine_context::EventsRoute, CallError>>
+                + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.route_events_for(&run_id).await })
+    }
+
+    fn forward_events(
+        &self,
+        owner: String,
+        peer_address: String,
+        params: goodfetch_protocol::events::EventsSubscribeParams,
+    ) -> crate::engine_context::ForwardedEventsFuture {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .forward_events_stream(owner, peer_address, params)
+                .await
+        })
+    }
+
+    fn route_live_view(
+        &self,
+        session: goodfetch_protocol::page::SessionId,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<crate::engine_context::LiveViewRoute, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.route_live_view_for(&session).await })
+    }
+
+    fn open_live_view_relay(
+        &self,
+        owner: String,
+        peer_address: String,
+        session: goodfetch_protocol::page::SessionId,
+        screen: goodfetch_protocol::live_view::LiveViewScreen,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<crate::engine_context::LiveViewRelay, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .open_live_view_relay_stream(owner, peer_address, session, screen)
+                .await
+        })
+    }
+
+    fn verify_live_view_token(
+        &self,
+        session: &goodfetch_protocol::page::SessionId,
+        token: &str,
+    ) -> bool {
+        self.peering.verify_live_view_token(session, token)
+    }
+
+    fn handoff_after_drain(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering.handoff_after_drain(deadline).await;
+        })
+    }
+
+    fn member_name(&self) -> &str {
+        self.peering.name()
+    }
+}
+
+/// Public [`crate::engine_context::GroupPeer`] bridge exposed on
+/// `EngineContext::group_peer()` for contribution crates (ADRs 0054, 0055 and
+/// 0087).
+pub(super) struct GroupPeerImpl {
+    peering: Arc<Peering>,
+}
+
+impl GroupPeerImpl {
+    pub(super) fn new(peering: Arc<Peering>) -> Self {
+        Self { peering }
+    }
+}
+
+impl crate::engine_context::GroupPeer for GroupPeerImpl {
+    fn member_name(&self) -> &str {
+        self.peering.name()
+    }
+
+    fn is_lead(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, CallError>> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.is_lead_member().await })
+    }
+
+    fn eligible_members(
+        &self,
+        request: goodfetch_protocol::group::PlacementRequest,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<goodfetch_protocol::group::MemberRoute>, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.query_eligible_members(&request).await })
+    }
+
+    fn member_route(
+        &self,
+        member: String,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Option<goodfetch_protocol::group::MemberRoute>, CallError>,
+                > + Send,
+        >,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move { peering.resolve_member_route(&member).await })
+    }
+
+    fn call_member_extension(
+        &self,
+        member: String,
+        peer_address: String,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, CallError>> + Send>,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_member_extension(&member, &peer_address, extension_method, payload)
+                .await
+        })
+    }
+
+    fn call_lead_extension(
+        &self,
+        extension_method: String,
+        payload: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, CallError>> + Send>,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_lead_extension(extension_method, payload)
+                .await
+        })
+    }
+
+    fn call_member_rpc(
+        &self,
+        member: String,
+        peer_address: String,
+        method: String,
+        params: serde_json::Value,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<serde_json::Value, CallError>> + Send>,
+    > {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            peering
+                .invoke_member_rpc(&member, &peer_address, method, params)
+                .await
+        })
+    }
+}
+
+#[cfg(test)]
 async fn serve(listener: PeerListener, peering: Arc<Peering>, owner: TaskOwner) {
-    let open = Arc::new(Semaphore::new(OPEN_AT_MOST));
-    loop {
-        let accepted = tokio::select! {
-            () = owner.token().cancelled() => return,
-            accepted = listener.accept() => accepted,
-        };
-        match accepted {
-            Ok(stream) => {
-                let Ok(permit) = Arc::clone(&open).try_acquire_owned() else {
-                    tracing::debug!("a peer link past the ones open at once is closed");
-                    continue;
-                };
-                let stopping = owner.token().clone();
-                let peering = Arc::clone(&peering);
-                owner.spawn(async move {
-                    let _permit = permit;
-                    tokio::select! {
-                        () = peering.answer(stream) => {}
-                        () = stopping.cancelled() => {}
-                    }
-                });
-            }
-            Err(error) => {
-                tracing::warn!(%error, "the peer listener cannot accept a link");
-                if !connections_own(&error) {
-                    tokio::select! {
-                        () = owner.token().cancelled() => return,
-                        () = peering.clock.sleep(ACCEPT_PAUSE) => {}
+    peering.serve(listener, owner).await;
+}
+
+impl Peering {
+    /// Accepts links on `listener` until `owner` stops, answering each in
+    /// a task of its own: at most [`OPEN_AT_MOST`] at once.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops accepting; the links are `owner`'s, which its
+    /// stop ends.
+    pub(super) async fn serve(self: Arc<Self>, listener: PeerListener, owner: TaskOwner) {
+        let open = Arc::new(Semaphore::new(OPEN_AT_MOST));
+        loop {
+            let accepted = tokio::select! {
+                () = owner.token().cancelled() => return,
+                accepted = listener.accept() => accepted,
+            };
+            match accepted {
+                Ok(stream) => {
+                    let Ok(permit) = Arc::clone(&open).try_acquire_owned() else {
+                        tracing::debug!("a peer link past the ones open at once is closed");
+                        continue;
+                    };
+                    let stopping = owner.token().clone();
+                    let peering = Arc::clone(&self);
+                    owner.spawn(async move {
+                        let _permit = permit;
+                        tokio::select! {
+                            () = peering.answer(stream) => {}
+                            () = stopping.cancelled() => {}
+                        }
+                    });
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "the peer listener cannot accept a link");
+                    if !connections_own(&error) {
+                        tokio::select! {
+                            () = owner.token().cancelled() => return,
+                            () = self.clock.sleep(ACCEPT_PAUSE) => {}
+                        }
                     }
                 }
             }
         }
     }
-}
 
-impl Peering {
+    pub(super) fn set_self_peer(&self, weak: std::sync::Weak<Self>) {
+        let _ = self.self_peer.set(weak);
+    }
+
+    pub(super) fn current_live_view(&self) -> Option<LiveView> {
+        if let Some(lv) = &self.services.live_view {
+            return Some(lv.clone());
+        }
+        self.services
+            .live_view_slot
+            .as_ref()
+            .and_then(|slot| {
+                slot.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_ref()
+                    .and_then(|held| Arc::clone(held).downcast::<LiveView>().ok())
+            })
+            .map(|lv| (*lv).clone())
+    }
+
+    pub(super) fn verify_live_view_token(
+        &self,
+        session: &goodfetch_protocol::page::SessionId,
+        token: &str,
+    ) -> bool {
+        self.live_view_tokens
+            .consume(session, token, self.clock.wall())
+    }
+
+    pub(super) async fn handoff_after_drain(&self, deadline: tokio::time::Instant) {
+        if self.services.sigterm_is_removal {
+            let _ = self.handoff_local_runs(deadline).await;
+        }
+    }
+
+    pub(super) async fn is_lead_member(&self) -> Result<bool, CallError> {
+        let Some((kept, _)) = store::identity(&self.store)
+            .await
+            .map_err(|error| store_failed(&error))?
+        else {
+            return Ok(false);
+        };
+        Ok(kept.is_lead())
+    }
+
+    /// Publishes a new version of a registered read-mostly control-state store
+    /// on the Lead Daemon, persists it durably, and wakes the push loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the store is unregistered, declared single-writer,
+    /// or cannot be persisted to the group store.
+    pub(super) async fn publish_control_store(
+        &self,
+        store_name: &str,
+        content: Option<String>,
+    ) -> Result<Option<goodfetch_protocol::group::ControlStateSnapshot>, CallError> {
+        let mut state = self.control_state.lock().await;
+        let snapshot = state.publish(store_name, content).map_err(|error| {
+            CallError::protocol(ProtocolFailure::InvalidParams, error.to_string())
+        })?;
+        if let Some(ref published) = snapshot {
+            store::save_replicated_store(&self.store, published.clone())
+                .await
+                .map_err(|error| store_failed(&error))?;
+            self.control_wake.notify_one();
+        }
+        Ok(snapshot)
+    }
+
     /// What the Daemon `identity`, the Group member `kept` of the group
     /// whose store is `store` and whose highest lead epoch it recorded is
     /// `lead_epoch`, answers with, at `clock`.
@@ -614,7 +887,7 @@ impl Peering {
         let owner = self.services.owner.clone()?;
         let task_starter: &crate::tasks::TaskStarter = &owner;
         Some(crate::engine_context::GroupMembershipContext {
-            peer: Arc::new(routing::GroupPeerImpl::new(peering)),
+            peer: Arc::new(GroupPeerImpl::new(peering)),
             home,
             product_version: self.identity.product_version.clone(),
             clock: self.clock,

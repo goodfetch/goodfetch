@@ -636,49 +636,55 @@ pub(super) struct LocalRedirect {
 /// its `0600` bearer token file, and writes the initial *group redirect* row
 /// into `usage-ledger.sqlite`.
 pub(super) async fn start_local_redirect(peering: &Peering) -> Option<LocalRedirect> {
-    let ledger = peering.services.ledger.clone()?;
-    let home = peering.services.home.clone()?;
-    let listener = TcpListener::bind("127.0.0.1:0").await.ok()?;
-    let endpoint = listener.local_addr().ok()?.to_string();
-    let mut raw = [0_u8; 32];
-    if getrandom::fill(&mut raw).is_err() {
-        return None;
+    peering.start_local_redirect_server().await
+}
+
+impl Peering {
+    async fn start_local_redirect_server(&self) -> Option<LocalRedirect> {
+        let ledger = self.services.ledger.clone()?;
+        let home = self.services.home.clone()?;
+        let listener = TcpListener::bind("127.0.0.1:0").await.ok()?;
+        let endpoint = listener.local_addr().ok()?.to_string();
+        let mut raw = [0_u8; 32];
+        if getrandom::fill(&mut raw).is_err() {
+            return None;
+        }
+        let token = HEXLOWER.encode(&raw);
+        let token_path: PathBuf = home
+            .per_major(&self.identity.product_version)
+            .join(REDIRECT_TOKEN_FILE);
+        if let Some(parent) = token_path.parent() {
+            let _ = durable::create_folder(parent);
+        }
+        if let Err(error) = write_token_file(&token_path, &token) {
+            tracing::warn!(%error, path = %token_path.display(), "failed to write group redirect token file");
+            return None;
+        }
+        let now = self.clock.timestamp();
+        let row = GroupRedirectRow {
+            format_version: GROUP_REDIRECT_FORMAT_VERSION,
+            product: self.identity.product,
+            product_major: self.identity.product_version.line().to_string(),
+            member_name: self.name.clone(),
+            endpoint,
+            token_file: token_path.to_string_lossy().into_owned(),
+            heartbeat_at: now.to_string(),
+            heartbeat_ttl_ms: DEFAULT_REDIRECT_HEARTBEAT_TTL_MS,
+        };
+        let write_row = row.clone();
+        let written = self
+            .run_blocking(move || ledger.write_group_redirect(&write_row, now))
+            .await;
+        if let Err(error) = written {
+            tracing::warn!(%error, "failed to write initial group redirect row");
+            return None;
+        }
+        Some(LocalRedirect {
+            listener,
+            token,
+            row,
+        })
     }
-    let token = HEXLOWER.encode(&raw);
-    let token_path: PathBuf = home
-        .per_major(&peering.identity.product_version)
-        .join(REDIRECT_TOKEN_FILE);
-    if let Some(parent) = token_path.parent() {
-        let _ = durable::create_folder(parent);
-    }
-    if let Err(error) = write_token_file(&token_path, &token) {
-        tracing::warn!(%error, path = %token_path.display(), "failed to write group redirect token file");
-        return None;
-    }
-    let now = peering.clock.timestamp();
-    let row = GroupRedirectRow {
-        format_version: GROUP_REDIRECT_FORMAT_VERSION,
-        product: peering.identity.product,
-        product_major: peering.identity.product_version.line().to_string(),
-        member_name: peering.name.clone(),
-        endpoint,
-        token_file: token_path.to_string_lossy().into_owned(),
-        heartbeat_at: now.to_string(),
-        heartbeat_ttl_ms: DEFAULT_REDIRECT_HEARTBEAT_TTL_MS,
-    };
-    let write_row = row.clone();
-    let written = peering
-        .run_blocking(move || ledger.write_group_redirect(&write_row, now))
-        .await;
-    if let Err(error) = written {
-        tracing::warn!(%error, "failed to write initial group redirect row");
-        return None;
-    }
-    Some(LocalRedirect {
-        listener,
-        token,
-        row,
-    })
 }
 
 fn write_token_file(path: &std::path::Path, token: &str) -> std::io::Result<()> {

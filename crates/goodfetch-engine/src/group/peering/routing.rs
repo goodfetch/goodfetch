@@ -10,8 +10,6 @@
 //! ownership check, route cache, and mTLS peer link helper.
 
 use std::collections::BTreeMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, PoisonError};
 use std::time::{Duration, SystemTime};
 
@@ -43,10 +41,7 @@ use tokio::sync::mpsc;
 use super::wire::{Lines, OPENING_TIMEOUT, connect_peer_tls, write};
 use super::{Asked, Peering, ask_lead, ask_peer, presented_name};
 use crate::call_error::CallError;
-use crate::engine_context::{
-    EventsRoute, ForwardedCall, ForwardedEventsFuture, GroupPeer, GroupRouter, LiveViewRelay,
-    LiveViewRoute, RoutedCall,
-};
+use crate::engine_context::{EventsRoute, ForwardedCall, LiveViewRelay, LiveViewRoute, RoutedCall};
 use crate::forward::answered_failure;
 use crate::framing::{Frame, Incoming, decode};
 use crate::group::operations::{internal, store_failed};
@@ -253,30 +248,6 @@ pub(super) fn run_moved_error(run_id: RunId, owner: Option<String>) -> CallError
     CallError::new(&RUN_MOVED, message, &RunMovedDetails { run_id, owner })
 }
 
-/// Reads this Group member's current capabilities (`daemon.advertise_url`,
-/// `egress.local_addresses`, product version, and any registered capabilities).
-async fn read_local_capabilities(peering: &Peering) -> MemberCapabilities {
-    let mut caps = MemberCapabilities {
-        product_version: peering.identity.product_version.clone(),
-        ..MemberCapabilities::default()
-    };
-    if let Some(settings) = &peering.services.settings {
-        let machine = settings.snapshot().await;
-        if let Ok(resolved) = machine.resolved() {
-            caps.advertise_url = get_or_default::<Option<&str>>(Some(resolved), &ADVERTISE_URL)
-                .map(str::to_owned)
-                .filter(|url| !url.trim().is_empty());
-            if let Some(items) = resolved.value(&EGRESS_LOCAL_ADDRESSES).as_array() {
-                caps.local_addresses = items
-                    .iter()
-                    .filter_map(|v| v.as_str().map(str::to_owned))
-                    .collect();
-            }
-        }
-    }
-    caps
-}
-
 /// Background task that watches this Group member's Resource governor headroom
 /// and pushes updates to the Lead Daemon (or updates the Lead Daemon's own
 /// [`MemberDirectory`]) whenever headroom or capabilities change noticeably
@@ -286,265 +257,114 @@ async fn read_local_capabilities(peering: &Peering) -> MemberCapabilities {
 ///
 /// Dropping the future stops reporting further headroom updates.
 pub(super) async fn push_headroom(peering: Arc<Peering>, owner: TaskOwner) {
-    let mut info_rx = peering
-        .services
-        .governor
-        .as_ref()
-        .map(crate::governor::Governor::system_info);
-    let mut last_pushed: Option<(MemberHeadroom, MemberCapabilities)> = None;
+    peering.run_push_headroom(owner).await;
+}
 
-    loop {
-        let Ok(Some((kept, lead_epoch))) = store::identity(&peering.store).await else {
-            return;
+impl Peering {
+    /// Reads this Group member's current capabilities (`daemon.advertise_url`,
+    /// `egress.local_addresses`, product version, and any registered capabilities).
+    async fn read_local_capabilities(&self) -> MemberCapabilities {
+        let mut caps = MemberCapabilities {
+            product_version: self.identity.product_version.clone(),
+            ..MemberCapabilities::default()
         };
-        let info = info_rx.as_ref().and_then(|rx| rx.borrow().clone());
-        let headroom = headroom_from_system_info(info.as_ref(), true);
-        let capabilities = read_local_capabilities(&peering).await;
-        let current = (headroom, capabilities);
-
-        if headroom_changed_noticeably(last_pushed.as_ref(), &current) {
-            if kept.is_lead() {
-                peering.directory.upsert(MemberRecord {
-                    name: kept.name.clone(),
-                    peer_address: kept.peer_address.clone(),
-                    headroom: current.0,
-                    capabilities: current.1.clone(),
-                });
-                last_pushed = Some(current);
-            } else {
-                let params = PeerHeadroomReportParams {
-                    protocol_version: PEER_PROTOCOL_VERSION,
-                    product: peering.identity.product,
-                    product_version: peering.identity.product_version.clone(),
-                    lead_epoch,
-                    member: kept.name.clone(),
-                    headroom: current.0,
-                    capabilities: current.1.clone(),
-                };
-                match ask_lead::<PeerHeadroomReportResult>(
-                    &kept,
-                    peering.clock,
-                    GROUP_HEADROOM_REPORT,
-                    &params,
-                )
-                .await
-                {
-                    Ok(answered) => {
-                        if answered.lead_epoch > lead_epoch {
-                            let _ = peering.admit_epoch(answered.lead_epoch).await;
-                        }
-                        last_pushed = Some(current);
-                    }
-                    Err(error) => {
-                        tracing::debug!(
-                            %error,
-                            "failed to report governor headroom to the Lead Daemon; retrying"
-                        );
-                        tokio::select! {
-                            () = owner.token().cancelled() => return,
-                            () = peering.clock.sleep(HEADROOM_RETRY) => continue,
-                        }
-                    }
+        if let Some(settings) = &self.services.settings {
+            let machine = settings.snapshot().await;
+            if let Ok(resolved) = machine.resolved() {
+                caps.advertise_url = get_or_default::<Option<&str>>(Some(resolved), &ADVERTISE_URL)
+                    .map(str::to_owned)
+                    .filter(|url| !url.trim().is_empty());
+                if let Some(items) = resolved.value(&EGRESS_LOCAL_ADDRESSES).as_array() {
+                    caps.local_addresses = items
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_owned))
+                        .collect();
                 }
             }
         }
-
-        if let Some(rx) = &mut info_rx {
-            tokio::select! {
-                () = owner.token().cancelled() => return,
-                changed = rx.changed() => {
-                    if changed.is_err() {
-                        return;
-                    }
-                }
-            }
-        } else {
-            // Unsampled governor (e.g. unit tests without a system sampler):
-            // initial snapshot was pushed; stay parked until cancelled.
-            owner.token().cancelled().await;
-            return;
-        }
-    }
-}
-
-/// Engine hook bridging `EngineContext::group_router()` into the running
-/// Daemon group [`Peering`].
-pub(super) struct GroupRouterImpl {
-    peering: Arc<Peering>,
-}
-
-impl GroupRouterImpl {
-    pub(super) fn new(peering: Arc<Peering>) -> Self {
-        Self { peering }
-    }
-}
-
-impl GroupRouter for GroupRouterImpl {
-    fn route_unary(
-        &self,
-        call: ForwardedCall,
-        run_id: Option<RunId>,
-        placement: Option<PlacementRequest>,
-    ) -> Pin<Box<dyn Future<Output = Result<RoutedCall, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move { peering.route_unary_call(call, run_id, placement).await })
+        caps
     }
 
-    fn route_events(
-        &self,
-        run_id: RunId,
-    ) -> Pin<Box<dyn Future<Output = Result<EventsRoute, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move { peering.route_events_for(&run_id).await })
-    }
+    async fn run_push_headroom(self: Arc<Self>, owner: TaskOwner) {
+        let mut info_rx = self
+            .services
+            .governor
+            .as_ref()
+            .map(crate::governor::Governor::system_info);
+        let mut last_pushed: Option<(MemberHeadroom, MemberCapabilities)> = None;
 
-    fn forward_events(
-        &self,
-        owner: String,
-        peer_address: String,
-        params: EventsSubscribeParams,
-    ) -> ForwardedEventsFuture {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            peering
-                .forward_events_stream(owner, peer_address, params)
-                .await
-        })
-    }
-
-    fn route_live_view(
-        &self,
-        session: SessionId,
-    ) -> Pin<Box<dyn Future<Output = Result<LiveViewRoute, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move { peering.route_live_view_for(&session).await })
-    }
-
-    fn open_live_view_relay(
-        &self,
-        owner: String,
-        peer_address: String,
-        session: SessionId,
-        screen: LiveViewScreen,
-    ) -> Pin<Box<dyn Future<Output = Result<LiveViewRelay, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            peering
-                .open_live_view_relay_stream(owner, peer_address, session, screen)
-                .await
-        })
-    }
-
-    fn verify_live_view_token(&self, session: &SessionId, token: &str) -> bool {
-        self.peering
-            .live_view_tokens
-            .consume(session, token, self.peering.clock.wall())
-    }
-
-    fn handoff_after_drain(
-        &self,
-        deadline: tokio::time::Instant,
-    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            if peering.services.sigterm_is_removal {
-                let _ = peering.handoff_local_runs(deadline).await;
-            }
-        })
-    }
-
-    fn member_name(&self) -> &str {
-        self.peering.name()
-    }
-}
-
-/// Public [`GroupPeer`] bridge exposed on `EngineContext::group_peer()` for
-/// contribution crates (ADRs 0054, 0055 and 0087).
-pub(super) struct GroupPeerImpl {
-    peering: Arc<Peering>,
-}
-
-impl GroupPeerImpl {
-    pub(super) fn new(peering: Arc<Peering>) -> Self {
-        Self { peering }
-    }
-}
-
-impl GroupPeer for GroupPeerImpl {
-    fn member_name(&self) -> &str {
-        self.peering.name()
-    }
-
-    fn is_lead(&self) -> Pin<Box<dyn Future<Output = Result<bool, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            let Some((kept, _)) = store::identity(&peering.store)
-                .await
-                .map_err(|error| store_failed(&error))?
-            else {
-                return Ok(false);
+        loop {
+            let Ok(Some((kept, lead_epoch))) = store::identity(&self.store).await else {
+                return;
             };
-            Ok(kept.is_lead())
-        })
-    }
+            let info = info_rx.as_ref().and_then(|rx| rx.borrow().clone());
+            let headroom = headroom_from_system_info(info.as_ref(), true);
+            let capabilities = self.read_local_capabilities().await;
+            let current = (headroom, capabilities);
 
-    fn eligible_members(
-        &self,
-        request: PlacementRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<MemberRoute>, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move { peering.query_eligible_members(&request).await })
-    }
+            if headroom_changed_noticeably(last_pushed.as_ref(), &current) {
+                if kept.is_lead() {
+                    self.directory.upsert(MemberRecord {
+                        name: kept.name.clone(),
+                        peer_address: kept.peer_address.clone(),
+                        headroom: current.0,
+                        capabilities: current.1.clone(),
+                    });
+                    last_pushed = Some(current);
+                } else {
+                    let params = PeerHeadroomReportParams {
+                        protocol_version: PEER_PROTOCOL_VERSION,
+                        product: self.identity.product,
+                        product_version: self.identity.product_version.clone(),
+                        lead_epoch,
+                        member: kept.name.clone(),
+                        headroom: current.0,
+                        capabilities: current.1.clone(),
+                    };
+                    match ask_lead::<PeerHeadroomReportResult>(
+                        &kept,
+                        self.clock,
+                        GROUP_HEADROOM_REPORT,
+                        &params,
+                    )
+                    .await
+                    {
+                        Ok(answered) => {
+                            if answered.lead_epoch > lead_epoch {
+                                let _ = self.admit_epoch(answered.lead_epoch).await;
+                            }
+                            last_pushed = Some(current);
+                        }
+                        Err(error) => {
+                            tracing::debug!(
+                                %error,
+                                "failed to report governor headroom to the Lead Daemon; retrying"
+                            );
+                            tokio::select! {
+                                () = owner.token().cancelled() => return,
+                                () = self.clock.sleep(HEADROOM_RETRY) => continue,
+                            }
+                        }
+                    }
+                }
+            }
 
-    fn member_route(
-        &self,
-        member: String,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<MemberRoute>, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move { peering.resolve_member_route(&member).await })
-    }
-
-    fn call_member_extension(
-        &self,
-        member: String,
-        peer_address: String,
-        extension_method: String,
-        payload: serde_json::Value,
-    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            peering
-                .invoke_member_extension(&member, &peer_address, extension_method, payload)
-                .await
-        })
-    }
-
-    fn call_lead_extension(
-        &self,
-        extension_method: String,
-        payload: serde_json::Value,
-    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            peering
-                .invoke_lead_extension(extension_method, payload)
-                .await
-        })
-    }
-
-    fn call_member_rpc(
-        &self,
-        member: String,
-        peer_address: String,
-        method: String,
-        params: serde_json::Value,
-    ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, CallError>> + Send>> {
-        let peering = Arc::clone(&self.peering);
-        Box::pin(async move {
-            peering
-                .invoke_member_rpc(&member, &peer_address, method, params)
-                .await
-        })
+            if let Some(rx) = &mut info_rx {
+                tokio::select! {
+                    () = owner.token().cancelled() => return,
+                    changed = rx.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                }
+            } else {
+                // Unsampled governor (e.g. unit tests without a system sampler):
+                // initial snapshot was pushed; stay parked until cancelled.
+                owner.token().cancelled().await;
+                return;
+            }
+        }
     }
 }
 
@@ -686,7 +506,7 @@ impl Peering {
         if let Some(owner) = self.directory.session_owner(session_id) {
             return self.member_route_on_lead(&owner).await;
         }
-        if let Some(lv) = self.services.current_live_view()
+        if let Some(lv) = self.current_live_view()
             && lv.has_session(session_id)
         {
             return self.member_route_on_lead(&self.name).await;
@@ -704,7 +524,7 @@ impl Peering {
             return Ok(None);
         };
         let advertise_url = if member == self.name {
-            read_local_capabilities(self).await.advertise_url
+            self.read_local_capabilities().await.advertise_url
         } else {
             self.directory
                 .get(member)
@@ -848,7 +668,7 @@ impl Peering {
         handler.handle(sender_member, lead_epoch, payload).await
     }
 
-    async fn query_eligible_members(
+    pub(super) async fn query_eligible_members(
         &self,
         request: &PlacementRequest,
     ) -> Result<Vec<MemberRoute>, CallError> {
@@ -884,7 +704,10 @@ impl Peering {
         Ok(answered.members)
     }
 
-    async fn resolve_member_route(&self, member: &str) -> Result<Option<MemberRoute>, CallError> {
+    pub(super) async fn resolve_member_route(
+        &self,
+        member: &str,
+    ) -> Result<Option<MemberRoute>, CallError> {
         let Some((kept, _)) = store::identity(&self.store)
             .await
             .map_err(|error| store_failed(&error))?
@@ -904,7 +727,7 @@ impl Peering {
         Ok(eligible.ok().and_then(|mut routes| routes.drain(..).next()))
     }
 
-    async fn invoke_member_extension(
+    pub(super) async fn invoke_member_extension(
         &self,
         member: &str,
         peer_address: &str,
@@ -946,7 +769,7 @@ impl Peering {
         Ok(answered.result)
     }
 
-    async fn invoke_lead_extension(
+    pub(super) async fn invoke_lead_extension(
         &self,
         extension_method: String,
         payload: serde_json::Value,
@@ -980,7 +803,7 @@ impl Peering {
         Ok(answered.result)
     }
 
-    async fn invoke_member_rpc(
+    pub(super) async fn invoke_member_rpc(
         &self,
         member: &str,
         peer_address: &str,
@@ -1052,7 +875,7 @@ impl Peering {
                     name: member.name,
                     peer_address: member.peer_address,
                     headroom: headroom_from_system_info(info.as_ref(), true),
-                    capabilities: read_local_capabilities(self).await,
+                    capabilities: self.read_local_capabilities().await,
                 });
             } else {
                 records.push(MemberRecord {
@@ -1591,7 +1414,7 @@ impl Peering {
     ) -> Result<PeerLiveViewMintResult, CallError> {
         let lead_epoch = self.admit_epoch(params.lead_epoch).await?;
         let _ = presented_name(presented, &params.member)?;
-        let Some(live_view) = self.services.current_live_view() else {
+        let Some(live_view) = self.current_live_view() else {
             return Err(CallError::protocol(
                 ProtocolFailure::InvalidParams,
                 format!("no open Session of this Daemon is `{}`", params.session.0),
@@ -1606,7 +1429,7 @@ impl Peering {
         let token = self
             .live_view_tokens
             .mint(params.session, self.clock.wall())?;
-        let advertise_url = read_local_capabilities(self).await.advertise_url;
+        let advertise_url = self.read_local_capabilities().await.advertise_url;
         Ok(PeerLiveViewMintResult {
             protocol_version: settled,
             lead_epoch,
@@ -1812,7 +1635,7 @@ impl Peering {
             let _ = write(stream, &failure_line(Some(request.id), &error)).await;
             return;
         }
-        let Some(live_view) = self.services.current_live_view() else {
+        let Some(live_view) = self.current_live_view() else {
             let _ = write(
                 stream,
                 &failure_line(

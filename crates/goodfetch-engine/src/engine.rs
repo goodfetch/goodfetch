@@ -183,11 +183,29 @@ impl Engine {
         self
     }
 
-    /// Contribution-registered `runs adopt` hooks for offline Run folder
-    /// adoption (ADRs 0054, 0055 and 0087).
-    #[must_use]
-    pub fn run_adopt_hooks(&self) -> &[Arc<dyn crate::composition::RunAdoptHook>] {
-        &self.run_adopt_hooks
+    /// Adopts checkpointed Runs from a departed Group member (ADR 0055),
+    /// invoking every Contribution-registered [`crate::composition::RunAdoptHook`].
+    ///
+    /// # Errors
+    ///
+    /// Any group or storage error from [`crate::group::adopt_runs_with_hooks`].
+    pub async fn adopt_runs(
+        &self,
+        home: &Home,
+        identity: &Identity,
+        clock: Clock,
+        locations: &[std::path::PathBuf],
+        from_member: Option<&str>,
+    ) -> Result<crate::group::AdoptedSummary, crate::call_error::CallError> {
+        crate::group::adopt_runs_with_hooks(
+            home,
+            identity,
+            clock,
+            locations,
+            from_member,
+            &self.run_adopt_hooks,
+        )
+        .await
     }
 
     /// The same, its Resource governor sampling `system` (ADR 0040), as

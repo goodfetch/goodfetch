@@ -1,5 +1,8 @@
 //! `crawl.start` and Foxhound's crawl contribution (ADRs 0028, 0087, 0093
 //! and 0102): the start resolves the Run's settings, refused before the Run
+//!
+//! Size: one concern, wiring `crawl.start` (both standalone and Partitioned
+//! crawl member starts) into Foxhound's crawl contribution and `CrawlRuntime`.
 //! begins, begins a crawl's Run through the engine's Runs, its scope and
 //! bounds recorded and each seed admitted by the Frontier, under the Run's
 //! domain policy (`setting_invalid` for an entry that is no host), as its first work items,
@@ -555,7 +558,7 @@ async fn start(
     redeclared: Redeclared,
     pages: code_free::Pages,
 ) -> Result<CrawlStarted, CallError> {
-    start_with_options(
+    Box::pin(start_with_options(
         params,
         None,
         None,
@@ -564,7 +567,7 @@ async fn start(
         tiers_and_sinks,
         redeclared,
         pages,
-    )
+    ))
     .await
 }
 
@@ -893,6 +896,8 @@ async fn notify_personal_data(
     }
 }
 
+type PartitionWiring = (Option<Arc<dyn PartitionRouter>>, Vec<String>);
+
 /// Starts delivery for a newly created crawl Run after applying its Limits.
 async fn start_new(
     (run, context): (goodfetch_engine::runs::RunParts, &CallContext),
@@ -907,7 +912,7 @@ async fn start_new(
         Policy,
         Invariants,
         Datasets,
-        (Option<Arc<dyn PartitionRouter>>, Vec<String>),
+        PartitionWiring,
     ),
     (tiers, labels, crawl, hooks): (
         FetchTiers,

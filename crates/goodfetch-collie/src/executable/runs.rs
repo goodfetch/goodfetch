@@ -5,16 +5,14 @@
 //! or a folder of them. A Run it does not find stays as a *missing* row,
 //! and an *erased* row stays erased.
 
-use std::path::PathBuf;
-use std::process::ExitCode;
-use std::sync::Arc;
-
-use goodfetch_engine::RunAdoptHook;
+use goodfetch_engine::Engine;
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::group::{adopt_runs_with_hooks, reindex_to_lead};
+use goodfetch_engine::group::reindex_to_lead;
 use goodfetch_engine::runs::reindex as rebuild;
 use goodfetch_protocol::connection::Form;
 use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsAdoptOutput, RunsReindexOutput};
+use std::path::PathBuf;
+use std::process::ExitCode;
 
 use super::daemon::Machine;
 use super::output::{self, Human};
@@ -80,7 +78,7 @@ pub(super) fn adopt(
     folder: &std::path::Path,
     paths: Vec<PathBuf>,
     from_member: Option<&str>,
-    adopt_hooks: &[Arc<dyn RunAdoptHook>],
+    engine: &Engine,
     json: bool,
     human: &Human,
 ) -> ExitCode {
@@ -94,13 +92,12 @@ pub(super) fn adopt(
         tracing::error!("the runtime for `runs adopt` could not be started");
         return ExitCode::FAILURE;
     };
-    match runtime.block_on(adopt_runs_with_hooks(
+    match runtime.block_on(engine.adopt_runs(
         home,
         identity,
         Clock::system(),
         &locations,
         from_member,
-        adopt_hooks,
     )) {
         Ok(adopted) => {
             let result = RunsAdoptOutput {

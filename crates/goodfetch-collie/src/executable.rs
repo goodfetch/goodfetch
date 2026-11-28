@@ -791,10 +791,6 @@ fn records_the_executable(parsed: &Parsed) -> bool {
 /// Runs the command `parsed` asks for on `engine`, once the executable is
 /// set up, among `own` commands, with the `skills` and `starters` it
 /// carries.
-#[expect(
-    clippy::too_many_lines,
-    reason = "top-level CLI subcommand dispatch table"
-)]
 fn run(
     parsed: Parsed,
     (engine, dependencies): (&Engine, Dependencies),
@@ -873,9 +869,7 @@ fn run(
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
-        Command::Runs { command, .. } => {
-            runs_command(command, &machine, engine.run_adopt_hooks(), human)
-        }
+        Command::Runs { command, .. } => runs_command(command, &machine, engine, human),
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, &machine, human)
@@ -947,7 +941,7 @@ fn usage_command(
 fn runs_command(
     command: RunsCommand,
     machine: &Machine,
-    adopt_hooks: &[std::sync::Arc<dyn goodfetch_engine::RunAdoptHook>],
+    engine: &Engine,
     human: &Human,
 ) -> ExitCode {
     let Ok(folder) = std::env::current_dir() else {
@@ -965,7 +959,7 @@ fn runs_command(
             &folder,
             paths,
             from_member.as_deref(),
-            adopt_hooks,
+            engine,
             json,
             human,
         ),

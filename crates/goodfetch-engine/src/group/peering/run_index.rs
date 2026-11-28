@@ -67,47 +67,50 @@ pub(super) async fn feed_run_index(peering: Arc<Peering>, owner: TaskOwner) {
 
 /// Sends `rows` to the Lead Daemon, retrying briefly while `owner` stays live.
 async fn report_with_retry(peering: &Peering, owner: &TaskOwner, rows: Vec<RunIndexRow>) {
-    loop {
-        let Ok(Some((kept, lead_epoch))) = store::identity(&peering.store).await else {
-            return;
-        };
-        if kept.is_lead() {
-            return;
-        }
-        let params = PeerRunIndexReportParams {
-            protocol_version: PEER_PROTOCOL_VERSION,
-            product: peering.identity.product,
-            product_version: peering.identity.product_version.clone(),
-            lead_epoch,
-            member: kept.name.clone(),
-            rows: rows.clone(),
-            claim: false,
-        };
-        match ask_lead::<PeerRunIndexReportResult>(&kept, peering.clock, RUN_INDEX_REPORT, &params)
-            .await
-        {
-            Ok(answered) => {
-                if answered.lead_epoch > lead_epoch {
-                    let _ = peering.admit_epoch(answered.lead_epoch).await;
-                }
+    peering.report_run_index_with_retry(owner, rows).await;
+}
+
+impl Peering {
+    async fn report_run_index_with_retry(&self, owner: &TaskOwner, rows: Vec<RunIndexRow>) {
+        loop {
+            let Ok(Some((kept, lead_epoch))) = store::identity(&self.store).await else {
+                return;
+            };
+            if kept.is_lead() {
                 return;
             }
-            Err(error) => {
-                tracing::debug!(
-                    %error,
-                    rows = rows.len(),
-                    "failed to report Run index rows to the Lead Daemon; retrying"
-                );
-                tokio::select! {
-                    () = owner.token().cancelled() => return,
-                    () = peering.clock.sleep(FEED_RETRY) => {}
+            let params = PeerRunIndexReportParams {
+                protocol_version: PEER_PROTOCOL_VERSION,
+                product: self.identity.product,
+                product_version: self.identity.product_version.clone(),
+                lead_epoch,
+                member: kept.name.clone(),
+                rows: rows.clone(),
+                claim: false,
+            };
+            match ask_lead::<PeerRunIndexReportResult>(&kept, self.clock, RUN_INDEX_REPORT, &params)
+                .await
+            {
+                Ok(answered) => {
+                    if answered.lead_epoch > lead_epoch {
+                        let _ = self.admit_epoch(answered.lead_epoch).await;
+                    }
+                    return;
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        %error,
+                        rows = rows.len(),
+                        "failed to report Run index rows to the Lead Daemon; retrying"
+                    );
+                    tokio::select! {
+                        () = owner.token().cancelled() => return,
+                        () = self.clock.sleep(FEED_RETRY) => {}
+                    }
                 }
             }
         }
     }
-}
-
-impl Peering {
     /// The answer to the `group.run_index.report` `request` of the Group
     /// member that presented `presented`.
     pub(super) async fn run_index_report(

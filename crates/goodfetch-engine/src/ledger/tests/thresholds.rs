@@ -43,8 +43,9 @@ fn crossings_record_at_50_80_and_100_percent_and_100_percent_keeps_a_needs_you_i
 
     let mut seen: Vec<(u64, u64)> = Vec::new();
     for step in 1..=10_u64 {
-        run.charge("requests", 1, now()).unwrap();
-        for crossing in run.take_pending_crossings() {
+        let (charged, crossings) = run.charge_with_crossings("requests", 1, now());
+        charged.unwrap();
+        for crossing in crossings {
             seen.push((step, crossing.threshold));
             ledger.mark_threshold_sent(&crossing, now()).unwrap();
         }
@@ -80,8 +81,9 @@ fn custom_thresholds_override_notification_percentages_while_100_percent_still_r
 
     let mut thresholds = Vec::new();
     for _ in 0..10 {
-        run.charge("requests", 1, now()).unwrap();
-        for crossing in run.take_pending_crossings() {
+        let (charged, crossings) = run.charge_with_crossings("requests", 1, now());
+        charged.unwrap();
+        for crossing in crossings {
             thresholds.push(crossing.threshold);
             ledger.mark_threshold_sent(&crossing, now()).unwrap();
         }
@@ -105,12 +107,14 @@ fn reclaiming_a_dead_engines_slices_surfaces_unsent_thresholds_once() {
         .unwrap();
 
     let mut dead = charging(&env, "dead-run");
+    let mut unsent = Vec::new();
     for _ in 0..5 {
-        dead.charge("requests", 1, now()).unwrap();
+        let (charged, crossings) = dead.charge_with_crossings("requests", 1, now());
+        charged.unwrap();
+        unsent.extend(crossings);
     }
     // Simulate crash: the dead engine recorded the 50 % crossing on Slice 5
     // but died before delivering and calling `mark_threshold_sent`.
-    let unsent = dead.take_pending_crossings();
     assert_eq!(unsent.len(), 1);
     assert_eq!(unsent[0].threshold, 50);
     drop(dead);
@@ -174,8 +178,12 @@ fn three_engines_crossing_thresholds_together_emit_each_threshold_once() {
                 );
                 let mut emitted = Vec::new();
                 barrier.wait();
-                while run.charge("requests", 1, now()).is_ok() {
-                    for crossing in run.take_pending_crossings() {
+                loop {
+                    let (charged, crossings) = run.charge_with_crossings("requests", 1, now());
+                    if charged.is_err() {
+                        break;
+                    }
+                    for crossing in crossings {
                         ledger.mark_threshold_sent(&crossing, now()).unwrap();
                         emitted.push(crossing.threshold);
                     }
@@ -225,16 +233,19 @@ fn threshold_crossing_shares_the_slices_transaction_and_held_charges_run_no_sql(
     run.may_start(now()).unwrap();
 
     // Spend 49 Slices (490 requests), leaving the 50th Slice to cross 50 %.
+    let mut early = Vec::new();
     for _ in 0..49 {
-        run.charge("requests", 10, now()).unwrap();
+        let (charged, crossings) = run.charge_with_crossings("requests", 10, now());
+        charged.unwrap();
+        early.extend(crossings);
     }
-    assert_eq!(run.take_pending_crossings().len(), 0);
+    assert_eq!(early.len(), 0);
 
     // The 50th Slice crosses 50 % inside its single transaction and sync.
     let tx_before = work.read(CountedRow::ChargeTransactions);
     let syncs_before = vfs.syncs();
-    run.charge("requests", 1, now()).unwrap();
-    let crossings = run.take_pending_crossings();
+    let (charged, crossings) = run.charge_with_crossings("requests", 1, now());
+    charged.unwrap();
     assert_eq!(crossings.len(), 1);
     assert_eq!(crossings[0].threshold, 50);
     assert_eq!(work.read(CountedRow::ChargeTransactions) - tx_before, 1);

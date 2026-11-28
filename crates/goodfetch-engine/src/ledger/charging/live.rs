@@ -404,11 +404,7 @@ impl RunCharging {
                         .map(|charged| (Ok(charged), Vec::new()))
                         .ok_or(())
                 },
-                move |charging, ()| {
-                    let result = charging.charge(&kind, amount, now);
-                    let crossings = charging.take_pending_crossings();
-                    (result, crossings)
-                },
+                move |charging, ()| charging.charge_with_crossings(&kind, amount, now),
             )
             .await;
         match made {
@@ -735,10 +731,10 @@ impl RunCharging {
                     None => Err((change, place)),
                 },
                 move |charging, (change, place)| {
-                    let outcome = charging.change(now, &change).map(|(value, charged)| {
+                    let (outcome, crossings) = charging.change_with_crossings(now, &change);
+                    let outcome = outcome.map(|(value, charged)| {
                         (value, journaled(journal, charging, place, epoch, charged))
                     });
-                    let crossings = charging.take_pending_crossings();
                     (outcome, crossings)
                 },
             )

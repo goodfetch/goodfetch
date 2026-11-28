@@ -845,7 +845,7 @@ impl KeyState for DomainState {
         let value = bytes
             .and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok())
             .unwrap_or(Value::Null);
-        let kept = decode_domain_state(&value);
+        let kept = Self::from_store_value(&value);
         Some(Self {
             limits: if reads.limits {
                 kept.limits
@@ -874,41 +874,43 @@ impl KeyState for DomainState {
             tables
                 .get_mut::<Domains>()
                 .0
-                .insert(key.to_owned(), decode_domain_state(&value));
+                .insert(key.to_owned(), Self::from_store_value(&value));
         }
     }
 }
 
-fn decode_domain_state(value: &Value) -> DomainState {
-    let crawl_delays = value
-        .get("crawl_delays")
-        .and_then(Value::as_object)
-        .map(|map| {
-            map.iter()
-                .filter_map(|(loc, ms)| {
-                    ms.as_i64()
-                        .and_then(|ms| u64::try_from(ms).ok())
-                        .map(|ms| (loc.clone(), Duration::from_millis(ms)))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    DomainState {
-        limits: Limits {
-            ready_at: value.get("ready_at").and_then(Value::as_i64),
-            backoff: value.get("backoff").and_then(Value::as_i64),
-            ceiling: value.get("ceiling").and_then(Value::as_u64),
-            ceiling_changed_at: value.get("ceiling_changed_at").and_then(Value::as_i64),
-            last_start: value.get("last_start").and_then(Value::as_i64),
-            last_send: value.get("last_send").and_then(Value::as_i64),
-        },
-        pacing: Pacing {
-            latency: value.get("latency").and_then(Value::as_i64),
-            theoretical_start: value.get("theoretical_start").and_then(Value::as_i64),
-            interval: value.get("interval").and_then(Value::as_i64),
-            theoretical_send: value.get("theoretical_send").and_then(Value::as_i64),
-        },
-        crawl_delays,
+impl DomainState {
+    fn from_store_value(value: &Value) -> Self {
+        let crawl_delays = value
+            .get("crawl_delays")
+            .and_then(Value::as_object)
+            .map(|map| {
+                map.iter()
+                    .filter_map(|(loc, ms)| {
+                        ms.as_i64()
+                            .and_then(|ms| u64::try_from(ms).ok())
+                            .map(|ms| (loc.clone(), Duration::from_millis(ms)))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        DomainState {
+            limits: Limits {
+                ready_at: value.get("ready_at").and_then(Value::as_i64),
+                backoff: value.get("backoff").and_then(Value::as_i64),
+                ceiling: value.get("ceiling").and_then(Value::as_u64),
+                ceiling_changed_at: value.get("ceiling_changed_at").and_then(Value::as_i64),
+                last_start: value.get("last_start").and_then(Value::as_i64),
+                last_send: value.get("last_send").and_then(Value::as_i64),
+            },
+            pacing: Pacing {
+                latency: value.get("latency").and_then(Value::as_i64),
+                theoretical_start: value.get("theoretical_start").and_then(Value::as_i64),
+                interval: value.get("interval").and_then(Value::as_i64),
+                theoretical_send: value.get("theoretical_send").and_then(Value::as_i64),
+            },
+            crawl_delays,
+        }
     }
 }
 

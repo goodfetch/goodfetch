@@ -697,9 +697,7 @@ async fn deliver(
             }
             reason = run.identity.stopping(), if halt.is_none() => halt = Some(Halt::Stop(reason)),
             reason = run.sink_failed(), if halt.is_none() => halt = Some(Halt::SinkFailed(reason)),
-            Some(server) = arrivals.joined.recv() => {
-                servers.push(Serving::joined(server));
-            }
+            Some(server) = arrivals.joined.recv() => servers.push(Serving::joined(server)),
             Some(ask) = arrivals.asked.next() => {
                 answered(run, (&mut admission, &mut state, &mut handoffs), in_flight, ask).await;
             }

@@ -508,6 +508,10 @@ pub(super) struct PageState {
     /// Its Product's Block classifier, which keeps blocked responses out of
     /// the Response cache (ADR 0046).
     blocks: Arc<dyn BlockClassifier>,
+    /// Set when the current main-frame navigation was answered from the
+    /// Response cache so `page.goto` settles its `requests` reservation at 0
+    /// and counts only `cache_hits` (ADR 0046, issue 803).
+    navigation_cache_hit: AtomicBool,
 }
 
 /// A main-frame navigation response waiting for post-load checks (Block
@@ -687,6 +691,12 @@ impl PageState {
             map.remove(&oldest);
         }
         map.entry(network_id).or_default().extend(values);
+    }
+
+    /// Marks that the current main-frame navigation was answered from the
+    /// Response cache (ADR 0046, issue 803).
+    pub(super) fn mark_navigation_cache_hit(&self) {
+        self.navigation_cache_hit.store(true, Ordering::Release);
     }
 
     /// Takes any `Set-Cookie` values recorded for `network_id`.
@@ -1111,6 +1121,7 @@ impl Interception {
             pending_cache: Mutex::new(None),
             set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
             blocks: self.shared.blocks(),
+            navigation_cache_hit: AtomicBool::new(false),
         });
         (state, session.lookups.clone())
     }
@@ -1264,6 +1275,7 @@ impl Interception {
                         pending_cache: Mutex::new(None),
                         set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
                         blocks: shared.blocks(),
+                        navigation_cache_hit: AtomicBool::new(false),
                     });
                     let context = Arc::new(
                         PageContext::new(
@@ -1472,6 +1484,20 @@ impl PageInterception {
     pub(crate) fn lists_blocked(&self) -> u64 {
         self.held()
             .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
+    }
+
+    /// Resets the main-frame cache-hit flag before starting a new navigation.
+    pub(crate) fn clear_navigation_cache_hit(&self) {
+        if let Some(state) = self.held() {
+            state.navigation_cache_hit.store(false, Ordering::Release);
+        }
+    }
+
+    /// Returns whether the last main-frame navigation was answered from the
+    /// Response cache, clearing the flag.
+    pub(crate) fn take_navigation_cache_hit(&self) -> bool {
+        self.held()
+            .is_some_and(|state| state.navigation_cache_hit.swap(false, Ordering::AcqRel))
     }
 
     /// Commits any main-frame navigation response held in memory to the

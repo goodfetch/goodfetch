@@ -191,10 +191,7 @@ impl On<'_> {
                         goodfetch_protocol::foxhound::provenance::ResponseOrigin::ResponseCache { .. }
                     )
                 ) {
-                    let _ = run
-                        .charging
-                        .charge(goodfetch_protocol::usage::CACHE_HITS, 1)
-                        .await;
+                    let _ = run.charging.reclassify_request_as_cache_hit().await;
                 }
                 self.lessons
                     .learn(tiers, page_id, &leased.crawl_request)

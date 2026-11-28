@@ -608,12 +608,14 @@ fn hits_mark_results(
     )?;
     let report2 = &finished2["result"];
     let cache_hits = report2["usage"]["cache_hits"].as_u64().unwrap_or(0);
+    let requests = report2["usage"]["requests"].as_u64().unwrap_or(0);
     checks.check(
-        "second replay Run serves from cache, stays complete, counts cache_hits in Usage, and marks replay in its report",
+        "second replay Run serves from cache, stays complete, counts cache_hits apart from requests in Usage, and marks replay in its report",
         received(site, HOST, &page_path) == hits_before
             && report2["completeness"] == json!("complete")
             && report2["cache_mode"] == json!("replay")
-            && cache_hits >= 1,
+            && cache_hits >= 1
+            && requests == 0,
     );
 
     let trace = checks.run_trace(run_trace::provenance(target, run2));

@@ -151,6 +151,9 @@ impl PageContext {
         let (status, fetched_at, run_id) = (hit.head.status, hit.fetched_at, hit.run_id);
         let served = self.serve(held, hit.head, &hit.body).await;
         if served {
+            if held.navigation {
+                self.state.mark_navigation_cache_hit();
+            }
             self.record_cache_hit(
                 held.method(),
                 held.url(),
@@ -168,6 +171,7 @@ impl PageContext {
         &self,
         paused: &PausedRequest,
         method: &str,
+        navigation: bool,
         hit: goodfetch_engine::response_cache::Hit,
     ) -> bool {
         let (status, fetched_at, run_id) = (hit.head.status, hit.fetched_at, hit.run_id);
@@ -175,6 +179,9 @@ impl PageContext {
             .answer(paused.id(), paused.url(), hit.head, &hit.body)
             .await;
         if answered {
+            if navigation {
+                self.state.mark_navigation_cache_hit();
+            }
             self.record_cache_hit(method, paused.url(), status, fetched_at, run_id.as_ref())
                 .await;
         }
@@ -604,7 +611,7 @@ impl PageContext {
                 return false;
             };
             return self
-                .serve_revalidated_hit(paused, &storing.request.method, hit)
+                .serve_revalidated_hit(paused, &storing.request.method, storing.navigation, hit)
                 .await;
         }
         let recording = caching.recording();

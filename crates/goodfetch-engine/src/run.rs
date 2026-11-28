@@ -1194,6 +1194,40 @@ struct PreparedRecording {
     software: String,
 }
 
+async fn restore_recording(
+    run: &crate::runs::RunParts,
+    settings: &crate::settings::Resolved,
+    context: &CallContext,
+) -> Result<(), CallError> {
+    let inputs_json: Option<String> = run
+        .state
+        .read(|connection| {
+            use rusqlite::OptionalExtension as _;
+            connection
+                .prepare_cached("SELECT inputs FROM run")?
+                .query_row([], |row| row.get(0))
+                .optional()
+        })
+        .await
+        .ok()
+        .flatten();
+    let Some(inputs_json) = inputs_json else {
+        return Ok(());
+    };
+    let Ok(inputs) = serde_json::from_str::<BTreeMap<StartInput, Value>>(&inputs_json) else {
+        return Ok(());
+    };
+    let Some(recording_val) = inputs.get(&StartInput::Recording) else {
+        return Ok(());
+    };
+    let Ok(recording) = serde_json::from_value::<Recording>(recording_val.clone()) else {
+        return Ok(());
+    };
+    let prepared = prepare_recording(Some(recording), settings, context).await?;
+    prepared.attach(context, run.identity.id(), Some(run.state.clone()));
+    Ok(())
+}
+
 async fn prepare_recording(
     recording: Option<Recording>,
     settings: &crate::settings::Resolved,
@@ -1487,6 +1521,9 @@ pub async fn resume_run(
         Resumed::New {
             run, kind, needs, ..
         } => {
+            if !redeclared {
+                restore_recording(&run, settings.resolved(), context).await?;
+            }
             let identity = &run.identity;
             let started = RunStarted {
                 run_id: identity.id().clone(),

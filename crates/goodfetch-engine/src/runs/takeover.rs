@@ -233,6 +233,22 @@ impl TakeOver {
         let state = RunState::open(file, &self.run_state, self.tables.clone(), epoch, &writer)
             .await
             .map_err(|error| self.unavailable(&error))?;
+        let prior_replayed = self
+            .index
+            .read(self.run_id.clone())
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|row| row.replayed);
+        let has_recording = serde_json::from_str::<
+            std::collections::BTreeMap<goodfetch_protocol::run::StartInput, serde_json::Value>,
+        >(&recorded.inputs)
+        .is_ok_and(|inputs| inputs.contains_key(&goodfetch_protocol::run::StartInput::Recording));
+        let cache_mode = (prior_replayed && !has_recording).then(|| {
+            goodfetch_protocol::response_cache::CacheMode::Replay
+                .as_str()
+                .to_owned()
+        });
         let facts = EndFacts {
             run_id: self.run_id.clone(),
             lifecycle,
@@ -246,7 +262,7 @@ impl TakeOver {
             limits: Vec::new(),
             error: None,
             finished: Vec::new(),
-            cache_mode: None,
+            cache_mode,
         };
         let parts = self.parts.clone();
         let ended = state

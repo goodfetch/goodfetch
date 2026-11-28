@@ -1271,12 +1271,16 @@ enum Charge {
     Nothing,
 }
 
-/// Charges `run` the one `requests` Usage of a navigation: a Limit with
-/// too little left refuses it `limit_reached` and stops the Run at its next
-/// safe point, as a crawl's request is refused.
-async fn charge_request(run: &BrowserRun, context: &CallContext) -> Result<(), CallError> {
+/// Reserves one `requests` Usage before a navigation: a Limit with too little
+/// left refuses it `limit_reached` and stops the Run at its next safe point,
+/// while a navigation answered from the Response cache settles at 0 so cache
+/// hits count apart from fetches (ADR 0046, issue 803).
+async fn reserve_request(
+    run: &BrowserRun,
+    context: &CallContext,
+) -> Result<goodfetch_engine::ledger::Reservation, CallError> {
     run.charging
-        .charge(REQUESTS, 1)
+        .reserve(REQUESTS, None, 1)
         .await
         .map_err(|error| match error {
             ChargeError::Refused(LedgerRefusal::Reached(reached)) => limit_reached(&reached),
@@ -1285,6 +1289,45 @@ async fn charge_request(run: &BrowserRun, context: &CallContext) -> Result<(), C
             }
             error => sessions::unavailable(run, &error, context),
         })
+}
+
+async fn admit_navigation(
+    page: &OpenPage,
+    destination: Destination<'_>,
+    navigator: Navigator,
+    charge: Charge,
+    context: &CallContext,
+) -> Result<Option<goodfetch_engine::ledger::Reservation>, CallError> {
+    let Destination::Url(url) = destination else {
+        return Ok(None);
+    };
+    match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
+        egress::Destination::JavaScript => {
+            let document = page_reads::document_url(&CdpPage::of(&page.driver)).await?;
+            page.owner.interception().judge_javascript(url, &document)?;
+            Ok(None)
+        }
+        egress::Destination::Network if charge == Charge::OneRequest => {
+            reserve_request(&page.run, context).await.map(Some)
+        }
+        egress::Destination::Network | egress::Destination::Blank | egress::Destination::Local => {
+            Ok(None)
+        }
+    }
+}
+
+async fn settle_request(
+    page: &OpenPage,
+    reservation: Option<goodfetch_engine::ledger::Reservation>,
+    cache_hit: bool,
+) {
+    if let Some(reservation) = reservation {
+        let _ = page
+            .run
+            .charging
+            .settle(reservation, u64::from(!cache_hit))
+            .await;
+    }
 }
 
 /// The engine's pages, which every call of every Connection shares.
@@ -1355,28 +1398,20 @@ impl Pages {
             // engine serves the program's own code alone (`engine_context::CALLER`).
             accounts: false,
         };
-        if let Destination::Url(url) = destination {
-            match egress::navigation(url, navigator).map_err(|refused| refused.error())? {
-                egress::Destination::JavaScript => {
-                    let document = page_reads::document_url(&CdpPage::of(&page.driver)).await?;
-                    page.owner.interception().judge_javascript(url, &document)?;
-                }
-                egress::Destination::Network if charge == Charge::OneRequest => {
-                    charge_request(&page.run, context).await?;
-                }
-                egress::Destination::Network
-                | egress::Destination::Blank
-                | egress::Destination::Local => {}
-            }
-        }
+        let request_reservation =
+            admit_navigation(&page, destination, navigator, charge, context).await?;
         let _files = navigator
             .reads_files()
             .then(|| page.owner.interception().allow_files(navigator));
         let events = context.events();
         let deadline = page.driver.navigation_deadline(timeout)?;
         let blocked_before = page.owner.interception().lists_blocked();
-        if navigating == Navigating::Program {
-            page.sending(destination.operation()).await?;
+        page.owner.interception().clear_navigation_cache_hit();
+        if navigating == Navigating::Program
+            && let Err(error) = page.sending(destination.operation()).await
+        {
+            settle_request(&page, request_reservation, true).await;
+            return Err(error);
         }
         let navigated = page
             .life
@@ -1391,6 +1426,12 @@ impl Pages {
                 ),
             )
             .await;
+        settle_request(
+            &page,
+            request_reservation,
+            page.owner.interception().take_navigation_cache_hit(),
+        )
+        .await;
         // A failure the interception left while the navigation ran, such
         // as a route's handler failing on its document, is the
         // navigation's.

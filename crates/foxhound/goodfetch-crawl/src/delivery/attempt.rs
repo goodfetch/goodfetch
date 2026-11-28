@@ -1555,11 +1555,7 @@ impl On<'_> {
             facts.origin,
             Some(goodfetch_protocol::foxhound::provenance::ResponseOrigin::ResponseCache { .. })
         ) {
-            let _ = self
-                .run
-                .charging
-                .charge(goodfetch_protocol::usage::CACHE_HITS, 1)
-                .await;
+            let _ = self.run.charging.reclassify_request_as_cache_hit().await;
         }
         match judged(&run.identity, tiering, page_id).await {
             Some(Judged::Passed) | None => None,

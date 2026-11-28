@@ -561,6 +561,10 @@ export type ResponseOrigin =
        */
       fetchedAt: PointInTime;
       kind: "response_cache";
+      /**
+       * The Run that fetched the cached response, when fetched in a Run.
+       */
+      runId?: RunId | null;
     }
   | {
       kind: "response_recording";
@@ -9185,6 +9189,11 @@ export interface RunProgressParams {
  */
 export interface RunReport {
   /**
+   * Set to `"replay"` when the Run used `cache.mode: "replay"` (ADR 0046);
+   * absent otherwise.
+   */
+  cacheMode?: string | null;
+  /**
    * The last Checkpoint written of it in this engine, when one was.
    */
   checkpoint?: Checkpoint | null;
@@ -9289,6 +9298,11 @@ export interface RunUsage {
    * How long it held a browser.
    */
   browserTime: Milliseconds;
+  /**
+   * The requests answered from the Response cache, counted apart from
+   * `requests` (ADR 0046).
+   */
+  cacheHits?: number;
   /**
    * Each Limit that applies to it, with what is left of it.
    */

@@ -15,6 +15,8 @@
 use goodfetch_protocol::page::SessionId;
 use goodfetch_protocol::run::RunId;
 
+#[cfg(test)]
+use super::Partition;
 use super::freshness::{self, CacheRequest, ResponseHead};
 
 /// The partition of the responses that carry nothing of a person's.
@@ -88,6 +90,34 @@ pub(crate) fn read_from(keeper: Option<&Keeper>, request: &CacheRequest) -> Opti
         return Some([own.clone(), own]);
     }
     Some([PUBLIC.to_owned(), own.unwrap_or_else(|| PUBLIC.to_owned())])
+}
+
+/// Whether a response with `head` stored for `stored_request` under `stored`
+/// would be read by `asked_request` under `asked` (ADR 0046): both partitions
+/// must match in person, proxy exit country, language and device class, and
+/// the partition the response was kept in must be one `asked` reads.
+#[cfg(test)]
+pub(crate) fn shares(
+    stored: &Partition,
+    stored_request: &CacheRequest,
+    head: &ResponseHead,
+    asked: &Partition,
+    asked_request: &CacheRequest,
+) -> bool {
+    if stored.person != asked.person
+        || stored.country != asked.country
+        || stored.language != asked.language
+        || stored.device != asked.device
+    {
+        return false;
+    }
+    let Some(kept) = kept_in(stored.keeper.as_ref(), stored_request, head) else {
+        return false;
+    };
+    let Some(read) = read_from(asked.keeper.as_ref(), asked_request) else {
+        return false;
+    };
+    read.iter().any(|name| name == &kept)
 }
 
 #[cfg(test)]

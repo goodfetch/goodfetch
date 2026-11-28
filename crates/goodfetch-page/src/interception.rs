@@ -168,6 +168,7 @@ pub(crate) struct RunPowers {
     pub(crate) lists: ListsRun,
     pub(crate) secrets: RunSecrets,
     pub(crate) governor: RunGovernor,
+    pub(crate) charging: Option<goodfetch_engine::ledger::RunCharging>,
 }
 
 impl RunPowers {
@@ -191,7 +192,15 @@ impl RunPowers {
             },
             secrets,
             governor,
+            charging: None,
         }
+    }
+
+    /// Attaches the Run's [`RunCharging`] so cache hits charge `cache_hits`
+    /// through `ledger::charging` from held Slices (ADR 0046, issue 803).
+    pub(crate) fn with_charging(mut self, charging: goodfetch_engine::ledger::RunCharging) -> Self {
+        self.charging = Some(charging);
+        self
     }
 
     /// The Run's identity.
@@ -366,6 +375,9 @@ pub(crate) struct SessionInterception {
     /// What its requests are answered from before they leave, and kept in
     /// after, when its Run's cache or recording is on (ADR 0046).
     caching: Option<Arc<Caching>>,
+    /// The one init script registered once per page on a replaying Run to fix
+    /// `Date` and seed `Math.random` (ADR 0105, issue 801).
+    replay_script: Option<Arc<str>>,
 }
 
 impl SessionInterception {
@@ -386,6 +398,7 @@ impl SessionInterception {
             signing,
             failure: LeftFailure::default(),
             caching: None,
+            replay_script: None,
         }
     }
 
@@ -395,11 +408,26 @@ impl SessionInterception {
         Self { caching, ..self }
     }
 
+    /// The same, registering `replay_script` once on each page opened in the
+    /// Session when its Run replays a Response recording (ADR 0105, issue 801).
+    pub(crate) fn with_replay_script(self, replay_script: Option<String>) -> Self {
+        Self {
+            replay_script: replay_script.map(Arc::from),
+            ..self
+        }
+    }
+
     /// What its requests are answered from and kept in, when its Run's
     /// cache or recording is on: what it kept in its own partition is
     /// forgotten as it ends.
     pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
         self.caching.as_ref()
+    }
+
+    /// The time-and-randomness init script to register once on each opened
+    /// page of a replaying Run (ADR 0105, issue 801).
+    pub(crate) fn replay_script(&self) -> Option<&str> {
+        self.replay_script.as_deref()
     }
 
     /// Whether one of its pages started a main-frame navigation, whoever
@@ -467,9 +495,33 @@ pub(super) struct PageState {
     discovery: Mutex<Option<DiscoverySlot>>,
     /// Its Session's [`SessionInterception::caching`].
     caching: Option<Arc<Caching>>,
+    /// Main-frame navigation response held in memory until Block
+    /// classification, Page check and consent handling pass (ADRs 0006, 0046,
+    /// 0048; issue 795).
+    pending_cache: Mutex<Option<PendingCacheStore>>,
+    /// `Set-Cookie` values reported by `Network.responseReceivedExtraInfo`,
+    /// keyed by CDP `requestId` and bounded so Chromium's omission of
+    /// `Set-Cookie` from `Fetch.requestPaused.responseHeaders` never leaks a
+    /// cookie-setting response into the `public` Response cache partition
+    /// (ADR 0046; issue 795).
+    set_cookie_headers: Mutex<std::collections::BTreeMap<String, Vec<String>>>,
     /// Its Product's Block classifier, which keeps blocked responses out of
     /// the Response cache (ADR 0046).
     blocks: Arc<dyn BlockClassifier>,
+    /// Set when the current main-frame navigation was answered from the
+    /// Response cache so `page.goto` settles its `requests` reservation at 0
+    /// and counts only `cache_hits` (ADR 0046, issue 803).
+    navigation_cache_hit: AtomicBool,
+}
+
+/// A main-frame navigation response waiting for post-load checks (Block
+/// classification, Page check, consent wall) before entering the Response
+/// cache (ADR 0046).
+pub(super) struct PendingCacheStore {
+    pub(super) network_id: Option<String>,
+    pub(super) request: goodfetch_engine::response_cache::CacheRequest,
+    pub(super) head: goodfetch_engine::response_cache::ResponseHead,
+    pub(super) body: bytes::Bytes,
 }
 
 /// Whether `method` is a safe read-only HTTP method allowed during discovery
@@ -619,6 +671,44 @@ impl PageState {
         Some(overrides)
     }
 
+    /// Records `Set-Cookie` headers delivered by
+    /// `Network.responseReceivedExtraInfo` for `network_id`, attaching them
+    /// immediately to any matching pending main-frame cache store or keeping
+    /// them (bounded to 256 entries) for `answered_from_store`.
+    pub(super) fn note_set_cookie(&self, network_id: String, values: Vec<String>) {
+        if let Some(pending) = lock(&self.pending_cache).as_mut()
+            && pending.network_id.as_deref() == Some(network_id.as_str())
+        {
+            for value in values {
+                pending.head.headers.push(("set-cookie".to_owned(), value));
+            }
+            return;
+        }
+        let mut map = lock(&self.set_cookie_headers);
+        if map.len() >= 256
+            && let Some(oldest) = map.keys().next().cloned()
+        {
+            map.remove(&oldest);
+        }
+        map.entry(network_id).or_default().extend(values);
+    }
+
+    /// Marks that the current main-frame navigation was answered from the
+    /// Response cache (ADR 0046, issue 803).
+    pub(super) fn mark_navigation_cache_hit(&self) {
+        self.navigation_cache_hit.store(true, Ordering::Release);
+    }
+
+    /// Takes any `Set-Cookie` values recorded for `network_id`.
+    pub(super) fn take_set_cookie(&self, network_id: Option<&str>) -> Vec<String> {
+        let Some(network_id) = network_id else {
+            return Vec::new();
+        };
+        lock(&self.set_cookie_headers)
+            .remove(network_id)
+            .unwrap_or_default()
+    }
+
     /// Active discovery-click slot, if armed.
     pub(super) fn discovery_slot(&self) -> Option<DiscoverySlot> {
         lock(&self.discovery).clone()
@@ -652,6 +742,11 @@ pub(crate) struct EngineRequests {
     blocking: steps::Blocking,
     /// An `identified` Session's signer, step 7's last addition.
     signing: Option<Arc<RequestSigner>>,
+    /// The Session's Response cache and recording source, consulted at step 5.
+    caching: Option<Arc<Caching>>,
+    /// The Run's trace, where Provenance marks for replayed/cached responses
+    /// are recorded when `provenance.log` is on (ADR 0105, issue 802).
+    trace: Option<RunTrace>,
 }
 
 /// A request the engine sent itself, paused at `id`, as the browser sent
@@ -664,6 +759,24 @@ pub(crate) struct EngineRequest<'a> {
 }
 
 impl EngineRequests {
+    /// The Session's Response cache and recording source, if enabled.
+    pub(crate) fn caching(&self) -> Option<&Arc<Caching>> {
+        self.caching.as_ref()
+    }
+
+    /// The Run's trace for recording Provenance entries.
+    pub(crate) fn trace(&self) -> Option<&RunTrace> {
+        self.trace.as_ref()
+    }
+
+    /// Whether `url` is answered from the Run's Response recording rather than
+    /// reached live (ADR 0105, issue 801).
+    pub(crate) fn replays_url(&self, url: &str) -> bool {
+        self.caching
+            .as_ref()
+            .is_some_and(|caching| caching.replays_url(url))
+    }
+
     /// Steps 3 to 7 for the request `paused`, sent with `overrides`, and
     /// step 8's command, which pauses its response; its source is its own
     /// URL, since no document of the page sent it.
@@ -690,13 +803,24 @@ impl EngineRequests {
             source_url: url,
             egress: RequestKind::Page,
         };
-        match steps::send_on(
-            &request,
-            &self.policy,
-            &self.blocking,
-            self.signing.as_deref(),
-            true,
-        ) {
+        let stepped = if self.replays_url(url) {
+            steps::send_on_replaying(
+                &request,
+                &self.policy,
+                &self.blocking,
+                self.signing.as_deref(),
+                true,
+            )
+        } else {
+            steps::send_on(
+                &request,
+                &self.policy,
+                &self.blocking,
+                self.signing.as_deref(),
+                true,
+            )
+        };
+        match stepped {
             Ok(steps::Sent::Continue(command)) => Ok(command),
             Ok(steps::Sent::StandIn(_)) | Err(steps::Stopped::Blocked { .. }) => {
                 Err(CallError::new(
@@ -988,11 +1112,16 @@ impl Interception {
                 policy: policy.clone(),
                 blocking: blocking.clone(),
                 signing: session.signing.clone(),
+                caching: session.caching.clone(),
+                trace: Some(run.lists.trace.clone()),
             },
             on_document,
             discovery: Mutex::new(None),
             caching: session.caching.clone(),
+            pending_cache: Mutex::new(None),
+            set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
             blocks: self.shared.blocks(),
+            navigation_cache_hit: AtomicBool::new(false),
         });
         (state, session.lookups.clone())
     }
@@ -1137,11 +1266,16 @@ impl Interception {
                             policy: policy.clone(),
                             blocking: blocking.clone(),
                             signing: session.signing.clone(),
+                            caching: session.caching.clone(),
+                            trace: Some(run.lists.trace.clone()),
                         },
                         on_document: None,
                         discovery: Mutex::new(None),
                         caching: session.caching.clone(),
+                        pending_cache: Mutex::new(None),
+                        set_cookie_headers: Mutex::new(std::collections::BTreeMap::new()),
                         blocks: shared.blocks(),
+                        navigation_cache_hit: AtomicBool::new(false),
                     });
                     let context = Arc::new(
                         PageContext::new(
@@ -1308,6 +1442,8 @@ impl Interception {
             policy,
             blocking,
             signing: session.signing.clone(),
+            caching: session.caching.clone(),
+            trace: Some(run.lists.trace.clone()),
         })
     }
 }
@@ -1348,6 +1484,47 @@ impl PageInterception {
     pub(crate) fn lists_blocked(&self) -> u64 {
         self.held()
             .map_or(0, |state| state.lists_blocked.load(Ordering::Acquire))
+    }
+
+    /// Resets the main-frame cache-hit flag before starting a new navigation.
+    pub(crate) fn clear_navigation_cache_hit(&self) {
+        if let Some(state) = self.held() {
+            state.navigation_cache_hit.store(false, Ordering::Release);
+        }
+    }
+
+    /// Returns whether the last main-frame navigation was answered from the
+    /// Response cache, clearing the flag.
+    pub(crate) fn take_navigation_cache_hit(&self) -> bool {
+        self.held()
+            .is_some_and(|state| state.navigation_cache_hit.swap(false, Ordering::AcqRel))
+    }
+
+    /// Commits any main-frame navigation response held in memory to the
+    /// Session's Response cache once Block classification, Page check and
+    /// consent handling all passed (ADR 0046, issue 795).
+    pub(crate) async fn commit_cached_navigation(&self) {
+        let Some(state) = self.held() else {
+            return;
+        };
+        let pending = lock(&state.pending_cache).take();
+        if let (Some(caching), Some(mut pending)) = (state.caching.as_ref(), pending) {
+            for value in state.take_set_cookie(pending.network_id.as_deref()) {
+                pending.head.headers.push(("set-cookie".to_owned(), value));
+            }
+            caching
+                .store(&pending.request, &pending.head, pending.body)
+                .await;
+        }
+    }
+
+    /// Drops any main-frame navigation response held in memory when Block
+    /// classification, Page check or consent handling failed so it never
+    /// enters the Response cache (ADR 0046, issue 795).
+    pub(crate) fn discard_cached_navigation(&self) {
+        if let Some(state) = self.held() {
+            lock(&state.pending_cache).take();
+        }
     }
 
     /// Turns the Filter lists off for every request of its page, as it

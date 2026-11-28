@@ -116,6 +116,7 @@ pub(crate) struct Stored {
     keys: Keys,
     work: CountedWork,
     teacher: Arc<Teacher>,
+    recorder: Option<Arc<goodfetch_engine::response_recording::Recorder>>,
 }
 
 /// When the delivery loop found work items with no domain key.
@@ -201,7 +202,19 @@ impl Stored {
             keys,
             work,
             teacher,
+            recorder: None,
         }
+    }
+
+    /// Attaches the Run's [`Recorder`] (`mode: "record"`) so each attempt's
+    /// staged responses commit inside the attempt outcome's own transaction
+    /// without adding a transaction to F2 (ADR 0140).
+    pub(crate) fn with_recorder(
+        mut self,
+        recorder: Option<Arc<goodfetch_engine::response_recording::Recorder>>,
+    ) -> Self {
+        self.recorder = recorder;
+        self
     }
 
     /// Where the delivery loop hears what the end of a batch moved of the
@@ -847,11 +860,17 @@ impl Stored {
     /// level that batches attempts, it rides the open batch and is
     /// answered once in it (ADR 0142).
     pub(crate) async fn end(&self, outcome: Outcome) -> QueuedEnd {
+        let recorder = self.recorder.clone();
         match self.writer.reserve().await {
             Ok(place) => {
                 let written = place.write_with(
                     ATTEMPT_ENDED,
-                    self.ran(move |connection| outcome.write(connection)),
+                    self.ran(move |connection| {
+                        if let Some(recorder) = recorder.as_ref() {
+                            recorder.flush_staged(connection)?;
+                        }
+                        outcome.write(connection)
+                    }),
                 );
                 Box::pin(async move { written.await.map_err(StateError::from) })
             }

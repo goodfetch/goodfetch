@@ -26,11 +26,14 @@ CREATE TABLE entries (
         body_size INTEGER NOT NULL,
         run_id TEXT,
         used_at TEXT NOT NULL,
+        wall_domain TEXT NOT NULL DEFAULT '',
+        wall_refetch INTEGER NOT NULL DEFAULT 0,
+        consent_domain TEXT NOT NULL DEFAULT '',
         PRIMARY KEY (partition, person, country, language, device, method, url, vary_key, replay_key)
     ) STRICT;
-INSERT INTO "entries" VALUES('public','os_user','','','','GET','https://cache.test/revalidate','37cd5d7393ea04b36e98c73b66961dcbf19cc89cb152e66ed098f7be6ca5e33e','','[["accept-language","en"]]',200,'[["content-type","text/html"],["cache-control","max-age=60"],["vary","Accept-Language"],["etag","\"v1\""],["last-modified","Sun, 04 Jan 2026 09:00:00 GMT"]]','2026-01-05T09:00:00.000Z','04d8aa218b6b2af426e127aafe751f3451e67fdd7607b3afb61a60f653f1ebc5',20,NULL,'2026-01-05T09:00:00.000Z');
-INSERT INTO "entries" VALUES('public','grace','FR','fr-FR','mobile','GET','https://cache.test/fresh','e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855','','[]',200,'[["cache-control","max-age=3600"]]','2026-01-05T09:00:00.000Z','1c42f1572658c2ae95e3090425e1c96f49daa975cc503fc6e513f224d05b0faa',17,'filled-the-cache','2026-01-05T09:00:00.000Z');
-INSERT INTO "entries" VALUES('public','os_user','','','','POST','https://cache.test/api/search','e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855','6ada69eaa05d60fd8c41f6fda66091310358c2c92aaeb745425a9f694574aa38','[]',200,'[["content-type","application/json"],["cache-control","no-store"]]','2026-01-05T09:00:00.000Z','5021e624e752b001ce3e3846e8f158ed4aeb93a4c9a72fdb35a0c5b14a0eea84',14,'filled-the-cache','2026-01-05T09:00:00.000Z');
+INSERT INTO "entries" VALUES('public','os_user','','','','GET','https://cache.test/revalidate','37cd5d7393ea04b36e98c73b66961dcbf19cc89cb152e66ed098f7be6ca5e33e','','[["accept-language","en"]]',200,'[["content-type","text/html"],["cache-control","max-age=60"],["vary","Accept-Language"],["etag","\"v1\""],["last-modified","Sun, 04 Jan 2026 09:00:00 GMT"]]','2026-01-05T09:00:00.000Z','04d8aa218b6b2af426e127aafe751f3451e67fdd7607b3afb61a60f653f1ebc5',20,NULL,'2026-01-05T09:00:00.000Z','',0,'');
+INSERT INTO "entries" VALUES('public','grace','FR','fr-FR','mobile','GET','https://cache.test/fresh','e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855','','[]',200,'[["cache-control","max-age=3600"]]','2026-01-05T09:00:00.000Z','1c42f1572658c2ae95e3090425e1c96f49daa975cc503fc6e513f224d05b0faa',17,'filled-the-cache','2026-01-05T09:00:00.000Z','cache.test',1,'cache.test');
+INSERT INTO "entries" VALUES('public','os_user','','','','POST','https://cache.test/api/search','e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855','6ada69eaa05d60fd8c41f6fda66091310358c2c92aaeb745425a9f694574aa38','[]',200,'[["content-type","application/json"],["cache-control","no-store"]]','2026-01-05T09:00:00.000Z','5021e624e752b001ce3e3846e8f158ed4aeb93a4c9a72fdb35a0c5b14a0eea84',14,'filled-the-cache','2026-01-05T09:00:00.000Z','',0,'');
 CREATE TABLE format (name TEXT NOT NULL PRIMARY KEY, version TEXT NOT NULL) STRICT;
 INSERT INTO "format" VALUES('response-cache','0.1');
 CREATE TABLE held (

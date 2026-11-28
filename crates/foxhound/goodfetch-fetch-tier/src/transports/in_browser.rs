@@ -48,12 +48,19 @@ impl Transport for BrowserFetch {
 
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
         Box::pin(async move {
-            let request = egress::Request {
-                url: hop.url.as_str(),
-                kind: RequestKind::Fetch,
-            };
-            if let Judgment::Refused(refused) = egress::judge(&request, &self.egress) {
-                return Err(TransportFailure::Egress(refused));
+            if !self
+                .context
+                .engine()
+                .recordings()
+                .is_replaying(&self.run_id)
+            {
+                let request = egress::Request {
+                    url: hop.url.as_str(),
+                    kind: RequestKind::Fetch,
+                };
+                if let Judgment::Refused(refused) = egress::judge(&request, &self.egress) {
+                    return Err(TransportFailure::Egress(refused));
+                }
             }
             let request = EngineFetch {
                 url: hop.url.to_string(),
@@ -84,6 +91,8 @@ impl Transport for BrowserFetch {
                 reused: false,
                 decoded: true,
                 certificate_exception: None,
+                custom_tls: false,
+                origin: None,
             })
         })
     }

@@ -522,6 +522,14 @@ fn unrecorded(url: &str, error: &PolitenessError) -> CallError {
 const UNRECORDED_FIX: &str = "On a Politeness file, free space on the storage it is on, or repair it; `run.retry_failed` then admits the request again.";
 
 impl RunHandOver {
+    /// Whether this Run replays a Response recording (ADR 0105).
+    pub fn replaying(&self) -> bool {
+        self.run
+            .engine
+            .recordings()
+            .is_replaying(self.run.identity.id())
+    }
+
     /// Judges `url` by the Run's egress policy as its HTTP tier's
     /// connection to it would be judged: the URL, then the addresses its
     /// name resolves to (ADR 0017), the URL alone without the tier.
@@ -530,6 +538,9 @@ impl RunHandOver {
     ///
     /// The policy's refusal, whose `egress_refused` names the URL.
     pub(crate) async fn address_check(&self, url: &Url) -> Result<(), Refused> {
+        if self.replaying() {
+            return Ok(());
+        }
         match &self.addresses {
             Some(addresses) => addresses.check(url).await,
             None => judged(url, &self.egress),

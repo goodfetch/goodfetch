@@ -1076,3 +1076,114 @@ fn one_request_per_domain_key_in_flight_gives_the_same_order_either_way() {
         (1, sent("round_robin"))
     );
 }
+
+/// A crawl replaying a Response recording takes no Politeness permit, delay
+/// or backoff and never opens or modifies the shared Politeness file (ADR
+/// 0105, #239); missing crawl requests fail with `response_not_recorded`
+/// without retry and appear in the Run report's `recording.misses`.
+///
+/// Covers: story:6-52, story:6-53
+#[test]
+fn a_replaying_crawl_takes_no_politeness_permit_delay_or_backoff() {
+    let env = TestEnv::new();
+    let warc = env.folder().join("heavy.warc");
+    std::fs::write(
+        &warc,
+        concat!(
+            "WARC/1.1\r\n",
+            "WARC-Type: warcinfo\r\n",
+            "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\n",
+            "WARC-Date: 2026-01-05T09:00:00Z\r\n",
+            "Content-Type: application/warc-fields\r\n",
+            "Content-Length: 23\r\n\r\n",
+            "software: goodfetch/0.1\r\n\r\n",
+            "WARC/1.1\r\n",
+            "WARC-Type: response\r\n",
+            "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000002>\r\n",
+            "WARC-Date: 2026-01-05T09:00:01Z\r\n",
+            "WARC-Target-URI: https://heavy.test/1\r\n",
+            "Content-Type: application/http; msgtype=response\r\n",
+            "Content-Length: 52\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>1</p>\r\n\r\n",
+            "WARC/1.1\r\n",
+            "WARC-Type: response\r\n",
+            "WARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000003>\r\n",
+            "WARC-Date: 2026-01-05T09:00:02Z\r\n",
+            "WARC-Target-URI: https://heavy.test/2\r\n",
+            "Content-Type: application/http; msgtype=response\r\n",
+            "Content-Length: 52\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<p>2</p>\r\n\r\n",
+        ),
+    )
+    .unwrap();
+    let warc_path = warc.to_string_lossy().into_owned();
+    let seeds = json!([
+        seed("https://heavy.test/1"),
+        seed("https://heavy.test/2"),
+        seed("https://heavy.test/missing"),
+    ]);
+    let settings = json!({
+        "crawl": { "handler": { "concurrency": 1 } },
+        "politeness": {
+            "sharing": "shared",
+            "domain": { "delay": 5_000, "concurrency": 1 },
+            "backoff": { "initial": 10_000, "max": 60_000 },
+        },
+    });
+    let (sent, finished) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "replay-politeness",
+                        "seeds": seeds,
+                        "settings": settings,
+                        "labels": { "page": {} },
+                        "recording": { "mode": "replay", "path": warc_path },
+                    }),
+                    &mut |_| Reply::Silent,
+                )
+                .await;
+            assert!(
+                started["result"].is_object(),
+                "crawl.start failed: {started}"
+            );
+            let mut handler = |params: &Value| {
+                if page_of(params) == "https://heavy.test/1" {
+                    return Reply::Blocked("rate_limit");
+                }
+                Reply::Records(vec![json!({ "page": page_of(params) })])
+            };
+            let finished = client
+                .call(
+                    "run.finish",
+                    json!({ "run_id": "replay-politeness" }),
+                    &mut handler,
+                )
+                .await;
+            (sent(client), finished)
+        },
+    );
+
+    let second: Vec<Duration> = sent
+        .iter()
+        .filter(|(url, _)| url == "https://heavy.test/2")
+        .map(|(_, at)| *at)
+        .collect();
+    assert_eq!(
+        (second, env.home().join("politeness.sqlite").exists()),
+        (vec![Duration::ZERO], false),
+        "replayed crawl must bypass shared Politeness, domain delay and backoff: {sent:?}"
+    );
+    let recording = &finished["result"]["recording"];
+    assert_eq!(recording["mode"], json!("replay"), "report: {finished}");
+    assert_eq!(recording["responses_used"], json!(2), "report: {finished}");
+    assert!(
+        recording["misses"]
+            .as_array()
+            .is_some_and(|misses| misses.contains(&json!("GET https://heavy.test/missing"))),
+        "missing crawl request must be listed in report.recording.misses: {finished}"
+    );
+}

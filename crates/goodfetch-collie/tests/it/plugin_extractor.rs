@@ -14,23 +14,22 @@ use std::path::Path;
 use goodfetch_protocol::home::RUN_TRACE_PLUGIN_CALLS;
 use goodfetch_test_client::HomeLayout;
 use goodfetch_test_support::{ProvingGround, TestEnv, Tool, browser_cache, tools};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
-use crate::page::{opened, started};
+use crate::page::{opened, started, started_with};
 use crate::plugin_host::hello;
 
 /// The Proving ground's own seed for these tests.
 const SEED: u64 = 823;
 
 /// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
-/// the Extractor `scripted`, which answers `extract.content` with
-/// `answer`.
+/// the Extractor `name`, which answers `extract.content` with `answer`.
 #[expect(
     clippy::disallowed_methods,
     reason = "the test lays out the Plugin store by hand, before the engine starts"
 )]
-fn install(home: &Path, answer: &Value) {
-    let bundle = home.join("plugins").join("scripted").join("1.0.0");
+fn install_as(home: &Path, name: &str, answer: &Value) {
+    let bundle = home.join("plugins").join(name).join("1.0.0");
     fs::create_dir_all(&bundle).unwrap();
     let scripted = tools()
         .unwrap()
@@ -45,7 +44,7 @@ fn install(home: &Path, answer: &Value) {
     fs::write(bundle.join("script.json"), script.to_string()).unwrap();
     let manifest = json!({
         "manifest_version": "0.1",
-        "name": "scripted",
+        "name": name,
         "version": "1.0.0",
         "kinds": ["extract"],
         "protocol": { "min": "0.1", "max": "0.1" },
@@ -53,6 +52,13 @@ fn install(home: &Path, answer: &Value) {
         "network_level": "none",
     });
     fs::write(bundle.join("goodfetch-plugin.json"), manifest.to_string()).unwrap();
+}
+
+/// Installs `goodfetch-scripted-plugin` in the Plugin store of `home` as
+/// the Extractor `scripted`, which answers `extract.content` with
+/// `answer`.
+fn install(home: &Path, answer: &Value) {
+    install_as(home, "scripted", answer);
 }
 
 /// Each line of the Run `run_id`'s Plugin call log, in the home of `env`.
@@ -180,5 +186,116 @@ fn a_page_reads_its_main_content_with_the_extractor_plugin_it_names() {
             (vec![], true)
         ),
         "{plugins}\n{built_ins}\n{absent}"
+    );
+}
+
+/// An Extractor Plugin replaces only main-content extraction (`markdown` and
+/// `text`): `links` and `metadata` come from the built-in passes unchanged.
+/// When the chosen Plugin fails or times out, `page.formats` ends with the
+/// Extractor kind's error (`extract_handler_failed` or `deadline_exceeded`),
+/// never with the built-in's output.
+///
+/// Covers: story:6-11, setting:content.extractor, operation:page.formats, error:extract_handler_failed, error:deadline_exceeded
+#[test]
+fn an_extractor_plugin_keeps_links_and_metadata_and_surfaces_failures_and_timeouts() {
+    let env = TestEnv::new();
+    install_as(
+        env.home(),
+        "scripted",
+        &json!({ "result": {
+            "title": "Plugin Title",
+            "text": "Plugin text body",
+            "markdown": "# Plugin markdown body",
+            "metadata": {},
+        } }),
+    );
+    install_as(
+        env.home(),
+        "failing",
+        &json!({ "error": { "code": -32000, "message": "extractor crashed" } }),
+    );
+    install_as(env.home(), "slow", &json!({ "silent": true }));
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let cache = browser_cache(&env).unwrap();
+    let mut settings = Map::new();
+    settings.insert("timeout".to_owned(), json!({ "plugin": 500 }));
+    let mut engine = started_with(
+        &env,
+        &cache,
+        &proving_ground,
+        "plugin-formats",
+        &settings,
+        |_| {},
+    );
+    let product = proving_ground.url("extraction.test", "/markdown/mixed/product");
+
+    let mut open_at = |id: u64, extractor: Option<&str>| {
+        let params = match extractor {
+            Some(name) => {
+                json!({ "run_id": "plugin-formats", "settings": { "content": { "extractor": name } } })
+            }
+            None => json!({ "run_id": "plugin-formats" }),
+        };
+        let page = opened(&engine.ask(id, "run.new_page", &params));
+        engine.ask(
+            id + 10,
+            "page.goto",
+            &json!({ "page_id": page.page_id, "url": product }),
+        );
+        page
+    };
+    let by_plugin = open_at(2, Some("scripted"));
+    let built_in = open_at(3, None);
+    let failing = open_at(4, Some("failing"));
+    let slow = open_at(5, Some("slow"));
+
+    let formats = json!({ "markdown": true, "text": true, "links": true, "metadata": true });
+    let from_plugin = engine.ask(
+        20,
+        "page.formats",
+        &json!({ "page_id": by_plugin.page_id, "formats": formats }),
+    );
+    let from_built_in = engine.ask(
+        21,
+        "page.formats",
+        &json!({ "page_id": built_in.page_id, "formats": formats }),
+    );
+    let from_failing = engine.ask(
+        22,
+        "page.formats",
+        &json!({ "page_id": failing.page_id, "formats": { "markdown": true } }),
+    );
+    let from_slow = engine.ask(
+        23,
+        "page.formats",
+        &json!({ "page_id": slow.page_id, "formats": { "markdown": true } }),
+    );
+    engine.ask(24, "run.finish", &json!({ "run_id": "plugin-formats" }));
+    let (rest, exited) = engine.finish();
+
+    assert_eq!(
+        (
+            &from_plugin["result"]["markdown"],
+            &from_plugin["result"]["text"],
+            &from_plugin["result"]["links"],
+            &from_plugin["result"]["metadata"],
+            &from_failing["error"]["data"]["code"],
+            from_failing.get("result"),
+            &from_slow["error"]["data"]["code"],
+            from_slow.get("result"),
+            (rest, exited),
+        ),
+        (
+            &json!("# Plugin markdown body"),
+            &json!("Plugin text body"),
+            &from_built_in["result"]["links"],
+            &from_built_in["result"]["metadata"],
+            &json!("extract_handler_failed"),
+            None,
+            &json!("deadline_exceeded"),
+            None,
+            (vec![], true),
+        ),
+        "plugin={from_plugin}\nbuilt_in={from_built_in}\nfailing={from_failing}\nslow={from_slow}"
     );
 }

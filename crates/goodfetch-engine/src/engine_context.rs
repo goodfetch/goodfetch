@@ -19,6 +19,8 @@ use goodfetch_counted_work::CountedWork;
 use goodfetch_protocol::catalog::Operation;
 use goodfetch_protocol::connection::{Form, ProductVersion, Surface};
 use goodfetch_protocol::response_cache::{CACHE_MODE, CacheMode};
+use goodfetch_protocol::response_limits::NETWORK_MAX_DECOMPRESSION_RATIO;
+use goodfetch_protocol::run::RunId;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use serde_json::Value;
@@ -32,8 +34,10 @@ use crate::governor::Governor;
 use crate::home::Home;
 use crate::known_certificates::KnownCertificates;
 use crate::ledger::Ledger;
+use crate::mask::Masks;
 use crate::needs_you::NeedsYou;
 use crate::response_cache::{Bounds, ResponseCache, ResponseSource};
+use crate::response_recording::{Recordings, Replayed};
 use crate::run_index::RunIndex;
 use crate::sandbox_probe::SandboxProbe;
 use crate::settings::{Resolved, Settings};
@@ -152,18 +156,21 @@ pub(crate) struct Host {
     /// What forwards the calls the major's Daemon keeps to it: an
     /// Attached engine's that can start its Daemon; none on a Daemon.
     pub(crate) daemon: Option<Arc<dyn ToTheDaemon>>,
+    /// The engine's Secret masks, shared across its Runs and log writers.
+    pub(crate) masks: Masks,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
-/// cache and the contributions' own stores as one engine opens them, and
-/// the owner of their blocking work: built once, before the engine's "Needs
-/// you", which reads them too.
+/// cache, live Response recordings and the contributions' own stores as one
+/// engine opens them, and the owner of their blocking work: built once,
+/// before the engine's "Needs you", which reads them too.
 pub(crate) struct Stores {
     owner: Arc<TaskOwner>,
     known_certificates: KnownCertificates,
     ledger: Ledger,
     run_index: RunIndex,
     response_cache: ResponseCache,
+    recordings: Recordings,
     /// The contributions' own stores.
     contributed: Vec<UserStore>,
 }
@@ -205,11 +212,17 @@ impl Stores {
                 work,
             )
             .watching(governor.sample(cache_folder), governor.storage()),
+            recordings: Recordings::default(),
             run_index: RunIndex::of(home.run_index(version), version, vfs.clone(), connections),
             ledger: Ledger::at(home.usage_ledger(), vfs),
             owner,
             contributed,
         }
+    }
+
+    /// The live Runs' Response recordings.
+    pub(crate) fn recordings(&self) -> &Recordings {
+        &self.recordings
     }
 
     /// The known-certificates store.
@@ -253,6 +266,7 @@ struct Held {
     entropy: Mutex<Entropy>,
     places: Option<Arc<Places>>,
     daemon: Option<Arc<dyn ToTheDaemon>>,
+    masks: Masks,
 }
 
 impl std::fmt::Debug for EngineContext {
@@ -291,6 +305,7 @@ impl EngineContext {
             entropy,
             places,
             daemon,
+            masks,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -308,6 +323,7 @@ impl EngineContext {
                 entropy: Mutex::new(entropy),
                 places: places.map(Arc::new),
                 daemon,
+                masks,
             }),
         }
     }
@@ -371,6 +387,71 @@ impl EngineContext {
             &self.stores.response_cache.bounded(Bounds::of(settings)),
             mode,
         )
+        .wall_allowance(crate::response_cache::WallAllowance::of(settings))
+    }
+
+    /// As [`EngineContext::response_source`], with `run_id`'s Response
+    /// recording attached when the Run replays or records one (ADR 0105).
+    pub fn response_source_for(&self, run_id: &RunId, settings: &Resolved) -> ResponseSource {
+        let source = self.response_source(settings);
+        if let Some(recording) = self.stores.recordings.get(run_id) {
+            source
+                .recording(recording)
+                .resolve(Arc::new(crate::dns::HostMapping::of(settings)))
+        } else if let Some(recorder) = self.stores.recordings.recorder(run_id) {
+            source.capturing(recorder)
+        } else {
+            source
+        }
+    }
+
+    /// Creates a [`Recorder`] (`mode: "record"`) for `run_id` using the
+    /// engine's masks, clock and entropy (ADR 0105).
+    pub fn new_recorder(
+        &self,
+        path: String,
+        run_id: RunId,
+        software: String,
+        stage_for_attempt: bool,
+    ) -> Arc<crate::response_recording::Recorder> {
+        crate::response_recording::Recorder::new(
+            path,
+            run_id,
+            software,
+            self.held.masks.clone(),
+            self.clock,
+            self.draw_u64(),
+            stage_for_attempt,
+        )
+    }
+
+    /// The live Runs' Response recordings (ADR 0105).
+    pub fn recordings(&self) -> &Recordings {
+        &self.stores.recordings
+    }
+
+    /// Opens and indexes the WARC recording at `path` for replay under
+    /// `settings`'s `network.max_decompression_ratio`, using the engine's
+    /// Secret masks and blocking threads (ADR 0105).
+    ///
+    /// # Errors
+    ///
+    /// `recording_invalid` when the file cannot be read or is not a WARC
+    /// recording the engine replays.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Recordings::open_replay`]'s.
+    pub async fn open_replay(
+        &self,
+        path: &str,
+        settings: &Resolved,
+    ) -> Result<Replayed, CallError> {
+        let ratio = settings.get::<u64>(&NETWORK_MAX_DECOMPRESSION_RATIO);
+        self.stores
+            .recordings
+            .open_replay(path, self.held.masks.clone(), ratio, &self.stores.owner)
+            .await
     }
 
     /// Where reads and writes of these stores block, which the Run registry

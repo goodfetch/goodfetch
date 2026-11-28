@@ -452,6 +452,10 @@ pub struct CrawlStartParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub limits: Vec<RunLimit>,
+    /// The Response recording the crawl replays or records (ADR 0105).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub recording: Option<crate::run::Recording>,
     /// Whether the Run outlives the Connection that started it (ADR 0102),
     /// as a Recipe's run does: only a code-free crawl with no Hook, started
     /// on a Daemon, detaches, and any other such start fails with

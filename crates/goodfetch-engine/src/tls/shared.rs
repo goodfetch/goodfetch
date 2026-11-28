@@ -267,6 +267,11 @@ impl SharedTrust {
         }
     }
 
+    /// Whether `host` is covered by a `tls.trusted_cas` scope (ADR 0046).
+    pub fn uses_trusted_ca(&self, host: &str) -> bool {
+        self.trust.scope_of(host).is_some()
+    }
+
     fn known(&self) -> MutexGuard<'_, BTreeMap<String, Known>> {
         self.known.lock().unwrap_or_else(PoisonError::into_inner)
     }

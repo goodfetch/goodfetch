@@ -431,3 +431,15 @@ reason = "The SDK builds an `AsyncRunView` from a `ClientConnection` and a `RunI
 [[announced]]
 entry = "python goodfetch_collie_client.run_view RunView"
 reason = "The SDK builds a `RunView` from its `PrivateLoop`, `ClientConnection`, and `RunId` in `open_run()` (issue 1284); a program never constructs one directly."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "typescript @goodfetch/collie-client/generated/types ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."
+
+[[announced]]
+entry = "typescript @goodfetch/foxhound/generated ResponseOrigin"
+reason = "`ResponseOrigin::ResponseCache` carries the optional `runId` of the Run that originally fetched the cached entry (ADR 0046, issue 803)."

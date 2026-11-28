@@ -24,6 +24,8 @@ pub(super) enum Storage {
     Transcript,
     /// TOML documents, each a `.toml` file, such as settings files.
     Toml,
+    /// WARC 1.1 files (`.warc` and `.warc.gz`), plain and gzipped per record.
+    Warc,
 }
 
 impl Storage {
@@ -33,6 +35,7 @@ impl Storage {
             Self::Sqlite => "sqlite",
             Self::Transcript => "transcript",
             Self::Toml => "toml",
+            Self::Warc => "warc",
         }
     }
 }

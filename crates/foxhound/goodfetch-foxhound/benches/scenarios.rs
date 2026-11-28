@@ -259,6 +259,8 @@ fn plain(status: u16, headers: Vec<(String, String)>, body: String) -> Sent {
         reused: false,
         decoded: false,
         certificate_exception: None,
+        custom_tls: false,
+        origin: None,
     }
 }
 
@@ -278,6 +280,48 @@ impl Site {
 /// One extra unit of a row's Counted work, done once per page served with
 /// that page's head, which `xtask counts` must fail on (ADR 0140).
 pub(crate) type Plant = Arc<dyn Fn(&str) + Send + Sync>;
+
+fn sent_page(page: Option<Page>, sent: Arc<AtomicU64>) -> Sent {
+    match page {
+        Some(page) => Sent {
+            status: 200,
+            headers: vec![
+                (
+                    "content-type".to_owned(),
+                    "text/html; charset=utf-8".to_owned(),
+                ),
+                ("content-length".to_owned(), page.len().to_string()),
+            ],
+            body: Box::new(Chunks {
+                head: Some(Bytes::from(page.head)),
+                left: page.paragraphs * PARAGRAPH,
+                tail: true,
+                sent,
+            }),
+            reused: false,
+            decoded: false,
+            certificate_exception: None,
+            custom_tls: false,
+            origin: None,
+        },
+        // robots.txt and anything else: no such page.
+        None => Sent {
+            status: 404,
+            headers: vec![("content-length".to_owned(), "0".to_owned())],
+            body: Box::new(Chunks {
+                head: None,
+                left: 0,
+                tail: false,
+                sent,
+            }),
+            reused: false,
+            decoded: false,
+            certificate_exception: None,
+            custom_tls: false,
+            origin: None,
+        },
+    }
+}
 
 impl Transport for Site {
     fn send<'a>(&'a self, hop: &'a Hop, _reuse: Reuse) -> Sending<'a, Sent> {
@@ -344,43 +388,7 @@ impl Transport for Site {
         if let (Some(plant), Some(page)) = (&self.plant, &page) {
             plant(&page.head);
         }
-        Box::pin(async move {
-            Ok(match page {
-                Some(page) => Sent {
-                    status: 200,
-                    headers: vec![
-                        (
-                            "content-type".to_owned(),
-                            "text/html; charset=utf-8".to_owned(),
-                        ),
-                        ("content-length".to_owned(), page.len().to_string()),
-                    ],
-                    body: Box::new(Chunks {
-                        head: Some(Bytes::from(page.head)),
-                        left: page.paragraphs * PARAGRAPH,
-                        tail: true,
-                        sent,
-                    }),
-                    reused: false,
-                    decoded: false,
-                    certificate_exception: None,
-                },
-                // robots.txt and anything else: no such page.
-                None => Sent {
-                    status: 404,
-                    headers: vec![("content-length".to_owned(), "0".to_owned())],
-                    body: Box::new(Chunks {
-                        head: None,
-                        left: 0,
-                        tail: false,
-                        sent,
-                    }),
-                    reused: false,
-                    decoded: false,
-                    certificate_exception: None,
-                },
-            })
-        })
+        Box::pin(async move { Ok(sent_page(page, sent)) })
     }
 }
 

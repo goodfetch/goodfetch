@@ -15963,6 +15963,13 @@
     },
     {
       "arrived_in": "0.1",
+      "description": "Requests answered from the Response cache, counted apart from requests (ADR 0046).",
+      "name": "cache_hits",
+      "product": "collie",
+      "type": "usage_kind"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A page that asks a person to prove they are human.",
       "name": "captcha",
       "product": "collie",

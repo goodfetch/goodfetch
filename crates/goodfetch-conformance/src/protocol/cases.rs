@@ -43,6 +43,7 @@ mod proxy_limits;
 mod read;
 mod reset;
 mod response_cache;
+mod response_recording;
 mod robots_txt;
 mod routes;
 mod run_start;
@@ -187,6 +188,8 @@ pub(crate) enum Case {
     RobotsTxt(robots_txt::Case),
     /// A page's Response cache case.
     ResponseCache(response_cache::Case),
+    /// A page's Response recording replay case.
+    ResponseRecording(response_recording::Case),
     /// A Daemon HTTP JSON-RPC listener case (`POST /v1/rpc`, #1400).
     HttpListener(http_listener::Case),
 }
@@ -661,6 +664,7 @@ impl Case {
             .or_else(|| waits::Case::from_id(id).map(Self::Wait))
             .or_else(|| robots_txt::Case::from_id(id).map(Self::RobotsTxt))
             .or_else(|| response_cache::Case::from_id(id).map(Self::ResponseCache))
+            .or_else(|| response_recording::Case::from_id(id).map(Self::ResponseRecording))
             .or_else(|| formats::references::Case::from_id(id).map(Self::References))
             .or_else(|| formats::structured::Case::from_id(id).map(Self::Structured))
             .or_else(|| formats::extractor::Case::from_id(id).map(Self::Extractor))
@@ -726,7 +730,8 @@ impl Case {
             Self::Read(case) => case.run(connection, site, checks),
             Self::Wait(case) => case.run(connection, site, checks),
             Self::RobotsTxt(case) => case.run(connection, target, site, checks),
-            Self::ResponseCache(case) => case.run(connection, site, checks),
+            Self::ResponseCache(case) => case.run(connection, target, site, checks),
+            Self::ResponseRecording(case) => case.run(connection, target, site, checks),
             Self::MarkdownMatchesTheOracle => {
                 formats::markdown_matches_the_oracle(connection, site, None, checks)
             }

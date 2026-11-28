@@ -1,35 +1,35 @@
 {
   "chromium/launch-args.json": {
-    "input": "26cd874e42e6e1401f2be1bbda76feaa09e857c52fe44ad375b211333162e28f",
+    "input": "b2ff1efebc6e2fb5ac003a7951167043ede9859688d241d16abfc11eb371c5d2",
     "output": "9a98a4ea3ef0d3d73ab2c8ff4a27e77c11e080249b4fef472b8ca4388aceefbb",
     "tools": {}
   },
   "sdks/python/collie-client/src/goodfetch_collie_client/generated/models.py": {
-    "input": "fd35e5710aaa6aa28198827fa671005b0b046ab4de64e9460b37489b6a900219",
-    "output": "8ff15124aa466a6aebb3f8ae43fa736a499bfce475e6a1888b3c364be3986a7b",
+    "input": "b498a20a5cfa607bef7d31e2602c67b56a17fef52f23157843498a5a14f4babe",
+    "output": "8026dccc2a194dda4434e3d454173fedafe9905fa4f95a4129727514df2756b9",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/python/foxhound/src/goodfetch_foxhound/generated/models.py": {
-    "input": "1e0b8ec091a6e02c1078ba9f8d78869ea4b8ad4aa46ef1e8bb800d2dfb4eddbb",
-    "output": "cce95732eb8984134731928e1003f007d3d93dff90d9a857bade4c8e25b90810",
+    "input": "599ce2c2caa02f3813608010e0fc9ac1ad066b6ecf495147b8cb819413c950f6",
+    "output": "a5cfec1cebe88ac449c575aae078ceaf83a3b1eb3514323bc8d3f51d22d52408",
     "tools": {
       "datamodel-code-generator": "0.86.0",
       "ruff": "0.17.1"
     }
   },
   "sdks/typescript/collie-client/src/generated/types.ts": {
-    "input": "1a77f7eb59d8dc5fd125226fecb029c73a5f8a39c4758fb2829322a423a9383c",
-    "output": "1bc58ef0708ca6b5a8c4ef5af602fcb43869abca99e5299e744aed7aae788556",
+    "input": "6613769fe51d9182fb996723fb9f46eeb2b3707e4c027201cf07c5cf4d98211b",
+    "output": "329cc61611850aa1fb4a3385e225e8965a09a9617f9e9fbd6457019f6d93b022",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }
   },
   "sdks/typescript/foxhound/src/generated/types.ts": {
-    "input": "6becb65a2dfbab8fa45df96a8378335453a6a6ca09b1ddece2d4096d282eb9cf",
-    "output": "2314ba2b5edf5d1955dc1418fd856a5c5030434dfbacb2509a40673324e17098",
+    "input": "ee033423743691fa69ae8dd531dd040f052d25249360644c50d0cef301527019",
+    "output": "a19868bfccd4ffbb036e2c2064f2534c3c8b9d87015d225f32225e0ac1fc542f",
     "tools": {
       "json-schema-to-typescript": "16.0.0"
     }

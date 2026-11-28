@@ -332,18 +332,21 @@ fn a_starts_zero_timeout_is_setting_invalid_from_the_argument_and_starts_no_run(
 /// `run_conflict` naming it, and one that gives both unchanged resumes it
 /// (ADR 0102).
 ///
+/// Minimal valid WARC 1.1 file with one `warcinfo` record.
+const MINIMAL_WARC: &[u8] = b"WARC/1.1\r\nWARC-Type: warcinfo\r\nWARC-Record-ID: <urn:uuid:00000000-0000-0000-0000-000000000001>\r\nWARC-Date: 2026-01-05T09:00:00Z\r\nContent-Type: application/warc-fields\r\nContent-Length: 23\r\n\r\nsoftware: goodfetch/0.1\r\n\r\n";
+
 /// Covers: operation:run.start, error:run_conflict
 #[rstest]
 #[case::same(json!({}), json!(null), json!("resumed"))]
 #[case::other_plan(json!({ "plan": "other.plan.json" }), json!(["plan"]), json!(null))]
 #[case::no_plan(json!({ "plan": null }), json!(["plan"]), json!(null))]
 #[case::other_mode(
-    json!({ "recording": { "mode": "record", "path": "site.warc" } }),
+    json!({ "recording": { "mode": "record", "path": "SITE_WARC" } }),
     json!(["recording"]),
     json!(null)
 )]
 #[case::other_path(
-    json!({ "recording": { "mode": "replay", "path": "other.warc" } }),
+    json!({ "recording": { "mode": "replay", "path": "OTHER_WARC" } }),
     json!(["recording"]),
     json!(null)
 )]
@@ -353,17 +356,32 @@ fn a_start_naming_a_run_again_gives_its_plan_and_recording_unchanged(
     #[case] started_as: Value,
 ) {
     let env = TestEnv::new();
+    let site_warc = env.folder().join("site.warc");
+    let other_warc = env.folder().join("other.warc");
+    std::fs::write(&site_warc, MINIMAL_WARC).unwrap();
+    std::fs::write(&other_warc, MINIMAL_WARC).unwrap();
+    let site_path = site_warc.to_string_lossy().into_owned();
+    let other_path = other_warc.to_string_lossy().into_owned();
     let began = json!({
         "run_id": "planned",
         "plan": "prices.plan.json",
-        "recording": { "mode": "replay", "path": "site.warc" },
+        "recording": { "mode": "replay", "path": site_path },
     });
     let mut again = began.clone();
     for (key, value) in changed.as_object().unwrap() {
         if value.is_null() {
             again.as_object_mut().unwrap().remove(key);
         } else {
-            again[key] = value.clone();
+            let mut value = value.clone();
+            if let Some(path) = value.get("path").and_then(Value::as_str) {
+                let resolved = match path {
+                    "SITE_WARC" => site_path.as_str(),
+                    "OTHER_WARC" => other_path.as_str(),
+                    other => other,
+                };
+                value["path"] = json!(resolved);
+            }
+            again[key] = value;
         }
     }
 
@@ -425,4 +443,98 @@ fn a_detached_run_on_the_daemon_outlives_the_connection_that_started_it() {
         (live, kept, index_row(&env, "left")["lifecycle"].clone()),
         (json!(1), json!("finished"), json!("stopped"))
     );
+}
+
+/// An unreadable file, a non-WARC file and a WARC version the engine does not
+/// read each fail `run.start` with `recording_invalid` (`ProgramError`),
+/// naming the recording path and reason, and start no Run.
+///
+/// Covers: story:6-61, error:recording_invalid, operation:run.start
+#[rstest]
+#[case::unreadable(None)]
+#[case::not_warc(Some(b"not a warc file at all\r\n".as_slice()))]
+#[case::unsupported_version(Some(b"WARC/2.0\r\nWARC-Type: warcinfo\r\nContent-Length: 0\r\n\r\n\r\n\r\n".as_slice()))]
+fn an_unreadable_non_warc_or_unsupported_version_recording_fails_start(
+    #[case] contents: Option<&[u8]>,
+) {
+    let env = TestEnv::new();
+    let file = env.folder().join("bad.warc");
+    if let Some(bytes) = contents {
+        std::fs::write(&file, bytes).unwrap();
+    }
+    let path = file.to_string_lossy().into_owned();
+    let start_params = json!({
+        "run_id": "bad-recording",
+        "recording": { "mode": "replay", "path": path },
+    });
+
+    let (started, listed) = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            let started = call(&mut client, 1, "run.start", start_params).await;
+            let listed = call(&mut client, 2, "run.list", json!({})).await;
+            (started, listed)
+        },
+    );
+
+    assert_eq!(
+        started["error"]["data"]["code"],
+        json!("recording_invalid"),
+        "started: {started}"
+    );
+    assert_eq!(started["error"]["data"]["retryable"], json!(false));
+    assert_eq!(started["error"]["data"]["recording"], json!(path));
+    assert!(
+        started["error"]["data"]["reason"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty()),
+        "reason missing: {started}"
+    );
+    assert_eq!(
+        listed["result"]["runs"],
+        json!([]),
+        "no Run started: {listed}"
+    );
+}
+
+/// Finishing a Run started in replay mode includes `recording` in its report.
+///
+/// Covers: story:6-52, operation:run.start, operation:run.finish
+#[test]
+fn a_replaying_run_includes_its_recording_in_its_report() {
+    let env = TestEnv::new();
+    let file = env.folder().join("site.warc");
+    std::fs::write(&file, MINIMAL_WARC).unwrap();
+    let path = file.to_string_lossy().into_owned();
+    let start_params = json!({
+        "run_id": "replayed-report",
+        "recording": { "mode": "replay", "path": path },
+    });
+
+    let finished = attached_on(
+        &engine_with(Product::Collie, None),
+        &env,
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await;
+            let started = call(&mut client, 1, "run.start", start_params).await;
+            assert!(started["result"].is_object(), "started: {started}");
+            call(
+                &mut client,
+                2,
+                "run.finish",
+                json!({ "run_id": "replayed-report" }),
+            )
+            .await
+        },
+    );
+
+    let recording = &finished["result"]["recording"];
+    assert_eq!(recording["mode"], json!("replay"), "report: {finished}");
+    assert_eq!(recording["file"], json!(path));
+    assert_eq!(recording["responses_used"], json!(0));
+    assert_eq!(recording["written_by"], json!("goodfetch/0.1"));
 }

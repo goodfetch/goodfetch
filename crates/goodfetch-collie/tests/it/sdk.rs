@@ -43,6 +43,7 @@ mod response_recordings;
 mod schedules;
 #[cfg(unix)]
 mod scripted;
+mod secrets;
 mod settings;
 mod start;
 mod start_options;

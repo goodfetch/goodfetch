@@ -10,8 +10,6 @@ use std::path::Path;
 use std::sync::{Arc, PoisonError};
 use std::time::SystemTime;
 
-use crate::sync::{AtomicBool, Ordering};
-
 use bytes::Bytes;
 use goodfetch_protocol::checkpoint::{
     FILE_WRITE_FAILED, FileWriteFailedDetails, PATH_NOT_WRITABLE, PathNotWritableDetails, WriteSide,
@@ -191,6 +189,21 @@ struct RecorderState {
     id_counter: u64,
 }
 
+/// Construction options for a [`Recorder`] (`mode: "record"`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecorderPolicy {
+    /// When true (Foxhound crawls), captured responses are staged in memory and
+    /// flushed inside each attempt outcome's own transaction so recording adds
+    /// no transaction to F2; otherwise (Collie Sessions) each capture is
+    /// persisted through the Run's `run_state` writer.
+    pub stage_for_attempt: bool,
+    /// Whether the engine writes the target path on its own filesystem at Run
+    /// end (`true` for Attached/Linked engines, `false` for a Daemon where the
+    /// SDK streams the WARC via `recording.save_as` and writes on the program's
+    /// machine).
+    pub write_on_end: bool,
+}
+
 /// Captures responses for one live Run in `mode: "record"` and writes the WARC
 /// file atomically when the Run ends.
 #[derive(Debug)]
@@ -202,18 +215,12 @@ pub struct Recorder {
     clock: Clock,
     id_seed: u64,
     stage_for_attempt: bool,
-    write_on_end: AtomicBool,
+    write_on_end: bool,
     state: Mutex<RecorderState>,
 }
 
 impl Recorder {
-    /// Creates a new recorder for `run_id`, targeting `path`.
-    ///
-    /// When `stage_for_attempt` is true (Foxhound crawls), captured responses
-    /// are staged in memory and flushed inside each attempt outcome's own
-    /// transaction so recording adds no transaction to F2; otherwise (Collie
-    /// Sessions) each capture is persisted through the Run's `run_state`
-    /// writer, which groups concurrent writes automatically.
+    /// Creates a new recorder for `run_id`, targeting `path`, under `policy`.
     pub fn new(
         path: String,
         run_id: RunId,
@@ -221,7 +228,7 @@ impl Recorder {
         masks: Masks,
         clock: Clock,
         id_seed: u64,
-        stage_for_attempt: bool,
+        policy: RecorderPolicy,
     ) -> Arc<Self> {
         Arc::new(Self {
             path,
@@ -230,18 +237,10 @@ impl Recorder {
             masks,
             clock,
             id_seed,
-            stage_for_attempt,
-            write_on_end: AtomicBool::new(true),
+            stage_for_attempt: policy.stage_for_attempt,
+            write_on_end: policy.write_on_end,
             state: Mutex::new(RecorderState::default()),
         })
-    }
-
-    /// Controls whether the engine writes `self.path` on its own filesystem at
-    /// Run end (`true` for Attached/Linked engines, `false` for a Daemon where
-    /// the SDK receives the bytes via `recording.save_as` and writes on the
-    /// program's machine).
-    pub fn set_write_on_end(&self, write: bool) {
-        self.write_on_end.store(write, Ordering::Relaxed);
     }
 
     /// Attaches the Run's [`RunState`] once started or resumed.
@@ -289,7 +288,7 @@ impl Recorder {
         let rows = read_exchanges(connection)?;
         let recorded_from = rows.iter().map(|row| row.recorded_at).min();
         let recorded_to = rows.iter().map(|row| row.recorded_at).max();
-        if !self.write_on_end.load(Ordering::Relaxed) {
+        if !self.write_on_end {
             return Ok(Ok(RecordingReport {
                 mode: "record".to_owned(),
                 file: self.path.clone(),
@@ -527,11 +526,17 @@ fn write_all_records<W: std::io::Write>(
 
 /// Encodes all committed `recorded_responses` rows of `connection` into a
 /// WARC 1.1 byte buffer (gzipped per record when `gzip_per_record` is true).
-/// Returns `Ok(None)` when the Run recorded no responses.
+/// When `rows` is empty and `allow_empty` is false, returns `Ok(None)`; when
+/// `allow_empty` is true (a `mode: "record"` Run that recorded 0 responses),
+/// returns a valid `warcinfo`-only WARC matching [`Recorder::finish_and_write`].
 ///
 /// # Errors
 ///
 /// Returns any SQLite error from reading `recorded_responses`.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "WARC encoding parameters mirror WarcInfo fields plus allow_empty for 0-response record Runs"
+)]
 pub fn encode_warc(
     connection: &Connection,
     run_id: &RunId,
@@ -540,9 +545,10 @@ pub fn encode_warc(
     gzip_per_record: bool,
     now: jiff::Timestamp,
     id_seed: u64,
+    allow_empty: bool,
 ) -> rusqlite::Result<Option<Vec<u8>>> {
     let rows = read_exchanges(connection)?;
-    if rows.is_empty() {
+    if rows.is_empty() && !allow_empty {
         return Ok(None);
     }
     let recorded_from = rows.iter().map(|row| row.recorded_at).min();

@@ -75,6 +75,28 @@ describe("serveSecretResolver", () => {
     expect(JSON.stringify(reply)).not.toContain(CANARY);
   });
 
+  test("a thrown SecretUnavailableError with an unknown failure tag becomes resolver_failed", async () => {
+    const served = serveSecretResolver(async () => {
+      throw new SecretUnavailableError("failed", {
+        details: { failure: `leaked-${CANARY}` },
+      });
+    });
+
+    const controller = new AbortController();
+    let caught: unknown;
+    try {
+      await served({ name: "shop_password", run_id: "nightly" }, controller.signal);
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(SecretUnavailableError);
+    const reply = replyOfError(caught);
+    expect(reply.data["code"]).toBe("secret_unavailable");
+    expect(reply.data["failure"]).toBe("resolver_failed");
+    expect(JSON.stringify(reply)).not.toContain(CANARY);
+  });
+
   test("malformed params fail without echoing them", async () => {
     const served = serveSecretResolver(async () => CANARY);
 

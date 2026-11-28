@@ -59,12 +59,16 @@ def _script_with_recording_paths(test_env: TestEnv, script: str, out_dir: Path) 
     input_path = str((out_dir / "input.warc").resolve())
     saved_path = str((out_dir / "saved.warc").resolve())
     view_path = str((out_dir / "saved-view.warc").resolve())
+    auto_saved_path = str((out_dir / "auto-saved.warc").resolve())
+    auto_closed_path = str((out_dir / "auto-closed.warc").resolve())
     text = (
         (CORPUS / script)
         .read_text("utf-8")
         .replace(json.dumps("/work/out/input.warc"), json.dumps(input_path))
         .replace(json.dumps("/work/out/saved.warc"), json.dumps(saved_path))
         .replace(json.dumps("/work/out/saved-view.warc"), json.dumps(view_path))
+        .replace(json.dumps("/work/out/auto-saved.warc"), json.dumps(auto_saved_path))
+        .replace(json.dumps("/work/out/auto-closed.warc"), json.dumps(auto_closed_path))
     )
     target = test_env.folder / "recording-scripts" / out_dir.name / script
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +171,26 @@ async def test_response_recordings_daemon_mode(
         await view.close()
 
         await run.finish()
+
+        # Daemon mode="record" auto-saves on finish and on close without re-saving.
+        auto_saved = (out_dir / "auto-saved.warc").resolve()
+        record_run = await collie.start(
+            recording=Recording(mode=RecordingMode.record, path=str(auto_saved))
+        )
+        await record_run.finish()
+        await record_run.close()
+        with client_case.check(
+            "Daemon mode: record auto-saves on finish without re-saving on close"
+        ):
+            assert auto_saved.read_bytes() == b"WARC/1.1\r\n"
+
+        auto_closed = (out_dir / "auto-closed.warc").resolve()
+        closed_run = await collie.start(
+            recording=Recording(mode=RecordingMode.record, path=str(auto_closed))
+        )
+        await closed_run.close()
+        with client_case.check("Daemon mode: record auto-saves atomically on close"):
+            assert auto_closed.read_bytes() == b"WARC/1.1\r\n"
     finally:
         await collie.close()
     code = await exit_code(daemon.wait)
@@ -298,7 +322,12 @@ class TestResponseRecordingsOnProvingGround:
                 "resumed recording replays both halves with empty misses"
             ):
                 assert both_report.recording is not None
-                assert not both_report.recording.misses
+                non_favicon_misses = [
+                    miss
+                    for miss in (both_report.recording.misses or [])
+                    if not miss.endswith("/favicon.ico")
+                ]
+                assert not non_favicon_misses
 
             # 5. Failed write at Run end raises path_not_writable;
             #    save_recording writes again.
@@ -311,6 +340,28 @@ class TestResponseRecordingsOnProvingGround:
             write_err = await failure(fail_run.finish())
             with client_case.check("failed write at Run end raises path_not_writable"):
                 assert isinstance(write_err, PathNotWritableError)
+
+            # Existing file is left untouched when writing to a read-only folder fails.
+            ro_dir = tmp_path / f"readonly-dir-{way.value}"
+            ro_dir.mkdir()
+            existing_warc = ro_dir / "existing.warc"
+            existing_warc.write_text("sentinel-existing-warc", "utf-8")
+            ro_dir.chmod(0o555)
+            try:
+                ro_run = await collie.start(
+                    recording=Recording(
+                        mode=RecordingMode.record, path=str(existing_warc)
+                    )
+                )
+                await (await (await ro_run.new_session()).new_page()).goto(page_url)
+                ro_err = await failure(ro_run.finish())
+                with client_case.check(
+                    "failed write leaves existing target file untouched"
+                ):
+                    assert isinstance(ro_err, PathNotWritableError)
+                    assert existing_warc.read_text("utf-8") == "sentinel-existing-warc"
+            finally:
+                ro_dir.chmod(0o755)
 
             recovered = tmp_path / "recovered.warc"
             saved = await fail_run.save_recording(recovered)

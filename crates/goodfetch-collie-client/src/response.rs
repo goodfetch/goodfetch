@@ -35,9 +35,12 @@ impl Response {
         Self { host, response }
     }
 
-    /// The Connection its page's Run is on.
-    pub(crate) fn connection(&self) -> &crate::ClientConnection {
-        self.host.connection()
+    /// Runs `future` on its page's Connection runtime and blocks until it finishes.
+    pub(crate) fn wait<T: Send + 'static>(
+        &self,
+        future: impl std::future::Future<Output = Result<T, crate::error::Error>> + Send + 'static,
+    ) -> Result<T, crate::error::Error> {
+        self.host.wait(future)
     }
 
     /// Its final URL.
@@ -120,7 +123,7 @@ impl Response {
     /// which its fix names. `body_unavailable` when the file the
     /// engine keeps it in cannot be read, and the errors of any call.
     pub fn body(&self) -> Reply<Vec<u8>> {
-        let connection = self.host.connection().clone();
+        let host = self.host.clone();
         let call: Call<BodyHandle, ResponseBodyParams> = self.host.call(
             RESPONSE_BODY.name,
             ResponseBodyParams {
@@ -132,7 +135,7 @@ impl Response {
         let call = call.wire_timeout(TIMEOUT_WAIT.name);
         Box::pin(async move {
             let handle = call.await?;
-            connection.read_body(handle).await
+            host.read_body(handle).await
         })
     }
 

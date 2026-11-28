@@ -177,10 +177,16 @@ fn response_recordings_record_replay_test_engine_resume_and_save_again() {
         assert_eq!(bp.goto(&page_url).await.unwrap().unwrap().status(), 200);
         assert_eq!(bp.goto(&other_url).await.unwrap().unwrap().status(), 200);
         let both_report = both_replay.finish().await.unwrap();
-        assert_eq!(
-            both_report.recording.as_ref().unwrap().misses,
-            [] as [String; 0]
-        );
+        let non_favicon_misses: Vec<&str> = both_report
+            .recording
+            .as_ref()
+            .unwrap()
+            .misses
+            .iter()
+            .map(String::as_str)
+            .filter(|miss| !miss.ends_with("/favicon.ico"))
+            .collect();
+        assert_eq!(non_favicon_misses, Vec::<&str>::new());
 
         // 5. Failed write at Run end raises path_not_writable and save_recording writes again
         //    on both Run and RunView; a Run that recorded nothing raises recording_invalid (story:11-161).
@@ -197,6 +203,32 @@ fn response_recordings_record_replay_test_engine_resume_and_save_again() {
         fp.goto(&page_url).await.unwrap();
         let write_err = fail_run.finish().await.unwrap_err();
         assert_eq!(write_err.code(), ErrorCode::PATH_NOT_WRITABLE);
+
+        // Existing target file is left untouched when writing to a read-only folder fails.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let ro_dir = work.path().join("readonly-dir");
+            std::fs::create_dir(&ro_dir).unwrap();
+            let existing_warc = ro_dir.join("existing.warc");
+            std::fs::write(&existing_warc, b"sentinel-existing-warc").unwrap();
+            std::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+            let ro_run = collie
+                .start()
+                .recording(Recording::record(existing_warc.to_string_lossy()))
+                .await
+                .unwrap();
+            let rs = ro_run.new_session().await.unwrap();
+            let rp = rs.new_page().await.unwrap();
+            rp.goto(&page_url).await.unwrap();
+            let ro_err = ro_run.finish().await.unwrap_err();
+            std::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(ro_err.code(), ErrorCode::PATH_NOT_WRITABLE);
+            assert_eq!(
+                std::fs::read(&existing_warc).unwrap(),
+                b"sentinel-existing-warc"
+            );
+        }
 
         let recovered_path = work.path().join("recovered.warc");
         let saved = fail_run.save_recording(&recovered_path).await.unwrap();

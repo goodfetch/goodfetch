@@ -43,7 +43,6 @@ import { Opened } from "./opened.ts";
 import type { RawSend } from "./raw-call.ts";
 import { warnEntry } from "./markers.ts";
 import { holdInRealm } from "./realm.ts";
-import { registerCopyHost } from "./run-copies.ts";
 import type { ChannelOpenOptions } from "./rpc.ts";
 import { Sequence } from "./sequence.ts";
 import type { SharedSubscription } from "./shared-subscription.ts";
@@ -71,8 +70,11 @@ export interface RunHost {
   readonly logger: Logger | undefined;
 }
 
-/** What the handles of a Run reach the engine through: its host's calls, streams, Subscription and logger. */
-type HandlesHost = Pick<RunHost, "calls" | "raw" | "stream" | "published" | "logger">;
+/** What the handles of a Run reach the engine through: its host's connection, calls, streams, Subscription and logger. */
+type HandlesHost = Pick<
+  RunHost,
+  "connection" | "calls" | "raw" | "stream" | "published" | "logger"
+>;
 
 /** A listener that threw, which `listener_failed` has not yet raised. */
 interface ListenerFailure {
@@ -347,6 +349,9 @@ function hostIn<Id>(
       value === undefined &&
       (operation === "run.finish" || operation === "run.stop" || operation === "run.abort");
     const saveOnEnd = isEnd ? run.saveRecordingOnEnd : undefined;
+    if (saveOnEnd !== undefined) {
+      run.saveRecordingOnEnd = undefined;
+    }
     let result: Result;
     try {
       result = await send();
@@ -370,6 +375,7 @@ function hostIn<Id>(
   };
   const host: HandleHost<Id, CollieOperationTypes> = {
     id,
+    connection: reach.connection,
     call<Name extends keyof CollieOperationTypes>(
       operation: Name,
       params: CollieOperationTypes[Name]["params"],
@@ -544,6 +550,7 @@ export class Run extends RunMembers implements AsyncDisposable {
     pageIn = (run, pageId, sessionId, signal) => {
       const sessionHost = hostIn(
         {
+          connection: run.#host.connection,
           calls: signalled(run.#host.calls, signal),
           raw: (operation, params, options) =>
             run.#host.raw(operation, params, { signal: alsoStoppedBy(options.signal, signal) }),
@@ -601,14 +608,19 @@ export class Run extends RunMembers implements AsyncDisposable {
       failures: [],
     };
     const handleHost = hostIn(host, scope, undefined, started.runId);
-    registerCopyHost(handleHost, host.connection);
     super(handleHost, started);
     this.#host = host;
     this.#scope = scope;
     this.#detached = detached;
     if (recordPath !== undefined && host.connection.engine().kind !== "attached") {
       scope.saveRecordingOnEnd = async (signal) => {
-        await this.saveRecording(recordPath, { signal });
+        await saveFile<RecordingSaved>(
+          host.connection,
+          "recording.save_as",
+          { run_id: scope.id, filename: basename(recordPath) },
+          recordPath,
+          { call: "saveRecording", signal },
+        );
       };
     }
     this.keyValueStore = new KeyValueStore(
@@ -769,9 +781,27 @@ export class Run extends RunMembers implements AsyncDisposable {
   async #close(): Promise<void> {
     const stops = this.#scope.state === "running" && !this.#detached;
     this.#scope.state = "closed";
+    const saveOnEnd = stops ? this.#scope.saveRecordingOnEnd : undefined;
+    if (saveOnEnd !== undefined) {
+      this.#scope.saveRecordingOnEnd = undefined;
+    }
     try {
       if (stops && this.#host.reachable()) {
-        await this.#host.calls.call("run.abort", { runId: this.#scope.id }, {});
+        try {
+          await this.#host.calls.call("run.abort", { runId: this.#scope.id }, {});
+        } catch (runError) {
+          if (saveOnEnd !== undefined) {
+            try {
+              await saveOnEnd(undefined);
+            } catch {
+              // The Run's own error takes precedence (ADR 0105).
+            }
+          }
+          throw runError;
+        }
+        if (saveOnEnd !== undefined) {
+          await saveOnEnd(undefined);
+        }
       }
     } finally {
       this.#host.forget(this);

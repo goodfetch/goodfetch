@@ -15,13 +15,6 @@ pub(crate) use loom::sync::Arc;
 #[cfg(not(all(test, goodfetch_loom)))]
 pub(crate) use std::sync::Arc;
 
-/// An atomic `bool`, loom's under `goodfetch_loom`.
-#[cfg(all(test, goodfetch_loom))]
-pub(crate) type AtomicBool = loom::sync::atomic::AtomicBool;
-/// An atomic `bool`, loom's under `goodfetch_loom`.
-#[cfg(not(all(test, goodfetch_loom)))]
-pub(crate) type AtomicBool = std::sync::atomic::AtomicBool;
-
 /// An atomic `u64`, loom's under `goodfetch_loom`.
 #[cfg(all(test, goodfetch_loom))]
 pub(crate) type AtomicU64 = loom::sync::atomic::AtomicU64;

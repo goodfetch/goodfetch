@@ -64,12 +64,13 @@ pub use collie::Collie;
 pub use composition::{composition, composition_with};
 pub use engine_choice::{EngineChoice, EngineFallback, EngineInfo, EngineKind, RemoteDaemon};
 pub use goodfetch_collie_client::{
-    AiWorkResult, Answer, BoxError, Call, Checkpoint, Connection, CreatedSchedule, Ended, Error,
-    ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues, HandlerlessStart, KeyValueStore,
-    KeyValueStoreView, Limits, Locator, Money, MoneyError, Page, PartialOutput, Query, RawCall,
-    Response, Run, RunTrace, RunView, SaveFile, Schedule, Schedules, Schema, SchemaError,
-    SecretRequest, Session, Start, StoredBytes, UsageKind, VerifyWebhookOptions, events, schemars,
-    settings, verify_webhook, verify_webhook_with,
+    AiWorkResult, Answer, BoxError, Call, Checkpoint, CheckpointSaved, Connection, CreatedSchedule,
+    Ended, Error, ErrorCode, ErrorDetails, EventStream, Exchange, FieldValues, HandlerlessStart,
+    KeyValueStore, KeyValueStoreView, Limits, Locator, Money, MoneyError, Page, PartialOutput,
+    Query, RawCall, RecordingSaved, Response, Run, RunTrace, RunView, SaveFile, Schedule,
+    Schedules, Schema, SchemaError, SecretRequest, Session, Start, StoredBytes, TraceSaved,
+    UsageKind, VerifyWebhookOptions, events, schemars, settings, verify_webhook,
+    verify_webhook_with,
 };
 pub use goodfetch_protocol::notifications::{
     FullNotification, NotificationData, NotificationEvent, NotificationPayload, ThinNotification,

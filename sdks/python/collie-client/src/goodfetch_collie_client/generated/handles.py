@@ -59,7 +59,7 @@ class AsyncRun(AsyncHandle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        return AsyncCheckpoint(self._host, result_of(models.Checkpoint, await self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id))))
+        return AsyncCheckpoint(self._host.connection, result_of(models.Checkpoint, await self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id))))
 
     async def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -166,7 +166,7 @@ class AsyncRun(AsyncHandle):
         """
         warn_experimental("run.trace")
         response = result_of(models.RunTraceResult, await self._host.call("run.trace", models.RunParams(run_id=self._host.id))).trace
-        return None if response is None else AsyncRunTrace(self._host, response)
+        return None if response is None else AsyncRunTrace(self._host.connection, response)
 
     async def usage(self) -> models.RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -727,7 +727,7 @@ class Run(Handle):
         Experimental: outside semver until it is promoted (ADR 0030).
         """
         warn_experimental("run.checkpoint")
-        return Checkpoint(self._host, result_of(models.Checkpoint, self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id))))
+        return Checkpoint(self._host.loop, AsyncCheckpoint(self._host.connection, result_of(models.Checkpoint, self._host.call("run.checkpoint", models.RunCheckpointParams(run_id=self._host.id)))))
 
     def discard(self) -> models.RunId:
         """Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -834,7 +834,7 @@ class Run(Handle):
         """
         warn_experimental("run.trace")
         response = result_of(models.RunTraceResult, self._host.call("run.trace", models.RunParams(run_id=self._host.id))).trace
-        return None if response is None else RunTrace(self._host, response)
+        return None if response is None else RunTrace(self._host.loop, AsyncRunTrace(self._host.connection, response))
 
     def usage(self) -> models.RunUsage:
         """Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.

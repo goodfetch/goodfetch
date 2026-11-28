@@ -39,7 +39,7 @@ impl RunView {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn progress(&self) -> EventIter<Answer<RunProgress>> {
-        EventIter::new(self.inner.progress(), self.inner.connection())
+        EventIter::new(self.inner.progress(), self.inner.runtime())
     }
 
     /// Reads a Run's report: at once for a Run that ended, and at its end for
@@ -52,7 +52,7 @@ impl RunView {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn report(&self) -> Call<Answer<RunReport>, RunParams> {
-        Call::new(self.inner.report(), self.inner.connection())
+        Call::new(self.inner.report(), self.inner.runtime())
     }
 
     /// Reads a Run's trace copy as recorded so far, or null when the Run keeps
@@ -67,7 +67,7 @@ impl RunView {
     pub fn trace(&self) -> Call<Option<RunTrace>, RunParams> {
         Call::new(
             self.inner.trace().map(|trace| trace.map(RunTrace::new)),
-            self.inner.connection(),
+            self.inner.runtime(),
         )
     }
 
@@ -90,7 +90,7 @@ impl RunView {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn save_recording(&self, path: impl AsRef<Path>) -> SaveFile<RecordingSaved> {
-        SaveFile::new(self.inner.save_recording(path), self.inner.connection())
+        SaveFile::new(self.inner.save_recording(path))
     }
 
     /// Closes the view. Frees only the view: the Run goes on.

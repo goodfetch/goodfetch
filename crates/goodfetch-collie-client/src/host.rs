@@ -7,25 +7,31 @@
 //! ended notes it, which `close()` and the handle's drop read (ADR 0078).
 
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, PoisonError};
 
 use goodfetch_protocol::page::session::{SESSION_CLOSE, SessionParams};
 use goodfetch_protocol::page::session_pages::{PAGE_CLOSE, PageCloseParams};
-use goodfetch_protocol::page::{Locator, PageId, SessionId};
-use goodfetch_protocol::run::{Lifecycle, RUN_ABORT, RunAbortParams, RunId, RunReport};
+use goodfetch_protocol::page::{BodyHandle, Locator, PageId, SessionId};
+use goodfetch_protocol::run::{
+    Checkpoint as WireCheckpoint, Lifecycle, RECORDING_SAVE_AS, RUN_ABORT, RecordingSaveAsParams,
+    RecordingSaved, RunAbortParams, RunId, RunReport,
+};
+use goodfetch_protocol::run_trace::RunTrace as WireRunTrace;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize as _, Serialize};
 use serde_json::Value;
 
 use crate::call::{Call, Note, Query};
-use crate::connection::{ClientConnection, Closes, close_timeout};
+use crate::connection::{BlockingRuntime, Closes, Core, SaveFile, close_timeout};
 use crate::error::Error;
 use crate::event_stream::{EventStream, Opens};
 use crate::logging;
 use crate::published::Interest;
 use crate::raw_call::{RawCall, RawValue};
+use crate::run_copies::{Checkpoint, RunTrace};
 use crate::sync::{AtomicBool, Mutex, MutexGuard};
 
 /// What a handle reaches its engine through: the Run it belongs to and its
@@ -44,26 +50,9 @@ impl Host<RunId> {
     /// The host of the Run `run`, which its Connection closes first.
     pub(crate) fn run(run: HeldRun) -> Self {
         let run = Arc::new(run);
-        run.connection.register(&run);
+        run.register();
         Self {
             id: run.run_id.clone(),
-            run,
-            value: None,
-        }
-    }
-
-    /// The host of a Run opened as a view (`open_run`, ADR 0102): takes no
-    /// writer role, is not registered for close-on-connection-close, and
-    /// dropping it sends no `run.abort`.
-    pub(crate) fn view(connection: ClientConnection, run_id: RunId) -> Self {
-        let run = Arc::new(HeldRun::new(
-            connection,
-            run_id.clone(),
-            Lifecycle::Finished,
-            true,
-        ));
-        Self {
-            id: run_id,
             run,
             value: None,
         }
@@ -76,14 +65,58 @@ impl<Id> Host<Id> {
         &self.id
     }
 
-    /// The Run the handle belongs to.
-    pub(crate) fn held_run(&self) -> &HeldRun {
-        &self.run
+    /// Closes the Run this handle belongs to.
+    pub(crate) async fn close_run(&self) -> Result<(), Error> {
+        HeldRun::close(&self.run).await
     }
 
-    /// The Connection the handle's calls go through.
-    pub(crate) fn connection(&self) -> &ClientConnection {
-        &self.run.connection
+    /// The narrow runtime handle blocking twins use to wait on futures.
+    pub(crate) fn runtime(&self) -> BlockingRuntime {
+        self.run.runtime()
+    }
+
+    /// Runs `future` on the Connection's runtime and blocks until it finishes.
+    pub(crate) fn wait<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, Error>> + Send + 'static,
+    ) -> Result<T, Error> {
+        self.run.wait(future)
+    }
+
+    /// Saves a file from `method` with `params` to `path`.
+    pub(crate) fn save_file<T>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        path: &Path,
+        call: &str,
+    ) -> SaveFile<T> {
+        self.run.save_file(method, params, path, call)
+    }
+
+    /// Streams `event` notifications from `method` with `params`.
+    pub(crate) fn stream<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        event: &'static str,
+    ) -> EventStream<T> {
+        self.run.stream(method, params, event)
+    }
+
+    /// Reads the bytes of a page response body handle.
+    pub(crate) async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
+        self.run.read_body(handle).await
+    }
+
+    /// Wraps a completed Checkpoint descriptor in a handle on this Run's Connection.
+    pub(crate) fn checkpoint(&self, descriptor: WireCheckpoint) -> Checkpoint {
+        self.run.checkpoint(descriptor)
+    }
+
+    /// Wraps a completed `RunTrace` descriptor in a handle on this Run's Connection.
+    pub(crate) fn run_trace(&self, descriptor: WireRunTrace) -> RunTrace {
+        self.run.run_trace(descriptor)
     }
 
     /// The host of a value this handle opened or built, named `id`, in the
@@ -99,10 +132,18 @@ impl<Id> Host<Id> {
         T: DeserializeOwned + Send + 'static,
         P: Serialize + Send + 'static,
     {
-        let call = Call::new(self.connection().sender(), method, self.open(params));
-        match self.note() {
+        let call = self.run.open_call(method, self.open(params));
+        let call = match self.note() {
             Some(note) => call.note(note),
             None => call,
+        };
+        if self.value.is_none() && matches!(method, "run.finish" | "run.stop" | "run.abort") {
+            let run = Arc::clone(&self.run);
+            call.on_settled(Box::new(move |outcome| {
+                Box::pin(async move { run.save_recording_on_end(outcome).await })
+            }))
+        } else {
+            call
         }
     }
 
@@ -137,7 +178,7 @@ impl<Id> Host<Id> {
             closed: Box::new(move || closed(&run, value.as_deref())),
             note,
         };
-        RawCall::new(self.connection().sender(), operation, Some(value))
+        self.run.open_raw(operation, Some(value))
     }
 
     /// The query of `method` with `params`, whose answer reads as `T`.
@@ -146,7 +187,7 @@ impl<Id> Host<Id> {
         T: DeserializeOwned + Send + 'static,
         P: Serialize + Send + 'static,
     {
-        Query::new(self.connection().sender(), method, self.open(params))
+        self.run.open_query(method, self.open(params))
     }
 
     /// The stream of the events named `event` the call of `method` with
@@ -162,8 +203,7 @@ impl<Id> Host<Id> {
         T: DeserializeOwned,
         P: Serialize,
     {
-        EventStream::open(
-            self.connection().sender(),
+        self.run.open_listen(
             method,
             self.params(params),
             event,
@@ -188,8 +228,7 @@ impl<Id> Host<Id> {
         U: DeserializeOwned + 'static,
         P: Serialize,
     {
-        EventStream::opening(
-            self.connection().sender(),
+        self.run.open_listen_opening(
             method,
             self.params(params),
             opens,
@@ -225,13 +264,8 @@ impl<Id> Host<Id> {
             field,
             id: serde_json::to_value(&self.id).expect("invariant: an ID serializes"),
         };
-        EventStream::published(
-            self.connection().published(),
-            method,
-            self.params(params),
-            interest,
-            Box::new(build),
-        )
+        self.run
+            .open_listen_published(method, self.params(params), interest, Box::new(build))
     }
 
     /// The host of a value of the same Run, named `id`, that the engine
@@ -275,7 +309,8 @@ impl<Id> Host<Id> {
     {
         let (run, value) = (Arc::clone(&self.run), self.value.clone());
         let marked = self.value.clone();
-        Call::<Value, P>::new(self.connection().sender(), method, Ok(params))
+        self.run
+            .open_close(method, params)
             .settled(move || closed(&run, value.as_deref()).then_some(Value::Null))
             .note(move |_| {
                 if let Some(value) = marked {
@@ -304,13 +339,13 @@ impl<Id> Host<Id> {
 #[derive(Clone, Debug)]
 pub(crate) struct ConnectionHost<Id> {
     id: Id,
-    connection: ClientConnection,
+    connection: Core,
 }
 
 impl<Id> ConnectionHost<Id> {
     /// The host of the value `id` names, whose calls go through
     /// `connection`.
-    pub(crate) fn new(connection: ClientConnection, id: Id) -> Self {
+    pub(crate) fn new(connection: Core, id: Id) -> Self {
         Self { id, connection }
     }
 
@@ -319,9 +354,9 @@ impl<Id> ConnectionHost<Id> {
         &self.id
     }
 
-    /// The Connection the handle's calls go through.
-    pub(crate) fn connection(&self) -> &ClientConnection {
-        &self.connection
+    /// The narrow runtime handle blocking twins use to wait on futures.
+    pub(crate) fn runtime(&self) -> BlockingRuntime {
+        self.connection.runtime()
     }
 
     /// The call of `method` with `params`, whose reply reads as `T`.
@@ -395,20 +430,10 @@ impl Drop for HeldValue {
         let Some(dropped) = self.dropped.take() else {
             return;
         };
-        // In another process, such as the child of a `fork`, nothing
-        // reaches the engine: the opener closes the value.
-        if self.closed() || self.run.state() != State::Running || !self.run.connection.in_opener() {
+        if self.closed() {
             return;
         }
-        tracing::warn!(
-            target: logging::CLIENT,
-            id = %dropped.id,
-            "a {} was dropped without close(): it closes without waiting",
-            dropped.value
-        );
-        self.run
-            .connection
-            .send_and_forget(dropped.method, &dropped.params);
+        self.run.drop_unclosed(&dropped);
     }
 }
 
@@ -515,12 +540,17 @@ impl<Id: PartialEq + Clone, T: Clone> Kept<Id, T> {
 /// A Run a program holds, which every handle of it shares.
 #[derive(Debug)]
 pub(crate) struct HeldRun {
-    connection: ClientConnection,
+    connection: Core,
     run_id: RunId,
     state: Mutex<State>,
     /// Whether the Run outlives the program (ADR 0102): closing or
     /// dropping its value then sends no `run.abort`.
     detached: bool,
+    /// When the Run records responses against a Daemon (`mode: "record"`),
+    /// the path on the program's machine to stream and save atomically when
+    /// the Run ends (`finish`, `stop`, `abort`, or `close`). Cleared once run
+    /// so a second end call never re-runs it (ADRs 0105 and 0116).
+    record_path: Mutex<Option<PathBuf>>,
 }
 
 /// Where a Run's value is.
@@ -536,12 +566,14 @@ enum State {
 
 impl HeldRun {
     /// The Run its opener answered, on `connection`, `detached` when it
-    /// outlives the program.
+    /// outlives the program, with `record_path` set for Daemon `mode: "record"`
+    /// Runs that stream their WARC on end.
     pub(crate) fn new(
-        connection: ClientConnection,
+        connection: Core,
         run_id: RunId,
         lifecycle: Lifecycle,
         detached: bool,
+        record_path: Option<PathBuf>,
     ) -> Self {
         let state = if lifecycle == Lifecycle::Running {
             State::Running
@@ -553,15 +585,196 @@ impl HeldRun {
             run_id,
             state: Mutex::new(state),
             detached,
+            record_path: Mutex::new(record_path),
+        }
+    }
+
+    /// Registers this Run with its Connection so closing the Connection closes
+    /// the Run first.
+    fn register(self: &Arc<Self>) {
+        self.connection.register(self);
+    }
+
+    /// The narrow runtime handle blocking twins use to wait on futures.
+    fn runtime(&self) -> BlockingRuntime {
+        self.connection.runtime()
+    }
+
+    fn wait<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, Error>> + Send + 'static,
+    ) -> Result<T, Error> {
+        self.connection.wait(future)
+    }
+
+    fn open_call<T, P>(&self, method: &'static str, params: Result<P, Error>) -> Call<T, P>
+    where
+        T: DeserializeOwned + Send + 'static,
+        P: Serialize + Send + 'static,
+    {
+        Call::new(self.connection.sender(), method, params)
+    }
+
+    fn open_raw(&self, operation: &str, value: Option<RawValue>) -> RawCall {
+        RawCall::new(self.connection.sender(), operation, value)
+    }
+
+    fn open_query<T, P>(&self, method: &'static str, params: Result<P, Error>) -> Query<T, P>
+    where
+        T: DeserializeOwned + Send + 'static,
+        P: Serialize + Send + 'static,
+    {
+        Query::new(self.connection.sender(), method, params)
+    }
+
+    fn open_listen<T>(
+        &self,
+        method: &str,
+        params: Result<Value, Error>,
+        event: &'static str,
+        decode: Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>,
+    ) -> EventStream<T> {
+        EventStream::open(self.connection.sender(), method, params, event, decode)
+    }
+
+    fn open_listen_opening<T>(
+        &self,
+        method: &str,
+        params: Result<Value, Error>,
+        opens: Opens,
+        build: Box<dyn Fn(Value, EventStream<Value>) -> Result<T, Error> + Send + Sync>,
+    ) -> EventStream<T> {
+        EventStream::opening(self.connection.sender(), method, params, opens, build)
+    }
+
+    fn open_listen_published<T>(
+        &self,
+        method: &str,
+        params: Result<Value, Error>,
+        interest: Interest,
+        build: Box<dyn Fn(Value) -> Result<T, Error> + Send + Sync>,
+    ) -> EventStream<T> {
+        EventStream::published(self.connection.published(), method, params, interest, build)
+    }
+
+    fn open_close<P: Serialize + Send + 'static>(
+        &self,
+        method: &'static str,
+        params: P,
+    ) -> Call<Value, P> {
+        Call::new(self.connection.sender(), method, Ok(params))
+    }
+
+    fn save_file<T>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        path: &Path,
+        call: &str,
+    ) -> SaveFile<T> {
+        self.connection.save_file(method, params, path, call)
+    }
+
+    fn stream<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: &impl Serialize,
+        event: &'static str,
+    ) -> EventStream<T> {
+        self.connection.stream(method, params, event)
+    }
+
+    async fn read_body(&self, handle: BodyHandle) -> Result<Vec<u8>, Error> {
+        self.connection.read_body(handle).await
+    }
+
+    fn checkpoint(&self, descriptor: WireCheckpoint) -> Checkpoint {
+        Checkpoint::new(self.connection.clone(), descriptor)
+    }
+
+    fn run_trace(&self, descriptor: WireRunTrace) -> RunTrace {
+        RunTrace::new(self.connection.clone(), descriptor)
+    }
+
+    /// Warns and sends a fire-and-forget close when a child handle is dropped
+    /// while the Run is still running in the opening process.
+    fn drop_unclosed(&self, dropped: &Dropped) {
+        // In another process, such as the child of a `fork`, nothing
+        // reaches the engine: the opener closes the value.
+        if self.state() != State::Running || !self.connection.in_opener() {
+            return;
+        }
+        tracing::warn!(
+            target: logging::CLIENT,
+            id = %dropped.id,
+            "a {} was dropped without close(): it closes without waiting",
+            dropped.value
+        );
+        self.connection
+            .send_and_forget(dropped.method, &dropped.params);
+    }
+
+    /// Takes and clears the Daemon recording path so it runs at most once.
+    fn take_record_path(&self) -> Option<PathBuf> {
+        self.record_path
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+    }
+
+    /// Streams and atomically writes the Daemon Run's recorded WARC when
+    /// `record_path` is armed, clearing it so no later end call re-runs it.
+    /// On a failed Run (`outcome` is `Err`), attempts the write and logs any
+    /// write error while keeping the Run's own error (ADR 0105).
+    async fn save_recording_on_end(&self, outcome: Result<Value, Error>) -> Result<Value, Error> {
+        let Some(path) = self.take_record_path() else {
+            return outcome;
+        };
+        let filename = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned());
+        let saved = self
+            .connection
+            .save_file::<RecordingSaved>(
+                RECORDING_SAVE_AS.name,
+                &RecordingSaveAsParams {
+                    run_id: self.run_id.clone(),
+                    path: None,
+                    filename,
+                },
+                &path,
+                "save_recording",
+            )
+            .await;
+        match outcome {
+            Ok(reply) => {
+                saved?;
+                Ok(reply)
+            }
+            Err(run_error) => {
+                if let Err(write_error) = saved {
+                    tracing::warn!(
+                        target: logging::CLIENT,
+                        run_id = %self.run_id,
+                        %write_error,
+                        "could not write Response recording after Run failure"
+                    );
+                }
+                Err(run_error)
+            }
         }
     }
 
     /// Closes the Run for every handle, as [`crate::Run::close`] says: it
     /// is closed at once, and the future sends its abort if it still ran
-    /// and is not detached.
+    /// and is not detached, streaming any Daemon recording once ended.
     pub(crate) fn close(&self) -> impl Future<Output = Result<(), Error>> + Send + 'static {
         let was = std::mem::replace(&mut *self.lock(), State::Closed);
-        let abort = (was == State::Running && !self.detached).then(|| {
+        let stops = was == State::Running && !self.detached;
+        let record_path = stops.then(|| self.take_record_path()).flatten();
+        let connection = self.connection.clone();
+        let run_id = self.run_id.clone();
+        let abort = stops.then(|| {
             let params = RunAbortParams {
                 run_id: self.run_id.clone(),
                 forwarded: false,
@@ -574,12 +787,47 @@ impl HeldRun {
             let Some(abort) = abort else {
                 return Ok(());
             };
-            match abort.await {
+            let result = match abort.await {
                 Ok(_) => Ok(()),
                 // The Connection's close ends the Run's work with it.
                 Err(error) if error.is_ended_by_close() => Ok(()),
                 Err(error) => Err(error),
+            };
+            if let Some(path) = record_path {
+                let filename = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned());
+                let saved = connection
+                    .save_file::<RecordingSaved>(
+                        RECORDING_SAVE_AS.name,
+                        &RecordingSaveAsParams {
+                            run_id: run_id.clone(),
+                            path: None,
+                            filename,
+                        },
+                        &path,
+                        "save_recording",
+                    )
+                    .await;
+                return match result {
+                    Ok(()) => {
+                        saved?;
+                        Ok(())
+                    }
+                    Err(run_error) => {
+                        if let Err(write_error) = saved {
+                            tracing::warn!(
+                                target: logging::CLIENT,
+                                %run_id,
+                                %write_error,
+                                "could not write Response recording after Run abort failure"
+                            );
+                        }
+                        Err(run_error)
+                    }
+                };
             }
+            result
         }
     }
 

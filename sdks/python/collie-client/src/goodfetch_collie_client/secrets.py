@@ -12,7 +12,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeAlias, cast
+from typing import TYPE_CHECKING, Final, TypeAlias, cast
 
 import anyio.to_thread
 
@@ -87,12 +87,25 @@ def serve_secret_resolver(
     return _served
 
 
+_SECRET_FAILURES: Final[frozenset[str]] = frozenset(
+    {
+        "missing",
+        "not_configured",
+        "provider_failed",
+        "resolver_failed",
+        "timed_out",
+        "no_code",
+    }
+)
+"""Closed set of wire `SecretFailure` tags (ADR 0067)."""
+
+
 async def _handle(
     resolve_secret: AsyncSecretResolver, params: object
 ) -> dict[str, str]:
     request = _parse_secret_request(params)
     try:
-        value: object = await resolve_secret(request)
+        value = cast("object", await resolve_secret(request))
     except Exception as error:
         raise _redacted_unavailable(error) from None
     if not isinstance(value, str):
@@ -136,7 +149,7 @@ def _redacted_unavailable(error: Exception) -> SecretUnavailableError:
     failure = "resolver_failed"
     if isinstance(error, SecretUnavailableError):
         raw_failure = error.details.get("failure")
-        if isinstance(raw_failure, str):
+        if isinstance(raw_failure, str) and raw_failure in _SECRET_FAILURES:
             failure = raw_failure
     return SecretUnavailableError(
         "resolve_secret failed",

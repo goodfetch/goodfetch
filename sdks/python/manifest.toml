@@ -3076,6 +3076,15 @@ form = "runtime"
 [[member]]
 package = "goodfetch_collie_client.handle"
 receiver = "AsyncHandleHost"
+member = "connection"
+entry = "none"
+reason = "The Connection this handle's calls and Run copies reach the engine through."
+words = ["connection"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "AsyncHandleHost"
 member = "call"
 entry = "none"
 reason = "Sends one of the handle's calls and returns its result as the engine sent it, which a generated method reads into its model."
@@ -3152,6 +3161,24 @@ member = "id"
 entry = "none"
 reason = "The ID each of the handle's calls carries."
 words = ["id"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "connection"
+entry = "none"
+reason = "The Connection this handle's calls and Run copies reach the engine through."
+words = ["connection"]
+form = "runtime"
+
+[[member]]
+package = "goodfetch_collie_client.handle"
+receiver = "HandleHost"
+member = "loop"
+entry = "none"
+reason = "The private loop that drives this handle's async calls and Run copies."
+words = ["loop"]
 form = "runtime"
 
 [[member]]

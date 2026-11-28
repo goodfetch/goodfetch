@@ -71,7 +71,7 @@ impl Run {
                 location: None,
             },
         );
-        call.map(move |result| crate::Checkpoint::new(host.connection().clone(), result))
+        call.map(move |result| host.checkpoint(result))
     }
 
     /// Discards a Run that ended or was interrupted, for good, so that nothing of it is left behind (ADRs 0001, 0002, 0015 and 0036): its wrapped data key is overwritten and its run folder removed, with its run file, page bodies, browser profiles and the Checkpoints written there; in the per-install layout its rows are deleted from the install database with `secure_delete` on, then `wal_checkpoint(TRUNCATE)`, so neither the database nor its `-wal` and `-shm` files hold its bytes. Its Run index row stays, marked `erased`, without its tags or status line. A Profile directory it used in place and a Borrowed browser are the person's own and are never touched (ADR 0056), nor are Checkpoints written elsewhere. A later `run.start` under its Run ID starts a new Run; discarding a Run already discarded changes nothing. A Run this engine runs fails with `run_live`, one whose writer lock another engine holds with `run_in_use`, and a Run ID no Run has with `run_not_found`.
@@ -319,11 +319,7 @@ impl Run {
                 run_id: self.host.id().clone(),
             },
         );
-        call.map(move |result| {
-            result
-                .trace
-                .map(|trace| crate::RunTrace::new(host.connection().clone(), trace))
-        })
+        call.map(move |result| result.trace.map(|trace| host.run_trace(trace)))
     }
 
     /// Answers what a Run used, as the Usage ledger charged it: its model calls and tokens, browser time, proxy bytes, requests, paid solves and Paid fetches, each Limit that applies to it with what is left of it, and whether it is uncapped. An ended Run answers its report's Usage.
@@ -463,7 +459,7 @@ impl Session {
     pub fn events<E: crate::events::SessionEvent>(&self, _event: E) -> crate::EventStream<E::Data> {
         crate::markers::warn("session.on", true, None);
         <E as crate::events::sealed::SessionEvent>::warn();
-        let handle = self.clone();
+        let host = self.host.clone();
         self.host.listen_published(
             "session.on",
             ::goodfetch_protocol::page::session_pages::SessionOnParams {
@@ -472,7 +468,7 @@ impl Session {
             },
             <E as crate::events::sealed::SessionEvent>::NAME,
             "session_id",
-            move |data| <E as crate::events::sealed::SessionEvent>::build(&handle, data),
+            move |data| <E as crate::events::sealed::SessionEvent>::build(&host, data),
         )
     }
 }
@@ -937,7 +933,7 @@ impl Page {
         crate::markers::warn("page.on", true, None);
         <E as crate::events::sealed::PageEvent>::warn();
         <E as crate::events::sealed::PageEvent>::listen(
-            self,
+            &self.host,
             ::goodfetch_protocol::page::events::PageOnParams {
                 page_id: self.host.id().clone(),
                 event: <E as crate::events::sealed::PageEvent>::EVENT,

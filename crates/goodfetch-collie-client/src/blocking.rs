@@ -20,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::answer::Answer;
+use crate::connection::BlockingRuntime;
 use crate::error::Error;
 use crate::field_values::FieldValues;
 pub use key_value_store::{KeyValueStore, KeyValueStoreView};
@@ -56,7 +57,7 @@ impl ClientConnection {
     pub fn call<T: DeserializeOwned>(&self, method: &str, params: &impl Serialize) -> Call<T> {
         Call {
             call: self.0.call(method, params),
-            connection: self.0.clone(),
+            runtime: self.0.core().runtime(),
         }
     }
 
@@ -70,7 +71,7 @@ impl ClientConnection {
         params: &impl Serialize,
         item: &'static str,
     ) -> EventIter<T> {
-        EventIter::new(self.0.stream(method, params, item), &self.0)
+        EventIter::new(self.0.stream(method, params, item), self.0.core().runtime())
     }
 
     /// The blocking face of `stream`, a stream on this Connection that a
@@ -78,13 +79,13 @@ impl ClientConnection {
     /// Dataset's type: an iterator that blocks the calling thread until
     /// its next item.
     pub fn iter<T: Send + 'static>(&self, stream: crate::EventStream<T>) -> EventIter<T> {
-        EventIter::new(stream, &self.0)
+        EventIter::new(stream, self.0.core().runtime())
     }
 
     /// The raw call of `operation`, as
     /// [`crate::ClientConnection::raw_call`]'s, which `send()` sends.
     pub fn raw_call(&self, operation: &str) -> RawCall {
-        RawCall::new(self.0.raw_call(operation), &self.0)
+        RawCall::new(self.0.raw_call(operation), self.0.core().runtime())
     }
 
     /// The engine's `secrets.resolve` requests as a blocking iterator, as
@@ -94,7 +95,10 @@ impl ClientConnection {
     ///
     /// As [`crate::ClientConnection::secret_requests`].
     pub fn secret_requests(&self) -> Result<EventIter<crate::secrets::SecretRequest>, Error> {
-        Ok(EventIter::new(self.0.secret_requests()?, &self.0))
+        Ok(EventIter::new(
+            self.0.secret_requests()?,
+            self.0.core().runtime(),
+        ))
     }
 
     /// Leaving the scope or `close()` stops the Run with a Checkpoint.
@@ -121,7 +125,7 @@ impl ClientConnection {
     /// The start of a Run this Connection drives (`run.start`), which
     /// `send()` sends.
     pub fn start(&self) -> Start {
-        Start(self.0.start(), self.0.clone())
+        Start(self.0.start(), self.0.core().clone())
     }
 
     /// Starts a Recipe's run, a Run with no handler in the program, and
@@ -135,7 +139,7 @@ impl ClientConnection {
     /// The start of a Recipe's run, as
     /// [`crate::ClientConnection::start_recipe`]'s, which `send()` sends.
     pub fn start_recipe(&self, recipe: &str) -> HandlerlessStart {
-        HandlerlessStart(self.0.start_recipe(recipe), self.0.clone())
+        HandlerlessStart(self.0.start_recipe(recipe), self.0.core().clone())
     }
 
     /// Starts a code-free catalog run, a Run with no handler in the program
@@ -152,7 +156,7 @@ impl ClientConnection {
     /// [`crate::ClientConnection::start_catalog_run`]'s, which `send()`
     /// sends.
     pub fn start_catalog_run(&self, target: CatalogTarget) -> HandlerlessStart {
-        HandlerlessStart(self.0.start_catalog_run(target), self.0.clone())
+        HandlerlessStart(self.0.start_catalog_run(target), self.0.core().clone())
     }
 
     /// Opens a view of the Run `run_id` names, as
@@ -177,7 +181,7 @@ impl ClientConnection {
     /// [`crate::ClientConnection::explain_settings`] says, which `send()`
     /// asks.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
-        Query::new(self.0.explain_settings(), &self.0)
+        Query::new(self.0.explain_settings(), self.0.core().runtime())
     }
 
     /// The save of a file to the program's `path`, as
@@ -189,10 +193,7 @@ impl ClientConnection {
         path: &Path,
         call: &str,
     ) -> SaveFile<T> {
-        SaveFile {
-            save: self.0.save_file(method, params, path, call),
-            connection: self.0.clone(),
-        }
+        SaveFile::new(self.0.save_file(method, params, path, call))
     }
 
     /// Closes the Connection as [`crate::ClientConnection::close`] does, and
@@ -351,16 +352,13 @@ pub trait Connection {
 #[must_use = "a call is sent only by send()"]
 pub struct Call<T, P = Value> {
     call: crate::Call<T, P>,
-    connection: crate::ClientConnection,
+    runtime: BlockingRuntime,
 }
 
 impl<T, P> Call<T, P> {
-    /// The blocking face of `call`, sent on `connection`'s runtime.
-    pub(crate) fn new(call: crate::Call<T, P>, connection: &crate::ClientConnection) -> Self {
-        Self {
-            call,
-            connection: connection.clone(),
-        }
+    /// The blocking face of `call`, sent on `runtime`.
+    pub(crate) fn new(call: crate::Call<T, P>, runtime: BlockingRuntime) -> Self {
+        Self { call, runtime }
     }
 
     /// Changes the params before they are sent: an option's builder
@@ -409,7 +407,7 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Call<T, P> {
     /// its timeout runs out, and `internal` when its reply does not
     /// fit `T`.
     pub fn send(self) -> Result<T, Error> {
-        self.connection.wait(self.call.into_future())
+        self.runtime.wait(self.call.into_future())
     }
 }
 
@@ -423,7 +421,7 @@ impl<P> Call<Answer<RunReport>, P> {
     pub fn typed<R: DeserializeOwned + Send + 'static>(self) -> Call<Answer<R>, P> {
         Call {
             call: self.call.typed(),
-            connection: self.connection,
+            runtime: self.runtime,
         }
     }
 }
@@ -433,16 +431,13 @@ impl<P> Call<Answer<RunReport>, P> {
 #[must_use = "a call is sent only by send()"]
 pub struct RawCall {
     raw: crate::RawCall,
-    connection: crate::ClientConnection,
+    runtime: BlockingRuntime,
 }
 
 impl RawCall {
-    /// The blocking face of `raw`, sent on `connection`'s runtime.
-    pub(crate) fn new(raw: crate::RawCall, connection: &crate::ClientConnection) -> Self {
-        Self {
-            raw,
-            connection: connection.clone(),
-        }
+    /// The blocking face of `raw`, sent on `runtime`.
+    pub(crate) fn new(raw: crate::RawCall, runtime: BlockingRuntime) -> Self {
+        Self { raw, runtime }
     }
 
     /// Sends `params`, as [`crate::RawCall::params`] does.
@@ -482,7 +477,7 @@ impl RawCall {
     /// Connection is closed, the engine's error, and `deadline_exceeded`
     /// once its timeout runs out.
     pub fn send(self) -> Result<Value, Error> {
-        self.connection.wait(self.raw.into_future())
+        self.runtime.wait(self.raw.into_future())
     }
 }
 
@@ -491,16 +486,13 @@ impl RawCall {
 #[must_use = "a query is sent only by send()"]
 pub struct Query<T, P = Value> {
     query: crate::Query<T, P>,
-    connection: crate::ClientConnection,
+    runtime: BlockingRuntime,
 }
 
 impl<T, P> Query<T, P> {
-    /// The blocking face of `query`, sent on `connection`'s runtime.
-    pub(crate) fn new(query: crate::Query<T, P>, connection: &crate::ClientConnection) -> Self {
-        Self {
-            query,
-            connection: connection.clone(),
-        }
+    /// The blocking face of `query`, sent on `runtime`.
+    pub(crate) fn new(query: crate::Query<T, P>, runtime: BlockingRuntime) -> Self {
+        Self { query, runtime }
     }
 
     /// Changes the params before they are sent, as the async query's
@@ -526,7 +518,7 @@ impl<T: Send + 'static, P: Serialize + Send + 'static> Query<T, P> {
     /// the engine's error, and `internal` when
     /// its answer does not fit `T`.
     pub fn send(self) -> Result<T, Error> {
-        self.connection.wait(self.query.into_future())
+        self.runtime.wait(self.query.into_future())
     }
 }
 
@@ -540,15 +532,15 @@ pub struct EventIter<T> {
     /// The stream, which a read takes to the Connection's runtime and
     /// brings back; none once it ended or the runtime shut down.
     stream: Option<crate::EventStream<T>>,
-    connection: crate::ClientConnection,
+    runtime: BlockingRuntime,
 }
 
 impl<T> EventIter<T> {
-    /// The blocking face of `stream`, read on `connection`'s runtime.
-    pub(crate) fn new(stream: crate::EventStream<T>, connection: &crate::ClientConnection) -> Self {
+    /// The blocking face of `stream`, read on `runtime`.
+    pub(crate) fn new(stream: crate::EventStream<T>, runtime: BlockingRuntime) -> Self {
         Self {
             stream: Some(stream),
-            connection: connection.clone(),
+            runtime,
         }
     }
 }
@@ -563,7 +555,7 @@ impl EventIter<Answer<RunProgress>> {
     pub fn typed<R: DeserializeOwned + Send + Sync + 'static>(self) -> EventIter<Answer<R>> {
         EventIter {
             stream: self.stream.map(crate::EventStream::typed),
-            connection: self.connection,
+            runtime: self.runtime,
         }
     }
 }
@@ -575,7 +567,7 @@ impl<T: Send + 'static> Iterator for EventIter<T> {
     /// ended; its items are [`crate::EventStream::next`]'s.
     fn next(&mut self) -> Option<Self::Item> {
         let mut stream = self.stream.take()?;
-        match self.connection.wait(async move {
+        match self.runtime.wait(async move {
             let item = stream.next().await;
             Ok((item, stream))
         }) {
@@ -596,15 +588,11 @@ impl<T: Send + 'static> Iterator for EventIter<T> {
 #[must_use = "a save is sent only by send()"]
 pub struct SaveFile<T> {
     save: crate::SaveFile<T>,
-    connection: crate::ClientConnection,
 }
 
 impl<T> SaveFile<T> {
-    pub(super) fn new(save: crate::SaveFile<T>, connection: &crate::ClientConnection) -> Self {
-        Self {
-            save,
-            connection: connection.clone(),
-        }
+    pub(super) fn new(save: crate::SaveFile<T>) -> Self {
+        Self { save }
     }
 }
 
@@ -614,7 +602,6 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
     pub fn timeout(self, timeout: Duration) -> Self {
         Self {
             save: self.save.timeout(timeout),
-            ..self
         }
     }
 
@@ -622,7 +609,6 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
     pub fn no_timeout(self) -> Self {
         Self {
             save: self.save.no_timeout(),
-            ..self
         }
     }
 
@@ -633,7 +619,7 @@ impl<T: DeserializeOwned + Send + 'static> SaveFile<T> {
     ///
     /// As awaiting [`crate::SaveFile`].
     pub fn send(self) -> Result<T, Error> {
-        self.connection.wait(self.save.into_future())
+        self.save.send_blocking()
     }
 }
 
@@ -660,7 +646,7 @@ impl Query<Answer<PageRead>, PageReadParams> {
     ) -> Query<FieldValues<T>, PageReadParams> {
         Query {
             query: self.query.typed(),
-            connection: self.connection,
+            runtime: self.runtime,
         }
     }
 }
@@ -751,7 +737,7 @@ impl Response {
     /// broke off and `body_unavailable` for one the browser no longer
     /// holds, whose fix names `page.wait_for_request_finished`.
     pub fn body(&self) -> Result<Vec<u8>, Error> {
-        self.inner.connection().wait(self.inner.body())
+        self.inner.wait(self.inner.body())
     }
 
     /// Its body as text, decoded with the response's own encoding (ADR
@@ -764,7 +750,7 @@ impl Response {
     /// As [`crate::Response::text`]: `response_truncated` for a body that
     /// broke off, never decoded as whole.
     pub fn text(&self) -> Result<String, Error> {
-        self.inner.connection().wait(self.inner.text())
+        self.inner.wait(self.inner.text())
     }
 
     /// Its body parsed as JSON into `T`, as [`crate::Response::json`]
@@ -775,7 +761,7 @@ impl Response {
     /// As [`crate::Response::json`]: `response_truncated` for a body that
     /// broke off, and `response_not_json` for one that is not JSON.
     pub fn json<T: DeserializeOwned + Send + 'static>(&self) -> Result<T, Error> {
-        self.inner.connection().wait(self.inner.json())
+        self.inner.wait(self.inner.json())
     }
 }
 
@@ -822,7 +808,7 @@ impl Run {
     /// What the Run runs with, as [`crate::Run::explain_settings`] says,
     /// which `send()` asks.
     pub fn explain_settings(&self) -> Query<SettingsExplanation, ConfigExplainParams> {
-        Query::new(self.inner.explain_settings(), self.inner.host.connection())
+        Query::new(self.inner.explain_settings(), self.inner.host.runtime())
     }
 
     /// Saves a Run's recorded Response recording as a WARC 1.1 file, whole or
@@ -841,10 +827,7 @@ impl Run {
         &self,
         path: impl AsRef<std::path::Path>,
     ) -> SaveFile<goodfetch_protocol::run::RecordingSaved> {
-        SaveFile::new(
-            self.inner.save_recording(path),
-            self.inner.host.connection(),
-        )
+        SaveFile::new(self.inner.save_recording(path))
     }
 
     /// Reads a Run's progress: what it does and why it waits. Without
@@ -865,7 +848,7 @@ impl Run {
     /// that blocks the calling thread until the next value. Dropping it
     /// cancels its read in flight.
     pub fn progress(&self) -> EventIter<Answer<RunProgress>> {
-        EventIter::new(self.inner.progress(), self.inner.host.connection())
+        EventIter::new(self.inner.progress(), self.inner.host.runtime())
     }
 
     /// Leaving the scope or `close()` stops the Run with a Checkpoint.
@@ -888,10 +871,7 @@ impl Run {
     /// As [`crate::Run::close`].
     pub fn close(&self) -> Result<(), Error> {
         let run = self.inner.clone();
-        self.inner
-            .host
-            .connection()
-            .wait(async move { run.close().await })
+        self.inner.host.wait(async move { run.close().await })
     }
 }
 

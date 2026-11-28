@@ -541,4 +541,56 @@ mod tests {
             .concat()
         );
     }
+
+    /// Response recording is strictly a per-Run option, never a Schedule,
+    /// Watch, setting, project-file or deployment-environment option
+    /// (ADR 0105; issue 1291).
+    /// Covers: story:11-158, story:11-162
+    #[test]
+    fn recording_is_absent_from_schedule_settings_project_file_and_env() {
+        let schedule_schema =
+            serde_json::to_value(schemars::schema_for!(crate::schedule::ScheduleDefinition))
+                .unwrap();
+        assert!(
+            schedule_schema["properties"].get("recording").is_none(),
+            "ScheduleDefinition must not expose `recording`"
+        );
+
+        let project_schema =
+            serde_json::to_value(schemars::schema_for!(crate::settings::ProjectSettings)).unwrap();
+        let project_text = serde_json::to_string(&project_schema).unwrap();
+        assert!(
+            !project_text.contains("\"recording\""),
+            "ProjectSettings must not expose `recording`"
+        );
+
+        let mut generator = schemars::SchemaGenerator::default();
+        for entries in MODULES {
+            for setting in entries.settings {
+                assert!(
+                    !setting.name.contains("recording"),
+                    "catalog setting `{}` must not configure Response recording",
+                    setting.name
+                );
+            }
+            for op in entries.operations {
+                if op.name.starts_with("watch.") || op.name.starts_with("schedule.") {
+                    let params_schema =
+                        serde_json::to_string(&(op.params)(&mut generator)).unwrap();
+                    assert!(
+                        !params_schema.contains("\"recording\""),
+                        "operation `{}` must not accept Response recording",
+                        op.name
+                    );
+                }
+            }
+        }
+
+        for var in crate::settings::DEPLOYMENT_VARIABLES {
+            assert!(
+                !var.to_ascii_lowercase().contains("recording"),
+                "deployment variable `{var}` must not configure Response recording"
+            );
+        }
+    }
 }

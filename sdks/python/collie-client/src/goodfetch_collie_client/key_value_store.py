@@ -627,6 +627,24 @@ class AsyncKeyValueStoreView:
         return self._store.keys(prefix=prefix)
 
 
+class _SyncReadStore(Protocol):
+    """Read-only subset of `KeyValueStore` that `KeyValueStoreView` delegates to."""
+
+    @overload
+    def get(self, key: str) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: JSONSchema) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: TypeForm[T]) -> T | None: ...
+    def get(
+        self, key: str, schema: JSONSchema | TypeForm[T] | None = None
+    ) -> JSONValue | T: ...
+
+    def get_bytes(self, key: str) -> StoredBytes | None: ...
+
+    def keys(self, *, prefix: str | None = None) -> Sequence[str]: ...
+
+
 class KeyValueStoreView:
     """A read-only view of a Run's Key-value store in the sync API (ADRs 0102 and 0103).
 
@@ -634,7 +652,7 @@ class KeyValueStoreView:
     `keys` without taking a writer lock.
     """
 
-    def __init__(self, store: KeyValueStore) -> None:
+    def __init__(self, store: _SyncReadStore) -> None:
         """Takes the store whose read methods this view exposes."""
         self._store = store
 

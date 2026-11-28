@@ -69,6 +69,16 @@ function parseSecretRequest(params: unknown): SecretRequest {
   return typeof domain === "string" ? { name, runId, domain } : { name, runId };
 }
 
+/** Closed set of wire `SecretFailure` tags (ADR 0067). */
+const SECRET_FAILURES: ReadonlySet<string> = new Set([
+  "missing",
+  "not_configured",
+  "provider_failed",
+  "resolver_failed",
+  "timed_out",
+  "no_code",
+]);
+
 /**
  * Turns any error thrown by `resolveSecret` into a redacted
  * `SecretUnavailableError`, keeping only a known `failure` tag when the
@@ -76,9 +86,10 @@ function parseSecretRequest(params: unknown): SecretRequest {
  * exception's message, stack or cause (ADR 0067).
  */
 function redactedUnavailable(error: unknown): SecretUnavailableError {
+  const rawFailure = error instanceof SecretUnavailableError ? error.details["failure"] : undefined;
   const failure =
-    error instanceof SecretUnavailableError && typeof error.details["failure"] === "string"
-      ? error.details["failure"]
+    typeof rawFailure === "string" && SECRET_FAILURES.has(rawFailure)
+      ? rawFailure
       : "resolver_failed";
   return new SecretUnavailableError("resolveSecret failed", {
     details: { failure },

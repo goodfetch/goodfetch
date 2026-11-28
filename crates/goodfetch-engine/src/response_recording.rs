@@ -50,7 +50,7 @@ pub use determinism::{
     SeededRandom, http_date_from_headers, init_script, routed_date_script, seed_of,
     system_time_millis,
 };
-pub use record::{Recorder, SanitizedExchange, TABLES, encode_warc};
+pub use record::{Recorder, RecorderPolicy, SanitizedExchange, TABLES, encode_warc};
 
 /// The most recorded URLs a [`Miss`] names.
 const NEAREST: usize = 5;
@@ -562,6 +562,11 @@ impl Recordings {
     /// # Errors
     ///
     /// `recording_invalid` when decoding or parsing `bytes` fails.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future cancels the wait without modifying engine state;
+    /// the blocking parse runs to completion and discards its result.
     pub async fn open_replay_bytes(
         &self,
         display: &str,
@@ -686,6 +691,36 @@ impl Recordings {
             Some(Attached::Record(recorder)) => recorder.finish_and_write(connection).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// Finishes `report.run_id`'s recording and applies its summary or write
+    /// failure to `report` (ADRs 0105 and 0116): a write failure on an
+    /// otherwise clean Run becomes `report.error`; on a Run that already failed
+    /// with its own error it is appended to `report.warnings` so the Run's own
+    /// error stays intact.
+    ///
+    /// # Errors
+    ///
+    /// Returns any SQLite error from reading/flushing `recorded_responses`.
+    pub(crate) fn apply_to_report(
+        &self,
+        connection: &rusqlite::Connection,
+        report: &mut goodfetch_protocol::run::RunReport,
+    ) -> rusqlite::Result<()> {
+        match self.finish_run(&report.run_id, connection)? {
+            Some(Ok(recording)) => report.recording = Some(recording),
+            Some(Err(error)) if report.error.is_none() => report.error = Some(error),
+            Some(Err(error)) => {
+                report.warnings.push(goodfetch_protocol::run::RunWarning {
+                    code: error.code,
+                    message: error.message,
+                    sessions: Vec::new(),
+                    folder: None,
+                });
+            }
+            None => {}
+        }
+        Ok(())
     }
 }
 

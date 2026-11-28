@@ -78,7 +78,7 @@ impl Checkpoint {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn save_as(&self, path: impl AsRef<Path>) -> SaveFile<CheckpointSaved> {
-        SaveFile::new(self.inner.save_as(path), self.inner.connection())
+        SaveFile::new(self.inner.save_as(path))
     }
 
     /// Sends a Checkpoint's bytes in order, in `$/chunk` notifications of at
@@ -89,7 +89,7 @@ impl Checkpoint {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn stream(&self) -> EventIter<Vec<u8>> {
-        EventIter::new(self.inner.stream(), self.inner.connection())
+        self.inner.stream_with(EventIter::new)
     }
 }
 
@@ -143,7 +143,7 @@ impl RunTrace {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn save_as(&self, path: impl AsRef<Path>) -> SaveFile<TraceSaved> {
-        SaveFile::new(self.inner.save_as(path), self.inner.connection())
+        SaveFile::new(self.inner.save_as(path))
     }
 
     /// Sends a Run trace's bytes in order, in `$/chunk` notifications of at
@@ -154,6 +154,6 @@ impl RunTrace {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn stream(&self) -> EventIter<Vec<u8>> {
-        EventIter::new(self.inner.stream(), self.inner.connection())
+        self.inner.stream_with(EventIter::new)
     }
 }

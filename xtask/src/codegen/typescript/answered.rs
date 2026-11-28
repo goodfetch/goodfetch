@@ -45,7 +45,11 @@ pub(super) fn answered(member: &Member<'_>, result: &str) -> String {
 /// The lines of `member`'s body that return what it answers of `call`.
 pub(super) fn answer(member: &Member<'_>, call: &str) -> String {
     let wrap = |value: &str| match member.wrapped {
-        Some(wrapped) => format!("new {}(this.#host, {value})", wrapped_name(wrapped)),
+        Some(Wrapped::Response) => format!("new Response(this.#host, {value})"),
+        Some(wrapped) => format!(
+            "new {}(this.#host.connection, {value})",
+            wrapped_name(wrapped)
+        ),
         None => value.to_owned(),
     };
     match &member.unwrapped {

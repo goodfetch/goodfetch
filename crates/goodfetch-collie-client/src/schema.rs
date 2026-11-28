@@ -20,12 +20,22 @@ mod tests;
 
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::{Arc, OnceLock};
 
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
+
+/// Why [`Schema::validate`] rejected a value or failed to compile its schema.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ValidateError {
+    /// The JSON Schema document itself is invalid and cannot be compiled.
+    InvalidSchema(String),
+    /// The value violates the compiled JSON Schema at `path`.
+    Violation { path: String, message: String },
+}
 
 /// How the values of one schema cross the wire: the JSON Schema the engine
 /// receives, a sent value encoded as it parses back, and an answer decoded
@@ -34,6 +44,9 @@ use serde_json::Value;
 pub struct Schema<T> {
     /// The JSON Schema the engine receives.
     wire: Value,
+    /// Compiled JSON Schema validator, built once on creation for hand-written
+    /// schemas and lazily on first validation for derived schemas.
+    validator: OnceLock<Result<Arc<jsonschema::Validator>, String>>,
     values: PhantomData<fn(T) -> T>,
 }
 
@@ -66,6 +79,7 @@ impl<T: JsonSchema + Serialize + DeserializeOwned> Schema<T> {
             .to_value();
         Self {
             wire,
+            validator: OnceLock::new(),
             values: PhantomData,
         }
     }
@@ -79,7 +93,9 @@ impl Schema<Value> {
     /// # Errors
     ///
     /// [`SchemaError::NotASchema`] when `document` is neither an object
-    /// nor a boolean, the two forms a JSON Schema takes.
+    /// nor a boolean, the two forms a JSON Schema takes;
+    /// [`SchemaError::InvalidSchema`] when `document` is not a valid JSON
+    /// Schema 2020-12 document.
     ///
     /// # Examples
     ///
@@ -91,12 +107,26 @@ impl Schema<Value> {
     /// assert_eq!(books.encode(&json!({"title": "Dune"}))?, json!({"title": "Dune"}));
     /// # Ok::<(), SchemaError>(())
     /// ```
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "client-side Schema::json compiles and validates the program's JSON Schema once at creation outside engine Shared paths"
+    )]
     pub fn json(document: Value) -> Result<Self, SchemaError> {
         match document {
-            Value::Object(_) | Value::Bool(_) => Ok(Self {
-                wire: document,
-                values: PhantomData,
-            }),
+            Value::Object(_) | Value::Bool(_) => {
+                let compiled = jsonschema::validator_for(&document).map_err(|error| {
+                    SchemaError::InvalidSchema {
+                        message: error.to_string(),
+                    }
+                })?;
+                let validator = OnceLock::new();
+                let _ = validator.set(Ok(Arc::new(compiled)));
+                Ok(Self {
+                    wire: document,
+                    validator,
+                    values: PhantomData,
+                })
+            }
             other => Err(SchemaError::NotASchema {
                 found: encode::kind(&other).to_owned(),
             }),
@@ -138,23 +168,34 @@ impl<T: Serialize + DeserializeOwned> Schema<T> {
         encode_read_back(value)
     }
 
-    /// Validates `value` against this schema's JSON Schema document
-    /// (JSON Schema 2020-12), returning `(json_pointer, message)` on the
-    /// first violation.
+    /// Validates `value` against this schema's cached JSON Schema validator
+    /// (JSON Schema 2020-12).
     ///
     /// # Errors
     ///
-    /// Returns `(path, message)` when `value` does not conform to this schema.
+    /// [`ValidateError::InvalidSchema`] when the schema document itself cannot
+    /// be compiled; [`ValidateError::Violation`] when `value` does not conform
+    /// to this schema.
     #[expect(
         clippy::disallowed_methods,
-        reason = "client-side Schema::validate compiles the program's JSON Schema outside engine Shared paths"
+        reason = "client-side Schema::validate compiles and caches the program's JSON Schema once outside engine Shared paths"
     )]
-    pub(crate) fn validate(&self, value: &Value) -> Result<(), (String, String)> {
-        let validator = jsonschema::validator_for(&self.wire)
-            .map_err(|error| (String::new(), error.to_string()))?;
+    pub(crate) fn validate(&self, value: &Value) -> Result<(), ValidateError> {
+        let compiled = self.validator.get_or_init(|| {
+            jsonschema::validator_for(&self.wire)
+                .map(Arc::new)
+                .map_err(|error| error.to_string())
+        });
+        let validator = match compiled {
+            Ok(validator) => validator,
+            Err(message) => return Err(ValidateError::InvalidSchema(message.clone())),
+        };
         match validator.validate(value) {
             Ok(()) => Ok(()),
-            Err(error) => Err((error.instance_path().to_string(), error.to_string())),
+            Err(error) => Err(ValidateError::Violation {
+                path: error.instance_path().to_string(),
+                message: error.to_string(),
+            }),
         }
     }
 
@@ -214,8 +255,13 @@ pub(crate) fn decode<T: DeserializeOwned>(answer: Value) -> Result<T, SchemaErro
 
 impl<T> Clone for Schema<T> {
     fn clone(&self) -> Self {
+        let validator = OnceLock::new();
+        if let Some(compiled) = self.validator.get() {
+            let _ = validator.set(compiled.clone());
+        }
         Self {
             wire: self.wire.clone(),
+            validator,
             values: PhantomData,
         }
     }
@@ -227,7 +273,7 @@ impl<T> fmt::Debug for Schema<T> {
             .debug_struct("Schema")
             .field("type", &std::any::type_name::<T>())
             .field("wire", &self.wire)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -289,6 +335,12 @@ pub enum SchemaError {
     NotASchema {
         /// What it is instead: `a number`, `a string`, `an array`, `null`.
         found: String,
+    },
+    /// A JSON Schema written by hand is not a valid JSON Schema document.
+    #[error("the JSON Schema is invalid: {message}")]
+    InvalidSchema {
+        /// The validator's compilation error.
+        message: String,
     },
 }
 

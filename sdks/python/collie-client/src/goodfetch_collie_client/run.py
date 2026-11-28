@@ -65,10 +65,6 @@ from goodfetch_collie_client.listeners import (
 )
 from goodfetch_collie_client.markers import warn_entry
 from goodfetch_collie_client.portal import LoopStopped
-from goodfetch_collie_client.run_copies import (
-    register_async_copy_host,
-    register_sync_copy_host,
-)
 from goodfetch_collie_client.sequence import AsyncSequence, Reading, Reads, Sequence
 
 if TYPE_CHECKING:
@@ -360,6 +356,11 @@ class _AsyncHost(Generic[_Id]):
         """The ID each of the handle's calls carries."""
         return self._id
 
+    @property
+    def connection(self) -> ClientConnection:
+        """The Connection this handle's calls and copies reach the engine through."""
+        return cast("ClientConnection", self._connection)
+
     def _ensure_callable(self, operation: str) -> None:
         """Raises what stops a call on the value: a closed value, or a failed listener.
 
@@ -421,6 +422,8 @@ class _AsyncHost(Generic[_Id]):
             "run.abort",
         )
         save_on_end = self.run.save_recording_on_end if is_end else None
+        if save_on_end is not None:
+            self.run.save_recording_on_end = None
         try:
             result = await send()
         except BaseException:
@@ -644,6 +647,16 @@ class _SyncHost(Generic[_Id]):
         """The ID each of the handle's calls carries."""
         return self._host.id
 
+    @property
+    def connection(self) -> ClientConnection:
+        """The Connection this handle's calls and copies reach the engine through."""
+        return self._host.connection
+
+    @property
+    def loop(self) -> PrivateLoop:
+        """The private loop that drives this handle's async calls and Run copies."""
+        return self._loop
+
     def call(
         self, operation: str, params: BaseModel, *, timeout_setting: str | None = None
     ) -> object:
@@ -805,7 +818,6 @@ class AsyncRun(AsyncRunMembers):
             # A start that found its Run ended: closing it stops nothing.
             scope.state = "ended"
         host = _AsyncHost(connection, scope, None, started.run_id)
-        register_async_copy_host(host, cast("ClientConnection", connection))
         super().__init__(host, started)
         _held[self] = (host, started)
         self._connection = connection
@@ -816,9 +828,19 @@ class AsyncRun(AsyncRunMembers):
         """Its Key-value store (ADR 0103), whose writes commit at once."""
         conn = cast("ClientConnection", connection)
         if record_path is not None and conn.engine.kind != "attached":
-            scope.save_recording_on_end = functools.partial(
-                self.save_recording, record_path
-            )
+            target = os.fspath(record_path)
+
+            async def _save_on_end() -> RecordingSaved:
+                raw = await save_file(
+                    conn,
+                    "recording.save_as",
+                    {"run_id": scope.id, "filename": os.path.basename(target)},
+                    target,
+                    call="save_recording",
+                )
+                return result_of(RecordingSaved, raw)
+
+            scope.save_recording_on_end = _save_on_end
 
     @property
     def id(self) -> str:
@@ -1025,12 +1047,28 @@ class AsyncRun(AsyncRunMembers):
     async def _close(self) -> None:
         stops = self._scope.state == "running" and not self._detached
         self._scope.state = "closed"
+        save_on_end = self._scope.save_recording_on_end if stops else None
+        if save_on_end is not None:
+            self._scope.save_recording_on_end = None
         try:
             await self._scope.order.settled()
             if stops and self._connection.reachable():
-                await self._connection.call(
-                    "run.abort", RunAbortParams(run_id=RunId(self.id))
-                )
+                try:
+                    await self._connection.call(
+                        "run.abort", RunAbortParams(run_id=RunId(self.id))
+                    )
+                except BaseException:
+                    if save_on_end is not None:
+                        try:
+                            await save_on_end()
+                        except Exception as write_error:
+                            _logger.warning(
+                                "Could not write recording after Run failure: %s",
+                                write_error,
+                            )
+                    raise
+                if save_on_end is not None:
+                    await save_on_end()
         finally:
             self._connection.forget(self)
             await self._scope.stop_listeners(None)
@@ -1081,7 +1119,6 @@ class Run(RunMembers):
         """Takes its Connection's private loop and the Run it drives there."""
         async_host, started = _held[run]
         host = _SyncHost(loop, async_host)
-        register_sync_copy_host(host, loop, cast("ClientConnection", run._connection))
         super().__init__(host, started)
         self._loop = loop
         self._run = run

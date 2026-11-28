@@ -548,7 +548,10 @@ async fn recording_redacts_credentials_masks_secrets_and_replays_both_halves_and
         masks.clone(),
         crate::clock::Clock::paused(second_at),
         42,
-        true,
+        super::RecorderPolicy {
+            stage_for_attempt: true,
+            write_on_end: true,
+        },
     );
     let cut_exchange = super::SanitizedExchange::from_raw(
         &masks,
@@ -631,7 +634,10 @@ async fn recording_to_directory_returns_path_not_writable_and_leaves_existing_un
         Masks::new(),
         crate::clock::Clock::paused(now),
         7,
-        true,
+        super::RecorderPolicy {
+            stage_for_attempt: true,
+            write_on_end: true,
+        },
     );
     let err = recorder
         .finish_and_write(&connection)
@@ -662,37 +668,85 @@ async fn failed_run_keeps_its_own_error_and_records_write_failure_as_warning() {
         Masks::new(),
         crate::clock::Clock::paused(now),
         9,
-        true,
+        super::RecorderPolicy {
+            stage_for_attempt: true,
+            write_on_end: true,
+        },
     );
     let recordings = super::Recordings::default();
     recordings.attach_recorder(run_id.clone(), recorder);
 
-    // Simulate a Run that already failed with its own error before ending.
-    let mut existing_error = Some(goodfetch_protocol::run::EndingError {
-        code: "limit_reached".to_owned(),
-        message: "the Run reached its limit".to_owned(),
-        details: serde_json::Map::new(),
-    });
-    let mut warnings = Vec::new();
-    match recordings.finish_run(&run_id, &connection).unwrap() {
-        Some(Err(error)) if existing_error.is_none() => existing_error = Some(error),
-        Some(Err(error)) => {
-            warnings.push(goodfetch_protocol::run::RunWarning {
-                code: error.code,
-                message: error.message,
-                sessions: Vec::new(),
-                folder: None,
-            });
-        }
-        other => panic!("expected write failure on directory path, got {other:?}"),
-    }
+    // Exercise the real RecordingReportPart production path (`Recordings::apply_to_report`):
+    // a Run that already failed with its own error keeps `report.error` and records
+    // the recording write failure in `report.warnings`.
+    let mut report = goodfetch_protocol::run::RunReport {
+        run_id: run_id.clone(),
+        lifecycle: goodfetch_protocol::run::Lifecycle::Failed,
+        stop_reason: None,
+        verdict: goodfetch_protocol::run::Verdict::NeedsReview,
+        verdict_reasons: Vec::new(),
+        completeness: goodfetch_protocol::run::Completeness::Incomplete,
+        completeness_reasons: Vec::new(),
+        started_at: now,
+        ended_at: now,
+        usage: goodfetch_protocol::run::RunUsage::default(),
+        weakened: Vec::new(),
+        plan: None,
+        policy_version: None,
+        settings: None,
+        plugins: None,
+        warnings: Vec::new(),
+        recording: None,
+        cache_mode: None,
+        checkpoint: None,
+        nothing_done: None,
+        uncertain_effects: None,
+        error: Some(goodfetch_protocol::run::EndingError {
+            code: "limit_reached".to_owned(),
+            message: "the Run reached its limit".to_owned(),
+            details: serde_json::Map::new(),
+        }),
+        kind_parts: serde_json::Map::new(),
+    };
+    recordings
+        .apply_to_report(&connection, &mut report)
+        .unwrap();
     assert_eq!(
-        existing_error.as_ref().map(|e| e.code.as_str()),
+        report.error.as_ref().map(|e| e.code.as_str()),
         Some("limit_reached")
     );
-    assert_eq!(warnings.len(), 1);
+    assert!(report.recording.is_none());
+    assert_eq!(report.warnings.len(), 1);
     assert_eq!(
-        warnings[0].code,
+        report.warnings[0].code,
         goodfetch_protocol::checkpoint::PATH_NOT_WRITABLE.name
     );
+
+    // On a clean Run (no prior error), the write failure becomes `report.error`.
+    let clean_id = goodfetch_protocol::run::RunId::parse("run-clean-write-fail").unwrap();
+    let clean_recorder = super::Recorder::new(
+        dir.path().display().to_string(),
+        clean_id.clone(),
+        "Collie 0.1.0".to_owned(),
+        Masks::new(),
+        crate::clock::Clock::paused(now),
+        10,
+        super::RecorderPolicy {
+            stage_for_attempt: true,
+            write_on_end: true,
+        },
+    );
+    recordings.attach_recorder(clean_id.clone(), clean_recorder);
+    report.run_id = clean_id;
+    report.lifecycle = goodfetch_protocol::run::Lifecycle::Finished;
+    report.error = None;
+    report.warnings.clear();
+    recordings
+        .apply_to_report(&connection, &mut report)
+        .unwrap();
+    assert_eq!(
+        report.error.as_ref().map(|e| e.code.as_str()),
+        Some(goodfetch_protocol::checkpoint::PATH_NOT_WRITABLE.name)
+    );
+    assert_eq!(report.warnings, []);
 }

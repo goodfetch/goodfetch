@@ -413,6 +413,7 @@ impl EngineContext {
         run_id: RunId,
         software: String,
         stage_for_attempt: bool,
+        write_on_end: bool,
     ) -> Arc<crate::response_recording::Recorder> {
         crate::response_recording::Recorder::new(
             path,
@@ -421,7 +422,10 @@ impl EngineContext {
             self.held.masks.clone(),
             self.clock,
             self.draw_u64(),
-            stage_for_attempt,
+            crate::response_recording::RecorderPolicy {
+                stage_for_attempt,
+                write_on_end,
+            },
         )
     }
 
@@ -460,6 +464,10 @@ impl EngineContext {
     /// # Errors
     ///
     /// `recording_invalid` when `bytes` is not a WARC recording the engine replays.
+    ///
+    /// # Cancel safety
+    ///
+    /// As [`Recordings::open_replay_bytes`]'s.
     pub async fn open_replay_bytes(
         &self,
         display: &str,

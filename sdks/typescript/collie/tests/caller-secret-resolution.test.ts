@@ -4,6 +4,8 @@
 // passing the value straight on with no copy kept or logged; a throw becomes a
 // redacted `secret_unavailable` with no Secret canary in any `toString`, error
 // message, call log or JSON-RPC error. Played attached and as a Daemon.
+import { appendFile } from "node:fs/promises";
+import { join } from "node:path";
 import {
   Collie,
   type GoodfetchError,
@@ -129,6 +131,28 @@ describe("A Collie Connection with resolveSecret on the Scripted engine", () => 
         "the Daemon played its script through, so no canary reached the JSON-RPC error",
         () => expect(exit).toMatchObject({ code: 0 }),
       );
+    },
+  );
+
+  test(
+    "without resolveSecret, a caller: reference fails with secret_unavailable naming resolveSecret",
+    { tags: ["story:11-98", "error:secret_unavailable"] },
+    async ({ env }) => {
+      const home = env["GOODFETCH_HOME"];
+      expect(home).toBeDefined();
+      await appendFile(
+        join(home ?? "", "0.0", "configuration.toml"),
+        'run_state.key_reference = "caller:run_key"\n',
+      );
+      // oxlint-disable-next-line no-restricted-properties -- `Collie.connect` is the SDK's own factory (ADR 0078), not a browser's.
+      await using collie = await Collie.connect({ env, engine: "attached" });
+      const failed = await goodfetchFailure(collie.start());
+      expect(failed).toBeInstanceOf(SecretUnavailableError);
+      expect(failed.details).toMatchObject({
+        provider: "caller",
+        failure: "resolver_failed",
+      });
+      expect(failed.fix).toContain("resolveSecret");
     },
   );
 });

@@ -910,8 +910,8 @@ name = "typed-data"
 [[capability.case]]
 id = "typed-value-round-trip"
 covers = ["story:11-66", "story:11-69"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 
 [[capability.case]]
 id = "result-keeps-unknown-fields"
@@ -922,8 +922,8 @@ modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = [
 [[capability.case]]
 id = "non-json-value-refused"
 covers = ["story:11-68"]
-surfaces = ["sdk-typescript"]
-modes = ["attached"]
+surfaces = ["sdk-typescript", "sdk-python", "sdk-rust"]
+modes = { sdk-typescript = ["attached"], sdk-python = ["attached"], sdk-rust = ["linked"] }
 
 # A schema's own validation that raises something other than the library's
 # rejection stops the call at once with `schema_validator_failed`, the

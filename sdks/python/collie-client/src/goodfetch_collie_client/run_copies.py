@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import base64
 import functools
-import weakref
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, cast, final
 
@@ -59,44 +58,6 @@ def closed_error(operation: str) -> ClosedError:
 CHUNK = "$/chunk"
 """The notification each byte chunk `checkpoint.stream` or `trace.stream` sends."""
 
-_CHUNK_CREDITS = 8
-_CHUNK_REGRANT = 4
-
-_async_hosts: weakref.WeakKeyDictionary[object, ClientConnection] = (
-    weakref.WeakKeyDictionary()
-)
-_sync_hosts: weakref.WeakKeyDictionary[object, tuple[PrivateLoop, ClientConnection]] = (
-    weakref.WeakKeyDictionary()
-)
-
-
-def register_async_copy_host(host: object, connection: ClientConnection) -> None:
-    """Registers an async host so generated Checkpoint/RunTrace reach `connection`."""
-    _async_hosts[host] = connection
-
-
-def register_sync_copy_host(
-    host: object, loop: PrivateLoop, connection: ClientConnection
-) -> None:
-    """Registers a sync host so generated Checkpoint/RunTrace reach the engine."""
-    _sync_hosts[host] = (loop, connection)
-
-
-def _connection_of(host_or_conn: object) -> ClientConnection:
-    registered = _async_hosts.get(host_or_conn)
-    if registered is not None:
-        return registered
-    return cast("ClientConnection", host_or_conn)
-
-
-def _sync_of(
-    host_or_loop: object,
-) -> tuple[PrivateLoop, ClientConnection | None]:
-    registered = _sync_hosts.get(host_or_loop)
-    if registered is not None:
-        return registered
-    return (cast("PrivateLoop", host_or_loop), None)
-
 
 def _chunk_of(method: str, params: object) -> bytes | None:
     """One `$/chunk` notification's bytes, or None for any other notification."""
@@ -130,11 +91,11 @@ class AsyncCheckpoint:
 
     def __init__(
         self,
-        connection: object,
+        connection: ClientConnection,
         descriptor: WireCheckpoint,
     ) -> None:
-        """Takes the Connection (or registered handle host) and the wire Checkpoint."""
-        self._connection = _connection_of(connection)
+        """Takes the Connection and the wire Checkpoint."""
+        self._connection = connection
         self._descriptor = descriptor
 
     @property
@@ -227,17 +188,10 @@ class AsyncCheckpoint:
 class Checkpoint:
     """A completed Checkpoint of a Run in the sync API (ADRs 0002, 0102 and 0116)."""
 
-    def __init__(
-        self, loop: object, checkpoint: AsyncCheckpoint | WireCheckpoint
-    ) -> None:
-        """Takes the Connection's private loop (or sync host) and the Checkpoint."""
-        private_loop, conn = _sync_of(loop)
-        self._loop = private_loop
-        if isinstance(checkpoint, AsyncCheckpoint):
-            self._checkpoint = checkpoint
-        else:
-            assert conn is not None
-            self._checkpoint = AsyncCheckpoint(conn, checkpoint)
+    def __init__(self, loop: PrivateLoop, checkpoint: AsyncCheckpoint) -> None:
+        """Takes the Connection's private loop and the async Checkpoint."""
+        self._loop = loop
+        self._checkpoint = checkpoint
 
     @property
     def run_id(self) -> RunId:
@@ -329,11 +283,11 @@ class AsyncRunTrace:
 
     def __init__(
         self,
-        connection: object,
+        connection: ClientConnection,
         descriptor: WireRunTrace,
     ) -> None:
-        """Takes the Connection (or registered handle host) and the wire RunTrace."""
-        self._connection = _connection_of(connection)
+        """Takes the Connection and the wire RunTrace."""
+        self._connection = connection
         self._descriptor = descriptor
 
     @property
@@ -411,15 +365,10 @@ class AsyncRunTrace:
 class RunTrace:
     """A Run's trace copy in the sync API (ADRs 0102 and 0116)."""
 
-    def __init__(self, loop: object, trace: AsyncRunTrace | WireRunTrace) -> None:
-        """Takes the Connection's private loop (or sync host) and the RunTrace."""
-        private_loop, conn = _sync_of(loop)
-        self._loop = private_loop
-        if isinstance(trace, AsyncRunTrace):
-            self._trace = trace
-        else:
-            assert conn is not None
-            self._trace = AsyncRunTrace(conn, trace)
+    def __init__(self, loop: PrivateLoop, trace: AsyncRunTrace) -> None:
+        """Takes the Connection's private loop and the async RunTrace."""
+        self._loop = loop
+        self._trace = trace
 
     @property
     def run_id(self) -> RunId:

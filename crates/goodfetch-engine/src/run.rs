@@ -33,9 +33,6 @@ use goodfetch_protocol::jsonrpc::ProtocolFailure;
 use goodfetch_protocol::run::{
     Checkpoint, Lifecycle, RESOURCES_EXHAUSTED, Resource, ResourcesExhaustedDetails,
 };
-use goodfetch_protocol::run::{
-    RECORDING_SAVE_AS, Recording, RecordingMode, RecordingSaveAsParams, RecordingSaved,
-};
 use goodfetch_protocol::run::{RESERVED_TAG_PREFIX, Tags};
 use goodfetch_protocol::run::{
     RUN_ABORT, RUN_BUSY, RUN_CONFLICT, RUN_DISCARD, RUN_FINISH, RUN_ID_INVALID, RUN_ID_PATTERN,
@@ -52,6 +49,7 @@ use goodfetch_protocol::run::{
 use goodfetch_protocol::run::{
     RUN_STATE_FILESYSTEM_UNSUPPORTED, RUN_STATE_LOCATION, RunStateFilesystemUnsupportedDetails,
 };
+use goodfetch_protocol::run::{Recording, RecordingMode};
 use goodfetch_protocol::secret_reference::SecretReference;
 use goodfetch_protocol::usage::{
     LIMIT_NOT_UNDERSTOOD, LIMIT_REACHED, Limit, LimitNotUnderstoodDetails,
@@ -97,13 +95,12 @@ pub use detached::{InProgram, client_start};
 
 /// The `run.*` handlers, and the starts of Runs with no handler in the
 /// program.
-pub(crate) fn handlers() -> [Handler; 17] {
+pub(crate) fn handlers() -> [Handler; 16] {
     let [recipe_start, catalog_run_start] = starts::handlers();
     [
         Handler::new(&RUN_START, start),
         recipe_start,
         catalog_run_start,
-        Handler::new(&RECORDING_SAVE_AS, recording_save_as).streaming(),
         Handler::new(&RUN_FINISH, finish),
         Handler::new(&RUN_STOP, stop),
         Handler::new(&RUN_USAGE, usage),
@@ -1300,11 +1297,13 @@ impl PreparedRecording {
                 .recordings()
                 .attach(run_id.clone(), replayed);
         } else if let Some(path) = self.record_path {
-            let recorder =
-                context
-                    .engine()
-                    .new_recorder(path, run_id.clone(), self.software, false);
-            recorder.set_write_on_end(context.daemon().is_none());
+            let recorder = context.engine().new_recorder(
+                path,
+                run_id.clone(),
+                self.software,
+                false,
+                context.daemon().is_none(),
+            );
             if let Some(state) = state {
                 recorder.attach_run_state(state);
             }
@@ -1314,153 +1313,6 @@ impl PreparedRecording {
                 .attach_recorder(run_id.clone(), recorder);
         }
     }
-}
-
-fn recording_save_error(path: String, error: crate::run_files::SaveError) -> CallError {
-    use goodfetch_protocol::checkpoint::{PATH_NOT_WRITABLE, PathNotWritableDetails};
-
-    match error {
-        crate::run_files::SaveError::Path {
-            reason,
-            os_code,
-            message,
-        } => CallError::new(
-            &PATH_NOT_WRITABLE,
-            format!("Could not write the Response recording `{path}`: {message}"),
-            &PathNotWritableDetails {
-                reason: reason.to_owned(),
-                os_code: os_code.map(str::to_owned),
-                path,
-                fix: "Give `saveRecording` a writable file path.".to_owned(),
-            },
-        ),
-        crate::run_files::SaveError::Storage {
-            reason,
-            os_code,
-            message,
-        }
-        | crate::run_files::SaveError::Source {
-            reason,
-            os_code,
-            message,
-        } => CallError::new(
-            &FILE_WRITE_FAILED,
-            format!("Could not write the Response recording `{path}`: {message}"),
-            &FileWriteFailedDetails {
-                reason: reason.to_owned(),
-                os_code: os_code.map(str::to_owned),
-                path: Some(path),
-                side: WriteSide::Program,
-            },
-        ),
-        crate::run_files::SaveError::Cancelled => CallError::new(
-            &FILE_WRITE_FAILED,
-            format!("Writing the Response recording `{path}` was cancelled."),
-            &FileWriteFailedDetails {
-                reason: "cancelled".to_owned(),
-                os_code: None,
-                path: Some(path),
-                side: WriteSide::Program,
-            },
-        ),
-    }
-}
-
-async fn recording_save_as(
-    params: RecordingSaveAsParams,
-    context: CallContext,
-) -> Result<RecordingSaved, CallError> {
-    use sha2::{Digest as _, Sha256};
-
-    let run_id = params.run_id;
-    let display = params
-        .path
-        .as_deref()
-        .or(params.filename.as_deref())
-        .unwrap_or("")
-        .to_owned();
-    let filename = params.filename.clone().or_else(|| {
-        params.path.as_deref().and_then(|p| {
-            std::path::Path::new(p)
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-        })
-    });
-    let gzip_per_record = filename.as_deref().is_some_and(|name| {
-        std::path::Path::new(name)
-            .extension()
-            .is_some_and(|e| e.eq_ignore_ascii_case("gz"))
-    });
-    let software = format!(
-        "{} {}",
-        context.identity().product.name(),
-        context.identity().product_version
-    );
-    let now = context.engine().clock().timestamp();
-    let id_seed = context.engine().draw_u64();
-
-    // Flush any staged exchanges if the Run is still live with a Recorder.
-    let live_recorder = context.engine().recordings().recorder(&run_id);
-    if let (Some(recorder), Ok(live)) = (live_recorder, context.runs().live(run_id.clone()).await) {
-        let _ = live
-            .state
-            .write(move |connection| recorder.flush_staged(connection))
-            .await;
-    }
-
-    let failed = |error: RunError| run_error(error, &context);
-    let mut reader = context
-        .runs()
-        .reader(run_id.clone())
-        .await
-        .map_err(failed)?;
-    let run_id_for_read = run_id.clone();
-    let encoded = reader
-        .read(move |connection| {
-            crate::response_recording::encode_warc(
-                connection,
-                &run_id_for_read,
-                &software,
-                filename,
-                gzip_per_record,
-                now,
-                id_seed,
-            )
-        })
-        .await
-        .map_err(failed)?;
-    let Some(bytes) = encoded else {
-        return Err(crate::response_recording::recording_invalid_error(
-            &display,
-            "the Run recorded no responses",
-        ));
-    };
-    let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    let digest = format!("{:x}", Sha256::digest(&bytes));
-    let written = match params.path {
-        Some(path) if context.daemon().is_none() => {
-            let target = PathBuf::from(&path);
-            let owner = std::sync::Arc::clone(context.engine().owner());
-            owner
-                .blocking(move || {
-                    let mut saving = crate::run_files::Saving::create(&target)?;
-                    saving.write(&bytes)?;
-                    saving.finish()
-                })
-                .await
-                .map_err(|error| recording_save_error(path, error))?;
-            true
-        }
-        _ => {
-            let _ = context.stream().send_bytes(&bytes).await;
-            false
-        }
-    };
-    Ok(RecordingSaved {
-        size,
-        digest,
-        written,
-    })
 }
 
 /// A Collie Run's inputs, which a start naming it again gives unchanged

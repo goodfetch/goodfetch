@@ -57,23 +57,6 @@ function chunkOf(params: unknown): Uint8Array | undefined {
   return typeof data === "string" ? new Uint8Array(Buffer.from(data, "base64")) : undefined;
 }
 
-/** Maps a generated handle's host to its Connection, for `Run.checkpoint()` and `Run.trace()`. */
-const copyHosts = new WeakMap<object, ClientConnection>();
-
-/** @internal Registers `host` so `Checkpoint` and `RunTrace` built on it reach `connection`. */
-export function registerCopyHost(host: object, connection: ClientConnection): void {
-  copyHosts.set(host, connection);
-}
-
-function connectionOf(host: ClientConnection | object): ClientConnection {
-  const registered = copyHosts.get(host);
-  if (registered !== undefined) {
-    return registered;
-  }
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `RunView` passes `ClientConnection` directly; generated handles pass their registered `HandleHost`.
-  return host as ClientConnection;
-}
-
 /**
  * A completed Checkpoint of a Run (ADRs 0002, 0102 and 0116): its descriptor
  * (`runId`, `location`, `size`, `digest`, `runEpoch`, `journalPosition`,
@@ -99,8 +82,8 @@ export class Checkpoint {
   readonly time: Date;
 
   /** @internal `run.checkpoint()` builds a Checkpoint; a program never constructs one. */
-  constructor(connection: ClientConnection | object, descriptor: WireCheckpoint) {
-    this.#connection = connectionOf(connection);
+  constructor(connection: ClientConnection, descriptor: WireCheckpoint) {
+    this.#connection = connection;
     this.runId = descriptor.runId;
     this.location = descriptor.location;
     this.size = descriptor.size;
@@ -183,8 +166,8 @@ export class RunTrace {
   readonly digest: string;
 
   /** @internal `run.trace()` and `RunView.trace()` build a RunTrace; a program never constructs one. */
-  constructor(connection: ClientConnection | object, descriptor: WireRunTrace) {
-    this.#connection = connectionOf(connection);
+  constructor(connection: ClientConnection, descriptor: WireRunTrace) {
+    this.#connection = connection;
     this.runId = descriptor.runId;
     this.location = descriptor.location;
     this.size = descriptor.size;

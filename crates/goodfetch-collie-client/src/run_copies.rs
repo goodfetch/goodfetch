@@ -18,7 +18,7 @@ use goodfetch_protocol::run_trace::{
     TraceStreamParams,
 };
 
-use crate::connection::{ClientConnection, SaveFile};
+use crate::connection::{BlockingRuntime, Core, SaveFile};
 use crate::event_stream::EventStream;
 use crate::markers::warn_operation;
 
@@ -27,23 +27,27 @@ use crate::markers::warn_operation;
 /// whole or not at all and [`Checkpoint::stream`] to read its bytes in order.
 #[derive(Clone, Debug)]
 pub struct Checkpoint {
-    connection: ClientConnection,
+    connection: Core,
     descriptor: WireCheckpoint,
 }
 
 impl Checkpoint {
-    /// Wraps a completed wire descriptor with the connection that serves its
+    /// Wraps a completed wire descriptor with the connection core that serves its
     /// `checkpoint.save_as` and `checkpoint.stream` calls.
-    pub(crate) fn new(connection: ClientConnection, descriptor: WireCheckpoint) -> Self {
+    pub(crate) fn new(connection: Core, descriptor: WireCheckpoint) -> Self {
         Self {
             connection,
             descriptor,
         }
     }
 
-    /// The connection its calls go through.
-    pub(crate) fn connection(&self) -> &ClientConnection {
-        &self.connection
+    /// Streams this Checkpoint's bytes and hands the stream and runtime to `wrap`
+    /// (for the blocking face without exposing the core field).
+    pub(crate) fn stream_with<R>(
+        &self,
+        wrap: impl FnOnce(EventStream<Vec<u8>>, BlockingRuntime) -> R,
+    ) -> R {
+        wrap(self.stream(), self.connection.runtime())
     }
 
     /// The Run's ID.
@@ -138,23 +142,27 @@ impl Checkpoint {
 /// not at all and [`RunTrace::stream`] to read its bytes in order.
 #[derive(Clone, Debug)]
 pub struct RunTrace {
-    connection: ClientConnection,
+    connection: Core,
     descriptor: WireRunTrace,
 }
 
 impl RunTrace {
-    /// Wraps a completed wire descriptor with the connection that serves its
+    /// Wraps a completed wire descriptor with the connection core that serves its
     /// `trace.save_as` and `trace.stream` calls.
-    pub(crate) fn new(connection: ClientConnection, descriptor: WireRunTrace) -> Self {
+    pub(crate) fn new(connection: Core, descriptor: WireRunTrace) -> Self {
         Self {
             connection,
             descriptor,
         }
     }
 
-    /// The connection its calls go through.
-    pub(crate) fn connection(&self) -> &ClientConnection {
-        &self.connection
+    /// Streams this `RunTrace`'s bytes and hands the stream and runtime to `wrap`
+    /// (for the blocking face without exposing the core field).
+    pub(crate) fn stream_with<R>(
+        &self,
+        wrap: impl FnOnce(EventStream<Vec<u8>>, BlockingRuntime) -> R,
+    ) -> R {
+        wrap(self.stream(), self.connection.runtime())
     }
 
     /// The Run's ID.

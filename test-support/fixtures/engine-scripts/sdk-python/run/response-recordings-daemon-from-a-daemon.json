@@ -130,6 +130,158 @@
           }
         }
       }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "recording": { "mode": "record", "path": "/work/out/auto-saved.warc" }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-rec-py-finish",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    { "expect": { "method": "run.finish", "params": { "run_id": "run-rec-py-finish" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-rec-py-finish",
+          "kind": "collie",
+          "lifecycle": "finished",
+          "verdict": "verified",
+          "completeness": "complete",
+          "started_at": "2026-10-22T06:00:00Z",
+          "ended_at": "2026-10-22T06:00:01Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "recording.save_as",
+        "params": {
+          "run_id": "run-rec-py-finish",
+          "path": "/work/out/auto-saved.warc",
+          "filename": "auto-saved.warc"
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 7, "credits": 16 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 7, "offset": 0, "data": "V0FSQy8xLjENCg==" }
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 7, "credits": 1 } } },
+    {
+      "reply": {
+        "result": {
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000010",
+          "written": false
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "run.start",
+        "params": {
+          "recording": { "mode": "record", "path": "/work/out/auto-closed.warc" }
+        }
+      }
+    },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-rec-py-close",
+          "lifecycle": "running",
+          "needs": "collie",
+          "started_as": "new"
+        }
+      }
+    },
+    { "expect": { "method": "run.abort", "params": { "run_id": "run-rec-py-close" } } },
+    {
+      "reply": {
+        "result": {
+          "run_id": "run-rec-py-close",
+          "kind": "collie",
+          "lifecycle": "stopped",
+          "verdict": "needs_review",
+          "completeness": "incomplete",
+          "started_at": "2026-10-22T06:00:00Z",
+          "ended_at": "2026-10-22T06:00:01Z",
+          "usage": {
+            "model": {
+              "calls": 0,
+              "tokens": 0,
+              "input_tokens": 0,
+              "cache_read_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 0,
+              "reasoning_tokens": 0,
+              "price": null
+            },
+            "browser_time": 0,
+            "proxy_bytes": 0,
+            "requests": 0
+          }
+        }
+      }
+    },
+    {
+      "expect": {
+        "method": "recording.save_as",
+        "params": {
+          "run_id": "run-rec-py-close",
+          "path": "/work/out/auto-closed.warc",
+          "filename": "auto-closed.warc"
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 10, "credits": 16 } } },
+    {
+      "send": {
+        "notification": {
+          "method": "$/chunk",
+          "params": { "id": 10, "offset": 0, "data": "V0FSQy8xLjENCg==" }
+        }
+      }
+    },
+    { "expect": { "method": "$/credit", "params": { "id": 10, "credits": 1 } } },
+    {
+      "reply": {
+        "result": {
+          "size": 10,
+          "digest": "0000000000000000000000000000000000000000000000000000000000000010",
+          "written": false
+        }
+      }
     }
   ]
 }

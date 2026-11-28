@@ -39,6 +39,8 @@ fn scripted_daemon_with_paths(
     let input_path = out_dir.join("input.warc");
     let saved_path = out_dir.join("saved.warc");
     let view_path = out_dir.join("saved-view.warc");
+    let auto_saved_path = out_dir.join("auto-saved.warc");
+    let auto_closed_path = out_dir.join("auto-closed.warc");
     let text = std::fs::read_to_string(engine_script(script))
         .unwrap()
         .replace(
@@ -52,6 +54,14 @@ fn scripted_daemon_with_paths(
         .replace(
             &serde_json::to_string("/work/out/saved-view.warc").unwrap(),
             &serde_json::to_string(&view_path.to_string_lossy()).unwrap(),
+        )
+        .replace(
+            &serde_json::to_string("/work/out/auto-saved.warc").unwrap(),
+            &serde_json::to_string(&auto_saved_path.to_string_lossy()).unwrap(),
+        )
+        .replace(
+            &serde_json::to_string("/work/out/auto-closed.warc").unwrap(),
+            &serde_json::to_string(&auto_closed_path.to_string_lossy()).unwrap(),
         );
     let mut played: Value = serde_json::from_str(&text).unwrap();
     played["steps"][0]["expect"]["params"] = serde_json::to_value(hello).unwrap();
@@ -144,6 +154,28 @@ fn response_recordings_daemon_uploads_replay_bytes_and_streams_save_recording() 
         view.close();
 
         run.finish().await.unwrap();
+
+        // Daemon mode="record" auto-saves atomically on finish (and never re-saves on close).
+        let auto_saved = work.path().join("auto-saved.warc");
+        let rec_run = connection
+            .start()
+            .recording(Recording::record(auto_saved.to_string_lossy()))
+            .await
+            .unwrap();
+        rec_run.finish().await.unwrap();
+        rec_run.close().await.unwrap();
+        assert_eq!(std::fs::read(&auto_saved).unwrap(), b"WARC/1.1\r\n");
+
+        // Daemon mode="record" also auto-saves atomically on close (after run.abort).
+        let auto_closed = work.path().join("auto-closed.warc");
+        let closed_run = connection
+            .start()
+            .recording(Recording::record(auto_closed.to_string_lossy()))
+            .await
+            .unwrap();
+        closed_run.close().await.unwrap();
+        assert_eq!(std::fs::read(&auto_closed).unwrap(), b"WARC/1.1\r\n");
+
         connection.close().await.unwrap();
     });
     let status = process.child().wait().unwrap();

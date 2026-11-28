@@ -104,6 +104,7 @@ export type {
   Product,
   Recording,
   RecordingMode,
+  RecordingSaved,
   Reported,
   RunOrigin,
   RunProgress,

@@ -45,7 +45,8 @@ pub(crate) use save::save;
 pub use save::{SaveError, Saving};
 pub use store::{FileKind, KeepError, Kept, KeptExport, Record, export_file};
 pub(crate) use store::{
-    file, find, forget, forget_exports, read, record, stage, store, store_export, unrecord,
+    file, find, forget, forget_exports, read, record, stage, store, store_export, store_trace,
+    trace_copy_file, unrecord,
 };
 
 use crate::run_state::RunStateTables;

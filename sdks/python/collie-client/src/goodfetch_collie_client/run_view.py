@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import functools
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, overload
 
 from goodfetch_collie_client._file_saving import save_file
 from goodfetch_collie_client._followed import PagedReading
@@ -33,8 +33,8 @@ from goodfetch_collie_client.goodfetch_error import runtime_message
 from goodfetch_collie_client.key_value_store import (
     AsyncKeyValueStore,
     AsyncKeyValueStoreView,
-    KeyValueStore,
     KeyValueStoreView,
+    StoredBytes,
 )
 from goodfetch_collie_client.listeners import Order, spawner
 from goodfetch_collie_client.markers import warn_entry
@@ -47,27 +47,38 @@ if TYPE_CHECKING:
     from typing import Self
 
     from pydantic import BaseModel
+    from typing_extensions import TypeForm
 
     from goodfetch_collie_client.connection import ClientConnection
+    from goodfetch_collie_client.json_values import JSONValue
     from goodfetch_collie_client.portal import PrivateLoop
+    from goodfetch_collie_client.schema import JSONSchema
 
 __all__ = ["AsyncRunView", "RunView"]
+
+_T = TypeVar("_T")
 
 
 class _AsyncViewStoreHost:
     """Routes an `AsyncRunView`'s Key-value store reads through its Connection."""
 
-    def __init__(self, view: AsyncRunView) -> None:
-        self._view = view
-        self._run_id = RunId(view.id)
+    def __init__(
+        self,
+        connection: ClientConnection,
+        run_id: str,
+        ensure_open: Callable[[str], None],
+    ) -> None:
+        self._connection = connection
+        self._run_id = RunId(run_id)
+        self._ensure_open = ensure_open
 
     @property
     def id(self) -> RunId:
         return self._run_id
 
     async def call(self, operation: str, params: BaseModel) -> object:
-        self._view._ensure_open(operation)
-        return await self._view._connection.call(operation, params)
+        self._ensure_open(operation)
+        return await self._connection.call(operation, params)
 
     def read(
         self,
@@ -75,47 +86,58 @@ class _AsyncViewStoreHost:
         params: Mapping[str, object],
         item_of: Callable[[str, object], str | None],
     ) -> AsyncSequence[str]:
-        self._view._ensure_open(operation)
+        self._ensure_open(operation)
         spawn = spawner()
-        reading = Reading(self._view._connection, operation, params, item_of, Order())
+        reading = Reading(self._connection, operation, params, item_of, Order())
         spawn(reading.run)
         return AsyncSequence(reading)
 
 
-class _SyncViewStoreHost:
-    """Routes a sync `RunView`'s Key-value store reads through its private loop."""
+class _SyncViewStore:
+    """Bridges a sync `RunView`'s Key-value store reads to `AsyncKeyValueStoreView`."""
 
-    def __init__(self, loop: PrivateLoop, async_host: _AsyncViewStoreHost) -> None:
+    def __init__(self, loop: PrivateLoop, store: AsyncKeyValueStoreView) -> None:
         self._loop = loop
-        self._async_host = async_host
+        self._store = store
 
-    @property
-    def id(self) -> RunId:
-        return self._async_host.id
+    @overload
+    def get(self, key: str) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: JSONSchema) -> JSONValue: ...
+    @overload
+    def get(self, key: str, schema: TypeForm[_T]) -> _T | None: ...
+    def get(
+        self, key: str, schema: JSONSchema | TypeForm[_T] | None = None
+    ) -> JSONValue | _T:
+        async def _reading() -> JSONValue | _T:
+            if schema is None:
+                return await self._store.get(key)
+            return await self._store.get(key, schema)
 
-    def call(self, operation: str, params: BaseModel) -> object:
-        calling = functools.partial(self._async_host.call, operation, params)
         try:
-            return self._loop.call(calling)
+            return self._loop.call(_reading)
         except LoopStopped:
-            raise closed_error(operation) from None
+            raise closed_error("key_value_store.get") from None
 
-    def read(
-        self,
-        operation: str,
-        params: Mapping[str, object],
-        item_of: Callable[[str, object], str | None],
-    ) -> Sequence[str]:
-        async_host = self._async_host
+    def get_bytes(self, key: str) -> StoredBytes | None:
+        try:
+            return self._loop.call(functools.partial(self._store.get_bytes, key))
+        except LoopStopped:
+            raise closed_error("key_value_store.get_bytes") from None
+
+    def keys(self, *, prefix: str | None = None) -> Sequence[str]:
+        store = self._store
 
         async def opening() -> AsyncSequence[str]:
-            return async_host.read(operation, params, item_of)
+            return store.keys(prefix=prefix)
 
         try:
             sequence = self._loop.call(opening)
         except LoopStopped:
-            raise closed_error(operation) from None
-        return Sequence(self._loop, sequence, lambda: closed_error(operation))
+            raise closed_error("key_value_store.keys") from None
+        return Sequence(
+            self._loop, sequence, lambda: closed_error("key_value_store.keys")
+        )
 
 
 class AsyncRunView:
@@ -126,10 +148,8 @@ class AsyncRunView:
         self._connection = connection
         self._id = run_id
         self._closed = False
-        self._store_host = _AsyncViewStoreHost(self)
-        self._key_value_store = AsyncKeyValueStoreView(
-            AsyncKeyValueStore(self._store_host)
-        )
+        store_host = _AsyncViewStoreHost(connection, run_id, self._ensure_open)
+        self._key_value_store = AsyncKeyValueStoreView(AsyncKeyValueStore(store_host))
 
     def _ensure_open(self, operation: str) -> None:
         if self._closed:
@@ -284,7 +304,7 @@ class RunView:
         self._loop = loop
         self._view = view
         self._key_value_store = KeyValueStoreView(
-            KeyValueStore(_SyncViewStoreHost(loop, view._store_host))
+            _SyncViewStore(loop, view.key_value_store)
         )
 
     @property

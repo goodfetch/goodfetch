@@ -10,6 +10,7 @@ in any `repr`, `str`, error message, call log or JSON-RPC error.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -170,3 +171,26 @@ async def test_answers_caller_references_from_a_daemon(
         "the Daemon played its script through, so no canary reached the JSON-RPC error"
     ):
         assert code == 0
+
+
+@COVERS
+@pytest.mark.covers("error:secret_unavailable")
+@three_ways
+async def test_without_resolve_secret_fails_with_secret_unavailable_naming_option(
+    way: Way,
+    env: dict[str, str],
+) -> None:
+    """Without `resolve_secret`, a `caller:` reference fails naming `resolve_secret`."""
+    config_path = Path(env["GOODFETCH_HOME"]) / "0.0" / "configuration.toml"
+    with config_path.open("a", encoding="utf-8") as handle:
+        handle.write('run_state.key_reference = "caller:run_key"\n')
+    collie = await open_collie(way, env)
+    try:
+        failed = await failure(collie.start())
+        assert isinstance(failed, SecretUnavailableError)
+        assert failed.details["provider"] == "caller"
+        assert failed.details["failure"] == "resolver_failed"
+        assert failed.fix is not None
+        assert "resolve_secret" in failed.fix
+    finally:
+        await collie.close()

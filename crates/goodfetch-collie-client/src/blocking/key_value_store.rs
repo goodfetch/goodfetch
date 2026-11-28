@@ -49,7 +49,7 @@ impl KeyValueStore {
         &self,
         key: impl Into<String>,
     ) -> Call<Option<T>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get(key), self.0.connection())
+        Call::new(self.0.get(key), self.0.runtime())
     }
 
     /// Commits a JSON value for a key in a live Run's Key-value store,
@@ -68,7 +68,7 @@ impl KeyValueStore {
         key: impl Into<String>,
         value: &T,
     ) -> Call<(), KeyValueStoreSetParams> {
-        Call::new(self.0.set(key, value), self.0.connection())
+        Call::new(self.0.set(key, value), self.0.runtime())
     }
 
     /// Answers the bytes and content type a Run's Key-value store holds for
@@ -85,7 +85,7 @@ impl KeyValueStore {
         &self,
         key: impl Into<String>,
     ) -> Call<Option<StoredBytes>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get_bytes(key), self.0.connection())
+        Call::new(self.0.get_bytes(key), self.0.runtime())
     }
 
     /// Commits bytes with their content type for a key in a live Run's
@@ -105,7 +105,7 @@ impl KeyValueStore {
     ) -> Call<(), KeyValueStoreSetBytesParams> {
         Call::new(
             self.0.set_bytes(key, content, content_type),
-            self.0.connection(),
+            self.0.runtime(),
         )
     }
 
@@ -119,7 +119,7 @@ impl KeyValueStore {
     /// Removes `key`, as [`crate::KeyValueStore::delete`], which `send()`
     /// sends.
     pub fn delete(&self, key: impl Into<String>) -> Call<bool, KeyValueStoreKeyParams> {
-        Call::new(self.0.delete(key), self.0.connection())
+        Call::new(self.0.delete(key), self.0.runtime())
     }
 
     /// Answers the JSON value a Run's Key-value store holds for a key, as
@@ -134,7 +134,7 @@ impl KeyValueStore {
         key: impl Into<String>,
         schema: &Schema<T>,
     ) -> Call<Option<T>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get_with(key, schema), self.0.connection())
+        Call::new(self.0.get_with(key, schema), self.0.runtime())
     }
 
     /// Commits a JSON value for a key in a live Run's Key-value store,
@@ -151,7 +151,7 @@ impl KeyValueStore {
         value: &T,
         schema: &Schema<T>,
     ) -> Call<(), KeyValueStoreSetParams> {
-        Call::new(self.0.set_with(key, value, schema), self.0.connection())
+        Call::new(self.0.set_with(key, value, schema), self.0.runtime())
     }
 
     /// Sends the committed keys of a Run's Key-value store that start with
@@ -161,7 +161,7 @@ impl KeyValueStore {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn keys(&self, prefix: Option<&str>) -> EventIter<String> {
-        EventIter::new(self.0.keys(prefix), self.0.connection())
+        EventIter::new(self.0.keys(prefix), self.0.runtime())
     }
 }
 
@@ -187,7 +187,7 @@ impl KeyValueStoreView {
         &self,
         key: impl Into<String>,
     ) -> Call<Option<T>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get(key), self.0.connection())
+        Call::new(self.0.get(key), self.0.runtime())
     }
 
     /// Answers the JSON value a Run's Key-value store holds for a key, as
@@ -202,7 +202,7 @@ impl KeyValueStoreView {
         key: impl Into<String>,
         schema: &Schema<T>,
     ) -> Call<Option<T>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get_with(key, schema), self.0.connection())
+        Call::new(self.0.get_with(key, schema), self.0.runtime())
     }
 
     /// Answers the bytes and content type a Run's Key-value store holds for a
@@ -215,7 +215,7 @@ impl KeyValueStoreView {
         &self,
         key: impl Into<String>,
     ) -> Call<Option<StoredBytes>, KeyValueStoreKeyParams> {
-        Call::new(self.0.get_bytes(key), self.0.connection())
+        Call::new(self.0.get_bytes(key), self.0.runtime())
     }
 
     /// Sends the committed keys of a Run's Key-value store that start with
@@ -225,6 +225,6 @@ impl KeyValueStoreView {
     ///
     /// Experimental: outside semver until it is promoted (ADR 0030).
     pub fn keys(&self, prefix: Option<&str>) -> EventIter<String> {
-        EventIter::new(self.0.keys(prefix), self.0.connection())
+        EventIter::new(self.0.keys(prefix), self.0.runtime())
     }
 }

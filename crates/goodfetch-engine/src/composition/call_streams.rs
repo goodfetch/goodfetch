@@ -158,6 +158,11 @@ impl CallStream {
 
     /// Sends `bytes` in `$/chunk` notifications of at most [`CHUNK_BYTES`] bytes
     /// each, one per credit granted by `$/credit`, returning the total sent.
+    ///
+    /// # Cancel safety
+    ///
+    /// Dropping the future stops sending further chunks; chunks already sent
+    /// stay sent.
     pub async fn send_bytes(&self, bytes: &[u8]) -> u64 {
         let mut offset: u64 = 0;
         for slice in bytes.chunks(CHUNK_BYTES) {

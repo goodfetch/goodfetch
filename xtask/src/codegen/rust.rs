@@ -304,12 +304,10 @@ impl Responds {
             }
             Self::Exchanged => format!("crate::Exchange::new(host, {value})"),
             Self::Checkpoint => {
-                format!("crate::Checkpoint::new(host.connection().clone(), {value})")
+                format!("host.checkpoint({value})")
             }
             Self::OptionalTrace => {
-                format!(
-                    "{value}.map(|trace| crate::RunTrace::new(host.connection().clone(), trace))"
-                )
+                format!("{value}.map(|trace| host.run_trace(trace))")
             }
         }
     }
@@ -1074,7 +1072,7 @@ impl Module {
                     let _ = write!(built, ".map({})", member.responds.blocking());
                 }
                 format!(
-                    "crate::blocking::{}::new({built}, self.inner.host.connection())",
+                    "crate::blocking::{}::new({built}, self.inner.host.runtime())",
                     member.builds().name()
                 )
             }

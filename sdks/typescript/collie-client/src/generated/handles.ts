@@ -63,7 +63,7 @@ export class Run extends Handle {
    */
   async checkpoint(): Promise<Checkpoint> {
     warnExperimental("run.checkpoint");
-    return new Checkpoint(this.#host, await this.#host.call("run.checkpoint", { runId: this.#host.id }, {}));
+    return new Checkpoint(this.#host.connection, await this.#host.call("run.checkpoint", { runId: this.#host.id }, {}));
   }
 
   /**
@@ -167,7 +167,7 @@ export class Run extends Handle {
   async trace(options: { readonly signal?: AbortSignal | undefined } = {}): Promise<RunTrace | null> {
     warnExperimental("run.trace");
     const value = (await this.#host.call("run.trace", { runId: this.#host.id }, { signal: options.signal })).trace ?? null;
-    return value === null ? null : new RunTrace(this.#host, value);
+    return value === null ? null : new RunTrace(this.#host.connection, value);
   }
 
   /**

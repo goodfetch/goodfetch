@@ -1,0 +1,13 @@
+{
+  "tool": "colly",
+  "language": "go",
+  "pinned_version": "github.com/gocolly/colly/v2@v2.1.0",
+  "mode": "async",
+  "capabilities": ["crawl", "extract"],
+  "max_concurrency": 16,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Colly in async mode (colly.Async(true), ADR 0025)."
+}

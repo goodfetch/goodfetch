@@ -1,0 +1,12 @@
+{
+  "tool": "firecrawl-self-hosted",
+  "language": "typescript",
+  "pinned_version": "firecrawl@1.15.0",
+  "capabilities": ["crawl", "extract"],
+  "max_concurrency": 16,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Firecrawl self-hosted open-source edition; its cloud-only anti-bot engine is absent (ADR 0025)."
+}

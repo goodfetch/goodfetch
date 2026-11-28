@@ -1,0 +1,13 @@
+{
+  "tool": "crawlee-js",
+  "language": "typescript",
+  "pinned_version": "@crawlee/cheerio@3.18.2, @crawlee/playwright@3.18.2, playwright@1.64.1",
+  "wraps_compare_side": "xtask/compare-crawlee",
+  "capabilities": ["crawl", "extract"],
+  "max_concurrency": 16,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Wraps xtask/compare-crawlee pinned side (#2252 Q1) so Crawlee JS is never measured two ways."
+}

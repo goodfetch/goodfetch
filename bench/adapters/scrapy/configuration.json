@@ -1,0 +1,13 @@
+{
+  "tool": "scrapy",
+  "language": "python",
+  "pinned_version": "scrapy==2.19.0, scrapy-playwright==0.0.48, playwright==1.64.1",
+  "wraps_compare_side": "xtask/compare-scrapy",
+  "capabilities": ["crawl", "extract"],
+  "max_concurrency": 16,
+  "defaults": {
+    "filter_list_blocking": false,
+    "consent_prompt_handling": false
+  },
+  "notes": "Wraps xtask/compare-scrapy pinned side (#2252 Q1) so Scrapy is never measured two ways."
+}

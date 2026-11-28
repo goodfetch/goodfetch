@@ -1,0 +1,88 @@
+# The layers Foxhound carries the SSRF case table to (ADR 0067; spec #565's
+# story 121; TESTING.md, Egress and hostile input). Each `[layers.<name>]`
+# is one Foxhound layer a crawl request or endpoint passes that holds it to
+# the egress policy, with the runners that apply `cases.toml` to it: each
+# runner is a test, `<file relative to the workspace's root>::<function>`,
+# and the families whose cases it runs. A runner takes its cases through
+# `goodfetch-test-support`'s `Runner::committed_foxhound(layer, file!(), "<function>")`,
+# which gives it every case of those families, and runs them with
+# `Runner::run`, which also runs its positive controls and fails when it
+# has none. A layer runs every family of `every_layer`, or says in
+# `not_run` why it never meets one; a layer not built yet is `pending`,
+# with the ticket that builds it and the families its runner will run.
+# The Quick suite (`goodfetch-test-support`'s
+# `every_layer_foxhound_carries_has_runners_for_every_family_of_the_ssrf_table`)
+# fails on a built layer with no runner, a family of `every_layer` a layer
+# skips, a family of the table no layer runs, and a runner its file does
+# not hold. Collie's own layers are listed in `layers.toml` (ADR 0094).
+# Schema: `../schemas/ssrf-layers.schema.json`.
+
+every_layer = [
+    "encoding",
+    "ipv6_form",
+    "special_purpose_block",
+    "mixed_answers",
+    "redirect",
+    "rebinding",
+    "upstream_proxy",
+]
+
+[outside_product]
+borrowed_browser = "A Borrowed browser is Collie's layer, checked in `test-support/fixtures/ssrf/layers.toml` (ADR 0094)."
+lent_page_client = "A Lent page's client is Collie's layer, checked in `test-support/fixtures/ssrf/layers.toml` (ADR 0094)."
+plugin_traffic = "A Plugin's own requests are Collie's layer, checked in `test-support/fixtures/ssrf/layers.toml` (ADR 0094)."
+
+[layers.frontier]
+summary = "Foxhound's Frontier (seeds, enqueues, sitemap entries, Hook rewrites) through Foxhound's executable against the Proving ground, whose connection record is the oracle: each case submitted through crawl admission and before-request Hook rewrites under the case's domain policy and `network.resolve` mapping; positive controls reach the target."
+runners = [
+    { test = "crates/foxhound/goodfetch-foxhound/tests/it/addresses.rs::every_case_of_the_ssrf_table_the_frontier_meets_is_refused_before_any_connection", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "domain_policy",
+    ] },
+]
+not_run.redirect = "Redirect hops leave the Frontier through the HTTP tier's `ChainGate` (`http_tier`'s redirect runner drives every redirect case on Foxhound's executable)."
+not_run.rebinding = "The Frontier admits URLs before any connection; DNS rebinding between connections is judged by the HTTP and discovered-API tiers (`http_tier` and `discovered_api` runners)."
+not_run.upstream_proxy = "The Frontier does not dial an upstream proxy; each tier's transport resolves and judges the name before sending to the proxy (`http_tier` and `discovered_api` runners)."
+
+[layers.http_tier]
+summary = "Foxhound's HTTP tier (`reqwest` and `wreq` transports in `goodfetch-fetch-tier`, plus redirect hops and Linux end-to-end rebinding on Foxhound's executable), against the Proving ground, whose connection record is the oracle: every encoding, IPv6 form, IANA special-purpose block, mixed-answer set, rebinding sequence, domain policy rule, upstream proxy path, and redirect kind."
+runners = [
+    { test = "crates/foxhound/goodfetch-fetch-tier/tests/it/addresses.rs::every_case_of_the_ssrf_table_the_http_tier_meets_is_refused_before_any_connection", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "rebinding",
+        "domain_policy",
+        "upstream_proxy",
+    ] },
+    { test = "crates/foxhound/goodfetch-foxhound/tests/it/addresses.rs::every_redirect_case_of_the_ssrf_table_is_refused_on_the_http_tier", families = [
+        "redirect",
+    ] },
+]
+
+[layers.discovered_api]
+summary = "Foxhound's discovered-API tier (`fetch.tier: discovered_api`, replaying a Label's learned JSON calls through `ReplayPlan` -> `AddressCheck` -> `Transport` with `max_redirects: 0`), against the Proving ground on every OS with the connection record as oracle, and end-to-end crawl refusal on Foxhound's executable."
+runners = [
+    { test = "crates/foxhound/goodfetch-fetch-tier/tests/it/addresses.rs::every_case_of_the_ssrf_table_the_discovered_api_tier_meets_is_refused_before_any_connection", families = [
+        "encoding",
+        "ipv6_form",
+        "special_purpose_block",
+        "mixed_answers",
+        "rebinding",
+        "domain_policy",
+        "upstream_proxy",
+    ] },
+]
+not_run.redirect = "A discovered-API replayed call sends with `max_redirects: 0` (`replayed.rs`), so it never follows redirects; redirect hops are judged by the `http_tier` layer."
+
+[layers.fetch_backend]
+summary = "The Fetch backend's traffic (ADR 0017; #693), which meets the run's egress policy on every request."
+pending = { joins = "#693 (A04-82)", families = ["encoding", "ipv6_form", "special_purpose_block", "mixed_answers", "redirect", "rebinding", "upstream_proxy"] }
+
+[layers.sinks_and_webhooks]
+summary = "Sinks and Sink webhooks under `egress.no_private_endpoints` (ADR 0017; #692), as rows of the `operator_endpoint` family."
+pending = { joins = "#692 (A04-81)", families = ["operator_endpoint"] }

@@ -23,6 +23,7 @@ use std::time::Duration;
 
 use goodfetch_engine::response_limits::{JsonFailure, Limits, parse_json};
 use goodfetch_page::url_pattern::UrlPattern;
+use goodfetch_protocol::egress::EGRESS_REFUSED;
 use goodfetch_protocol::page::PageId;
 use goodfetch_protocol::page::events::{PageExchange, PageRequest};
 use goodfetch_protocol::page::request::PageRequestParams;
@@ -95,6 +96,7 @@ pub(super) fn arm(
         match waited.await {
             Some(Replayed::Answered(exchange)) => Ok(encoded(&exchange)),
             Some(Replayed::PastALimit(limit)) => Err(limit.error()),
+            Some(Replayed::Refused(error)) => Err(error),
             Some(Replayed::NoneCame) | None => Err(tiers.unserved(&page_id, operation, true)),
         }
     })
@@ -143,8 +145,15 @@ pub(super) async fn replay(tiers: &FetchTiers, page_id: &PageId, document: &Url)
         let Some(page) = tiers.served_page(page_id) else {
             break;
         };
-        let Ok(fetched) = sent(&page, &params).await else {
-            break;
+        let fetched = match sent(&page, &params).await {
+            Ok(fetched) => fetched,
+            Err(error) if error.code() == EGRESS_REFUSED.name => {
+                // An egress refusal ends the replay without answering any
+                // wait or escalating past the policy.
+                tell_all(tiers, page_id, &Replayed::Refused(error));
+                break;
+            }
+            Err(_) => break,
         };
         drop(page);
         let json = if (200..300).contains(&fetched.status) {
@@ -228,5 +237,15 @@ fn tell(tiers: &FetchTiers, page_id: &PageId, url: &str, replayed: &Replayed) {
     replaying.waiters = waiting;
     for waiter in matched {
         let _ = waiter.answer.send(replayed.clone());
+    }
+}
+
+/// Tells every wait armed on the served page `page_id` what ended the
+/// replay, so none is left to escalate past an egress refusal.
+fn tell_all(tiers: &FetchTiers, page_id: &PageId, replayed: &Replayed) {
+    if let Some(replaying) = lock(&tiers.served.pages).replays.get_mut(page_id) {
+        for waiter in replaying.waiters.drain(..) {
+            let _ = waiter.answer.send(replayed.clone());
+        }
     }
 }

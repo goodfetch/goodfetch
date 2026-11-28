@@ -241,6 +241,8 @@ enum Replayed {
     Answered(Box<goodfetch_protocol::page::events::PageExchange>),
     /// That call's answer passed a limit: `response_limit_exceeded`.
     PastALimit(goodfetch_engine::response_limits::LimitExceeded),
+    /// That call was refused by the Run's egress policy: `egress_refused`.
+    Refused(CallError),
     /// None came, so it escalates.
     NoneCame,
 }

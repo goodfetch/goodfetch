@@ -552,3 +552,386 @@ fn under_learned_a_list_replays_its_calls_from_the_cheapest_sender_that_matches_
     );
     assert_eq!(records, committed(&env, "on-browser"));
 }
+
+/// End-to-end discovered-API refusal on Linux (spec #565; #2368): a crawl
+/// learns `discovered_api` from its three sample lists while the API host
+/// resolves to a listed stand-in address (`127.0.0.2`), then the API host
+/// rebinds to `127.0.0.1` (unlisted) before the fourth list replays its
+/// calls. The replayed call is never sent (zero connections on `127.0.0.1`),
+/// neither armed wait (`page.wait_for_response`,
+/// `page.wait_for_request_finished`) is answered (both return
+/// `egress_refused` with `rule: "private_address"` instead of escalating),
+/// and the Run report and outcomes record the refusal with its reason.
+#[cfg(target_os = "linux")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "the test binds local HTTP and UDP DNS listeners outside the engine to control rebinding and observe connections directly (ADR 0060)"
+)]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test runs stand-in HTTP/DNS threads and reads child test env vars outside any async worker"
+)]
+mod linux {
+    use std::io::{ErrorKind, Read as _, Write as _};
+    use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
+
+    use goodfetch_test_support::{BROWSERS_PATH_VARIABLE, DnsNamespace, TestEnv, browser_cache};
+    use serde_json::{Value, json};
+
+    use super::{body_of, chosen};
+    use crate::attached_with;
+    use crate::frontier::{Inside, crawl_declaring};
+
+    const CHILD: &str = "discovered_api::linux::in_the_namespace_a_refused_replayed_call_answers_no_wait_and_reports_the_refusal";
+    const REBIND_FLAG_VAR: &str = "GOODFETCH_TEST_DISCOVERED_API_REBIND_FLAG";
+
+    /// Answers a single UDP DNS query: `A` gets `ip` (TTL 0), any other
+    /// query type (such as `AAAA`) gets a `NOERROR` empty answer.
+    fn dns_reply(query: &[u8], ip: Ipv4Addr) -> Option<Vec<u8>> {
+        if query.len() < 12 {
+            return None;
+        }
+        let mut cursor = 12;
+        while cursor < query.len() {
+            let len = usize::from(query[cursor]);
+            cursor += 1;
+            if len == 0 {
+                break;
+            }
+            cursor = cursor.checked_add(len)?;
+        }
+        if cursor + 4 > query.len() {
+            return None;
+        }
+        let qtype = u16::from_be_bytes([query[cursor], query[cursor + 1]]);
+        let question_end = cursor + 4;
+        let mut reply = Vec::with_capacity(question_end + 16);
+        reply.extend_from_slice(&query[..2]);
+        // Standard response, recursion available, NOERROR.
+        reply.extend_from_slice(&[0x81, 0x80]);
+        // QDCOUNT = 1
+        reply.extend_from_slice(&[0x00, 0x01]);
+        // ANCOUNT = 1 for A (qtype 1), else 0
+        let ancount: u16 = u16::from(qtype == 1);
+        reply.extend_from_slice(&ancount.to_be_bytes());
+        // NSCOUNT = 0, ARCOUNT = 0
+        reply.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+        reply.extend_from_slice(&query[12..question_end]);
+        if qtype == 1 {
+            // Name pointer to offset 12, TYPE A, CLASS IN, TTL 0, RDLENGTH 4
+            reply.extend_from_slice(&[
+                0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+            ]);
+            reply.extend_from_slice(&ip.octets());
+        }
+        Some(reply)
+    }
+
+    /// Covers: story:4-98, story:4-102, story:4-103, error:egress_refused
+    #[test]
+    fn a_refused_replayed_call_on_discovered_api_answers_no_wait_and_reports_the_refusal() {
+        let env = TestEnv::new();
+        let cache = browser_cache(&env).expect("Playwright's Chrome for Testing is installed");
+        let public = Ipv4Addr::new(127, 0, 0, 2);
+        let rebind_flag = env.folder().join("rebind.flag");
+
+        let dns_socket = UdpSocket::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).unwrap();
+        let dns_addr = dns_socket.local_addr().unwrap();
+        dns_socket
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+
+        let dns_flag = rebind_flag.clone();
+        let dns_stop = Arc::clone(&stop);
+        let dns_thread = thread::spawn(move || {
+            let mut buf = [0u8; 512];
+            while !dns_stop.load(Ordering::Relaxed) {
+                if let Ok((len, peer)) = dns_socket.recv_from(&mut buf) {
+                    let ip = if dns_flag.exists() {
+                        Ipv4Addr::LOCALHOST
+                    } else {
+                        public
+                    };
+                    if let Some(reply) = dns_reply(&buf[..len], ip) {
+                        let _ = dns_socket.send_to(&reply, peer);
+                    }
+                }
+            }
+        });
+
+        let env = env
+            .with_variable(BROWSERS_PATH_VARIABLE, cache.to_str().unwrap())
+            .with_variable(REBIND_FLAG_VAR, rebind_flag.to_str().unwrap());
+        let namespace = DnsNamespace::enter(&env, dns_addr).unwrap();
+        let output = namespace
+            .output(
+                &env,
+                std::env::current_exe().unwrap(),
+                [CHILD, "--include-ignored"],
+            )
+            .unwrap();
+        stop.store(true, Ordering::Relaxed);
+        let _ = dns_thread.join();
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success() && !stdout.contains("running 0 tests"),
+            "status={:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+            output.status
+        );
+    }
+
+    /// Starts the local stand-in HTTP server for `/list/<n>` and
+    /// `/api/list/<n>` on `public` and a watched listener on `127.0.0.1` at
+    /// the same port.
+    fn start_list_server(
+        public: Ipv4Addr,
+        stop: Arc<AtomicBool>,
+    ) -> (u16, TcpListener, thread::JoinHandle<()>) {
+        let http_listener = TcpListener::bind(SocketAddr::from((public, 0))).unwrap();
+        let port = http_listener.local_addr().unwrap().port();
+        http_listener.set_nonblocking(true).unwrap();
+        let watched = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).unwrap();
+        watched.set_nonblocking(true).unwrap();
+
+        let http_thread = thread::spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                match http_listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let _ = stream.set_nonblocking(false);
+                        let mut buf = [0u8; 4096];
+                        let len = stream.read(&mut buf).unwrap_or(0);
+                        let req = String::from_utf8_lossy(&buf[..len]);
+                        let target = req
+                            .lines()
+                            .next()
+                            .and_then(|line| line.split_whitespace().nth(1))
+                            .unwrap_or("/");
+                        let (content_type, body) = if let Some(n) = target.strip_prefix("/list/") {
+                            let html = format!(
+                                "<!doctype html><html><body><ul class=\"feed\"></ul><script>\
+                                 const load = (u) => {{ const x = new XMLHttpRequest(); x.open('GET', u, false); x.send(); return JSON.parse(x.responseText); }};\
+                                 for (let p = 1; p !== null; ) {{ p = load(`http://api.rebind.test:{port}/api/list/{n}?page=${{p}}`).next; }}\
+                                 </script></body></html>"
+                            );
+                            ("text/html", html)
+                        } else if let Some(rest) = target.strip_prefix("/api/list/") {
+                            let (n, query) = rest.split_once('?').unwrap_or((rest, ""));
+                            let page = query.strip_prefix("page=").unwrap_or("1");
+                            let json_body = match page {
+                                "1" => format!(r#"{{"items":["a-{n}","b-{n}"],"next":2}}"#),
+                                "2" => format!(r#"{{"items":["c-{n}","d-{n}"],"next":null}}"#),
+                                _ => r#"{"items":[],"next":null}"#.to_owned(),
+                            };
+                            ("application/json", json_body)
+                        } else {
+                            ("text/plain", "not found".to_owned())
+                        };
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        (port, watched, http_thread)
+    }
+
+    /// Handles one `/list/<n>` crawl request, flipping `rebind_flag` before
+    /// `/list/4` reloads so its replayed call resolves to `127.0.0.1`.
+    fn handle_list_page(
+        inside: &mut Inside<'_>,
+        handle: &Value,
+        rebind_flag: &PathBuf,
+        fourth_wait_errors: &mut Vec<(Value, Value)>,
+    ) -> Value {
+        let url = handle["crawl_request"]["url"].as_str().unwrap_or_default();
+        let is_fourth = url.ends_with("/list/4");
+        if is_fourth {
+            std::fs::write(rebind_flag, b"1").unwrap();
+        }
+        let page_id = handle["page_id"].clone();
+        let engine = inside.engine();
+        let armed = [
+            (
+                "response",
+                "page.wait_for_response",
+                r"/api/list/\d+\?page=1$",
+            ),
+            (
+                "finished-0",
+                "page.wait_for_request_finished",
+                r"/api/list/\d+\?page=1$",
+            ),
+            (
+                "finished-1",
+                "page.wait_for_request_finished",
+                r"/api/list/\d+\?page=2$",
+            ),
+        ];
+        for (id, method, pattern) in armed {
+            engine.send(&json!({
+                "jsonrpc": "2.0", "id": id, "method": method,
+                "params": {
+                    "page_id": page_id,
+                    "url": { "kind": "regex", "pattern": pattern },
+                    "timeout": 15_000,
+                },
+            }));
+        }
+        engine.send(&json!({
+            "jsonrpc": "2.0", "id": "reload", "method": "page.reload",
+            "params": { "page_id": page_id },
+        }));
+        let mut replies = std::collections::BTreeMap::new();
+        while replies.len() < armed.len() + 1 {
+            let reply = engine.next().unwrap();
+            let id = reply["id"].as_str().unwrap_or_default().to_owned();
+            replies.insert(id, reply);
+        }
+        if is_fourth {
+            for (id, _, _) in armed {
+                let err = &replies[id]["error"]["data"];
+                fourth_wait_errors.push((err["code"].clone(), err["rule"].clone()));
+            }
+            return json!({ "error": replies["response"]["error"].clone() });
+        }
+        let Some(first) = replies["response"]
+            .get("result")
+            .map(|result| result["response"].clone())
+        else {
+            return json!({ "result": { "records": [] } });
+        };
+        let mut items = Vec::new();
+        for id in ["finished-0", "finished-1"] {
+            let Some(response) = replies[id].get("result").map(|result| &result["response"]) else {
+                return json!({ "result": { "records": [] } });
+            };
+            let read = inside.call(
+                "response.body",
+                &json!({ "page_id": page_id, "request_id": response["request_id"] }),
+            );
+            let path = read["result"]["path"].as_str().unwrap();
+            let body: Value = serde_json::from_slice(&body_of(path)).unwrap();
+            items.extend(body["items"].as_array().into_iter().flatten().cloned());
+        }
+        let reply = inside.call(
+            "crawl_request.push",
+            &json!({
+                "run_id": handle["run_id"],
+                "crawl_request_id": handle["crawl_request"]["id"],
+                "lease_epoch": handle["lease_epoch"],
+                "dataset": "pages",
+                "records": [{ "list": url, "items": items, "first": first["status"] }],
+            }),
+        );
+        assert!(reply.get("result").is_some(), "{reply}");
+        json!({ "result": { "records": [] } })
+    }
+
+    #[ignore = "run as a child by discovered_api::linux::a_refused_replayed_call_on_discovered_api_answers_no_wait_and_reports_the_refusal"]
+    #[test]
+    fn in_the_namespace_a_refused_replayed_call_answers_no_wait_and_reports_the_refusal() {
+        let env = TestEnv::new();
+        let cache = std::env::var(BROWSERS_PATH_VARIABLE).unwrap();
+        let rebind_flag = PathBuf::from(std::env::var(REBIND_FLAG_VAR).unwrap());
+        let stop = Arc::new(AtomicBool::new(false));
+        let (port, watched, http_thread) =
+            start_list_server(Ipv4Addr::new(127, 0, 0, 2), Arc::clone(&stop));
+
+        let mut engine = attached_with(&env, Some(Duration::from_secs(90)), |command| {
+            command.env(BROWSERS_PATH_VARIABLE, &cache);
+        });
+        let seeds: Vec<Value> = (1..=4)
+            .map(|n| json!({ "url": format!("http://doc.test:{port}/list/{n}"), "label": "list" }))
+            .collect();
+        let settings = json!({
+            "fetch": { "tier": "auto", "http_from": "transport" },
+            "crawl": { "retry": { "max": 0 }, "scope": { "strategy": "all" } },
+            "network": { "resolve": { "doc.test": ["127.0.0.2"] } },
+            "egress": { "private_ranges": ["127.0.0.2"] },
+            "politeness": { "domain": { "concurrency": 1, "delay": 0 } },
+            "site_preferences": { "respect_robots_txt": false },
+        });
+
+        let mut fourth_wait_errors: Vec<(Value, Value)> = Vec::new();
+        let finished = crawl_declaring(
+            &mut engine,
+            "api-refused",
+            &seeds,
+            &json!({ "list": {} }),
+            &settings,
+            &mut |inside, handle| {
+                handle_list_page(inside, handle, &rebind_flag, &mut fourth_wait_errors)
+            },
+        );
+        let outcomes_reply = engine.call(
+            "outcomes",
+            "run.outcomes",
+            &json!({ "run_id": "api-refused" }),
+            &mut |_| None,
+        );
+        assert!(engine.finished());
+        stop.store(true, Ordering::Relaxed);
+        let _ = http_thread.join();
+
+        let fourth_outcome = outcomes_reply["result"]["outcomes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|outcome| {
+                outcome["request"]["url"]
+                    .as_str()
+                    .is_some_and(|url| url.ends_with("/list/4"))
+            })
+            .cloned()
+            .unwrap();
+        let by_error = &finished["result"]["requests"]["by_error_code"];
+        let tiers_chosen = chosen(&env, "api-refused");
+        assert_eq!(
+            (
+                &finished["result"]["lifecycle"],
+                &finished["result"]["requests"]["failed"],
+                by_error
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{finished}"))
+                    .contains(&json!({ "name": "egress_refused", "count": 1 })),
+                fourth_outcome["kind"].clone(),
+                fourth_outcome["error"]["code"].clone(),
+                fourth_outcome["error"]["details"]["rule"].clone(),
+                fourth_wait_errors,
+                tiers_chosen.last().map(String::as_str),
+                watched.accept().map(|_| ()).unwrap_err().kind(),
+            ),
+            (
+                &json!("finished"),
+                &json!(1),
+                true,
+                json!("failed"),
+                json!("egress_refused"),
+                json!("private_address"),
+                vec![
+                    (json!("egress_refused"), json!("private_address")),
+                    (json!("egress_refused"), json!("private_address")),
+                    (json!("egress_refused"), json!("private_address")),
+                ],
+                Some("discovered_api compared"),
+                ErrorKind::WouldBlock,
+            ),
+            "{finished}\n{outcomes_reply}\n{tiers_chosen:?}"
+        );
+    }
+}

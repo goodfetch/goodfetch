@@ -1730,6 +1730,39 @@ impl On<'_> {
         self.browser_run(tiers, choice, how, None).await.answer
     }
 
+    /// Address and `mark_robots_txt_ignored` checks run before a browser page
+    /// opens for the attempt: the address check mirrors the HTTP tier, and
+    /// when `site_preferences.respect_robots_txt` is off and
+    /// `site_preferences.mark_robots_txt_ignored` is on, reads the origin's
+    /// robots.txt from the shared copy without obeying it so disallowed
+    /// browser-tier Records carry `robots_txt: "ignored"` (issue 1649).
+    async fn check_browser_start(&self) -> Result<(), Answer> {
+        let (run, leased, lease) = (self.run, self.leased, self.lease);
+        if let Some(http) = self.http {
+            tokio::select! {
+                biased;
+                checked = address_check(&run.identity, http, leased) => checked?,
+                _ = lease.ended() => return Err(Answer::LeaseEnded),
+            }
+        }
+        if self
+            .hand_over
+            .of_run
+            .site_preferences
+            .marks_robots_txt_ignored()
+            && let Ok(url) = goodfetch_frontier::Url::parse(&leased.crawl_request.url)
+        {
+            tokio::select! {
+                biased;
+                judged = self.site_preferences_judged(Request::CrawlRequest, &url) => {
+                    judged?;
+                }
+                _ = lease.ended() => return Err(Answer::LeaseEnded),
+            }
+        }
+        Ok(())
+    }
+
     /// [`On::browser`], answering also the encoding the browser read the
     /// request's own document in, its `document.characterSet`; its page's
     /// JSON calls are captured into `capture`, when given.
@@ -1749,17 +1782,8 @@ impl On<'_> {
         if let Some(answer) = self.ended_in(&[CrawlHookStage::BeforeRequest]).await {
             return ended(answer);
         }
-        // The address check judges the request's URL before the browser
-        // opens anything, as on the HTTP tier (spec #565).
-        if let Some(http) = self.http {
-            let checked = tokio::select! {
-                biased;
-                checked = address_check(&run.identity, http, leased) => checked,
-                _ = lease.ended() => Err(Answer::LeaseEnded),
-            };
-            if let Err(answer) = checked {
-                return ended(answer);
-            }
+        if let Err(answer) = self.check_browser_start().await {
+            return ended(answer);
         }
         // A sample's `http` run was already sent: its browser run is
         // weighed like any other, so the request counts toward its Label's

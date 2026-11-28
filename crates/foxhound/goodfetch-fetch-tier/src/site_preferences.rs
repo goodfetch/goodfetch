@@ -348,6 +348,12 @@ impl SitePreferences {
         self.respect_robots_txt
     }
 
+    /// Whether `site_preferences.mark_robots_txt_ignored` marks Records taken
+    /// against robots.txt while `site_preferences.respect_robots_txt` is off.
+    pub fn marks_robots_txt_ignored(&self) -> bool {
+        !self.respect_robots_txt && self.mark_robots_txt_ignored
+    }
+
     /// Whether the AI-use signals are judged, against a Purpose: a
     /// document's body is read for its markup's only then.
     pub fn honours_use_signals(&self) -> bool {

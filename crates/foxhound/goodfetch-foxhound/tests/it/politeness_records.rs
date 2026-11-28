@@ -384,3 +384,82 @@ fn a_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
         )
     );
 }
+
+/// On a forced `browser` tier with `site_preferences.respect_robots_txt` off
+/// (issue 1649): with `site_preferences.mark_robots_txt_ignored` off (its
+/// default), robots.txt is neither fetched nor read and neither Record carries
+/// a mark; with it on, robots.txt is read once from the shared copy without
+/// obeying it, the Record of a disallowed URL carries `robots_txt: "ignored"`
+/// in its Provenance, and the Record of an allowed URL carries no mark.
+///
+/// Covers: story:4-118, setting:fetch.tier, setting:site_preferences.respect_robots_txt, setting:site_preferences.mark_robots_txt_ignored
+#[test]
+fn a_browser_tier_record_fetched_against_robots_txt_is_marked_ignored_in_its_provenance() {
+    let env = TestEnv::new();
+    let proving_ground = ProvingGround::start(&env, SEED).unwrap();
+    let paths = ["/catalog/1", "/private/catalog/1"];
+    let robots_txt_requests = |proving_ground: &ProvingGround| -> usize {
+        ReceivedRequests::of(&proving_ground.observations().unwrap())
+            .every()
+            .filter(|request| request.host == HOST && request.target == "/robots.txt")
+            .count()
+    };
+
+    let mut engine = crate::fetch_tiers::engine(&env);
+    crawl(
+        &mut engine,
+        &proving_ground,
+        "browser-unmarked",
+        &paths,
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": { "respect_robots_txt": false },
+            }),
+        ),
+    );
+    let unmarked = records(&mut engine, "browser-unmarked");
+    let robots_after_unmarked = robots_txt_requests(&proving_ground);
+
+    crawl(
+        &mut engine,
+        &proving_ground,
+        "browser-ignoring",
+        &paths,
+        &settings(
+            &proving_ground,
+            &json!({
+                "fetch": { "tier": "browser" },
+                "site_preferences": {
+                    "respect_robots_txt": false,
+                    "mark_robots_txt_ignored": true,
+                },
+            }),
+        ),
+    );
+    let ignoring = records(&mut engine, "browser-ignoring");
+    let robots_after_ignoring = robots_txt_requests(&proving_ground);
+    assert!(engine.finished());
+
+    assert_eq!(
+        (
+            robots_after_unmarked,
+            marks(&unmarked),
+            robots_after_ignoring,
+            marks(&ignoring),
+        ),
+        (
+            0,
+            vec![
+                ("/catalog/1".to_owned(), Value::Null),
+                ("/private/catalog/1".to_owned(), Value::Null),
+            ],
+            1,
+            vec![
+                ("/catalog/1".to_owned(), Value::Null),
+                ("/private/catalog/1".to_owned(), json!("ignored")),
+            ],
+        )
+    );
+}

@@ -345,6 +345,18 @@ enum RunsCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Brings checkpointed Runs from a removed Group member's kept volume
+    /// into another Group member of the Daemon group (ADR 0055).
+    Adopt {
+        /// Kept Run folders, or folders of Run folders, to adopt.
+        paths: Vec<std::path::PathBuf>,
+        /// Group member name the kept volume belonged to, when known.
+        #[arg(long)]
+        from_member: Option<String>,
+        /// Prints the result as JSON.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -844,16 +856,7 @@ fn run(
         Command::Daemon { command, .. } => {
             daemon_command(command, engine, dependencies, &machine, human)
         }
-        Command::Runs {
-            command: RunsCommand::Reindex { paths, json },
-            ..
-        } => {
-            let Ok(folder) = std::env::current_dir() else {
-                tracing::error!("the working folder cannot be read");
-                return ExitCode::FAILURE;
-            };
-            runs::reindex(&machine, &folder, paths, json, human)
-        }
+        Command::Runs { command, .. } => runs_command(command, &machine, human),
         Command::Usage { command, .. } => {
             warn_of_a_temporary_ledger(&home, human);
             usage_command(command, engine, dependencies, &machine, human)
@@ -920,6 +923,21 @@ fn usage_command(
         (&params, json),
         human,
     )
+}
+
+fn runs_command(command: RunsCommand, machine: &Machine, human: &Human) -> ExitCode {
+    let Ok(folder) = std::env::current_dir() else {
+        tracing::error!("the working folder cannot be read");
+        return ExitCode::FAILURE;
+    };
+    match command {
+        RunsCommand::Reindex { paths, json } => runs::reindex(machine, &folder, paths, json, human),
+        RunsCommand::Adopt {
+            paths,
+            from_member,
+            json,
+        } => runs::adopt(machine, &folder, paths, from_member.as_deref(), json, human),
+    }
 }
 
 /// Warns when the Usage ledger sits on a temporary filesystem, where it is

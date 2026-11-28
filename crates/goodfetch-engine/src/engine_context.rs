@@ -285,6 +285,13 @@ pub(crate) trait GroupRouter: Send + Sync {
     /// this Group member's memory for `session` (ADR 0149).
     fn verify_live_view_token(&self, session: &SessionId, token: &str) -> bool;
 
+    /// Hands off checkpointed Runs over the peer link before `deadline` when a
+    /// `SIGTERM` drain is a scale-down removal rather than a restart (ADR 0055).
+    fn handoff_after_drain(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>>;
+
     /// This Group member's name.
     fn member_name(&self) -> &str;
 }
@@ -312,6 +319,9 @@ pub(crate) struct Host {
     pub(crate) metrics: Metrics,
     /// The engine's Resource governor (ADR 0040).
     pub(crate) governor: Governor,
+    /// Whether a `SIGTERM` drain on this engine classifies as a Kubernetes
+    /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
+    pub(crate) sigterm_is_removal: bool,
 }
 
 /// The user's known-certificates store, Usage ledger, Run index, Response
@@ -423,6 +433,7 @@ struct Held {
     events: Events,
     metrics: Metrics,
     governor: Governor,
+    sigterm_is_removal: bool,
     erasure: Mutex<Option<Arc<dyn ErasureBroadcaster>>>,
     has_group_router: AtomicBool,
     group_router: Mutex<Option<Arc<dyn GroupRouter>>>,
@@ -470,6 +481,7 @@ impl EngineContext {
             events,
             metrics,
             governor,
+            sigterm_is_removal,
         } = host;
         Self {
             stores: Arc::new(stores),
@@ -491,6 +503,7 @@ impl EngineContext {
                 events,
                 metrics,
                 governor,
+                sigterm_is_removal,
                 erasure: Mutex::new(None),
                 has_group_router: AtomicBool::new(false),
                 group_router: Mutex::new(None),
@@ -692,6 +705,12 @@ impl EngineContext {
         &self.held.governor
     }
 
+    /// Whether a `SIGTERM` drain on this engine classifies as a Kubernetes
+    /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
+    pub(crate) fn sigterm_is_removal(&self) -> bool {
+        self.held.sigterm_is_removal
+    }
+
     /// Fast lock-free check for whether this engine is currently routing calls
     /// as part of a Daemon group (ADR 0140's E1: zero cost for local calls
     /// outside a group).
@@ -789,9 +808,9 @@ impl EngineContext {
     }
 
     /// Clears the runtime handles (`group_router`, `local_dispatcher`,
-    /// `runs_handle`, `live_view_handle`) when an engine shuts down so no
-    /// `Arc` cycle keeps `Runs`, `Events`, or `EngineContext` alive past
-    /// shutdown.
+    /// `runs_handle`, `live_view_handle`, `erasure`, `peer_link`, and ledger
+    /// group authority) when an engine shuts down so no `Arc` cycle keeps
+    /// `Runs`, `Events`, `Peering`, or `EngineContext` alive past shutdown.
     pub(crate) fn clear_runtime_handles(&self) {
         self.held.has_group_router.store(false, Ordering::Release);
         *self
@@ -814,6 +833,17 @@ impl EngineContext {
             .live_view_handle
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .erasure
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        *self
+            .held
+            .peer_link
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = None;
+        self.ledger().set_authority(None);
     }
 
     /// Registers or clears the Daemon group erasure broadcaster (ADR 0055).

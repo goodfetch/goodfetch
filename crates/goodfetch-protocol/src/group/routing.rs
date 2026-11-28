@@ -14,7 +14,7 @@ use crate::governor::GovernorLevel;
 use crate::jsonrpc::RequestId;
 use crate::live_view::LiveViewScreen;
 use crate::page::SessionId;
-use crate::run::RunId;
+use crate::run::{RunId, RunIndexRow};
 use crate::settings::session_source::SessionSource;
 
 const ARRIVED_IN: ProtocolVersion = ProtocolVersion { major: 0, minor: 1 };
@@ -50,6 +50,17 @@ pub const GROUP_LIVE_VIEW_RELAY: &str = "group.live_view.relay";
 /// to forward an `events.subscribe` stream when the owner has no
 /// `daemon.advertise_url` (ADR 0055).
 pub const GROUP_EVENTS_SUBSCRIBE: &str = "group.events.subscribe";
+
+/// The method a draining Group member (or `runs adopt`) sends the destination
+/// Group member over the peer link to hand off a Run's Checkpoint, resume it
+/// at the next run epoch, and transfer ownership in the group Run index
+/// (ADR 0055).
+pub const GROUP_RUN_HANDOFF: &str = "group.run.handoff";
+
+/// The method a Group member sends the Lead Daemon over the peer link when
+/// starting up (restart or re-add) to list the non-ended Runs the group Run
+/// index still assigns to it (ADR 0055).
+pub const GROUP_RUN_INDEX_LIST_ASSIGNED: &str = "group.run_index.list_assigned";
 
 /// The Error code answered by a former owner when a Run has moved to another
 /// Group member (ADR 0055).
@@ -519,4 +530,104 @@ pub struct PeerEventsSubscribeParams {
     #[serde(default)]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub system_info: bool,
+}
+
+/// What a draining Group member or `runs adopt` sends over `group.run.handoff`
+/// to transfer a Run's Checkpoint to the destination Group member (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRunHandoffParams {
+    /// The peer protocol version the sender speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The highest lead epoch it has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The sending Group member's authenticated name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub member: String,
+    /// The Run being handed off.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Group member that previously owned the Run (for audit/logging).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub source_member: Option<String>,
+    /// The self-contained SQLite Checkpoint bytes, standard Base64 encoded
+    /// (its run data key stays wrapped by the shared Secret provider, ADR 0055).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub checkpoint_base64: String,
+    /// Lowercase hex SHA-256 digest of the decoded Checkpoint bytes.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub sha256: String,
+    /// Whether this handoff comes from `runs adopt` rather than a live drain.
+    #[serde(default)]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub adopt: bool,
+}
+
+/// What the destination Group member answers to `group.run.handoff` once it
+/// has installed the Checkpoint, resumed the Run at the next run epoch, and
+/// claimed ownership in the Lead Daemon's group Run index (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRunHandoffResult {
+    /// The settled peer protocol version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the destination Group member has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The Run that was resumed and claimed.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The destination Group member's name (the Run's new owner).
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub owner: String,
+    /// The new run epoch taken when the destination Group member resumed it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+}
+
+/// What a Group member sends the Lead Daemon on `group.run_index.list_assigned`
+/// on startup to learn which non-ended Runs the group Run index still assigns
+/// to it (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRunIndexListAssignedParams {
+    /// The peer protocol version the Group member speaks.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The Product it runs, which must be the group's.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product: Product,
+    /// Its Product version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub product_version: ProductVersion,
+    /// The highest lead epoch it has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// The calling Group member's authenticated name.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub member: String,
+    /// The Group member name whose assigned non-ended Runs to return.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub for_member: String,
+}
+
+/// What the Lead Daemon answers to `group.run_index.list_assigned`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct PeerRunIndexListAssignedResult {
+    /// The settled peer protocol version.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub protocol_version: ProtocolVersion,
+    /// The highest lead epoch the Lead Daemon has recorded.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub lead_epoch: LeadEpoch,
+    /// Non-ended Run index rows currently assigned to `for_member`.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub rows: Vec<RunIndexRow>,
 }

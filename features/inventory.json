@@ -1029,6 +1029,17 @@
       ]
     },
     {
+      "id": "command:runs.adopt",
+      "kind": "command",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "command:runs.reindex",
       "kind": "command",
       "area": 3,
@@ -2059,7 +2070,7 @@
     {
       "id": "error:lead_unreachable",
       "kind": "error",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [
@@ -3189,7 +3200,7 @@
     {
       "id": "event:group.lead_reachability_changed",
       "kind": "event",
-      "area": null,
+      "area": 3,
       "milestone": null,
       "status": "active",
       "products": [

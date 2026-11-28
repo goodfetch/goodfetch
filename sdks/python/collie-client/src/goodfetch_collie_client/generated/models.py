@@ -1568,6 +1568,22 @@ class GroupLeft(BaseModel):
     model_config = ConfigDict(
         extra="allow",
     )
+    handed_off: list[str] | None = None
+    """
+    Run IDs whose Checkpoints were handed off to another Group member during
+    the removal drain (ADR 0055).
+    """
+    left_checkpointed: list[str] | None = None
+    """
+    Run IDs left checkpointed and still assigned to this Group member
+    because the drain grace expired before handoff completed; `runs adopt`
+    brings them into another Group member (ADR 0055).
+    """
+    machine_bound: list[str] | None = None
+    """
+    Run IDs bound to this machine (ADR 0056) that stayed checkpointed and
+    assigned to this Group member.
+    """
     name: str
     """The Group member name this Daemon had."""
 

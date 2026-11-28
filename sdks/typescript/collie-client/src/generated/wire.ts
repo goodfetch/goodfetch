@@ -74,6 +74,7 @@ export type CollieWireType =
   | "GroupJoined"
   | "GroupLeadReachabilityChanged"
   | "GroupLeadStatus"
+  | "GroupLeft"
   | "GroupMemberRevoked"
   | "HelloParams"
   | "HelloResult"
@@ -313,6 +314,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "GroupJoined": { fields: { "certificate_expires_at": ["certificateExpiresAt", "time"], "lead_epoch": "leadEpoch", "peer_address": "peerAddress" } },
     "GroupLeadReachabilityChanged": { fields: { "lead_name": "leadName" } },
     "GroupLeadStatus": { fields: { "confirmed_by_operator": "confirmedByOperator", "lead_epoch": "leadEpoch" } },
+    "GroupLeft": { fields: { "handed_off": "handedOff", "left_checkpointed": "leftCheckpointed", "machine_bound": "machineBound" } },
     "GroupMemberRevoked": { fields: { "revocation_list": "revocationList" } },
     "HelloParams": { fields: { "client_surface": "clientSurface", "keep_daemon_alive": "keepDaemonAlive", "log_level": "logLevel", "product_version": "productVersion", "protocol_version": "protocolVersion" } },
     "HelloResult": { fields: { "engine_instance": "engineInstance", "max_calls_in_flight": "maxCallsInFlight", "private_endpoint": ["privateEndpoint", { type: "PrivateEndpoint" }], "product_version": "productVersion", "protocol_version": "protocolVersion" } },
@@ -579,6 +581,7 @@ export const collieWire: Wire<keyof CollieOperationTypes & string, keyof CollieE
     "group.init": { type: "GroupFormed" },
     "group.join": { type: "GroupJoined" },
     "group.lead": { type: "GroupLeadStatus" },
+    "group.leave": { type: "GroupLeft" },
     "group.revoke": { type: "GroupMemberRevoked" },
     "group.token": { type: "JoinTokenMinted" },
     "key_value_store.get_bytes": { type: "KeyValueStoreBytesValue" },

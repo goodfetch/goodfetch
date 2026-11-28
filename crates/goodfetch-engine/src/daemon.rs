@@ -718,7 +718,7 @@ pub(crate) async fn serve(
                 // A drain once a handover is decided changes nothing.
                 if let Ok(EngineState::Draining) = transition(&state, EngineEvent::Drain) {
                     decide_no_more(&mut asked_of_the_loop);
-                    let until = drain_runs(&serving, &state, grace, |effects_by| serving.runs.drain(effects_by)).await;
+                    let until = drain_for_signal(&serving, &state, grace).await;
                     drop((accepts, live_view_accepts));
                     return finish_by(DaemonEnd::Drained, &connections_owner, &shared, clock, until).await;
                 }
@@ -761,6 +761,24 @@ async fn drain_asked(asked: Option<CancellationToken>) {
         Some(asked) => asked.cancelled().await,
         None => std::future::pending().await,
     }
+}
+
+/// Drains live Runs for a `SIGTERM`/signal drain and, when the drain classifies
+/// as a `StatefulSet` scale-down removal, hands off eligible Checkpoints before
+/// the drain grace expires (ADR 0055).
+async fn drain_for_signal(
+    serving: &Serving,
+    state: &watch::Sender<EngineState>,
+    grace: Duration,
+) -> Instant {
+    let until = drain_runs(serving, state, grace, |effects_by| {
+        serving.runs.drain(effects_by)
+    })
+    .await;
+    if let Some(router) = serving.engine.group_router() {
+        router.handoff_after_drain(until).await;
+    }
+    until
 }
 
 /// The Daemon's end for `ending`, once the Connections in `open` it closes

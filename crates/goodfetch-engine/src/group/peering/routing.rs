@@ -224,7 +224,6 @@ pub(super) struct MovedRuns {
 }
 
 impl MovedRuns {
-    #[cfg(test)]
     pub(super) fn mark_moved(&self, run_id: RunId, new_owner: Option<String>) {
         self.runs
             .lock()
@@ -439,6 +438,18 @@ impl GroupRouter for GroupRouterImpl {
             .consume(session, token, self.peering.clock.wall())
     }
 
+    fn handoff_after_drain(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+        let peering = Arc::clone(&self.peering);
+        Box::pin(async move {
+            if peering.services.sigterm_is_removal {
+                let _ = peering.handoff_local_runs(deadline).await;
+            }
+        })
+    }
+
     fn member_name(&self) -> &str {
         self.peering.name()
     }
@@ -447,7 +458,6 @@ impl GroupRouter for GroupRouterImpl {
 impl Peering {
     /// Marks `run_id` as moved off this Group member to `new_owner` so any
     /// forwarded call arriving here answers `run_moved` immediately.
-    #[cfg(test)]
     pub(super) fn mark_run_moved(&self, run_id: &RunId, new_owner: Option<String>) {
         self.moved_runs.mark_moved(run_id.clone(), new_owner);
         self.route_cache.invalidate_run(run_id);

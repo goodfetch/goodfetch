@@ -23,7 +23,7 @@ use tokio_rustls::TlsConnector;
 use crate::call_error::CallError;
 use crate::clock::Clock;
 use crate::forward::answered_failure;
-use crate::framing::{Frame, Framer, Incoming, decode};
+use crate::framing::{Frame, Framer, Incoming, MAX_MESSAGE_BYTES, decode};
 use crate::group::identity::KeptIdentity;
 use crate::group::operations::internal;
 use crate::group::peer_tls::key_hash_of;
@@ -37,8 +37,10 @@ use crate::wire::request_line;
 /// message, and a Daemon that joins or asks a peer to have its answer.
 pub(super) const OPENING_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The longest message of the peer link; a longer one is refused.
-const LINE_LIMIT: usize = 1024 * 1024;
+/// The longest message of the peer link (aligned with the protocol's
+/// [`MAX_MESSAGE_BYTES`] so Run Checkpoints cross the peer link on scale-down
+/// and `runs adopt`, ADR 0055); a longer one is refused.
+const LINE_LIMIT: usize = MAX_MESSAGE_BYTES;
 
 /// How many bytes one read of the peer link takes at most.
 const READ_BYTES: usize = 8 * 1024;

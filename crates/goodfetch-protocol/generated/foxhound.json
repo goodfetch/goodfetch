@@ -7726,6 +7726,30 @@
     "GroupLeft": {
       "description": "What `group.leave` answers.",
       "properties": {
+        "handed_off": {
+          "arrived_in": "0.1",
+          "description": "Run IDs whose Checkpoints were handed off to another Group member during\nthe removal drain (ADR 0055).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "left_checkpointed": {
+          "arrived_in": "0.1",
+          "description": "Run IDs left checkpointed and still assigned to this Group member\nbecause the drain grace expired before handoff completed; `runs adopt`\nbrings them into another Group member (ADR 0055).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "machine_bound": {
+          "arrived_in": "0.1",
+          "description": "Run IDs bound to this machine (ADR 0056) that stayed checkpointed and\nassigned to this Group member.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "name": {
           "arrived_in": "0.1",
           "description": "The Group member name this Daemon had.",

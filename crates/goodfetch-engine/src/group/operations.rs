@@ -8,7 +8,7 @@
 //! major's Daemon forwards each call to it, and only a Daemon, or an
 //! engine that cannot start one, runs these handlers.
 
-use goodfetch_protocol::daemon::DaemonToken;
+use goodfetch_protocol::daemon::{DRAIN_GRACE, DaemonToken};
 use goodfetch_protocol::group::{
     GROUP_EXISTS, GROUP_INIT, GROUP_JOIN, GROUP_LEAD, GROUP_LEAVE, GROUP_MEMBER_UNKNOWN,
     GROUP_REVOKE, GROUP_TOKEN, GroupFormed, GroupInitParams, GroupJoinParams, GroupJoined,
@@ -26,6 +26,7 @@ use super::store::Revocation;
 use super::{GroupAuthority, GroupMemberKey, GroupMemberName, JoinToken, store};
 use crate::composition::{CallContext, Contribution, Handler};
 use crate::known_certificates::KeyHash;
+use crate::settings::get_or_default;
 use crate::transport::{PeerListener, listen_peer};
 use crate::user_store::{UserStore, UserStoreError};
 use crate::{CallError, kept_by_the_daemon};
@@ -194,6 +195,15 @@ async fn leave(_: GroupLeaveParams, context: CallContext) -> Result<GroupLeft, C
     if kept.is_lead() {
         return Err(lead_cannot_leave());
     }
+    let summary = if let Some(peering) = peering::running(context.engine()) {
+        let machine = context.engine().settings().snapshot().await;
+        let grace: std::time::Duration = get_or_default(machine.resolved().ok(), &DRAIN_GRACE);
+        peering
+            .drain_and_handoff_for_removal(context.runs(), grace)
+            .await
+    } else {
+        peering::RemovalSummary::default()
+    };
     peering::ask_to_leave(
         &kept,
         lead_epoch,
@@ -205,7 +215,12 @@ async fn leave(_: GroupLeaveParams, context: CallContext) -> Result<GroupLeft, C
         .await
         .map_err(|error| store_failed(&error))?;
     peering::stop(context.engine()).await;
-    Ok(GroupLeft { name: kept.name })
+    Ok(GroupLeft {
+        name: kept.name,
+        handed_off: summary.handed_off,
+        left_checkpointed: summary.left_checkpointed,
+        machine_bound: summary.machine_bound,
+    })
 }
 
 async fn revoke(

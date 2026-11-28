@@ -1464,6 +1464,33 @@ pub struct RunsReindexOutput {
     pub erased: u64,
 }
 
+/// One Run brought into another Group member by `runs adopt` (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AdoptedRun {
+    /// The adopted Run's ID.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_id: RunId,
+    /// The Group member that resumed the Run and now owns it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub owner: String,
+    /// The new run epoch taken when the receiving Group member resumed it.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub run_epoch: u64,
+}
+
+/// What `runs adopt --json` prints once it finishes bringing checkpointed Runs
+/// from a removed Group member's volume into the Daemon group (ADR 0055).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct RunsAdoptOutput {
+    /// Runs whose Checkpoints were handed off, resumed, and reassigned.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub adopted: Vec<AdoptedRun>,
+    /// Run IDs skipped because they had already ended or been adopted by
+    /// another Group member.
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub skipped: Vec<String>,
+}
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),

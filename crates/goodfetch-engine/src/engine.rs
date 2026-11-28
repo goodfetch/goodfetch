@@ -621,6 +621,8 @@ impl Engine {
                 events,
                 metrics: self.metrics.clone(),
                 governor,
+                sigterm_is_removal: crate::group::classify_sigterm_drain(&dependencies.environment)
+                    == crate::group::DrainMode::Removal,
             },
         );
         let secrets = Secrets::new(

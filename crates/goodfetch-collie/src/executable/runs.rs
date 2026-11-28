@@ -9,9 +9,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use goodfetch_engine::clock::Clock;
-use goodfetch_engine::group::reindex_to_lead;
+use goodfetch_engine::group::{adopt_runs, reindex_to_lead};
 use goodfetch_engine::runs::reindex as rebuild;
-use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsReindexOutput};
+use goodfetch_protocol::connection::Form;
+use goodfetch_protocol::run::{RUN_STATE_LOCATION, RunsAdoptOutput, RunsReindexOutput};
 
 use super::daemon::Machine;
 use super::output::{self, Human};
@@ -65,6 +66,57 @@ pub(super) fn reindex(
         Err(error) => {
             tracing::error!(%error, "the Run index cannot be rebuilt");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// Brings checkpointed Runs from `paths` (relative to `folder`) on a removed
+/// Group member's kept volume into another Group member of the Daemon group
+/// (ADR 0055).
+pub(super) fn adopt(
+    machine: &Machine<'_>,
+    folder: &std::path::Path,
+    paths: Vec<PathBuf>,
+    from_member: Option<&str>,
+    json: bool,
+    human: &Human,
+) -> ExitCode {
+    let (identity, home) = (machine.identity, machine.home);
+    let locations: Vec<PathBuf> = if paths.is_empty() {
+        vec![home.runs(&identity.product_version)]
+    } else {
+        paths.into_iter().map(|path| folder.join(path)).collect()
+    };
+    let Ok(runtime) = goodfetch_runtime::current_thread().enable_all().build() else {
+        tracing::error!("the runtime for `runs adopt` could not be started");
+        return ExitCode::FAILURE;
+    };
+    match runtime.block_on(adopt_runs(
+        home,
+        identity,
+        Clock::system(),
+        &locations,
+        from_member,
+    )) {
+        Ok(adopted) => {
+            let result = RunsAdoptOutput {
+                adopted: adopted.adopted,
+                skipped: adopted.skipped,
+            };
+            if json {
+                output::json(&result);
+            } else {
+                output::line(&format!(
+                    "Adopted {} Run(s) ({} skipped).",
+                    result.adopted.len(),
+                    result.skipped.len()
+                ));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            let error_object = error.to_error_object_in(Form::Catalog);
+            output::fail(error_object, Some("runs.adopt"), json, human)
         }
     }
 }

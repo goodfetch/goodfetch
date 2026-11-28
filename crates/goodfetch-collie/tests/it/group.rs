@@ -908,3 +908,192 @@ executable_path = "/opt/browsers/worker-b"
         "user_configuration",
     );
 }
+
+fn start_and_checkpoint_runs(env: &TestEnv, member: &str, run_ids: &[&str]) {
+    let rt = RuntimeFile::read(&runtime_file(env)).unwrap();
+    let mut client = DaemonClient::connect(&rt.endpoint);
+    let hello = client.open(
+        &Hello::needing(Product::Collie)
+            .id("hello")
+            .surface(goodfetch_protocol::connection::Surface::Cli)
+            .token(&rt.token),
+    );
+    assert!(hello.get("result").is_some(), "{hello}");
+    let mut next_id = 1_i64;
+    for run_id in run_ids {
+        let started = client.call(
+            next_id,
+            "run.start",
+            &json!({ "run_id": run_id, "group_member": member }),
+        );
+        next_id += 1;
+        assert!(started.get("result").is_some(), "{run_id}: {started}");
+        let saved = client.call(
+            next_id,
+            "key_value_store.set",
+            &json!({ "run_id": run_id, "key": "state", "value": run_id }),
+        );
+        next_id += 1;
+        assert!(saved.get("result").is_some(), "{run_id} kv.set: {saved}");
+        let cp = client.call(next_id, "run.checkpoint", &json!({ "run_id": run_id }));
+        next_id += 1;
+        assert!(cp.get("result").is_some(), "{run_id} checkpoint: {cp}");
+    }
+}
+
+fn wait_for_member_owners(lead: &TestEnv, member: &str, run_ids: &[&str]) {
+    let expected = Some(Some(json!({ "group_member": member })));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if run_ids
+            .iter()
+            .all(|id| run_index_owner(lead, id).map(|(o, _)| o) == expected)
+        {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("Lead Run index did not assign {run_ids:?} to {member} in time");
+}
+
+fn form_three_member_group(lead: &TestEnv, worker_a: &TestEnv, worker_b: &TestEnv) {
+    for (env, is_lead) in [(lead, true), (worker_a, false), (worker_b, false)] {
+        let layout = HomeLayout::of(env.home());
+        std::fs::create_dir_all(layout.per_major()).unwrap();
+        env.user_configuration("daemon.idle_timeout = 60000\n");
+        if is_lead {
+            std::fs::write(
+                layout.operator_policy(),
+                "version = \"0.1\"\n\n[settings.politeness]\nsharing = \"per_daemon\"\n",
+            )
+            .unwrap();
+        }
+    }
+
+    let formed = answered(
+        lead,
+        &[
+            "group",
+            "init",
+            "--name",
+            "lead",
+            "--peer-address",
+            "127.0.0.1:0",
+        ],
+        "GroupFormed",
+    );
+    let lead_peer = formed["peer_address"].as_str().unwrap().to_owned();
+    let auth_key = formed["authority_key"].as_str().unwrap().to_owned();
+
+    for (env, name) in [(worker_a, "worker-a"), (worker_b, "worker-b")] {
+        let minted = answered(lead, &["group", "token"], "JoinTokenMinted");
+        let _ = answered(
+            env,
+            &[
+                "group",
+                "join",
+                "--lead",
+                &lead_peer,
+                "--token",
+                minted["token"].as_str().unwrap(),
+                "--authority-key",
+                &auth_key,
+                "--name",
+                name,
+                "--peer-address",
+                "127.0.0.1:0",
+            ],
+            "GroupJoined",
+        );
+    }
+}
+
+/// A removed Group member's checkpointed Run left on its kept volume can be
+/// brought into a remaining Group member with `runs adopt`, while restarting a
+/// Group member resumes only the Runs the group Run index still assigns to it
+/// (ADR 0055, issue 245).
+///
+/// Covers: story:3-111, command:runs.adopt
+#[test]
+fn runs_adopt_brings_leftover_run_into_group_and_restarted_member_resumes_only_assigned() {
+    let lead = TestEnv::new();
+    let worker_a = TestEnv::new();
+    let worker_b = TestEnv::new();
+    let _stop_lead = StopsTheDaemon::of(&lead, COLLIE);
+    let _stop_a = StopsTheDaemon::of(&worker_a, COLLIE);
+    let _stop_b = StopsTheDaemon::of(&worker_b, COLLIE);
+
+    form_three_member_group(&lead, &worker_a, &worker_b);
+
+    start_and_checkpoint_runs(&worker_a, "worker-a", &["adopt-me-1", "stay-on-a-1"]);
+    wait_for_member_owners(&lead, "worker-a", &["adopt-me-1", "stay-on-a-1"]);
+
+    // Stop worker-a as a restart/outage (without `group leave`): both Runs stay
+    // checkpointed on worker-a's kept volume and assigned to worker-a.
+    let stopped = answered(&worker_a, &["daemon", "stop"], "DaemonStatus");
+    assert!(stopped["pid"].is_null(), "{stopped}");
+
+    // Adopt ONLY `adopt-me-1` from worker-a's kept volume into another Group member!
+    let version = ProductVersion::parse(VERSION).unwrap();
+    let adopt_folder = Home::new(worker_a.home().to_path_buf())
+        .runs(&version)
+        .join("adopt-me-1");
+    let adopted = answered(
+        &worker_b,
+        &[
+            "runs",
+            "adopt",
+            "--from-member",
+            "worker-a",
+            adopt_folder.to_str().unwrap(),
+        ],
+        "RunsAdoptOutput",
+    );
+    let adopted_list = adopted["adopted"].as_array().unwrap();
+    assert_eq!(adopted_list.len(), 1, "{adopted}");
+    assert_eq!(adopted_list[0]["run_id"], json!("adopt-me-1"));
+    let new_owner = adopted_list[0]["owner"].as_str().unwrap().to_owned();
+    assert!(
+        new_owner == "lead" || new_owner == "worker-b",
+        "adopted run must move to a remaining member: {adopted}"
+    );
+    assert!(
+        adopted_list[0]["run_epoch"].as_u64().unwrap() >= 2,
+        "adopted run must take the next run epoch: {adopted}"
+    );
+
+    // Re-running `runs adopt` on the same folder skips the already-adopted Run.
+    let adopted_again = answered(
+        &worker_b,
+        &[
+            "runs",
+            "adopt",
+            "--from-member",
+            "worker-a",
+            adopt_folder.to_str().unwrap(),
+        ],
+        "RunsAdoptOutput",
+    );
+    assert_eq!(adopted_again["adopted"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        adopted_again["skipped"],
+        json!(["adopt-me-1"]),
+        "{adopted_again}"
+    );
+
+    // Restart worker-a: it resumes ONLY `stay-on-a-1` (still assigned to it),
+    // NOT `adopt-me-1` (now owned by `new_owner`), so `adopt-me-1` never runs twice!
+    let restarted = answered(&worker_a, &["daemon", "start"], "DaemonStatus");
+    assert!(restarted["pid"].is_number(), "{restarted}");
+
+    assert_eq!(
+        run_index_owner(&lead, "adopt-me-1").map(|(o, _)| o),
+        Some(Some(json!({ "group_member": new_owner }))),
+        "restarted worker-a must not hijack adopt-me-1 back"
+    );
+    assert_eq!(
+        run_index_owner(&lead, "stay-on-a-1").map(|(o, _)| o),
+        Some(Some(json!({ "group_member": "worker-a" }))),
+        "restarted worker-a keeps stay-on-a-1 assigned to it"
+    );
+}

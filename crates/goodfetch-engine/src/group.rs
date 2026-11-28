@@ -28,6 +28,7 @@
 //! listener, which [`resume`] opens again when the Daemon restarts.
 
 mod authority;
+pub mod drain;
 mod identity;
 mod join_tokens;
 mod leadership;
@@ -48,12 +49,15 @@ pub use authority::{
     GroupMemberCertificate, GroupMemberKey, GroupMemberName, GroupMemberNameInvalid,
     GroupMemberPublicKey, GroupMemberPublicKeyInvalid, RevocationList,
 };
+pub use drain::{DrainMode, classify_drain, classify_sigterm_drain, pod_ordinal};
 pub use join_tokens::{JOIN_TOKEN_LIFETIME, JoinToken, JoinTokenRefused};
 pub use leadership::{ExchangeOutcome, LeadRefusal, LeadSnapshot, Leadership};
 pub use operations::contribution;
 pub use peer_tls::{PeerIdentity, PeerTlsError, PeerTrust, accepting, connecting, joining};
 pub(crate) use peering::resume;
-pub use peering::{TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache, reindex_to_lead};
+pub use peering::{
+    AdoptedSummary, TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache, adopt_runs, reindex_to_lead,
+};
 
 use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::connection::{

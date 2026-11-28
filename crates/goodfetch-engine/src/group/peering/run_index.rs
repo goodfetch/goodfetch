@@ -81,6 +81,7 @@ async fn report_with_retry(peering: &Peering, owner: &TaskOwner, rows: Vec<RunIn
             lead_epoch,
             member: kept.name.clone(),
             rows: rows.clone(),
+            claim: false,
         };
         match ask_lead::<PeerRunIndexReportResult>(&kept, peering.clock, RUN_INDEX_REPORT, &params)
             .await
@@ -138,6 +139,20 @@ impl Peering {
         let mut reported = 0_u64;
         if let Some(run_index) = &self.services.run_index {
             for mut row in params.rows {
+                // Passive reports (such as a restarted or re-added Group member
+                // syncing its kept volume) must never hijack a Run already
+                // assigned to another Group member in the Lead Daemon's group
+                // Run index (ADR 0055). Only an explicit ownership claim from a
+                // handoff or `runs adopt` transfers `owner`.
+                if !params.claim
+                    && let Ok(Some(existing)) = run_index.read(row.run_id.clone()).await
+                    && matches!(
+                        existing.owner,
+                        Some(RunOwner::GroupMember(ref current)) if current != &owner
+                    )
+                {
+                    continue;
+                }
                 row.owner = Some(RunOwner::GroupMember(owner.clone()));
                 run_index
                     .write(row)
@@ -205,6 +220,7 @@ pub async fn reindex_to_lead(
         lead_epoch,
         member: kept.name.clone(),
         rows,
+        claim: false,
     };
     let answered = ask_lead::<PeerRunIndexReportResult>(&kept, clock, RUN_INDEX_REPORT, &params)
         .await

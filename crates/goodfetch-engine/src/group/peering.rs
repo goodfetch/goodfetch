@@ -27,13 +27,14 @@ use goodfetch_protocol::catalog::{Product, ProtocolVersion};
 use goodfetch_protocol::group::{
     CONTROL_STATE_PUSH, CONTROL_STATE_SYNC, GROUP_ERASURE, GROUP_EVENTS_SUBSCRIBE,
     GROUP_HEADROOM_REPORT, GROUP_LEDGER, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
-    GROUP_MEMBER_EXISTS, GROUP_RPC_FORWARD, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE,
-    GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED, LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION,
-    PeerControlStatePushParams, PeerControlStateSyncParams, PeerErasureParams,
-    PeerEventsSubscribeParams, PeerHeadroomReportParams, PeerJoinParams, PeerJoinResult,
-    PeerLeaveParams, PeerLedgerParams, PeerLiveViewMintParams, PeerLiveViewRelayParams,
-    PeerRenewParams, PeerRpcForwardParams, PeerRunIndexLookupParams, PeerRunIndexReportParams,
-    PeerRunPlaceParams, PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
+    GROUP_MEMBER_EXISTS, GROUP_RPC_FORWARD, GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED,
+    GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE, GROUP_TOKEN_CHECK, HELLO, JOIN, JOIN_TOKEN_REFUSED,
+    LEAVE, LeadEpoch, PEER_PROTOCOL_VERSION, PeerControlStatePushParams,
+    PeerControlStateSyncParams, PeerErasureParams, PeerEventsSubscribeParams,
+    PeerHeadroomReportParams, PeerJoinParams, PeerJoinResult, PeerLeaveParams, PeerLedgerParams,
+    PeerLiveViewMintParams, PeerLiveViewRelayParams, PeerRenewParams, PeerRpcForwardParams,
+    PeerRunHandoffParams, PeerRunIndexListAssignedParams, PeerRunIndexLookupParams,
+    PeerRunIndexReportParams, PeerRunPlaceParams, PeerTokenCheckParams, RENEW, RUN_INDEX_REPORT,
 };
 use goodfetch_protocol::jsonrpc::{ProtocolFailure, RequestId};
 use goodfetch_protocol::tls::{CertificateFailure, KnownCertificateFailure};
@@ -103,6 +104,9 @@ pub(super) struct PeerServices {
     pub(super) live_view: Option<LiveView>,
     pub(super) live_view_slot: Option<crate::engine_context::LiveViewSlot>,
     pub(super) local_dispatcher: Option<Arc<dyn LocalDispatcher>>,
+    /// Whether a `SIGTERM` drain on this Group member classifies as a
+    /// `StatefulSet` scale-down removal rather than a restart (ADR 0055).
+    pub(super) sigterm_is_removal: bool,
 }
 
 impl Default for PeerServices {
@@ -123,6 +127,7 @@ impl Default for PeerServices {
             live_view: None,
             live_view_slot: None,
             local_dispatcher: None,
+            sigterm_is_removal: false,
         }
     }
 }
@@ -145,6 +150,7 @@ impl PeerServices {
             live_view: routing::live_view_from_engine(engine),
             live_view_slot: Some(engine.live_view_slot()),
             local_dispatcher: engine.local_dispatcher(),
+            sigterm_is_removal: engine.sigterm_is_removal(),
         }
     }
 
@@ -415,6 +421,9 @@ pub(crate) async fn resume(engine: EngineContext, identity: Identity) {
         tracing::warn!(%error, "the peer listener cannot present the kept identity");
     } else {
         engine.settings().refresh().await;
+        if let Some(peering) = running(&engine) {
+            let _ = peering.resume_assigned_runs().await;
+        }
     }
 }
 
@@ -762,6 +771,12 @@ impl Peering {
                         .await;
                     None
                 }
+                Opening::RunHandoff(request) => {
+                    Some(self.receive_handoff(&presented, *request).await)
+                }
+                Opening::RunIndexListAssigned(request) => {
+                    Some(self.list_assigned_runs(&presented, request).await)
+                }
                 Opening::Refused(reply) => Some(reply),
                 Opening::Other(first) => {
                     self.member(&mut stream, &mut lines, first).await;
@@ -1025,6 +1040,10 @@ enum Opening {
     LiveViewRelay(Asked<PeerLiveViewRelayParams>),
     /// A `group.events.subscribe` stream, likewise.
     EventsSubscribe(Asked<PeerEventsSubscribeParams>),
+    /// A `group.run.handoff` Checkpoint transfer, likewise.
+    RunHandoff(Box<Asked<PeerRunHandoffParams>>),
+    /// A `group.run_index.list_assigned` query, likewise.
+    RunIndexListAssigned(Asked<PeerRunIndexListAssignedParams>),
     /// The line refusing either.
     Refused(Vec<u8>),
     /// Another message, which opens a [`PeerLink`].
@@ -1103,6 +1122,17 @@ fn opening(identity: &Identity, first: Frame) -> Opening {
             })
             .map(Opening::EventsSubscribe)
         }
+        GROUP_RUN_HANDOFF => asked(identity, id, call, |params: &PeerRunHandoffParams| {
+            (params.product, params.protocol_version)
+        })
+        .map(|req| Opening::RunHandoff(Box::new(req))),
+        GROUP_RUN_INDEX_LIST_ASSIGNED => asked(
+            identity,
+            id,
+            call,
+            |params: &PeerRunIndexListAssignedParams| (params.product, params.protocol_version),
+        )
+        .map(Opening::RunIndexListAssigned),
         _ => return Opening::Other(Frame::Line(line)),
     };
     read.unwrap_or_else(Opening::Refused)
@@ -1216,6 +1246,7 @@ fn lead_refusal(refusal: LeadRefusal) -> CallError {
 mod confirmation;
 mod control_state;
 mod erasure;
+mod handoff;
 mod leaving;
 mod limits;
 mod politeness;
@@ -1224,6 +1255,8 @@ mod routing;
 mod run_index;
 mod wire;
 
+pub(in crate::group) use handoff::RemovalSummary;
+pub use handoff::{AdoptedSummary, adopt_runs};
 pub(super) use leaving::ask_to_leave;
 pub use limits::{TOKEN_CHECK_CACHE_MAX_TTL, TokenCheckCache};
 pub use run_index::reindex_to_lead;

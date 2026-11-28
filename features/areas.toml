@@ -127,6 +127,11 @@ prefix = "group."
 
 [[area]]
 number = 3
+kind = "event"
+prefix = "group."
+
+[[area]]
+number = 3
 kind = "error"
 prefix = "group_"
 
@@ -149,6 +154,11 @@ prefix = "lead_cannot_leave"
 number = 3
 kind = "error"
 prefix = "lead_unconfirmed"
+
+[[area]]
+number = 3
+kind = "error"
+prefix = "lead_unreachable"
 
 [[area]]
 number = 3

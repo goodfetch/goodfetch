@@ -9,4 +9,5 @@ mod engine;
 mod group;
 mod group_limits;
 mod group_routing;
+mod group_scale_down;
 mod usage;

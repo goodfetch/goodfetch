@@ -347,6 +347,7 @@ fn the_bundle_holds_each_commands_json_output() {
             "doctor": { "$ref": "#/$defs/DoctorReport" },
             "init": { "$ref": "#/$defs/InitResult" },
             "recipe.digest": { "$ref": "#/$defs/RecipeDigestOutput" },
+            "runs.adopt": { "$ref": "#/$defs/RunsAdoptOutput" },
             "runs.reindex": { "$ref": "#/$defs/RunsReindexOutput" },
             "skill.install": { "$ref": "#/$defs/SkillsInstalled" },
             "upgrade-files": { "$ref": "#/$defs/FilesUpgraded" },

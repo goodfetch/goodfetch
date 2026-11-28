@@ -5104,6 +5104,22 @@ export interface GroupLeaveParams {}
  */
 export interface GroupLeft {
   /**
+   * Run IDs whose Checkpoints were handed off to another Group member during
+   * the removal drain (ADR 0055).
+   */
+  handedOff?: string[];
+  /**
+   * Run IDs left checkpointed and still assigned to this Group member
+   * because the drain grace expired before handoff completed; `runs adopt`
+   * brings them into another Group member (ADR 0055).
+   */
+  leftCheckpointed?: string[];
+  /**
+   * Run IDs bound to this machine (ADR 0056) that stayed checkpointed and
+   * assigned to this Group member.
+   */
+  machineBound?: string[];
+  /**
    * The Group member name this Daemon had.
    */
   name: string;

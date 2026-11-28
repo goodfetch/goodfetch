@@ -27,6 +27,9 @@
 //! whose certificate nears its expiry opens a peer link to the Lead Daemon
 //! with it and sends [`RENEW`] in place of `hello`, likewise alone, and one
 //! that leaves the group sends [`LEAVE`] the same way.
+//!
+//! Size: one contract module collecting the Daemon group peer protocol,
+//! membership operations, and group error/constant declarations from ADR 0055.
 
 mod control_state;
 mod limits;
@@ -50,11 +53,13 @@ pub use limits::{
 };
 pub use routing::{
     GROUP_EVENTS_SUBSCRIBE, GROUP_HEADROOM_REPORT, GROUP_LIVE_VIEW_MINT, GROUP_LIVE_VIEW_RELAY,
-    GROUP_RPC_FORWARD, GROUP_RUN_INDEX_LOOKUP, GROUP_RUN_PLACE, MemberCapabilities, MemberHeadroom,
-    MemberRoute, PeerEventsSubscribeParams, PeerHeadroomReportParams, PeerHeadroomReportResult,
-    PeerLiveViewMintParams, PeerLiveViewMintResult, PeerLiveViewRelayParams, PeerRpcForwardParams,
-    PeerRpcForwardResult, PeerRunIndexLookupParams, PeerRunIndexLookupResult, PeerRunPlaceParams,
-    PeerRunPlaceResult, PlacementRequest, RUN_MOVED, RunMovedDetails,
+    GROUP_RPC_FORWARD, GROUP_RUN_HANDOFF, GROUP_RUN_INDEX_LIST_ASSIGNED, GROUP_RUN_INDEX_LOOKUP,
+    GROUP_RUN_PLACE, MemberCapabilities, MemberHeadroom, MemberRoute, PeerEventsSubscribeParams,
+    PeerHeadroomReportParams, PeerHeadroomReportResult, PeerLiveViewMintParams,
+    PeerLiveViewMintResult, PeerLiveViewRelayParams, PeerRpcForwardParams, PeerRpcForwardResult,
+    PeerRunHandoffParams, PeerRunHandoffResult, PeerRunIndexListAssignedParams,
+    PeerRunIndexListAssignedResult, PeerRunIndexLookupParams, PeerRunIndexLookupResult,
+    PeerRunPlaceParams, PeerRunPlaceResult, PlacementRequest, RUN_MOVED, RunMovedDetails,
 };
 
 use schemars::JsonSchema;
@@ -355,6 +360,12 @@ pub struct PeerRunIndexReportParams {
     /// The Run index rows it owns to record in the group Run index.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub rows: Vec<RunIndexRow>,
+    /// Whether this report transfers ownership (handoff or `runs adopt`), so
+    /// the Lead Daemon updates the row's `owner` even when another Group member
+    /// previously held it (ADR 0055).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub claim: bool,
 }
 
 /// What the Lead Daemon answers to a `group.run_index.report` it accepts.
@@ -665,6 +676,22 @@ pub struct GroupLeft {
     /// The Group member name this Daemon had.
     #[schemars(extend("arrived_in" = "0.1"))]
     pub name: String,
+    /// Run IDs whose Checkpoints were handed off to another Group member during
+    /// the removal drain (ADR 0055).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub handed_off: Vec<String>,
+    /// Run IDs left checkpointed and still assigned to this Group member
+    /// because the drain grace expired before handoff completed; `runs adopt`
+    /// brings them into another Group member (ADR 0055).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub left_checkpointed: Vec<String>,
+    /// Run IDs bound to this machine (ADR 0056) that stayed checkpointed and
+    /// assigned to this Group member.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub machine_bound: Vec<String>,
 }
 
 /// What `group.revoke` takes.

@@ -153,6 +153,10 @@
           {
             "commands": [],
             "name": "reindex"
+          },
+          {
+            "commands": [],
+            "name": "adopt"
           }
         ],
         "name": "runs"
@@ -634,6 +638,10 @@
           {
             "commands": [],
             "name": "reindex"
+          },
+          {
+            "commands": [],
+            "name": "adopt"
           }
         ],
         "name": "runs"

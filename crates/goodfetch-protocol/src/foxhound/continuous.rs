@@ -40,6 +40,14 @@ fn default_revisit_domain_share() -> Value {
     json!(0.5)
 }
 
+fn default_revisit_on_error() -> Value {
+    json!(7_200_000)
+}
+
+fn default_revisit_gone_after() -> Value {
+    json!(1)
+}
+
 /// One kind of work a domain's turn orders in a Continuous crawl
 /// (`crawl.revisit.order`, ADR 0004, ADR 0139).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
@@ -601,6 +609,56 @@ pub const CRAWL_REVISIT_DOMAIN_SHARE_YIELDS_TO_BATCH: Yielding = Yielding {
     reason: "a batch crawl does not revisit URLs",
 };
 
+/// `revisit.on_error` (ADR 0139).
+pub const REVISIT_ON_ERROR: Setting = Setting {
+    name: "revisit.on_error",
+    description: "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::Duration,
+    default: default_revisit_on_error,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.gone_after` (ADR 0139).
+pub const REVISIT_GONE_AFTER: Setting = Setting {
+    name: "revisit.gone_after",
+    description: "How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.",
+    kind: ValueKind::CountFromOne,
+    default: default_revisit_gone_after,
+    clearable: false,
+    authority: Authority::Every,
+    weakens: None,
+    fixed_for_run: false,
+    unbuilt: None,
+    deprecated: None,
+    arrived_in: ARRIVED_IN,
+};
+
+/// `revisit.on_error` yields to `crawl.continuous = false`.
+pub const REVISIT_ON_ERROR_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_ON_ERROR,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
+/// `revisit.gone_after` yields to `crawl.continuous = false`.
+pub const REVISIT_GONE_AFTER_YIELDS_TO_BATCH: Yielding = Yielding {
+    key: &REVISIT_GONE_AFTER,
+    when: any_value,
+    to: &CRAWL_CONTINUOUS,
+    to_values: is_false,
+    unless: None,
+    reason: "a batch crawl does not revisit URLs",
+};
+
 /// Every entry this module defines.
 pub const ENTRIES: Entries = Entries {
     defined_in: module_path!(),
@@ -615,6 +673,8 @@ pub const ENTRIES: Entries = Entries {
         REVISIT_POLICY,
         REVISIT_CHANGE_CHECK,
         REVISIT_ON_UNCHANGED,
+        REVISIT_ON_ERROR,
+        REVISIT_GONE_AFTER,
         CRAWL_REVISIT_ORDER,
         CRAWL_REVISIT_DOMAIN_SHARE,
     ],

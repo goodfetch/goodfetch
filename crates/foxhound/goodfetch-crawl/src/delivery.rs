@@ -100,8 +100,8 @@ use goodfetch_frontier::revisit::{self, RevisitRow, SiteHints, VisitResult};
 use goodfetch_protocol::catalog::Setting;
 use goodfetch_protocol::egress::EGRESS_LOCAL_ADDRESSES;
 use goodfetch_protocol::foxhound::continuous::{
-    CRAWL_CONTINUOUS, REVISIT_CHANGE_CHECK, REVISIT_ON_UNCHANGED, REVISIT_POLICY,
-    RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
+    CRAWL_CONTINUOUS, REVISIT_CHANGE_CHECK, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
+    REVISIT_ON_UNCHANGED, REVISIT_POLICY, RevisitChangeCheck, RevisitOnUnchanged, RevisitPolicy,
 };
 use goodfetch_protocol::foxhound::crawl::{
     CLIENT_GONE, CRAWL_CONTENT_TYPES, CRAWL_KEEP_ALIVE, CrawlRequestHandled, HANDLER_LOST,
@@ -304,6 +304,13 @@ pub(crate) async fn drive(
             settings.resolved().value(&REVISIT_ON_UNCHANGED),
         )
         .unwrap_or_default(),
+        run_gone_after: settings
+            .resolved()
+            .value(&REVISIT_GONE_AFTER)
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .filter(|&v| v >= 1)
+            .unwrap_or(1),
         browser_signature_warned: std::sync::OnceLock::new(),
     };
     for (setting, code, message) in SWITCHED_OFF {
@@ -444,6 +451,8 @@ struct Read {
     follow_latest: bool,
     /// Run-level `revisit.policy` fallback for Labels that set none.
     run_revisit_policy: RevisitPolicy,
+    /// Run-level `revisit.on_error` fallback in ms for Labels that set none.
+    run_revisit_on_error: u64,
 }
 
 impl Read {
@@ -462,6 +471,11 @@ impl Read {
             follow_latest,
             run_revisit_policy: RevisitPolicy::read(resolved.value(&REVISIT_POLICY))
                 .unwrap_or(RevisitPolicy::Never),
+            run_revisit_on_error: resolved
+                .value(&REVISIT_ON_ERROR)
+                .as_u64()
+                .filter(|&ms| ms >= 1)
+                .unwrap_or(7_200_000),
         }
     }
 }
@@ -964,6 +978,8 @@ struct Fetching<'a> {
     run_change_check: RevisitChangeCheck,
     /// Run-level `revisit.on_unchanged` fallback for Labels that set none.
     run_on_unchanged: RevisitOnUnchanged,
+    /// Run-level `revisit.gone_after` fallback for Labels that set none.
+    run_gone_after: u32,
     /// Whether the Run has already emitted [`REVISIT_BROWSER_SIGNATURE`] once.
     browser_signature_warned: std::sync::OnceLock<()>,
 }
@@ -1417,6 +1433,10 @@ async fn plan_revisit_for_lease(
         .labels
         .settings
         .revisit_on_unchanged(label, fetching.run_on_unchanged);
+    let gone_after = fetching
+        .labels
+        .settings
+        .revisit_gone_after(label, fetching.run_gone_after);
     let prev_row = leased
         .revisit_row
         .as_ref()
@@ -1429,7 +1449,7 @@ async fn plan_revisit_for_lease(
     } else {
         configured_check
     };
-    if leased.is_revisit
+    if leased.is_revisit_attempt()
         && was_browser
         && configured_check != RevisitChangeCheck::Signature
         && fetching.browser_signature_warned.set(()).is_ok()
@@ -1441,7 +1461,7 @@ async fn plan_revisit_for_lease(
         )
         .await;
     }
-    let conditional = if leased.is_revisit
+    let conditional = if leased.is_revisit_attempt()
         && effective_check.uses_conditional()
         && on_unchanged == RevisitOnUnchanged::Skip
     {
@@ -1459,6 +1479,8 @@ async fn plan_revisit_for_lease(
             continuous: true,
             change_check: effective_check,
             on_unchanged,
+            gone_after,
+            previous_consecutive_gone: prev_row.map_or(0, |row| row.consecutive_gone),
             previous_signature: prev_row.and_then(|row| row.signature.clone()),
         }),
         conditional,
@@ -1801,9 +1823,99 @@ async fn settled(
     })
 }
 
+/// Preserves prior revisit metadata while updating schedule and gone streak
+/// for a revisit that ended `gone` or `failed` (ADR 0139).
+fn preserved_revisit_row(
+    attempt: &Attempt,
+    prev_row: Option<&RevisitRow>,
+    previous: goodfetch_frontier::revisit::PreviousState,
+    next_visit_at: Option<u64>,
+    last_fetched_at: Option<u64>,
+    consecutive_gone: u32,
+) -> RevisitRow {
+    let request = &attempt.leased.crawl_request;
+    let meta = attempt.revisit_meta.as_ref();
+    RevisitRow {
+        work_item: request.id.clone(),
+        identity: request.url.clone(),
+        domain_key: attempt.leased.waiting.key.clone(),
+        next_visit_at,
+        interval_ms: prev_row
+            .and_then(|r| r.interval_ms)
+            .or(previous.interval_ms),
+        last_fetched_at,
+        last_changed_at: prev_row.and_then(|r| r.last_changed_at),
+        signature: prev_row.and_then(|r| r.signature.clone()),
+        etag: prev_row.and_then(|r| r.etag.clone()),
+        last_modified: prev_row.and_then(|r| r.last_modified.clone()),
+        visits: previous.visits,
+        changes: previous.changes,
+        consecutive_gone,
+        last_tier: meta
+            .and_then(|m| m.tier.map(|t| t.as_str().to_owned()))
+            .or_else(|| prev_row.and_then(|r| r.last_tier.clone())),
+    }
+}
+
+/// Computes the updated [`RevisitRow`] for a revisit ending `gone` or `failed`
+/// (ADR 0139), or `None` for other endings.
+fn planned_unsuccessful_revisit(
+    run: &CrawlRun,
+    read: Read,
+    fetching: &Fetching<'_>,
+    attempt: &Attempt,
+    prev_row: Option<&RevisitRow>,
+    previous: goodfetch_frontier::revisit::PreviousState,
+    now_ms: u64,
+) -> Option<RevisitRow> {
+    let request = &attempt.leased.crawl_request;
+    let is_revisit = attempt.leased.is_revisit_attempt() || prev_row.is_some();
+    let meta = attempt.revisit_meta.as_ref();
+    match &attempt.answer {
+        Answer::Gone => {
+            let consecutive_gone = meta.map_or_else(
+                || prev_row.map_or(1, |r| r.consecutive_gone.saturating_add(1)),
+                |m| m.consecutive_gone,
+            );
+            Some(preserved_revisit_row(
+                attempt,
+                prev_row,
+                previous,
+                None,
+                Some(now_ms),
+                consecutive_gone,
+            ))
+        }
+        Answer::Failed(failed) if is_revisit => {
+            let is_gone_status = meta.is_some_and(|m| m.gone_status);
+            let reschedule = !run.end.is_let_finish() && (failed.retryable || is_gone_status);
+            let on_error_ms = fetching
+                .labels
+                .settings
+                .revisit_on_error(&request.label, read.run_revisit_on_error);
+            let next_visit_at = reschedule.then(|| now_ms.saturating_add(on_error_ms.max(1)));
+            let consecutive_gone = if is_gone_status {
+                meta.map_or(0, |m| m.consecutive_gone)
+            } else {
+                prev_row.map_or(0, |r| r.consecutive_gone)
+            };
+            Some(preserved_revisit_row(
+                attempt,
+                prev_row,
+                previous,
+                next_visit_at,
+                prev_row.and_then(|r| r.last_fetched_at),
+                consecutive_gone,
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// Computes the updated [`RevisitRow`] for a Continuous crawl attempt that is
-/// committing a handled page, or `None` on batch crawls, sitemaps, or
-/// unsuccessful attempts (ADR 0139).
+/// committing a handled page, ending `unchanged` or `gone`, or failing a
+/// revisit (`revisit.on_error`), or `None` on batch crawls, sitemaps, or
+/// unsuccessful first visits (ADR 0139).
 fn planned_revisit(
     run: &CrawlRun,
     read: Read,
@@ -1815,25 +1927,28 @@ fn planned_revisit(
     if !read.continuous || attempt.leased.is_source() {
         return None;
     }
-    let is_unchanged = match &attempt.answer {
-        Answer::Unchanged => true,
-        Answer::Handled(handled) if handled.skipped.is_none() => attempt
-            .revisit_meta
-            .as_ref()
-            .is_some_and(|meta| meta.unchanged),
-        _ => return None,
-    };
     let request = &attempt.leased.crawl_request;
-    let policy = fetching
-        .labels
-        .settings
-        .revisit_policy(&request.label, &read.run_revisit_policy);
     let prev_row = state
         .revisit_row(&request.id)
         .or(attempt.leased.revisit_row.as_ref());
     let previous = state
         .revisit_previous(&request.id)
         .unwrap_or(attempt.leased.revisit_previous);
+    if let Some(row) =
+        planned_unsuccessful_revisit(run, read, fetching, attempt, prev_row, previous, now_ms)
+    {
+        return Some(row);
+    }
+    let meta = attempt.revisit_meta.as_ref();
+    let is_unchanged = match &attempt.answer {
+        Answer::Unchanged => true,
+        Answer::Handled(handled) if handled.skipped.is_none() => meta.is_some_and(|m| m.unchanged),
+        _ => return None,
+    };
+    let policy = fetching
+        .labels
+        .settings
+        .revisit_policy(&request.label, &read.run_revisit_policy);
     let visit_result = if is_unchanged {
         VisitResult::Unchanged
     } else {
@@ -2496,8 +2611,8 @@ struct QueuedOutcome {
     policy: CrawlPolicy,
     /// Whether it commits its answer.
     commits: bool,
-    /// Revisit row written with this attempt if it commits (ADR 0139).
-    revisit: Option<RevisitRow>,
+    /// Revisit row and outcome written with this attempt if it settles (ADR 0139).
+    revisit: Option<(RevisitRow, crate::work_items::CountedAs)>,
     written: QueuedEnd,
 }
 
@@ -2513,7 +2628,7 @@ struct Finished {
     again: Again,
     changed: Changed,
     commits: u64,
-    revisit: Option<(RevisitRow, OutcomeKind)>,
+    revisit: Option<(RevisitRow, crate::work_items::CountedAs)>,
 }
 
 /// Queues `attempt`'s outcome as one job of the run state's writer (ADR
@@ -2568,6 +2683,7 @@ async fn queue_outcome(
             return queued(on, (leased, lease), (scored, None, ending), false).await;
         }
         Answer::Unchanged => Unsuccessful::Unchanged,
+        Answer::Gone => Unsuccessful::Gone,
         Answer::Handled(handled) => {
             match lease.committing(
                 &run.state,
@@ -2583,6 +2699,7 @@ async fn queue_outcome(
                             failure(kept, &why, retryable)
                         });
                     let ending = attempt_outcome::Ending::Commit { commit, refused };
+                    let revisit = revisit.map(|row| (row, (OutcomeKind::Succeeded, String::new())));
                     return queued(on, (leased, lease), (scored, revisit, ending), commits).await;
                 }
                 Err(_) => failure(
@@ -2620,9 +2737,7 @@ async fn queue_outcome(
             }
         }
     };
-    let revisit = matches!(unsuccessful, Unsuccessful::Unchanged)
-        .then_some(revisit)
-        .flatten();
+    let revisit = revisit.zip(unsuccessful_revisit_outcome(&unsuccessful));
     let ending = attempt_outcome::Ending::End {
         work_item,
         lease_epoch,
@@ -2632,18 +2747,35 @@ async fn queue_outcome(
     queued(on, (leased, lease), (scored, revisit, ending), commits).await
 }
 
+/// The outcome recorded for a revisit row when an attempt settles via
+/// `Unsuccessful`, or `None` when the attempt is retried/released/skipped.
+fn unsuccessful_revisit_outcome(
+    unsuccessful: &Unsuccessful,
+) -> Option<crate::work_items::CountedAs> {
+    match unsuccessful {
+        Unsuccessful::Unchanged => Some((OutcomeKind::Unchanged, String::new())),
+        Unsuccessful::Gone => Some((OutcomeKind::Gone, String::new())),
+        Unsuccessful::Failed(failure) => Some((OutcomeKind::Failed, failure.code.clone())),
+        _ => None,
+    }
+}
+
 /// Queues the outcome of `leased`'s attempt under `lease`, ending as
 /// `ending` says beside `scored`, in the run state's writer's queue now.
 async fn queued(
     (run, file, policy): (&std::sync::Arc<CrawlRun>, &Stored, CrawlPolicy),
     (leased, lease): (Leased, WorkItemLease),
-    (scored, revisit, ending): (Scored, Option<RevisitRow>, attempt_outcome::Ending),
+    (scored, revisit, ending): (
+        Scored,
+        Option<(RevisitRow, crate::work_items::CountedAs)>,
+        attempt_outcome::Ending,
+    ),
     commits: bool,
 ) -> QueuedOutcome {
     let outcome = Outcome {
         scored: scored.changes,
         chosen: scored.chosen,
-        revisit: revisit.clone(),
+        revisit: revisit.as_ref().map(|(row, _)| row.clone()),
         ending,
     };
     let written = file.end(outcome).await;
@@ -2730,7 +2862,7 @@ impl QueuedOutcome {
                 )
                 .await;
                 finished.keyed = committed.keyed;
-                finished.revisit = revisit.map(|row| (row, OutcomeKind::Succeeded));
+                finished.revisit = revisit;
             }
             attempt_outcome::Ended::LeaseLost => {
                 let _ = lease.committed(Ok(None));
@@ -2747,7 +2879,7 @@ impl QueuedOutcome {
                         record_outcome(&run.identity, &code);
                     }
                     finished.again = again;
-                    finished.revisit = revisit.map(|row| (row, OutcomeKind::Unchanged));
+                    finished.revisit = revisit;
                 } else {
                     tracing::debug!(run_id = %run.identity.id(), work_item = %leased.crawl_request.id, "an attempt past its lease commits nothing");
                 }

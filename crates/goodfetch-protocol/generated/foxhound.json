@@ -3478,6 +3478,19 @@
             "kind"
           ],
           "type": "object"
+        },
+        {
+          "description": "A Continuous crawl URL answered 404 or 410 on `revisit.gone_after`\nrevisits in a row and will not be revisited (ADR 0139).",
+          "properties": {
+            "kind": {
+              "const": "gone",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
         }
       ],
       "open": true,
@@ -11488,6 +11501,11 @@
           "const": "unchanged",
           "description": "A Continuous crawl revisit found the page unchanged (304 or matching\nPage signature) and skipped its handler (ADR 0139).",
           "type": "string"
+        },
+        {
+          "const": "gone",
+          "description": "A Continuous crawl URL answered 404 or 410 on `revisit.gone_after`\nrevisits in a row and will not be revisited (ADR 0139).",
+          "type": "string"
         }
       ],
       "open": true
@@ -14941,6 +14959,13 @@
           "minimum": 0,
           "type": "integer"
         },
+        "gone": {
+          "arrived_in": "0.1",
+          "description": "How many Continuous crawl URLs ended gone (ADR 0139).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "pending": {
           "arrived_in": "0.1",
           "description": "How many were left pending.",
@@ -15091,6 +15116,13 @@
         "fetching": {
           "arrived_in": "0.1",
           "description": "How many are being fetched.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "gone": {
+          "arrived_in": "0.1",
+          "description": "How many Continuous crawl URLs ended gone (ADR 0139).",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -34707,6 +34739,57 @@
           "signature",
           "none"
         ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 1,
+      "deprecated": null,
+      "description": "How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.gone_after",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "minimum": 1,
+        "type": "integer"
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
+      "authority": "every",
+      "clearable": false,
+      "default": 7200000,
+      "deprecated": null,
+      "description": "How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.",
+      "fixed_for_run": false,
+      "name": "revisit.on_error",
+      "product": "foxhound",
+      "products": [
+        "foxhound"
+      ],
+      "scopes": [
+        "connection",
+        "run",
+        "label"
+      ],
+      "value": {
+        "description": "A duration in milliseconds.",
+        "minimum": 0,
+        "type": "integer"
       },
       "weakening": null,
       "weakens": false

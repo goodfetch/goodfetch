@@ -183,6 +183,9 @@ export type CrawlRequestOutcome1 =
       kind: "unchanged";
     }
   | {
+      kind: "gone";
+    }
+  | {
       kind: "unknown";
       /**
        * The tag the engine sent.
@@ -584,11 +587,12 @@ export type Now = "now";
  * - `skipped`: A decision ended it: a skip is never retried.
  * - `blocked`: The site refused it, with a Block cause.
  * - `unchanged`: A Continuous crawl revisit found the page unchanged (304 or matching Page signature) and skipped its handler (ADR 0139).
+ * - `gone`: A Continuous crawl URL answered 404 or 410 on `revisit.gone_after` revisits in a row and will not be revisited (ADR 0139).
  *
  * This interface was referenced by `FoxhoundTypes`'s JSON-Schema
  * via the `definition` "OutcomeKind".
  */
-export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked" | "unchanged" | (string & {});
+export type OutcomeKind = "succeeded" | "failed" | "skipped" | "blocked" | "unchanged" | "gone" | (string & {});
 /**
  * Where `run.outcomes` starts: after a position, or from the next commit.
  *
@@ -1808,6 +1812,10 @@ export interface RequestProgress {
    */
   fetching: number;
   /**
+   * How many Continuous crawl URLs ended gone (ADR 0139).
+   */
+  gone?: number;
+  /**
    * How many a handler handles.
    */
   handling: number;
@@ -2223,6 +2231,10 @@ export interface RequestCounts {
    * How many failed.
    */
   failed: number;
+  /**
+   * How many Continuous crawl URLs ended gone (ADR 0139).
+   */
+  gone?: number;
   /**
    * How many were left pending.
    */

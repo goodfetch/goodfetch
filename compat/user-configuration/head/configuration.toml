@@ -420,6 +420,8 @@ max_size = 4
 policy = { kind = "never" }
 change_check = "conditional+signature"
 on_unchanged = "skip"
+on_error = 30000
+gone_after = 4
 
 [settings.fetch]
 tier = "auto"

@@ -17,9 +17,9 @@ use encoding_rs::Encoding;
 use goodfetch_engine::{CallError, named};
 use goodfetch_extractor::BuiltIn;
 use goodfetch_protocol::foxhound::continuous::{
-    REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_ON_UNCHANGED,
-    REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY, RevisitChangeCheck, RevisitOnUnchanged,
-    RevisitPolicy,
+    REVISIT_CHANGE_CHECK, REVISIT_CHANGE_CHECK_VALUES, REVISIT_GONE_AFTER, REVISIT_ON_ERROR,
+    REVISIT_ON_UNCHANGED, REVISIT_ON_UNCHANGED_VALUES, REVISIT_POLICY, RevisitChangeCheck,
+    RevisitOnUnchanged, RevisitPolicy,
 };
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_CONTENT_TYPES, CRAWL_RETRY_HANDLER_FAILED, LabelDeclaration,
@@ -73,6 +73,8 @@ pub struct LabelSettings {
     revisit_policies: BTreeMap<String, RevisitPolicy>,
     revisit_change_checks: BTreeMap<String, RevisitChangeCheck>,
     revisit_on_unchanged: BTreeMap<String, RevisitOnUnchanged>,
+    revisit_on_error: BTreeMap<String, u64>,
+    revisit_gone_after: BTreeMap<String, u32>,
 }
 
 /// How a request's tier is chosen.
@@ -178,6 +180,8 @@ impl LabelSettings {
             revisit_policies: BTreeMap::new(),
             revisit_change_checks: BTreeMap::new(),
             revisit_on_unchanged: BTreeMap::new(),
+            revisit_on_error: BTreeMap::new(),
+            revisit_gone_after: BTreeMap::new(),
         };
         for (name, declaration) in labels {
             let mut keys = Vec::new();
@@ -266,6 +270,23 @@ impl LabelSettings {
             };
             self.revisit_on_unchanged
                 .insert(name.to_owned(), on_unchanged);
+        } else if key == REVISIT_ON_ERROR.name {
+            self.revisit_on_error
+                .insert(name.to_owned(), millis(name, &key, value)?);
+        } else if key == REVISIT_GONE_AFTER.name {
+            let Some(count) = value
+                .as_u64()
+                .filter(|&count| count >= 1)
+                .and_then(|count| u32::try_from(count).ok())
+            else {
+                return Err(invalid(
+                    name,
+                    &key,
+                    value,
+                    "is not a whole number of at least 1",
+                ));
+            };
+            self.revisit_gone_after.insert(name.to_owned(), count);
         } else if key == SESSION_SOURCE.name || key.starts_with(SESSION_SOURCE_KEYS) {
             // The Session pool reads a Label's own Session source.
         } else if key == FETCH_TIER.name {
@@ -298,6 +319,20 @@ impl LabelSettings {
     #[must_use]
     pub fn revisit_on_unchanged(&self, label: &str, run: RevisitOnUnchanged) -> RevisitOnUnchanged {
         self.revisit_on_unchanged.get(label).copied().unwrap_or(run)
+    }
+
+    /// The `revisit.on_error` of `label` in milliseconds, falling back to `run`
+    /// when the Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_on_error(&self, label: &str, run: u64) -> u64 {
+        self.revisit_on_error.get(label).copied().unwrap_or(run)
+    }
+
+    /// The `revisit.gone_after` of `label`, falling back to `run` when the
+    /// Label sets none (ADR 0139).
+    #[must_use]
+    pub fn revisit_gone_after(&self, label: &str, run: u32) -> u32 {
+        self.revisit_gone_after.get(label).copied().unwrap_or(run)
     }
 
     /// Each Label that declares `revisit.change_check`, with its value.

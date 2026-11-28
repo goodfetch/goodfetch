@@ -213,9 +213,10 @@ pub(crate) fn end(
     let (recorded, again) = match &unsuccessful {
         Unsuccessful::Retried(failure) => (Some(failure.code.clone()), Again::Retried),
         Unsuccessful::Failed(failure) => (Some(failure.code.clone()), Again::Not),
-        Unsuccessful::Skipped { .. } | Unsuccessful::Blocked(_) | Unsuccessful::Unchanged => {
-            (None, Again::Not)
-        }
+        Unsuccessful::Skipped { .. }
+        | Unsuccessful::Blocked(_)
+        | Unsuccessful::Unchanged
+        | Unsuccessful::Gone => (None, Again::Not),
         Unsuccessful::Released => (None, Again::Released),
     };
     let ended = work_items::end(

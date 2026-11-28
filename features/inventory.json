@@ -11192,6 +11192,26 @@
       ]
     },
     {
+      "id": "setting:revisit.gone_after",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:revisit.on_error",
+      "kind": "setting",
+      "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "foxhound"
+      ]
+    },
+    {
       "id": "setting:revisit.on_unchanged",
       "kind": "setting",
       "area": 3,

@@ -1079,6 +1079,31 @@ pub mod revisit {
         ],
     );
 
+    /// How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+    ///
+    /// `revisit.gone_after`.
+    pub const GONE_AFTER: crate::settings::Setting<u64> = crate::settings::Setting::new(
+        "revisit.gone_after",
+        &[
+            ::goodfetch_protocol::catalog::SettingScope::Connection,
+            ::goodfetch_protocol::catalog::SettingScope::Run,
+            ::goodfetch_protocol::catalog::SettingScope::Label,
+        ],
+    );
+
+    /// How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+    ///
+    /// `revisit.on_error`.
+    pub const ON_ERROR: crate::settings::Setting<::std::time::Duration> =
+        crate::settings::Setting::new(
+            "revisit.on_error",
+            &[
+                ::goodfetch_protocol::catalog::SettingScope::Connection,
+                ::goodfetch_protocol::catalog::SettingScope::Run,
+                ::goodfetch_protocol::catalog::SettingScope::Label,
+            ],
+        );
+
     /// What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
     ///
     /// `revisit.on_unchanged`.

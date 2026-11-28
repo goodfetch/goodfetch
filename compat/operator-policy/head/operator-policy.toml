@@ -420,6 +420,8 @@ max_size = 4
 policy = { kind = "never" }
 change_check = "conditional+signature"
 on_unchanged = "skip"
+on_error = 30000
+gone_after = 4
 
 [settings.fetch]
 tier = "auto"
@@ -916,6 +918,8 @@ max_size = 4
 policy = { kind = "never" }
 change_check = "conditional+signature"
 on_unchanged = "skip"
+on_error = 30000
+gone_after = 4
 
 [lock.fetch]
 tier = "auto"
@@ -1164,6 +1168,9 @@ concurrency = 4
 
 [cap.crawl.payload]
 max_size = 4
+
+[cap.revisit]
+on_error = 30000
 
 [cap.fetch.sample]
 count = 4

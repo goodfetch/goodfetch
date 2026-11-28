@@ -455,12 +455,13 @@ impl RunState {
         self.revisits.previous_state(id)
     }
 
-    /// Records a committed (or unchanged) attempt's revisit row in memory (ADR 0139).
+    /// Records a committed (or unchanged/failed/gone) attempt's revisit row in
+    /// memory (ADR 0139).
     pub(crate) fn record_revisit(
         &mut self,
         leased: Leased,
         row: RevisitRow,
-        outcome: goodfetch_protocol::foxhound::outcomes::OutcomeKind,
+        outcome: crate::work_items::CountedAs,
         committed: u64,
     ) {
         self.revisits

@@ -1592,3 +1592,448 @@ fn clean_up_follow_latest_is_off_by_default_in_a_batch_crawl() {
     );
     assert!(report["result"]["clean_up_rules"]["switches"].is_null());
 }
+
+/// A revisit whose fetch fails retryably keeps the URL's coverage, shows in
+/// `run.failed_requests` as its latest outcome, and is due again after
+/// `revisit.on_error` (a Label setting, 2 h default; inactive on batch crawls).
+///
+/// Covers: setting:revisit.on_error, setting:revisit.gone_after, operation:run.failed_requests, operation:config.explain
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end revisit.on_error timeline test"
+)]
+fn revisit_on_error_reschedules_failed_revisit_and_keeps_coverage() {
+    let env = TestEnv::new();
+    let calls = Rc::new(Cell::new(0usize));
+    let calls_h = Rc::clone(&calls);
+    let mut handler = move |_: &Value| {
+        let n = calls_h.get();
+        calls_h.set(n + 1);
+        // Visit 1 (n=0) succeeds; revisit 1 (n=1) fails retryably;
+        // revisit 2 after revisit.on_error (n=2) succeeds.
+        if n == 1 {
+            Reply::Fails("response_unavailable", true)
+        } else {
+            Reply::Records(Vec::new())
+        }
+    };
+
+    let (explained, failed_mid, failed_after, report) = crawl(
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let explained_defaults = client
+                .call(
+                    "config.explain",
+                    json!({ "keys": ["revisit.on_error", "revisit.gone_after"] }),
+                    &mut answer_all,
+                )
+                .await;
+            let explained_yields = client
+                .call(
+                    "config.explain",
+                    json!({
+                        "keys": ["revisit.on_error", "revisit.gone_after"],
+                        "settings": { "revisit": { "on_error": 60_000, "gone_after": 3 } },
+                    }),
+                    &mut answer_all,
+                )
+                .await;
+            let explained = json!({ "defaults": explained_defaults, "yields": explained_yields });
+
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "on-error",
+                        "seeds": [seed("https://shop.test/flaky")],
+                        "settings": {
+                            "crawl": {
+                                "continuous": true,
+                                "retry": { "max": 0 },
+                            },
+                        },
+                        "labels": {
+                            "page": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": 5_000 },
+                                        "change_check": "none",
+                                        "on_error": 30_000,
+                                    }
+                                }
+                            }
+                        },
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+
+            // First visit settles and goes idle.
+            let _ =
+                progress_matching(client, "on-error", |p| p["idle"] == true, &mut handler).await;
+            assert_eq!(calls.get(), 1);
+
+            // Advance 5 s: revisit 1 runs and ends failed retryably.
+            advance(Duration::from_secs(5)).await;
+            let p_failed = progress_matching(
+                client,
+                "on-error",
+                |p| p["idle"] == true && p["requests"]["failed"] == 1,
+                &mut handler,
+            )
+            .await;
+            assert!(
+                p_failed.get("next_due_at").is_some_and(|v| !v.is_null()),
+                "failed retryable revisit must schedule next_due_at after revisit.on_error: {p_failed}"
+            );
+            assert_eq!(calls.get(), 2, "expected 1 initial + 1 failed revisit");
+
+            let failed_mid = client
+                .call(
+                    "run.failed_requests",
+                    json!({ "run_id": "on-error" }),
+                    &mut handler,
+                )
+                .await;
+
+            // Advance 15 s (< 30 s revisit.on_error): must NOT revisit yet.
+            advance(Duration::from_secs(15)).await;
+            tokio::task::yield_now().await;
+            assert_eq!(
+                calls.get(),
+                2,
+                "revisit must not run before revisit.on_error elapses"
+            );
+
+            // Advance remaining 15 s (total 30 s): revisit 2 runs and succeeds.
+            advance(Duration::from_secs(15)).await;
+            let _ = progress_matching(
+                client,
+                "on-error",
+                |p| {
+                    p["idle"] == true
+                        && p["requests"]["succeeded"] == 1
+                        && p["requests"]["failed"] == 0
+                },
+                &mut handler,
+            )
+            .await;
+            assert_eq!(calls.get(), 3);
+
+            let failed_after = client
+                .call(
+                    "run.failed_requests",
+                    json!({ "run_id": "on-error" }),
+                    &mut handler,
+                )
+                .await;
+
+            let report = client
+                .call("run.finish", json!({ "run_id": "on-error" }), &mut handler)
+                .await;
+            (explained, failed_mid, failed_after, report)
+        },
+    );
+
+    let defaults = explained["defaults"]["result"]["settings"]
+        .as_array()
+        .unwrap();
+    let on_error = defaults
+        .iter()
+        .find(|s| s["key"] == "revisit.on_error")
+        .unwrap();
+    assert_eq!(
+        on_error["value"], 7_200_000,
+        "default revisit.on_error must be 2 hours: {on_error}"
+    );
+    let gone_after = defaults
+        .iter()
+        .find(|s| s["key"] == "revisit.gone_after")
+        .unwrap();
+    assert_eq!(
+        gone_after["value"], 1,
+        "default revisit.gone_after must be 1: {gone_after}"
+    );
+    let yields = explained["yields"]["result"]["settings"]
+        .as_array()
+        .unwrap();
+    let on_error_y = yields
+        .iter()
+        .find(|s| s["key"] == "revisit.on_error")
+        .unwrap();
+    assert_eq!(
+        on_error_y["yields_to"]["key"], "crawl.continuous",
+        "{on_error_y}"
+    );
+    let gone_after_y = yields
+        .iter()
+        .find(|s| s["key"] == "revisit.gone_after")
+        .unwrap();
+    assert_eq!(
+        gone_after_y["yields_to"]["key"], "crawl.continuous",
+        "{gone_after_y}"
+    );
+
+    let mid_reqs = failed_mid["result"]["requests"].as_array().unwrap();
+    assert_eq!(
+        mid_reqs.len(),
+        1,
+        "failed revisit must show in run.failed_requests: {failed_mid}"
+    );
+    assert_eq!(mid_reqs[0]["request"]["url"], "https://shop.test/flaky");
+    assert_eq!(mid_reqs[0]["kind"], "failed", "{failed_mid}");
+
+    let after_reqs = failed_after["result"]["requests"].as_array().unwrap();
+    assert!(
+        after_reqs.is_empty(),
+        "recovered revisit must leave run.failed_requests: {failed_after}"
+    );
+
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    assert_eq!(report["result"]["completeness"], "complete", "{report}");
+    assert_eq!(report["result"]["requests"]["succeeded"], 1, "{report}");
+}
+
+/// A URL answering 404 or 410 on `revisit.gone_after` revisits in a row ends
+/// `gone` (`OutcomeKind::Gone`, `Ending::Gone`), runs no handler, is never due
+/// again, and no longer counts as overdue (#1843).
+///
+/// Covers: setting:revisit.gone_after, setting:revisit.on_error, operation:run.outcomes, operation:run.failed_requests
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end revisit.gone_after timeline test"
+)]
+fn revisit_gone_after_ends_dead_url_gone_and_stops_revisiting() {
+    let env = TestEnv::new();
+    let once_hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let twice_hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let once_c = std::sync::Arc::clone(&once_hits);
+    let twice_c = std::sync::Arc::clone(&twice_hits);
+
+    let site = std::sync::Arc::new(ScriptedSite {
+        recorded: std::sync::Mutex::new(Vec::new()),
+        respond: Box::new(move |hop| {
+            let html_headers = vec![("content-type".to_owned(), "text/html".to_owned())];
+            match hop.url.path() {
+                "/gone-once" => {
+                    let n = once_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if n == 0 {
+                        (
+                            200,
+                            html_headers,
+                            "<html><body><h1>Alive</h1></body></html>".to_owned(),
+                        )
+                    } else {
+                        (
+                            410,
+                            html_headers,
+                            "<html><body>Gone</body></html>".to_owned(),
+                        )
+                    }
+                }
+                "/gone-twice" => {
+                    let n = twice_c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    match n {
+                        // 0: initial 200; 1: 404 (streak 1/2); 2: 200 (resets streak to 0);
+                        // 3: 404 (streak 1/2); 4: 410 (streak 2/2 -> gone).
+                        0 | 2 => (
+                            200,
+                            html_headers,
+                            format!("<html><body><h1>Alive v{n}</h1></body></html>"),
+                        ),
+                        1 | 3 => (
+                            404,
+                            html_headers,
+                            "<html><body>Not found</body></html>".to_owned(),
+                        ),
+                        _ => (
+                            410,
+                            html_headers,
+                            "<html><body>Gone</body></html>".to_owned(),
+                        ),
+                    }
+                }
+                _ => (200, html_headers, "<html><body>ok</body></html>".to_owned()),
+            }
+        }),
+    });
+    let engine = engine_with_site(std::sync::Arc::clone(&site));
+    let handler_calls = Rc::new(Cell::new(0usize));
+    let handler_calls_h = Rc::clone(&handler_calls);
+    let mut handler = move |_: &Value| {
+        handler_calls_h.set(handler_calls_h.get() + 1);
+        Reply::Records(Vec::new())
+    };
+
+    let (gone_outcomes, failed_end, idle_after, report) = super::crawl_on(
+        &engine,
+        || dependencies(&env, RunStateOptions::default()),
+        async |client| {
+            let started = client
+                .call(
+                    "crawl.start",
+                    json!({
+                        "run_id": "gone-run",
+                        "settings": { "crawl": { "continuous": true } },
+                        "labels": {
+                            "fast": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": 5_000 },
+                                        "change_check": "none",
+                                    }
+                                }
+                            },
+                            "patient": {
+                                "settings": {
+                                    "revisit": {
+                                        "policy": { "kind": "every", "interval": 5_000 },
+                                        "change_check": "none",
+                                        "gone_after": 2,
+                                        "on_error": 10_000,
+                                    }
+                                }
+                            },
+                        },
+                        "seeds": [
+                            { "url": "https://shop.test/gone-once", "label": "fast" },
+                            { "url": "https://shop.test/gone-twice", "label": "patient" },
+                        ],
+                    }),
+                    &mut handler,
+                )
+                .await;
+            assert!(started["error"].is_null(), "crawl.start failed: {started}");
+
+            // First visits settle (2 handler calls).
+            let _ =
+                progress_matching(client, "gone-run", |p| p["idle"] == true, &mut handler).await;
+            assert_eq!(handler_calls.get(), 2);
+
+            // +5 s: /gone-once gets 410 -> gone immediately; /gone-twice gets 404 (1 of 2 -> failed).
+            advance(Duration::from_secs(5)).await;
+            let _ = progress_matching(
+                client,
+                "gone-run",
+                |p| p["idle"] == true && p["requests"]["gone"] == 1 && p["requests"]["failed"] == 1,
+                &mut handler,
+            )
+            .await;
+            assert_eq!(
+                handler_calls.get(),
+                2,
+                "404/410 revisits must not run handler"
+            );
+
+            // +10 s (revisit.on_error): /gone-twice gets 200 -> streak resets, handler runs (3).
+            advance(Duration::from_secs(10)).await;
+            let _ = progress_matching(
+                client,
+                "gone-run",
+                |p| {
+                    p["idle"] == true
+                        && p["requests"]["gone"] == 1
+                        && p["requests"]["succeeded"] == 1
+                        && p["requests"]["failed"] == 0
+                },
+                &mut handler,
+            )
+            .await;
+            assert_eq!(handler_calls.get(), 3);
+
+            // +5 s: /gone-twice gets 404 (streak 1 of 2 -> failed).
+            advance(Duration::from_secs(5)).await;
+            let _ = progress_matching(
+                client,
+                "gone-run",
+                |p| p["idle"] == true && p["requests"]["gone"] == 1 && p["requests"]["failed"] == 1,
+                &mut handler,
+            )
+            .await;
+
+            // +10 s: /gone-twice gets 410 (streak 2 of 2 -> gone!).
+            advance(Duration::from_secs(10)).await;
+            let idle_after = progress_matching(
+                client,
+                "gone-run",
+                |p| p["idle"] == true && p["requests"]["gone"] == 2 && p["requests"]["failed"] == 0,
+                &mut handler,
+            )
+            .await;
+            assert_eq!(
+                handler_calls.get(),
+                3,
+                "gone revisits must never run handler"
+            );
+
+            // Advance 1 hour: neither gone URL is ever due again.
+            let hits_before = site.recorded.lock().unwrap().len();
+            advance(Duration::from_secs(3_600)).await;
+            tokio::task::yield_now().await;
+            assert_eq!(
+                site.recorded.lock().unwrap().len(),
+                hits_before,
+                "gone URLs must never be revisited"
+            );
+
+            let gone_outcomes = client
+                .call(
+                    "run.outcomes",
+                    json!({ "run_id": "gone-run", "kinds": ["gone"] }),
+                    &mut handler,
+                )
+                .await;
+            let failed_end = client
+                .call(
+                    "run.failed_requests",
+                    json!({ "run_id": "gone-run" }),
+                    &mut handler,
+                )
+                .await;
+            let report = client
+                .call("run.finish", json!({ "run_id": "gone-run" }), &mut handler)
+                .await;
+            (gone_outcomes, failed_end, idle_after, report)
+        },
+    )
+    .0;
+
+    assert!(
+        idle_after.get("next_due_at").is_none_or(Value::is_null),
+        "when all URLs are gone, next_due_at must be absent/null: {idle_after}"
+    );
+    let outcomes = gone_outcomes["result"]["outcomes"].as_array().unwrap();
+    assert_eq!(
+        outcomes.len(),
+        2,
+        "expected 2 gone outcomes: {gone_outcomes}"
+    );
+    assert!(
+        outcomes.iter().all(|o| o["kind"] == "gone"),
+        "expected kind == gone: {gone_outcomes}"
+    );
+    assert!(
+        failed_end["result"]["requests"]
+            .as_array()
+            .unwrap()
+            .is_empty(),
+        "gone URLs must not remain in run.failed_requests: {failed_end}"
+    );
+    assert_eq!(report["result"]["lifecycle"], "finished", "{report}");
+    assert_eq!(report["result"]["completeness"], "complete", "{report}");
+    assert_eq!(report["result"]["requests"]["gone"], 2, "{report}");
+
+    // Verify neither gone URL has a due timestamp in the run file (never overdue).
+    let connection = super::run_file(&env, "gone-run");
+    let rows = goodfetch_frontier::revisit::read_all(&connection).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter().all(|r| r.next_visit_at.is_none()),
+        "gone URLs must have next_visit_at = None so they never count as overdue: {rows:?}"
+    );
+    assert_eq!(once_hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(twice_hits.load(std::sync::atomic::Ordering::SeqCst), 5);
+}

@@ -147,6 +147,10 @@ pub struct RequestProgress {
     #[serde(default, skip_serializing_if = "is_zero")]
     #[schemars(extend("arrived_in" = "0.1"))]
     pub unchanged: u64,
+    /// How many Continuous crawl URLs ended gone (ADR 0139).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[schemars(extend("arrived_in" = "0.1"))]
+    pub gone: u64,
     // jscpd:ignore-end
     /// The skipped ones, by skip reason.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

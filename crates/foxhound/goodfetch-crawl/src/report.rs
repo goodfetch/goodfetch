@@ -140,6 +140,7 @@ fn ended_as(ending: &Ending) -> String {
         Ending::Skipped { reason, .. } => name_of(serde_json::to_value(reason)),
         Ending::Blocked { cause } => cause.as_str().to_owned(),
         Ending::Unchanged => "unchanged".to_owned(),
+        Ending::Gone => "gone".to_owned(),
         unknown => unknown.kind().as_str().to_owned(),
     }
 }
@@ -156,6 +157,7 @@ pub(crate) fn ended(
     const SKIPPED: &str = OutcomeKind::Skipped.as_str();
     const BLOCKED: &str = OutcomeKind::Blocked.as_str();
     const UNCHANGED: &str = OutcomeKind::Unchanged.as_str();
+    const GONE: &str = OutcomeKind::Gone.as_str();
     let mut counts = RequestCounts {
         pending: crate::work_items::left(connection)?,
         ..RequestCounts::default()
@@ -168,6 +170,7 @@ pub(crate) fn ended(
             SKIPPED => (&mut counts.skipped, Some(&mut counts.by_skip_reason)),
             BLOCKED => (&mut counts.blocked, Some(&mut counts.by_block_cause)),
             UNCHANGED => (&mut counts.unchanged, None),
+            GONE => (&mut counts.gone, None),
             _ => continue,
         };
         *total += count;

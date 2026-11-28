@@ -1006,6 +1006,18 @@ export interface FoxhoundSettings {
      */
     readonly changeCheck?: "conditional+signature" | "conditional" | "signature" | "none";
     /**
+     * How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.gone_after`.
+     */
+    readonly goneAfter?: number;
+    /**
+     * How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.on_error`.
+     */
+    readonly onError?: number;
+    /**
      * What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
      *
      * `revisit.on_unchanged`.
@@ -2472,6 +2484,18 @@ export interface CrawlSettings {
      */
     readonly changeCheck?: "conditional+signature" | "conditional" | "signature" | "none";
     /**
+     * How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.gone_after`.
+     */
+    readonly goneAfter?: number;
+    /**
+     * How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.on_error`.
+     */
+    readonly onError?: number;
+    /**
      * What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
      *
      * `revisit.on_unchanged`.
@@ -3028,6 +3052,18 @@ export interface LabelSettings {
      */
     readonly changeCheck?: "conditional+signature" | "conditional" | "signature" | "none";
     /**
+     * How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.gone_after`.
+     */
+    readonly goneAfter?: number;
+    /**
+     * How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+     *
+     * `revisit.on_error`.
+     */
+    readonly onError?: number;
+    /**
      * What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
      *
      * `revisit.on_unchanged`.
@@ -3410,6 +3446,8 @@ const SPELLING: Spelling = {
   }],
   revisit: ["revisit", {
     changeCheck: "change_check",
+    goneAfter: "gone_after",
+    onError: "on_error",
     onUnchanged: "on_unchanged",
     policy: "policy",
   }],

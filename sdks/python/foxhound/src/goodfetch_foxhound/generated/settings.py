@@ -1238,6 +1238,18 @@ class ConnectionRevisitSettings(TypedDict):
     `revisit.change_check`.
     """
 
+    gone_after: NotRequired[int]
+    """How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.gone_after`.
+    """
+
+    on_error: NotRequired[timedelta]
+    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.on_error`.
+    """
+
     on_unchanged: NotRequired[Literal["skip", "handler"]]
     """What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
 
@@ -3334,6 +3346,18 @@ class RunRevisitSettings(TypedDict):
     `revisit.change_check`.
     """
 
+    gone_after: NotRequired[int]
+    """How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.gone_after`.
+    """
+
+    on_error: NotRequired[timedelta]
+    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.on_error`.
+    """
+
     on_unchanged: NotRequired[Literal["skip", "handler"]]
     """What a Continuous crawl does when a revisit finds the page unchanged, set for the Run or for one of its Labels: `skip` (the default) runs no handler, pushes no Record, and ends the request `unchanged`; `handler` runs the handler anyway. Accepted on a batch crawl, where `config explain` marks it inactive.
 
@@ -4024,6 +4048,18 @@ class LabelRevisitSettings(TypedDict):
     """How a Continuous crawl checks whether a revisited URL changed, set for the Run or for one of its Labels: `conditional+signature` (the default) sends `If-None-Match` and `If-Modified-Since`, treating 304 as unchanged and otherwise comparing the Page signature; `conditional` treats every 200 as changed; `signature` sends no validators and compares the Page signature; `none` treats every revisit as changed. A URL last served by a browser tier always uses `signature`. Accepted on a batch crawl, where `config explain` marks it inactive.
 
     `revisit.change_check`.
+    """
+
+    gone_after: NotRequired[int]
+    """How many consecutive 404 or 410 revisit responses end a URL `gone` so it is not revisited again, set for the Run or for one of its Labels: 1 by default (at least 1). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.gone_after`.
+    """
+
+    on_error: NotRequired[timedelta]
+    """How long a Continuous crawl waits before revisiting a URL whose revisit fetch failed retryably, in whole milliseconds, set for the Run or for one of its Labels: 2 hours (7,200,000 ms) by default (StormCrawler's `fetchInterval.fetch.error`). Accepted on a batch crawl, where `config explain` marks it inactive.
+
+    `revisit.on_error`.
     """
 
     on_unchanged: NotRequired[Literal["skip", "handler"]]

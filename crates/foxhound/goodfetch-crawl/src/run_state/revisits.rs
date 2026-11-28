@@ -270,13 +270,13 @@ impl RevisitTracker {
         })
     }
 
-    /// Records a committed (or unchanged) attempt's updated [`RevisitRow`] and
-    /// caches its [`Leased`] template while in memory.
+    /// Records a committed (or unchanged/failed/gone) attempt's updated
+    /// [`RevisitRow`] and caches its [`Leased`] template while in memory.
     pub(super) fn record_committed(
         &mut self,
         leased: Leased,
         row: RevisitRow,
-        outcome: OutcomeKind,
+        outcome: CountedAs,
         committed: u64,
         beside: impl FnOnce() -> u64,
     ) {
@@ -286,8 +286,7 @@ impl RevisitTracker {
         let id = row.work_item.clone();
         self.active.remove(&id);
         self.unwritten.insert(id.clone(), (row.clone(), committed));
-        self.last_outcomes
-            .insert(id.clone(), (outcome, String::new()));
+        self.last_outcomes.insert(id.clone(), outcome);
         if let Some(whole) = &mut self.whole {
             if whole.insert(row, beside()) {
                 self.templates.insert(id, leased);

@@ -112,7 +112,7 @@ use goodfetch_protocol::foxhound::block::BlockCause;
 use goodfetch_protocol::foxhound::continuous::{RevisitChangeCheck, RevisitOnUnchanged};
 use goodfetch_protocol::foxhound::crawl::{
     ATTEMPT_ENDED, CRAWL_REQUEST_HANDLE, CrawlRequestHandleParams, CrawlRequestHandled,
-    HANDLER_FAILED, LEASE_LOST, WORK_ITEM_LEASED,
+    HANDLER_FAILED, LEASE_LOST, RESPONSE_NOT_OK, WORK_ITEM_LEASED,
 };
 use goodfetch_protocol::foxhound::fetch::FetchTier;
 use goodfetch_protocol::foxhound::hook::CrawlHookStage;
@@ -213,6 +213,10 @@ pub(super) enum Answer {
     /// Page signature) under `revisit.on_unchanged: skip`: no handler ran and
     /// no Record was pushed (ADR 0139).
     Unchanged,
+    /// A Continuous crawl revisit answered 404 or 410 on `revisit.gone_after`
+    /// revisits in a row: no handler ran, no Record was pushed, and the URL
+    /// will not be revisited (ADR 0139).
+    Gone,
     /// The lease ended with no answer.
     LeaseEnded,
     /// The program's Connection ended.
@@ -236,18 +240,20 @@ impl Answer {
     }
 }
 
-/// Continuous crawl revisit settings and previous signature carried into an
+/// Continuous crawl revisit settings and previous state carried into an
 /// attempt (ADR 0139).
 #[derive(Clone, Debug, Default)]
 pub(super) struct RevisitPlan {
     pub(super) continuous: bool,
     pub(super) change_check: RevisitChangeCheck,
     pub(super) on_unchanged: RevisitOnUnchanged,
+    pub(super) gone_after: u32,
+    pub(super) previous_consecutive_gone: u32,
     pub(super) previous_signature: Option<String>,
 }
 
-/// Validators, Page signature, and tier captured by a Continuous crawl attempt
-/// to persist in the `revisits` table (ADR 0139).
+/// Validators, Page signature, gone streak, and tier captured by a Continuous
+/// crawl attempt to persist in the `revisits` table (ADR 0139).
 #[derive(Clone, Debug, Default)]
 pub(super) struct RevisitMeta {
     pub(super) etag: Option<String>,
@@ -255,6 +261,8 @@ pub(super) struct RevisitMeta {
     pub(super) signature: Option<String>,
     pub(super) tier: Option<FetchTier>,
     pub(super) unchanged: bool,
+    pub(super) consecutive_gone: u32,
+    pub(super) gone_status: bool,
 }
 
 fn hex_signature(bytes: [u8; 32]) -> String {
@@ -1510,31 +1518,9 @@ impl On<'_> {
         {
             return ended;
         }
-        if self.revisit.continuous && !matches!(how, Chosen::Sample(_)) {
-            let etag = facts
-                .response
-                .as_ref()
-                .and_then(|response| header_from_map(&response.headers, "etag"));
-            let last_modified = facts
-                .response
-                .as_ref()
-                .and_then(|response| header_from_map(&response.headers, "last-modified"));
-            let signature = facts.signature.map(hex_signature);
-            let unchanged = self.leased.is_revisit
-                && self.revisit.change_check.uses_signature()
-                && signature.is_some()
-                && signature == self.revisit.previous_signature;
-            *self.revisit_meta.lock().await = Some(RevisitMeta {
-                etag,
-                last_modified,
-                signature,
-                tier: Some(choice.tier),
-                unchanged,
-            });
-            if unchanged && self.revisit.on_unchanged == RevisitOnUnchanged::Skip {
-                let _ = served.close();
-                return Err(Answer::Unchanged);
-            }
+        if let Some(ended) = self.http_revisit_ending(&facts, choice.tier, how).await {
+            let _ = served.close();
+            return Err(ended);
         }
         self.learn(tiers, &page_id, how).await;
         self.in_flight
@@ -1753,6 +1739,8 @@ impl On<'_> {
                             signature: None,
                             tier: Some(choice.tier),
                             unchanged: true,
+                            consecutive_gone: 0,
+                            gone_status: false,
                         };
                         if let Ok(mut guard) = self.revisit_meta.try_lock() {
                             *guard = Some(meta);
@@ -1899,24 +1887,9 @@ impl On<'_> {
             certificate_exception,
         )
         .await;
-        let answer = if self
-            .browser_revisit_unchanged(tiers, &page_id, navigated.response.as_ref(), how)
-            .await
-        {
-            Answer::Unchanged
-        } else {
-            self.in_flight.lock().await.went_on(
-                run,
-                &leased.crawl_request.id,
-                InFlightPhase::Handling,
-            );
-            let params = self.params(
-                Some(FetchTier::Browser),
-                Some(page_id.clone()),
-                navigated.response,
-            );
-            self.page_ready(&params).await
-        };
+        let answer = self
+            .browser_revisit_or_handle(tiers, &page_id, navigated.response, how)
+            .await;
         drop(handed_over);
         let ended_at = tiers.browser_ended_at(&page_id);
         tiers.close_browser(&page_id).await;
@@ -1924,6 +1897,130 @@ impl On<'_> {
             answer,
             encoding: encoding.map(|encoding| encoding.encoding),
             ended_at,
+        }
+    }
+
+    /// Records Continuous crawl revisit metadata on a document tier and
+    /// returns an early [`Answer`] when the revisit ends `gone`, fails below
+    /// `revisit.gone_after`, or skips an unchanged page (ADR 0139).
+    async fn http_revisit_ending(
+        &self,
+        facts: &PageFacts,
+        tier: FetchTier,
+        how: Chosen,
+    ) -> Option<Answer> {
+        if let Some(ended) = self
+            .revisit_gone(facts.response.as_ref().map(|r| r.status), tier, how)
+            .await
+        {
+            return Some(ended);
+        }
+        if !self.revisit.continuous || matches!(how, Chosen::Sample(_)) {
+            return None;
+        }
+        let etag = facts
+            .response
+            .as_ref()
+            .and_then(|response| header_from_map(&response.headers, "etag"));
+        let last_modified = facts
+            .response
+            .as_ref()
+            .and_then(|response| header_from_map(&response.headers, "last-modified"));
+        let signature = facts.signature.map(hex_signature);
+        let unchanged = self.leased.is_revisit_attempt()
+            && self.revisit.change_check.uses_signature()
+            && signature.is_some()
+            && signature == self.revisit.previous_signature;
+        *self.revisit_meta.lock().await = Some(RevisitMeta {
+            etag,
+            last_modified,
+            signature,
+            tier: Some(tier),
+            unchanged,
+            consecutive_gone: 0,
+            gone_status: false,
+        });
+        (unchanged && self.revisit.on_unchanged == RevisitOnUnchanged::Skip)
+            .then_some(Answer::Unchanged)
+    }
+
+    /// Runs Continuous crawl gone/unchanged checks on a browser page or hands
+    /// the page to the handler (ADR 0139).
+    async fn browser_revisit_or_handle(
+        &self,
+        tiers: &FetchTiers,
+        page_id: &PageId,
+        response: Option<PageResponse>,
+        how: Chosen,
+    ) -> Answer {
+        if let Some(ended) = self
+            .revisit_gone(response.as_ref().map(|r| r.status), FetchTier::Browser, how)
+            .await
+        {
+            return ended;
+        }
+        if self
+            .browser_revisit_unchanged(tiers, page_id, response.as_ref(), how)
+            .await
+        {
+            return Answer::Unchanged;
+        }
+        self.in_flight.lock().await.went_on(
+            self.run,
+            &self.leased.crawl_request.id,
+            InFlightPhase::Handling,
+        );
+        let params = self.params(Some(FetchTier::Browser), Some(page_id.clone()), response);
+        self.page_ready(&params).await
+    }
+
+    /// Checks whether a Continuous crawl revisit answered 404 or 410 (ADR 0139).
+    /// Returns [`Answer::Gone`] once `revisit.gone_after` consecutive 404/410
+    /// revisits have been observed, or a non-retryable `response_not_ok`
+    /// failure (which `planned_revisit` reschedules after `revisit.on_error`
+    /// with the incremented `consecutive_gone` count) when below the threshold.
+    async fn revisit_gone(
+        &self,
+        status: Option<u16>,
+        tier: FetchTier,
+        how: Chosen,
+    ) -> Option<Answer> {
+        if !self.revisit.continuous
+            || !self.leased.is_revisit_attempt()
+            || matches!(how, Chosen::Sample(_))
+        {
+            return None;
+        }
+        let status = status.filter(|&code| code == 404 || code == 410)?;
+        let next_gone = self.revisit.previous_consecutive_gone.saturating_add(1);
+        *self.revisit_meta.lock().await = Some(RevisitMeta {
+            etag: None,
+            last_modified: None,
+            signature: None,
+            tier: Some(tier),
+            unchanged: false,
+            consecutive_gone: next_gone,
+            gone_status: true,
+        });
+        let threshold = self.revisit.gone_after.max(1);
+        if next_gone >= threshold {
+            Some(Answer::Gone)
+        } else {
+            let mut details = serde_json::Map::new();
+            details.insert(
+                "url".to_owned(),
+                serde_json::Value::from(self.leased.crawl_request.url.as_str()),
+            );
+            details.insert("status".to_owned(), serde_json::Value::from(status));
+            Some(Answer::failed(AttemptFailure::entered(
+                RESPONSE_NOT_OK.name.to_owned(),
+                false,
+                format!(
+                    "{} answered {status} on revisit ({next_gone} of {threshold} before `gone`).",
+                    self.leased.crawl_request.url
+                ),
+                details,
+            )))
         }
     }
 
@@ -1950,7 +2047,7 @@ impl On<'_> {
             )
             .await
             .map(hex_signature);
-        let unchanged = self.leased.is_revisit
+        let unchanged = self.leased.is_revisit_attempt()
             && signature.is_some()
             && signature == self.revisit.previous_signature;
         *self.revisit_meta.lock().await = Some(RevisitMeta {
@@ -1959,6 +2056,8 @@ impl On<'_> {
             signature,
             tier: Some(FetchTier::Browser),
             unchanged,
+            consecutive_gone: 0,
+            gone_status: false,
         });
         unchanged && self.revisit.on_unchanged == RevisitOnUnchanged::Skip
     }
@@ -2314,9 +2413,9 @@ async fn late(run: Arc<CrawlRun>, lease: WorkItemLease, mut sent: Sent<CrawlRequ
 /// nothing of it.
 pub(super) fn effect(answer: &Answer) -> Effect {
     match answer {
-        Answer::Handled(CrawlRequestHandled { skipped: None, .. }) | Answer::Unchanged => {
-            Effect::Success
-        }
+        Answer::Handled(CrawlRequestHandled { skipped: None, .. })
+        | Answer::Unchanged
+        | Answer::Gone => Effect::Success,
         Answer::Failed(failure) => match failure.why() {
             Why::Blocked(cause) => Effect::Blocked(cause.clone()),
             Why::PageCheckFailed { .. } => Effect::PageCheckFailed,

@@ -1499,6 +1499,8 @@ class RequestCounts(BaseModel):
     """The skipped ones, by skip reason."""
     failed: Annotated[int, Field(ge=0)]
     """How many failed."""
+    gone: Annotated[int | None, Field(ge=0)] = None
+    """How many Continuous crawl URLs ended gone (ADR 0139)."""
     pending: Annotated[int, Field(ge=0)]
     """How many were left pending."""
     skipped: Annotated[int, Field(ge=0)]
@@ -1527,6 +1529,8 @@ class RequestProgress(BaseModel):
     """How many failed."""
     fetching: Annotated[int, Field(ge=0)]
     """How many are being fetched."""
+    gone: Annotated[int | None, Field(ge=0)] = None
+    """How many Continuous crawl URLs ended gone (ADR 0139)."""
     handling: Annotated[int, Field(ge=0)]
     """How many a handler handles."""
     in_human_pause: Annotated[int, Field(ge=0)]
@@ -2672,7 +2676,33 @@ class CrawlRequestOutcome5(BaseModel):
     kind: Literal["unchanged"]
 
 
-class CrawlRequestOutcome6(UnknownMember):
+class CrawlRequestOutcome6(BaseModel):
+    """
+    A Continuous crawl URL answered 404 or 410 on `revisit.gone_after`
+    revisits in a row and will not be revisited (ADR 0139).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        arbitrary_types_allowed=True,
+    )
+    attempts: Annotated[int, Field(ge=0)]
+    """How many attempts it took: retries are a count, not an outcome."""
+    ended_at: PointInTime
+    """When it ended."""
+    errors: list[AttemptError]
+    """The error of each failed attempt, in order."""
+    position: Annotated[int, Field(ge=0)]
+    """
+    Its place in the Run's commit order, from 1, which `run.outcomes`'s
+    `after` takes.
+    """
+    request: OutcomeRequest
+    """The request it ends."""
+    kind: Literal["gone"]
+
+
+class CrawlRequestOutcome7(UnknownMember):
     """A member this package does not know, which a newer engine may send: the tag it was sent in `tag`, the fields every member shares, and what else it carries as sent (ADR 0079)."""
 
     model_config = ConfigDict(
@@ -2705,6 +2735,7 @@ class CrawlRequestOutcome(
         | CrawlRequestOutcome4
         | CrawlRequestOutcome5
         | CrawlRequestOutcome6
+        | CrawlRequestOutcome7
     ]
 ):
     root: (
@@ -2714,6 +2745,7 @@ class CrawlRequestOutcome(
         | CrawlRequestOutcome4
         | CrawlRequestOutcome5
         | CrawlRequestOutcome6
+        | CrawlRequestOutcome7
     )
     """
     How one crawl request ended (ADRs 0079 and 0102). A request that

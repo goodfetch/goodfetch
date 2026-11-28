@@ -134,6 +134,7 @@ const FAILED: &str = "failed";
 const SKIPPED: &str = "skipped";
 const BLOCKED: &str = "blocked";
 const UNCHANGED: &str = "unchanged";
+const GONE: &str = "gone";
 
 /// Whether a work item is still leased to an attempt, which every end of an
 /// attempt checks first.
@@ -212,6 +213,13 @@ impl Leased {
             is_revisit: false,
             ..self
         }
+    }
+
+    /// Whether this attempt is a Continuous crawl revisit (including retries
+    /// of a revisit attempt after `Leased::next` cleared `is_revisit` for SQL
+    /// pending-claim semantics, ADR 0139).
+    pub(crate) fn is_revisit_attempt(&self) -> bool {
+        self.is_revisit || self.revisit_row.is_some()
     }
 
     /// The same work item prepared for a Continuous crawl revisit (ADR 0139):
@@ -373,6 +381,9 @@ pub(crate) enum Unsuccessful {
     /// A Continuous crawl revisit found the page unchanged and skipped its
     /// handler (ADR 0139).
     Unchanged,
+    /// A Continuous crawl URL answered 404 or 410 on `revisit.gone_after`
+    /// revisits in a row and will not be revisited (ADR 0139).
+    Gone,
     /// Back to pending with its attempt uncounted, its error as it was:
     /// the program gave its request back (ADR 0102).
     Released,
@@ -1981,6 +1992,10 @@ pub(crate) fn end(
         Unsuccessful::Unchanged => {
             set(UNCHANGED, None)?;
             Ending::Unchanged
+        }
+        Unsuccessful::Gone => {
+            set(GONE, None)?;
+            Ending::Gone
         }
         Unsuccessful::Released => {
             connection

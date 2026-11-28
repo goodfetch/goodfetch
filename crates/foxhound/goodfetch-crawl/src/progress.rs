@@ -492,6 +492,7 @@ impl CrawlProgress {
         let (skipped, by_skip_reason) = ended_as(counted, &OutcomeKind::Skipped);
         let (blocked, by_block_cause) = ended_as(counted, &OutcomeKind::Blocked);
         let (unchanged, _) = ended_as(counted, &OutcomeKind::Unchanged);
+        let (gone, _) = ended_as(counted, &OutcomeKind::Gone);
         let requests = RequestProgress {
             pending: counted.pending(in_flight.len()),
             fetching: 0,
@@ -502,6 +503,7 @@ impl CrawlProgress {
             skipped,
             blocked,
             unchanged,
+            gone,
             by_skip_reason,
             by_error_code,
             by_block_cause,
@@ -557,6 +559,7 @@ impl ProgressPart for CrawlProgress {
             skipped: ended.skipped,
             blocked: ended.blocked,
             unchanged: ended.unchanged,
+            gone: ended.gone,
             by_skip_reason: ended.by_skip_reason,
             by_error_code: ended.by_error_code,
             by_block_cause: ended.by_block_cause,

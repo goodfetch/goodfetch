@@ -52,6 +52,9 @@ pub enum OutcomeKind {
     /// A Continuous crawl revisit found the page unchanged (304 or matching
     /// Page signature) and skipped its handler (ADR 0139).
     Unchanged,
+    /// A Continuous crawl URL answered 404 or 410 on `revisit.gone_after`
+    /// revisits in a row and will not be revisited (ADR 0139).
+    Gone,
     /// A kind a newer engine gives that this reader does not know, kept as
     /// received (ADR 0079).
     #[serde(untagged)]
@@ -61,12 +64,13 @@ pub enum OutcomeKind {
 
 impl OutcomeKind {
     /// The kinds this reader knows, in declaration order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Succeeded,
         Self::Failed,
         Self::Skipped,
         Self::Blocked,
         Self::Unchanged,
+        Self::Gone,
     ];
 
     /// Its name on the wire and in run state.
@@ -77,6 +81,7 @@ impl OutcomeKind {
             Self::Skipped => "skipped",
             Self::Blocked => "blocked",
             Self::Unchanged => "unchanged",
+            Self::Gone => "gone",
             Self::Unknown(kind) => kind.as_str(),
         }
     }
@@ -255,6 +260,9 @@ pub enum Ending {
     /// A Continuous crawl revisit found the page unchanged and ran no handler
     /// (ADR 0139).
     Unchanged,
+    /// A Continuous crawl URL answered 404 or 410 on `revisit.gone_after`
+    /// revisits in a row and will not be revisited (ADR 0139).
+    Gone,
     /// An ending a newer engine gives that this reader does not know, kept
     /// as received with its tag (ADR 0079).
     #[serde(untagged, deserialize_with = "Ending::read_unknown")]
@@ -264,7 +272,14 @@ pub enum Ending {
 
 impl Ending {
     /// The tags of the endings this reader knows, in declaration order.
-    const KNOWN_TAGS: [&str; 5] = ["succeeded", "failed", "skipped", "blocked", "unchanged"];
+    const KNOWN_TAGS: [&str; 6] = [
+        "succeeded",
+        "failed",
+        "skipped",
+        "blocked",
+        "unchanged",
+        "gone",
+    ];
 
     /// Its kind: an unknown ending's is its tag.
     pub fn kind(&self) -> OutcomeKind {
@@ -274,6 +289,7 @@ impl Ending {
             Self::Skipped { .. } => OutcomeKind::Skipped,
             Self::Blocked { .. } => OutcomeKind::Blocked,
             Self::Unchanged => OutcomeKind::Unchanged,
+            Self::Gone => OutcomeKind::Gone,
             Self::Unknown(member) => OutcomeKind::Unknown(member.tag_value()),
         }
     }

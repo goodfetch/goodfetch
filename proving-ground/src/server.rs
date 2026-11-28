@@ -562,14 +562,9 @@ async fn answer(
             if let Some(answer) = site.model(&parts.method, &host, target, &body) {
                 return model_response(answer).await;
             }
+            let path = parts.uri.path();
             if let Some(reply) = site
-                .challenge(
-                    &parts.method,
-                    &host,
-                    parts.uri.path(),
-                    &parts.headers,
-                    &body,
-                )
+                .async_reply(&parts.method, &host, target, path, &parts.headers, &body)
                 .await
             {
                 (reply, None)

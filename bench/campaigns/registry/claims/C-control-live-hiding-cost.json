@@ -1,0 +1,14 @@
+{
+  "id": "C-control-live-hiding-cost",
+  "statement": "Live hiding cost is measured against live_hiding = off (ADR 0047).",
+  "decision": "D-control-cost",
+  "metric": "task_p50_ms_verified",
+  "comparator": { "option": "collie-all-on", "against": ["collie-live-hiding-off"] },
+  "direction": "lower",
+  "delta": 0.1,
+  "publication_host_class": "local-controlled",
+  "status": "candidate",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "evidence": [],
+  "notes": "Declared before measuring (ADR 0047, ADR 0025, issue 188)."
+}

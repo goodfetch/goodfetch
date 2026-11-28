@@ -73,10 +73,10 @@ A package holds no symbolic link: one is refused, naming its path. The entry mus
 
 ## The digest
 
-A Recipe's digest names one version of it, the same on every system: `goodfetch-collie recipe digest <directory>` prints it, such as `sha256:728c7ca0…`, and `--json` adds the files it covers.
+A Recipe's digest names one version of it, the same on every system: `{{executable}} recipe digest <directory>` prints it, such as `sha256:728c7ca0…`, and `--json` adds the files it covers.
 
 ```sh
-goodfetch-collie recipe digest ./price-watch
+{{executable}} recipe digest ./price-watch
 ```
 
 It is SHA-256 over the files the package holds, each by its path from the root, with `/` between its parts and written in Unicode NFC, and by its bytes as they are, line endings included. Folders and permissions do not count, so any change to what the package holds changes it, a file its ignore rules leave out does not, and a checkout on Windows, macOS or Linux gives the same one. Its exact rule, with test vectors for a tool that computes it, is in the conformance suite's `conformance/recipe-digest/vectors.json`.

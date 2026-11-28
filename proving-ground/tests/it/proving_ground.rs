@@ -165,7 +165,7 @@ impl ProvingGround {
     }
 
     /// `serve`'s first output line, as JSON.
-    fn line_json(&self) -> Value {
+    pub(crate) fn line_json(&self) -> Value {
         serde_json::from_str(&self.line).expect("the line is JSON")
     }
 

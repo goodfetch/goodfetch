@@ -1,16 +1,18 @@
-//! The check of a request's Web Bot Auth signature (draft
+//! Web Bot Auth signature verification (draft
 //! `meunier-web-bot-auth-architecture`, on HTTP Message Signatures, RFC
-//! 9421), as the request arrives, with Cloudflare's `web-bot-auth`: the
+//! 9421), as a request arrives, with Cloudflare's `web-bot-auth`: the
 //! signature must be tagged `web-bot-auth`, cover `@authority` (or
-//! `@target-uri`) and `Signature-Agent`, be unexpired, and verify against a
-//! key of the directory its `Signature-Agent` names. That directory is read
-//! as the lab's identity site read it: fetched at arrival from its
-//! `http://` URL (`/.well-known/http-message-signatures-directory` added to
-//! an origin), served as `application/http-message-signatures-directory+json`,
-//! every key named by its RFC 7638 thumbprint and proven by the directory
-//! response's own signature (tag `http-message-signatures-directory`). A
-//! `data:` directory is read inline. A directory the Proving ground cannot
-//! fetch refuses the signature; nothing else is reached.
+//! `@target-uri`) and `Signature-Agent` (plus any extra headers a caller
+//! requires, such as `crawler-exact-price` or `payment-signature`), be
+//! unexpired, and verify against a key of the directory its `Signature-Agent`
+//! names. That directory is read as the lab's identity site read it: fetched
+//! at arrival from its `http://` URL
+//! (`/.well-known/http-message-signatures-directory` added to an origin),
+//! served as `application/http-message-signatures-directory+json`, every key
+//! named by its RFC 7638 thumbprint and proven by the directory response's
+//! own signature (tag `http-message-signatures-directory`). A `data:`
+//! directory is read inline. A directory the Proving ground cannot fetch
+//! refuses the signature; nothing else is reached.
 #![expect(
     clippy::disallowed_types,
     reason = "the Proving ground fetches an agent's key directory itself, outside the engine's transport (ADR 0060)"
@@ -30,7 +32,6 @@ use web_bot_auth::keyring::{JSONWebKeySet, KeyRing, Thumbprintable};
 use web_bot_auth::message_signatures::{MessageVerifier, SignedMessage};
 
 use crate::observation::Verification;
-use crate::raw::Request;
 
 const DIRECTORY_PATH: &str = "/.well-known/http-message-signatures-directory";
 const DIRECTORY_TYPE: &str = "application/http-message-signatures-directory+json";
@@ -41,18 +42,36 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// The largest directory read.
 const DIRECTORY_LIMIT: usize = 256 * 1024;
 
-/// The check of `request`'s signature, or `None` when it carries none.
-pub(super) async fn verify(request: &Request) -> Option<Verification> {
+/// A verified Web Bot Auth signature's metadata, including its replay-tracking
+/// token (the signature's nonce, or keyid + created when absent).
+pub(crate) struct VerifiedSignature {
+    pub(crate) key_id: String,
+    pub(crate) replay_token: String,
+    pub(crate) covered_headers: Vec<String>,
+}
+
+/// Checks `headers` for a Web Bot Auth signature on `(authority, method, target)`.
+/// Returns `None` when no signature header is present.
+pub(crate) async fn verify_headers(
+    authority: &str,
+    method: &str,
+    target: &str,
+    headers: &[(String, String)],
+) -> Option<Verification> {
     let signed = ["signature", "signature-input", "signature-agent"]
         .iter()
-        .any(|name| request.header(name).is_some());
+        .any(|name| {
+            headers
+                .iter()
+                .any(|(field, _)| field.eq_ignore_ascii_case(name))
+        });
     if !signed {
         return None;
     }
-    Some(match check(request).await {
-        Ok(key_id) => Verification {
+    Some(match check(authority, method, target, headers).await {
+        Ok(verified) => Verification {
             verified: true,
-            key_id: Some(key_id),
+            key_id: Some(verified.key_id),
             error: None,
         },
         Err(error) => Verification {
@@ -63,11 +82,23 @@ pub(super) async fn verify(request: &Request) -> Option<Verification> {
     })
 }
 
-/// The ID of the key that signed `request`, or why its signature is refused.
-async fn check(request: &Request) -> Result<String, String> {
-    let message = Incoming(request);
+/// Verifies a request's Web Bot Auth signature and returns its key ID, replay
+/// token, and the lowercase names of all HTTP headers covered by the signature.
+pub(crate) async fn check(
+    authority: &str,
+    method: &str,
+    target: &str,
+    headers: &[(String, String)],
+) -> Result<VerifiedSignature, String> {
+    let message = Incoming {
+        authority,
+        method,
+        target,
+        headers,
+    };
     let verifier = WebBotAuthVerifier::parse(&message).map_err(|error| error.to_string())?;
-    let details = &verifier.get_parsed_label().base.parameters.details;
+    let parsed = verifier.get_parsed_label();
+    let details = &parsed.base.parameters.details;
     if details.possibly_insecure(|_| false).is_expired != Some(false) {
         return Err("the signature has expired or has no expiry".to_owned());
     }
@@ -75,6 +106,21 @@ async fn check(request: &Request) -> Result<String, String> {
         .keyid
         .clone()
         .ok_or_else(|| "the signature names no key".to_owned())?;
+    let covered_headers = parsed
+        .base
+        .components
+        .iter()
+        .filter_map(|(component, _)| match component {
+            CoveredComponent::HTTP(field) => Some(field.name.to_ascii_lowercase()),
+            CoveredComponent::Derived(_) => None,
+        })
+        .collect();
+    let replay_token = details.nonce.clone().unwrap_or_else(|| {
+        headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("signature"))
+            .map_or_else(|| format!("{key_id}:{target}"), |(_, value)| value.clone())
+    });
     let keys = match verifier.get_signature_agents().first() {
         Some(SignatureAgentLink::Inline(keys)) => keys.clone(),
         Some(SignatureAgentLink::External(url)) => {
@@ -89,7 +135,11 @@ async fn check(request: &Request) -> Result<String, String> {
     verifier
         .verify(&keyring, None)
         .map_err(|error| error.to_string())?;
-    Ok(key_id)
+    Ok(VerifiedSignature {
+        key_id,
+        replay_token,
+        covered_headers,
+    })
 }
 
 /// The keys of the directory at `url`, each proven by the directory's own
@@ -279,7 +329,7 @@ fn dechunk(mut bytes: &[u8]) -> Option<Vec<u8>> {
 fn field_values(headers: &[(String, String)], field: &HTTPField) -> Vec<String> {
     let values = headers
         .iter()
-        .filter(|(name, _)| *name == field.name)
+        .filter(|(name, _)| name.eq_ignore_ascii_case(&field.name))
         .map(|(_, value)| value.clone());
     let key = field
         .parameters
@@ -305,31 +355,36 @@ fn field_values(headers: &[(String, String)], field: &HTTPField) -> Vec<String> 
 }
 
 /// A request as the signature's components read it, over TLS.
-struct Incoming<'a>(&'a Request);
+struct Incoming<'a> {
+    authority: &'a str,
+    method: &'a str,
+    target: &'a str,
+    headers: &'a [(String, String)],
+}
 
 impl SignedMessage for Incoming<'_> {
     fn lookup_component(&self, name: &CoveredComponent) -> Vec<String> {
-        let request = self.0;
+        let path = self
+            .target
+            .split_once('?')
+            .map_or(self.target, |(path, _)| path);
         let one = |value: String| vec![value];
         match name {
-            CoveredComponent::HTTP(field) => field_values(&request.headers, field),
+            CoveredComponent::HTTP(field) => field_values(self.headers, field),
             CoveredComponent::Derived(derived) => match derived {
-                DerivedComponent::Authority { .. } => one(request.authority.to_ascii_lowercase()),
+                DerivedComponent::Authority { .. } => one(self.authority.to_ascii_lowercase()),
                 DerivedComponent::TargetUri { .. } => one(format!(
                     "https://{}{}",
-                    request.authority.to_ascii_lowercase(),
-                    request.target
+                    self.authority.to_ascii_lowercase(),
+                    self.target
                 )),
-                DerivedComponent::RequestTarget { .. } => one(request.target.clone()),
-                DerivedComponent::Method { .. } => one(request.method.clone()),
-                DerivedComponent::Path { .. } => one(request.path().to_owned()),
+                DerivedComponent::RequestTarget { .. } => one(self.target.to_owned()),
+                DerivedComponent::Method { .. } => one(self.method.to_owned()),
+                DerivedComponent::Path { .. } => one(path.to_owned()),
                 DerivedComponent::Scheme { .. } => one("https".to_owned()),
                 DerivedComponent::Query { .. } => one(format!(
                     "?{}",
-                    request
-                        .target
-                        .split_once('?')
-                        .map_or("", |(_, query)| query)
+                    self.target.split_once('?').map_or("", |(_, query)| query)
                 )),
                 DerivedComponent::QueryParams { .. } | DerivedComponent::Status { .. } => {
                     Vec::new()

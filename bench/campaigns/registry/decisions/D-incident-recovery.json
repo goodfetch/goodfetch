@@ -1,0 +1,29 @@
+{
+  "id": "D-incident-recovery",
+  "title": "Incident and recovery latency (Foxhound)",
+  "question": "Does Foxhound recover cleanly from faults compared to its baseline without false successes?",
+  "status": "evidence-pending",
+  "declared_at": "2026-11-28T00:00:00.000Z",
+  "options": [
+    {
+      "id": "foxhound-candidate",
+      "description": "Foxhound candidate",
+      "adapter": "foxhound-candidate"
+    },
+    {
+      "id": "foxhound-baseline",
+      "description": "Foxhound baseline",
+      "adapter": "foxhound-baseline"
+    }
+  ],
+  "baseline": "foxhound-baseline",
+  "primary_metric": "task_p50_ms_verified",
+  "secondary_metrics": ["failure_rate"],
+  "contract_gates": ["oracle_exact", "false_success_count"],
+  "delta": 0.1,
+  "rule": { "kind": "non-inferiority", "alpha": 0.05, "power": 0.8, "noisy_blocks": "exclude" },
+  "host_class": { "decision": "local-controlled", "publication": "local-controlled" },
+  "evidence": [],
+  "depends_on": [],
+  "notes": "Declared before measuring (ADR 0025, issue 188)."
+}

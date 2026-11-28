@@ -1,0 +1,41 @@
+{
+  "id": "incident-recovery",
+  "host_class": { "requested": "local-controlled", "allow_downgrade": true },
+  "order_seed": 18802,
+  "blocks": 5,
+  "warmup": 1,
+  "iterations": 3,
+  "concurrency": 1,
+  "timeout_ms": 30000,
+  "max_duration_ms": 180000,
+  "max_restarts": 2,
+  "tasks": ["incidents/1"],
+  "registry": {
+    "folder": "registry",
+    "decisions": ["D-incident-recovery"]
+  },
+  "adapters": [
+    {
+      "id": "foxhound-candidate",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=batch"
+      ]
+    },
+    {
+      "id": "foxhound-baseline",
+      "command": [
+        "node",
+        "../adapters/goodfetch/src/adapter.ts",
+        "--product",
+        "foxhound",
+        "--setting",
+        "run_state.durability=full"
+      ]
+    }
+  ]
+}

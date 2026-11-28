@@ -34,13 +34,13 @@ mod names;
 mod origin;
 pub(crate) mod render;
 
-use std::collections::BTreeSet;
-use std::path::Path;
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context as _, Result};
 use clap::Subcommand;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::check::{self, Finding};
 use crate::environment::Environment;
@@ -57,6 +57,18 @@ pub(crate) enum Command {
     /// fails, writing nothing, on a page it cannot read or a code block
     /// that carries the other Product's names.
     Extract,
+    /// Compares the extracted `manifest.json` against the docs build's
+    /// `language-check` count list (which includes published package READMEs;
+    /// ADR 0097, issue 150) and fails on any missing or extra sample.
+    Check {
+        /// Path to the extracted manifest JSON (defaults to `target/docs-samples/manifest.json`).
+        #[arg(long)]
+        manifest: Option<PathBuf>,
+        /// Optional path to a `language-check` JSON file; when omitted, counts
+        /// directly from `docs/` and every published package's README.
+        #[arg(long)]
+        language_check: Option<PathBuf>,
+    },
 }
 
 /// Where the samples are written, from the workspace's folder.
@@ -75,6 +87,14 @@ const PACKAGE_MANIFESTS: [&str; 3] = ["package.json", "pyproject.toml", "Cargo.t
 pub(crate) fn run(command: &Command, environment: &Environment) -> Result<ExitCode> {
     match command {
         Command::Extract => extract(&environment.root),
+        Command::Check {
+            manifest,
+            language_check,
+        } => check_manifest(
+            &environment.root,
+            manifest.as_deref(),
+            language_check.as_deref(),
+        ),
     }
 }
 
@@ -85,20 +105,20 @@ struct Source {
     readme_of: Option<Product>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Manifest {
     samples: Vec<Sample>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct Sample {
     page: String,
-    rendering: &'static str,
+    rendering: String,
     line: usize,
     language: String,
     markers: Vec<String>,
-    runner: &'static str,
-    product: &'static str,
+    runner: String,
+    product: String,
     check: Check,
     /// The extracted file, from the output folder; none for a listed one.
     file: Option<String>,
@@ -107,7 +127,7 @@ struct Sample {
     origin: Vec<usize>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Check {
     /// Run by its runner.
@@ -243,6 +263,126 @@ fn extract(root: &Path) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// One entry of the docs build's `language-check` list (docs pages and
+/// published package READMEs; ADR 0097, issue 150).
+#[derive(Deserialize, Serialize)]
+struct LanguageCheckEntry {
+    page: String,
+    rendering: String,
+    line: usize,
+    language: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct LanguageCheckList {
+    samples: Vec<LanguageCheckEntry>,
+}
+
+/// Compares `manifest` against `language_check` (or counts directly from the
+/// workspace's `docs/` and published package READMEs when `language_check` is
+/// omitted), failing on any sample present in one list and missing from the
+/// other.
+fn check_manifest(
+    root: &Path,
+    manifest_path: Option<&Path>,
+    language_check_path: Option<&Path>,
+) -> Result<ExitCode> {
+    let manifest_file = manifest_path.map_or_else(
+        || root.join(OUTPUT).join("manifest.json"),
+        Path::to_path_buf,
+    );
+    let manifest_raw = std::fs::read_to_string(&manifest_file)
+        .with_context(|| format!("reading {}", manifest_file.display()))?;
+    let manifest: Manifest = serde_json::from_str(&manifest_raw)
+        .with_context(|| format!("parsing {}", manifest_file.display()))?;
+
+    let expected_entries: Vec<LanguageCheckEntry> = if let Some(path) = language_check_path {
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let parsed: LanguageCheckList =
+            serde_json::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+        parsed.samples
+    } else {
+        let mut counted = Vec::new();
+        for source in sources(root)? {
+            let text = std::fs::read_to_string(root.join(&source.path))
+                .with_context(|| format!("reading {}", source.path))?;
+            let renderings = match source.readme_of {
+                Some(product) => vec![render::readme(product, &text)],
+                None => match render::page(&source.path, &text) {
+                    Ok(renderings) => renderings,
+                    Err(findings) => return Ok(check::report(&findings)),
+                },
+            };
+            for rendering in &renderings {
+                let blocks = blocks::fenced(&rendering.lines);
+                for piece in pieces(&blocks) {
+                    let Ok(piece) = piece else { continue };
+                    let block = match piece {
+                        Piece::One(block, _) | Piece::Pair(block, _) => block,
+                    };
+                    counted.push(LanguageCheckEntry {
+                        page: source.path.clone(),
+                        rendering: rendering.product.key().to_owned(),
+                        line: block.line,
+                        language: block.language.clone(),
+                    });
+                }
+            }
+        }
+        counted
+    };
+
+    let mut expected: BTreeMap<(String, String, usize, String), usize> = BTreeMap::new();
+    for entry in expected_entries {
+        *expected
+            .entry((entry.page, entry.rendering, entry.line, entry.language))
+            .or_default() += 1;
+    }
+    let mut actual: BTreeMap<(String, String, usize, String), usize> = BTreeMap::new();
+    for sample in manifest.samples {
+        *actual
+            .entry((sample.page, sample.rendering, sample.line, sample.language))
+            .or_default() += 1;
+    }
+
+    let mut findings = Vec::new();
+    for (key, count) in &expected {
+        let got = actual.get(key).copied().unwrap_or(0);
+        if got != *count {
+            findings.push(Finding::new(
+                "docs-samples-count",
+                format!("{}:{}", key.0, key.2),
+                format!(
+                    "{} rendering ({}) appears {count} time(s) in language-check but {got} time(s) in manifest.json",
+                    key.1, key.3
+                ),
+            ));
+        }
+    }
+    for (key, count) in &actual {
+        if !expected.contains_key(key) {
+            findings.push(Finding::new(
+                "docs-samples-count",
+                format!("{}:{}", key.0, key.2),
+                format!(
+                    "{} rendering ({}) appears {count} time(s) in manifest.json but is absent from language-check",
+                    key.1, key.3
+                ),
+            ));
+        }
+    }
+
+    if !findings.is_empty() {
+        return Ok(check::report(&findings));
+    }
+    output::line(&format!(
+        "docs-samples check: {} sample entries match language-check",
+        actual.values().sum::<usize>()
+    ));
+    Ok(ExitCode::SUCCESS)
+}
+
 fn write(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -371,12 +511,12 @@ impl Extraction {
             };
             self.samples.push(Sample {
                 page: page.to_owned(),
-                rendering: rendering.product.key(),
+                rendering: rendering.product.key().to_owned(),
                 line: block.line,
                 language: block.language.clone(),
                 markers: block.markers.clone(),
-                runner: tool.runner(),
-                product: product.key(),
+                runner: tool.runner().to_owned(),
+                product: product.key().to_owned(),
                 check,
                 file,
                 origin,

@@ -135,6 +135,10 @@ evidence = ["list"]
 list = []
 sweep = []
 
+# Which of `docs_site`'s own modules may import which.
+[submodules.docs_site]
+reference = []
+
 # Which of `docs_samples`'s own modules may import which.
 [submodules.docs_samples]
 blocks = ["render"]

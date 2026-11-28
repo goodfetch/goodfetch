@@ -1067,3 +1067,185 @@ fn per_profile_tools_list_bytes_and_named_workload_results_are_snapshots() {
         serde_json::to_string_pretty(&Value::Object(workload_sizes)).unwrap()
     );
 }
+
+/// Covers: story:11-223, story:11-224, story:11-225, mcp-profile:browser, mcp-profile:agent, mcp-profile:run, mcp-profile:code, mcp-profile:full
+#[test]
+fn every_profile_projection_is_a_snapshot_and_identical_in_foxhound() {
+    use crate::projection::tools_list_wire_bytes;
+
+    for profile_name in ProfileName::ALL {
+        let collie = ResolvedProfile::for_product(Product::Collie, profile_name);
+        let foxhound = ResolvedProfile::for_product(Product::Foxhound, profile_name);
+
+        let collie_tools: Vec<_> = collie.tools.iter().map(|p| p.tool.clone()).collect();
+        let foxhound_tools: Vec<_> = foxhound.tools.iter().map(|p| p.tool.clone()).collect();
+
+        let collie_bytes = tools_list_wire_bytes(&collie_tools);
+        let snapshot_value = json!({
+            "profile": profile_name.as_str(),
+            "tools_list_bytes": collie_bytes,
+            "tools": collie.tools.iter().map(|p| json!({
+                "name": p.tool.name,
+                "operation": p.operation,
+                "description": p.tool.description,
+                "annotations": p.tool.annotations,
+                "input_schema_keys": p.tool.input_schema.get("properties")
+                    .and_then(Value::as_object)
+                    .map(|m| m.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+            })).collect::<Vec<_>>(),
+        });
+        insta::assert_snapshot!(
+            format!("profile_{}", profile_name.as_str()),
+            serde_json::to_string_pretty(&snapshot_value).unwrap()
+        );
+
+        match profile_name {
+            ProfileName::Browser | ProfileName::Agent | ProfileName::Run | ProfileName::Code => {
+                // Collie's profiles are byte-for-byte identical in Foxhound's server (ADRs 0090, 0095).
+                assert_eq!(
+                    serde_json::to_vec(&collie_tools).unwrap(),
+                    serde_json::to_vec(&foxhound_tools).unwrap(),
+                    "profile `{}` must be identical in Collie and Foxhound",
+                    profile_name.as_str()
+                );
+            }
+            ProfileName::Full => {
+                // Foxhound's `full` contains every Collie `full` tool identically (ADR 0094).
+                for tool in &collie_tools {
+                    let found = foxhound_tools
+                        .iter()
+                        .find(|t| t.name == tool.name)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Collie full tool `{}` missing from Foxhound full",
+                                tool.name
+                            )
+                        });
+                    assert_eq!(
+                        serde_json::to_value(tool).unwrap(),
+                        serde_json::to_value(found).unwrap(),
+                        "Collie full tool `{}` must match identically in Foxhound full",
+                        tool.name
+                    );
+                }
+            }
+        }
+    }
+
+    // `code` profile offers zero per-operation tools (until #1375 adds code_mode_run)
+    // and serves cleanly over rmcp in-memory.
+    test_runtime().block_on(async {
+        let (client, _recorder, tasks) = start_in_memory_with_profile(
+            Product::Collie,
+            ResolvedProfile::for_product(Product::Collie, ProfileName::Code),
+            None,
+            hello_only_engine,
+        )
+        .await;
+        let list = client.list_tools(None).await.expect("list_tools");
+        assert!(
+            list.tools.is_empty(),
+            "code profile must offer no per-operation tools, got: {:?}",
+            list.tools
+                .iter()
+                .map(|t| t.name.as_ref())
+                .collect::<Vec<_>>()
+        );
+        let _ = client.cancel().await;
+        tasks.close();
+        tasks.wait().await;
+    });
+}
+
+/// Covers: story:11-225, story:11-230, story:11-235
+#[test]
+fn no_kept_off_or_foxhound_operation_appears_and_classes_match_catalog() {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use goodfetch_protocol::catalog::{Reach, SDK_ONLY};
+    use goodfetch_protocol::entries::operations_of;
+
+    use crate::profiles::KEPT_OFF_OPERATIONS;
+    use crate::projection::{annotations_for, is_live_view_grant};
+
+    let collie_ops: BTreeSet<&str> = operations_of(Product::Collie).map(|o| o.name).collect();
+    let all_ops: BTreeMap<&str, _> = operations_of(Product::Foxhound)
+        .map(|o| (o.name, o))
+        .collect();
+
+    for product in [Product::Collie, Product::Foxhound] {
+        for profile_name in ProfileName::ALL {
+            let resolved = ResolvedProfile::for_product(product, profile_name);
+            for projected in &resolved.tools {
+                let op = all_ops.get(projected.operation).unwrap_or_else(|| {
+                    panic!("unknown catalog operation `{}`", projected.operation)
+                });
+
+                assert_eq!(
+                    op.reach,
+                    Reach::AllSurfaces,
+                    "person-only or sdk-only `{}` leaked into `{}`",
+                    op.name,
+                    profile_name.as_str()
+                );
+                assert!(
+                    !KEPT_OFF_OPERATIONS.contains(&op.name),
+                    "kept-off `{}` leaked into `{}`",
+                    op.name,
+                    profile_name.as_str()
+                );
+                assert!(
+                    !SDK_ONLY.contains(&op.name),
+                    "SDK-only `{}` leaked into `{}`",
+                    op.name,
+                    profile_name.as_str()
+                );
+                assert!(
+                    !is_live_view_grant(op.name),
+                    "Live view grant `{}` leaked into `{}`",
+                    op.name,
+                    profile_name.as_str()
+                );
+
+                // No Foxhound-only entry on any Collie profile or on Foxhound's Collie profiles.
+                if product == Product::Collie || profile_name != ProfileName::Full {
+                    assert!(
+                        collie_ops.contains(op.name),
+                        "Foxhound-only `{}` leaked into {:?} `{}`",
+                        op.name,
+                        product,
+                        profile_name.as_str()
+                    );
+                }
+
+                // Granting parameter `accept_plugin_change` is stripped from `run_start` and `recipe_start`.
+                if matches!(op.name, "run.start" | "recipe.start") {
+                    let props = projected
+                        .tool
+                        .input_schema
+                        .get("properties")
+                        .and_then(Value::as_object);
+                    assert!(
+                        props.is_none_or(|m| !m.contains_key("accept_plugin_change")),
+                        "`{}` must omit `accept_plugin_change` from inputSchema",
+                        op.name
+                    );
+                }
+
+                // Each surface's operations map to catalog operations of the same class.
+                assert_eq!(
+                    projected.class, op.class,
+                    "class mismatch for `{}`",
+                    op.name
+                );
+                assert_eq!(
+                    projected.tool.annotations,
+                    Some(annotations_for(op)),
+                    "annotations mismatch for `{}`",
+                    op.name
+                );
+            }
+        }
+    }
+}

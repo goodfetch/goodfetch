@@ -6,27 +6,44 @@
 
 use std::process::ExitCode;
 
+use goodfetch_engine::settings::get_or_default;
 use goodfetch_engine::transport::{self, Network};
 use goodfetch_engine::{Dependencies, Engine};
 use goodfetch_mcp::engine::{EngineLink, EngineLinkConfig};
 use goodfetch_mcp::profiles::{ProfileName, ResolvedProfile};
 use goodfetch_mcp::server::{McpServer, ServerOptions};
 use goodfetch_mcp::transports;
+use goodfetch_protocol::mcp::PROFILE;
 
 use super::daemon::Machine;
 use super::engine_choice::{Choice, EngineFlags};
 use crate::runtime::{self, Threads};
 
 /// Arguments for the `mcp` command.
-#[derive(Clone, Copy, Debug, clap::Args)]
+#[derive(Clone, Debug, clap::Args)]
 pub(super) struct Arguments {
+    /// Tool profile to serve (`browser`, `agent`, `run`, `code` or `full`).
+    /// Overrides `mcp.profile` (`browser` by default).
+    #[arg(long, value_name = "NAME", value_parser = ["browser", "agent", "run", "code", "full"])]
+    pub(super) profile: Option<String>,
     #[command(flatten)]
     pub(super) engine: EngineFlags,
 }
 
+/// Resolves the MCP profile from `--profile`, `mcp.profile`, or the `browser` default.
+fn resolve_profile(
+    flag: Option<&str>,
+    settings: Option<&goodfetch_engine::settings::Resolved>,
+) -> ProfileName {
+    flag.and_then(ProfileName::parse).unwrap_or_else(|| {
+        let configured: &str = get_or_default(settings, &PROFILE);
+        ProfileName::parse(configured).unwrap_or_default()
+    })
+}
+
 /// Runs the MCP server over stdio until the client closes stdin or fails.
 pub(super) fn run(
-    arguments: Arguments,
+    arguments: &Arguments,
     engine: &Engine,
     dependencies: Dependencies,
     machine: &Machine<'_>,
@@ -36,7 +53,10 @@ pub(super) fn run(
     let product = engine.identity().product;
     let product_version = engine.identity().product_version.clone();
     let version = product_version.to_string();
-    let profile = ResolvedProfile::for_product(product, ProfileName::Browser);
+    let profile = ResolvedProfile::for_product(
+        product,
+        resolve_profile(arguments.profile.as_deref(), settings),
+    );
 
     let daemon = match choice {
         Choice::Attached => None,

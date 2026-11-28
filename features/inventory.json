@@ -3768,6 +3768,61 @@
       ]
     },
     {
+      "id": "mcp-profile:agent",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:browser",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:code",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:full",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "mcp-profile:run",
+      "kind": "mcp-profile",
+      "area": 11,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
       "id": "operation:audit.export",
       "kind": "operation",
       "area": 4,
@@ -10664,6 +10719,17 @@
       "id": "setting:log.output",
       "kind": "setting",
       "area": 3,
+      "milestone": null,
+      "status": "active",
+      "products": [
+        "collie",
+        "foxhound"
+      ]
+    },
+    {
+      "id": "setting:mcp.profile",
+      "kind": "setting",
+      "area": 11,
       "milestone": null,
       "status": "active",
       "products": [

@@ -32615,6 +32615,33 @@
     },
     {
       "arrived_in": "0.1",
+      "authority": "configuration",
+      "clearable": false,
+      "default": "browser",
+      "deprecated": null,
+      "description": "Which tool profile `mcp` serves when `--profile` is not passed: `browser` (the default), `agent`, `run`, `code` or `full`. A Collie profile offers the same tools in both Collie and Foxhound executables.",
+      "fixed_for_run": false,
+      "name": "mcp.profile",
+      "product": "collie",
+      "products": [
+        "collie",
+        "foxhound"
+      ],
+      "scopes": [],
+      "value": {
+        "enum": [
+          "browser",
+          "agent",
+          "run",
+          "code",
+          "full"
+        ]
+      },
+      "weakening": null,
+      "weakens": false
+    },
+    {
+      "arrived_in": "0.1",
       "authority": "every",
       "clearable": false,
       "default": 67108864,
@@ -38444,6 +38471,13 @@
   "shared_type_values": [
     {
       "arrived_in": "0.1",
+      "description": "The `browser` MCP profile plus `page_agent`.",
+      "name": "agent",
+      "product": "collie",
+      "type": "mcp_profile"
+    },
+    {
+      "arrived_in": "0.1",
       "description": "A Run waits for a person's approval.",
       "name": "approval_requested",
       "product": "collie",
@@ -38483,6 +38517,13 @@
       "name": "block_resources_visible",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Collie's default MCP profile: Run lifecycle, Session and page opening/closing, navigation and reading, locator actions, and Saved identity listing.",
+      "name": "browser",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",
@@ -38595,6 +38636,13 @@
       "name": "clean_up_rules_stale",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Code mode (`code_mode_run`) and product documentation resources, with no per-operation tools.",
+      "name": "code",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",
@@ -38833,6 +38881,13 @@
       "name": "fingerprint_none",
       "product": "collie",
       "type": "run_warning_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Every agent-surface operation of the Product, excluding person-only and granting operations.",
+      "name": "full",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",
@@ -39141,6 +39196,13 @@
       "name": "response_unavailable",
       "product": "foxhound",
       "type": "completeness_reason_code"
+    },
+    {
+      "arrived_in": "0.1",
+      "description": "Runs, Run reports, `recipe_start`, `catalog_run_start`, `schedule_*`, `usage_*`, and Run index reads, with no page tools.",
+      "name": "run",
+      "product": "collie",
+      "type": "mcp_profile"
     },
     {
       "arrived_in": "0.1",

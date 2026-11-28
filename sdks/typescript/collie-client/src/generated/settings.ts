@@ -2228,6 +2228,9 @@ const SPELLING: Spelling = {
     level: "level",
     output: "output",
   }],
+  mcp: ["mcp", {
+    profile: "profile",
+  }],
   network: ["network", {
     maxBodySize: "max_body_size",
     maxDecompressionRatio: "max_decompression_ratio",

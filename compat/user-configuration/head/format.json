@@ -1503,6 +1503,22 @@
             },
             "type": "object"
           },
+          "mcp": {
+            "additionalProperties": false,
+            "properties": {
+              "profile": {
+                "description": "Which tool profile `mcp` serves when `--profile` is not passed: `browser` (the default), `agent`, `run`, `code` or `full`. A Collie profile offers the same tools in both Collie and Foxhound executables.",
+                "enum": [
+                  "browser",
+                  "agent",
+                  "run",
+                  "code",
+                  "full"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "network": {
             "additionalProperties": false,
             "properties": {

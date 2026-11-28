@@ -237,3 +237,76 @@ fn mcp_stdio_rmcp_client_connects_and_calls_tools_on_binary() {
         let _ = client.cancel().await;
     });
 }
+
+/// Covers: story:11-223, story:11-224, setting:mcp.profile
+#[test]
+fn mcp_stdio_profile_flag_and_setting_select_profile() {
+    let env = TestEnv::new();
+    let config_dir = env.home().join("0.0");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("configuration.toml"),
+        "version = \"0.1\"\n\n[settings.mcp]\nprofile = \"run\"\n",
+    )
+    .unwrap();
+
+    let rt = goodfetch_runtime::multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        // 1. Without --profile, `mcp.profile = "run"` from user configuration applies.
+        let mut cmd_setting = tokio::process::Command::new(COLLIE);
+        cmd_setting
+            .env_clear()
+            .envs(env.env_os())
+            .args(["mcp", "--attached"]);
+        let client_run =
+            ().serve(TokioChildProcess::new(cmd_setting).expect("spawn mcp with setting"))
+                .await
+                .expect("rmcp initialized");
+        let run_info = client_run.peer_info().expect("server info");
+        assert!(
+            run_info
+                .instructions
+                .as_deref()
+                .is_some_and(|s| s.contains("`run`")),
+            "instructions should name `run` profile: {:?}",
+            run_info.instructions
+        );
+        let run_tools = client_run.list_all_tools().await.expect("list_all_tools");
+        assert!(run_tools.iter().any(|t| t.name == "run_start"));
+        assert!(
+            !run_tools.iter().any(|t| t.name == "page_goto"),
+            "run profile must not expose page tools"
+        );
+        let _ = client_run.cancel().await;
+
+        // 2. `--profile code` overrides `mcp.profile` and offers no per-operation tools.
+        let mut cmd_code = tokio::process::Command::new(COLLIE);
+        cmd_code
+            .env_clear()
+            .envs(env.env_os())
+            .args(["mcp", "--attached", "--profile", "code"]);
+        let client_code =
+            ().serve(TokioChildProcess::new(cmd_code).expect("spawn mcp --profile code"))
+                .await
+                .expect("rmcp initialized");
+        let code_info = client_code.peer_info().expect("server info");
+        assert!(
+            code_info
+                .instructions
+                .as_deref()
+                .is_some_and(|s| s.contains("`code`")),
+            "instructions should name `code` profile: {:?}",
+            code_info.instructions
+        );
+        let code_tools = client_code.list_all_tools().await.expect("list_all_tools");
+        assert!(
+            code_tools.is_empty(),
+            "code profile must offer no per-operation tools"
+        );
+        let _ = client_code.cancel().await;
+    });
+}

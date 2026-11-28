@@ -66,6 +66,17 @@ export type CompletenessReasonCode = "failed" | "stopped" | (string & {});
 export type LimitScope = "connection" | "daemon" | "install" | "person" | "run" | "token" | (string & {});
 
 /**
+ * A `mcp_profile`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
+ *
+ * - `agent`: The `browser` MCP profile plus `page_agent`.
+ * - `browser`: Collie's default MCP profile: Run lifecycle, Session and page opening/closing, navigation and reading, locator actions, and Saved identity listing.
+ * - `code`: Code mode (`code_mode_run`) and product documentation resources, with no per-operation tools.
+ * - `full`: Every agent-surface operation of the Product, excluding person-only and granting operations.
+ * - `run`: Runs, Run reports, `recipe_start`, `catalog_run_start`, `schedule_*`, `usage_*`, and Run index reads, with no page tools.
+ */
+export type MCPProfile = "agent" | "browser" | "code" | "full" | "run" | (string & {});
+
+/**
  * A `needs_you_kind`, a type both Products share (ADR 0095): Collie's values below; a value this package does not know is kept as received (ADR 0079).
  *
  * - `certificate_changed`: A pinned host whose certificate presented another public key, stopped with `certificate_changed` (ADR 0042); `details` give the `host`, the `person` whose known-certificates store holds the pin, and both keys' SHA-256 as `pinned_spki_sha256` and `presented_spki_sha256`; `run` is the Run that met it. Its actions offer `certs.accept` and `certs.forget`, which that person alone answers. It leaves the list once they answer.

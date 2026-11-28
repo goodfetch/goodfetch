@@ -10,15 +10,16 @@ use crate::catalog::{
 use crate::{
     accounts, audit, block, browser_cache, checkpoint, connection, daemon, dns, download, effect,
     egress, engine, events, executables, foxhound, governor, hook, hostile_input, http_listener,
-    key_value_store, live_view, log, model, needs_you, notifications, ops, page, plugin,
+    key_value_store, live_view, log, mcp, model, needs_you, notifications, ops, page, plugin,
     politeness, recipe, response_cache, response_limits, run, sample, schedule, schema_validator,
     secrets, security, settings, site_preferences, skills, storage, tls, usage, versions,
 };
 
 /// Every module that defines entries.
-pub const MODULES: [&Entries; 72] = [
+pub const MODULES: [&Entries; 73] = [
     &connection::ENTRIES,
     &log::ENTRIES,
+    &mcp::ENTRIES,
     &daemon::ENTRIES,
     &http_listener::ENTRIES,
     &accounts::ENTRIES,

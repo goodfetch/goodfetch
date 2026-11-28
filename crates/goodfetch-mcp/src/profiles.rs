@@ -61,6 +61,8 @@ pub const KEPT_OFF_OPERATIONS: &[&str] = &[
     "needs_you.accept_consent_wall",
     "needs_you.accept_wall",
     "needs_you.accept_pay",
+    "needs_you.allow_consent_domain",
+    "needs_you.deny_wall_domain",
     "needs_you.reconcile",
     "model.set_price",
     "model.write_prices",

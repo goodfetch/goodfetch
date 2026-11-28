@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@goodfetch/collie": "workspace:*",
-    "@goodfetch/collie-adapter-shared": "workspace:*",
     "@goodfetch/collie-client": "workspace:*"
   },
   "devDependencies": {

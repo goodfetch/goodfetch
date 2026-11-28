@@ -7,8 +7,7 @@ import {
   toToolError,
   type CollieToolError,
   type CollieToolOutput,
-  type CollieToolsOptions,
-} from "@goodfetch/collie-adapter-shared";
+} from "../../shared/index.ts";
 import {
   collieMcpTools,
   type McpProfile,
@@ -17,7 +16,13 @@ import {
 import { createTool, type Tool } from "@mastra/core/tools";
 
 export type { McpOperationClass, McpProfile } from "@goodfetch/collie-client/mcp-tools";
-export type { CollieToolError, CollieToolOutput, CollieToolsOptions };
+export type { CollieToolError, CollieToolOutput };
+
+/** Options for `collieTools`. */
+export interface CollieToolsOptions {
+  /** Which Collie MCP tool profile to project; defaults to `"browser"`. */
+  readonly profile?: McpProfile | undefined;
+}
 
 /** Map of MCP tool names to executable Mastra tools. */
 export type CollieToolSet = Record<string, Tool<RawParams>>;

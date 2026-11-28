@@ -29,11 +29,10 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
-    "@n8n/node-cli": "0.58.8",
+    "@n8n/node-cli": "0.20.0",
     "@types/node": "catalog:",
     "n8n-workflow": "2.49.6",
-    "typescript": "5.9.3",
-    "zod": "^3.25.0"
+    "typescript": "5.9.3"
   },
   "peerDependencies": {
     "n8n-workflow": "*"

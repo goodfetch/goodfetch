@@ -55,6 +55,7 @@ export class GoodfetchCollieTrigger implements INodeType {
     },
     inputs: [],
     outputs: [NodeConnectionTypes.Main],
+    usableAsTool: true,
     credentials: [
       {
         name: "goodfetchCollieApi",

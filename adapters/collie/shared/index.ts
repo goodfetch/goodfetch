@@ -1,14 +1,15 @@
 // Shared internal helpers for Collie's TypeScript framework adapters
 // (ADRs 0011, 0070, 0095 and 0099; spec #608): canonical JSON value
 // conversion, parameter normalization, and structured Goodfetch Error mapping.
-import type { GoodfetchError, JSONValue, RawParams } from "@goodfetch/collie";
-import type { McpProfile } from "@goodfetch/collie-client/mcp-tools";
 
-/** Options for `collieTools`. */
-export interface CollieToolsOptions {
-  /** Which Collie MCP tool profile to project; defaults to `"browser"`. */
-  readonly profile?: McpProfile | undefined;
-}
+/** Readonly JSON value structurally identical to `@goodfetch/collie`'s `JSONValue`. */
+export type ReadonlyJsonValue =
+  | null
+  | string
+  | number
+  | boolean
+  | readonly ReadonlyJsonValue[]
+  | { readonly [key: string]: ReadonlyJsonValue };
 
 /** Mutable JSON value compatible with Vercel AI SDK `JSONValue` and readonly `JSONValue`. */
 export type MutableJsonValue =
@@ -24,6 +25,24 @@ export type MutableJsonObject = { [key: string]: MutableJsonValue };
 
 /** Mutable JSON array with {@link MutableJsonValue} elements. */
 export type MutableJsonArray = MutableJsonValue[];
+
+/** Plain JSON object with {@link MutableJsonValue} entries. */
+export type JsonObject = MutableJsonObject;
+
+/** Structural shape of a `@goodfetch/collie` `GoodfetchError` instance. */
+export interface GoodfetchErrorLike {
+  readonly code: string;
+  readonly group: string;
+  readonly retryable: boolean;
+  readonly message: string;
+  readonly operation?: string | undefined;
+  readonly fix?: string | undefined;
+  readonly target?: string | undefined;
+  readonly url?: string | undefined;
+  readonly observed?: string | undefined;
+  readonly limit?: unknown;
+  readonly details: Readonly<Record<string, unknown>>;
+}
 
 /** Structured Goodfetch Error returned as a tool error to the model. */
 export interface CollieToolError {
@@ -42,11 +61,8 @@ export interface CollieToolError {
 
 /** Discriminated tool execution outcome shared across Collie framework adapters. */
 export type CollieToolOutput =
-  | { readonly ok: true; readonly result: JSONValue }
+  | { readonly ok: true; readonly result: ReadonlyJsonValue }
   | { readonly ok: false; readonly error: CollieToolError };
-
-/** Plain JSON object with {@link MutableJsonValue} entries. */
-export type JsonObject = MutableJsonObject;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,16 +98,16 @@ export function toJsonObject(record: Readonly<Record<string, unknown>>): JsonObj
   return out;
 }
 
-/** Normalizes untrusted framework tool arguments into {@link RawParams}. */
-export function toRawParams(input: unknown): RawParams {
+/** Normalizes untrusted framework tool arguments into a readonly JSON object. */
+export function toRawParams(input: unknown): Readonly<Record<string, ReadonlyJsonValue>> {
   if (!isRecord(input)) {
     return {};
   }
   return toJsonObject(input);
 }
 
-/** Maps a {@link GoodfetchError} onto a structured {@link CollieToolError}. */
-export function toToolError(error: GoodfetchError, fallbackOperation: string): CollieToolError {
+/** Maps a Goodfetch Error onto a structured {@link CollieToolError}. */
+export function toToolError(error: GoodfetchErrorLike, fallbackOperation: string): CollieToolError {
   const details = Object.keys(error.details).length > 0 ? toJsonObject(error.details) : undefined;
   return {
     code: error.code,

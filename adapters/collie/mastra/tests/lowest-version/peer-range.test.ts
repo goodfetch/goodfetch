@@ -160,7 +160,7 @@ describe("@goodfetch/collie-mastra peer range cells", () => {
         name: "Collie Mastra Lowest Peer Agent",
         instructions: "Execute Collie tools and report completion.",
         model,
-        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `collieTools` is typed against highest peer `@mastra/core@1.86.0`, while `Agent` comes from lowest peer `@mastra/core@1.0.0`.
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `collieTools` is typed against highest peer `@mastra/core@1.35.0`, while `Agent` comes from lowest peer `@mastra/core@1.0.0`.
         tools: tools as unknown as NonNullable<ConstructorParameters<typeof Agent>[0]["tools"]>,
       });
 

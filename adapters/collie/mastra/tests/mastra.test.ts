@@ -1,11 +1,11 @@
 // Integration tests for `@goodfetch/collie-mastra` (ADRs 0011, 0070, 0095,
 // 0099; spec #608, issue 1381): scripts a read, an Effect, and a failing call
-// through a Mastra `Agent` on `MockLanguageModelV4` against a real Attached
+// through a Mastra `Agent` on `MockLanguageModelV3` against a real Attached
 // Collie engine serving the Proving ground.
 import { Collie } from "@goodfetch/collie";
 import { judgeTask, taskStartUrl, test } from "@goodfetch/test-support";
 import { Agent } from "@mastra/core/agent";
-import { MockLanguageModelV4 } from "ai/test";
+import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect } from "vitest";
 import { collieTools } from "../src/index.ts";
 
@@ -80,7 +80,7 @@ describe("@goodfetch/collie-mastra against a real Attached Collie engine", () =>
   test.override("withBrowser", true);
 
   test(
-    "scripts a read, an Effect, and a failing call through a Mastra Agent with MockLanguageModelV4",
+    "scripts a read, an Effect, and a failing call through a Mastra Agent with MockLanguageModelV3",
     { tags: ["adapter:mastra", "story:11-243"] },
     async ({ env, provingGround }) => {
       const productUrl = await taskStartUrl(provingGround, "catalog/2");
@@ -94,7 +94,7 @@ describe("@goodfetch/collie-mastra against a real Attached Collie engine", () =>
       let observedRecord: Record<string, unknown> = {};
       let observedErrorPayload: Record<string, unknown> | undefined;
 
-      const model = new MockLanguageModelV4({
+      const model = new MockLanguageModelV3({
         doGenerate: async ({ prompt }) => {
           step += 1;
           const payload = extractLastToolPayload(prompt);

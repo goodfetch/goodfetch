@@ -25,6 +25,7 @@ Commands:
   cache            Calls the catalog's `cache` operations
   engine           Calls the catalog's `engine` operations
   events           Calls the catalog's `events` operations
+  notification     Calls the catalog's `notification` operations
   run              Calls the catalog's `run` operations
   session          Calls the catalog's `session` operations
   page             Calls the catalog's `page` operations
@@ -750,6 +751,47 @@ Options:
       --daemon         Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
       --color <WHEN>   When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
   -h, --help           Print help
+
+$ goodfetch-foxhound notification --help
+Calls the catalog's `notification` operations
+
+Usage: goodfetch-foxhound notification [OPTIONS] <COMMAND>
+
+Commands:
+  subscribe    Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface
+  unsubscribe  Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface
+
+Options:
+      --color <WHEN>  When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help          Print help
+
+$ goodfetch-foxhound notification subscribe --help
+Registers a `webhook` Notification channel named for an Integration's trigger with a thin payload and a Standard Webhooks signing secret returned once on creation. Idempotent when called again for the same channel; the destination URL passes ADR 0017's endpoint rule, so `egress.no_private_endpoints` refuses a private address. Offered on the HTTP listener and the CLI, and kept off every agent surface
+
+Usage: goodfetch-foxhound notification subscribe [OPTIONS] --channel <CHANNEL> --url <URL>
+
+Options:
+      --channel <CHANNEL>  The webhook channel name (named for the Integration's trigger)
+      --events <EVENTS>    The Notification events this subscription receives; attention set when omitted
+      --url <URL>          The webhook destination URL; checked against ADR 0017's endpoint rule
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
+
+$ goodfetch-foxhound notification unsubscribe --help
+Removes a `webhook` Notification channel registered by `notification.subscribe`. Idempotent when the channel is already absent. Offered on the HTTP listener and the CLI, and kept off every agent surface
+
+Usage: goodfetch-foxhound notification unsubscribe [OPTIONS] --channel <CHANNEL>
+
+Options:
+      --channel <CHANNEL>  The webhook channel name to remove
+      --json               Prints the result as JSON
+      --attached           Runs the call on an Attached engine in this process, even when a Daemon runs
+      --daemon             Runs the call on the Daemon of the major, starting it if none runs; its refusal ends the command
+      --color <WHEN>       When to colour human output; `auto` colours on a terminal unless `NO_COLOR` is set and not empty [default: auto] [possible values: auto, always, never]
+  -h, --help               Print help
 
 $ goodfetch-foxhound run --help
 Calls the catalog's `run` operations

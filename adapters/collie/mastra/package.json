@@ -12,12 +12,11 @@
   },
   "dependencies": {
     "@goodfetch/collie": "workspace:*",
-    "@goodfetch/collie-adapter-shared": "workspace:*",
     "@goodfetch/collie-client": "workspace:*"
   },
   "devDependencies": {
     "@goodfetch/test-support": "workspace:*",
-    "@mastra/core": "1.86.0",
+    "@mastra/core": "1.35.0",
     "@types/node": "catalog:",
     "ai": "7.0.99",
     "typescript": "catalog:",

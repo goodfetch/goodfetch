@@ -1,6 +1,6 @@
 // Lowest- and highest-version peer range check for `@goodfetch/collie-langchain`
 // (ADR 0070; spec #608, issue 1382): runs `collieTools` through the pinned
-// lowest `@langchain/core@1.0.0` `bindTools` + `FakeStreamingChatModel` tool loop.
+// lowest `@langchain/core@1.1.8` `bindTools` + `FakeStreamingChatModel` tool loop.
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -60,12 +60,12 @@ class ScriptedLowestChatModel extends FakeStreamingChatModel {
 
 describe("@goodfetch/collie-langchain peer range cells", () => {
   test(
-    "drives a bound-tools agent loop against pinned lowest peer (@langchain/core@1.0.0)",
+    "drives a bound-tools agent loop against pinned lowest peer (@langchain/core@1.1.8)",
     { tags: ["adapter:langchain", "story:11-244"] },
     async () => {
       const lowestVersion = readPkgVersion(localRequire.resolve("@langchain/core/package.json"));
       const highestVersion = readPkgVersion(adapterRequire.resolve("@langchain/core/package.json"));
-      expect(lowestVersion).toBe("1.0.0");
+      expect(lowestVersion).toBe("1.1.8");
       expect(highestVersion.startsWith("1.")).toBe(true);
 
       const calls: {
@@ -117,7 +117,7 @@ describe("@goodfetch/collie-langchain peer range cells", () => {
         return new AIMessage({ content: "lowest-langchain-loop-complete" });
       });
 
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `collieTools` is typed against highest peer `@langchain/core@1.5.1`, while `model` comes from lowest peer `@langchain/core@1.0.0`.
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `collieTools` is typed against highest peer `@langchain/core@1.5.1`, while `model` comes from lowest peer `@langchain/core@1.1.8`.
       const bound = model.bindTools(tools as unknown as Parameters<typeof model.bindTools>[0]);
       const history: BaseMessage[] = [
         new HumanMessage("Start a run and handle a failing tool call."),
@@ -164,7 +164,7 @@ describe("@goodfetch/collie-langchain peer range cells", () => {
       });
 
       const lowestManifest = readFileSync(join(import.meta.dirname, "package.json"), "utf8");
-      expect(lowestManifest).toContain('"@langchain/core": "1.0.0"');
+      expect(lowestManifest).toContain('"@langchain/core": "1.1.8"');
     },
   );
 });

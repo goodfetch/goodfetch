@@ -8,13 +8,22 @@ import {
   toToolError,
   type CollieToolError,
   type CollieToolOutput,
-  type CollieToolsOptions,
-} from "@goodfetch/collie-adapter-shared";
-import { collieMcpTools, type McpToolSpec } from "@goodfetch/collie-client/mcp-tools";
+} from "../../shared/index.ts";
+import {
+  collieMcpTools,
+  type McpProfile,
+  type McpToolSpec,
+} from "@goodfetch/collie-client/mcp-tools";
 import { jsonSchema, tool, type Tool } from "ai";
 
 export type { McpOperationClass, McpProfile } from "@goodfetch/collie-client/mcp-tools";
-export type { CollieToolError, CollieToolOutput, CollieToolsOptions };
+export type { CollieToolError, CollieToolOutput };
+
+/** Options for `collieTools`. */
+export interface CollieToolsOptions {
+  /** Which Collie MCP tool profile to project; defaults to `"browser"`. */
+  readonly profile?: McpProfile | undefined;
+}
 
 /** Map of MCP tool names to executable Vercel AI SDK tools. */
 export type CollieToolSet = Record<string, Tool<RawParams, CollieToolOutput>>;

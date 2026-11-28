@@ -27,6 +27,6 @@ Each framework adapter declares the framework's current major at its first publi
 | Product | Adapter | Ecosystem | Peer package | Declared range |
 | --- | --- | --- | --- | --- |
 | Collie | `@goodfetch/collie-ai-sdk` | npm | `ai` | `^7.0.0` |
-| Collie | `@goodfetch/collie-langchain` | npm | `@langchain/core` | `^1.0.0` |
+| Collie | `@goodfetch/collie-langchain` | npm | `@langchain/core` | `^1.1.8` |
 | Collie | `goodfetch-collie-langchain` | PyPI | `langchain-core` | `>=1.0.0,<2` |
 | Collie | `@goodfetch/collie-mastra` | npm | `@mastra/core` | `^1.0.0` |

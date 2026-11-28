@@ -1212,6 +1212,16 @@ fn workspace_with_the_forms_catalog() -> Workspace {
         "const MODULES: [&Entries; 2] = [&sample::ENTRIES, &foxhound::ENTRIES];",
         "const MODULES: [&Entries; 3] = [&sample::ENTRIES, &crate::forms::ENTRIES, &foxhound::ENTRIES];",
     );
+    workspace.edit(
+        EMIT,
+        "let hello = generator.subschema_for::<sample::HelloParams>();",
+        "let hello = generator.subschema_for::<sample::HelloParams>();\n    let form = generator.subschema_for::<crate::catalog::Form>();",
+    );
+    workspace.edit(
+        EMIT,
+        "\"connection\": { \"hello\": { \"params\": hello } },",
+        "\"connection\": { \"hello\": { \"params\": hello }, \"meta\": { \"form\": form } },",
+    );
     for prefix in ["run.", "session.", "page.", "locator."] {
         workspace.append(
             "features/areas.toml",

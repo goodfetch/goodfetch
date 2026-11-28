@@ -126,7 +126,7 @@ async fn pages(env: &TestEnv, without_lessons: bool) -> Pages {
         .into_iter()
         .map(|leased| {
             let lease = granting.grant(
-                &leased.crawl_request.id,
+                crate::lease::request_ref(&leased.crawl_request),
                 leased.lease_epoch,
                 Duration::from_secs(70),
             );

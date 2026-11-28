@@ -15,14 +15,16 @@
 //! what is sent, and a person's answer, are the test's operations on the
 //! engine's shared [`Effects`].
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use goodfetch_protocol::catalog::{
     Operation, OperationClass, OperationKind, PROTOCOL_VERSION, Product, Reach, Stability,
     schema_of,
 };
+use goodfetch_protocol::effect::EffectAttempt;
 use goodfetch_protocol::jsonrpc::ProtocolFailure;
-use goodfetch_protocol::run::RunId;
+use goodfetch_protocol::run::{CrawlRequestRef, RunId};
 use goodfetch_test_support::{CrashKind, CrashVfs, IoFault, TestEnv};
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -38,8 +40,10 @@ use crate::composition::{CallContext, Composition, Contribution, Handler};
 use crate::daemon::{DaemonOptions, Drain};
 use crate::effect::{Effects, Reconciled, Reconciliation};
 use crate::engine::Engine;
+use crate::lease::{LeaseCheck, LeaseEnded};
 use crate::product::{Channel, Identity};
 use crate::run_state::RunStateOptions;
+use crate::staging::{AttemptStaging, AttemptWrites, StagedKey, StagedWrite, StagingOf, Unstaged};
 use crate::tasks::BlockingPolicy;
 use crate::transport::{self, Network};
 
@@ -83,8 +87,14 @@ fn window(effects: &Effects) -> Contribution {
             |params: Value, context: CallContext| async move {
                 let run_id = RunId::parse(params["run_id"].as_str().unwrap()).unwrap();
                 let run = context.runs().live(run_id).await.map_err(failed)?;
+                let lease = params.get("attempt").map(|attempt| AttemptLease {
+                    attempt: serde_json::from_value(attempt.clone()).unwrap(),
+                });
                 run.send_window
-                    .sending(None, params["command"].as_str().unwrap())
+                    .sending(
+                        lease.as_ref().map(|lease| lease as &dyn LeaseCheck),
+                        params["command"].as_str().unwrap(),
+                    )
                     .await?;
                 Ok::<Value, CallError>(json!({ "marked": true }))
             },
@@ -509,10 +519,12 @@ fn a_body_that_failed_after_a_send_leaves_its_effect_uncertain(
         (
             &closed["result"]["judged"],
             &effect["key"],
+            &effect["request"],
             &effect["reason"],
             &effect["first_command"],
             code(&again),
             &again["error"]["data"]["key"],
+            &again["error"]["data"]["request"],
             &again["error"]["data"]["reason"],
             &report["uncertain_effects"],
             &report["verdict"],
@@ -520,10 +532,12 @@ fn a_body_that_failed_after_a_send_leaves_its_effect_uncertain(
         (
             &json!("uncertain"),
             &json!("pay"),
+            &json!(null),
             &json!(reason),
             &json!("Input.dispatchKeyEvent"),
             &json!("effect_uncertain"),
             &json!("pay"),
+            &json!(null),
             &json!(reason),
             &json!([effect]),
             &json!("needs_review"),
@@ -969,5 +983,152 @@ fn a_drain_waits_for_a_running_effect_only_within_its_grace() {
             &json!("effect_uncertain"),
         ),
         "{report} {again}"
+    );
+}
+
+#[derive(Debug)]
+struct AttemptLease {
+    attempt: EffectAttempt,
+}
+
+impl LeaseCheck for AttemptLease {
+    fn check(&self) -> Result<(), LeaseEnded> {
+        Ok(())
+    }
+
+    fn withheld(&self, _ended: LeaseEnded, method: &str) -> CallError {
+        failed(format!("unexpectedly withheld {method}"))
+    }
+
+    fn effect_attempt(&self) -> Option<EffectAttempt> {
+        Some(self.attempt.clone())
+    }
+}
+
+struct FixedAttempt(CrawlRequestRef);
+
+impl AttemptWrites for FixedAttempt {
+    fn stage(&self, _: &str, _: u64, _: StagedWrite) -> Result<StagedKey, Unstaged> {
+        Ok(StagedKey::Untouched)
+    }
+
+    fn staged(&self, _: &str, _: u64, _: &str) -> Result<StagedKey, Unstaged> {
+        Ok(StagedKey::Untouched)
+    }
+
+    fn begin_effect(&self, _: &str, _: u64) -> Result<CrawlRequestRef, Unstaged> {
+        Ok(self.0.clone())
+    }
+
+    fn end_effect(&self, _: &str, _: u64) {}
+
+    fn holds(&self, _: &str, _: u64) -> bool {
+        true
+    }
+}
+
+struct FixedStaging(Arc<FixedAttempt>);
+
+impl AttemptStaging for FixedStaging {
+    fn staging_of<'a>(&'a self, _run_id: &'a RunId) -> StagingOf<'a> {
+        let writes: Arc<dyn AttemptWrites> = Arc::clone(&self.0) as Arc<dyn AttemptWrites>;
+        Box::pin(async move { Some(writes) })
+    }
+}
+
+/// An uncertain Effect declared through a crawl attempt carries the
+/// request's `id`, `url` and `label` in `effect.close`, in
+/// `effect_uncertain`'s details, in `run.finish`'s report and in
+/// `run.report` after the engine restarts (issue 3168).
+/// Covers: error:effect_uncertain, operation:effect.open, operation:effect.close
+#[test]
+fn a_crawl_attempts_uncertain_effect_keeps_its_request_reference_across_restarts() {
+    let env = TestEnv::new();
+    let request = CrawlRequestRef {
+        id: "42".to_owned(),
+        url: "https://shop.test/items/42".to_owned(),
+        label: "item".to_owned(),
+    };
+    let effects = Effects::default();
+    let identity = Identity {
+        product: Product::Collie,
+        product_version: version(),
+        channel: Channel::CratesIo,
+    };
+    let staging = FixedStaging(Arc::new(FixedAttempt(request)));
+    let composition = Composition::default()
+        .with(crate::info::contribution_sharing(&effects))
+        .with(window(&effects).with_attempt_staging(Arc::new(staging)));
+    let engine = Engine::new(identity, &composition).unwrap();
+    let attempt = json!({ "crawl_request_id": "42", "lease_epoch": 1 });
+
+    let (closed, again, finished) = attached_with(
+        &engine,
+        || dependencies(&env),
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await.unwrap();
+            let mut calls = Calls { client, next: 0 };
+            calls
+                .call("run.start", json!({ "run_id": "crawl-fx" }))
+                .await;
+            let opened = calls
+                .call(
+                    "effect.open",
+                    json!({ "run_id": "crawl-fx", "key": "buy", "attempt": attempt }),
+                )
+                .await;
+            calls
+                .call(
+                    "test.effect_send",
+                    json!({ "run_id": "crawl-fx", "command": "Input.dispatchMouseEvent", "attempt": attempt }),
+                )
+                .await;
+            let closed = calls
+                .close("crawl-fx", &opened, json!({ "ended": "threw" }))
+                .await;
+            let again = calls
+                .call(
+                    "effect.open",
+                    json!({ "run_id": "crawl-fx", "key": "buy", "attempt": attempt }),
+                )
+                .await;
+            let finished = calls
+                .call("run.finish", json!({ "run_id": "crawl-fx" }))
+                .await;
+            (closed, again, finished)
+        },
+    );
+
+    let report = attached_with(
+        &collie(),
+        || dependencies(&env),
+        |mut client| async move {
+            client.send(&[hello("collie", "0.1")]).await;
+            client.next().await.unwrap();
+            call(
+                &mut client,
+                1,
+                "run.report",
+                json!({ "run_id": "crawl-fx" }),
+            )
+            .await
+        },
+    );
+
+    let expected = json!({
+        "id": "42",
+        "url": "https://shop.test/items/42",
+        "label": "item",
+    });
+    assert_eq!(
+        (
+            &closed["result"]["effect"]["request"],
+            &again["error"]["data"]["request"],
+            &finished["result"]["uncertain_effects"][0]["request"],
+            &report["result"]["uncertain_effects"][0]["request"],
+        ),
+        (&expected, &expected, &expected, &expected),
+        "{closed} {again} {finished} {report}"
     );
 }

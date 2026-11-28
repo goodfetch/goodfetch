@@ -183,7 +183,7 @@ impl ErrorCode {
 
     /// `effect_uncertain`, in the `page` group, not retryable.
     ///
-    /// An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it ("it happened", "it did not happen" or "leave uncertain"). The details name the Effect journal `entry`, the `key`, the `crawl_request`, the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when.
+    /// An Effect may or may not have happened (ADRs 0091 and 0106): its body sent something and did not return a value the Effect journal keeps, so the engine never runs it again until a person reconciles it ("it happened", "it did not happen" or "leave uncertain"). The details name the Effect journal `entry`, the `key`, the `request` (the crawl request's `id`, `url` and `label`, or `null` on a Collie Run), the `reason` (`failed_after_send`, `interrupted` or `journal_incomplete`), the `first_command` sent and `since` when.
     pub const EFFECT_UNCERTAIN: Self = ErrorCode::from_static("effect_uncertain");
 
     /// `egress_refused`, in the `refused` group, not retryable.

@@ -27,6 +27,7 @@ mod consent;
 mod consistency;
 mod crawl;
 mod digest;
+mod directory;
 mod dns;
 mod encodings;
 mod exchange;
@@ -59,6 +60,7 @@ mod online;
 mod oracle;
 mod output;
 mod page_load;
+mod payments;
 mod portal;
 mod protection;
 mod push;
@@ -226,9 +228,15 @@ async fn serve(
         seed,
         server.observations(),
         server.proxy_tls(),
+        server.site().payments().chain(),
+        server.site().payments().facilitator(),
     )
     .await?;
     let addresses = fixtures.report()?;
+    server
+        .site()
+        .payments()
+        .set_facilitator_url(addresses.facilitator.clone());
     server.observations().set_network_fixtures(
         serde_json::to_value(&addresses).context("reporting the network fixtures")?,
     );

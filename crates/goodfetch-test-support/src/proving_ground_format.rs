@@ -25,8 +25,9 @@ use serde_json::Value;
 mod interface;
 
 pub use interface::{
-    ArticleAnswer, ArticleAnswers, ArticleLink, FixtureAddresses, OWN_TARGETS, ObservedRequest,
-    ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine, ToolStatus,
+    ArticleAnswer, ArticleAnswers, ArticleLink, ChainAccounts, FixtureAddresses, OWN_TARGETS,
+    ObservedRequest, ProxyCredentials, ROUTES, ReceivedRequests, RequestTiming, Routes, ServeLine,
+    ToolStatus,
 };
 pub(crate) use interface::{
     BASE32_ALPHABET, CANARY_MARK, ENDPOINT_TOKEN_CANARY, HEADER_VALUE_CANARY,
